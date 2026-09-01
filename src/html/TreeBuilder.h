@@ -50,8 +50,6 @@ private:
         InTableBody,
         InRow,
         InCell,
-        InSelect,
-        InSelectInTable,
         InTemplate,
         AfterBody,
         InFrameset,
@@ -91,8 +89,6 @@ private:
     bool mode_in_table_body(Token&);
     bool mode_in_row(Token&);
     bool mode_in_cell(Token&);
-    bool mode_in_select(Token&);
-    bool mode_in_select_in_table(Token&);
     bool mode_in_template(Token&);
     bool mode_after_body(Token&);
     bool mode_in_frameset(Token&);
@@ -119,7 +115,6 @@ private:
     bool has_in_list_item_scope(std::string_view name) const;
     bool has_in_button_scope(std::string_view name) const;
     bool has_in_table_scope(std::string_view name) const;
-    bool has_in_select_scope(std::string_view name) const;
     bool has_heading_in_scope() const;
 
     void generate_implied_end_tags(std::string_view except = {});
@@ -147,7 +142,8 @@ private:
     void reset_insertion_mode();
     void parse_generic_text(Token const&, Tokenizer::State);
     void merge_attributes_into(dom::Element&, Token const&);
-    void stop_parsing() { m_done = true; }
+    void stop_parsing(); // pops the whole stack (option pops can clone)
+    void maybe_clone_option_into_selectedcontent(dom::Element& option);
 
     dom::Document& m_document;
     Tokenizer* m_tokenizer = nullptr;
@@ -175,6 +171,9 @@ private:
 // Convenience: parse a complete document / a fragment.
 std::unique_ptr<dom::Document> parse_document(std::string_view utf8);
 std::unique_ptr<dom::Document> parse_document(std::u32string code_points);
+
+// Sniffs the encoding first (BOM, meta prescan, windows-1252 fallback).
+std::unique_ptr<dom::Document> parse_document_bytes(std::string_view bytes);
 
 struct FragmentParseResult {
     std::unique_ptr<dom::Document> document;

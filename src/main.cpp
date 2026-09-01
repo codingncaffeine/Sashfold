@@ -33,7 +33,7 @@ int dump_dom(std::string const& path)
     }
     std::ostringstream stream;
     stream << file.rdbuf();
-    auto document = html::parse_document(std::move(stream).str());
+    auto document = html::parse_document_bytes(std::move(stream).str());
     std::cout << html::dump_document(*document);
     return 0;
 }

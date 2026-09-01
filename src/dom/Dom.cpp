@@ -50,4 +50,47 @@ Attr const* Element::find_attribute(std::string_view name) const
     return nullptr;
 }
 
+Node* clone_subtree(Node const& node, Document& document)
+{
+    switch (node.type()) {
+    case NodeType::Element: {
+        auto const& element = static_cast<Element const&>(node);
+        Element* clone = document.create<Element>(element.namespace_uri(), element.local_name());
+        clone->attributes() = element.attributes();
+        if (Node* content = element.template_content())
+            clone->set_template_content(clone_subtree(*content, document));
+        for (Node const* child : node.children())
+            clone->append_child(*clone_subtree(*child, document));
+        return clone;
+    }
+    case NodeType::Text: {
+        Text* clone = document.create<Text>();
+        clone->data = static_cast<Text const&>(node).data;
+        return clone;
+    }
+    case NodeType::Comment: {
+        Comment* clone = document.create<Comment>();
+        clone->data = static_cast<Comment const&>(node).data;
+        return clone;
+    }
+    case NodeType::DocumentFragment: {
+        DocumentFragment* clone = document.create<DocumentFragment>();
+        for (Node const* child : node.children())
+            clone->append_child(*clone_subtree(*child, document));
+        return clone;
+    }
+    case NodeType::DocumentType: {
+        auto const& doctype = static_cast<DocumentType const&>(node);
+        DocumentType* clone = document.create<DocumentType>();
+        clone->name = doctype.name;
+        clone->public_identifier = doctype.public_identifier;
+        clone->system_identifier = doctype.system_identifier;
+        return clone;
+    }
+    case NodeType::Document:
+        break; // a document is never cloned as a subtree
+    }
+    return document.create<DocumentFragment>();
+}
+
 }

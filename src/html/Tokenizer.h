@@ -114,7 +114,6 @@ public:
     // Tree-builder hooks.
     void set_state(State state) { m_state = state; }
     void set_in_foreign_content(bool value) { m_in_foreign_content = value; }
-    void set_last_start_tag_name(std::string name) { m_last_start_tag_name = std::move(name); }
 
     // Maps html5lib fixture names ("Data state", "RCDATA state", ...).
     static std::optional<State> state_from_test_name(std::string_view);

@@ -178,4 +178,7 @@ private:
     std::vector<std::unique_ptr<Node>> m_nodes;
 };
 
+// Deep-copies a subtree; the clone's nodes are owned by `document`.
+Node* clone_subtree(Node const& node, Document& document);
+
 }

@@ -2,6 +2,7 @@
 
 #include "core/Ascii.h"
 #include "core/Unicode.h"
+#include "html/Encoding.h"
 #include "html/InputStream.h"
 
 #include <algorithm>
@@ -81,10 +82,10 @@ constexpr std::array<std::string_view, 25> close_p_blocks {
     "p", "search", "section", "summary", "ul"
 };
 
-constexpr std::array<std::string_view, 27> end_tag_blocks {
+constexpr std::array<std::string_view, 28> end_tag_blocks {
     "address", "article", "aside", "blockquote", "button", "center", "details", "dialog", "dir",
     "div", "dl", "fieldset", "figcaption", "figure", "footer", "header", "hgroup", "listing",
-    "main", "menu", "nav", "ol", "pre", "search", "section", "summary", "ul"
+    "main", "menu", "nav", "ol", "pre", "search", "section", "select", "summary", "ul"
 };
 
 // Foreign-content breakout start tags.
@@ -276,7 +277,7 @@ bool is_default_scope_terminator(Element const& element)
 {
     if (element.is_html())
         return one_of(element.local_name(),
-            std::array<std::string_view, 9> { "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template" });
+            std::array<std::string_view, 10> { "applet", "caption", "html", "table", "td", "th", "marquee", "object", "select", "template" });
     if (element.namespace_uri() == dom::ns::mathml)
         return one_of(element.local_name(),
             std::array<std::string_view, 6> { "mi", "mo", "mn", "ms", "mtext", "annotation-xml" });
@@ -454,8 +455,6 @@ bool TreeBuilder::process_mode(Mode mode, Token& token)
     case Mode::InTableBody: return mode_in_table_body(token);
     case Mode::InRow: return mode_in_row(token);
     case Mode::InCell: return mode_in_cell(token);
-    case Mode::InSelect: return mode_in_select(token);
-    case Mode::InSelectInTable: return mode_in_select_in_table(token);
     case Mode::InTemplate: return mode_in_template(token);
     case Mode::AfterBody: return mode_after_body(token);
     case Mode::InFrameset: return mode_in_frameset(token);
@@ -496,14 +495,17 @@ bool TreeBuilder::process_foreign(Token& token)
                 }
             }
         }
-        if (breakout && !m_context) { // fragment case: falls through to any-other-start-tag
+        if (breakout) {
             while (true) {
                 Element* node = current_node();
                 if (!node || node->is_html() || is_mathml_text_integration_point(*node) || is_html_integration_point(*node))
                     break;
                 pop();
             }
-            return true; // reprocess per the (possibly now HTML) rules
+            // "Reprocess ... in HTML content" — bypass the dispatcher: in the
+            // fragment case the adjusted current node is still the foreign
+            // context element, and re-dispatching would loop forever.
+            return process_mode(m_mode, token);
         }
 
         Element* adjusted = adjusted_current_node();
@@ -981,6 +983,10 @@ bool TreeBuilder::mode_in_body(Token& token)
             return false;
         }
         if (name == "input") {
+            if (m_context && m_context->is_html("select")) // fragment case
+                return false; // parse error, ignored
+            if (has_in_scope("select")) // parse error: input escapes the select
+                pop_until_html_element_popped("select");
             reconstruct_formatting();
             insert_html_element(token);
             pop();
@@ -1001,6 +1007,8 @@ bool TreeBuilder::mode_in_body(Token& token)
         if (name == "hr") {
             if (has_in_button_scope("p"))
                 close_p_element();
+            if (has_in_scope("select"))
+                generate_implied_end_tags();
             insert_html_element(token);
             pop();
             m_frameset_ok = false;
@@ -1042,19 +1050,33 @@ bool TreeBuilder::mode_in_body(Token& token)
             return false;
         }
         if (name == "select") {
+            if (m_context && m_context->is_html("select")) // fragment case
+                return false; // parse error, ignored
+            if (has_in_scope("select")) { // parse error: acts as </select>
+                pop_until_html_element_popped("select");
+                return false;
+            }
             reconstruct_formatting();
             insert_html_element(token);
             m_frameset_ok = false;
-            if (m_mode == Mode::InTable || m_mode == Mode::InCaption || m_mode == Mode::InTableBody
-                || m_mode == Mode::InRow || m_mode == Mode::InCell)
-                m_mode = Mode::InSelectInTable;
-            else
-                m_mode = Mode::InSelect;
             return false;
         }
-        if (name == "optgroup" || name == "option") {
-            if (Element* node = current_node(); node && node->is_html("option"))
+        if (name == "option") {
+            if (has_in_scope("select")) {
+                generate_implied_end_tags("optgroup");
+            } else if (Element* node = current_node(); node && node->is_html("option")) {
                 pop();
+            }
+            reconstruct_formatting();
+            insert_html_element(token);
+            return false;
+        }
+        if (name == "optgroup") {
+            if (has_in_scope("select")) {
+                generate_implied_end_tags();
+            } else if (Element* node = current_node(); node && node->is_html("option")) {
+                pop();
+            }
             reconstruct_formatting();
             insert_html_element(token);
             return false;
@@ -1590,99 +1612,6 @@ void TreeBuilder::close_cell()
     m_mode = Mode::InRow;
 }
 
-// --- Select -------------------------------------------------------------------
-
-bool TreeBuilder::mode_in_select(Token& token)
-{
-    // The relaxed select parser (2025 spec): options and optgroups keep their
-    // sibling discipline, a nested <select> closes the outer one, and
-    // everything else — divs, buttons, datalist, text — parses via InBody.
-    switch (token.type) {
-    case Token::Type::Comment:
-        insert_comment(token);
-        return false;
-    case Token::Type::Doctype:
-        return false;
-    case Token::Type::EndOfFile:
-        return mode_in_body(token);
-    default:
-        break;
-    }
-
-    std::string_view const name = token.tag_name;
-    if (token.is_start_tag()) {
-        if (name == "option" || name == "optgroup" || name == "hr") {
-            if (Element* current = current_node(); current && current->is_html("option"))
-                pop();
-            if (name != "option") {
-                if (Element* current = current_node(); current && current->is_html("optgroup"))
-                    pop();
-            }
-            return mode_in_body(token);
-        }
-        if (name == "select") { // parse error: acts as </select>
-            if (!has_in_select_scope("select"))
-                return false;
-            pop_until_html_element_popped("select");
-            reset_insertion_mode();
-            return false;
-        }
-        if (name == "input" || name == "keygen" || name == "textarea") {
-            if (!has_in_select_scope("select"))
-                return false;
-            pop_until_html_element_popped("select");
-            reset_insertion_mode();
-            return true;
-        }
-        if (name == "script" || name == "template")
-            return mode_in_head(token);
-    }
-    if (token.is_end_tag()) {
-        if (name == "optgroup") {
-            Element* current = current_node();
-            if (current && current->is_html("option") && m_stack.size() >= 2
-                && m_stack[m_stack.size() - 2]->is_html("optgroup"))
-                pop();
-            if (Element* now = current_node(); now && now->is_html("optgroup"))
-                pop();
-            return false;
-        }
-        if (name == "option") {
-            if (Element* current = current_node(); current && current->is_html("option"))
-                pop();
-            return false;
-        }
-        if (name == "select") {
-            if (!has_in_select_scope("select"))
-                return false;
-            pop_until_html_element_popped("select");
-            reset_insertion_mode();
-            return false;
-        }
-        if (name == "template")
-            return mode_in_head(token);
-    }
-    return mode_in_body(token);
-}
-
-bool TreeBuilder::mode_in_select_in_table(Token& token)
-{
-    constexpr std::array<std::string_view, 7> breakers { "caption", "table", "tbody", "tfoot", "thead", "tr", "td" };
-    if (token.is_start_tag() && (one_of(token.tag_name, breakers) || token.tag_name == "th")) {
-        pop_until_html_element_popped("select");
-        reset_insertion_mode();
-        return true;
-    }
-    if (token.is_end_tag() && (one_of(token.tag_name, breakers) || token.tag_name == "th")) {
-        if (!has_in_table_scope(token.tag_name))
-            return false;
-        pop_until_html_element_popped("select");
-        reset_insertion_mode();
-        return true;
-    }
-    return mode_in_select(token);
-}
-
 // --- Template -----------------------------------------------------------------
 
 bool TreeBuilder::mode_in_template(Token& token)
@@ -1897,15 +1826,21 @@ Element* TreeBuilder::node_above(Element* element) const
 
 void TreeBuilder::pop()
 {
-    if (!m_stack.empty())
-        m_stack.pop_back();
+    if (m_stack.empty())
+        return;
+    Element* node = m_stack.back();
+    m_stack.pop_back();
+    // "When an option element is popped off the stack of open elements of an
+    // HTML parser ..., run maybe clone an option into selectedcontent."
+    if (node->is_html("option"))
+        maybe_clone_option_into_selectedcontent(*node);
 }
 
 void TreeBuilder::pop_until_html_element_popped(std::string_view name)
 {
     while (!m_stack.empty()) {
         Element* node = m_stack.back();
-        m_stack.pop_back();
+        pop();
         if (node->is_html(name))
             return;
     }
@@ -1915,10 +1850,139 @@ void TreeBuilder::pop_until_popped(Element* element)
 {
     while (!m_stack.empty()) {
         Element* node = m_stack.back();
-        m_stack.pop_back();
+        pop();
         if (node == element)
             return;
     }
+}
+
+void TreeBuilder::stop_parsing()
+{
+    while (!m_stack.empty())
+        pop();
+    m_done = true;
+}
+
+// The customizable-select machinery (the select element section of the spec),
+// reduced to what the parser needs. Selectedness is computed on demand from
+// the tree — equivalent, at pop time, to having run the select's ask-for-a-
+// reset after every option insertion. The selectedcontent internal disabled
+// flag (only settable through DOM mutations outside the parser) is omitted.
+static Element* nearest_ancestor_select(Element& option)
+{
+    for (Node* node = option.parent(); node; node = node->parent()) {
+        if (!node->is_element())
+            return nullptr;
+        Element* ancestor = static_cast<Element*>(node);
+        if (ancestor->is_html("datalist") || ancestor->is_html("hr") || ancestor->is_html("option"))
+            return nullptr;
+        if (ancestor->is_html("optgroup")) {
+            // A second optgroup between the option and the select breaks the
+            // association; the walk from the option sees it further out.
+            for (Node* outer = ancestor->parent(); outer; outer = outer->parent()) {
+                if (!outer->is_element())
+                    return nullptr;
+                Element* outer_element = static_cast<Element*>(outer);
+                if (outer_element->is_html("optgroup"))
+                    return nullptr;
+                if (outer_element->is_html("select"))
+                    return outer_element;
+                if (outer_element->is_html("datalist") || outer_element->is_html("hr")
+                    || outer_element->is_html("option"))
+                    return nullptr;
+            }
+            return nullptr;
+        }
+        if (ancestor->is_html("select"))
+            return ancestor;
+    }
+    return nullptr;
+}
+
+static void collect_options_of(Element& select, Node& node, std::vector<Element*>& options)
+{
+    for (Node* child : node.children()) {
+        if (child->is_element()) {
+            Element* element = static_cast<Element*>(child);
+            if (element->is_html("option") && nearest_ancestor_select(*element) == &select)
+                options.push_back(element);
+            if (element->is_html("select"))
+                continue; // options inside a nested select are its own
+        }
+        collect_options_of(select, *child, options);
+    }
+}
+
+static bool option_is_disabled(Element& option)
+{
+    if (option.has_attribute("disabled"))
+        return true;
+    for (Node* node = option.parent(); node && node->is_element(); node = node->parent()) {
+        Element* ancestor = static_cast<Element*>(node);
+        if (ancestor->is_html("select"))
+            break;
+        if (ancestor->is_html("optgroup") && ancestor->has_attribute("disabled"))
+            return true;
+    }
+    return false;
+}
+
+static Element* first_selectedcontent_descendant(Node& node)
+{
+    for (Node* child : node.children()) {
+        if (child->is_element() && static_cast<Element*>(child)->is_html("selectedcontent"))
+            return static_cast<Element*>(child);
+        if (Element* found = first_selectedcontent_descendant(*child))
+            return found;
+    }
+    return nullptr;
+}
+
+void TreeBuilder::maybe_clone_option_into_selectedcontent(Element& option)
+{
+    Element* select = nearest_ancestor_select(option);
+    if (!select || select->has_attribute("multiple"))
+        return;
+
+    // The option's selectedness: the last option with a selected attribute
+    // wins; with none, a display-size-1 select defaults to the first enabled
+    // option (ask for a reset).
+    std::vector<Element*> options;
+    collect_options_of(*select, *select, options);
+    Element* selected = nullptr;
+    for (Element* candidate : options) {
+        if (candidate->has_attribute("selected"))
+            selected = candidate;
+    }
+    if (!selected) {
+        bool display_size_is_one = true;
+        if (dom::Attr const* size = select->find_attribute("size")) {
+            std::string_view value = size->value;
+            if (!value.empty() && value != "1")
+                display_size_is_one = false;
+        }
+        if (display_size_is_one) {
+            for (Element* candidate : options) {
+                if (!option_is_disabled(*candidate)) {
+                    selected = candidate;
+                    break;
+                }
+            }
+        }
+    }
+    if (selected != &option)
+        return;
+
+    Element* selectedcontent = first_selectedcontent_descendant(*select);
+    if (!selectedcontent)
+        return;
+
+    // Clone an option into a selectedcontent: replace all with clones of the
+    // option's children.
+    for (Node* child : std::vector<Node*>(selectedcontent->children()))
+        child->remove();
+    for (Node* child : std::vector<Node*>(option.children()))
+        selectedcontent->append_child(*dom::clone_subtree(*child, m_document));
 }
 
 void TreeBuilder::remove_from_stack(Element* element)
@@ -2023,18 +2087,6 @@ bool TreeBuilder::has_in_table_scope(std::string_view name) const
         if (node->is_html(name))
             return true;
         if (node->is_html("html") || node->is_html("table") || node->is_html("template"))
-            return false;
-    }
-    return false;
-}
-
-bool TreeBuilder::has_in_select_scope(std::string_view name) const
-{
-    for (std::size_t i = m_stack.size(); i-- > 0;) {
-        Element* node = m_stack[i];
-        if (node->is_html(name))
-            return true;
-        if (!(node->is_html("optgroup") || node->is_html("option")))
             return false;
     }
     return false;
@@ -2470,21 +2522,6 @@ void TreeBuilder::reset_insertion_mode()
         if (last && m_context)
             node = m_context;
 
-        if (node->is_html("select")) {
-            if (!last) {
-                for (std::size_t j = i; j-- > 0;) {
-                    Element* ancestor = m_stack[j];
-                    if (ancestor->is_html("template"))
-                        break;
-                    if (ancestor->is_html("table")) {
-                        m_mode = Mode::InSelectInTable;
-                        return;
-                    }
-                }
-            }
-            m_mode = Mode::InSelect;
-            return;
-        }
         if ((node->is_html("td") || node->is_html("th")) && !last) {
             m_mode = Mode::InCell;
             return;
@@ -2542,6 +2579,11 @@ std::unique_ptr<Document> parse_document(std::string_view utf8)
     return parse_document(decode_utf8(utf8));
 }
 
+std::unique_ptr<Document> parse_document_bytes(std::string_view bytes)
+{
+    return parse_document(decode_document_bytes(bytes));
+}
+
 std::unique_ptr<Document> parse_document(std::u32string code_points)
 {
     auto document = std::make_unique<Document>();
@@ -2560,7 +2602,10 @@ FragmentParseResult parse_fragment(std::u32string code_points, std::string_view 
     TreeBuilder builder(*result.document, *context);
     Tokenizer tokenizer(InputStream(std::move(code_points)),
         TreeBuilder::tokenizer_state_for_fragment_context(*context));
-    tokenizer.set_last_start_tag_name(std::string(context_local_name));
+    // No last-start-tag seeding: "if no start tag has been emitted from this
+    // tokenizer, then no end tag token is appropriate" — a fragment's context
+    // element was never emitted, so e.g. "</script>" inside a script-context
+    // fragment stays character data.
     builder.run(tokenizer);
     result.root = builder.root_html_element();
     return result;

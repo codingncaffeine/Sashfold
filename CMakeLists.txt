@@ -27,6 +27,7 @@ add_library(sashfold_core STATIC
   src/core/Png.cpp
   src/core/Unicode.cpp
   src/dom/Dom.cpp
+  src/html/Encoding.cpp
   src/html/InputStream.cpp
   src/html/Tokenizer.cpp
   src/html/TreeBuilder.cpp

@@ -9,6 +9,7 @@
 #include "html/TreeDump.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -76,8 +77,13 @@ std::vector<DatTest> parse_dat(std::string const& content)
             ++i; // consume #document
 
         std::vector<std::string> expected_lines;
-        while (i < lines.size() && !lines[i].empty())
+        while (i < lines.size()) {
+            // A blank line ends the tree only as the test separator (next line
+            // is #data, or EOF); inside a multi-line text node it is content.
+            if (lines[i].empty() && (i + 1 >= lines.size() || lines[i + 1] == "#data"))
+                break;
             expected_lines.push_back(lines[i++]);
+        }
         for (std::size_t j = 0; j < expected_lines.size(); ++j)
             test.expected += expected_lines[j] + "\n";
 
@@ -154,7 +160,9 @@ int main(int argc, char** argv)
     long total_pass = 0;
     long skipped_script_on = 0;
     int printed_failures = 0;
-    int constexpr max_printed_failures = 8;
+    int max_printed_failures = 8;
+    if (char const* env = std::getenv("SASHFOLD_PRINT_FAILURES"))
+        max_printed_failures = std::atoi(env);
 
     for (auto const& path : files) {
         std::optional<std::string> content = read_file(path);
