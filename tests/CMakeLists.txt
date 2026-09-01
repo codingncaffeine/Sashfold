@@ -20,3 +20,10 @@ add_test(NAME html5lib_tokenizer
   COMMAND html5lib_tokenizer
     ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/html5lib/tokenizer
     ${CMAKE_CURRENT_SOURCE_DIR}/html5lib_tokenizer.baseline)
+
+add_executable(html5lib_tree html5lib_tree.cpp)
+target_link_libraries(html5lib_tree PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME html5lib_tree
+  COMMAND html5lib_tree
+    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/html5lib/tree-construction
+    ${CMAKE_CURRENT_SOURCE_DIR}/html5lib_tree.baseline)

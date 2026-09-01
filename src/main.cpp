@@ -1,7 +1,11 @@
 #include "core/Bitmap.h"
 #include "core/Png.h"
+#include "html/TreeBuilder.h"
+#include "html/TreeDump.h"
 
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -12,10 +16,26 @@ namespace {
 int usage(char const* program)
 {
     std::cerr << "usage: " << program << " [-o output.png]\n"
+              << "       " << program << " --dump-dom <file.html>\n"
               << "\n"
-              << "  Renders the paint smoke scene and writes it as a PNG.\n"
-              << "  HTML and CSS input are not wired up yet.\n";
+              << "  --dump-dom parses the file and prints the document tree.\n"
+              << "  Without it, renders the paint smoke scene to a PNG\n"
+              << "  (CSS and layout are not wired up yet).\n";
     return 2;
+}
+
+int dump_dom(std::string const& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        std::cerr << "error: cannot read " << path << "\n";
+        return 1;
+    }
+    std::ostringstream stream;
+    stream << file.rdbuf();
+    auto document = html::parse_document(std::move(stream).str());
+    std::cout << html::dump_document(*document);
+    return 0;
 }
 
 // Exercises the paint path end to end: opaque fills, clipping at every edge,
@@ -41,6 +61,13 @@ int main(int argc, char** argv)
     std::string output = "sashfold-out.png";
 
     for (std::size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "--dump-dom") {
+            if (i + 1 >= args.size()) {
+                std::cerr << "error: --dump-dom needs a path\n";
+                return usage(argv[0]);
+            }
+            return dump_dom(args[i + 1]);
+        }
         if (args[i] == "-o" || args[i] == "--output") {
             if (i + 1 >= args.size()) {
                 std::cerr << "error: " << args[i] << " needs a path\n";

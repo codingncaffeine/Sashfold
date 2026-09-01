@@ -35,7 +35,7 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 ## Status — honest, updated per milestone
 
 **M1 (current): HTML in, DOM out.**
-The HTML tokenizer is complete — the full WHATWG state machine, character references from the generated entity table included — and scores **7032/7032 (100%) on the html5lib tokenizer conformance suite**, enforced in CI by a baseline that only ratchets upward. The tokenizer ships with its libFuzzer harness and seed corpus. Tree construction (the insertion-mode machine) is in progress.
+The full parsing pipeline is up: the WHATWG tokenizer at **7032/7032 (100%)** on the html5lib tokenizer suite, and tree construction — the complete insertion-mode machine, adoption agency, foster parenting, templates, fragments, SVG/MathML foreign content — at **1761/1784 (98.7%)** on the html5lib tree-construction suite, including the 2025 relaxed `<select>` parser. Both scores are enforced in CI by baselines that only ratchet upward, and both parser halves ship with libFuzzer harnesses. `sashfold --dump-dom page.html` prints the tree of any file you feed it.
 
 From M0: build system with warnings-as-errors from commit one; an RGBA software canvas with source-over compositing; a from-scratch PNG encoder whose zlib container is written here, not linked; unit tests that validate the PNG output by re-decoding it with an independent decoder written for the test; `pledge-check`; CI for all three OSes.
 

@@ -26,8 +26,11 @@ add_library(sashfold_core STATIC
   src/core/Json.cpp
   src/core/Png.cpp
   src/core/Unicode.cpp
+  src/dom/Dom.cpp
   src/html/InputStream.cpp
   src/html/Tokenizer.cpp
+  src/html/TreeBuilder.cpp
+  src/html/TreeDump.cpp
 )
 target_include_directories(sashfold_core PUBLIC src)
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)
@@ -50,8 +53,12 @@ if(SASHFOLD_FUZZ)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "SASHFOLD_FUZZ requires a clang toolchain")
   endif()
-  add_executable(fuzz_html_tokenizer fuzz/html_tokenizer.cpp)
-  target_link_libraries(fuzz_html_tokenizer PRIVATE sashfold_core)
-  target_compile_options(fuzz_html_tokenizer PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)
-  target_link_options(fuzz_html_tokenizer PRIVATE -fsanitize=fuzzer,address,undefined)
+  function(sashfold_fuzzer name)
+    add_executable(${name} fuzz/${name}.cpp)
+    target_link_libraries(${name} PRIVATE sashfold_core)
+    target_compile_options(${name} PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)
+    target_link_options(${name} PRIVATE -fsanitize=fuzzer,address,undefined)
+  endfunction()
+  sashfold_fuzzer(fuzz_html_tokenizer)
+  sashfold_fuzzer(fuzz_html_tree)
 endif()
