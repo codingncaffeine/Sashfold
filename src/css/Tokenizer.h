@@ -47,7 +47,7 @@ private:
     bool would_start_unicode_range() const; // §4.3.11 (current code point = U/u)
 
     std::string consume_ident_sequence(); // §4.3.12, returns UTF-8
-    double consume_number(Token::NumericType& type_out); // §4.3.13
+    double consume_number(Token::NumericType& type_out, bool& has_sign_out); // §4.3.13
 
     std::u32string m_data;
     std::size_t m_position = 0;

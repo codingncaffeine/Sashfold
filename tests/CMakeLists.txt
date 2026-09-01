@@ -14,6 +14,8 @@ sashfold_test(test_html_tokenizer)
 sashfold_test(test_encoding)
 sashfold_test(test_css_tokenizer)
 sashfold_test(test_css_parser)
+sashfold_test(test_css_selectors)
+sashfold_test(test_style_resolver)
 
 # html5lib conformance: score against the fixtures, hold the committed
 # baseline, ratchet it upward as the tokenizer grows.

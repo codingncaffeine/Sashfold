@@ -218,12 +218,15 @@ std::string Tokenizer::consume_ident_sequence()
 }
 
 // §4.3.13. Consume a number.
-double Tokenizer::consume_number(Token::NumericType& type_out)
+double Tokenizer::consume_number(Token::NumericType& type_out, bool& has_sign_out)
 {
     type_out = Token::NumericType::Integer;
+    has_sign_out = false;
     std::string repr;
-    if (peek(0) == U'+' || peek(0) == U'-')
+    if (peek(0) == U'+' || peek(0) == U'-') {
+        has_sign_out = true;
         repr += static_cast<char>(consume());
+    }
     while (is_digit(peek(0)))
         repr += static_cast<char>(consume());
     if (peek(0) == U'.' && is_digit(peek(1))) {
@@ -253,7 +256,7 @@ double Tokenizer::consume_number(Token::NumericType& type_out)
 Token Tokenizer::consume_numeric()
 {
     Token token;
-    token.numeric_value = consume_number(token.numeric_type);
+    token.numeric_value = consume_number(token.numeric_type, token.has_sign);
     if (would_start_ident()) {
         token.type = Token::Type::Dimension;
         token.unit = consume_ident_sequence();

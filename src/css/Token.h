@@ -54,6 +54,7 @@ struct Token {
 
     double numeric_value = 0; // Number/Percentage/Dimension
     NumericType numeric_type = NumericType::Integer;
+    bool has_sign = false; // the number was written with an explicit +/- (an+b needs this)
     std::string unit; // Dimension only
 
     HashType hash_type = HashType::Unrestricted; // Hash only

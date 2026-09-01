@@ -1,0 +1,946 @@
+#include "css/StyleResolver.h"
+
+#include "core/Ascii.h"
+#include "css/Parser.h"
+#include "css/Selector.h"
+#include "dom/Dom.h"
+
+#include <algorithm>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace sashfold::css {
+
+namespace {
+
+// The built-in UA stylesheet: the HTML rendering section's defaults for the
+// reader web, kept to the M2 property set. (One font family exists, so the
+// monospace-ness of pre/code is implicit.)
+constexpr std::string_view ua_stylesheet = R"CSS(
+html { display: block }
+head, style, script, title, meta, link, base, template, noscript { display: none }
+body { display: block; margin: 8px }
+address, article, aside, blockquote, center, dd, details, dialog, div, dl, dt,
+fieldset, figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
+main, menu, nav, ol, p, plaintext, pre, search, section, summary, ul, xmp,
+h1, h2, h3, h4, h5, h6, dir, table, caption, tbody, thead, tfoot, tr { display: block }
+li { display: list-item }
+p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-top: 1em; margin-bottom: 1em }
+blockquote, figure { margin-left: 40px; margin-right: 40px }
+ol, ul, dir, menu { padding-left: 40px }
+ol { list-style-type: decimal }
+ul ul { list-style-type: circle }
+ul ul ul { list-style-type: square }
+dd { margin-left: 40px }
+h1 { font-size: 2em; margin-top: 0.67em; margin-bottom: 0.67em; font-weight: bold }
+h2 { font-size: 1.5em; margin-top: 0.83em; margin-bottom: 0.83em; font-weight: bold }
+h3 { font-size: 1.17em; margin-top: 1em; margin-bottom: 1em; font-weight: bold }
+h4 { margin-top: 1.33em; margin-bottom: 1.33em; font-weight: bold }
+h5 { font-size: 0.83em; margin-top: 1.67em; margin-bottom: 1.67em; font-weight: bold }
+h6 { font-size: 0.67em; margin-top: 2.33em; margin-bottom: 2.33em; font-weight: bold }
+b, strong { font-weight: bolder }
+i, em, cite, dfn, var, address { font-style: italic }
+small { font-size: 0.83em }
+big { font-size: 1.17em }
+pre, listing, plaintext, xmp { white-space: pre }
+nobr { white-space: nowrap }
+a { color: rgb(0, 0, 238); text-decoration: underline }
+s, strike, del { text-decoration: line-through }
+u, ins { text-decoration: underline }
+center, caption, th { text-align: center }
+hr { margin-top: 0.5em; margin-bottom: 0.5em; border-top: 1px solid; color: gray }
+mark { background-color: yellow }
+)CSS";
+
+enum class CascadeRank : int {
+    UserAgentNormal = 1,
+    AuthorNormal = 2,
+    StyleAttributeNormal = 3,
+    AuthorImportant = 4,
+    StyleAttributeImportant = 5,
+    UserAgentImportant = 6,
+};
+
+struct CompiledRule {
+    SelectorList selectors;
+    std::vector<Declaration> declarations;
+    bool user_agent = false;
+    int order = 0; // rule order across all sheets
+};
+
+struct MatchedDeclaration {
+    Declaration const* declaration = nullptr;
+    int rank = 0;
+    Specificity specificity;
+    int order = 0;
+};
+
+bool cascades_before(MatchedDeclaration const& a, MatchedDeclaration const& b)
+{
+    if (a.rank != b.rank)
+        return a.rank < b.rank;
+    if (a.specificity != b.specificity)
+        return a.specificity < b.specificity;
+    return a.order < b.order;
+}
+
+// --- Value parsing ------------------------------------------------------------
+
+// The component values of one declaration with whitespace dropped.
+std::vector<ComponentValue const*> significant(std::vector<ComponentValue> const& values)
+{
+    std::vector<ComponentValue const*> out;
+    for (ComponentValue const& value : values) {
+        if (!value.is_token(Token::Type::Whitespace))
+            out.push_back(&value);
+    }
+    return out;
+}
+
+bool is_ident(ComponentValue const* value, std::string_view name)
+{
+    return value && value->is_token(Token::Type::Ident)
+        && ascii_ci_equals(value->token().value, name);
+}
+
+struct NamedColor {
+    std::string_view name;
+    Color color;
+};
+
+// The named colors we are sure of; a missing name means the declaration is
+// ignored (safe), a wrong value would render wrong (not safe), so this list
+// only grows with verified entries.
+constexpr NamedColor named_colors[] = {
+    { "black", Color { 0, 0, 0, 255 } },
+    { "silver", Color { 192, 192, 192, 255 } },
+    { "gray", Color { 128, 128, 128, 255 } },
+    { "grey", Color { 128, 128, 128, 255 } },
+    { "white", Color { 255, 255, 255, 255 } },
+    { "maroon", Color { 128, 0, 0, 255 } },
+    { "red", Color { 255, 0, 0, 255 } },
+    { "purple", Color { 128, 0, 128, 255 } },
+    { "fuchsia", Color { 255, 0, 255, 255 } },
+    { "magenta", Color { 255, 0, 255, 255 } },
+    { "green", Color { 0, 128, 0, 255 } },
+    { "lime", Color { 0, 255, 0, 255 } },
+    { "olive", Color { 128, 128, 0, 255 } },
+    { "yellow", Color { 255, 255, 0, 255 } },
+    { "navy", Color { 0, 0, 128, 255 } },
+    { "blue", Color { 0, 0, 255, 255 } },
+    { "teal", Color { 0, 128, 128, 255 } },
+    { "aqua", Color { 0, 255, 255, 255 } },
+    { "cyan", Color { 0, 255, 255, 255 } },
+    { "orange", Color { 255, 165, 0, 255 } },
+    { "brown", Color { 165, 42, 42, 255 } },
+    { "pink", Color { 255, 192, 203, 255 } },
+    { "gold", Color { 255, 215, 0, 255 } },
+    { "indigo", Color { 75, 0, 130, 255 } },
+    { "violet", Color { 238, 130, 238, 255 } },
+    { "crimson", Color { 220, 20, 60, 255 } },
+    { "coral", Color { 255, 127, 80, 255 } },
+    { "salmon", Color { 250, 128, 114, 255 } },
+    { "khaki", Color { 240, 230, 140, 255 } },
+    { "beige", Color { 245, 245, 220, 255 } },
+    { "ivory", Color { 255, 255, 240, 255 } },
+    { "snow", Color { 255, 250, 250, 255 } },
+    { "tomato", Color { 255, 99, 71, 255 } },
+    { "orchid", Color { 218, 112, 214, 255 } },
+    { "plum", Color { 221, 160, 221, 255 } },
+    { "tan", Color { 210, 180, 140, 255 } },
+    { "wheat", Color { 245, 222, 179, 255 } },
+    { "lavender", Color { 230, 230, 250, 255 } },
+    { "turquoise", Color { 64, 224, 208, 255 } },
+    { "chocolate", Color { 210, 105, 30, 255 } },
+    { "skyblue", Color { 135, 206, 235, 255 } },
+    { "lightblue", Color { 173, 216, 230, 255 } },
+    { "lightgray", Color { 211, 211, 211, 255 } },
+    { "lightgrey", Color { 211, 211, 211, 255 } },
+    { "lightgreen", Color { 144, 238, 144, 255 } },
+    { "lightyellow", Color { 255, 255, 224, 255 } },
+    { "darkgray", Color { 169, 169, 169, 255 } },
+    { "darkgrey", Color { 169, 169, 169, 255 } },
+    { "darkred", Color { 139, 0, 0, 255 } },
+    { "darkblue", Color { 0, 0, 139, 255 } },
+    { "darkgreen", Color { 0, 100, 0, 255 } },
+    { "darkorange", Color { 255, 140, 0, 255 } },
+    { "darkviolet", Color { 148, 0, 211, 255 } },
+    { "dimgray", Color { 105, 105, 105, 255 } },
+    { "dimgrey", Color { 105, 105, 105, 255 } },
+    { "gainsboro", Color { 220, 220, 220, 255 } },
+    { "whitesmoke", Color { 245, 245, 245, 255 } },
+    { "aliceblue", Color { 240, 248, 255, 255 } },
+    { "ghostwhite", Color { 248, 248, 255, 255 } },
+    { "royalblue", Color { 65, 105, 225, 255 } },
+    { "steelblue", Color { 70, 130, 180, 255 } },
+    { "dodgerblue", Color { 30, 144, 255, 255 } },
+    { "cornflowerblue", Color { 100, 149, 237, 255 } },
+    { "midnightblue", Color { 25, 25, 112, 255 } },
+    { "slategray", Color { 112, 128, 144, 255 } },
+    { "slategrey", Color { 112, 128, 144, 255 } },
+    { "forestgreen", Color { 34, 139, 34, 255 } },
+    { "seagreen", Color { 46, 139, 87, 255 } },
+    { "goldenrod", Color { 218, 165, 32, 255 } },
+    { "firebrick", Color { 178, 34, 34, 255 } },
+    { "rebeccapurple", Color { 102, 51, 153, 255 } },
+};
+
+int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+std::optional<Color> parse_hex_color(std::string_view hex)
+{
+    auto const nibble = [&](std::size_t i) { return hex_nibble(hex[i]); };
+    switch (hex.size()) {
+    case 3:
+    case 4: {
+        int const r = nibble(0);
+        int const g = nibble(1);
+        int const b = nibble(2);
+        int const a = hex.size() == 4 ? nibble(3) : 15;
+        if (r < 0 || g < 0 || b < 0 || a < 0)
+            return std::nullopt;
+        return Color { static_cast<std::uint8_t>(r * 17), static_cast<std::uint8_t>(g * 17),
+            static_cast<std::uint8_t>(b * 17), static_cast<std::uint8_t>(a * 17) };
+    }
+    case 6:
+    case 8: {
+        int parts[4] = { 0, 0, 0, 255 };
+        for (std::size_t i = 0; i * 2 < hex.size(); ++i) {
+            int const high = nibble(i * 2);
+            int const low = nibble(i * 2 + 1);
+            if (high < 0 || low < 0)
+                return std::nullopt;
+            parts[i] = high * 16 + low;
+        }
+        return Color { static_cast<std::uint8_t>(parts[0]), static_cast<std::uint8_t>(parts[1]),
+            static_cast<std::uint8_t>(parts[2]), static_cast<std::uint8_t>(parts[3]) };
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+std::uint8_t clamp_channel(double value)
+{
+    if (value < 0)
+        return 0;
+    if (value > 255)
+        return 255;
+    return static_cast<std::uint8_t>(value + 0.5);
+}
+
+// rgb()/rgba(), modern or legacy syntax. `current` feeds currentcolor.
+std::optional<Color> parse_color_component(ComponentValue const& value, Color current)
+{
+    if (value.is_token(Token::Type::Hash))
+        return parse_hex_color(value.token().value);
+    if (value.is_token(Token::Type::Ident)) {
+        std::string_view const name = value.token().value;
+        if (ascii_ci_equals(name, "transparent"))
+            return Color { 0, 0, 0, 0 };
+        if (ascii_ci_equals(name, "currentcolor"))
+            return current;
+        for (NamedColor const& entry : named_colors) {
+            if (ascii_ci_equals(name, entry.name))
+                return entry.color;
+        }
+        return std::nullopt;
+    }
+    if (value.is_function()) {
+        FunctionValue const& function = value.function();
+        if (!ascii_ci_equals(function.name, "rgb") && !ascii_ci_equals(function.name, "rgba"))
+            return std::nullopt;
+        double channels[4] = { 0, 0, 0, 255 };
+        int channel = 0;
+        bool alpha_seen = false;
+        for (ComponentValue const& argument : function.values) {
+            if (argument.is_token(Token::Type::Whitespace) || argument.is_token(Token::Type::Comma))
+                continue;
+            if (argument.is_token(Token::Type::Delim) && argument.token().delim == U'/')
+                continue;
+            if (channel >= 4)
+                return std::nullopt;
+            if (!argument.is_token())
+                return std::nullopt;
+            Token const& token = argument.token();
+            double parsed = 0;
+            if (token.type == Token::Type::Number)
+                parsed = token.numeric_value;
+            else if (token.type == Token::Type::Percentage)
+                parsed = token.numeric_value * 255.0 / 100.0;
+            else
+                return std::nullopt;
+            if (channel == 3) {
+                // Alpha: number 0..1 or percentage.
+                alpha_seen = true;
+                parsed = token.type == Token::Type::Percentage ? token.numeric_value * 255.0 / 100.0
+                                                               : token.numeric_value * 255.0;
+            }
+            channels[channel++] = parsed;
+        }
+        if (channel < 3)
+            return std::nullopt;
+        return Color { clamp_channel(channels[0]), clamp_channel(channels[1]),
+            clamp_channel(channels[2]), alpha_seen ? clamp_channel(channels[3]) : std::uint8_t { 255 } };
+    }
+    return std::nullopt;
+}
+
+struct LengthContext {
+    float font_size = 16;
+    float root_font_size = 16;
+};
+
+std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
+    LengthContext const& context, bool allow_auto, bool allow_percent = true)
+{
+    if (!value.is_token())
+        return std::nullopt;
+    Token const& token = value.token();
+    if (token.type == Token::Type::Ident && allow_auto && ascii_ci_equals(token.value, "auto"))
+        return LengthPercent::auto_value();
+    if (token.type == Token::Type::Number) {
+        if (token.numeric_value == 0)
+            return LengthPercent::px(0);
+        return std::nullopt;
+    }
+    if (token.type == Token::Type::Percentage) {
+        if (!allow_percent)
+            return std::nullopt;
+        return LengthPercent::percent(static_cast<float>(token.numeric_value));
+    }
+    if (token.type != Token::Type::Dimension)
+        return std::nullopt;
+    double const number = token.numeric_value;
+    std::string_view const unit = token.unit;
+    if (ascii_ci_equals(unit, "px"))
+        return LengthPercent::px(static_cast<float>(number));
+    if (ascii_ci_equals(unit, "em"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.font_size)));
+    if (ascii_ci_equals(unit, "rem"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.root_font_size)));
+    if (ascii_ci_equals(unit, "pt"))
+        return LengthPercent::px(static_cast<float>(number * 4.0 / 3.0));
+    if (ascii_ci_equals(unit, "ex") || ascii_ci_equals(unit, "ch"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.font_size) * 0.5));
+    return std::nullopt;
+}
+
+std::optional<float> parse_border_width(ComponentValue const& value, LengthContext const& context)
+{
+    if (is_ident(&value, "thin"))
+        return 1.0f;
+    if (is_ident(&value, "medium"))
+        return 3.0f;
+    if (is_ident(&value, "thick"))
+        return 5.0f;
+    auto length = parse_length_percent(value, context, false, false);
+    if (length && length->kind == LengthPercent::Kind::Px)
+        return length->value;
+    return std::nullopt;
+}
+
+std::optional<BorderStyle> parse_border_style(ComponentValue const& value)
+{
+    if (!value.is_token(Token::Type::Ident))
+        return std::nullopt;
+    std::string_view const name = value.token().value;
+    if (ascii_ci_equals(name, "none") || ascii_ci_equals(name, "hidden"))
+        return BorderStyle::None;
+    for (std::string_view solid_ish :
+        { "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset" }) {
+        if (ascii_ci_equals(name, solid_ish))
+            return BorderStyle::Solid;
+    }
+    return std::nullopt;
+}
+
+// --- The resolver -------------------------------------------------------------
+
+struct Resolver {
+    std::vector<CompiledRule> rules;
+    StyleMap map;
+    float root_font_size = 16;
+
+    void compile_sheet(std::string_view text, bool user_agent, int& order)
+    {
+        Stylesheet sheet = parse_stylesheet(text);
+        for (Rule& rule : sheet.rules) {
+            if (!rule.is_qualified())
+                continue; // at-rules (@media and friends) arrive post-M2
+            auto& qualified = std::get<QualifiedRule>(rule.value);
+            std::optional<SelectorList> selectors = parse_selector_list(qualified.prelude);
+            if (!selectors)
+                continue;
+            CompiledRule compiled;
+            compiled.selectors = std::move(*selectors);
+            compiled.declarations = std::move(qualified.declarations);
+            compiled.user_agent = user_agent;
+            compiled.order = order++;
+            rules.push_back(std::move(compiled));
+            // Nested child rules wait for the nesting-aware resolver.
+        }
+    }
+
+    static void collect_style_text(dom::Node const& node, std::string& out)
+    {
+        if (node.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(node);
+            if (element.is_html("style")) {
+                for (dom::Node const* child : element.children()) {
+                    if (child->is_text())
+                        out += static_cast<dom::Text const*>(child)->data;
+                }
+                out += '\n';
+                return;
+            }
+        }
+        for (dom::Node const* child : node.children())
+            collect_style_text(*child, out);
+    }
+
+    void resolve_tree(dom::Node const& node, ComputedStyle const& parent_style)
+    {
+        ComputedStyle const* style_for_children = &parent_style;
+        if (node.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(node);
+            ComputedStyle style = compute_for(element, parent_style);
+            bool const is_root = node.parent() && !node.parent()->is_element();
+            if (is_root)
+                root_font_size = style.font_size; // rem resolves against this
+            auto const [it, inserted] = map.emplace(&element, std::move(style));
+            (void)inserted;
+            style_for_children = &it->second;
+        }
+        for (dom::Node const* child : node.children())
+            resolve_tree(*child, *style_for_children);
+    }
+
+    ComputedStyle compute_for(dom::Element const& element, ComputedStyle const& parent)
+    {
+        // Inherited properties flow in; the rest start at their initial values.
+        ComputedStyle style;
+        style.color = parent.color;
+        style.font_size = parent.font_size;
+        style.font_weight = parent.font_weight;
+        style.font_style = parent.font_style;
+        style.line_height = parent.line_height;
+        style.text_align = parent.text_align;
+        style.white_space = parent.white_space;
+        style.list_style_type = parent.list_style_type;
+
+        std::vector<MatchedDeclaration> matched;
+        for (CompiledRule const& rule : rules) {
+            Specificity specificity;
+            if (!matches(rule.selectors, element, &specificity))
+                continue;
+            for (Declaration const& declaration : rule.declarations) {
+                MatchedDeclaration entry;
+                entry.declaration = &declaration;
+                entry.specificity = specificity;
+                entry.order = rule.order;
+                if (rule.user_agent) {
+                    entry.rank = static_cast<int>(declaration.important
+                            ? CascadeRank::UserAgentImportant
+                            : CascadeRank::UserAgentNormal);
+                } else {
+                    entry.rank = static_cast<int>(declaration.important
+                            ? CascadeRank::AuthorImportant
+                            : CascadeRank::AuthorNormal);
+                }
+                matched.push_back(entry);
+            }
+        }
+
+        std::vector<Declaration> attribute_declarations;
+        if (dom::Attr const* style_attribute = element.find_attribute("style")) {
+            attribute_declarations = parse_declaration_list(style_attribute->value);
+            int order = 1 << 20;
+            for (Declaration const& declaration : attribute_declarations) {
+                MatchedDeclaration entry;
+                entry.declaration = &declaration;
+                entry.order = order++;
+                entry.rank = static_cast<int>(declaration.important
+                        ? CascadeRank::StyleAttributeImportant
+                        : CascadeRank::StyleAttributeNormal);
+                matched.push_back(entry);
+            }
+        }
+
+        std::stable_sort(matched.begin(), matched.end(), cascades_before);
+
+        // font-size first: em and font-relative units in the same element's
+        // other declarations resolve against it.
+        for (MatchedDeclaration const& entry : matched) {
+            if (ascii_ci_equals(entry.declaration->name, "font-size"))
+                apply_font_size(style, parent, *entry.declaration);
+        }
+        bool border_top_color_set = false;
+        bool border_right_color_set = false;
+        bool border_bottom_color_set = false;
+        bool border_left_color_set = false;
+        for (MatchedDeclaration const& entry : matched) {
+            apply(style, *entry.declaration, border_top_color_set, border_right_color_set,
+                border_bottom_color_set, border_left_color_set);
+        }
+
+        // currentColor is the border default.
+        if (!border_top_color_set)
+            style.border_top.color = style.color;
+        if (!border_right_color_set)
+            style.border_right.color = style.color;
+        if (!border_bottom_color_set)
+            style.border_bottom.color = style.color;
+        if (!border_left_color_set)
+            style.border_left.color = style.color;
+        // A border with style none has zero used width.
+        for (BorderSide* side :
+            { &style.border_top, &style.border_right, &style.border_bottom, &style.border_left }) {
+            if (side->style == BorderStyle::None)
+                side->width = 0;
+        }
+        return style;
+    }
+
+    void apply_font_size(ComputedStyle& style, ComputedStyle const& parent,
+        Declaration const& declaration)
+    {
+        auto const values = significant(declaration.value);
+        if (values.size() != 1)
+            return;
+        ComponentValue const& value = *values[0];
+        if (value.is_token(Token::Type::Ident)) {
+            std::string_view const name = value.token().value;
+            struct Keyword {
+                std::string_view name;
+                float factor;
+            };
+            constexpr Keyword keywords[] = {
+                { "xx-small", 3.0f / 5.0f },
+                { "x-small", 3.0f / 4.0f },
+                { "small", 8.0f / 9.0f },
+                { "medium", 1.0f },
+                { "large", 6.0f / 5.0f },
+                { "x-large", 3.0f / 2.0f },
+                { "xx-large", 2.0f },
+            };
+            for (Keyword const& keyword : keywords) {
+                if (ascii_ci_equals(name, keyword.name)) {
+                    style.font_size = 16.0f * keyword.factor;
+                    return;
+                }
+            }
+            if (ascii_ci_equals(name, "larger"))
+                style.font_size = parent.font_size * 1.2f;
+            else if (ascii_ci_equals(name, "smaller"))
+                style.font_size = parent.font_size / 1.2f;
+            return;
+        }
+        // em/% on font-size resolve against the parent's font-size.
+        LengthContext const context { parent.font_size, root_font_size };
+        auto length = parse_length_percent(value, context, false);
+        if (!length)
+            return;
+        if (length->kind == LengthPercent::Kind::Px)
+            style.font_size = length->value;
+        else if (length->kind == LengthPercent::Kind::Percent)
+            style.font_size = parent.font_size * length->value / 100.0f;
+    }
+
+    void apply(ComputedStyle& style, Declaration const& declaration, bool& border_top_color_set,
+        bool& border_right_color_set, bool& border_bottom_color_set, bool& border_left_color_set)
+    {
+        std::string const name = [&] {
+            std::string lowered;
+            for (char const c : declaration.name)
+                lowered += static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+            return lowered;
+        }();
+        auto const values = significant(declaration.value);
+        if (values.empty())
+            return;
+        LengthContext const context { style.font_size, root_font_size };
+
+        auto const one_length = [&](LengthPercent& out, bool allow_auto) {
+            if (values.size() != 1)
+                return;
+            if (auto length = parse_length_percent(*values[0], context, allow_auto))
+                out = *length;
+        };
+        auto const one_color = [&](Color& out) {
+            if (values.size() != 1)
+                return false;
+            if (auto color = parse_color_component(*values[0], style.color)) {
+                out = *color;
+                return true;
+            }
+            return false;
+        };
+        auto const four_lengths = [&](LengthPercent& top, LengthPercent& right,
+                                      LengthPercent& bottom, LengthPercent& left, bool allow_auto) {
+            std::vector<LengthPercent> sides;
+            for (ComponentValue const* value : values) {
+                auto length = parse_length_percent(*value, context, allow_auto);
+                if (!length)
+                    return;
+                sides.push_back(*length);
+            }
+            if (sides.empty() || sides.size() > 4)
+                return;
+            top = sides[0];
+            right = sides.size() > 1 ? sides[1] : sides[0];
+            bottom = sides.size() > 2 ? sides[2] : sides[0];
+            left = sides.size() > 3 ? sides[3] : right;
+        };
+
+        if (name == "display") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "none"))
+                style.display = Display::None;
+            else if (ascii_ci_equals(keyword, "inline"))
+                style.display = Display::Inline;
+            else if (ascii_ci_equals(keyword, "list-item"))
+                style.display = Display::ListItem;
+            else if (ascii_ci_equals(keyword, "block") || ascii_ci_equals(keyword, "flow-root")
+                || ascii_ci_equals(keyword, "flex") || ascii_ci_equals(keyword, "grid")
+                || ascii_ci_equals(keyword, "table"))
+                style.display = Display::Block; // flex/grid lay out as blocks until they land
+            else if (ascii_ci_equals(keyword, "inline-block"))
+                style.display = Display::Inline; // inline-block arrives with M6
+            return;
+        }
+        if (name == "color") {
+            (void)one_color(style.color);
+            return;
+        }
+        if (name == "background-color") {
+            (void)one_color(style.background_color);
+            return;
+        }
+        if (name == "background") {
+            // The color-only form, or a color among other layers' parts.
+            for (ComponentValue const* value : values) {
+                if (auto color = parse_color_component(*value, style.color)) {
+                    style.background_color = *color;
+                    return;
+                }
+            }
+            return;
+        }
+        if (name == "width") {
+            one_length(style.width, true);
+            return;
+        }
+        if (name == "height") {
+            one_length(style.height, true);
+            return;
+        }
+        if (name == "margin") {
+            four_lengths(style.margin_top, style.margin_right, style.margin_bottom,
+                style.margin_left, true);
+            return;
+        }
+        if (name == "margin-top") {
+            one_length(style.margin_top, true);
+            return;
+        }
+        if (name == "margin-right") {
+            one_length(style.margin_right, true);
+            return;
+        }
+        if (name == "margin-bottom") {
+            one_length(style.margin_bottom, true);
+            return;
+        }
+        if (name == "margin-left") {
+            one_length(style.margin_left, true);
+            return;
+        }
+        if (name == "padding") {
+            four_lengths(style.padding_top, style.padding_right, style.padding_bottom,
+                style.padding_left, false);
+            return;
+        }
+        if (name == "padding-top") {
+            one_length(style.padding_top, false);
+            return;
+        }
+        if (name == "padding-right") {
+            one_length(style.padding_right, false);
+            return;
+        }
+        if (name == "padding-bottom") {
+            one_length(style.padding_bottom, false);
+            return;
+        }
+        if (name == "padding-left") {
+            one_length(style.padding_left, false);
+            return;
+        }
+        if (name == "font-size")
+            return; // handled in the first pass
+        if (name == "font-weight") {
+            if (values.size() != 1)
+                return;
+            ComponentValue const& value = *values[0];
+            if (value.is_token(Token::Type::Number)) {
+                double const number = value.token().numeric_value;
+                if (number >= 1 && number <= 1000)
+                    style.font_weight = static_cast<int>(number);
+                return;
+            }
+            if (is_ident(&value, "normal"))
+                style.font_weight = 400;
+            else if (is_ident(&value, "bold"))
+                style.font_weight = 700;
+            else if (is_ident(&value, "bolder"))
+                style.font_weight = style.font_weight < 350 ? 400
+                    : style.font_weight < 550               ? 700
+                                                            : 900;
+            else if (is_ident(&value, "lighter"))
+                style.font_weight = style.font_weight < 550 ? 100
+                    : style.font_weight < 750               ? 400
+                                                            : 700;
+            return;
+        }
+        if (name == "font-style") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "normal"))
+                style.font_style = FontStyle::Normal;
+            else if (is_ident(values[0], "italic") || is_ident(values[0], "oblique"))
+                style.font_style = FontStyle::Italic;
+            return;
+        }
+        if (name == "line-height") {
+            if (values.size() != 1)
+                return;
+            ComponentValue const& value = *values[0];
+            if (is_ident(&value, "normal")) {
+                style.line_height = { LineHeight::Kind::Normal, 0 };
+                return;
+            }
+            if (value.is_token(Token::Type::Number)) {
+                style.line_height = { LineHeight::Kind::Number,
+                    static_cast<float>(value.token().numeric_value) };
+                return;
+            }
+            if (value.is_token(Token::Type::Percentage)) {
+                style.line_height = { LineHeight::Kind::Px,
+                    style.font_size * static_cast<float>(value.token().numeric_value) / 100.0f };
+                return;
+            }
+            auto length = parse_length_percent(value, context, false, false);
+            if (length && length->kind == LengthPercent::Kind::Px)
+                style.line_height = { LineHeight::Kind::Px, length->value };
+            return;
+        }
+        if (name == "text-align") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "left") || is_ident(values[0], "start"))
+                style.text_align = TextAlign::Left;
+            else if (is_ident(values[0], "right") || is_ident(values[0], "end"))
+                style.text_align = TextAlign::Right;
+            else if (is_ident(values[0], "center"))
+                style.text_align = TextAlign::Center;
+            else if (is_ident(values[0], "justify"))
+                style.text_align = TextAlign::Justify;
+            return;
+        }
+        if (name == "white-space") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "normal"))
+                style.white_space = WhiteSpace::Normal;
+            else if (is_ident(values[0], "pre"))
+                style.white_space = WhiteSpace::Pre;
+            else if (is_ident(values[0], "nowrap"))
+                style.white_space = WhiteSpace::NoWrap;
+            else if (is_ident(values[0], "pre-wrap"))
+                style.white_space = WhiteSpace::PreWrap;
+            else if (is_ident(values[0], "pre-line"))
+                style.white_space = WhiteSpace::PreLine;
+            return;
+        }
+        if (name == "list-style-type" || name == "list-style") {
+            for (ComponentValue const* value : values) {
+                if (is_ident(value, "disc"))
+                    style.list_style_type = ListStyleType::Disc;
+                else if (is_ident(value, "circle"))
+                    style.list_style_type = ListStyleType::Circle;
+                else if (is_ident(value, "square"))
+                    style.list_style_type = ListStyleType::Square;
+                else if (is_ident(value, "decimal"))
+                    style.list_style_type = ListStyleType::Decimal;
+                else if (is_ident(value, "none"))
+                    style.list_style_type = ListStyleType::None;
+                else
+                    continue;
+                return;
+            }
+            return;
+        }
+        if (name == "text-decoration" || name == "text-decoration-line") {
+            for (ComponentValue const* value : values) {
+                if (is_ident(value, "none")) {
+                    style.text_decoration = TextDecorationLine::None;
+                    return;
+                }
+                if (is_ident(value, "underline")) {
+                    style.text_decoration = TextDecorationLine::Underline;
+                    return;
+                }
+                if (is_ident(value, "line-through")) {
+                    style.text_decoration = TextDecorationLine::LineThrough;
+                    return;
+                }
+            }
+            return;
+        }
+
+        // Borders.
+        auto const apply_border_shorthand = [&](BorderSide& side, bool& color_set) {
+            BorderSide result;
+            result.width = 3; // medium, when a style appears without a width
+            bool style_seen = false;
+            bool color_seen = false;
+            for (ComponentValue const* value : values) {
+                if (auto border_style = parse_border_style(*value)) {
+                    result.style = *border_style;
+                    style_seen = true;
+                    continue;
+                }
+                if (auto width = parse_border_width(*value, context)) {
+                    result.width = *width;
+                    continue;
+                }
+                if (auto color = parse_color_component(*value, style.color)) {
+                    result.color = *color;
+                    color_seen = true;
+                    continue;
+                }
+                return; // junk: whole declaration ignored
+            }
+            if (!style_seen)
+                result.style = BorderStyle::None;
+            side = result;
+            color_set = color_seen;
+        };
+
+        if (name == "border") {
+            apply_border_shorthand(style.border_top, border_top_color_set);
+            style.border_right = style.border_top;
+            style.border_bottom = style.border_top;
+            style.border_left = style.border_top;
+            border_right_color_set = border_top_color_set;
+            border_bottom_color_set = border_top_color_set;
+            border_left_color_set = border_top_color_set;
+            return;
+        }
+        if (name == "border-top") {
+            apply_border_shorthand(style.border_top, border_top_color_set);
+            return;
+        }
+        if (name == "border-right") {
+            apply_border_shorthand(style.border_right, border_right_color_set);
+            return;
+        }
+        if (name == "border-bottom") {
+            apply_border_shorthand(style.border_bottom, border_bottom_color_set);
+            return;
+        }
+        if (name == "border-left") {
+            apply_border_shorthand(style.border_left, border_left_color_set);
+            return;
+        }
+        if (name == "border-width") {
+            std::vector<float> widths;
+            for (ComponentValue const* value : values) {
+                auto width = parse_border_width(*value, context);
+                if (!width)
+                    return;
+                widths.push_back(*width);
+            }
+            if (widths.empty() || widths.size() > 4)
+                return;
+            style.border_top.width = widths[0];
+            style.border_right.width = widths.size() > 1 ? widths[1] : widths[0];
+            style.border_bottom.width = widths.size() > 2 ? widths[2] : widths[0];
+            style.border_left.width = widths.size() > 3 ? widths[3] : style.border_right.width;
+            return;
+        }
+        if (name == "border-style") {
+            std::vector<BorderStyle> styles;
+            for (ComponentValue const* value : values) {
+                auto border_style = parse_border_style(*value);
+                if (!border_style)
+                    return;
+                styles.push_back(*border_style);
+            }
+            if (styles.empty() || styles.size() > 4)
+                return;
+            style.border_top.style = styles[0];
+            style.border_right.style = styles.size() > 1 ? styles[1] : styles[0];
+            style.border_bottom.style = styles.size() > 2 ? styles[2] : styles[0];
+            style.border_left.style = styles.size() > 3 ? styles[3] : style.border_right.style;
+            // A bare border-style implies medium width where none was given.
+            for (BorderSide* side : { &style.border_top, &style.border_right, &style.border_bottom,
+                     &style.border_left }) {
+                if (side->style == BorderStyle::Solid && side->width == 0)
+                    side->width = 3;
+            }
+            return;
+        }
+        if (name == "border-color") {
+            std::vector<Color> colors;
+            for (ComponentValue const* value : values) {
+                auto color = parse_color_component(*value, style.color);
+                if (!color)
+                    return;
+                colors.push_back(*color);
+            }
+            if (colors.empty() || colors.size() > 4)
+                return;
+            style.border_top.color = colors[0];
+            style.border_right.color = colors.size() > 1 ? colors[1] : colors[0];
+            style.border_bottom.color = colors.size() > 2 ? colors[2] : colors[0];
+            style.border_left.color = colors.size() > 3 ? colors[3] : style.border_right.color;
+            border_top_color_set = border_right_color_set = true;
+            border_bottom_color_set = border_left_color_set = true;
+            return;
+        }
+        // Unknown properties fall on the floor, by design.
+    }
+};
+
+} // namespace
+
+StyleMap resolve_styles(dom::Document const& document)
+{
+    Resolver resolver;
+    int order = 0;
+    resolver.compile_sheet(ua_stylesheet, true, order);
+
+    std::string author_text;
+    Resolver::collect_style_text(document, author_text);
+    resolver.compile_sheet(author_text, false, order);
+
+    ComputedStyle initial;
+    resolver.resolve_tree(document, initial);
+    return std::move(resolver.map);
+}
+
+}
