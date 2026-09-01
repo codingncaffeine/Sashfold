@@ -1,0 +1,217 @@
+<!doctype html>
+<!--
+  sashfold.com — hand-written HTML and CSS, no frameworks, no JavaScript,
+  no trackers, no fonts fetched from anywhere. The page practices what the
+  engine preaches. View source freely; that is what it is for.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sashfold — a web browser engine written from scratch</title>
+<meta name="description" content="Sashfold is a web browser engine written from scratch in C++23 — HTML, CSS, layout, fonts, networking, TLS policy, PNG, all of it in one repository. Graded in public, byte-identical on three operating systems.">
+<link rel="icon" type="image/png" href="icon-160.png">
+<link rel="canonical" href="https://sashfold.com/">
+<meta property="og:title" content="Sashfold">
+<meta property="og:description" content="A web browser engine written from scratch. Every byte in one repository, graded in public.">
+<meta property="og:image" content="https://sashfold.com/banner.jpg">
+<meta property="og:url" content="https://sashfold.com/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    --bg: #f7f9fc;
+    --panel: #ffffff;
+    --ink: #16233c;
+    --muted: #4e5d78;
+    --navy: #16305e;
+    --blue: #1e63c4;
+    --sky: #37b6e8;
+    --accent: #f49c3c;
+    --line: #d8e1ee;
+    --code-bg: #eef3fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1524;
+      --panel: #131e33;
+      --ink: #e6edf7;
+      --muted: #9fb0c9;
+      --navy: #a8c4ef;
+      --blue: #5b9bea;
+      --sky: #4cc3ef;
+      --accent: #f5aa55;
+      --line: #24334f;
+      --code-bg: #1a2740;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.65 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
+  a { color: var(--blue); }
+  a:hover { color: var(--sky); }
+  h1, h2 { color: var(--navy); line-height: 1.2; }
+  h2 { margin-top: 2.6em; font-size: 1.5rem; }
+  code, .mono {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  header.hero { text-align: center; padding: 56px 0 8px; }
+  header.hero img { width: 120px; height: 120px; }
+  header.hero h1 { font-size: 2.6rem; margin: 12px 0 6px; letter-spacing: 0.5px; }
+  .tagline { font-size: 1.25rem; color: var(--muted); margin: 0 0 4px; }
+  .tagline b { color: var(--ink); }
+  .links { margin: 22px 0 8px; }
+  .links a {
+    display: inline-block;
+    margin: 6px 8px;
+    padding: 10px 22px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    border: 1px solid var(--blue);
+  }
+  .links a.primary { background: var(--blue); color: #fff; }
+  .links a.primary:hover { background: var(--sky); border-color: var(--sky); color: #fff; }
+  .pledge {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-top: 40px;
+  }
+  .pledge p.line { font-size: 1.18rem; font-weight: 650; color: var(--navy); margin: 0 0 10px; }
+  ul.anti { list-style: none; padding: 0; columns: 2; gap: 28px; }
+  ul.anti li { padding: 5px 0 5px 26px; position: relative; break-inside: avoid; }
+  ul.anti li::before { content: "✕"; position: absolute; left: 2px; color: var(--accent); font-weight: 700; }
+  ul.have { list-style: none; padding: 0; }
+  ul.have li { padding: 5px 0 5px 26px; position: relative; }
+  ul.have li::before { content: "✓"; position: absolute; left: 2px; color: var(--blue); font-weight: 700; }
+  .numbers { display: flex; flex-wrap: wrap; gap: 14px; margin: 20px 0; }
+  .numbers .stat {
+    flex: 1 1 180px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat .big { font-size: 1.5rem; font-weight: 700; color: var(--blue); display: block; }
+  .stat .what { color: var(--muted); font-size: 0.92rem; }
+  figure { margin: 26px 0; }
+  figure img {
+    max-width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+  }
+  figcaption { color: var(--muted); font-size: 0.92rem; margin-top: 8px; }
+  .road { border-left: 3px solid var(--line); padding-left: 22px; }
+  .road p { margin: 14px 0; }
+  .road .done::before { content: "✓ "; color: var(--blue); font-weight: 700; }
+  .road .next::before { content: "→ "; color: var(--accent); font-weight: 700; }
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.92rem;
+    text-align: center;
+  }
+  @media (max-width: 620px) { ul.anti { columns: 1; } }
+</style>
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <img src="icon-160.png" alt="Sashfold" width="160" height="160">
+  <h1>Sashfold</h1>
+  <p class="tagline">A web browser engine written from scratch. <b>Every byte.</b></p>
+  <p class="tagline">HTML, CSS, layout, fonts, networking, image codecs — one repository, three operating systems.</p>
+  <nav class="links">
+    <a class="primary" href="https://github.com/codingncaffeine/Sashfold">Source on GitHub</a>
+    <a href="https://github.com/codingncaffeine/Sashfold#status--honest-updated-per-milestone">Status &amp; numbers</a>
+  </nav>
+</header>
+
+<section class="pledge">
+  <p class="line">Every byte of code that ships in a Sashfold binary is written in this repository.</p>
+  <p>No vendored libraries, no dependencies, no “temporary” borrowed code. The boundary is the
+  operating system itself and the language runtime — the things every program on the machine
+  already stands on. On Linux that goes all the way down: no GTK, no Qt, no SDL, not even
+  libwayland — Wayland is a protocol over a socket, and Sashfold speaks it directly, the same
+  way it speaks HTTP. The pledge is enforced by a CI gate that reads the built binary’s import
+  table and fails the build if anything else appears.</p>
+</section>
+
+<h2>What Sashfold will never do</h2>
+<ul class="anti">
+  <li>No telemetry</li>
+  <li>No sponsored tiles</li>
+  <li>No default-search auction</li>
+  <li>No account requirement</li>
+  <li>No cloud AI</li>
+  <li>No feature-removal churn</li>
+  <li>No self-updater</li>
+  <li>No settings outside human-readable files</li>
+</ul>
+<p>Zero dependencies is also a security stance: no supply chain to poison, no vendored CVE lag,
+nothing to audit but the one repository. Every parser is fuzzed from the week it is born.</p>
+
+<h2>Graded in public</h2>
+<p>Compatibility is never vibes here — it is numbers against fixed public yardsticks, enforced
+by baselines in CI that only ratchet upward.</p>
+<div class="numbers">
+  <div class="stat"><span class="big">7032 / 7032</span><span class="what">html5lib tokenizer tests — 100%</span></div>
+  <div class="stat"><span class="big">1784 / 1784</span><span class="what">html5lib tree construction — 100%</span></div>
+  <div class="stat"><span class="big">867 / 893</span><span class="what">WPT URL parsing, climbing</span></div>
+  <div class="stat"><span class="big">3 OSes</span><span class="what">byte-identical rendering, proven in CI</span></div>
+</div>
+<p>The renderer is deterministic by construction — its own font, integer-only rasterization,
+no system text stack — so a page renders to the <em>same bytes</em> on Windows, Linux, and macOS.
+Reference screenshots are compared byte-for-byte on every commit. A live HTTPS page fetches,
+decompresses, parses, and renders to pixels in about a quarter of a second, through Sashfold’s
+own URL parser, HTTP/1.1 client, and inflate.</p>
+
+<figure>
+  <img src="first-light.png" alt="A page rendered by Sashfold: headings, wrapped paragraphs, bold, italic and linked text, a blockquote, bulleted and numbered lists, a bordered box, centered text and preformatted text" width="720">
+  <figcaption>Rendered by Sashfold: parser → cascade → layout → paint, every stage in-repo.</figcaption>
+</figure>
+
+<figure>
+  <img src="font-sampler.png" alt="The Sashfold Mono typeface sampler: uppercase, lowercase, digits, punctuation, and weight and slant variants at several sizes" width="720">
+  <figcaption>Sashfold Mono — an original typeface authored as coordinate tables in the source,
+  rasterized with pure integer math. No font files anywhere.</figcaption>
+</figure>
+
+<h2>The road</h2>
+<div class="road">
+  <p class="done"><b>Pixels prove the pipeline</b> — build system, software canvas, PNG encoder, the pledge gate, CI on three OSes.</p>
+  <p class="done"><b>HTML in, DOM out</b> — spec tokenizer and tree construction at 100% conformance, encoding sniffing.</p>
+  <p class="done"><b>The first page you can read</b> — CSS, selectors, the cascade, block and inline layout, an original typeface, byte-identical reference tests.</p>
+  <p class="done"><b>The network</b> — URL parsing, HTTP/1.1, gzip and deflate, HTTPS with real certificate validation.</p>
+  <p class="next"><b>It becomes a browser</b> — a window, tabs, an address bar; then images, flexbox, a JavaScript engine written here, and web-platform-tests scoring in public.</p>
+</div>
+
+<h2>Why another engine</h2>
+<p>Because the reading web deserves a fast, private, transparent way to read it — and because
+an engine whose every byte is in one place is an engine anyone can learn from, audit, or embed
+without dragging three hundred megabytes behind it. Sashfold competes with nobody but the spec.</p>
+
+<footer>
+  <p>BSD-2 licensed · <a href="https://github.com/codingncaffeine/Sashfold">github.com/codingncaffeine/Sashfold</a></p>
+  <p>This page is hand-written HTML with no scripts, no trackers, and no external requests.</p>
+</footer>
+
+</main>
+</body>
+</html>
