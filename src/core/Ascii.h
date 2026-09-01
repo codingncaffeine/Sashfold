@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 namespace sashfold {
 
 constexpr bool is_ascii_digit(char32_t c) { return c >= U'0' && c <= U'9'; }
@@ -30,6 +32,18 @@ constexpr unsigned hex_digit_value(char32_t c)
 constexpr bool is_tokenizer_whitespace(char32_t c)
 {
     return c == U'\t' || c == U'\n' || c == U'\f' || c == U' ';
+}
+
+constexpr bool ascii_ci_equals(std::string_view a, std::string_view b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (to_ascii_lowercase(static_cast<unsigned char>(a[i]))
+            != to_ascii_lowercase(static_cast<unsigned char>(b[i])))
+            return false;
+    }
+    return true;
 }
 
 }

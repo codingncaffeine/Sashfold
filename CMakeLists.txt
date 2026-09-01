@@ -26,6 +26,8 @@ add_library(sashfold_core STATIC
   src/core/Json.cpp
   src/core/Png.cpp
   src/core/Unicode.cpp
+  src/css/Parser.cpp
+  src/css/Tokenizer.cpp
   src/dom/Dom.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
@@ -62,4 +64,6 @@ if(SASHFOLD_FUZZ)
   endfunction()
   sashfold_fuzzer(html_tokenizer)
   sashfold_fuzzer(html_tree)
+  sashfold_fuzzer(css_tokenizer)
+  sashfold_fuzzer(css_parser)
 endif()

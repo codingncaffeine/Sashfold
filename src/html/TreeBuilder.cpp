@@ -29,17 +29,6 @@ bool one_of(std::string_view name, std::array<std::string_view, N> const& names)
     return std::find(names.begin(), names.end(), name) != names.end();
 }
 
-bool ascii_ci_equals(std::string_view a, std::string_view b)
-{
-    if (a.size() != b.size())
-        return false;
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        if (to_ascii_lowercase(static_cast<unsigned char>(a[i])) != to_ascii_lowercase(static_cast<unsigned char>(b[i])))
-            return false;
-    }
-    return true;
-}
-
 bool ascii_ci_starts_with(std::string_view text, std::string_view prefix)
 {
     return text.size() >= prefix.size() && ascii_ci_equals(text.substr(0, prefix.size()), prefix);
