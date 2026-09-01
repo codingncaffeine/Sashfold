@@ -41,3 +41,11 @@ add_test(NAME reftest
   COMMAND reftest
     ${CMAKE_CURRENT_SOURCE_DIR}/pages
     ${CMAKE_CURRENT_SOURCE_DIR}/goldens)
+
+# WPT URL conformance, ratcheted like the html5lib suites.
+add_executable(wpt_url wpt_url.cpp)
+target_link_libraries(wpt_url PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME wpt_url
+  COMMAND wpt_url
+    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/wpt/urltestdata.json
+    ${CMAKE_CURRENT_SOURCE_DIR}/wpt_url.baseline)

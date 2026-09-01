@@ -32,6 +32,7 @@ add_library(sashfold_core STATIC
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
   src/layout/Layout.cpp
+  src/net/Url.cpp
   src/paint/Painter.cpp
   src/text/SashfoldMono.cpp
   src/html/Encoding.cpp
@@ -71,4 +72,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(html_tree)
   sashfold_fuzzer(css_tokenizer)
   sashfold_fuzzer(css_parser)
+  sashfold_fuzzer(url)
 endif()
