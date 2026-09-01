@@ -9,3 +9,14 @@ endfunction()
 
 sashfold_test(test_bitmap)
 sashfold_test(test_png)
+sashfold_test(test_json)
+sashfold_test(test_html_tokenizer)
+
+# html5lib conformance: score against the fixtures, hold the committed
+# baseline, ratchet it upward as the tokenizer grows.
+add_executable(html5lib_tokenizer html5lib_tokenizer.cpp)
+target_link_libraries(html5lib_tokenizer PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME html5lib_tokenizer
+  COMMAND html5lib_tokenizer
+    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/html5lib/tokenizer
+    ${CMAKE_CURRENT_SOURCE_DIR}/html5lib_tokenizer.baseline)

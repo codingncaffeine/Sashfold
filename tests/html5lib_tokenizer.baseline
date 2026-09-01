@@ -1,0 +1,4 @@
+# html5lib tokenizer conformance baseline: total passing runs (test x initial
+# state). Raise it when the score climbs; the suite fails if a change drops
+# below it.
+7032

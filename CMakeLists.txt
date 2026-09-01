@@ -23,7 +23,11 @@ endif()
 
 add_library(sashfold_core STATIC
   src/core/Bitmap.cpp
+  src/core/Json.cpp
   src/core/Png.cpp
+  src/core/Unicode.cpp
+  src/html/InputStream.cpp
+  src/html/Tokenizer.cpp
 )
 target_include_directories(sashfold_core PUBLIC src)
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)
@@ -38,3 +42,16 @@ endif()
 
 enable_testing()
 add_subdirectory(tests)
+
+# Fuzzing lane: every parser gets a harness (see fuzz/README.md). Only built
+# on request, and only clang carries libFuzzer.
+option(SASHFOLD_FUZZ "Build libFuzzer harnesses (requires clang)" OFF)
+if(SASHFOLD_FUZZ)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "SASHFOLD_FUZZ requires a clang toolchain")
+  endif()
+  add_executable(fuzz_html_tokenizer fuzz/html_tokenizer.cpp)
+  target_link_libraries(fuzz_html_tokenizer PRIVATE sashfold_core)
+  target_compile_options(fuzz_html_tokenizer PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)
+  target_link_options(fuzz_html_tokenizer PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
