@@ -29,9 +29,11 @@ struct FetchResponse {
     std::vector<Header> headers;
     std::vector<std::uint8_t> body; // after content decoding
     Url final_url; // where the redirect chain landed
+    bool from_cache = false; // served by the MemoryCache, no network touched
 };
 
 class CookieJar;
+class MemoryCache;
 
 struct FetchOptions {
     int max_redirects = 20;
@@ -45,6 +47,9 @@ struct FetchOptions {
     // Referer header value, already policy-shaped by the caller (the shell
     // applies strict-origin-when-cross-origin); empty sends none.
     std::string referrer;
+    // The session cache (plan M3 cache v0): consulted before every connection
+    // and fed by every cacheable 200. Null means no caching at all.
+    MemoryCache* cache = nullptr;
 };
 
 struct FetchResult {

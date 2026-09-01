@@ -35,6 +35,7 @@ add_library(sashfold_core STATIC
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
   src/layout/Layout.cpp
+  src/net/Cache.cpp
   src/net/Cookies.cpp
   src/net/DataUrl.cpp
   src/net/Http.cpp

@@ -19,6 +19,7 @@ sashfold_test(test_style_resolver)
 sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)
+sashfold_test(test_cache)
 
 # html5lib conformance: score against the fixtures, hold the committed
 # baseline, ratchet it upward as the tokenizer grows.

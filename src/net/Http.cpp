@@ -2,6 +2,7 @@
 
 #include "core/Ascii.h"
 #include "core/Inflate.h"
+#include "net/Cache.h"
 #include "net/Cookies.h"
 #include "net/DataUrl.h"
 #include "platform/Net.h"
@@ -322,6 +323,13 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         if (!current.has_host() || current.host.empty())
             return { std::nullopt, "no host in URL" };
 
+        // A fresh cached copy answers before any connection is made — on
+        // every hop, so a redirect into a cached page costs one round trip.
+        if (options.cache) {
+            if (FetchResponse const* const hit = options.cache->lookup(current, unix_now()))
+                return { *hit, "" };
+        }
+
         std::uint16_t const port = current.port.value_or(secure ? 443 : 80);
         // (IPv6 hosts are stored bracket-free, which is what getaddrinfo wants.)
         auto tcp = platform::TcpSocket::connect(current.host, port);
@@ -400,6 +408,8 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         if (!decoded)
             return { std::nullopt, "could not decode response body" };
         response.body = std::move(*decoded);
+        if (options.cache && response.status == 200)
+            options.cache->store(current, response, unix_now());
         return { std::move(response), "" };
     }
     return { std::nullopt, "too many redirects" };
