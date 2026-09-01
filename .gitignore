@@ -1,0 +1,15 @@
+# Build output
+build/
+build-*/
+
+# Local planning documents (never published)
+_plans/
+
+# Render output at the repo root (headless demo PNGs land here)
+/*.png
+
+# Editor litter
+.vs/
+.vscode/
+.idea/
+*.swp

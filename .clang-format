@@ -1,0 +1,31 @@
+# Sashfold house style, stated explicitly — no BasedOnStyle preset.
+# 4-space indent, m_ members, braces on their own line for functions,
+# attached everywhere else, spaces inside braced initializer lists.
+Language: Cpp
+Standard: Latest
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 0
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: false
+PointerAlignment: Left
+SpaceAfterTemplateKeyword: false
+AlignAfterOpenBracket: DontAlign
+ContinuationIndentWidth: 4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerIndentWidth: 4
+Cpp11BracedListStyle: false
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: false
+  AfterStruct: false
+  AfterEnum: false
+  AfterNamespace: false
+  AfterControlStatement: Never
+  BeforeElse: false
+  BeforeCatch: false

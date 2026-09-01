@@ -1,0 +1,11 @@
+# OS/runtime libraries a Sashfold binary may import on Linux.
+# Provisional until the Linux CI lane first validates it; tightened when the
+# Linux port proper lands (M3.5). Entries cover both merged and pre-merge
+# glibc layouts.
+libc.so.6
+libm.so.6
+libstdc++.so.6
+libgcc_s.so.1
+libpthread.so.0
+libdl.so.2
+ld-linux-x86-64.so.2
