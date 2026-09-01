@@ -32,3 +32,12 @@ add_test(NAME html5lib_tree
   COMMAND html5lib_tree
     ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/html5lib/tree-construction
     ${CMAKE_CURRENT_SOURCE_DIR}/html5lib_tree.baseline)
+
+# Reference tests: rendered pages compared byte-for-byte with committed
+# goldens (the renderer is deterministic across OSes and compilers).
+add_executable(reftest reftest.cpp)
+target_link_libraries(reftest PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME reftest
+  COMMAND reftest
+    ${CMAKE_CURRENT_SOURCE_DIR}/pages
+    ${CMAKE_CURRENT_SOURCE_DIR}/goldens)

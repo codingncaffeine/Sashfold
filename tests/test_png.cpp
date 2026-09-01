@@ -70,38 +70,142 @@ std::vector<Chunk> parse_chunks(std::vector<std::uint8_t> const& png)
     return chunks;
 }
 
-// Inflates a zlib stream that consists solely of stored blocks.
-std::optional<std::vector<std::uint8_t>> inflate_stored(std::vector<std::uint8_t> const& zlib)
+// An independent inflate for the test: stored and fixed-Huffman blocks,
+// written straight from RFC 1951 without looking at the encoder.
+struct BitReader {
+    std::vector<std::uint8_t> const& data;
+    std::size_t byte = 0;
+    int bit = 0;
+    bool overrun = false;
+
+    unsigned take(int count) // LSB-first data bits
+    {
+        unsigned value = 0;
+        for (int i = 0; i < count; ++i) {
+            if (byte >= data.size()) {
+                overrun = true;
+                return value;
+            }
+            value |= static_cast<unsigned>((data[byte] >> bit) & 1u) << i;
+            if (++bit == 8) {
+                bit = 0;
+                ++byte;
+            }
+        }
+        return value;
+    }
+
+    unsigned take_reversed(int count) // Huffman codes arrive MSB-first
+    {
+        unsigned value = 0;
+        for (int i = 0; i < count; ++i)
+            value = (value << 1) | take(1);
+        return value;
+    }
+
+    void align() // to the next byte boundary (stored blocks)
+    {
+        if (bit != 0) {
+            bit = 0;
+            ++byte;
+        }
+    }
+};
+
+// Reads one fixed-Huffman literal/length symbol: 7 bits first, extending a
+// bit at a time through the 8- and 9-bit code ranges (canonical decode).
+std::optional<unsigned> read_fixed_symbol(BitReader& reader)
+{
+    unsigned code = reader.take_reversed(7);
+    if (reader.overrun)
+        return std::nullopt;
+    if (code <= 0x17)
+        return 256 + code;
+    code = (code << 1) | reader.take(1);
+    if (reader.overrun)
+        return std::nullopt;
+    if (code >= 0x30 && code <= 0xBF)
+        return code - 0x30;
+    if (code >= 0xC0 && code <= 0xC7)
+        return 280 + (code - 0xC0);
+    code = (code << 1) | reader.take(1);
+    if (reader.overrun)
+        return std::nullopt;
+    if (code >= 0x190 && code <= 0x1FF)
+        return 144 + (code - 0x190);
+    return std::nullopt;
+}
+
+std::optional<std::vector<std::uint8_t>> independent_inflate(std::vector<std::uint8_t> const& zlib)
 {
     if (zlib.size() < 6)
         return std::nullopt;
     if ((static_cast<unsigned>(zlib[0]) << 8 | zlib[1]) % 31u != 0u)
         return std::nullopt; // zlib header check bits
 
+    static constexpr unsigned length_base[29] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23,
+        27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
+    static constexpr int length_extra[29] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3,
+        3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+    static constexpr unsigned distance_base[30] = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65,
+        97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385,
+        24577 };
+    static constexpr int distance_extra[30] = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7,
+        7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
+
+    BitReader reader { zlib, 2, 0, false };
     std::vector<std::uint8_t> out;
-    std::size_t at = 2;
-    while (at + 5 <= zlib.size()) {
-        std::uint8_t const header = zlib[at];
-        bool const is_final = (header & 0x01u) != 0u;
-        if (((header >> 1) & 0x03u) != 0u)
-            return std::nullopt; // not a stored block
-
-        std::uint16_t const length = static_cast<std::uint16_t>(zlib[at + 1] | (zlib[at + 2] << 8));
-        std::uint16_t const inverted = static_cast<std::uint16_t>(zlib[at + 3] | (zlib[at + 4] << 8));
-        if (static_cast<std::uint16_t>(~length) != inverted)
-            return std::nullopt; // LEN/NLEN disagree
-
-        at += 5;
-        if (at + length > zlib.size())
+    while (true) {
+        unsigned const is_final = reader.take(1);
+        unsigned const type = reader.take(2);
+        if (reader.overrun)
             return std::nullopt;
-        out.insert(out.end(), zlib.begin() + static_cast<std::ptrdiff_t>(at),
-            zlib.begin() + static_cast<std::ptrdiff_t>(at + length));
-        at += length;
-
+        if (type == 0) { // stored
+            reader.align();
+            if (reader.byte + 4 > zlib.size())
+                return std::nullopt;
+            unsigned const length = zlib[reader.byte] | (zlib[reader.byte + 1] << 8);
+            unsigned const inverted = zlib[reader.byte + 2] | (zlib[reader.byte + 3] << 8);
+            if ((length ^ inverted) != 0xFFFFu)
+                return std::nullopt;
+            reader.byte += 4;
+            if (reader.byte + length > zlib.size())
+                return std::nullopt;
+            out.insert(out.end(), zlib.begin() + static_cast<std::ptrdiff_t>(reader.byte),
+                zlib.begin() + static_cast<std::ptrdiff_t>(reader.byte + length));
+            reader.byte += length;
+        } else if (type == 1) { // fixed Huffman
+            while (true) {
+                std::optional<unsigned> const symbol = read_fixed_symbol(reader);
+                if (!symbol || reader.overrun)
+                    return std::nullopt;
+                if (*symbol == 256)
+                    break;
+                if (*symbol < 256) {
+                    out.push_back(static_cast<std::uint8_t>(*symbol));
+                    continue;
+                }
+                unsigned const length_index = *symbol - 257;
+                if (length_index >= 29)
+                    return std::nullopt;
+                unsigned const length = length_base[length_index]
+                    + reader.take(length_extra[length_index]);
+                unsigned const distance_symbol = reader.take_reversed(5);
+                if (distance_symbol >= 30)
+                    return std::nullopt;
+                unsigned const distance = distance_base[distance_symbol]
+                    + reader.take(distance_extra[distance_symbol]);
+                if (reader.overrun || distance > out.size())
+                    return std::nullopt;
+                for (unsigned i = 0; i < length; ++i)
+                    out.push_back(out[out.size() - distance]);
+            }
+        } else {
+            return std::nullopt; // dynamic Huffman: not needed for our encoder
+        }
         if (is_final)
             return out;
     }
-    return std::nullopt;
 }
 
 }
@@ -142,7 +246,7 @@ int main()
 
     // IDAT must inflate back to exactly the scanlines we fed the encoder.
     CHECK_EQ(chunks[1].type, std::string("IDAT"));
-    std::optional<std::vector<std::uint8_t>> const raw = inflate_stored(chunks[1].data);
+    std::optional<std::vector<std::uint8_t>> const raw = independent_inflate(chunks[1].data);
     CHECK(raw.has_value());
     if (raw.has_value()) {
         std::size_t const stride = 3u * 4u;
@@ -169,7 +273,7 @@ int main()
     CHECK_EQ(big_chunks.size(), std::size_t { 3 });
     if (big_chunks.size() == 3) {
         CHECK(big_chunks[1].crc_ok);
-        std::optional<std::vector<std::uint8_t>> const big_raw = inflate_stored(big_chunks[1].data);
+        std::optional<std::vector<std::uint8_t>> const big_raw = independent_inflate(big_chunks[1].data);
         CHECK(big_raw.has_value());
         if (big_raw.has_value())
             CHECK_EQ(big_raw->size(), (400u * 4u + 1u) * 60u);

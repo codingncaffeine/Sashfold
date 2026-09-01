@@ -31,6 +31,9 @@ add_library(sashfold_core STATIC
   src/css/StyleResolver.cpp
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
+  src/layout/Layout.cpp
+  src/paint/Painter.cpp
+  src/text/SashfoldMono.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
   src/html/Tokenizer.cpp

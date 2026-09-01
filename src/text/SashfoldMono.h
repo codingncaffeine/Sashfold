@@ -1,0 +1,63 @@
+#pragma once
+
+// Sashfold Mono — the bootstrap font (plan §5.3). An original, angular
+// monospace face authored as stroke segments on a 20x32 design grid
+// (units-per-em 32, advance 20, baseline at y=25). No font files, no
+// parsing: the tables below ARE the font, and tools/gen-font will emit
+// them as a real TTF once the M4 font pipeline exists.
+//
+// Determinism: rasterization is pure integer math — segment quads expand
+// on the grid, coordinates scale to 1/4-subpixel fixed point, and coverage
+// comes from a 4x4 point-in-polygon subsample per pixel. No libm anywhere,
+// so the pixels are byte-identical on every platform.
+
+#include "core/Bitmap.h"
+
+#include <cstdint>
+#include <string_view>
+
+namespace sashfold::text {
+
+struct FontMetrics {
+    float ascent; // baseline offset from the line box top, px
+    float descent; // px below the baseline
+    float advance; // fixed advance per glyph, px
+    float line_gap; // extra leading the font asks for (zero here)
+};
+
+class SashfoldMono {
+public:
+    static SashfoldMono const& instance();
+
+    static constexpr int units_per_em = 32;
+    static constexpr int design_advance = 20;
+    static constexpr int design_ascent = 25; // baseline y on the grid
+    static constexpr int design_descent = 7;
+
+    static FontMetrics metrics(float size)
+    {
+        float const scale = size / static_cast<float>(units_per_em);
+        return { design_ascent * scale, design_descent * scale, design_advance * scale, 0 };
+    }
+
+    static float advance(float size)
+    {
+        return design_advance * size / static_cast<float>(units_per_em);
+    }
+
+    // Blends one glyph at the given baseline origin. Unknown code points draw
+    // the replacement box; control characters and space draw nothing.
+    void draw_glyph(Bitmap& target, char32_t code_point, float x, float baseline_y, float size,
+        Color color, bool bold, bool italic) const;
+
+    // Sum of advances (monospace: count * advance), for layout measurement.
+    static float measure(std::u32string_view text, float size)
+    {
+        return static_cast<float>(text.size()) * advance(size);
+    }
+
+private:
+    SashfoldMono() = default;
+};
+
+}

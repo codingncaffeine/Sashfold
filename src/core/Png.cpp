@@ -2,6 +2,7 @@
 
 #include "core/Bitmap.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <fstream>
@@ -67,33 +68,180 @@ void push_chunk(std::vector<std::uint8_t>& out, char const (&type)[5], std::vect
     push_be32(out, crc32(typed_payload.data(), typed_payload.size()));
 }
 
-// zlib stream (RFC 1950) wrapping a deflate stream of stored blocks (RFC 1951).
-std::vector<std::uint8_t> zlib_stored(std::vector<std::uint8_t> const& raw)
+// zlib stream (RFC 1950) wrapping one fixed-Huffman deflate block (RFC 1951)
+// with a greedy LZ77 matcher: a 3-byte hash remembers the latest position,
+// one probe per step, matches up to 258 within the 32K window. Flat scanlines
+// become distance-1 runs, which is most of what a rendered page is.
+class BitWriter {
+public:
+    explicit BitWriter(std::vector<std::uint8_t>& out)
+        : m_out(out)
+    {
+    }
+
+    // Deflate packs data elements starting at the least significant bit.
+    void put_bits(std::uint32_t value, int count)
+    {
+        m_bits |= static_cast<std::uint64_t>(value) << m_bit_count;
+        m_bit_count += count;
+        while (m_bit_count >= 8) {
+            m_out.push_back(static_cast<std::uint8_t>(m_bits & 0xFFu));
+            m_bits >>= 8;
+            m_bit_count -= 8;
+        }
+    }
+
+    // Huffman codes pack most significant bit first: reverse, then pack.
+    void put_code(std::uint32_t code, int length)
+    {
+        std::uint32_t reversed = 0;
+        for (int i = 0; i < length; ++i)
+            reversed |= ((code >> i) & 1u) << (length - 1 - i);
+        put_bits(reversed, length);
+    }
+
+    void flush()
+    {
+        if (m_bit_count > 0) {
+            m_out.push_back(static_cast<std::uint8_t>(m_bits & 0xFFu));
+            m_bits = 0;
+            m_bit_count = 0;
+        }
+    }
+
+private:
+    std::vector<std::uint8_t>& m_out;
+    std::uint64_t m_bits = 0;
+    int m_bit_count = 0;
+};
+
+// RFC 1951 §3.2.6: the fixed literal/length code.
+void put_fixed_symbol(BitWriter& writer, unsigned symbol)
+{
+    if (symbol <= 143)
+        writer.put_code(0x30u + symbol, 8);
+    else if (symbol <= 255)
+        writer.put_code(0x190u + (symbol - 144), 9);
+    else if (symbol <= 279)
+        writer.put_code(symbol - 256, 7);
+    else
+        writer.put_code(0xC0u + (symbol - 280), 8);
+}
+
+struct PrefixCode {
+    unsigned symbol;
+    int extra_bits;
+    unsigned base;
+};
+
+// RFC 1951 §3.2.5, length codes 257-285 for lengths 3-258.
+PrefixCode length_code_for(unsigned length)
+{
+    static constexpr struct {
+        unsigned base;
+        int extra;
+    } table[29] = {
+        { 3, 0 }, { 4, 0 }, { 5, 0 }, { 6, 0 }, { 7, 0 }, { 8, 0 }, { 9, 0 }, { 10, 0 },
+        { 11, 1 }, { 13, 1 }, { 15, 1 }, { 17, 1 }, { 19, 2 }, { 23, 2 }, { 27, 2 }, { 31, 2 },
+        { 35, 3 }, { 43, 3 }, { 51, 3 }, { 59, 3 }, { 67, 4 }, { 83, 4 }, { 99, 4 }, { 115, 4 },
+        { 131, 5 }, { 163, 5 }, { 195, 5 }, { 227, 5 }, { 258, 0 }
+    };
+    for (unsigned i = 28;; --i) {
+        if (length >= table[i].base)
+            return { 257 + i, table[i].extra, table[i].base };
+        if (i == 0)
+            break;
+    }
+    return { 257, 0, 3 };
+}
+
+// RFC 1951 §3.2.5, distance codes 0-29 for distances 1-32768.
+PrefixCode distance_code_for(unsigned distance)
+{
+    static constexpr struct {
+        unsigned base;
+        int extra;
+    } table[30] = {
+        { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 1 }, { 7, 1 }, { 9, 2 }, { 13, 2 },
+        { 17, 3 }, { 25, 3 }, { 33, 4 }, { 49, 4 }, { 65, 5 }, { 97, 5 }, { 129, 6 }, { 193, 6 },
+        { 257, 7 }, { 385, 7 }, { 513, 8 }, { 769, 8 }, { 1025, 9 }, { 1537, 9 },
+        { 2049, 10 }, { 3073, 10 }, { 4097, 11 }, { 6145, 11 }, { 8193, 12 }, { 12289, 12 },
+        { 16385, 13 }, { 24577, 13 }
+    };
+    for (unsigned i = 29;; --i) {
+        if (distance >= table[i].base)
+            return { i, table[i].extra, table[i].base };
+        if (i == 0)
+            break;
+    }
+    return { 0, 0, 1 };
+}
+
+std::vector<std::uint8_t> zlib_deflate(std::vector<std::uint8_t> const& raw)
 {
     std::vector<std::uint8_t> out;
-    out.reserve(raw.size() + raw.size() / 65535u * 5u + 16u);
-
+    out.reserve(raw.size() / 4 + 64);
     out.push_back(0x78); // CM = 8 (deflate), CINFO = 7 (32K window)
-    out.push_back(0x01); // FCHECK such that 0x7801 is a multiple of 31, no dictionary
+    out.push_back(0x01); // FCHECK: 0x7801 is a multiple of 31, no dictionary
 
-    std::size_t offset = 0;
-    do {
-        std::size_t const remaining = raw.size() - offset;
-        std::uint16_t const block = static_cast<std::uint16_t>(remaining > 65535u ? 65535u : remaining);
-        bool const is_final = (offset + block) >= raw.size();
+    BitWriter writer(out);
+    writer.put_bits(1, 1); // BFINAL
+    writer.put_bits(1, 2); // BTYPE = 01: fixed Huffman
 
-        out.push_back(is_final ? 0x01 : 0x00); // BFINAL, BTYPE = 00 (stored)
-        out.push_back(static_cast<std::uint8_t>(block & 0xFFu));
-        out.push_back(static_cast<std::uint8_t>((block >> 8) & 0xFFu));
-        std::uint16_t const inverted = static_cast<std::uint16_t>(~block);
-        out.push_back(static_cast<std::uint8_t>(inverted & 0xFFu));
-        out.push_back(static_cast<std::uint8_t>((inverted >> 8) & 0xFFu));
+    constexpr std::size_t hash_size = 1u << 15;
+    std::vector<std::int64_t> head(hash_size, -1);
+    auto const hash_at = [&](std::size_t i) {
+        std::uint32_t const h = (static_cast<std::uint32_t>(raw[i]) << 16)
+            ^ (static_cast<std::uint32_t>(raw[i + 1]) << 8) ^ raw[i + 2];
+        return (h * 2654435761u) >> 17; // top 15 bits
+    };
 
-        out.insert(out.end(), raw.begin() + static_cast<std::ptrdiff_t>(offset),
-            raw.begin() + static_cast<std::ptrdiff_t>(offset + block));
-
-        offset += block;
-    } while (offset < raw.size());
+    std::size_t i = 0;
+    while (i < raw.size()) {
+        unsigned best_length = 0;
+        std::size_t best_distance = 0;
+        if (i + 2 < raw.size()) {
+            std::uint32_t const h = hash_at(i);
+            std::int64_t const candidate = head[h];
+            head[h] = static_cast<std::int64_t>(i);
+            if (candidate >= 0) {
+                std::size_t const distance = i - static_cast<std::size_t>(candidate);
+                if (distance <= 32768) {
+                    std::size_t const limit = std::min<std::size_t>(258, raw.size() - i);
+                    std::size_t length = 0;
+                    while (length < limit
+                        && raw[static_cast<std::size_t>(candidate) + length] == raw[i + length])
+                        ++length;
+                    if (length >= 3) {
+                        best_length = static_cast<unsigned>(length);
+                        best_distance = distance;
+                    }
+                }
+            }
+        }
+        if (best_length >= 3) {
+            PrefixCode const length_code = length_code_for(best_length);
+            put_fixed_symbol(writer, length_code.symbol);
+            if (length_code.extra_bits > 0)
+                writer.put_bits(best_length - length_code.base, length_code.extra_bits);
+            PrefixCode const distance_code
+                = distance_code_for(static_cast<unsigned>(best_distance));
+            writer.put_code(distance_code.symbol, 5);
+            if (distance_code.extra_bits > 0)
+                writer.put_bits(static_cast<std::uint32_t>(best_distance) - distance_code.base,
+                    distance_code.extra_bits);
+            // Keep the hash warm through the match body.
+            std::size_t const end = i + best_length;
+            for (++i; i < end && i + 2 < raw.size(); ++i)
+                head[hash_at(i)] = static_cast<std::int64_t>(i);
+            i = end;
+            continue;
+        }
+        put_fixed_symbol(writer, raw[i]);
+        ++i;
+    }
+    put_fixed_symbol(writer, 256); // end of block
+    writer.flush();
 
     push_be32(out, adler32(raw));
     return out;
@@ -128,7 +276,7 @@ std::vector<std::uint8_t> encode_png(Bitmap const& bitmap)
             pixels.begin() + static_cast<std::ptrdiff_t>(row + stride));
     }
 
-    push_chunk(out, "IDAT", zlib_stored(raw));
+    push_chunk(out, "IDAT", zlib_deflate(raw));
     push_chunk(out, "IEND", {});
     return out;
 }

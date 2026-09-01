@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><title>First light</title><style>
+  body { background-color: #fbfaf7; color: #222; }
+  h1 { color: #1a3c6e; border-bottom: 2px solid #1a3c6e; padding-bottom: 6px }
+  .lede { font-style: italic; color: #555 }
+  blockquote { border-left: 4px solid #ccc; padding-left: 12px; color: #444 }
+  code { background-color: #eee }
+  .box { border: 1px solid #999; padding: 8px; background-color: #fff; width: 60% }
+  .center { text-align: center }
+</style></head>
+<body>
+<h1>Sashfold renders its first page</h1>
+<p class="lede">Every byte of this pipeline — parser, cascade, layout, font, rasterizer — lives in one repository.</p>
+<p>This paragraph exercises <b>bold</b>, <i>italic</i>, <a href="/x">links</a>, and <code>inline code</code>.
+It is long enough to wrap across several lines at the default viewport width, which proves the greedy
+line breaker and the whitespace collapser both do their jobs.</p>
+<blockquote>A browser engine earns its keep on conformance tests — but it earns its face with a page like this one.</blockquote>
+<ul><li>block and inline layout</li><li>margins, borders, padding</li><li>an original monospace face</li></ul>
+<ol><li>tokenizer</li><li>tree builder</li><li>cascade</li></ol>
+<div class="box">A width-constrained box with its own border and background.</div>
+<p class="center">— centered text —</p>
+<pre>preformatted   text
+   keeps    its   spacing</pre>
+<hr>
+<p><small>small print at the end</small></p>
+</body></html>

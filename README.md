@@ -34,13 +34,16 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 
 ## Status — honest, updated per milestone
 
+**M2 (complete): the first page you can read.**
+Sashfold renders real pages to pixels, end to end, all of it in this repository: the CSS tokenizer and parser (css-syntax-3, current draft, nesting-era block contents), selectors with specificity and an+b structural pseudo-classes, the cascade (UA stylesheet, `<style>` sheets, style attributes, importance/origin/specificity/order, inheritance, em/rem units), block and inline layout (margin collapsing, line boxes with greedy breaking, whitespace collapsing, `pre`, lists with markers, auto-margin centering, percentage widths), and painting — backgrounds, solid borders, text decorations, and type set in **Sashfold Mono**, an original monospace face authored as stroke tables in this repo and rasterized with pure integer math. No font files, no libm in the raster path, so **renders are byte-identical across compilers and operating systems** — enforced by a reference-test suite whose PNG goldens (compressed by our own fixed-Huffman deflate encoder, verified against an independent inflate written for the test) are compared byte-for-byte in CI. A live Wikipedia article renders recognizably in ~130 ms; Acid1 runs and fails exactly where float layout should be (that's M4). `sashfold --render page.html -o out.png` is the whole pipeline in one flag.
+
 **M1 (complete): HTML in, DOM out.**
 The full parsing pipeline is up: the WHATWG tokenizer at **7032/7032 (100%)** on the html5lib tokenizer suite, and tree construction — the complete insertion-mode machine, adoption agency, foster parenting, templates, fragments, SVG/MathML foreign content, the customizable-`<select>` parser with `<selectedcontent>` cloning — at **1784/1784 (100%)** on the html5lib tree-construction suite. Character encoding is sniffed the way the spec says: BOM first, then the `<meta>` prescan, then the windows-1252 fallback (UTF-8, UTF-16LE/BE, and windows-1252 decoders, all written here). Both scores are enforced in CI by baselines that only ratchet upward, and both parser halves ship with libFuzzer harnesses. `sashfold --dump-dom page.html` prints the tree of any file you feed it.
 
 From M0: build system with warnings-as-errors from commit one; an RGBA software canvas with source-over compositing; a from-scratch PNG encoder whose zlib container is written here, not linked; unit tests that validate the PNG output by re-decoding it with an independent decoder written for the test; `pledge-check`; CI for all three OSes.
 
-Nothing renders yet. The road runs:
-**M1** HTML→DOM, graded publicly on html5lib-tests → **M2** CSS cascade + block/inline layout: first real pages render to PNG, with reference tests byte-identical across all three OSes → **M3** HTTP, cookies, a window: it becomes a browser → onward through images, flexbox, our own JavaScript engine, grid, and web-platform-tests scoring. Each milestone ships as a release with its numbers.
+The road runs:
+**M1** HTML→DOM, graded publicly on html5lib-tests ✓ → **M2** CSS cascade + block/inline layout: first real pages render to PNG, with reference tests byte-identical across all three OSes ✓ → **M3** HTTP, cookies, a window: it becomes a browser → onward through images, flexbox, our own JavaScript engine, grid, and web-platform-tests scoring. Each milestone ships as a release with its numbers.
 
 ## Building
 
