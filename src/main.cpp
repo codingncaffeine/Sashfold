@@ -4,10 +4,12 @@
 #include "html/TreeBuilder.h"
 #include "html/TreeDump.h"
 #include "layout/Layout.h"
+#include "net/Http.h"
 #include "paint/Painter.h"
 #include "text/SashfoldMono.h"
 
 #include <fstream>
+#include <optional>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -19,28 +21,76 @@ namespace {
 
 int usage(char const* program)
 {
-    std::cerr << "usage: " << program << " --render <file.html> [-o output.png] [--width N]\n"
+    std::cerr << "usage: " << program << " --render <file.html|http://url> [-o out.png] [--width N]\n"
+              << "       " << program << " --fetch <http://url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
               << "       " << program << " --font-sampler <output.png>\n"
               << "       " << program << " [-o output.png]\n"
               << "\n"
-              << "  --render lays out the page and writes it as a PNG.\n"
+              << "  --render lays out the page (local file or live URL) and writes a PNG.\n"
+              << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
               << "  --font-sampler draws the Sashfold Mono QA sheet.\n"
               << "  With no mode, renders the paint smoke scene.\n";
     return 2;
 }
 
-int render_page(std::string const& path, std::string const& output, int viewport_width)
+// Loads a --render / --dump-dom input: an http URL through the fetch choke
+// point, anything else as a local file.
+std::optional<std::string> load_input(std::string const& source)
 {
-    std::ifstream file(path, std::ios::binary);
+    if (source.starts_with("http://") || source.starts_with("https://")) {
+        auto const url = net::parse_url(source);
+        if (!url) {
+            std::cerr << "error: unparseable URL " << source << "\n";
+            return std::nullopt;
+        }
+        net::FetchResult result = net::fetch(*url);
+        if (!result.response) {
+            std::cerr << "error: " << result.error << "\n";
+            return std::nullopt;
+        }
+        std::cerr << "fetched " << result.response->final_url.serialize() << " ("
+                  << result.response->status << ", " << result.response->body.size()
+                  << " bytes)\n";
+        return std::string(result.response->body.begin(), result.response->body.end());
+    }
+    std::ifstream file(source, std::ios::binary);
     if (!file) {
-        std::cerr << "error: cannot read " << path << "\n";
-        return 1;
+        std::cerr << "error: cannot read " << source << "\n";
+        return std::nullopt;
     }
     std::ostringstream stream;
     stream << file.rdbuf();
-    auto document = html::parse_document_bytes(std::move(stream).str());
+    return std::move(stream).str();
+}
+
+int fetch_url(std::string const& input)
+{
+    auto const url = net::parse_url(input);
+    if (!url) {
+        std::cerr << "error: unparseable URL " << input << "\n";
+        return 1;
+    }
+    net::FetchResult result = net::fetch(*url);
+    if (!result.response) {
+        std::cerr << "error: " << result.error << "\n";
+        return 1;
+    }
+    std::cout << result.response->status << " " << result.response->status_text << "  ("
+              << result.response->final_url.serialize() << ")\n";
+    for (net::Header const& header : result.response->headers)
+        std::cout << header.name << ": " << header.value << "\n";
+    std::cout << "\n[" << result.response->body.size() << " bytes of body]\n";
+    return 0;
+}
+
+int render_page(std::string const& path, std::string const& output, int viewport_width)
+{
+    std::optional<std::string> const bytes = load_input(path);
+    if (!bytes)
+        return 1;
+    auto document = html::parse_document_bytes(*bytes);
     css::StyleMap const styles = css::resolve_styles(*document);
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width));
@@ -151,6 +201,13 @@ int main(int argc, char** argv)
                 return usage(argv[0]);
             }
             return font_sampler(args[i + 1]);
+        }
+        if (args[i] == "--fetch") {
+            if (i + 1 >= args.size()) {
+                std::cerr << "error: --fetch needs a URL\n";
+                return usage(argv[0]);
+            }
+            return fetch_url(args[i + 1]);
         }
         if (args[i] == "--render") {
             if (i + 1 >= args.size()) {

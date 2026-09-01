@@ -15,6 +15,7 @@ jobs:
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       - run: bash tools/pledge-check.sh build/sashfold
+      - run: bash tools/egress-check.sh
 
   linux-clang:
     runs-on: ubuntu-latest
@@ -69,6 +70,7 @@ jobs:
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       - run: bash tools/pledge-check.sh build/sashfold.exe
+      - run: bash tools/egress-check.sh
 
   macos:
     runs-on: macos-latest
@@ -79,3 +81,4 @@ jobs:
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       - run: bash tools/pledge-check.sh build/sashfold
+      - run: bash tools/egress-check.sh

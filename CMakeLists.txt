@@ -33,6 +33,7 @@ add_library(sashfold_core STATIC
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
   src/layout/Layout.cpp
+  src/net/Http.cpp
   src/net/Url.cpp
   src/paint/Painter.cpp
   src/text/SashfoldMono.cpp
@@ -42,6 +43,12 @@ add_library(sashfold_core STATIC
   src/html/TreeBuilder.cpp
   src/html/TreeDump.cpp
 )
+if(WIN32)
+  target_sources(sashfold_core PRIVATE src/platform/win32/NetWin32.cpp)
+  target_link_libraries(sashfold_core PUBLIC ws2_32)
+else()
+  target_sources(sashfold_core PRIVATE src/platform/posix/NetPosix.cpp)
+endif()
 target_include_directories(sashfold_core PUBLIC src)
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)
 
@@ -75,4 +82,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(css_parser)
   sashfold_fuzzer(url)
   sashfold_fuzzer(inflate)
+  sashfold_fuzzer(http_response)
 endif()

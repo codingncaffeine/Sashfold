@@ -5,3 +5,4 @@
 # networking, secur32/crypt32 with SChannel TLS.
 kernel32.dll
 msvcrt.dll
+ws2_32.dll

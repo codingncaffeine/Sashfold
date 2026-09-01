@@ -39,6 +39,7 @@ if [ -f "$binary" ]; then
 else
     echo "pledge-check: no gcc-lane binary to inspect"
 fi
+bash tools/egress-check.sh || overall=1
 
 if [ "$overall" -eq 0 ]; then
     echo "buildall: all lanes green"
