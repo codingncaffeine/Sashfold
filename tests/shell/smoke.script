@@ -1,0 +1,56 @@
+# The shell, headless: chrome paints, a page loads, a link is followed,
+# history works, tabs open and close, the address bar takes typed input.
+# Everything is a data: URL so the run needs no network and the goldens are
+# byte-identical on every OS.
+resize 800 500
+open data:text/html,<title>First page</title><h1>Hello</h1><p>A <a href="data:text/html,<title>Second page</title><p>Landed here.">link</a> to follow.</p>
+assert-title First page
+assert-text Hello
+assert-tabs 1
+assert-status Done
+assert-golden goldens/smoke-first.png
+
+click-text link
+assert-title Second page
+assert-text Landed here.
+assert-no-text Hello
+
+back
+assert-title First page
+forward
+assert-title Second page
+
+key ctrl+t
+assert-tabs 2
+assert-focus address
+assert-address 
+type data:text/html,<title>Typed</title><p>Typed in.
+assert-golden goldens/smoke-typing.png
+key Enter
+assert-title Typed
+assert-text Typed in.
+assert-focus page
+
+key ctrl+w
+assert-tabs 1
+assert-title Second page
+
+navigate not a url at all
+assert-title That is not a web address
+assert-status Not a web address
+
+# Tab arithmetic: closing tabs left of the active one keeps the active page.
+new-tab
+navigate data:text/html,<title>Third</title><p>Three
+new-tab
+navigate data:text/html,<title>Fourth</title><p>Four
+assert-tabs 3
+assert-title Fourth
+close-tab 0
+assert-tabs 2
+assert-title Fourth
+select-tab 0
+assert-title Third
+close-tab 1
+assert-tabs 1
+assert-title Third

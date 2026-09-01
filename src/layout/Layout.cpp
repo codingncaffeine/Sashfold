@@ -41,6 +41,7 @@ struct InlineItem {
     Kind kind = Kind::Word;
     std::u32string text;
     ComputedStyle const* style = nullptr;
+    dom::Element const* element = nullptr; // nearest element, for hit-testing
 };
 
 struct Layouter {
@@ -56,7 +57,7 @@ struct Layouter {
 
     // Collapses whitespace per the white-space mode and appends items.
     void append_text(std::u32string_view text, ComputedStyle const* style,
-        std::vector<InlineItem>& items) const
+        std::vector<InlineItem>& items, dom::Element const* element) const
     {
         WhiteSpace const mode = style->white_space;
         bool const preserve_spaces = mode == WhiteSpace::Pre || mode == WhiteSpace::PreWrap;
@@ -65,7 +66,7 @@ struct Layouter {
         std::u32string word;
         auto const flush_word = [&] {
             if (!word.empty()) {
-                items.push_back(InlineItem { InlineItem::Kind::Word, std::move(word), style });
+                items.push_back(InlineItem { InlineItem::Kind::Word, std::move(word), style, element });
                 word = {};
             }
         };
@@ -74,7 +75,7 @@ struct Layouter {
             bool const is_space = c == U' ' || c == U'\t' || c == U'\f' || c == U'\r';
             if (is_newline && preserve_newlines) {
                 flush_word();
-                items.push_back(InlineItem { InlineItem::Kind::HardBreak, {}, style });
+                items.push_back(InlineItem { InlineItem::Kind::HardBreak, {}, style, element });
                 continue;
             }
             if (preserve_spaces) {
@@ -91,7 +92,7 @@ struct Layouter {
             if (is_space || is_newline) {
                 flush_word();
                 if (items.empty() || items.back().kind != InlineItem::Kind::Space)
-                    items.push_back(InlineItem { InlineItem::Kind::Space, U" ", style });
+                    items.push_back(InlineItem { InlineItem::Kind::Space, U" ", style, element });
                 continue;
             }
             word.push_back(c);
@@ -106,7 +107,8 @@ struct Layouter {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
-                    append_text(text, inherited, items);
+                    append_text(text, inherited, items,
+                        node.is_element() ? static_cast<dom::Element const*>(&node) : nullptr);
                 continue;
             }
             if (!child->is_element())
@@ -116,13 +118,13 @@ struct Layouter {
             if (!style || style->display == Display::None)
                 continue;
             if (element.is_html("br")) {
-                items.push_back(InlineItem { InlineItem::Kind::HardBreak, {}, inherited });
+                items.push_back(InlineItem { InlineItem::Kind::HardBreak, {}, inherited, &element });
                 continue;
             }
             if (element.is_html("img")) {
                 // Images arrive in M4; the alt text stands in.
                 if (dom::Attr const* alt = element.find_attribute("alt"); alt && !alt->value.empty())
-                    append_text(decode_utf8("[" + alt->value + "]"), style, items);
+                    append_text(decode_utf8("[" + alt->value + "]"), style, items, &element);
                 continue;
             }
             collect_inline(element, style, items);
@@ -147,6 +149,7 @@ struct Layouter {
             ComputedStyle const* style;
             bool is_space;
             float width;
+            dom::Element const* element;
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -172,7 +175,7 @@ struct Layouter {
             for (Placed& placed : line) {
                 float const width = placed.width;
                 if (!placed.text.empty())
-                    out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style });
+                    out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style, placed.element });
                 x += width;
             }
             y += line_height;
@@ -192,7 +195,7 @@ struct Layouter {
                 if (line.empty())
                     continue; // leading space on a line collapses away
                 float const width = text::SashfoldMono::measure(item.text, item.style->font_size);
-                line.push_back(Placed { item.text, item.style, true, width });
+                line.push_back(Placed { item.text, item.style, true, width, item.element });
                 line_width += width;
                 continue;
             }
@@ -207,14 +210,14 @@ struct Layouter {
                     static_cast<std::size_t>(content_width / advance));
                 while (line.empty() && word.size() > fit) {
                     line.push_back(Placed { word.substr(0, fit), item.style, false,
-                        static_cast<float>(fit) * advance });
+                        static_cast<float>(fit) * advance, item.element });
                     line_width += line.back().width;
                     flush_line();
                     word = word.substr(fit);
                 }
                 width = text::SashfoldMono::measure(word, item.style->font_size);
             }
-            line.push_back(Placed { std::move(word), item.style, false, width });
+            line.push_back(Placed { std::move(word), item.style, false, width, item.element });
             line_width += width;
         }
         if (!line.empty())
@@ -337,7 +340,7 @@ struct Layouter {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
-                    append_text(text, &style, pending_inline);
+                    append_text(text, &style, pending_inline, &element);
                 continue;
             }
             if (!child->is_element())
@@ -384,12 +387,12 @@ struct Layouter {
         std::vector<InlineItem>& items) const
     {
         if (element.is_html("br")) {
-            items.push_back(InlineItem { InlineItem::Kind::HardBreak, {}, &style });
+            items.push_back(InlineItem { InlineItem::Kind::HardBreak, {}, &style, &element });
             return;
         }
         if (element.is_html("img")) {
             if (dom::Attr const* alt = element.find_attribute("alt"); alt && !alt->value.empty())
-                append_text(decode_utf8("[" + alt->value + "]"), &style, items);
+                append_text(decode_utf8("[" + alt->value + "]"), &style, items, &element);
             return;
         }
         collect_inline(element, &style, items);
@@ -425,7 +428,7 @@ struct Layouter {
         float const baseline = item_fragment.y + style.border_top.width
             + resolve(style.padding_top, 0) + ascent_in_line(style);
         item_fragment.runs.insert(item_fragment.runs.begin(),
-            TextRun { item_fragment.x - width - gap, baseline, std::move(marker), &style });
+            TextRun { item_fragment.x - width - gap, baseline, std::move(marker), &style, item_fragment.element });
     }
 };
 

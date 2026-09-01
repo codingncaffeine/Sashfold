@@ -150,6 +150,12 @@ std::vector<GlyphDef> build_glyphs()
     add(0x201C, { V(9, 3, 7, 9), V(14, 3, 12, 9) });
     add(0x201D, { V(7, 3, 9, 9), V(12, 3, 14, 9) });
     add(0x2026, { H(3, 23, 5, 23), H(9, 23, 11, 23), H(15, 23, 17, 23) }); // ellipsis
+
+    // Chrome glyphs (plan M3 shell): back, forward, reload, close.
+    add(0x2190, { H(2, 14, 18, 14), V(9, 7, 2, 14), V(2, 14, 9, 21) }); // left arrow
+    add(0x2192, { H(2, 14, 18, 14), V(11, 7, 18, 14), V(18, 14, 11, 21) }); // right arrow
+    add(0x21BB, { H(7, 4, 11, 4), V(11, 4, 7, 0), V(11, 4, 7, 8), V(19, 9, 19, 19), V(19, 19, 13, 25), H(7, 25, 13, 25), V(7, 25, 1, 19), V(1, 19, 1, 9), V(1, 9, 7, 4) }); // clockwise open circle arrow: a ring open at the upper right, the arrowhead at the top pointing into the gap
+    add(0x00D7, { V(5, 9, 15, 19), V(15, 9, 5, 19) }); // multiplication sign
     add(0x00A0, {}); // nbsp draws nothing
 
     return defs;

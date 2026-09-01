@@ -97,4 +97,52 @@ void Bitmap::fill_rect(Rect rect, Color color)
     }
 }
 
+void Bitmap::fill_round_rect(Rect rect, int radius, Color color)
+{
+    if (rect.is_empty() || color.a == 0)
+        return;
+    int const r = std::max(0, std::min({ radius, rect.width / 2, rect.height / 2 }));
+    if (r == 0) {
+        fill_rect(rect, color);
+        return;
+    }
+    // The band between the corner rows is a plain rectangle.
+    fill_rect(Rect { rect.x, rect.y + r, rect.width, rect.height - 2 * r }, color);
+    // Each corner row is inset to where its pixel centers fall inside the
+    // corner circle; distances are kept doubled so the half-pixel centers
+    // stay integral.
+    int const rr4 = 4 * r * r;
+    for (int row = 0; row < r; ++row) {
+        int const dy2 = 2 * (r - row) - 1;
+        int inset = r;
+        for (int col = 0; col < r; ++col) {
+            int const dx2 = 2 * (r - col) - 1;
+            if (dx2 * dx2 + dy2 * dy2 <= rr4) {
+                inset = col;
+                break;
+            }
+        }
+        fill_rect(Rect { rect.x + inset, rect.y + row, rect.width - 2 * inset, 1 }, color);
+        fill_rect(Rect { rect.x + inset, rect.bottom() - 1 - row, rect.width - 2 * inset, 1 },
+            color);
+    }
+}
+
+void Bitmap::blit(Bitmap const& source, int x, int y)
+{
+    int const x0 = std::max(x, 0);
+    int const y0 = std::max(y, 0);
+    int const x1 = std::min(x + source.width(), m_width);
+    int const y1 = std::min(y + source.height(), m_height);
+    if (x1 <= x0 || y1 <= y0)
+        return;
+    std::size_t const row_bytes = static_cast<std::size_t>(x1 - x0) * 4u;
+    for (int row = y0; row < y1; ++row) {
+        std::size_t const from = source.offset_of(x0 - x, row - y);
+        std::size_t const to = offset_of(x0, row);
+        std::copy_n(source.m_pixels.begin() + static_cast<std::ptrdiff_t>(from), row_bytes,
+            m_pixels.begin() + static_cast<std::ptrdiff_t>(to));
+    }
+}
+
 }

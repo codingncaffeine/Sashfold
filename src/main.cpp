@@ -6,11 +6,18 @@
 #include "layout/Layout.h"
 #include "net/Http.h"
 #include "paint/Painter.h"
+#include "platform/Window.h"
 #include "text/SashfoldMono.h"
+#include "ui/Browser.h"
+#include "ui/Script.h"
+#include "ui/ShellLoader.h"
+#include "ui/Theme.h"
 
+#include <chrono>
+#include <filesystem>
 #include <fstream>
-#include <optional>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -21,17 +28,24 @@ namespace {
 
 int usage(char const* program)
 {
-    std::cerr << "usage: " << program << " --render <file.html|http://url> [-o out.png] [--width N]\n"
-              << "       " << program << " --fetch <http://url>\n"
+    std::cerr << "usage: " << program << " [url] [--theme <file.json>]\n"
+              << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
+              << "       " << program << " --render <file.html|url> [-o out.png] [--width N]\n"
+              << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
               << "       " << program << " --font-sampler <output.png>\n"
-              << "       " << program << " [-o output.png]\n"
+              << "       " << program << " --smoke [-o output.png]\n"
               << "\n"
+              << "  With a URL or nothing, opens the browser window.\n"
+              << "  --theme applies a theme file to the window and to --script; the default is\n"
+              << "          themes/default.json beside the executable or its parent, reloaded\n"
+              << "          whenever the file changes while the window is open.\n"
+              << "  --script replays a shell script headlessly and checks its assertions.\n"
               << "  --render lays out the page (local file or live URL) and writes a PNG.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
               << "  --font-sampler draws the Sashfold Mono QA sheet.\n"
-              << "  With no mode, renders the paint smoke scene.\n";
+              << "  --smoke renders the paint smoke scene.\n";
     return 2;
 }
 
@@ -125,12 +139,13 @@ int dump_dom(std::string const& path)
 int font_sampler(std::string const& output)
 {
     text::SashfoldMono const& font = text::SashfoldMono::instance();
-    Bitmap canvas(980, 720, Color::rgb(252, 252, 250));
+    Bitmap canvas(980, 760, Color::rgb(252, 252, 250));
     std::u32string const rows[] = {
         U"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         U"abcdefghijklmnopqrstuvwxyz",
         U"0123456789 !\"#$%&'()*+,-./",
         U":;<=>?@[\\]^_`{|}~ •–—‘’“”…�",
+        U"← → ↻ × chrome glyphs",
         U"The quick brown fox jumps over the lazy dog.",
         U"int main() { return \"hi\"; } /* 0xFF */",
     };
@@ -167,89 +182,198 @@ int font_sampler(std::string const& output)
 
 // Exercises the paint path end to end: opaque fills, clipping at every edge,
 // and alpha compositing over both opaque and transparent ground.
-Bitmap render_smoke_scene()
+int smoke_scene(std::string const& output)
 {
     Bitmap canvas(320, 200, Color::rgb(250, 250, 248));
-
     canvas.fill_rect(Rect { 0, 0, 320, 44 }, Color::rgb(32, 38, 52));
     canvas.fill_rect(Rect { 16, 68, 120, 90 }, Color::rgb(214, 84, 72));
     canvas.fill_rect(Rect { 96, 100, 120, 90 }, Color::rgba(60, 120, 216, 128));
     canvas.fill_rect(Rect { -20, 168, 80, 60 }, Color::rgb(96, 176, 120));
     canvas.fill_rect(Rect { 268, -10, 80, 40 }, Color::rgba(240, 200, 64, 200));
-
-    return canvas;
-}
-
-}
-
-int main(int argc, char** argv)
-{
-    std::vector<std::string> const args(argv + 1, argv + argc);
-    std::string output = "sashfold-out.png";
-
-    for (std::size_t i = 0; i < args.size(); ++i) {
-        if (args[i] == "--dump-dom") {
-            if (i + 1 >= args.size()) {
-                std::cerr << "error: --dump-dom needs a path\n";
-                return usage(argv[0]);
-            }
-            return dump_dom(args[i + 1]);
-        }
-        if (args[i] == "--font-sampler") {
-            if (i + 1 >= args.size()) {
-                std::cerr << "error: --font-sampler needs an output path\n";
-                return usage(argv[0]);
-            }
-            return font_sampler(args[i + 1]);
-        }
-        if (args[i] == "--fetch") {
-            if (i + 1 >= args.size()) {
-                std::cerr << "error: --fetch needs a URL\n";
-                return usage(argv[0]);
-            }
-            return fetch_url(args[i + 1]);
-        }
-        if (args[i] == "--render") {
-            if (i + 1 >= args.size()) {
-                std::cerr << "error: --render needs a path\n";
-                return usage(argv[0]);
-            }
-            std::string const input = args[i + 1];
-            std::string render_output = "sashfold-out.png";
-            int viewport_width = 800;
-            for (std::size_t j = i + 2; j < args.size(); ++j) {
-                if ((args[j] == "-o" || args[j] == "--output") && j + 1 < args.size()) {
-                    render_output = args[++j];
-                } else if (args[j] == "--width" && j + 1 < args.size()) {
-                    viewport_width = std::max(64, std::atoi(args[++j].c_str()));
-                } else {
-                    std::cerr << "error: unrecognised argument '" << args[j] << "'\n";
-                    return usage(argv[0]);
-                }
-            }
-            return render_page(input, render_output, viewport_width);
-        }
-        if (args[i] == "-o" || args[i] == "--output") {
-            if (i + 1 >= args.size()) {
-                std::cerr << "error: " << args[i] << " needs a path\n";
-                return usage(argv[0]);
-            }
-            output = args[++i];
-        } else if (args[i] == "-h" || args[i] == "--help") {
-            usage(argv[0]);
-            return 0;
-        } else {
-            std::cerr << "error: unrecognised argument '" << args[i] << "'\n";
-            return usage(argv[0]);
-        }
-    }
-
-    Bitmap const canvas = render_smoke_scene();
+    canvas.fill_round_rect(Rect { 200, 60, 100, 60 }, 14, Color::rgb(60, 60, 70));
     if (!write_png(output, canvas)) {
         std::cerr << "error: could not write " << output << "\n";
         return 1;
     }
-
     std::cout << "wrote " << output << " (" << canvas.width() << "x" << canvas.height() << ")\n";
     return 0;
+}
+
+// themes/default.json beside the executable, or beside its parent directory
+// (a build tree inside the repository), else the built-in defaults.
+std::string default_theme_path(char const* program)
+{
+    std::error_code error;
+    std::filesystem::path const exe = std::filesystem::absolute(program, error);
+    if (error)
+        return {};
+    std::filesystem::path const dir = exe.parent_path();
+    for (std::filesystem::path const& base : { dir, dir.parent_path() }) {
+        std::filesystem::path const candidate = base / "themes" / "default.json";
+        if (std::filesystem::exists(candidate, error))
+            return candidate.string();
+    }
+    return {};
+}
+
+ui::Theme load_theme(std::string const& path)
+{
+    if (path.empty())
+        return ui::Theme {};
+    std::vector<std::string> problems;
+    std::optional<ui::Theme> const theme = ui::Theme::load(path, &problems);
+    for (std::string const& problem : problems)
+        std::cerr << problem << "\n";
+    return theme.value_or(ui::Theme {});
+}
+
+int run_script_mode(std::string const& script, bool update_goldens, int width, int height,
+    std::string const& theme_path)
+{
+    ui::ShellLoader loader;
+    ui::Browser browser(loader, load_theme(theme_path), width, height);
+    ui::ScriptResult const result = ui::run_script(browser, script, update_goldens, std::cout);
+    return result.ok() ? 0 : 1;
+}
+
+int run_window(std::string const& start_url, std::string const& theme_path)
+{
+    std::unique_ptr<platform::Window> window = platform::Window::create("Sashfold", 1100, 760);
+    if (!window) {
+        std::cerr << "error: no window backend on this OS yet (Wayland lands at M3.5, macOS at M5);\n"
+                     "       --render, --fetch, and --script work everywhere\n";
+        return 1;
+    }
+    ui::ShellLoader loader;
+    ui::Browser browser(loader, load_theme(theme_path), window->width(), window->height());
+    browser.navigate(start_url.empty() ? "about:sashfold" : start_url);
+
+    std::error_code error;
+    std::filesystem::file_time_type theme_stamp;
+    if (!theme_path.empty())
+        theme_stamp = std::filesystem::last_write_time(theme_path, error);
+    auto last_theme_check = std::chrono::steady_clock::now();
+    std::string last_title;
+
+    bool running = true;
+    while (running) {
+        platform::WindowEvent event;
+        while (window->poll(event)) {
+            using Kind = platform::WindowEvent::Kind;
+            switch (event.kind) {
+            case Kind::Close: running = false; break;
+            case Kind::Resize: browser.resize(event.width, event.height); break;
+            case Kind::MouseMove: browser.mouse_move(event.x, event.y); break;
+            case Kind::MouseDown: browser.mouse_down(event.x, event.y, event.button); break;
+            case Kind::MouseUp: browser.mouse_up(event.x, event.y, event.button); break;
+            case Kind::Wheel: browser.wheel(event.x, event.y, event.wheel); break;
+            case Kind::KeyDown: browser.key_down(event.key); break;
+            case Kind::Text: browser.text_input(event.text); break;
+            case Kind::None: break;
+            }
+        }
+        if (!running)
+            break;
+
+        if (browser.has_pending_load()) {
+            window->present(browser.frame()); // the "Loading" frame, before the synchronous fetch
+            browser.tick();
+        }
+        if (browser.needs_paint())
+            window->present(browser.frame());
+        std::string const title = browser.window_title();
+        if (title != last_title) {
+            window->set_title(title);
+            last_title = title;
+        }
+        window->set_cursor(browser.cursor());
+
+        // Themes are data: edit the file and the window follows.
+        if (!theme_path.empty()) {
+            auto const now = std::chrono::steady_clock::now();
+            if (now - last_theme_check > std::chrono::milliseconds(500)) {
+                last_theme_check = now;
+                std::filesystem::file_time_type const stamp
+                    = std::filesystem::last_write_time(theme_path, error);
+                if (!error && stamp != theme_stamp) {
+                    theme_stamp = stamp;
+                    browser.set_theme(load_theme(theme_path));
+                }
+            }
+        }
+        if (!browser.has_pending_load())
+            window->wait(theme_path.empty() ? -1 : 500);
+    }
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    std::vector<std::string> const args(argv + 1, argv + argc);
+    std::string mode;
+    std::string input;
+    std::string output = "sashfold-out.png";
+    std::string start_url;
+    std::string theme_path = default_theme_path(argv[0]);
+    int width = 0;
+    int height = 0;
+    bool update_goldens = false;
+
+    auto const value_after = [&](std::size_t& i, std::string& into) {
+        if (i + 1 >= args.size()) {
+            std::cerr << "error: " << args[i] << " needs a value\n";
+            return false;
+        }
+        into = args[++i];
+        return true;
+    };
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        std::string const& arg = args[i];
+        if (arg == "--theme") {
+            if (!value_after(i, theme_path))
+                return usage(argv[0]);
+        } else if (arg == "--script" || arg == "--render" || arg == "--fetch" || arg == "--dump-dom"
+            || arg == "--font-sampler") {
+            mode = arg;
+            if (!value_after(i, input))
+                return usage(argv[0]);
+        } else if (arg == "--smoke") {
+            mode = arg;
+        } else if (arg == "--update-goldens") {
+            update_goldens = true;
+        } else if (arg == "--width" || arg == "--height") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            (arg == "--width" ? width : height) = std::max(64, std::atoi(text.c_str()));
+        } else if (arg == "-o" || arg == "--output") {
+            if (!value_after(i, output))
+                return usage(argv[0]);
+        } else if (arg == "-h" || arg == "--help") {
+            usage(argv[0]);
+            return 0;
+        } else if (arg.starts_with("-")) {
+            std::cerr << "error: unrecognised argument '" << arg << "'\n";
+            return usage(argv[0]);
+        } else {
+            start_url = arg;
+        }
+    }
+
+    if (mode == "--script")
+        return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
+            theme_path);
+    if (mode == "--render")
+        return render_page(input, output, width ? width : 800);
+    if (mode == "--fetch")
+        return fetch_url(input);
+    if (mode == "--dump-dom")
+        return dump_dom(input);
+    if (mode == "--font-sampler")
+        return font_sampler(input);
+    if (mode == "--smoke")
+        return smoke_scene(output);
+    return run_window(start_url, theme_path);
 }

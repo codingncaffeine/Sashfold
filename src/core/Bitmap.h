@@ -34,6 +34,10 @@ struct Rect {
     constexpr int right() const { return x + width; }
     constexpr int bottom() const { return y + height; }
     constexpr bool is_empty() const { return width <= 0 || height <= 0; }
+    constexpr bool contains(int px, int py) const
+    {
+        return px >= x && py >= y && px < right() && py < bottom();
+    }
 };
 
 // An RGBA8 image, row-major, no padding between rows.
@@ -59,6 +63,14 @@ public:
     void blend_pixel(int x, int y, Color color);
 
     void fill_rect(Rect rect, Color color);
+
+    // A filled rectangle whose corners are quarter circles of the given
+    // radius — integer geometry only, so it is byte-identical everywhere.
+    void fill_round_rect(Rect rect, int radius, Color color);
+
+    // Copies the source's pixels over this bitmap at (x, y), clipped; no
+    // blending — the source replaces what was there.
+    void blit(Bitmap const& source, int x, int y);
 
 private:
     std::size_t offset_of(int x, int y) const

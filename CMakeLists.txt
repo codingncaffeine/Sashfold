@@ -43,6 +43,11 @@ add_library(sashfold_core STATIC
   src/net/Url.cpp
   src/paint/Painter.cpp
   src/text/SashfoldMono.cpp
+  src/ui/Browser.cpp
+  src/ui/InternalPages.cpp
+  src/ui/Script.cpp
+  src/ui/ShellLoader.cpp
+  src/ui/Theme.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
   src/html/Tokenizer.cpp
@@ -50,10 +55,12 @@ add_library(sashfold_core STATIC
   src/html/TreeDump.cpp
 )
 if(WIN32)
-  target_sources(sashfold_core PRIVATE src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp)
-  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32)
+  target_sources(sashfold_core PRIVATE src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp
+    src/platform/win32/WindowWin32.cpp)
+  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32)
 else()
-  target_sources(sashfold_core PRIVATE src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp)
+  target_sources(sashfold_core PRIVATE src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp
+    src/platform/posix/WindowPosix.cpp)
 endif()
 target_include_directories(sashfold_core PUBLIC src)
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)

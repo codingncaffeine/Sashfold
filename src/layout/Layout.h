@@ -26,6 +26,7 @@ struct TextRun {
     float baseline_y = 0; // absolute
     std::u32string text;
     css::ComputedStyle const* style = nullptr;
+    dom::Element const* element = nullptr; // nearest element: hit-testing walks up from here
 };
 
 struct Fragment {
