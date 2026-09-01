@@ -3,11 +3,9 @@
 // The WHATWG URL parser — a security component: it defines origin identity.
 // The basic URL parser state machine, host parsing (domains, IPv4, IPv6,
 // opaque hosts), percent-encoding, and the serializers, from the live spec.
-//
-// Honest gap, graded by the vendored WPT urltestdata suite: domain-to-ASCII
-// currently lowercases ASCII and Punycode-encodes non-ASCII labels directly,
-// without the full UTS46 mapping table (that arrives with tools/gen-unicode,
-// plan §5.2). The fixture score is ratcheted in CI and climbs from here.
+// Domain-to-ASCII is the full WHATWG algorithm over UTS #46 with the
+// generated mapping table and NFC (Idna.h); the vendored WPT urltestdata
+// suite passes 893/893, ratcheted in CI.
 
 #include <cstdint>
 #include <optional>
@@ -58,8 +56,5 @@ struct Url {
 // The basic URL parser (no state override, no encoding override).
 // nullopt == failure.
 std::optional<Url> parse_url(std::string_view input, Url const* base = nullptr);
-
-// Exposed for tests: RFC 3492 Punycode encoding of one label (no "xn--").
-std::optional<std::string> punycode_encode(std::u32string_view label);
 
 }

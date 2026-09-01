@@ -2,6 +2,7 @@
 
 #include "core/Ascii.h"
 #include "core/Unicode.h"
+#include "net/Idna.h"
 
 #include <algorithm>
 #include <array>
@@ -118,94 +119,6 @@ std::string percent_decode(std::string_view input)
     return out;
 }
 
-// --- Punycode (RFC 3492) ------------------------------------------------------
-
-constexpr std::uint32_t punycode_base = 36;
-constexpr std::uint32_t punycode_tmin = 1;
-constexpr std::uint32_t punycode_tmax = 26;
-constexpr std::uint32_t punycode_skew = 38;
-constexpr std::uint32_t punycode_damp = 700;
-constexpr std::uint32_t punycode_initial_bias = 72;
-constexpr std::uint32_t punycode_initial_n = 128;
-
-std::uint32_t punycode_adapt(std::uint32_t delta, std::uint32_t num_points, bool first_time)
-{
-    delta = first_time ? delta / punycode_damp : delta / 2;
-    delta += delta / num_points;
-    std::uint32_t k = 0;
-    while (delta > ((punycode_base - punycode_tmin) * punycode_tmax) / 2) {
-        delta /= punycode_base - punycode_tmin;
-        k += punycode_base;
-    }
-    return k + (((punycode_base - punycode_tmin + 1) * delta) / (delta + punycode_skew));
-}
-
-char punycode_digit(std::uint32_t d)
-{
-    return d < 26 ? static_cast<char>('a' + d) : static_cast<char>('0' + d - 26);
-}
-
-} // namespace
-
-std::optional<std::string> punycode_encode(std::u32string_view label)
-{
-    std::string output;
-    std::uint32_t handled = 0;
-    for (char32_t const c : label) {
-        if (c < 0x80) {
-            output += static_cast<char>(c);
-            ++handled;
-        }
-    }
-    std::uint32_t const basic_count = handled;
-    if (basic_count > 0)
-        output += '-';
-
-    std::uint32_t n = punycode_initial_n;
-    std::uint32_t delta = 0;
-    std::uint32_t bias = punycode_initial_bias;
-    while (handled < label.size()) {
-        char32_t minimum = 0x10FFFF;
-        for (char32_t const c : label) {
-            if (c >= n && c < minimum)
-                minimum = c;
-        }
-        std::uint64_t const advance = static_cast<std::uint64_t>(minimum - n)
-            * static_cast<std::uint64_t>(handled + 1);
-        if (delta + advance > 0xFFFFFFFFu)
-            return std::nullopt; // overflow
-        delta += static_cast<std::uint32_t>(advance);
-        n = minimum;
-        for (char32_t const c : label) {
-            if (c < n) {
-                if (++delta == 0)
-                    return std::nullopt; // overflow
-            }
-            if (c == n) {
-                std::uint32_t q = delta;
-                for (std::uint32_t k = punycode_base;; k += punycode_base) {
-                    std::uint32_t const threshold = k <= bias ? punycode_tmin
-                        : k >= bias + punycode_tmax             ? punycode_tmax
-                                                                : k - bias;
-                    if (q < threshold)
-                        break;
-                    output += punycode_digit(threshold + (q - threshold) % (punycode_base - threshold));
-                    q = (q - threshold) / (punycode_base - threshold);
-                }
-                output += punycode_digit(q);
-                bias = punycode_adapt(delta, handled + 1, handled == basic_count);
-                delta = 0;
-                ++handled;
-            }
-        }
-        ++delta;
-        ++n;
-    }
-    return output;
-}
-
-namespace {
-
 // --- Host parsing -------------------------------------------------------------
 
 bool is_forbidden_host_code_point(char32_t c)
@@ -218,41 +131,6 @@ bool is_forbidden_host_code_point(char32_t c)
 bool is_forbidden_domain_code_point(char32_t c)
 {
     return is_forbidden_host_code_point(c) || c < 0x20 || c == U'%' || c == 0x7F;
-}
-
-// Domain to ASCII, the honest v1: ASCII labels lowercase; non-ASCII labels
-// get Punycode with simple ASCII lowercasing (full UTS46 mapping arrives with
-// the generated Unicode tables, plan §5.2).
-std::optional<std::string> domain_to_ascii(std::string_view domain_utf8)
-{
-    std::u32string const domain = decode_utf8(domain_utf8);
-    std::string result;
-    std::size_t label_start = 0;
-    bool first = true;
-    for (std::size_t i = 0; i <= domain.size(); ++i) {
-        if (i != domain.size() && domain[i] != U'.')
-            continue;
-        std::u32string label = domain.substr(label_start, i - label_start);
-        label_start = i + 1;
-        if (!first)
-            result += '.';
-        first = false;
-        bool ascii = true;
-        for (char32_t& c : label) {
-            c = to_ascii_lowercase(c);
-            if (c >= 0x80)
-                ascii = false;
-        }
-        if (ascii) {
-            result += to_utf8(label);
-        } else {
-            std::optional<std::string> const encoded = punycode_encode(label);
-            if (!encoded)
-                return std::nullopt;
-            result += "xn--" + *encoded;
-        }
-    }
-    return result;
 }
 
 // "Ends in a number" checker (spec §3.5) and the IPv4 number parser.

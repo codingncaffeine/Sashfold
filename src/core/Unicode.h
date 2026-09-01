@@ -32,4 +32,10 @@ std::string to_utf8(std::u32string_view);
 // false for bytes that came from outside.
 std::u32string decode_utf8(std::string_view, bool permit_surrogates = false);
 
+// Canonical composition (UAX #15) over the generated tables; Normalize.cpp.
+std::u32string nfc(std::u32string_view);
+
+// General category Mn, Mc, or Me.
+bool is_combining_mark(char32_t);
+
 }

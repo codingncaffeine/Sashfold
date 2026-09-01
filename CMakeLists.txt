@@ -25,6 +25,7 @@ add_library(sashfold_core STATIC
   src/core/Bitmap.cpp
   src/core/Inflate.cpp
   src/core/Json.cpp
+  src/core/Normalize.cpp
   src/core/Png.cpp
   src/core/Unicode.cpp
   src/css/Parser.cpp
@@ -34,6 +35,7 @@ add_library(sashfold_core STATIC
   src/dom/Dom.cpp
   src/layout/Layout.cpp
   src/net/Http.cpp
+  src/net/Idna.cpp
   src/net/Url.cpp
   src/paint/Painter.cpp
   src/text/SashfoldMono.cpp
