@@ -49,3 +49,8 @@ add_test(NAME wpt_url
   COMMAND wpt_url
     ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/wpt/urltestdata.json
     ${CMAKE_CURRENT_SOURCE_DIR}/wpt_url.baseline)
+
+add_executable(test_inflate test_inflate.cpp)
+target_link_libraries(test_inflate PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_inflate
+  COMMAND test_inflate ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/inflate)

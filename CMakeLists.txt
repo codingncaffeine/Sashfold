@@ -23,6 +23,7 @@ endif()
 
 add_library(sashfold_core STATIC
   src/core/Bitmap.cpp
+  src/core/Inflate.cpp
   src/core/Json.cpp
   src/core/Png.cpp
   src/core/Unicode.cpp
@@ -73,4 +74,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(css_tokenizer)
   sashfold_fuzzer(css_parser)
   sashfold_fuzzer(url)
+  sashfold_fuzzer(inflate)
 endif()
