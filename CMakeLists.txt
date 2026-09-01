@@ -44,10 +44,10 @@ add_library(sashfold_core STATIC
   src/html/TreeDump.cpp
 )
 if(WIN32)
-  target_sources(sashfold_core PRIVATE src/platform/win32/NetWin32.cpp)
-  target_link_libraries(sashfold_core PUBLIC ws2_32)
+  target_sources(sashfold_core PRIVATE src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp)
+  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32)
 else()
-  target_sources(sashfold_core PRIVATE src/platform/posix/NetPosix.cpp)
+  target_sources(sashfold_core PRIVATE src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp)
 endif()
 target_include_directories(sashfold_core PUBLIC src)
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)

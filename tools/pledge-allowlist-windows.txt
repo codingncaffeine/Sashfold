@@ -6,3 +6,4 @@
 kernel32.dll
 msvcrt.dll
 ws2_32.dll
+secur32.dll

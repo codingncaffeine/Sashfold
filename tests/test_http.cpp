@@ -2,6 +2,7 @@
 
 #include "net/Http.h"
 #include "platform/Net.h"
+#include "platform/Tls.h"
 
 #include <cstring>
 #include <filesystem>
@@ -201,14 +202,18 @@ int main(int argc, char** argv)
         }
     }
 
-    // --- https states its business plainly -----------------------------------
+    // --- https routes through the TLS seam (hermetically) --------------------
     {
-        auto const url = net::parse_url("https://example.com/");
+        auto const url = net::parse_url("https://127.0.0.1:1/"); // nothing listens
         CHECK(url.has_value());
         if (url) {
             net::FetchResult const result = net::fetch(*url);
             CHECK(!result.response.has_value());
-            CHECK(result.error.find("https") != std::string::npos);
+            if (!platform::TlsSocket::available()) {
+                // Without a backend the message names the gap instead of
+                // pretending to try.
+                CHECK(result.error.find("TLS") != std::string::npos);
+            }
         }
     }
 

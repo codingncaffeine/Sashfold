@@ -3,8 +3,10 @@
 #include "core/Ascii.h"
 #include "core/Inflate.h"
 #include "platform/Net.h"
+#include "platform/Tls.h"
 
 #include <algorithm>
+#include <variant>
 
 namespace sashfold::net {
 
@@ -271,19 +273,29 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
 {
     Url current = url;
     for (int hop = 0; hop <= options.max_redirects; ++hop) {
-        if (current.scheme == "https")
+        bool const secure = current.scheme == "https";
+        if (secure && !platform::TlsSocket::available())
             return { std::nullopt,
-                "https is not wired up yet (SChannel lands with the Tls seam); try http" };
-        if (current.scheme != "http")
+                "https needs the platform TLS backend (our own TLS 1.3 client is the Linux "
+                "deliverable at M3.5)" };
+        if (!secure && current.scheme != "http")
             return { std::nullopt, "unsupported scheme: " + current.scheme };
         if (!current.has_host() || current.host.empty())
             return { std::nullopt, "no host in URL" };
 
-        std::uint16_t const port = current.port.value_or(80);
+        std::uint16_t const port = current.port.value_or(secure ? 443 : 80);
         // (IPv6 hosts are stored bracket-free, which is what getaddrinfo wants.)
-        auto socket = platform::TcpSocket::connect(current.host, port);
-        if (!socket)
+        auto tcp = platform::TcpSocket::connect(current.host, port);
+        if (!tcp)
             return { std::nullopt, "could not connect to " + current.serialize_host() };
+        std::optional<platform::TlsSocket> tls;
+        if (secure) {
+            tls = platform::TlsSocket::connect(std::move(*tcp), current.host);
+            if (!tls)
+                return { std::nullopt,
+                    "TLS handshake or certificate validation failed for "
+                        + current.serialize_host() };
+        }
 
         std::string target = current.serialize_path();
         if (target.empty())
@@ -301,12 +313,14 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         request += "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
         request += "Accept-Encoding: gzip, deflate\r\n";
         request += "Connection: close\r\n\r\n";
-        if (!socket->send_all(reinterpret_cast<std::uint8_t const*>(request.data()),
-                request.size()))
+        bool const sent = secure
+            ? tls->send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size())
+            : tcp->send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size());
+        if (!sent)
             return { std::nullopt, "send failed" };
 
         auto const read = [&](std::uint8_t* buffer, std::size_t size) {
-            return socket->receive(buffer, size);
+            return secure ? tls->receive(buffer, size) : tcp->receive(buffer, size);
         };
         std::optional<RawResponse> raw = read_response(read, options.max_body);
         if (!raw)
