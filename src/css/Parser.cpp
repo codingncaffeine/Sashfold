@@ -221,13 +221,16 @@ struct Parser {
     }
 
     // §5.5.3. Consume a qualified rule. Distinguishes "nothing" from an
-    // invalid-rule error (the caller's declaration flushing differs).
+    // invalid-rule error (the caller's declaration flushing differs). The
+    // result travels as the concrete QualifiedRule — callers wrap it into a
+    // Rule by construction, never by variant assignment (gcc 13's
+    // -Wmaybe-uninitialized misfires on the variant move-assign path).
     enum class QualifiedResult {
         Rule,
         Nothing,
         Invalid,
     };
-    QualifiedResult consume_qualified_rule(Rule& out, Token::Type stop, bool nested)
+    QualifiedResult consume_qualified_rule(QualifiedRule& out, Token::Type stop, bool nested)
     {
         QualifiedRule rule;
         while (true) {
@@ -273,15 +276,15 @@ struct Parser {
                     contents.erase(contents.begin());
                 }
                 rule.child_rules = std::move(contents);
-                out.value = std::move(rule);
+                out = std::move(rule);
                 return QualifiedResult::Rule;
             }
             rule.prelude.push_back(consume_component_value());
         }
     }
 
-    // §5.5.2. Consume an at-rule.
-    bool consume_at_rule(Rule& out, bool nested)
+    // §5.5.2. Consume an at-rule. Same concrete-type contract as above.
+    bool consume_at_rule(AtRule& out, bool nested)
     {
         AtRule rule;
         rule.name = input.consume().value;
@@ -289,12 +292,12 @@ struct Parser {
             Token::Type const type = input.peek().type;
             if (type == Token::Type::Semicolon || type == Token::Type::EndOfFile) {
                 input.discard();
-                out.value = std::move(rule);
+                out = std::move(rule);
                 return true;
             }
             if (type == Token::Type::CloseBrace) {
                 if (nested) {
-                    out.value = std::move(rule);
+                    out = std::move(rule);
                     return true;
                 }
                 rule.prelude.push_back(ComponentValue { input.consume() }); // parse error
@@ -303,7 +306,7 @@ struct Parser {
             if (type == Token::Type::OpenBrace) {
                 rule.child_rules = consume_block();
                 rule.has_block = true;
-                out.value = std::move(rule);
+                out = std::move(rule);
                 return true;
             }
             rule.prelude.push_back(consume_component_value());
@@ -346,9 +349,9 @@ struct Parser {
             }
             if (type == Token::Type::AtKeyword) {
                 flush();
-                Rule rule;
-                if (consume_at_rule(rule, true))
-                    rules.push_back(std::move(rule));
+                AtRule at_rule;
+                if (consume_at_rule(at_rule, true))
+                    rules.push_back(Rule { std::move(at_rule) });
                 continue;
             }
             std::size_t const mark = input.mark();
@@ -358,8 +361,8 @@ struct Parser {
                 continue;
             }
             input.restore(mark);
-            Rule rule;
-            switch (consume_qualified_rule(rule, Token::Type::Semicolon, true)) {
+            QualifiedRule qualified;
+            switch (consume_qualified_rule(qualified, Token::Type::Semicolon, true)) {
             case QualifiedResult::Nothing:
                 break;
             case QualifiedResult::Invalid:
@@ -367,7 +370,7 @@ struct Parser {
                 break;
             case QualifiedResult::Rule:
                 flush();
-                rules.push_back(std::move(rule));
+                rules.push_back(Rule { std::move(qualified) });
                 break;
             }
         }
@@ -387,14 +390,15 @@ struct Parser {
             if (type == Token::Type::EndOfFile)
                 return rules;
             if (type == Token::Type::AtKeyword) {
-                Rule rule;
-                if (consume_at_rule(rule, false))
-                    rules.push_back(std::move(rule));
+                AtRule at_rule;
+                if (consume_at_rule(at_rule, false))
+                    rules.push_back(Rule { std::move(at_rule) });
                 continue;
             }
-            Rule rule;
-            if (consume_qualified_rule(rule, Token::Type::EndOfFile, false) == QualifiedResult::Rule)
-                rules.push_back(std::move(rule));
+            QualifiedRule qualified;
+            if (consume_qualified_rule(qualified, Token::Type::EndOfFile, false)
+                == QualifiedResult::Rule)
+                rules.push_back(Rule { std::move(qualified) });
         }
     }
 };
