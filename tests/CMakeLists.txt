@@ -17,6 +17,8 @@ sashfold_test(test_css_parser)
 sashfold_test(test_css_selectors)
 sashfold_test(test_style_resolver)
 sashfold_test(test_unicode)
+sashfold_test(test_data_url)
+sashfold_test(test_cookies)
 
 # html5lib conformance: score against the fixtures, hold the committed
 # baseline, ratchet it upward as the tokenizer grows.

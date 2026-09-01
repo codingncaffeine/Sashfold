@@ -2,10 +2,13 @@
 
 #include "core/Ascii.h"
 #include "core/Inflate.h"
+#include "net/Cookies.h"
+#include "net/DataUrl.h"
 #include "platform/Net.h"
 #include "platform/Tls.h"
 
 #include <algorithm>
+#include <chrono>
 #include <variant>
 
 namespace sashfold::net {
@@ -13,6 +16,13 @@ namespace sashfold::net {
 namespace {
 
 constexpr std::size_t receive_chunk = 64 * 1024;
+
+std::int64_t unix_now()
+{
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
 
 // Buffered reader over the read callback: line- and byte-oriented access.
 class ResponseReader {
@@ -271,6 +281,35 @@ std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encodin
 
 FetchResult fetch(Url const& url, FetchOptions const& options)
 {
+    // Synthesized schemes resolve without touching the network.
+    if (url.scheme == "data") {
+        std::optional<DataUrlPayload> payload = parse_data_url(url);
+        if (!payload)
+            return { std::nullopt, "malformed data: URL" };
+        if (payload->bytes.size() > options.max_body)
+            return { std::nullopt, "data: URL body exceeds the cap" };
+        FetchResponse response;
+        response.status = 200;
+        response.status_text = "OK";
+        response.headers.push_back({ "Content-Type", std::move(payload->mime_type) });
+        response.body = std::move(payload->bytes);
+        response.final_url = url;
+        return { std::move(response), "" };
+    }
+    if (url.scheme == "about") {
+        // about:blank answers at the choke point so every pipeline can load
+        // it; the shell's richer about: pages sit above fetch.
+        if (url.has_opaque_path && url.serialize_path() == "blank") {
+            FetchResponse response;
+            response.status = 200;
+            response.status_text = "OK";
+            response.headers.push_back({ "Content-Type", "text/html;charset=utf-8" });
+            response.final_url = url;
+            return { std::move(response), "" };
+        }
+        return { std::nullopt, "no such about: page: " + url.serialize() };
+    }
+
     Url current = url;
     for (int hop = 0; hop <= options.max_redirects; ++hop) {
         bool const secure = current.scheme == "https";
@@ -312,6 +351,14 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         request += "User-Agent: " + std::string(user_agent()) + "\r\n";
         request += "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
         request += "Accept-Encoding: gzip, deflate\r\n";
+        if (!options.referrer.empty())
+            request += "Referer: " + options.referrer + "\r\n";
+        if (options.cookie_jar) {
+            std::string const cookies
+                = options.cookie_jar->cookie_header(current, options.first_party, unix_now());
+            if (!cookies.empty())
+                request += "Cookie: " + cookies + "\r\n";
+        }
         request += "Connection: close\r\n\r\n";
         bool const sent = secure
             ? tls->send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size())
@@ -325,6 +372,10 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         std::optional<RawResponse> raw = read_response(read, options.max_body);
         if (!raw)
             return { std::nullopt, "malformed HTTP response from " + current.serialize_host() };
+
+        // Set-Cookie applies on every hop, redirects included.
+        if (options.cookie_jar)
+            options.cookie_jar->store(current, options.first_party, raw->headers, unix_now());
 
         if (raw->status >= 300 && raw->status < 400) {
             if (std::string const* const location = find_header(raw->headers, "location")) {

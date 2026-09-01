@@ -22,6 +22,7 @@ else()
 endif()
 
 add_library(sashfold_core STATIC
+  src/core/Base64.cpp
   src/core/Bitmap.cpp
   src/core/Inflate.cpp
   src/core/Json.cpp
@@ -34,6 +35,8 @@ add_library(sashfold_core STATIC
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
   src/layout/Layout.cpp
+  src/net/Cookies.cpp
+  src/net/DataUrl.cpp
   src/net/Http.cpp
   src/net/Idna.cpp
   src/net/Url.cpp

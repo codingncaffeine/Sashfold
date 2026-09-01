@@ -31,9 +31,20 @@ struct FetchResponse {
     Url final_url; // where the redirect chain landed
 };
 
+class CookieJar;
+
 struct FetchOptions {
     int max_redirects = 20;
     std::size_t max_body = 64u * 1024u * 1024u;
+    // Cookies flow only when a jar is given. first_party is the top-level
+    // document URL; when it names another host, the jar stays closed in both
+    // directions (plan §7: third-party cookies blocked by default). Null
+    // first_party marks the request itself as the navigation.
+    CookieJar* cookie_jar = nullptr;
+    Url const* first_party = nullptr;
+    // Referer header value, already policy-shaped by the caller (the shell
+    // applies strict-origin-when-cross-origin); empty sends none.
+    std::string referrer;
 };
 
 struct FetchResult {
