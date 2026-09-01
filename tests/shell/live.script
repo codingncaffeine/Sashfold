@@ -1,0 +1,44 @@
+# Live sites through the shell — NOT run by ctest (needs the network).
+# Run by hand before a release:
+#   sashfold --script tests/shell/live.script --width 1100 --height 760
+# Covers HTTPS, a real link click and Back, scrolling, a cache hit,
+# view-source:, about:sashfold, and the certificate-error page.
+
+open https://news.ycombinator.com/
+assert-status Done
+assert-text Hacker News
+click-text new
+assert-url https://news.ycombinator.com/newest
+assert-status https://news.ycombinator.com/newest
+move 0 0
+assert-status Done
+back
+assert-url https://news.ycombinator.com/
+assert-status Done
+screenshot ../../build-gcc/live-hn.png
+open https://en.wikipedia.org/wiki/Sash_window
+assert-title Sash window - Wikipedia
+assert-text sash
+assert-scroll 0
+wheel -3
+assert-scrolled
+key End
+assert-scrolled
+key Home
+assert-scroll 0
+screenshot ../../build-gcc/live-wiki.png
+reload
+assert-status Done
+navigate example.org
+assert-url https://example.org/
+assert-text Example Domain
+assert-status Done
+open https://example.org/
+assert-status from cache
+open view-source:https://example.org/
+assert-text <title>Example Domain</title>
+open about:sashfold
+assert-title About Sashfold
+navigate https://expired.badssl.com/
+assert-title Connection not secure
+assert-status Certificate validation failed
