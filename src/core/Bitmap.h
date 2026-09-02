@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace sashfold {
@@ -77,7 +78,19 @@ public:
     // arithmetic, averaging premultiplied so transparent edges do not fringe.
     void draw_scaled(Bitmap const& source, Rect dest);
 
+    // A clip rectangle every write honors (pixels outside it stay as they
+    // are); none by default. The painter narrows it for a box that clips
+    // its overflow and restores it after.
+    void set_clip(std::optional<Rect> clip) { m_clip = clip; }
+    std::optional<Rect> const& clip() const { return m_clip; }
+
 private:
+    bool writable(int x, int y) const
+    {
+        return contains(x, y) && (!m_clip || m_clip->contains(x, y));
+    }
+
+    std::optional<Rect> m_clip;
     std::size_t offset_of(int x, int y) const
     {
         return (static_cast<std::size_t>(y) * static_cast<std::size_t>(m_width)

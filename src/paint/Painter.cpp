@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace sashfold::paint {
@@ -169,48 +170,121 @@ void paint_control(Context& context, Fragment const& fragment)
 }
 
 void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner);
+void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner);
 
-// A box and what flows inside it: its background and borders, its picture
-// or control, its in-flow children, the floats over them (a float paints
-// above the blocks whose lines flow around it), and its own lines. The
-// positioned descendants are not here: they belong to the stacking context
-// and paint at their level in it.
-void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner)
+// The box's own painting: background, borders, picture, control — nothing
+// when its visibility is hidden (the box keeps its room).
+void paint_box(Context& context, Fragment const& fragment, bool skip_background)
 {
-    if (fragment.style)
-        paint_background_and_borders(context, fragment, is_canvas_background_owner);
-    if (fragment.control && fragment.style)
+    if (!fragment.style || fragment.style->hidden())
+        return;
+    paint_background_and_borders(context, fragment, skip_background);
+    if (fragment.control)
         paint_control(context, fragment);
     if (fragment.image && fragment.image->bitmap) {
         Fragment::ImageBox const& box = *fragment.image;
         context.target.draw_scaled(*box.bitmap,
             snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
     }
-    for (Fragment const& child : fragment.children) {
-        if (!child.floating && !child.positioned)
-            paint_flow(context, child, false);
-    }
-    for (Fragment const& child : fragment.children) {
-        if (child.floating && !child.positioned)
-            paint_flow(context, child, false);
-    }
-    for (TextRun const& run : fragment.runs)
-        paint_run(context, run);
 }
+
+Rect intersect(Rect const& a, Rect const& b)
+{
+    int const left = std::max(a.x, b.x);
+    int const top = std::max(a.y, b.y);
+    int const right = std::min(a.right(), b.right());
+    int const bottom = std::min(a.bottom(), b.bottom());
+    return Rect { left, top, std::max(0, right - left), std::max(0, bottom - top) };
+}
+
+// The clip a box imposes on what it contains: its padding box, when its
+// overflow is not visible and overflow applies to it; else the clip as it was.
+std::optional<Rect> clip_within(Context const& context, Fragment const& fragment,
+    std::optional<Rect> const& current)
+{
+    if (!fragment.style || fragment.style->overflow == css::Overflow::Visible
+        || !fragment.style->overflow_applies)
+        return current;
+    ComputedStyle const& style = *fragment.style;
+    Rect const box = snap(fragment.x + context.dx + style.border_left.width,
+        fragment.y + context.dy + style.border_top.width,
+        fragment.width - style.border_left.width - style.border_right.width,
+        fragment.height - style.border_top.width - style.border_bottom.width);
+    return current ? intersect(box, *current) : box;
+}
+
+// Narrows the clip to a box's padding box while its contents paint, when
+// its overflow is not visible; returns what to restore.
+std::optional<Rect> clip_for(Context& context, Fragment const& fragment)
+{
+    std::optional<Rect> const previous = context.target.clip();
+    context.target.set_clip(clip_within(context, fragment, previous));
+    return previous;
+}
+
+// What flows inside a box: its in-flow children, the floats over them (a
+// float paints above the blocks whose lines flow around it), and its own
+// lines, clipped to the box when its overflow is hidden. The positioned
+// descendants are not here: they belong to the stacking context and paint
+// at their level in it; a child that is a stacking context of its own
+// (opacity below one) paints as one unit.
+void paint_contents(Context& context, Fragment const& fragment)
+{
+    std::optional<Rect> const restore = clip_for(context, fragment);
+    for (Fragment const& child : fragment.children) {
+        if (child.floating || child.positioned)
+            continue;
+        if (child.stacking_context)
+            paint_stacking_context(context, child, false);
+        else
+            paint_flow(context, child, false);
+    }
+    for (Fragment const& child : fragment.children) {
+        if (child.floating && !child.positioned) {
+            if (child.stacking_context)
+                paint_stacking_context(context, child, false);
+            else
+                paint_flow(context, child, false);
+        }
+    }
+    for (TextRun const& run : fragment.runs) {
+        if (!run.style->hidden())
+            paint_run(context, run);
+    }
+    context.target.set_clip(restore);
+}
+
+// A box and what flows inside it.
+void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner)
+{
+    paint_box(context, fragment, is_canvas_background_owner);
+    paint_contents(context, fragment);
+}
+
+// A positioned box a stacking context paints, with the clip the ancestors
+// that contain it impose: every overflow-clipping ancestor for a box in
+// flow (relative, sticky); only the positioned ones — its containing
+// blocks — for an absolutely or fixed positioned box.
+struct Layer {
+    Fragment const* box = nullptr;
+    std::optional<Rect> clip;
+};
 
 // The positioned boxes a stacking context paints: every positioned
 // descendant reached without crossing another stacking context (a
 // positioned box with z-index auto is walked through — its positioned
 // descendants are the parent context's, per CSS 2.1 Appendix E).
-void collect_positioned(Fragment const& fragment, std::vector<Fragment const*>& out)
+void collect_positioned(Context const& context, Fragment const& fragment, std::optional<Rect> const& clip_in_flow,
+    std::optional<Rect> const& clip_out_of_flow, std::vector<Layer>& out)
 {
     for (Fragment const& child : fragment.children) {
-        if (child.positioned) {
-            out.push_back(&child);
-            if (child.stacking_context)
-                continue;
-        }
-        collect_positioned(child, out);
+        if (child.positioned)
+            out.push_back(Layer { &child, child.out_of_flow ? clip_out_of_flow : clip_in_flow });
+        if (child.stacking_context)
+            continue;
+        std::optional<Rect> const inner = clip_within(context, child, clip_in_flow);
+        collect_positioned(context, child, inner,
+            child.positioned ? clip_within(context, child, clip_out_of_flow) : clip_out_of_flow, out);
     }
 }
 
@@ -221,48 +295,38 @@ void collect_positioned(Fragment const& fragment, std::vector<Fragment const*>& 
 // alone (its positioned descendants are already in this list).
 void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
 {
-    std::vector<Fragment const*> positioned;
-    collect_positioned(root, positioned);
+    // A context at opacity zero paints nothing, positioned descendants included.
+    if (root.style && root.style->opacity <= 0)
+        return;
+    // The root's overflow clips everything inside it that it contains: its
+    // flow, and the positioned descendants whose containing block it is.
+    std::optional<Rect> const outer = context.target.clip();
+    std::optional<Rect> const inner = clip_within(context, root, outer);
+    std::vector<Layer> positioned;
+    collect_positioned(context, root, inner, root.positioned ? inner : outer, positioned);
     std::stable_sort(positioned.begin(), positioned.end(),
-        [](Fragment const* a, Fragment const* b) { return a->z_index < b->z_index; });
-    auto const paint_one = [&](Fragment const& box) {
-        if (box.stacking_context)
-            paint_stacking_context(context, box, false);
+        [](Layer const& a, Layer const& b) { return a.box->z_index < b.box->z_index; });
+    auto const paint_one = [&](Layer const& layer) {
+        context.target.set_clip(layer.clip);
+        if (layer.box->stacking_context)
+            paint_stacking_context(context, *layer.box, false);
         else
-            paint_flow(context, box, false);
+            paint_flow(context, *layer.box, false);
+        context.target.set_clip(outer);
     };
-    // The root's own background and borders come before its negative
-    // descendants, which come before the rest of its flow.
-    if (root.style)
-        paint_background_and_borders(context, root, is_canvas_background_owner);
-    for (Fragment const* box : positioned) {
-        if (box->z_index < 0)
-            paint_one(*box);
+    // The root's own box comes before its negative descendants, which come
+    // before the rest of its flow; the positioned ones over it all.
+    paint_box(context, root, is_canvas_background_owner);
+    for (Layer const& layer : positioned) {
+        if (layer.box->z_index < 0)
+            paint_one(layer);
     }
-    {
-        // The flow without the background already painted: children, floats, lines.
-        if (root.control && root.style)
-            paint_control(context, root);
-        if (root.image && root.image->bitmap) {
-            Fragment::ImageBox const& box = *root.image;
-            context.target.draw_scaled(*box.bitmap,
-                snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
-        }
-        for (Fragment const& child : root.children) {
-            if (!child.floating && !child.positioned)
-                paint_flow(context, child, false);
-        }
-        for (Fragment const& child : root.children) {
-            if (child.floating && !child.positioned)
-                paint_flow(context, child, false);
-        }
-        for (TextRun const& run : root.runs)
-            paint_run(context, run);
+    paint_contents(context, root);
+    for (Layer const& layer : positioned) {
+        if (layer.box->z_index >= 0)
+            paint_one(layer);
     }
-    for (Fragment const* box : positioned) {
-        if (box->z_index >= 0)
-            paint_one(*box);
-    }
+    context.target.set_clip(outer);
 }
 
 } // namespace

@@ -924,6 +924,7 @@ struct Resolver {
         style.list_style_type = parent.list_style_type;
         style.quotes = parent.quotes;
         style.custom = parent.custom;
+        style.visibility = parent.visibility;
         return style;
     }
 
@@ -1465,8 +1466,35 @@ struct Resolver {
                 style.display = Display::FlowRoot; // a table is a block-level root until tables land
             else if (ascii_ci_equals(keyword, "table-column") || ascii_ci_equals(keyword, "table-column-group"))
                 style.display = Display::TableColumn;
+            else if (ascii_ci_equals(keyword, "table-row-group") || ascii_ci_equals(keyword, "table-header-group")
+                || ascii_ci_equals(keyword, "table-footer-group") || ascii_ci_equals(keyword, "table-row"))
+                style.overflow_applies = false; // display stays as it was until tables land
             else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::Inline; // inline-block is not supported yet
+            return;
+        }
+        if (name == "visibility") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "visible"))
+                style.visibility = Visibility::Visible;
+            else if (ascii_ci_equals(keyword, "hidden") || ascii_ci_equals(keyword, "collapse"))
+                style.visibility = Visibility::Hidden;
+            return;
+        }
+        if (name == "opacity") {
+            if (values.size() != 1 || !values[0]->is_token())
+                return;
+            Token const& token = values[0]->token();
+            double amount;
+            if (token.type == Token::Type::Number)
+                amount = token.numeric_value;
+            else if (token.type == Token::Type::Percentage)
+                amount = token.numeric_value / 100.0;
+            else
+                return;
+            style.opacity = static_cast<float>(std::clamp(amount, 0.0, 1.0));
             return;
         }
         if (name == "position") {

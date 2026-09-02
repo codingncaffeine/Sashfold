@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 0 8px }
+  .row { display: flex; gap: 12px; margin-bottom: 12px }
+  .box { width: 120px; height: 60px; background: #69c; color: #fff; padding: 4px }
+  .hidden { visibility: hidden }
+  .shown { visibility: visible; color: #000 }
+  .gone { opacity: 0; position: relative }
+  .gone .pop { position: absolute; top: 10px; left: 140px; background: #c66; color: #fff; width: 60px }
+  .clip { width: 120px; height: 40px; overflow: hidden; background: #ddd; border: 2px solid #444 }
+  .tall { height: 100px; background: #fc6; margin: 0 }
+  .clip .pop { position: absolute; top: 60px; left: 4px; background: #c66; color: #fff }
+  .clipper { position: relative }
+</style>
+</head>
+<body>
+<p>Hidden keeps its room, opacity zero hides its subtree, overflow hidden clips:</p>
+<div class="row">
+  <div class="box">one</div>
+  <div class="box hidden">two<span class="shown">three</span></div>
+  <div class="box">four</div>
+</div>
+<div class="row">
+  <div class="box gone">five<div class="pop">pop</div></div>
+  <div class="box">six</div>
+</div>
+<div class="row">
+  <div class="clip clipper"><div class="tall">seven eight nine ten eleven twelve</div><div class="pop">pop</div></div>
+  <div class="box">after</div>
+</div>
+<p>The end of the page.</p>
+</body>
+</html>

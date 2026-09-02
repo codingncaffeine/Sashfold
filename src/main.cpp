@@ -495,15 +495,10 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["grid"];
     else if (name == "display" && first_ident == "contents")
         ++census["display-contents"];
-    else if ((name == "overflow" || name == "overflow-x" || name == "overflow-y")
-        && (first_ident == "hidden" || first_ident == "auto" || first_ident == "scroll" || first_ident == "clip"))
-        ++census["overflow-clipping"];
     else if (name == "transform" || name == "translate" || name == "rotate" || name == "scale")
         ++census["transforms"];
     else if (name.starts_with("animation") || name.starts_with("transition"))
         ++census["animations"];
-    else if (name == "visibility")
-        ++census["visibility"];
     else if (name == "vertical-align")
         ++census["vertical-align"];
     else if (name == "background-image" || (name == "background" && has_url))
@@ -512,7 +507,7 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["border-radius"];
     else if (name == "box-shadow" || name == "text-shadow")
         ++census["shadows"];
-    else if (name == "opacity" || name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")
+    else if (name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")
         ++census["effects"];
     else if (name == "letter-spacing" || name == "word-spacing" || name == "text-transform" || name == "text-overflow")
         ++census["text-properties"];

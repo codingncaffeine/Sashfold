@@ -443,6 +443,21 @@ struct Layouter {
             shift_fragment(child, dx, dy);
     }
 
+    // Marks a laid-out box as positioned when its style says so — it paints
+    // in the positioned layer, is a stacking context with a z-index or an
+    // opacity below one, and a relative one is shifted by its offsets. Called
+    // once the flow has read the box's bottom, since the shift is not flow.
+    static void mark_positioned(Fragment& box, ComputedStyle const& style, float containing_width)
+    {
+        if (!style.positioned())
+            return;
+        box.positioned = true;
+        box.z_index = style.z_index.value_or(0);
+        box.stacking_context = style.z_index.has_value() || style.opacity < 1;
+        if (style.position == css::Position::Relative)
+            shift_fragment(box, relative_dx(style, containing_width), relative_dy(style));
+    }
+
     // A relatively positioned box's shift: left, else the negative of
     // right; top, else the negative of bottom (percentages of the
     // containing block's width horizontally; vertical percentages wait for
@@ -561,8 +576,9 @@ struct Layouter {
             }
             shift_fragment(fragment, x - fragment.x, y - fragment.y);
             fragment.positioned = true;
+            fragment.out_of_flow = true;
             fragment.z_index = s.z_index.value_or(0);
-            fragment.stacking_context = s.z_index.has_value();
+            fragment.stacking_context = s.z_index.has_value() || s.opacity < 1;
             parent.children.push_back(std::move(fragment));
         }
     }
@@ -1356,6 +1372,9 @@ struct Layouter {
         Fragment fragment;
         fragment.element = &element;
         fragment.style = &style;
+        // A box with opacity below one paints as one unit: a stacking
+        // context whose positioned descendants stay inside it.
+        fragment.stacking_context = style.opacity < 1;
 
         // A positioned box is the containing block of the absolutely
         // positioned boxes inside it: they collect here and are placed
@@ -1683,14 +1702,7 @@ struct Layouter {
             // its bottom; sticky stays put until scroll containers land.
             // Either paints in the positioned layer.
             auto const hand_over = [&](Fragment& box) {
-                if (child_style->positioned()) {
-                    box.positioned = true;
-                    box.z_index = child_style->z_index.value_or(0);
-                    box.stacking_context = child_style->z_index.has_value();
-                    if (child_style->position == css::Position::Relative)
-                        shift_fragment(box, relative_dx(*child_style, content_width),
-                            relative_dy(*child_style));
-                }
+                mark_positioned(box, *child_style, content_width);
                 fragment.children.push_back(std::move(box));
             };
 
@@ -2085,6 +2097,7 @@ struct Layouter {
         floats.floats.push_back(FloatBox { outer_left, outer_left + width.outer(), y,
             box.y + box.height + margin_bottom, is_left });
         box.floating = true;
+        mark_positioned(box, style, containing_width); // a relative float paints in the positioned layer
         parent.children.push_back(std::move(box));
     }
 
@@ -2192,8 +2205,10 @@ struct Layouter {
         options.content_height = content_h;
         options.zero_auto_margins = true;
         options.own_context = true;
-        parent.children.push_back(layout_block(*item.element, *item.style, x, y + margin_top,
-            containing_width, list_depth, scratch_floats, options));
+        Fragment box = layout_block(*item.element, *item.style, x, y + margin_top,
+            containing_width, list_depth, scratch_floats, options);
+        mark_positioned(box, *item.style, containing_width);
+        parent.children.push_back(std::move(box));
     }
 
     // A flex container's intrinsic widths: a row adds its items up, a

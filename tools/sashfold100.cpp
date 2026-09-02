@@ -211,16 +211,14 @@ constexpr FeatureName feature_names[] = {
     { "tables", "tables" },
     { "grid", "grid" },
     { "display-contents", "display: contents" },
-    { "overflow-clipping", "overflow clipping and scroll containers" },
     { "transforms", "transforms" },
     { "animations", "animations and transitions" },
-    { "visibility", "visibility" },
     { "vertical-align", "vertical-align" },
     { "background-images", "background images" },
     { "gradients", "gradients" },
     { "border-radius", "rounded corners" },
     { "shadows", "shadows" },
-    { "effects", "opacity, filters, clipping paths" },
+    { "effects", "filters, clipping paths, masks" },
     { "text-properties", "letter-spacing, text-transform, text-overflow" },
     { "multi-column", "multi-column layout" },
     { "sizing", "object-fit and aspect-ratio" },
@@ -412,6 +410,64 @@ std::string now_utc()
     return buffer;
 }
 
+// The newest render among the rows ("2026-09-02T14:12:46Z"), as Arizona's
+// date and time — Arizona keeps UTC−7 the whole year — so a reader there
+// sees at once how fresh the pictures are. Empty when no row was rendered.
+std::string latest_render_arizona(std::vector<Row> const& rows)
+{
+    std::string latest;
+    for (Row const& row : rows) {
+        if (row.rendered.size() == 20 && row.rendered > latest)
+            latest = row.rendered;
+    }
+    if (latest.empty())
+        return {};
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    if (std::sscanf(latest.c_str(), "%4d-%2d-%2dT%2d:%2d:%2dZ", &year, &month, &day, &hour, &minute, &second) != 6)
+        return {};
+    // Days since the civil epoch, then back, seven hours earlier.
+    auto const days_from_civil = [](int y, int m, int d) -> long {
+        y -= m <= 2;
+        long const era = (y >= 0 ? y : y - 399) / 400;
+        long const yoe = y - era * 400;
+        long const doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+        long const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + doe - 719468;
+    };
+    auto const civil_from_days = [](long z, int& y, int& m, int& d) {
+        z += 719468;
+        long const era = (z >= 0 ? z : z - 146096) / 146097;
+        long const doe = z - era * 146097;
+        long const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        long const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        long const mp = (5 * doy + 2) / 153;
+        d = static_cast<int>(doy - (153 * mp + 2) / 5 + 1);
+        m = static_cast<int>(mp < 10 ? mp + 3 : mp - 9);
+        y = static_cast<int>(yoe + era * 400 + (m <= 2));
+    };
+    long seconds = days_from_civil(year, month, day) * 86400L + hour * 3600L + minute * 60L + second;
+    seconds -= 7L * 3600L;
+    long days = seconds / 86400L;
+    long rest = seconds % 86400L;
+    if (rest < 0) {
+        rest += 86400L;
+        --days;
+    }
+    int ay = 0;
+    int am = 0;
+    int ad = 0;
+    civil_from_days(days, ay, am, ad);
+    char buffer[64];
+    std::snprintf(buffer, sizeof buffer, "%04d-%02d-%02d %02d:%02d", ay, am, ad, static_cast<int>(rest / 3600),
+        static_cast<int>(rest % 3600 / 60));
+    return buffer;
+}
+
 struct Totals {
     long rows = 0;
     long rendered = 0; // a picture exists
@@ -549,6 +605,7 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
            "  .stat .big { font-size: 1.5rem; font-weight: 700; color: var(--blue); display: block; }\n"
            "  .stat .what { color: var(--muted); font-size: 0.92rem; }\n"
            "  p.lens { color: var(--muted); margin: 0 0 12px; }\n"
+           "  h2 .stamp { font-size: 0.95rem; font-weight: 500; color: var(--muted); margin-left: 12px; }\n"
            "  .cards { display: flex; flex-wrap: wrap; gap: 14px; }\n"
            "  .card { flex: 0 0 342px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;\n"
            "          padding: 10px 10px 4px; }\n"
@@ -620,9 +677,16 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
         }
         out << "</tbody>\n</table>\n";
     }
+    std::string const arizona = latest_render_arizona(corpus.rows);
+    bool first_category = true;
     for (Category const& category : corpus.categories) {
-        out << "<h2>" << html_escaped(category.title) << "</h2>\n<p class=\"lens\">"
-            << html_escaped(category.description) << "</p>\n<div class=\"cards\">\n";
+        out << "<h2>" << html_escaped(category.title);
+        // The freshness of the pictures, by the first heading — Arizona's
+        // clock, for the reader who compares them from there.
+        if (first_category && !arizona.empty())
+            out << " <span class=\"stamp\">pictures rendered " << html_escaped(arizona) << " Arizona time</span>";
+        first_category = false;
+        out << "</h2>\n<p class=\"lens\">" << html_escaped(category.description) << "</p>\n<div class=\"cards\">\n";
         for (Row const& row : corpus.rows)
             if (row.category == category.id)
                 write_card(out, row);

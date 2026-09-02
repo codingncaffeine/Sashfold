@@ -28,7 +28,7 @@ Color Bitmap::pixel(int x, int y) const
 
 void Bitmap::set_pixel(int x, int y, Color color)
 {
-    if (!contains(x, y))
+    if (!writable(x, y))
         return;
     std::size_t const at = offset_of(x, y);
     m_pixels[at + 0u] = color.r;
@@ -39,7 +39,7 @@ void Bitmap::set_pixel(int x, int y, Color color)
 
 void Bitmap::blend_pixel(int x, int y, Color color)
 {
-    if (!contains(x, y))
+    if (!writable(x, y))
         return;
     if (color.a == 0)
         return;
@@ -81,10 +81,16 @@ void Bitmap::fill_rect(Rect rect, Color color)
     if (rect.is_empty() || color.a == 0)
         return;
 
-    int const x0 = std::max(rect.x, 0);
-    int const y0 = std::max(rect.y, 0);
-    int const x1 = std::min(rect.right(), m_width);
-    int const y1 = std::min(rect.bottom(), m_height);
+    int x0 = std::max(rect.x, 0);
+    int y0 = std::max(rect.y, 0);
+    int x1 = std::min(rect.right(), m_width);
+    int y1 = std::min(rect.bottom(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
 
     bool const opaque = color.a == 255;
     for (int y = y0; y < y1; ++y) {
@@ -130,10 +136,16 @@ void Bitmap::fill_round_rect(Rect rect, int radius, Color color)
 
 void Bitmap::blit(Bitmap const& source, int x, int y)
 {
-    int const x0 = std::max(x, 0);
-    int const y0 = std::max(y, 0);
-    int const x1 = std::min(x + source.width(), m_width);
-    int const y1 = std::min(y + source.height(), m_height);
+    int x0 = std::max(x, 0);
+    int y0 = std::max(y, 0);
+    int x1 = std::min(x + source.width(), m_width);
+    int y1 = std::min(y + source.height(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
     if (x1 <= x0 || y1 <= y0)
         return;
     std::size_t const row_bytes = static_cast<std::size_t>(x1 - x0) * 4u;

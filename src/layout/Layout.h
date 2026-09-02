@@ -83,6 +83,7 @@ struct Fragment {
     // in-flow boxes and floats at its level, in z-index order, negative
     // ones under them.
     bool positioned = false;
+    bool out_of_flow = false; // absolute or fixed: only its containing blocks' overflow clips it
     int z_index = 0;
     // A positioned box with a z-index other than auto: a stacking context,
     // painted as one unit at its level in the parent context; a positioned

@@ -153,9 +153,15 @@ enum class Clear : std::uint8_t {
 
 enum class Overflow : std::uint8_t {
     Visible,
-    // hidden, clip, auto and scroll: the box contains its floats and keeps
-    // clear of others; clipping and scrolling arrive with scroll containers.
+    // hidden, clip, auto and scroll: the box contains its floats, keeps
+    // clear of others, and clips what it paints to its padding box;
+    // scrolling arrives with scroll containers.
     Hidden,
+};
+
+enum class Visibility : std::uint8_t {
+    Visible,
+    Hidden, // the box keeps its room and paints nothing (collapse counts as hidden)
 };
 
 enum class FontStyle : std::uint8_t {
@@ -239,6 +245,9 @@ struct ComputedStyle {
     Float floating = Float::None;
     Clear clear = Clear::None;
     Overflow overflow = Overflow::Visible;
+    // overflow applies to block containers, not to table rows and row
+    // groups (they lay out as blocks until tables land, but never clip).
+    bool overflow_applies = true;
 
     // Positioning: the scheme, the four offsets (auto = not written), and
     // z-index (nullopt = auto).
@@ -253,8 +262,15 @@ struct ComputedStyle {
     // begun.
     bool blockified = false;
 
+    // Hiding: visibility is inherited and keeps the box's room; opacity is
+    // not, and at zero hides the box and everything in it (between zero and
+    // one the box paints as if opaque until group compositing lands).
+    Visibility visibility = Visibility::Visible;
+    float opacity = 1;
+
     bool positioned() const { return position != Position::Static; }
     bool out_of_flow() const { return position == Position::Absolute || position == Position::Fixed; }
+    bool hidden() const { return visibility == Visibility::Hidden; }
 
     // Flex containers and their items.
     FlexDirection flex_direction = FlexDirection::Row;
