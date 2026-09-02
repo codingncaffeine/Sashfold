@@ -24,12 +24,12 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 
 ## What works today
 
-- **Browsing** the live web over HTTPS on Windows: a WHATWG URL parser, an HTTP/1.1 client with persistent connections, inflate, SChannel TLS with revocation, third-party cookies blocked by default, a freshness-honoring cache, HTTPS-first, downloads saved with the mark of the web and never opened.
+- **Browsing** the live web over HTTPS on Windows — URL parsing, HTTP/1.1 with persistent connections, SChannel TLS with revocation, third-party cookies blocked, a freshness-honoring cache, downloads never opened.
 - **Parsing** — the complete WHATWG HTML parser and encoding sniffing, at 100% on both html5lib suites.
-- **Styling** — CSS syntax, selectors, the cascade with `inherit`/`initial`/`unset`, custom properties and `var()`, `calc()`, media queries, external stylesheets and `@import`, `@font-face` with TrueType sources, generated content, every named color.
-- **Layout** — block and inline layout with margin collapsing, floats, flexbox, positioning with stacking contexts, inline-block, `vertical-align`, replaced boxes, percentage heights, and a block inside an inline box splitting it the way the specification says.
+- **Styling** — CSS syntax, selectors, the cascade with `inherit`/`initial`/`unset`, custom properties, `calc()`, media queries, external stylesheets, `@font-face` (TrueType), generated content, every named color.
+- **Layout** — block and inline layout, margin collapsing, floats, flexbox, positioning with stacking contexts, inline-block, `vertical-align`, replaced boxes, percentage heights.
 - **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, with **Sashfold Mono** as the honest last fallback; PNG, GIF and JPEG decoders, `srcset` and `<picture>`.
-- **A shell** — tabs, history that never refetches, forms without scripts, text selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, every pixel of chrome drawn from a theme file — and a `--script` mode that drives it from a text file for CI.
+- **A shell** — tabs, history, forms without scripts, selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, chrome drawn from a theme file, and a `--script` mode that drives it for CI.
 
 Not written yet: scripting, grid, tables (cells stand in as inline-blocks), background images, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
 
