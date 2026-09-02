@@ -86,20 +86,72 @@ enum class Display : std::uint8_t {
     ListItem,
     FlowRoot, // a block whose contents form their own formatting context
     Flex, // a block-level flex container
-    Grid, // a grid container: a block-level formatting context root until grid lands
+    Grid, // a block-level grid container
     // The inline-level counterparts: one atomic box on its line, laid out
     // inside as the block-level kind is, sized to its contents, its
-    // baseline the line's (inline-table lays out as an inline-block until
-    // tables land).
+    // baseline the line's.
     InlineBlock,
     InlineFlex,
     InlineGrid,
-    // table-column and table-column-group: a column box renders none of
-    // its own margins, padding, backgrounds or content in any engine; until
-    // tables land it is an inline-level box that paints nothing, and a
-    // generated box with this display is not generated at all.
+    // Tables (CSS 2.1 §17): the table box (block-level, or inline-level as
+    // inline-table) and the table-internal boxes; a table-internal box
+    // outside a table gets an anonymous table around it, and a column or
+    // column group renders nothing of its own but a background.
+    Table,
+    InlineTable,
+    TableRowGroup,
+    TableHeaderGroup,
+    TableFooterGroup,
+    TableRow,
+    TableCell,
+    TableCaption,
+    TableColumnGroup,
     TableColumn,
     None,
+};
+
+// Whether a display is table-internal: a proper child of a table, or a
+// cell, which lives in a row.
+constexpr bool is_table_internal(Display display)
+{
+    switch (display) {
+    case Display::TableRowGroup:
+    case Display::TableHeaderGroup:
+    case Display::TableFooterGroup:
+    case Display::TableRow:
+    case Display::TableCell:
+    case Display::TableCaption:
+    case Display::TableColumnGroup:
+    case Display::TableColumn:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr bool is_table_display(Display display)
+{
+    return display == Display::Table || display == Display::InlineTable;
+}
+
+enum class BorderCollapse : std::uint8_t {
+    Separate,
+    Collapse,
+};
+
+enum class CaptionSide : std::uint8_t {
+    Top,
+    Bottom,
+};
+
+enum class EmptyCells : std::uint8_t {
+    Show,
+    Hide,
+};
+
+enum class TableLayout : std::uint8_t {
+    Auto,
+    Fixed,
 };
 
 enum class FlexDirection : std::uint8_t {
@@ -394,6 +446,16 @@ struct ComputedStyle {
     // overflow applies to block containers, not to table rows and row
     // groups (they lay out as blocks until tables land, but never clip).
     bool overflow_applies = true;
+
+    // Tables. The border model, the gutters between cells in the separated
+    // model, the caption's side and empty cells' painting inherit; the
+    // layout algorithm does not.
+    BorderCollapse border_collapse = BorderCollapse::Separate;
+    LengthPercent border_spacing_horizontal = LengthPercent::px(0);
+    LengthPercent border_spacing_vertical = LengthPercent::px(0);
+    CaptionSide caption_side = CaptionSide::Top;
+    EmptyCells empty_cells = EmptyCells::Show;
+    TableLayout table_layout = TableLayout::Auto;
 
     // Positioning: the scheme, the four offsets (auto = not written), and
     // z-index (nullopt = auto).

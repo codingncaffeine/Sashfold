@@ -176,6 +176,12 @@ void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_backg
 // when its visibility is hidden (the box keeps its room).
 void paint_box(Context& context, Fragment const& fragment, bool skip_background)
 {
+    // A table's row, row group or column: a background under the cells.
+    if (fragment.background && !skip_background && fragment.background->a != 0
+        && (!fragment.style || !fragment.style->hidden()))
+        context.target.fill_rect(
+            snap(fragment.x + context.dx, fragment.y + context.dy, fragment.width, fragment.height),
+            *fragment.background);
     if (!fragment.style || fragment.style->hidden())
         return;
     paint_background_and_borders(context, fragment, skip_background);

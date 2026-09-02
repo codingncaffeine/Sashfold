@@ -1612,6 +1612,15 @@ struct Browser::Impl {
         case css::Display::InlineBlock: return "inline-block";
         case css::Display::InlineFlex: return "inline-flex";
         case css::Display::InlineGrid: return "inline-grid";
+        case css::Display::Table: return "table";
+        case css::Display::InlineTable: return "inline-table";
+        case css::Display::TableRowGroup: return "table-row-group";
+        case css::Display::TableHeaderGroup: return "table-header-group";
+        case css::Display::TableFooterGroup: return "table-footer-group";
+        case css::Display::TableRow: return "table-row";
+        case css::Display::TableCell: return "table-cell";
+        case css::Display::TableCaption: return "table-caption";
+        case css::Display::TableColumnGroup: return "table-column-group";
         case css::Display::TableColumn: return "table-column";
         case css::Display::None: return "none";
         }

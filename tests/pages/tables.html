@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tables</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 384px }
+  h2 { font-size: 14px; margin: 8px 0 4px }
+  table { border: 1px solid #5b7fd1; background: #f3f6ff; margin-bottom: 6px }
+  th { background: #dbe7ff }
+  td, th { border: 1px solid #9db3e6; padding: 2px 4px }
+  caption { font-style: italic }
+  #spans .wide { background: #ffe2b8 }
+  #spans .tall { background: #d9f3d0 }
+  #aligned td { height: 40px }
+  #aligned .top { vertical-align: top }
+  #aligned .bottom { vertical-align: bottom }
+  #aligned .base { vertical-align: baseline }
+  #fixed { table-layout: fixed; width: 300px }
+  #fixed col.narrow { width: 60px }
+  #percent { width: 100% }
+  #percent .half { width: 50% }
+  tbody.shaded { background: #eef2ea }
+  tr.hot { background: #fff0f0 }
+  .inline { display: inline-table; vertical-align: middle; margin: 0 4px }
+  .inline td { padding: 1px 3px }
+</style>
+</head>
+<body>
+<h2>Automatic widths, a caption, header and footer</h2>
+<table id="auto">
+  <caption>Quarterly figures</caption>
+  <thead><tr><th>Item</th><th>Count</th><th>Note</th></tr></thead>
+  <tfoot><tr><td>Total</td><td>27</td><td></td></tr></tfoot>
+  <tbody class="shaded">
+    <tr><td>Apples</td><td>12</td><td>ripe, mostly</td></tr>
+    <tr class="hot"><td>Pears</td><td>9</td><td>a long note that wraps inside its cell</td></tr>
+    <tr><td>Plums</td><td>6</td><td>few</td></tr>
+  </tbody>
+</table>
+
+<h2>Spans</h2>
+<table id="spans">
+  <tr><td class="wide" colspan="2">two columns wide</td><td class="tall" rowspan="2">two rows tall</td></tr>
+  <tr><td>a</td><td>b</td></tr>
+  <tr><td>c</td><td>d</td><td>e</td></tr>
+</table>
+
+<h2>Vertical alignment in 40px cells</h2>
+<table id="aligned">
+  <tr><td class="top">top</td><td>middle</td><td class="bottom">bottom</td><td class="base">base<br>line</td><td class="base" style="font-size: 20px">Big</td></tr>
+</table>
+
+<h2>Fixed layout at 300px with a 60px column</h2>
+<table id="fixed">
+  <col class="narrow"><col><col>
+  <tr><td>one</td><td>two is a longer cell</td><td>three</td></tr>
+</table>
+
+<h2>Full width with a 50% column</h2>
+<table id="percent">
+  <tr><td class="half">half</td><td>rest</td><td>more</td></tr>
+</table>
+
+<h2>Attributes, loose cells, an inline table</h2>
+<table border="1" cellpadding="6" cellspacing="0" width="200" bgcolor="#fffbe6">
+  <tr><td>cellpadding 6</td><td align="right">right</td></tr>
+</table>
+<div style="display: table; border-spacing: 4px"><div style="display: table-cell; background: #dbe7ff">loose</div><div style="display: table-cell; background: #ffe2b8">cells</div></div>
+<p>Text with <span class="inline"><span style="display: table-cell; border: 1px solid #9db3e6; padding: 1px 3px">in</span><span style="display: table-cell; border: 1px solid #9db3e6; padding: 1px 3px">line</span></span> a table on the line.</p>
+</body>
+</html>

@@ -57,4 +57,9 @@ StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> 
 // The same over the document's <style> elements alone: nothing is fetched.
 StyleMap resolve_styles(dom::Document const& document);
 
+// The style an anonymous box takes under `parent`: the inherited
+// properties from it, every other at its initial value. Layout makes the
+// boxes the specification generates around misplaced content this way.
+ComputedStyle inherited_style(ComputedStyle const& parent);
+
 }

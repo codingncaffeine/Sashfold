@@ -1034,16 +1034,19 @@ int main(int argc, char** argv)
         layout::Fragment const* c = find_box(page.result.root, "c");
         layout::Fragment const* d = find_box(page.result.root, "d");
         if (CHECK(aa && bb && cc && dd && h && c && d)) {
+            // A table: 2px of border-spacing around each cell, the columns
+            // as wide as their content, every cell as tall as its row.
             float const g = aa->width / 2;
-            CHECK_EQ(h->x, 0.0f);
-            CHECK_EQ(h->width, 2 * g); // each cell shrinks to its content
-            CHECK_EQ(c->x, 2 * g); // the next cell beside it, no space between the tags
+            CHECK_EQ(h->x, 2.0f);
+            CHECK_EQ(h->width, 2 * g); // each column shrinks to its content
+            CHECK_EQ(c->x, 2 * g + 4); // the next cell past the gutter
             CHECK_EQ(c->height, 40.0f); // its block inside stays inside: two lines
+            CHECK_EQ(h->height, 40.0f); // the row's height is every cell's
             CHECK_EQ(cc->x, c->x); // the block is the cell's, full width of the cell
-            CHECK_EQ(d->x, 4 * g);
-            CHECK_EQ(h->y, c->y); // aligned at the top, not on a baseline
+            CHECK_EQ(d->x, 4 * g + 6);
+            CHECK_EQ(h->y, c->y); // the cells start at the row's top
             CHECK_EQ(d->y, c->y);
-            CHECK_EQ(aa->baseline_y, dd->baseline_y);
+            CHECK_EQ(aa->baseline_y, dd->baseline_y); // both centered in the row
             CHECK(aa->style->bold()); // th is bold
         }
     }

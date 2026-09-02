@@ -525,8 +525,6 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         return; // positioning and z-index are written
     if (name == "display" && first_ident == "inline-block")
         return; // inline-block is written
-    if (name == "display" && (first_ident.starts_with("table") || first_ident == "inline-table"))
-        ++census["tables"];
     else if (name == "display" && first_ident == "contents")
         ++census["display-contents"];
     else if (name == "rotate" || name == "scale")

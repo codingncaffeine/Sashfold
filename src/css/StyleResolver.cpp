@@ -30,8 +30,17 @@ body { display: block; margin: 8px }
 address, article, aside, blockquote, center, dd, details, dialog, div, dl, dt,
 fieldset, figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
 main, menu, nav, ol, p, plaintext, pre, search, section, summary, ul, xmp,
-h1, h2, h3, h4, h5, h6, dir, table, caption, tbody, thead, tfoot, tr { display: block }
-td, th { display: inline-block; vertical-align: top; padding: 1px }
+h1, h2, h3, h4, h5, h6, dir { display: block }
+[hidden] { display: none }
+table { display: table; border-collapse: separate; border-spacing: 2px; border-color: gray }
+caption { display: table-caption }
+tbody { display: table-row-group; vertical-align: middle }
+thead { display: table-header-group; vertical-align: middle }
+tfoot { display: table-footer-group; vertical-align: middle }
+tr { display: table-row; vertical-align: inherit }
+col { display: table-column }
+colgroup { display: table-column-group }
+td, th { display: table-cell; vertical-align: inherit; padding: 1px }
 th { font-weight: bold }
 li { display: list-item }
 p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-top: 1em; margin-bottom: 1em }
@@ -156,6 +165,239 @@ bool cascades_before(MatchedDeclaration const& a, MatchedDeclaration const& b)
     if (a.specificity != b.specificity)
         return a.specificity < b.specificity;
     return a.order < b.order;
+}
+
+// --- Presentational hints -----------------------------------------------------
+
+// HTML's rules for parsing dimension values: digits, an optional fraction,
+// an optional percent sign; anything else is not a dimension.
+std::string legacy_dimension(std::string_view value)
+{
+    std::size_t i = 0;
+    while (i < value.size() && (value[i] == ' ' || value[i] == '\t' || value[i] == '\n' || value[i] == '\r'))
+        ++i;
+    std::size_t const start = i;
+    while (i < value.size() && value[i] >= '0' && value[i] <= '9')
+        ++i;
+    if (i == start)
+        return {};
+    std::string number(value.substr(start, i - start));
+    if (i < value.size() && value[i] == '.') {
+        std::size_t const dot = i++;
+        while (i < value.size() && value[i] >= '0' && value[i] <= '9')
+            ++i;
+        if (i > dot + 1)
+            number += value.substr(dot, i - dot);
+    }
+    bool const percent = i < value.size() && value[i] == '%';
+    return number + (percent ? "%" : "px");
+}
+
+// A legacy color: a name or a #-color as CSS has it, or six (or three)
+// hex digits without the sign, which HTML allows.
+std::string legacy_color(std::string_view value)
+{
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t' || value.front() == '\n'))
+        value.remove_prefix(1);
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\n'))
+        value.remove_suffix(1);
+    if (value.empty())
+        return {};
+    if (value.front() == '#')
+        return std::string(value);
+    bool hex = true;
+    bool alpha = true;
+    for (char const c : value) {
+        bool const digit = c >= '0' && c <= '9';
+        bool const hex_letter = (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        bool const letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        hex = hex && (digit || hex_letter);
+        alpha = alpha && letter;
+    }
+    if (hex && (value.size() == 3 || value.size() == 6))
+        return "#" + std::string(value);
+    if (alpha)
+        return std::string(value);
+    return {};
+}
+
+// The HTML rendering section's mappings of attributes to properties, as
+// declarations: sizes and colors of tables, cells, images and rules; the
+// alignment attributes; a table's cellspacing, cellpadding and border,
+// the last two reaching its cells.
+std::string presentational_hints(dom::Element const& element)
+{
+    if (!element.is_html())
+        return {};
+    std::string css;
+    auto const attribute = [&](char const* name) -> std::optional<std::string_view> {
+        dom::Attr const* const found = element.find_attribute(name);
+        if (!found)
+            return std::nullopt;
+        return std::string_view(found->value);
+    };
+    auto const add = [&](std::string_view property, std::string const& value) {
+        if (value.empty())
+            return;
+        css += property;
+        css += ':';
+        css += value;
+        css += ';';
+    };
+    std::string const& tag = element.local_name();
+    bool const cell = tag == "td" || tag == "th";
+    bool const row = tag == "tr";
+    bool const row_group = tag == "tbody" || tag == "thead" || tag == "tfoot";
+    bool const column = tag == "col" || tag == "colgroup";
+    bool const table = tag == "table";
+    bool const heading = tag.size() == 2 && tag[0] == 'h' && tag[1] >= '1' && tag[1] <= '6';
+    bool const embedded = tag == "img" || tag == "iframe" || tag == "video" || tag == "canvas"
+        || tag == "embed" || tag == "object";
+
+    if (table || cell || column || tag == "hr" || embedded) {
+        if (std::optional<std::string_view> const width = attribute("width"))
+            add("width", legacy_dimension(*width));
+    }
+    if (table || cell || row || embedded) {
+        if (std::optional<std::string_view> const height = attribute("height"))
+            add("height", legacy_dimension(*height));
+    }
+    if (tag == "hr") {
+        if (std::optional<std::string_view> const size = attribute("size"))
+            add("height", legacy_dimension(*size));
+    }
+    if (tag == "body" || table || cell || row || row_group || column || tag == "caption") {
+        if (std::optional<std::string_view> const color = attribute("bgcolor"))
+            add("background-color", legacy_color(*color));
+    }
+    if (tag == "body") {
+        if (std::optional<std::string_view> const color = attribute("text"))
+            add("color", legacy_color(*color));
+    }
+    if (tag == "font") {
+        if (std::optional<std::string_view> const color = attribute("color"))
+            add("color", legacy_color(*color));
+        if (std::optional<std::string_view> const face = attribute("face"))
+            add("font-family", std::string(*face));
+        if (std::optional<std::string_view> const size = attribute("size")) {
+            // 1..7 on the HTML scale; a sign makes it relative to 3.
+            std::string_view text = *size;
+            int n = 0;
+            bool relative = false;
+            int sign = 1;
+            if (!text.empty() && (text.front() == '+' || text.front() == '-')) {
+                relative = true;
+                sign = text.front() == '-' ? -1 : 1;
+                text.remove_prefix(1);
+            }
+            for (char const c : text) {
+                if (c < '0' || c > '9')
+                    break;
+                n = n * 10 + (c - '0');
+            }
+            if (!text.empty() && text.front() >= '0' && text.front() <= '9') {
+                int const level = std::clamp(relative ? 3 + sign * n : n, 1, 7);
+                static constexpr char const* sizes[]
+                    = { "x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large" };
+                add("font-size", sizes[level - 1]);
+            }
+        }
+    }
+    if (std::optional<std::string_view> const align = attribute("align")) {
+        std::string_view const value = *align;
+        bool const left = ascii_ci_equals(value, "left");
+        bool const right = ascii_ci_equals(value, "right");
+        bool const center = ascii_ci_equals(value, "center") || ascii_ci_equals(value, "middle");
+        if (table) {
+            if (center)
+                add("margin-left", "auto"), add("margin-right", "auto");
+            else if (left)
+                add("float", "left");
+            else if (right)
+                add("float", "right");
+        } else if (embedded) {
+            if (left)
+                add("float", "left");
+            else if (right)
+                add("float", "right");
+        } else if (tag == "hr") {
+            if (left)
+                add("margin-right", "auto");
+            else if (right)
+                add("margin-left", "auto");
+        } else if (tag == "div" || tag == "p" || heading || cell || row || row_group || column
+            || tag == "caption" || tag == "legend" || tag == "figcaption") {
+            if (left)
+                add("text-align", "left");
+            else if (right)
+                add("text-align", "right");
+            else if (center)
+                add("text-align", "center");
+            else if (ascii_ci_equals(value, "justify"))
+                add("text-align", "justify");
+        }
+    }
+    if (cell || row || row_group || column) {
+        if (std::optional<std::string_view> const valign = attribute("valign")) {
+            std::string_view const value = *valign;
+            if (ascii_ci_equals(value, "top"))
+                add("vertical-align", "top");
+            else if (ascii_ci_equals(value, "middle") || ascii_ci_equals(value, "center"))
+                add("vertical-align", "middle");
+            else if (ascii_ci_equals(value, "bottom"))
+                add("vertical-align", "bottom");
+            else if (ascii_ci_equals(value, "baseline"))
+                add("vertical-align", "baseline");
+        }
+    }
+    if (cell && attribute("nowrap"))
+        add("white-space", "nowrap");
+    if (table) {
+        if (std::optional<std::string_view> const spacing = attribute("cellspacing"))
+            add("border-spacing", legacy_dimension(*spacing));
+        if (std::optional<std::string_view> const border = attribute("border")) {
+            std::string const width = legacy_dimension(*border);
+            if (width.empty()) {
+                add("border-width", "1px"), add("border-style", "outset");
+            } else if (width != "0px") {
+                add("border-width", width), add("border-style", "outset");
+            }
+        }
+    }
+    if (cell) {
+        // The enclosing table's cellpadding and border reach the cells.
+        for (dom::Node const* parent = element.parent(); parent; parent = parent->parent()) {
+            if (!parent->is_element())
+                continue;
+            auto const& ancestor = static_cast<dom::Element const&>(*parent);
+            if (!ancestor.is_html("table"))
+                continue;
+            if (dom::Attr const* const padding = ancestor.find_attribute("cellpadding"))
+                add("padding", legacy_dimension(padding->value));
+            if (dom::Attr const* const border = ancestor.find_attribute("border")) {
+                std::string const width = legacy_dimension(border->value);
+                if (width != "0px")
+                    add("border-width", "1px"), add("border-style", "inset");
+            }
+            break;
+        }
+    }
+    if (tag == "img") {
+        if (std::optional<std::string_view> const space = attribute("hspace")) {
+            std::string const length = legacy_dimension(*space);
+            add("margin-left", length), add("margin-right", length);
+        }
+        if (std::optional<std::string_view> const space = attribute("vspace")) {
+            std::string const length = legacy_dimension(*space);
+            add("margin-top", length), add("margin-bottom", length);
+        }
+        if (std::optional<std::string_view> const border = attribute("border")) {
+            std::string const width = legacy_dimension(*border);
+            if (!width.empty())
+                add("border-width", width), add("border-style", "solid");
+        }
+    }
+    return css;
 }
 
 // --- Value parsing ------------------------------------------------------------
@@ -1165,7 +1407,7 @@ struct Resolver {
     static bool generates_box(ComputedStyle const& pseudo)
     {
         return pseudo.content.kind == Content::Kind::Items && pseudo.display != Display::None
-            && pseudo.display != Display::TableColumn;
+            && pseudo.display != Display::TableColumn && pseudo.display != Display::TableColumnGroup;
     }
 
     // The text a generated box shows: its content items resolved in tree
@@ -1291,6 +1533,11 @@ struct Resolver {
         style.quotes = parent.quotes;
         style.custom = parent.custom;
         style.visibility = parent.visibility;
+        style.border_collapse = parent.border_collapse;
+        style.border_spacing_horizontal = parent.border_spacing_horizontal;
+        style.border_spacing_vertical = parent.border_spacing_vertical;
+        style.caption_side = parent.caption_side;
+        style.empty_cells = parent.empty_cells;
         return style;
     }
 
@@ -1489,6 +1736,16 @@ struct Resolver {
                 },
                 0 },
             { "order", false, [](S& to, S const& from) { to.order = from.order; }, 0 },
+            { "border-collapse", true, [](S& to, S const& from) { to.border_collapse = from.border_collapse; }, 0 },
+            { "border-spacing", true,
+                [](S& to, S const& from) {
+                    to.border_spacing_horizontal = from.border_spacing_horizontal;
+                    to.border_spacing_vertical = from.border_spacing_vertical;
+                },
+                0 },
+            { "caption-side", true, [](S& to, S const& from) { to.caption_side = from.caption_side; }, 0 },
+            { "empty-cells", true, [](S& to, S const& from) { to.empty_cells = from.empty_cells; }, 0 },
+            { "table-layout", false, [](S& to, S const& from) { to.table_layout = from.table_layout; }, 0 },
             { "justify-items", false, [](S& to, S const& from) { to.justify_items = from.justify_items; }, 0 },
             { "justify-self", false, [](S& to, S const& from) { to.justify_self = from.justify_self; }, 0 },
             { "place-items", false,
@@ -1885,6 +2142,23 @@ struct Resolver {
             }
         }
 
+        // The element's presentational attributes: author declarations of
+        // no specificity, ahead of every author rule.
+        std::vector<Declaration> hint_declarations;
+        if (with_style_attribute) {
+            std::string const hints = presentational_hints(element);
+            if (!hints.empty()) {
+                hint_declarations = parse_declaration_list(hints);
+                for (Declaration const& declaration : hint_declarations) {
+                    MatchedDeclaration entry;
+                    entry.declaration = &declaration;
+                    entry.order = -1;
+                    entry.rank = static_cast<int>(CascadeRank::AuthorNormal);
+                    matched.push_back(entry);
+                }
+            }
+        }
+
         std::stable_sort(matched.begin(), matched.end(), cascades_before);
 
         // Custom properties first: they cascade like any property and the
@@ -2027,6 +2301,20 @@ struct Resolver {
             case Display::InlineGrid:
                 style.display = Display::Grid;
                 style.blockified = true;
+                break;
+            case Display::InlineTable:
+                style.display = Display::Table;
+                style.blockified = true;
+                break;
+            case Display::TableRowGroup:
+            case Display::TableHeaderGroup:
+            case Display::TableFooterGroup:
+            case Display::TableRow:
+            case Display::TableCell:
+            case Display::TableCaption:
+            case Display::TableColumnGroup:
+            case Display::TableColumn:
+                style.display = Display::Block;
                 break;
             default:
                 break;
@@ -2251,20 +2539,29 @@ struct Resolver {
             else if (ascii_ci_equals(keyword, "inline-grid"))
                 style.display = Display::InlineGrid;
             else if (ascii_ci_equals(keyword, "table"))
-                style.display = Display::FlowRoot; // a table is a block-level root until tables land
-            else if (ascii_ci_equals(keyword, "inline-block") || ascii_ci_equals(keyword, "inline-table")
-                || ascii_ci_equals(keyword, "table-cell"))
-                // An inline table is an inline-level root until then, and a
-                // cell an inline-block: side by side in its row, holding its
-                // blocks, aligned at the top by the UA sheet.
+                style.display = Display::Table;
+            else if (ascii_ci_equals(keyword, "inline-table"))
+                style.display = Display::InlineTable;
+            else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::InlineBlock;
+            else if (ascii_ci_equals(keyword, "table-cell"))
+                style.display = Display::TableCell;
             else if (ascii_ci_equals(keyword, "table-caption"))
-                style.display = Display::Block;
-            else if (ascii_ci_equals(keyword, "table-column") || ascii_ci_equals(keyword, "table-column-group"))
+                style.display = Display::TableCaption;
+            else if (ascii_ci_equals(keyword, "table-column"))
                 style.display = Display::TableColumn;
-            else if (ascii_ci_equals(keyword, "table-row-group") || ascii_ci_equals(keyword, "table-header-group")
-                || ascii_ci_equals(keyword, "table-footer-group") || ascii_ci_equals(keyword, "table-row"))
-                style.overflow_applies = false; // display stays as it was until tables land
+            else if (ascii_ci_equals(keyword, "table-column-group"))
+                style.display = Display::TableColumnGroup;
+            else if (ascii_ci_equals(keyword, "table-row-group"))
+                style.display = Display::TableRowGroup;
+            else if (ascii_ci_equals(keyword, "table-header-group"))
+                style.display = Display::TableHeaderGroup;
+            else if (ascii_ci_equals(keyword, "table-footer-group"))
+                style.display = Display::TableFooterGroup;
+            else if (ascii_ci_equals(keyword, "table-row"))
+                style.display = Display::TableRow;
+            if (is_table_internal(style.display))
+                style.overflow_applies = false;
             return;
         }
         if (name == "transform" || name == "translate") {
@@ -2915,6 +3212,60 @@ struct Resolver {
             style.grid_column_end = std::move((*lines)[3]);
             return;
         }
+        // --- Tables -------------------------------------------------------
+        if (name == "border-collapse") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "collapse"))
+                style.border_collapse = BorderCollapse::Collapse;
+            else if (ascii_ci_equals(keyword, "separate"))
+                style.border_collapse = BorderCollapse::Separate;
+            return;
+        }
+        if (name == "border-spacing") {
+            // One or two lengths, never negative, never a percentage.
+            if (values.empty() || values.size() > 2)
+                return;
+            std::optional<LengthPercent> const horizontal = parse_length_percent(*values[0], context, false, false);
+            std::optional<LengthPercent> const vertical
+                = values.size() == 2 ? parse_length_percent(*values[1], context, false, false) : horizontal;
+            if (!horizontal || !vertical || horizontal->value < 0 || vertical->value < 0)
+                return;
+            style.border_spacing_horizontal = *horizontal;
+            style.border_spacing_vertical = *vertical;
+            return;
+        }
+        if (name == "caption-side") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "top"))
+                style.caption_side = CaptionSide::Top;
+            else if (ascii_ci_equals(keyword, "bottom"))
+                style.caption_side = CaptionSide::Bottom;
+            return;
+        }
+        if (name == "empty-cells") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "show"))
+                style.empty_cells = EmptyCells::Show;
+            else if (ascii_ci_equals(keyword, "hide"))
+                style.empty_cells = EmptyCells::Hide;
+            return;
+        }
+        if (name == "table-layout") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "auto"))
+                style.table_layout = TableLayout::Auto;
+            else if (ascii_ci_equals(keyword, "fixed"))
+                style.table_layout = TableLayout::Fixed;
+            return;
+        }
         if (name == "order") {
             if (values.size() != 1 || !values[0]->is_token(Token::Type::Number))
                 return;
@@ -3425,6 +3776,11 @@ StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> 
 StyleMap resolve_styles(dom::Document const& document)
 {
     return resolve_styles(document, collect_stylesheets(document, nullptr, {}));
+}
+
+ComputedStyle inherited_style(ComputedStyle const& parent)
+{
+    return Resolver::inherited_from(parent);
 }
 
 }

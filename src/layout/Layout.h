@@ -96,6 +96,15 @@ struct Fragment {
     // own bottom margin. Zero when the edge lets nothing through.
     float collapsed_bottom = 0;
 
+    // A box of a table's own making — a row, a row group, a column — has
+    // no style of its own to paint by, only a background color under the
+    // cells. Null paints nothing.
+    std::optional<Color> background;
+
+    // The baseline of the first line box in flow inside this box (absolute
+    // page y), when it has one: a table cell aligns on its row by it.
+    std::optional<float> first_baseline;
+
     // The baseline of the last line box in flow inside this box (absolute
     // page y), when it has one: an inline-block sits on its line by it
     // (CSS 2.1 §10.8.1). A flex container's is its first item's.

@@ -4,6 +4,8 @@
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "layout/GridAlgorithm.h"
+#include "layout/TableStructure.h"
+#include "layout/TableWidths.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
@@ -38,7 +40,7 @@ bool is_block_level(ComputedStyle const& style)
 {
     return style.display == Display::Block || style.display == Display::ListItem
         || style.display == Display::FlowRoot || style.display == Display::Flex
-        || style.display == Display::Grid;
+        || style.display == Display::Grid || style.display == Display::Table;
 }
 
 bool is_floating(ComputedStyle const& style)
@@ -52,7 +54,7 @@ bool is_floating(ComputedStyle const& style)
 bool is_atomic_inline(ComputedStyle const& style)
 {
     return style.display == Display::InlineBlock || style.display == Display::InlineFlex
-        || style.display == Display::InlineGrid;
+        || style.display == Display::InlineGrid || style.display == Display::InlineTable;
 }
 
 bool is_flex_container(ComputedStyle const& style)
@@ -71,7 +73,8 @@ bool establishes_bfc(ComputedStyle const& style)
 {
     return is_floating(style) || style.display == Display::FlowRoot
         || style.display == Display::Flex || style.display == Display::Grid
-        || is_atomic_inline(style) || style.overflow != css::Overflow::Visible;
+        || style.display == Display::Table || is_atomic_inline(style)
+        || style.overflow != css::Overflow::Visible;
 }
 
 // CSS 2.1 §8.3.1: two adjoining vertical margins collapse into one — the
@@ -131,7 +134,8 @@ struct InlineItem {
         Control, // a form control: an atomic box sized by its kind
         SoftBreak, // ends the line when it holds anything: a block inside inline content
         Absolute, // an absolutely positioned box met here: records its static position, takes no room
-        Block, // an inline-block (or inline-flex, inline-grid): an atomic box laid out as a block inside
+        Block, // an inline-block (or inline-flex, inline-grid, inline-table): an atomic box laid out as a block inside
+        Table, // an anonymous inline-table around a run of table parts met in inline content (`nodes`)
     };
     InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
         dom::Element const* the_element)
@@ -152,6 +156,7 @@ struct InlineItem {
     // vertical-align is not baseline: the item sits on the line by it.
     // Null for the block's own text, which has no inline box.
     ComputedStyle const* aligned = nullptr;
+    std::vector<dom::Node const*> nodes; // Kind::Table: the table parts the anonymous table wraps
 };
 
 // Gives the items appended since `first` the alignment of the inline box
@@ -172,7 +177,8 @@ void mark_aligned(std::vector<InlineItem>& items, std::size_t first, ComputedSty
 bool is_inline_content(InlineItem const& item)
 {
     return item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image
-        || item.kind == InlineItem::Kind::Control || item.kind == InlineItem::Kind::Block;
+        || item.kind == InlineItem::Kind::Control || item.kind == InlineItem::Kind::Block
+        || item.kind == InlineItem::Kind::Table;
 }
 
 // A replaced element's used size, in px.
@@ -528,6 +534,18 @@ struct Layouter {
     mutable std::vector<std::vector<OutOfFlow>> absolute_stack;
     mutable std::vector<OutOfFlow> fixed_boxes;
     mutable unsigned next_serial = 0;
+    // The styles of the anonymous boxes the specification generates around
+    // misplaced content (a table around loose cells): owned here, so the
+    // fragments' pointers stay good.
+    mutable std::vector<std::unique_ptr<ComputedStyle>> owned_styles;
+
+    ComputedStyle const& anonymous_style(ComputedStyle const& parent, Display display) const
+    {
+        auto style = std::make_unique<ComputedStyle>(css::inherited_style(parent));
+        style->display = display;
+        owned_styles.push_back(std::move(style));
+        return *owned_styles.back();
+    }
 
     // Remembers an out-of-flow child for its containing block. A scratch
     // layout may record the same element again; the last record wins.
@@ -581,6 +599,8 @@ struct Layouter {
         fragment.y += dy;
         if (fragment.last_baseline)
             *fragment.last_baseline += dy;
+        if (fragment.first_baseline)
+            *fragment.first_baseline += dy;
         for (TextRun& run : fragment.runs) {
             run.x += dx;
             run.baseline_y += dy;
@@ -917,16 +937,25 @@ struct Layouter {
     {
         dom::Element const* const owner
             = node.is_element() ? static_cast<dom::Element const*>(&node) : nullptr;
-        if (owner) {
+        std::vector<dom::Node const*> const children(node.children().begin(), node.children().end());
+        collect_inline_nodes(children, owner, inherited, items, false);
+    }
+
+    // The same over a run of nodes: an element's children, or what an
+    // anonymous box holds (`anonymous`: no generated boxes of its own).
+    void collect_inline_nodes(std::vector<dom::Node const*> const& children, dom::Element const* owner,
+        ComputedStyle const* inherited, std::vector<InlineItem>& items, bool anonymous) const
+    {
+        if (owner && !anonymous) {
             if (css::GeneratedBox const* const before = before_of(inherited))
                 append_generated(*before, *owner, items);
         }
-        for (dom::Node const* child : node.children()) {
+        for (std::size_t i = 0; i < children.size(); ++i) {
+            dom::Node const* child = children[i];
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
-                    append_text(text, inherited, items,
-                        node.is_element() ? static_cast<dom::Element const*>(&node) : nullptr);
+                    append_text(text, inherited, items, owner);
                 continue;
             }
             if (!child->is_element())
@@ -935,6 +964,15 @@ struct Layouter {
             ComputedStyle const* style = style_of(element);
             if (!style || style->display == Display::None)
                 continue;
+            if (is_table_internal(style->display) && !style->out_of_flow() && !is_floating(*style)) {
+                // A run of table parts in inline content: an anonymous
+                // inline-table around them, one atomic box on the line.
+                InlineItem item(InlineItem::Kind::Table, {}, &anonymous_style(*inherited, Display::InlineTable),
+                    owner);
+                item.nodes = table_run(children, i);
+                items.push_back(std::move(item));
+                continue;
+            }
             if (style->out_of_flow()) {
                 // Out of the line; the line layout records where it would
                 // have stood.
@@ -974,7 +1012,7 @@ struct Layouter {
             }
             mark_aligned(items, first, *style);
         }
-        if (owner) {
+        if (owner && !anonymous) {
             if (css::GeneratedBox const* const after = after_of(inherited))
                 append_generated(*after, *owner, items);
         }
@@ -1375,6 +1413,8 @@ struct Layouter {
                 x += width;
             }
             out.last_baseline = baseline;
+            if (!out.first_baseline)
+                out.first_baseline = baseline;
             y += line_height;
             line.clear();
             line_width = 0;
@@ -1438,14 +1478,22 @@ struct Layouter {
                 start_line();
                 continue;
             }
-            if (item.kind == InlineItem::Kind::Block) {
+            if (item.kind == InlineItem::Kind::Block || item.kind == InlineItem::Kind::Table) {
                 // An inline-block: shrink-to-fit wide like a float, laid
                 // out at the origin now and moved onto the line at flush;
                 // its margin box is what the line holds, and it sits on the
                 // baseline of its last line box (CSS 2.2 §10.8.1) — its
                 // bottom margin edge when it has no line; when it clips its
-                // overflow, the higher of the two.
-                FloatWidth const measure = float_width(*item.element, *item.style, content_width);
+                // overflow, the higher of the two. An anonymous inline-table
+                // is the same box, shrink-to-fit from its own measures.
+                bool const anonymous_table = item.kind == InlineItem::Kind::Table;
+                FloatWidth measure;
+                if (anonymous_table) {
+                    Intrinsic const intrinsic = table_intrinsic_widths(item.nodes, *item.style, item.element);
+                    measure.border_box = std::min(std::max(intrinsic.min, content_width), intrinsic.max);
+                } else {
+                    measure = float_width(*item.element, *item.style, content_width);
+                }
                 float const outer = measure.outer();
                 if (allow_wrap && !line.empty() && line_width + outer > line_avail)
                     flush_line();
@@ -1459,8 +1507,11 @@ struct Layouter {
                 options.zero_auto_margins = true;
                 options.own_context = true;
                 FloatContext own_floats;
-                Fragment box = layout_block(*item.element, *item.style, 0, 0, content_width, list_depth,
-                    own_floats, options);
+                Fragment box = anonymous_table
+                    ? layout_table(nullptr, item.element, item.nodes, *item.style, 0, 0, content_width, list_depth,
+                          own_floats, options)
+                    : layout_block(*item.element, *item.style, 0, 0, content_width, list_depth, own_floats,
+                          options);
                 placed.until = next_serial;
                 if (std::optional<float> const lowest = own_floats.lowest_bottom())
                     box.height = std::max(box.height, *lowest - box.y);
@@ -1685,7 +1736,28 @@ struct Layouter {
             if (!child_style || child_style->display == Display::None || is_floating(*child_style)
                 || child_style->out_of_flow())
                 continue;
-            if (is_block_level(*child_style))
+            // A table part outside a table gets a block-level anonymous
+            // table around it here.
+            if (is_block_level(*child_style) || is_table_internal(child_style->display))
+                return true;
+            if (splits_around_blocks(child_element, *child_style))
+                return true;
+        }
+        return false;
+    }
+
+    // The same over a run of nodes an anonymous box holds.
+    bool contains_block_in(std::vector<dom::Node const*> const& nodes) const
+    {
+        for (dom::Node const* child : nodes) {
+            if (!child->is_element())
+                continue;
+            auto const& child_element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(child_element);
+            if (!child_style || child_style->display == Display::None || is_floating(*child_style)
+                || child_style->out_of_flow())
+                continue;
+            if (is_block_level(*child_style) || is_table_internal(child_style->display))
                 return true;
             if (splits_around_blocks(child_element, *child_style))
                 return true;
@@ -1774,6 +1846,11 @@ struct Layouter {
         if (css::GeneratedBox const* const box = generated_box_of(element, style))
             return layout_generated_block(*box, element, x, y, containing_width, floats,
                 options.content_width, options.content_height);
+        if (is_table_display(style.display)) {
+            std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
+            return layout_table(&element, &element, children, style, x, y, containing_width, list_depth, floats,
+                options);
+        }
 
         Fragment fragment;
         fragment.element = &element;
@@ -1848,12 +1925,24 @@ struct Layouter {
             // the size a formatting context settled for it (a flex line's
             // item); a picture keeps its ratio and its own size.
             PageImage image = image_for(element);
+            // A percentage width is of the containing block; an auto width
+            // shrinks to the room this box has.
             std::optional<ReplacedSize> const size = replaced_size(element, style, image.bitmap.get(),
-                image.density, content_width, options.containing_height);
+                image.density, style.width.is_auto() ? content_width : containing_width,
+                options.containing_height);
             if (size) {
                 bool const settled = !keeps_ratio(element);
-                float const width = settled ? options.content_width.value_or(size->width) : size->width;
-                float const height = settled ? options.content_height.value_or(size->height) : size->height;
+                float width = settled ? options.content_width.value_or(size->width) : size->width;
+                float height = settled ? options.content_height.value_or(size->height) : size->height;
+                // A picture whose written width the caller already resolved
+                // against the right base takes it, the ratio following.
+                if (!settled && options.content_width && !style.width.is_auto()) {
+                    if (size->width > 0 && style.height.is_auto())
+                        height = *options.content_width * size->height / size->width;
+                    width = *options.content_width;
+                }
+                if (!settled && options.content_height && !style.height.is_auto())
+                    height = *options.content_height;
                 if (style.width.is_auto() || (settled && options.content_width))
                     fragment.width = width + border_left + border_right + padding_left + padding_right;
                 fragment.height = height + border_top + border_bottom + padding_top + padding_bottom;
@@ -1926,6 +2015,16 @@ struct Layouter {
                 }
             }
         }
+        // And its first baseline, for a table cell's sake: the first
+        // in-flow child's.
+        if (!fragment.first_baseline) {
+            for (Fragment const& child : fragment.children) {
+                if (!child.floating && !child.out_of_flow && child.first_baseline) {
+                    fragment.first_baseline = child.first_baseline;
+                    break;
+                }
+            }
+        }
 
         float used_height = content_height;
         if (own_context) {
@@ -1956,20 +2055,26 @@ struct Layouter {
     // caller, outside this box; with `collapse_bottom` the last child's
     // bottom margin is left out of the height and reported through
     // fragment.collapsed_bottom for the caller to apply.
+    // `nodes`, when given, are the children laid out in place of the
+    // element's own — an anonymous box's run — and `anonymous` leaves the
+    // element's generated boxes out.
     float layout_children(dom::Element const& element, ComputedStyle const& style,
         float content_x, float content_y, float content_width, Fragment& fragment,
         int list_depth, FloatContext& floats, bool collapse_top = false,
-        bool collapse_bottom = false, std::optional<float> containing_height = std::nullopt) const
+        bool collapse_bottom = false, std::optional<float> containing_height = std::nullopt,
+        std::vector<dom::Node const*> const* nodes = nullptr, bool no_generated = false) const
     {
+        std::vector<dom::Node const*> const own_children(element.children().begin(), element.children().end());
+        std::vector<dom::Node const*> const& children = nodes ? *nodes : own_children;
         // Does this element establish a block or an inline formatting context?
-        css::GeneratedBox const* const before = before_of(&style);
-        css::GeneratedBox const* const after = after_of(&style);
+        css::GeneratedBox const* const before = no_generated ? nullptr : before_of(&style);
+        css::GeneratedBox const* const after = no_generated ? nullptr : after_of(&style);
         bool const has_block_child = (before && is_block_level(before->style))
-            || (after && is_block_level(after->style)) || contains_block_descendant(element);
+            || (after && is_block_level(after->style)) || contains_block_in(children);
 
         if (!has_block_child) {
             std::vector<InlineItem> items;
-            collect_inline(element, &style, items); // the generated boxes ride along
+            collect_inline_nodes(children, &element, &style, items, no_generated); // the generated boxes ride along
             if (items.empty())
                 return 0;
             return layout_lines(items, style, content_x, content_y, content_width, fragment,
@@ -2055,11 +2160,11 @@ struct Layouter {
         // block child — at any depth through inline boxes, which CSS 2.1
         // §9.2.1.1 breaks around it, their content before and after it
         // staying inline (their generated boxes at either end).
-        std::function<void(dom::Node const&, ComputedStyle const&)> walk;
-        walk = [&](dom::Node const& parent_node, ComputedStyle const& parent_style) {
-        dom::Element const* const parent_element
-            = parent_node.is_element() ? static_cast<dom::Element const*>(&parent_node) : nullptr;
-        for (dom::Node const* child : parent_node.children()) {
+        std::function<void(std::vector<dom::Node const*> const&, dom::Element const*, ComputedStyle const&)> walk;
+        walk = [&](std::vector<dom::Node const*> const& siblings, dom::Element const* parent_element,
+                   ComputedStyle const& parent_style) {
+        for (std::size_t i = 0; i < siblings.size(); ++i) {
+            dom::Node const* child = siblings[i];
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
@@ -2072,6 +2177,25 @@ struct Layouter {
             ComputedStyle const* child_style = style_of(child_element);
             if (!child_style || child_style->display == Display::None)
                 continue;
+            if (is_table_internal(child_style->display) && !child_style->out_of_flow()
+                && !is_floating(*child_style)) {
+                // A run of table parts outside a table: an anonymous table
+                // around them (CSS 2.1 §17.2.1), a block child of this box
+                // with no margins, beside the floats like any formatting
+                // context root.
+                std::vector<dom::Node const*> const run = table_run(siblings, i);
+                flush_inline();
+                float const table_y = cursor + previous_bottom_margin;
+                FloatContext::Band const band = floats.band_at(table_y, content_x, content_x + content_width);
+                ComputedStyle const& anonymous_table = anonymous_style(parent_style, Display::Table);
+                Fragment box = layout_table(nullptr, parent_element, run, anonymous_table, band.left, table_y,
+                    std::max(0.0f, band.right - band.left), list_depth, floats, BlockOptions {});
+                cursor = box.y + box.height;
+                previous_bottom_margin = 0;
+                first_in_flow = false;
+                fragment.children.push_back(std::move(box));
+                continue;
+            }
             if (child_style->out_of_flow()) {
                 // Out of the flow; it remembers where it would have been:
                 // below the inline content gathered so far, taken as one
@@ -2109,7 +2233,9 @@ struct Layouter {
                     std::size_t const first = pending_inline.size();
                     if (css::GeneratedBox const* const own_before = before_of(child_style))
                         append_generated(*own_before, child_element, pending_inline);
-                    walk(child_element, *child_style);
+                    std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
+                        child_element.children().end());
+                    walk(grandchildren, &child_element, *child_style);
                     if (css::GeneratedBox const* const own_after = after_of(child_style))
                         append_generated(*own_after, child_element, pending_inline);
                     mark_aligned(pending_inline, first, *child_style);
@@ -2237,7 +2363,7 @@ struct Layouter {
             hand_over(child_fragment);
         }
         };
-        walk(element, style);
+        walk(children, &element, style);
         if (after)
             place_or_append(*after);
         flush_inline();
@@ -2421,6 +2547,12 @@ struct Layouter {
                 add(box.max);
                 break;
             }
+            case InlineItem::Kind::Table: {
+                Intrinsic const box = table_intrinsic_widths(item.nodes, *item.style, item.element);
+                result.min = std::max(result.min, box.min);
+                add(box.max);
+                break;
+            }
             case InlineItem::Kind::Control: {
                 InlineEdges const edges = inline_edges(*item.style, 0);
                 float const width = edges.margin_left + control_spec(*item.element, *item.style, 0).size.width
@@ -2478,9 +2610,27 @@ struct Layouter {
             return flex_intrinsic_widths(element, style);
         if (is_grid_container(style))
             return grid_intrinsic_widths(element, style);
+        if (is_table_display(style.display)) {
+            // The table's border box, less the edges block_intrinsic adds.
+            std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
+            Intrinsic const box = table_intrinsic_widths(children, style, &element);
+            float const edges = resolve(style.padding_left, 0) + resolve(style.padding_right, 0)
+                + style.border_left.width + style.border_right.width;
+            return { std::max(0.0f, box.min - edges), std::max(0.0f, box.max - edges) };
+        }
+        std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
+        return nodes_intrinsic_widths(children, style, &element, false);
+    }
+
+    // The intrinsic widths of a run of nodes laid out as a block container
+    // — an element's children, or what an anonymous box holds — under
+    // `style` (the container's; `owner` is it, when it is an element).
+    Intrinsic nodes_intrinsic_widths(std::vector<dom::Node const*> const& children, ComputedStyle const& style,
+        dom::Element const* owner, bool anonymous) const
+    {
         std::vector<InlineItem> pending;
-        if (!contains_block_descendant(element)) {
-            collect_inline(element, &style, pending);
+        if (!contains_block_in(children)) {
+            collect_inline_nodes(children, owner, &style, pending, anonymous);
             return inline_intrinsic(pending);
         }
         Intrinsic result;
@@ -2491,12 +2641,13 @@ struct Layouter {
             pending.clear();
         };
         // The same walk as layout: inline content gathers, a block at any
-        // depth through inline boxes counts on its own.
-        std::function<void(dom::Node const&, ComputedStyle const&)> walk;
-        walk = [&](dom::Node const& parent_node, ComputedStyle const& parent_style) {
-            dom::Element const* const parent_element
-                = parent_node.is_element() ? static_cast<dom::Element const*>(&parent_node) : nullptr;
-            for (dom::Node const* child : parent_node.children()) {
+        // depth through inline boxes counts on its own, and a run of table
+        // parts counts as the anonymous table around it.
+        std::function<void(std::vector<dom::Node const*> const&, dom::Element const*, ComputedStyle const&)> walk;
+        walk = [&](std::vector<dom::Node const*> const& nodes, dom::Element const* parent_element,
+                   ComputedStyle const& parent_style) {
+            for (std::size_t i = 0; i < nodes.size(); ++i) {
+                dom::Node const* child = nodes[i];
                 if (child->is_text()) {
                     std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                     if (!text.empty())
@@ -2511,11 +2662,23 @@ struct Layouter {
                     continue;
                 if (child_style->out_of_flow())
                     continue; // takes no room in the flow
+                if (is_table_internal(child_style->display)) {
+                    std::vector<dom::Node const*> const run = table_run(nodes, i);
+                    flush();
+                    ComputedStyle const& anonymous_table = anonymous_style(parent_style, Display::Table);
+                    Intrinsic const box = table_intrinsic_widths(run, anonymous_table, parent_element);
+                    result.min = std::max(result.min, box.min);
+                    result.max = std::max(result.max, box.max);
+                    continue;
+                }
                 if (is_floating(*child_style) || !is_block_level(*child_style)) {
-                    if (splits_around_blocks(child_element, *child_style))
-                        walk(child_element, *child_style);
-                    else
+                    if (splits_around_blocks(child_element, *child_style)) {
+                        std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
+                            child_element.children().end());
+                        walk(grandchildren, &child_element, *child_style);
+                    } else {
                         collect_inline_element(child_element, *child_style, pending);
+                    }
                     continue;
                 }
                 flush();
@@ -2524,9 +2687,45 @@ struct Layouter {
                 result.max = std::max(result.max, box.max);
             }
         };
-        walk(element, style);
+        walk(children, owner, style);
         flush();
         return result;
+    }
+
+    // A run of table parts starting at `from`: consecutive siblings that
+    // are table-internal boxes, with the blank text between them; `from`
+    // moves to the run's last node.
+    std::vector<dom::Node const*> table_run(std::vector<dom::Node const*> const& nodes, std::size_t& from) const
+    {
+        std::vector<dom::Node const*> run;
+        std::size_t last = from;
+        for (std::size_t j = from; j < nodes.size(); ++j) {
+            dom::Node const* node = nodes[j];
+            if (node->is_text()) {
+                bool blank = true;
+                for (char const c : static_cast<dom::Text const*>(node)->data)
+                    blank = blank && (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f');
+                if (!blank)
+                    break;
+                run.push_back(node);
+                continue;
+            }
+            if (!node->is_element())
+                continue;
+            ComputedStyle const* style = style_of(static_cast<dom::Element const&>(*node));
+            if (!style || style->display == Display::None) {
+                run.push_back(node);
+                continue;
+            }
+            if (!is_table_internal(style->display))
+                break;
+            run.push_back(node);
+            last = j;
+        }
+        while (!run.empty() && run.back()->is_text())
+            run.pop_back();
+        from = last;
+        return run;
     }
 
     // A block's intrinsic widths seen from outside: its width when written
@@ -2803,6 +3002,447 @@ struct Layouter {
             append_generated(*after, element, pending);
         flush();
         return result;
+    }
+
+    // --- Tables -------------------------------------------------------------------
+
+    // What the width algorithm needs from a table: its structure, the
+    // gutters and edges, and the cells' measures. Shared by the layout and
+    // the intrinsic widths.
+    struct TableSetup {
+        table::Structure structure;
+        table::WidthInput input;
+        float spacing_h = 0;
+        float spacing_v = 0;
+        float edges_left = 0; // the table box's border and padding, each side
+        float edges_right = 0;
+        float edges_top = 0;
+        float edges_bottom = 0;
+    };
+
+    static float cell_horizontal_edges(ComputedStyle const& s, float base)
+    {
+        return resolve(s.padding_left, base) + resolve(s.padding_right, base) + s.border_left.width
+            + s.border_right.width;
+    }
+
+    static float cell_vertical_edges(ComputedStyle const& s, float base)
+    {
+        return resolve(s.padding_top, base) + resolve(s.padding_bottom, base) + s.border_top.width
+            + s.border_bottom.width;
+    }
+
+    TableSetup table_setup(std::vector<dom::Node const*> const& children, ComputedStyle const& style,
+        dom::Element const* owner, float containing_width) const
+    {
+        TableSetup setup;
+        setup.structure = table::build_structure(children, style,
+            [this](dom::Element const& element) { return style_of(element); });
+        // In the collapsing model the gutters are gone and the table has no padding.
+        bool const collapse = style.border_collapse == css::BorderCollapse::Collapse;
+        setup.spacing_h = collapse ? 0.0f : resolve(style.border_spacing_horizontal, 0);
+        setup.spacing_v = collapse ? 0.0f : resolve(style.border_spacing_vertical, 0);
+        setup.edges_left = style.border_left.width + (collapse ? 0.0f : resolve(style.padding_left, containing_width));
+        setup.edges_right = style.border_right.width + (collapse ? 0.0f : resolve(style.padding_right, containing_width));
+        setup.edges_top = style.border_top.width + (collapse ? 0.0f : resolve(style.padding_top, containing_width));
+        setup.edges_bottom = style.border_bottom.width + (collapse ? 0.0f : resolve(style.padding_bottom, containing_width));
+        table::Structure const& structure = setup.structure;
+        auto const n = static_cast<std::size_t>(structure.column_count);
+        setup.input.columns.resize(n);
+        setup.input.spacing = setup.spacing_h;
+        setup.input.edges = setup.edges_left + setup.edges_right;
+        for (table::Cell const& cell : structure.cells) {
+            Intrinsic inner;
+            float edges = 0;
+            std::optional<float> fixed;
+            std::optional<float> percent;
+            if (cell.anonymous()) {
+                inner = nodes_intrinsic_widths(cell.nodes, *cell.style, owner, true);
+            } else {
+                inner = intrinsic_widths(*cell.element, *cell.style);
+                edges = cell_horizontal_edges(*cell.style, 0);
+                LengthPercent const& width = cell.style->width;
+                if (width.kind == LengthPercent::Kind::Px)
+                    fixed = width.value + edges;
+                else if (width.kind == LengthPercent::Kind::Percent)
+                    percent = width.value;
+            }
+            float const min = inner.min + edges;
+            float const max = std::max(inner.max + edges, min);
+            if (cell.column_span <= 1) {
+                table::ColumnInput& column = setup.input.columns[static_cast<std::size_t>(cell.column)];
+                column.min = std::max(column.min, min);
+                column.max = std::max(column.max, max);
+                if (fixed)
+                    column.fixed = std::max(column.fixed.value_or(0.0f), *fixed);
+                if (percent)
+                    column.percent = std::max(column.percent.value_or(0.0f), *percent);
+            } else {
+                setup.input.spans.push_back({ cell.column, cell.column_span, min, max, fixed, percent });
+            }
+        }
+        for (std::size_t c = 0; c < n; ++c) {
+            table::Column const& column = structure.columns[c];
+            if (!column.style)
+                continue;
+            LengthPercent const& width = column.style->width;
+            if (width.kind == LengthPercent::Kind::Px)
+                setup.input.columns[c].fixed = std::max(setup.input.columns[c].fixed.value_or(0.0f), width.value);
+            else if (width.kind == LengthPercent::Kind::Percent)
+                setup.input.columns[c].percent
+                    = std::max(setup.input.columns[c].percent.value_or(0.0f), width.value);
+        }
+        setup.input.fixed_layout = style.table_layout == css::TableLayout::Fixed;
+        return setup;
+    }
+
+    // A table's intrinsic widths: its border box at its narrowest and at
+    // its widest — or as written, when its width is a length.
+    Intrinsic table_intrinsic_widths(std::vector<dom::Node const*> const& children, ComputedStyle const& style,
+        dom::Element const* owner) const
+    {
+        TableSetup setup = table_setup(children, style, owner, 0);
+        if (style.width.kind == LengthPercent::Kind::Px) {
+            bool const border_box = owner && owner->is_html("table") && is_table_display(style.display);
+            setup.input.width = style.width.value + (border_box ? 0.0f : setup.input.edges);
+        }
+        table::WidthResult const widths = table::compute_widths(setup.input);
+        if (setup.input.width)
+            return { widths.width, widths.width };
+        return { widths.min, widths.max };
+    }
+
+    // The table (CSS 2.1 §17): the wrapper box holds the captions and the
+    // table box; the table box holds the row groups, rows and cells, with
+    // the column and row backgrounds under the cells. `element` is the
+    // table element (null for an anonymous table around `children`);
+    // `owner` is the element the boxes answer to.
+    Fragment layout_table(dom::Element const* element, dom::Element const* owner,
+        std::vector<dom::Node const*> const& children, ComputedStyle const& style, float x, float y,
+        float containing_width, int list_depth, FloatContext& floats, BlockOptions const& options) const
+    {
+        (void)floats;
+        using css::VerticalAlign;
+        TableSetup setup = table_setup(children, style, owner, containing_width);
+        table::Structure const& structure = setup.structure;
+        int const n = structure.column_count;
+        auto const m = static_cast<int>(structure.rows.size());
+        auto const at = [](int i) { return static_cast<std::size_t>(i); };
+        float const hs = setup.spacing_h;
+        float const vs = setup.spacing_v;
+
+        // The width: settled by a formatting context, written, else
+        // shrink-to-fit in the room the margins leave.
+        float const margin_left = resolve(style.margin_left, containing_width);
+        float const margin_right = resolve(style.margin_right, containing_width);
+        // An HTML table's width and height are its border box; another
+        // element's with display: table are its content box.
+        bool const border_box = element && element->is_html("table");
+        if (options.content_width)
+            setup.input.width = *options.content_width + setup.input.edges;
+        else if (!style.width.is_auto())
+            setup.input.width = clamp_width(style, resolve(style.width, containing_width), containing_width)
+                + (border_box ? 0.0f : setup.input.edges);
+        setup.input.available = std::max(0.0f, containing_width - margin_left - margin_right);
+        table::WidthResult const widths = table::compute_widths(setup.input);
+        float const table_width = widths.width;
+
+        // Auto margins center the table, whatever its width.
+        float wrapper_x = x + margin_left;
+        if (!options.zero_auto_margins && !options.content_width) {
+            bool const auto_left = style.margin_left.is_auto();
+            bool const auto_right = style.margin_right.is_auto();
+            float const free = containing_width - table_width - margin_left - margin_right;
+            if (auto_left && auto_right)
+                wrapper_x = x + std::max(0.0f, free / 2);
+            else if (auto_left)
+                wrapper_x = x + std::max(0.0f, free);
+        }
+
+        Fragment wrapper;
+        wrapper.element = owner;
+        wrapper.x = wrapper_x;
+        wrapper.y = y;
+        wrapper.width = table_width;
+        float cursor = y;
+        auto const lay_caption = [&](table::Caption const& caption) {
+            FloatContext scratch;
+            float const top = resolve(caption.style->margin_top, table_width);
+            float const bottom = resolve(caption.style->margin_bottom, table_width);
+            Fragment box = layout_block(*caption.element, *caption.style, wrapper_x, cursor + top, table_width,
+                list_depth, scratch, BlockOptions {});
+            cursor = box.y + box.height + bottom;
+            mark_positioned(box, *caption.style, table_width);
+            wrapper.children.push_back(std::move(box));
+        };
+        for (table::Caption const& caption : structure.captions) {
+            if (caption.style->caption_side == css::CaptionSide::Top)
+                lay_caption(caption);
+        }
+
+        Fragment box;
+        box.element = element ? element : owner;
+        box.style = &style;
+        box.x = wrapper_x;
+        box.y = cursor;
+        box.width = table_width;
+        float const grid_x = wrapper_x + setup.edges_left;
+        float const grid_y = cursor + setup.edges_top;
+        std::vector<float> column_x(at(n) + 1, grid_x + hs);
+        {
+            float cx = grid_x + hs;
+            for (int c = 0; c < n; ++c) {
+                column_x[at(c)] = cx;
+                cx += widths.columns[at(c)] + hs;
+            }
+            column_x[at(n)] = cx; // past the last gutter
+        }
+
+        // The cells, laid out at the origin at their widths.
+        struct CellBox {
+            Fragment fragment;
+            float height = 0; // as laid out
+            float min_height = 0; // a written height
+            float baseline = 0; // the first baseline's distance from the top
+            float width = 0;
+            VerticalAlign::Kind align = VerticalAlign::Kind::Baseline;
+        };
+        std::vector<CellBox> boxes(structure.cells.size());
+        for (std::size_t i = 0; i < structure.cells.size(); ++i) {
+            table::Cell const& cell = structure.cells[i];
+            CellBox& out = boxes[i];
+            float width = hs * static_cast<float>(cell.column_span - 1);
+            for (int c = cell.column; c < cell.column + cell.column_span && c < n; ++c)
+                width += widths.columns[at(c)];
+            out.width = width;
+            float const cell_x = n > 0 ? column_x[at(std::min(cell.column, n - 1))] : grid_x;
+            FloatContext scratch;
+            if (cell.anonymous()) {
+                Fragment anon;
+                table::Row const& row = structure.rows[at(cell.row)];
+                dom::Element const* const holder = row.element ? row.element : owner;
+                anon.element = holder;
+                anon.x = cell_x;
+                anon.width = width;
+                if (holder) {
+                    float const height = layout_children(*holder, *cell.style, cell_x, 0, width, anon, list_depth,
+                        scratch, false, false, std::nullopt, &cell.nodes, true);
+                    anon.height = std::max(height, scratch.lowest_bottom().value_or(0.0f));
+                }
+                out.fragment = std::move(anon);
+            } else {
+                ComputedStyle const& s = *cell.style;
+                float const edges = cell_horizontal_edges(s, width);
+                BlockOptions cell_options;
+                cell_options.content_width = std::max(0.0f, width - edges);
+                cell_options.own_context = true;
+                cell_options.zero_auto_margins = true;
+                // A cell has no margins: its box starts at its column.
+                out.fragment = layout_block(*cell.element, s, cell_x - resolve(s.margin_left, width), 0, width,
+                    list_depth, scratch, cell_options);
+                if (s.height.kind == LengthPercent::Kind::Px)
+                    out.min_height = s.height.value + cell_vertical_edges(s, width);
+            }
+            out.height = out.fragment.height;
+            VerticalAlign::Kind const kind = cell.style->vertical_align.kind;
+            out.align = kind == VerticalAlign::Kind::Top || kind == VerticalAlign::Kind::Middle
+                    || kind == VerticalAlign::Kind::Bottom
+                ? kind
+                : VerticalAlign::Kind::Baseline;
+            // The cell's baseline: its first line's, else the bottom of its content.
+            if (out.fragment.first_baseline) {
+                out.baseline = *out.fragment.first_baseline - out.fragment.y;
+            } else {
+                float const bottom_edges = cell.anonymous()
+                    ? 0.0f
+                    : resolve(cell.style->padding_bottom, width) + cell.style->border_bottom.width;
+                out.baseline = std::max(0.0f, out.height - bottom_edges);
+            }
+        }
+
+        // Row heights: the tallest cell of one row, the baseline-aligned
+        // ones lined up first; a spanning cell that needs more gets it from
+        // the last row it spans; a written row height is a floor.
+        std::vector<float> row_height(at(m), 0.0f);
+        std::vector<float> row_baseline(at(m), 0.0f);
+        for (int r = 0; r < m; ++r) {
+            table::Row const& row = structure.rows[at(r)];
+            if (row.element && row.style && row.style->height.kind == LengthPercent::Kind::Px)
+                row_height[at(r)] = row.style->height.value;
+        }
+        for (std::size_t i = 0; i < structure.cells.size(); ++i) {
+            table::Cell const& cell = structure.cells[i];
+            if (cell.row_span == 1 && boxes[i].align == VerticalAlign::Kind::Baseline)
+                row_baseline[at(cell.row)] = std::max(row_baseline[at(cell.row)], boxes[i].baseline);
+        }
+        for (std::size_t i = 0; i < structure.cells.size(); ++i) {
+            table::Cell const& cell = structure.cells[i];
+            if (cell.row_span != 1)
+                continue;
+            float needed = std::max(boxes[i].height, boxes[i].min_height);
+            if (boxes[i].align == VerticalAlign::Kind::Baseline)
+                needed = std::max(needed, boxes[i].height + (row_baseline[at(cell.row)] - boxes[i].baseline));
+            row_height[at(cell.row)] = std::max(row_height[at(cell.row)], needed);
+        }
+        for (std::size_t i = 0; i < structure.cells.size(); ++i) {
+            table::Cell const& cell = structure.cells[i];
+            if (cell.row_span <= 1)
+                continue;
+            int const last = std::min(cell.row + cell.row_span, m) - 1;
+            float spanned = vs * static_cast<float>(last - cell.row);
+            for (int r = cell.row; r <= last; ++r)
+                spanned += row_height[at(r)];
+            float const needed = std::max(boxes[i].height, boxes[i].min_height);
+            if (needed > spanned)
+                row_height[at(last)] += needed - spanned;
+        }
+        // A written height on the table stretches the rows, in proportion;
+        // a table with no rows is that tall regardless.
+        float rows_total = m > 0 ? vs * static_cast<float>(m + 1) : 0.0f;
+        for (float const height : row_height)
+            rows_total += height;
+        {
+            std::optional<float> target;
+            float const vertical_edges = setup.edges_top + setup.edges_bottom;
+            if (options.content_height)
+                target = *options.content_height;
+            else if (style.height.kind == LengthPercent::Kind::Px)
+                target = style.height.value - (border_box ? vertical_edges : 0.0f);
+            else if (style.height.kind == LengthPercent::Kind::Percent && options.containing_height)
+                target = resolve(style.height, *options.containing_height) - (border_box ? vertical_edges : 0.0f);
+            if (target && *target > rows_total) {
+                float const extra = *target - rows_total;
+                float sum = 0;
+                for (float const height : row_height)
+                    sum += height;
+                for (float& height : row_height)
+                    height += sum > 0 ? extra * height / sum : extra / static_cast<float>(std::max(m, 1));
+                rows_total = *target;
+            }
+        }
+        std::vector<float> row_y(at(m) + 1, grid_y);
+        {
+            float cy = grid_y + (m > 0 ? vs : 0.0f);
+            for (int r = 0; r < m; ++r) {
+                row_y[at(r)] = cy;
+                cy += row_height[at(r)] + vs;
+            }
+            row_y[at(m)] = cy;
+        }
+        float const grid_bottom = m > 0 ? row_y[at(m)] : grid_y + rows_total;
+        box.height = grid_bottom - grid_y + setup.edges_top + setup.edges_bottom;
+        float const rows_top = m > 0 ? row_y[0] : grid_y;
+        float const rows_bottom = m > 0 ? grid_bottom - vs : grid_y;
+
+        // Column groups and columns: backgrounds under the rows.
+        auto const background_of = [](ComputedStyle const* s) -> std::optional<Color> {
+            if (!s || s->background_color.a == 0)
+                return std::nullopt;
+            return s->background_color;
+        };
+        for (table::ColumnGroup const& group : structure.column_groups) {
+            std::optional<Color> const background = background_of(group.style);
+            if (!background || group.count <= 0 || group.first >= n)
+                continue;
+            Fragment f;
+            f.element = group.element;
+            f.background = background;
+            int const last = std::min(group.first + group.count, n);
+            f.x = column_x[at(group.first)];
+            f.width = column_x[at(last)] - hs - f.x;
+            f.y = rows_top;
+            f.height = std::max(0.0f, rows_bottom - rows_top);
+            box.children.push_back(std::move(f));
+        }
+        for (int c = 0; c < n; ++c) {
+            table::Column const& column = structure.columns[at(c)];
+            std::optional<Color> const background = background_of(column.style);
+            if (!background)
+                continue;
+            Fragment f;
+            f.element = column.element;
+            f.background = background;
+            f.x = column_x[at(c)];
+            f.width = widths.columns[at(c)];
+            f.y = rows_top;
+            f.height = std::max(0.0f, rows_bottom - rows_top);
+            box.children.push_back(std::move(f));
+        }
+
+        // Row groups, rows, and the cells in them, each cell's content
+        // placed in its box by vertical-align.
+        std::optional<float> table_baseline;
+        for (table::RowGroup const& group : structure.groups) {
+            Fragment gf;
+            gf.element = group.element;
+            gf.background = group.element ? background_of(group.style) : std::nullopt;
+            gf.x = n > 0 ? column_x[0] : grid_x;
+            gf.width = n > 0 ? column_x[at(n)] - hs - gf.x : 0.0f;
+            if (!group.rows.empty()) {
+                std::size_t const first = group.rows.front();
+                std::size_t const last = group.rows.back();
+                gf.y = row_y[first];
+                gf.height = row_y[last] + row_height[last] - gf.y;
+            } else {
+                gf.y = grid_y;
+            }
+            for (std::size_t const r : group.rows) {
+                table::Row const& row = structure.rows[r];
+                Fragment rf;
+                rf.element = row.element;
+                rf.background = row.element ? background_of(row.style) : std::nullopt;
+                rf.x = gf.x;
+                rf.width = gf.width;
+                rf.y = row_y[r];
+                rf.height = row_height[r];
+                for (std::size_t const ci : row.cells) {
+                    table::Cell const& cell = structure.cells[ci];
+                    CellBox& cb = boxes[ci];
+                    int const last = std::min(cell.row + cell.row_span, m) - 1;
+                    float cell_height = vs * static_cast<float>(last - cell.row);
+                    for (int rr = cell.row; rr <= last; ++rr)
+                        cell_height += row_height[at(rr)];
+                    float shift = 0;
+                    switch (cb.align) {
+                    case VerticalAlign::Kind::Middle:
+                        shift = (cell_height - cb.height) / 2;
+                        break;
+                    case VerticalAlign::Kind::Bottom:
+                        shift = cell_height - cb.height;
+                        break;
+                    case VerticalAlign::Kind::Baseline:
+                        shift = row_baseline[at(cell.row)] - cb.baseline;
+                        break;
+                    default:
+                        break;
+                    }
+                    shift = std::max(0.0f, shift);
+                    shift_fragment(cb.fragment, 0, row_y[at(cell.row)] + shift);
+                    cb.fragment.y = row_y[at(cell.row)];
+                    cb.fragment.height = cell_height;
+                    if (!cell.anonymous())
+                        mark_positioned(cb.fragment, *cell.style, cb.width);
+                    if (!table_baseline && cell.row == 0 && cb.fragment.first_baseline)
+                        table_baseline = cb.fragment.first_baseline;
+                    rf.children.push_back(std::move(cb.fragment));
+                }
+                gf.children.push_back(std::move(rf));
+            }
+            box.children.push_back(std::move(gf));
+        }
+        // The table's baseline is its first row's.
+        box.first_baseline = table_baseline;
+        box.last_baseline = table_baseline;
+        cursor = box.y + box.height;
+        wrapper.children.push_back(std::move(box));
+        for (table::Caption const& caption : structure.captions) {
+            if (caption.style->caption_side == css::CaptionSide::Bottom)
+                lay_caption(caption);
+        }
+        wrapper.height = cursor - y;
+        wrapper.first_baseline = table_baseline;
+        wrapper.last_baseline = table_baseline;
+        return wrapper;
     }
 
     // --- Grid ---------------------------------------------------------------------
@@ -4001,7 +4641,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0 };
+    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {} };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;
