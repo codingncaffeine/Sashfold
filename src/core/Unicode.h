@@ -38,4 +38,22 @@ std::u32string nfc(std::u32string_view);
 // General category Mn, Mc, or Me.
 bool is_combining_mark(char32_t);
 
+// The fully expanded canonical decomposition of a precomposed code point
+// (Hangul excluded: it is algorithmic), or empty when it is its own.
+std::u32string_view canonical_decomposition(char32_t);
+
+// Default_Ignorable_Code_Point (Unicode 16): characters that render as
+// nothing — the soft hyphen, zero-width spaces and joiners, bidi marks,
+// variation selectors, tags. Layout drops them before line building.
+constexpr bool is_default_ignorable(char32_t c)
+{
+    return c == 0x00AD || c == 0x034F || c == 0x061C || (c >= 0x115F && c <= 0x1160)
+        || (c >= 0x17B4 && c <= 0x17B5) || (c >= 0x180B && c <= 0x180F)
+        || (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E)
+        || (c >= 0x2060 && c <= 0x206F) || c == 0x3164 || (c >= 0xFE00 && c <= 0xFE0F)
+        || c == 0xFEFF || c == 0xFFA0 || (c >= 0xFFF0 && c <= 0xFFF8)
+        || (c >= 0x1BCA0 && c <= 0x1BCA3) || (c >= 0x1D173 && c <= 0x1D17A)
+        || (c >= 0xE0000 && c <= 0xE0FFF);
+}
+
 }

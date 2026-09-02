@@ -71,6 +71,8 @@ struct Layouter {
             }
         };
         for (char32_t const c : text) {
+            if (is_default_ignorable(c))
+                continue; // invisible by definition: no glyph, no advance, no break
             bool const is_newline = c == U'\n';
             bool const is_space = c == U' ' || c == U'\t' || c == U'\f' || c == U'\r';
             if (is_newline && preserve_newlines) {

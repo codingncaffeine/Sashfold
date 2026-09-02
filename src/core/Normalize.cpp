@@ -71,6 +71,14 @@ char32_t compose_pair(char32_t starter, char32_t combining)
 
 }
 
+std::u32string_view canonical_decomposition(char32_t code_point)
+{
+    DecompositionEntry const* const entry = find_decomposition(code_point);
+    if (!entry)
+        return {};
+    return std::u32string_view(decomposition_pool + entry->offset, entry->length);
+}
+
 bool is_combining_mark(char32_t code_point)
 {
     auto const it = std::upper_bound(std::begin(combining_mark_ranges),

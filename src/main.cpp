@@ -145,7 +145,9 @@ int font_sampler(std::string const& output)
         U"abcdefghijklmnopqrstuvwxyz",
         U"0123456789 !\"#$%&'()*+,-./",
         U":;<=>?@[\\]^_`{|}~ •–—‘’“”…�",
-        U"← → ↻ × chrome glyphs",
+        U"← → ↑ ↓ ↔ ↻ × ✓ † ‡ ™ chrome glyphs",
+        U"café naïve Straße Ångström Ærø œuvre Łódź Đại þorn Việt ếch ÉCOLE ÑANDÚ",
+        U"© ® · ° ± ÷ « » ‹ › ¡ ¿ £ € ¢ ¥ § ¶ µ ¬ ² ³ ¹ ½ ¼ ¾ ¤ ¦ ª º Ｆｕｌｌ",
         U"The quick brown fox jumps over the lazy dog.",
         U"int main() { return \"hi\"; } /* 0xFF */",
     };

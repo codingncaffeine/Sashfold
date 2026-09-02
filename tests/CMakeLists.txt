@@ -8,6 +8,7 @@ function(sashfold_test name)
 endfunction()
 
 sashfold_test(test_bitmap)
+sashfold_test(test_font)
 sashfold_test(test_png)
 sashfold_test(test_json)
 sashfold_test(test_html_tokenizer)
