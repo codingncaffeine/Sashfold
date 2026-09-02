@@ -1,0 +1,47 @@
+# Forms without scripts: a field takes typed text, a label toggles its box,
+# a select answers the arrow keys, Tab walks the controls, and a GET
+# submission lands on the action with the data set as its query. Everything
+# is a data: URL so the run needs no network.
+resize 800 500
+open data:text/html,<title>Form</title><form action="data:text/html,Landed"><label for="q">Query</label> <input id="q" name="q"> <label><input type="checkbox" name="c" checked> Check</label> <select name="s"><option>one<option selected>two</select> <input type="submit" value="Go"></form>
+assert-title Form
+assert-focused
+focus q
+assert-focused q
+type hello world
+assert-value q hello world
+assert-text hello world
+key Enter
+assert-url data:text/html,Landed?q=hello+world&c=on&s=two
+assert-text Landed
+
+back
+assert-title Form
+assert-value q
+click-text Check
+assert-value c on
+focus q
+type again
+key Tab
+assert-focused c
+key shift+tab
+assert-focused q
+click-text Go
+assert-url data:text/html,Landed?q=again&s=two
+
+back
+focus s
+key Up
+assert-value s one
+key Down
+key Down
+assert-value s two
+key Up
+click-text Go
+assert-url data:text/html,Landed?q=&c=on&s=one
+
+# A form that posts stays put and says so.
+open data:text/html,<title>Posting</title><form method="post" action="data:text/html,Nowhere"><input name="a"><input type="submit" value="Send"></form>
+click-text Send
+assert-title Posting
+assert-status posts

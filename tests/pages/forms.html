@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Forms</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 400px }
+  p { margin: 0 0 8px }
+  .wide { display: block; width: 200px; margin-bottom: 8px }
+  .styled { border: 2px solid #3366aa; background: #eef6ff; padding: 2px }
+</style>
+</head>
+<body>
+<form>
+<p><label>Name <input name="name" value="Ada"></label></p>
+<p><label>Secret <input type="password" name="pw" value="hunter2" size="12"></label></p>
+<p><label><input type="checkbox" name="a" checked> Checked</label> <label><input type="checkbox" name="b"> Unchecked</label> <label><input type="radio" name="r" checked> One</label> <label><input type="radio" name="r"> Two</label></p>
+<p><select name="s"><option>Apples<option selected>Oranges</select> <input type="submit" value="Send"> <button type="button">Plain</button> <input type="submit" value="Off" disabled></p>
+<p><textarea name="t" rows="3" cols="24">Two lines
+of text</textarea></p>
+<input class="wide" name="block" value="block-level and 200 wide">
+<p><input class="styled" name="styled" value="author borders"></p>
+</form>
+</body>
+</html>

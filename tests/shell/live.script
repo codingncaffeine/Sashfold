@@ -42,3 +42,13 @@ assert-title About Sashfold
 navigate https://expired.badssl.com/
 assert-title Connection not secure
 assert-status Certificate validation failed
+
+# A real GET form: Wikipedia's search box, typed into and submitted with Enter.
+open https://en.wikipedia.org/wiki/Main_Page
+assert-title Wikipedia, the free encyclopedia
+focus search
+assert-focused search
+type Web browser
+assert-value search Web browser
+key Enter
+assert-title Web browser - Wikipedia

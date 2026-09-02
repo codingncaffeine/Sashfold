@@ -93,10 +93,85 @@ void paint_run(Context& context, TextRun const& run)
     context.target.fill_rect(snap(start_x, line_y, width, thickness), style.color);
 }
 
+// A form control's look: the page's own background and borders when the
+// author gave it any, else the built-in look — a white or gray fill with a
+// gray border — and then the check mark, the radio dot, the select's arrow,
+// the focus ring and the caret. The text inside is the fragment's runs.
+void paint_control(Context& context, Fragment const& fragment)
+{
+    using layout::ControlKind;
+    Fragment::ControlBox const& control = *fragment.control;
+    ComputedStyle const& style = *fragment.style;
+    float const x = control.x + context.dx;
+    float const y = control.y + context.dy;
+    Rect const rect = snap(x, y, control.width, control.height);
+    if (rect.width <= 0 || rect.height <= 0)
+        return;
+    auto const solid = [](css::BorderSide const& side) {
+        return side.style == BorderStyle::Solid && side.width > 0;
+    };
+    bool const author_look = style.background_color.a != 0 || solid(style.border_top)
+        || solid(style.border_bottom) || solid(style.border_left) || solid(style.border_right);
+    Color const border = control.disabled ? Color::rgb(0xc0, 0xc0, 0xc0) : Color::rgb(0x76, 0x76, 0x76);
+    Color const white = Color::rgb(0xff, 0xff, 0xff);
+    Color const gray = Color::rgb(0xef, 0xef, 0xef);
+    Color const ink = control.disabled ? Color::rgb(0x8d, 0x8d, 0x8d) : Color::rgb(0x1a, 0x1a, 0x1a);
+    auto const frame = [&](Rect const& r, Color color) {
+        context.target.fill_rect(Rect { r.x, r.y, r.width, 1 }, color);
+        context.target.fill_rect(Rect { r.x, r.y + r.height - 1, r.width, 1 }, color);
+        context.target.fill_rect(Rect { r.x, r.y, 1, r.height }, color);
+        context.target.fill_rect(Rect { r.x + r.width - 1, r.y, 1, r.height }, color);
+    };
+    auto const inset = [](Rect const& r, int by) {
+        return Rect { r.x + by, r.y + by, r.width - 2 * by, r.height - 2 * by };
+    };
+    switch (control.kind) {
+    case ControlKind::Checkbox:
+        context.target.fill_round_rect(rect, 2, border);
+        context.target.fill_round_rect(inset(rect, 1), 2, control.disabled ? gray : white);
+        if (control.checked)
+            context.target.fill_rect(inset(rect, 3), ink);
+        break;
+    case ControlKind::Radio: {
+        int const radius = rect.width / 2;
+        context.target.fill_round_rect(rect, radius, border);
+        context.target.fill_round_rect(inset(rect, 1), radius - 1, control.disabled ? gray : white);
+        if (control.checked)
+            context.target.fill_round_rect(inset(rect, 4), radius - 4, ink);
+        break;
+    }
+    default: {
+        bool const button = control.kind == ControlKind::Submit || control.kind == ControlKind::Button
+            || control.kind == ControlKind::File;
+        if (!author_look) {
+            context.target.fill_rect(rect, button || control.disabled ? gray : white);
+            frame(rect, border);
+        }
+        if (control.kind == ControlKind::Select) {
+            // A small triangle pointing down, near the right edge.
+            int const tip_x = rect.x + rect.width - 12;
+            int const top = rect.y + rect.height / 2 - 2;
+            for (int row = 0; row < 4; ++row)
+                context.target.fill_rect(Rect { tip_x - 3 + row, top + row, 7 - 2 * row, 1 }, ink);
+        }
+        break;
+    }
+    }
+    if (control.focused) {
+        Color const accent = Color::rgb(0x00, 0x60, 0xdf);
+        frame(rect, accent);
+        frame(inset(rect, 1), accent);
+    }
+    if (control.caret_x)
+        context.target.fill_rect(snap(*control.caret_x + context.dx, y + 4, 1, control.height - 8), ink);
+}
+
 void paint_fragment(Context& context, Fragment const& fragment, bool is_canvas_background_owner)
 {
     if (fragment.style)
         paint_background_and_borders(context, fragment, is_canvas_background_owner);
+    if (fragment.control && fragment.style)
+        paint_control(context, fragment);
     if (fragment.image && fragment.image->bitmap) {
         Fragment::ImageBox const& box = *fragment.image;
         context.target.draw_scaled(*box.bitmap,

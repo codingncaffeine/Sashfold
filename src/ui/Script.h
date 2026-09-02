@@ -27,6 +27,9 @@
 //   assert-tabs <n>      assert-scroll <n>       assert-scrolled
 //   assert-pixel <x> <y> <#rrggbb>
 //   assert-focus address|page
+//   focus <name>         focus the first form control with that name
+//   assert-value <name> <text>   the control's current value
+//   assert-focused <name>        the focused control's name ("" = none)
 //   echo <text>
 
 #include "ui/Browser.h"

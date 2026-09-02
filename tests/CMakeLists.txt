@@ -27,6 +27,7 @@ sashfold_test(test_stylesheets)
 sashfold_test(test_source_set)
 sashfold_test(test_floats)
 sashfold_test(test_flex)
+sashfold_test(test_forms)
 sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)
@@ -43,6 +44,9 @@ add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.j
 # byte-identical because every pixel is ours.
 add_test(NAME shell_smoke
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/smoke.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_forms
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/forms.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed

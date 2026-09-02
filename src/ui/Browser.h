@@ -141,6 +141,14 @@ public:
     std::optional<std::pair<int, int>> find_text(std::string const& text) const;
     ChromeLayout chrome_layout() const;
 
+    // --- Forms (tests and --script) -----------------------------------------
+    // Focuses the first control with this name; false when there is none.
+    bool focus_control(std::string const& name);
+    // The current value of the first control with this name.
+    std::optional<std::string> control_value(std::string const& name) const;
+    // The focused control's name, or "" when focus is elsewhere.
+    std::string focused_control_name() const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

@@ -74,6 +74,7 @@ struct InlineItem {
         HardBreak,
         Image,
         Float, // an out-of-flow box met here; style and element are its own
+        Control, // a form control: an atomic box sized by its kind
     };
     InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
         dom::Element const* the_element)
@@ -91,6 +92,14 @@ struct InlineItem {
     float image_density = 1; // Kind::Image: picture pixels per CSS px
     css::Clear clear = css::Clear::None; // Kind::HardBreak: the floats the next line starts below
 };
+
+// Whether an item puts something on a line: a word, a picture or a control
+// (spaces and breaks alone make no line, and a float rides with content).
+bool is_inline_content(InlineItem const& item)
+{
+    return item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image
+        || item.kind == InlineItem::Kind::Control;
+}
 
 // A replaced element's used size, in px.
 struct ReplacedSize {
@@ -120,12 +129,31 @@ std::optional<LengthPercent> attribute_length(dom::Element const& element, char 
     return LengthPercent::px(value);
 }
 
-// The used size of an image box from its CSS width and height, else its
-// width and height attributes, else the picture's own size; one given
-// dimension scales the other by the picture's ratio. A picture wider than
-// its container shrinks to fit, ratio kept. nullopt when nothing sizes it.
-std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
-    Bitmap const* image, float density, float containing_width)
+// A non-negative integer attribute (size, cols, rows), else the fallback.
+int attribute_int(dom::Element const& element, char const* name, int fallback)
+{
+    dom::Attr const* attribute = element.find_attribute(name);
+    if (!attribute)
+        return fallback;
+    std::string_view text = attribute->value;
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t' || text.front() == '\n'))
+        text.remove_prefix(1);
+    int value = 0;
+    std::size_t digits = 0;
+    while (digits < text.size() && text[digits] >= '0' && text[digits] <= '9' && value < 100000) {
+        value = value * 10 + (text[digits] - '0');
+        ++digits;
+    }
+    return digits == 0 ? fallback : value;
+}
+
+// The used size of a replaced box from its CSS width and height, else its
+// width and height attributes, else its intrinsic size. With `keep_ratio`
+// one given dimension scales the other by the intrinsic ratio (a picture);
+// without it the other stays intrinsic (a control). A box wider than its
+// container shrinks to fit. nullopt when nothing sizes it.
+std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle const& style,
+    std::optional<ReplacedSize> const& intrinsic, float containing_width, bool keep_ratio)
 {
     LengthPercent width = style.width;
     if (width.is_auto()) {
@@ -137,10 +165,8 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
         if (std::optional<LengthPercent> const attribute = attribute_length(element, "height"))
             height = *attribute;
     }
-    // The picture's pixels over the density its source was chosen at.
-    float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
-    float const intrinsic_width = image ? static_cast<float>(image->width()) * px_per_pixel : 0;
-    float const intrinsic_height = image ? static_cast<float>(image->height()) * px_per_pixel : 0;
+    float const intrinsic_width = intrinsic ? intrinsic->width : 0;
+    float const intrinsic_height = intrinsic ? intrinsic->height : 0;
     std::optional<float> used_width;
     std::optional<float> used_height;
     if (!width.is_auto())
@@ -148,23 +174,46 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
     if (!height.is_auto() && height.kind == LengthPercent::Kind::Px)
         used_height = height.value; // a percentage height has no definite base here
     if (!used_width && !used_height) {
-        if (!image)
+        if (!intrinsic)
             return std::nullopt;
         used_width = intrinsic_width;
         used_height = intrinsic_height;
     } else if (!used_width) {
-        used_width = image && intrinsic_height > 0 ? *used_height * intrinsic_width / intrinsic_height
-                                                   : *used_height;
+        if (!keep_ratio && intrinsic)
+            used_width = intrinsic_width;
+        else
+            used_width = intrinsic && intrinsic_height > 0
+                ? *used_height * intrinsic_width / intrinsic_height
+                : *used_height;
     } else if (!used_height) {
-        used_height = image && intrinsic_width > 0 ? *used_width * intrinsic_height / intrinsic_width
-                                                   : *used_width;
+        if (!keep_ratio && intrinsic)
+            used_height = intrinsic_height;
+        else
+            used_height = intrinsic && intrinsic_width > 0
+                ? *used_width * intrinsic_height / intrinsic_width
+                : *used_width;
     }
     if (containing_width > 0 && *used_width > containing_width) {
         float const scale = containing_width / *used_width;
         used_width = containing_width;
-        used_height = *used_height * scale;
+        if (keep_ratio)
+            used_height = *used_height * scale;
     }
     return ReplacedSize { std::max(0.0f, *used_width), std::max(0.0f, *used_height) };
+}
+
+// An image box: the picture's pixels over the density its source was
+// chosen at give the intrinsic size.
+std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
+    Bitmap const* image, float density, float containing_width)
+{
+    std::optional<ReplacedSize> intrinsic;
+    if (image) {
+        float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
+        intrinsic = ReplacedSize { static_cast<float>(image->width()) * px_per_pixel,
+            static_cast<float>(image->height()) * px_per_pixel };
+    }
+    return sized_box(element, style, intrinsic, containing_width, true);
 }
 
 // A float's margin box in page coordinates.
@@ -250,6 +299,7 @@ struct Layouter {
     // The faces each style resolved to, looked up once per style.
     mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
     ImageMap const* images = nullptr;
+    ControlStates const* controls = nullptr;
 
     PageImage image_for(dom::Element const& element) const
     {
@@ -373,6 +423,10 @@ struct Layouter {
                 items.push_back(InlineItem { InlineItem::Kind::Float, {}, style, &element });
                 continue;
             }
+            if (is_control(element)) {
+                items.push_back(InlineItem { InlineItem::Kind::Control, {}, style, &element });
+                continue;
+            }
             if (element.is_html("br")) {
                 InlineItem item(InlineItem::Kind::HardBreak, {}, inherited, &element);
                 item.clear = break_clear(element, *style);
@@ -385,6 +439,142 @@ struct Layouter {
             }
             collect_inline(element, style, items);
         }
+    }
+
+    // --- Form controls ----------------------------------------------------------
+
+    // A control's box and what it shows, before it is placed.
+    struct ControlSpec {
+        ReplacedSize size; // the border box
+        Fragment::ControlBox box; // kind and state; the position is filled at placement
+        std::u32string shown; // the text drawn inside, cut to what fits
+        std::size_t caret = 0; // an index into `shown`
+        bool caret_visible = false;
+        bool centered = false; // buttons center their caption
+    };
+
+    ControlSpec control_spec(dom::Element const& element, ComputedStyle const& style,
+        float containing_width) const
+    {
+        ControlSpec spec;
+        ControlKind const kind = control_kind(element);
+        spec.box.kind = kind;
+        spec.box.disabled = element.has_attribute("disabled") || kind == ControlKind::File;
+        spec.box.focused = controls && controls->focused == &element;
+        spec.box.checked = control_checked(element, controls);
+        ControlState const* state = controls ? controls->find(element) : nullptr;
+        float const glyph = measure(style, U"0");
+        float const line = style.line_height_px();
+        float const edges = 6; // a 1px border and 2px of padding each side
+        ReplacedSize intrinsic { 0, line + edges };
+        std::u32string text = decode_utf8(control_caption(element, controls));
+        switch (kind) {
+        case ControlKind::Text:
+        case ControlKind::Password: {
+            int const size = std::max(1, attribute_int(element, "size", 20));
+            intrinsic.width = static_cast<float>(size) * glyph + edges;
+            if (kind == ControlKind::Password)
+                text.assign(text.size(), U'•');
+            break;
+        }
+        case ControlKind::TextArea: {
+            int const cols = std::max(1, attribute_int(element, "cols", 20));
+            int const rows = std::max(1, attribute_int(element, "rows", 2));
+            intrinsic.width = static_cast<float>(cols) * glyph + edges;
+            intrinsic.height = static_cast<float>(rows) * line + edges;
+            break;
+        }
+        case ControlKind::Submit:
+        case ControlKind::Button:
+        case ControlKind::File:
+            intrinsic.width = measure(style, text) + 18; // 8px of padding and the border each side
+            spec.centered = true;
+            break;
+        case ControlKind::Checkbox:
+        case ControlKind::Radio:
+            intrinsic = ReplacedSize { 13, 13 };
+            break;
+        case ControlKind::Select: {
+            float widest = 0;
+            for (std::string const& label : select_options(element, controls).labels)
+                widest = std::max(widest, measure(style, decode_utf8(label)));
+            intrinsic.width = widest + 20 + edges; // room for the arrow
+            break;
+        }
+        case ControlKind::Hidden:
+            break;
+        }
+        spec.size = sized_box(element, style, intrinsic, containing_width, false).value_or(intrinsic);
+
+        // The text is cut to what fits: a caption loses its tail, a field
+        // being edited loses its head so the caret stays in view.
+        // The room for text: the edges, plus the arrow of a select or the
+        // caret's own pixel or two in a field.
+        float const inner = std::max(0.0f,
+            spec.size.width - (kind == ControlKind::Select ? 26.0f : spec.centered ? 2.0f : 8.0f));
+        std::size_t caret = state ? std::min(state->caret, text.size()) : text.size();
+        std::size_t dropped = 0;
+        if (kind != ControlKind::TextArea) {
+            if (spec.centered) {
+                while (!text.empty() && measure(style, text) > inner)
+                    text.pop_back();
+            } else {
+                while (!text.empty() && measure(style, text) > inner) {
+                    text.erase(0, 1);
+                    ++dropped;
+                }
+            }
+        }
+        spec.shown = std::move(text);
+        spec.caret = std::min(caret > dropped ? caret - dropped : 0, spec.shown.size());
+        spec.caret_visible = spec.box.focused && is_text_kind(kind) && !spec.box.disabled;
+        return spec;
+    }
+
+    // Gives a placed fragment a control's box and the runs of its text.
+    void fill_control(Fragment& box, ControlSpec const& spec, ComputedStyle const& style) const
+    {
+        Fragment::ControlBox control = spec.box;
+        control.x = box.x;
+        control.y = box.y;
+        control.width = box.width;
+        control.height = box.height;
+        float const line = style.line_height_px();
+        float const ascent = ascent_in_line(style);
+        text::FontStack const* const stack = &fonts_for(style);
+        if (spec.box.kind == ControlKind::TextArea) {
+            // One run per line, as many as fit; the caret sits at the end.
+            float const text_x = box.x + 4;
+            float baseline = box.y + 3 + ascent;
+            std::size_t start = 0;
+            while (baseline - ascent + line <= box.y + box.height - 2) {
+                std::size_t const end = spec.shown.find(U'\n', start);
+                std::u32string const text
+                    = spec.shown.substr(start, end == std::u32string::npos ? std::u32string::npos : end - start);
+                if (!text.empty())
+                    box.runs.push_back(TextRun { text_x, baseline, text, &style, box.element, stack,
+                        measure(style, text) });
+                if (end == std::u32string::npos) {
+                    if (spec.caret_visible)
+                        control.caret_x = text_x + measure(style, text);
+                    break;
+                }
+                start = end + 1;
+                baseline += line;
+            }
+        } else {
+            float const text_x = spec.centered
+                ? box.x + (box.width - measure(style, spec.shown)) / 2.0f
+                : box.x + 4;
+            float const baseline = box.y + (box.height - line) / 2.0f + ascent;
+            if (!spec.shown.empty())
+                box.runs.push_back(TextRun { text_x, baseline, spec.shown, &style, box.element, stack,
+                    measure(style, spec.shown) });
+            if (spec.caret_visible)
+                control.caret_x = text_x
+                    + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+        }
+        box.control = control;
     }
 
     // --- Inline layout: line building ----------------------------------------
@@ -421,7 +611,8 @@ struct Layouter {
             dom::Element const* element;
             std::shared_ptr<Bitmap const> image; // an image item's picture (may be null)
             float image_height = 0;
-            bool is_image = false;
+            bool is_image = false; // a picture or a control: an atomic box on the baseline
+            std::optional<ControlSpec> control;
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -471,7 +662,10 @@ struct Layouter {
                     box.y = baseline - placed.image_height;
                     box.width = width;
                     box.height = placed.image_height;
-                    box.image = Fragment::ImageBox { placed.image, box.x, box.y, box.width, box.height };
+                    if (placed.control)
+                        fill_control(box, *placed.control, *placed.style);
+                    else
+                        box.image = Fragment::ImageBox { placed.image, box.x, box.y, box.width, box.height };
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
                     out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style,
@@ -518,6 +712,22 @@ struct Layouter {
                 place_float(*item.element, *item.style, content_x, content_x + content_width, y,
                     list_depth, floats, out);
                 start_line();
+                continue;
+            }
+            if (item.kind == InlineItem::Kind::Control) {
+                // An atomic box on the baseline, like a picture.
+                ControlSpec spec = control_spec(*item.element, *item.style, content_width);
+                float const width = spec.size.width;
+                if (allow_wrap && !line.empty() && line_width + width > line_avail)
+                    flush_line();
+                if (allow_wrap)
+                    widen_for(width);
+                Placed placed({}, item.style, false, width, item.element);
+                placed.image_height = spec.size.height;
+                placed.is_image = true;
+                placed.control = std::move(spec);
+                line.push_back(std::move(placed));
+                line_width += width;
                 continue;
             }
             if (item.kind == InlineItem::Kind::Space) {
@@ -660,6 +870,14 @@ struct Layouter {
                 return fragment;
             }
         }
+        if (is_control(element)) {
+            // A block-level control: its own box is the whole of it.
+            ControlSpec const spec = control_spec(element, style, content_width);
+            fragment.width = spec.size.width;
+            fragment.height = spec.size.height;
+            fill_control(fragment, spec, style);
+            return fragment;
+        }
 
         // A box that forms its own block formatting context keeps its floats
         // to itself, and its height reaches around them.
@@ -718,7 +936,7 @@ struct Layouter {
             // Whitespace-only runs between blocks vanish.
             bool significant = false;
             for (InlineItem const& item : pending_inline) {
-                if (item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image)
+                if (is_inline_content(item))
                     significant = true;
             }
             if (!significant) {
@@ -758,7 +976,7 @@ struct Layouter {
                 // siblings' margins still collapse across it).
                 bool content = false;
                 for (InlineItem const& item : pending_inline) {
-                    if (item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image)
+                    if (is_inline_content(item))
                         content = true;
                 }
                 if (content)
@@ -836,6 +1054,10 @@ struct Layouter {
     {
         if (is_floating(style)) {
             items.push_back(InlineItem { InlineItem::Kind::Float, {}, &style, &element });
+            return;
+        }
+        if (is_control(element)) {
+            items.push_back(InlineItem { InlineItem::Kind::Control, {}, &style, &element });
             return;
         }
         if (element.is_html("br")) {
@@ -934,6 +1156,12 @@ struct Layouter {
                 add(box.max);
                 break;
             }
+            case InlineItem::Kind::Control: {
+                float const width = control_spec(*item.element, *item.style, 0).size.width;
+                result.min = std::max(result.min, width);
+                add(width);
+                break;
+            }
             }
         }
         result.max = std::max(result.max, line);
@@ -948,6 +1176,10 @@ struct Layouter {
             std::optional<ReplacedSize> const size
                 = replaced_size(element, style, image.bitmap.get(), image.density, 0);
             float const width = size ? size->width : 0;
+            return { width, width };
+        }
+        if (is_control(element)) {
+            float const width = control_spec(element, style, 0).size.width;
             return { width, width };
         }
         if (style.display == Display::Flex)
@@ -1192,7 +1424,7 @@ struct Layouter {
         std::vector<InlineItem> pending;
         auto const flush = [&] {
             for (InlineItem const& item : pending) {
-                if (item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image) {
+                if (is_inline_content(item)) {
                     take(inline_intrinsic(pending));
                     break;
                 }
@@ -1254,7 +1486,7 @@ struct Layouter {
         auto const flush_text = [&] {
             bool content = false;
             for (InlineItem const& item : pending) {
-                if (item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image)
+                if (is_inline_content(item))
                     content = true;
             }
             if (content) {
@@ -1606,7 +1838,7 @@ struct Layouter {
 } // namespace
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
-    float viewport_width, ImageMap const* images)
+    float viewport_width, ImageMap const* images, ControlStates const* controls)
 {
     LayoutResult result;
     result.canvas_background = Color::rgb(255, 255, 255);
@@ -1619,7 +1851,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images };
+    Layouter layouter { styles, {}, images, controls };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;

@@ -37,6 +37,7 @@ add_library(sashfold_core STATIC
   src/css/Stylesheets.cpp
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
+  src/layout/Controls.cpp
   src/layout/Layout.cpp
   src/net/Cache.cpp
   src/net/Connections.cpp
@@ -54,6 +55,7 @@ add_library(sashfold_core STATIC
   src/text/TrueTypeWriter.cpp
   src/ui/Browser.cpp
   src/ui/Downloads.cpp
+  src/ui/Forms.cpp
   src/ui/InternalPages.cpp
   src/ui/PageImages.cpp
   src/ui/Script.cpp

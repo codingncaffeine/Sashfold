@@ -317,6 +317,20 @@ struct Runner {
             bool const focused = browser.address_focused();
             if ((argument == "address") != focused)
                 fail("assert-focus: focus is on the " + std::string(focused ? "address bar" : "page"));
+        } else if (command == "focus") {
+            if (!browser.focus_control(argument))
+                return fail("focus: no control named \"" + argument + "\"");
+        } else if (command == "assert-value") {
+            std::size_t const separator = argument.find(' ');
+            std::string const name = argument.substr(0, separator);
+            std::string const expected
+                = separator == std::string::npos ? "" : argument.substr(separator + 1);
+            std::optional<std::string> const value = browser.control_value(name);
+            if (!value)
+                return fail("assert-value: no control named \"" + name + "\"");
+            expect_equal("assert-value " + name, *value, expected);
+        } else if (command == "assert-focused") {
+            expect_equal("assert-focused", browser.focused_control_name(), argument);
         } else if (command == "echo") {
             out << argument << "\n";
         } else {

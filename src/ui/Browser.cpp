@@ -1,4 +1,5 @@
 #include "ui/Browser.h"
+#include "ui/Forms.h"
 
 #include "core/Ascii.h"
 #include "core/Unicode.h"
@@ -261,6 +262,7 @@ struct Browser::Impl {
         css::MediaContext style_media;
         css::StyleMap styles;
         layout::ImageMap images; // the page's pictures, decoded
+        layout::ControlStates controls; // what the user typed and toggled in the page's forms
         layout::LayoutResult layout;
         int scroll_y = 0;
         std::string status;
@@ -484,7 +486,7 @@ struct Browser::Impl {
             return;
         ChromeLayout const c = layout_chrome();
         tab.layout = layout::layout_document(*tab.document, tab.styles,
-            static_cast<float>(std::max(1, c.content.width)), &tab.images);
+            static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls);
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
     }
 
@@ -509,6 +511,7 @@ struct Browser::Impl {
             source = generated;
         }
         tab.document = html::parse_document_bytes(source);
+        tab.controls = {}; // a new document: nothing typed into it yet
         // The page's stylesheets come through the loader with the page as
         // first party and the usual referrer policy; a sheet that fails to
         // load is simply absent.
@@ -896,6 +899,74 @@ struct Browser::Impl {
         return nullptr;
     }
 
+    // The control whose box holds page point (px, py).
+    static dom::Element const* hit_control(layout::Fragment const& fragment, float px, float py)
+    {
+        if (fragment.control && fragment.element) {
+            layout::Fragment::ControlBox const& box = *fragment.control;
+            if (px >= box.x && px < box.x + box.width && py >= box.y && py < box.y + box.height)
+                return fragment.element;
+        }
+        for (layout::Fragment const& child : fragment.children) {
+            if (dom::Element const* const hit = hit_control(child, px, py))
+                return hit;
+        }
+        return nullptr;
+    }
+
+    // The first control inside a node, in tree order.
+    static dom::Element const* first_control_within(dom::Node const& node)
+    {
+        for (dom::Node const* child : node.children()) {
+            if (!child->is_element())
+                continue;
+            auto const& element = static_cast<dom::Element const&>(*child);
+            if (layout::is_control(element))
+                return &element;
+            if (dom::Element const* const found = first_control_within(element))
+                return found;
+        }
+        return nullptr;
+    }
+
+    // The page coordinates of a window point inside the content area.
+    std::optional<std::pair<float, float>> page_point(int x, int y) const
+    {
+        ChromeLayout const c = layout_chrome();
+        Tab const* const tab = active_tab();
+        if (!tab || !tab->document || !c.content.contains(x, y))
+            return std::nullopt;
+        return std::pair<float, float> { static_cast<float>(x - c.content.x),
+            static_cast<float>(y - c.content.y + tab->scroll_y) };
+    }
+
+    // The control under a window point: its own box, or the control a
+    // <label> whose text was hit stands for.
+    dom::Element const* control_at(int x, int y) const
+    {
+        Tab const* const tab = active_tab();
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!tab || !point)
+            return nullptr;
+        if (dom::Element const* const control
+            = hit_control(tab->layout.root, point->first, point->second))
+            return control;
+        dom::Element const* const hit = hit_run(tab->layout.root, point->first, point->second);
+        for (dom::Node const* node = hit; node; node = node->parent()) {
+            if (!node->is_element())
+                continue;
+            auto const& element = static_cast<dom::Element const&>(*node);
+            if (!element.is_html("label"))
+                continue;
+            if (dom::Attr const* const target = element.find_attribute("for")) {
+                dom::Element const* const named = element_by_id(*tab->document, target->value);
+                return named && layout::is_control(*named) ? named : nullptr;
+            }
+            return first_control_within(element);
+        }
+        return nullptr;
+    }
+
     std::optional<net::Url> link_at(int x, int y) const
     {
         ChromeLayout const c = layout_chrome();
@@ -1000,6 +1071,261 @@ struct Browser::Impl {
 
     // --- Input ---------------------------------------------------------------------
 
+    // --- Forms -----------------------------------------------------------------------
+
+    Tab* tab_with_focused_control()
+    {
+        Tab* const tab = active_tab();
+        return tab && tab->document && tab->controls.focused ? tab : nullptr;
+    }
+
+    layout::ControlState& state_of(Tab& tab, dom::Element const& control)
+    {
+        return tab.controls.states[&control];
+    }
+
+    static std::string utf8_of(std::u32string const& text)
+    {
+        std::string out;
+        for (char32_t const c : text)
+            append_utf8(out, c);
+        return out;
+    }
+
+    // Puts the caret at the end of a text control's value.
+    void caret_to_end(Tab& tab, dom::Element const& control)
+    {
+        if (layout::is_text_kind(layout::control_kind(control)))
+            state_of(tab, control).caret
+                = decode_utf8(layout::control_value(control, &tab.controls)).size();
+    }
+
+    void blur_control()
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !tab->controls.focused)
+            return;
+        tab->controls.focused = nullptr;
+        relayout(*tab);
+        dirty = true;
+    }
+
+    // Checks a radio button and clears the rest of its group: the same
+    // name within the same form.
+    void check_radio(Tab& tab, dom::Element const& radio)
+    {
+        dom::Attr const* const name = radio.find_attribute("name");
+        dom::Element const* const form = form_owner(radio, *tab.document);
+        for (dom::Element const* const other : focusable_controls(*tab.document)) {
+            if (layout::control_kind(*other) != layout::ControlKind::Radio)
+                continue;
+            dom::Attr const* const other_name = other->find_attribute("name");
+            bool const same_group = name && other_name && other_name->value == name->value
+                && form_owner(*other, *tab.document) == form;
+            if (other == &radio || same_group)
+                state_of(tab, *other).checked = other == &radio;
+        }
+    }
+
+    // Submits the form a control belongs to — the control itself as the
+    // submitter when it is a submit button, else the form's first one.
+    void submit(Tab& tab, dom::Element const& control)
+    {
+        HistoryEntry const* const entry = tab.current();
+        dom::Element const* const form = form_owner(control, *tab.document);
+        if (!form || !entry)
+            return;
+        dom::Element const* const submitter
+            = layout::control_kind(control) == layout::ControlKind::Submit ? &control
+                                                                            : default_submitter(*form);
+        std::optional<net::Url> const url
+            = get_submission_url(*form, submitter, &tab.controls, entry->final_url);
+        if (!url) {
+            tab.status = "This form posts; only GET forms are written yet";
+            dirty = true;
+            return;
+        }
+        queue(active, *url, Mode::Push);
+    }
+
+    // A click on a control: focus for every kind, a toggle for a box, a
+    // submission for a submit button.
+    void activate_control(dom::Element const& control)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document || control.has_attribute("disabled"))
+            return;
+        using layout::ControlKind;
+        tab->controls.focused = &control;
+        caret_to_end(*tab, control);
+        switch (layout::control_kind(control)) {
+        case ControlKind::Checkbox:
+            state_of(*tab, control).checked = !layout::control_checked(control, &tab->controls);
+            break;
+        case ControlKind::Radio:
+            check_radio(*tab, control);
+            break;
+        case ControlKind::Submit:
+            submit(*tab, control);
+            break;
+        default:
+            break;
+        }
+        relayout(*tab);
+        dirty = true;
+    }
+
+    // Moves focus to the next (or previous) control in tree order.
+    void focus_neighbor(Tab& tab, bool backwards)
+    {
+        std::vector<dom::Element const*> const controls = focusable_controls(*tab.document);
+        if (controls.empty())
+            return;
+        std::size_t index = 0;
+        for (std::size_t i = 0; i < controls.size(); ++i) {
+            if (controls[i] == tab.controls.focused) {
+                index = backwards ? (i + controls.size() - 1) % controls.size()
+                                  : (i + 1) % controls.size();
+                break;
+            }
+        }
+        tab.controls.focused = controls[index];
+        caret_to_end(tab, *controls[index]);
+    }
+
+    // A key while a page control has focus; true when the control took it.
+    bool edit_control(KeyEvent const& key)
+    {
+        Tab* const tab = tab_with_focused_control();
+        if (!tab)
+            return false;
+        using layout::ControlKind;
+        dom::Element const& control = *tab->controls.focused;
+        ControlKind const kind = layout::control_kind(control);
+        layout::ControlState& state = state_of(*tab, control);
+        bool changed = true;
+        if (key.key == Key::Tab) {
+            focus_neighbor(*tab, key.shift);
+        } else if (key.key == Key::Escape) {
+            tab->controls.focused = nullptr;
+        } else if (layout::is_text_kind(kind)) {
+            bool const locked = control.has_attribute("readonly");
+            std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
+            std::size_t position = std::min(state.caret, value.size());
+            switch (key.key) {
+            case Key::Left:
+                if (position > 0)
+                    --position;
+                break;
+            case Key::Right:
+                if (position < value.size())
+                    ++position;
+                break;
+            case Key::Home:
+                position = 0;
+                break;
+            case Key::End:
+                position = value.size();
+                break;
+            case Key::Backspace:
+                if (position > 0 && !locked) {
+                    value.erase(position - 1, 1);
+                    --position;
+                }
+                break;
+            case Key::Delete:
+                if (position < value.size() && !locked)
+                    value.erase(position, 1);
+                break;
+            case Key::Enter:
+                if (kind == ControlKind::TextArea) {
+                    if (!locked) {
+                        value.insert(position, 1, U'\n');
+                        ++position;
+                    }
+                } else {
+                    submit(*tab, control);
+                    return true;
+                }
+                break;
+            default:
+                changed = false;
+                break;
+            }
+            if (changed) {
+                state.value = utf8_of(value);
+                state.caret = position;
+            }
+            changed = true; // a focused field keeps every key from the page
+        } else {
+            switch (kind) {
+            case ControlKind::Checkbox:
+                if (key.key == Key::Space)
+                    state.checked = !layout::control_checked(control, &tab->controls);
+                else
+                    changed = false;
+                break;
+            case ControlKind::Radio:
+                if (key.key == Key::Space)
+                    check_radio(*tab, control);
+                else
+                    changed = false;
+                break;
+            case ControlKind::Submit:
+                if (key.key == Key::Space || key.key == Key::Enter) {
+                    submit(*tab, control);
+                    return true;
+                }
+                changed = false;
+                break;
+            case ControlKind::Select:
+                if (key.key == Key::Up || key.key == Key::Down) {
+                    layout::SelectOptions const options
+                        = layout::select_options(control, &tab->controls);
+                    if (!options.values.empty()) {
+                        std::size_t index = options.selected;
+                        if (key.key == Key::Up && index > 0)
+                            --index;
+                        if (key.key == Key::Down && index + 1 < options.values.size())
+                            ++index;
+                        state.value = options.values[index];
+                    }
+                } else {
+                    changed = false;
+                }
+                break;
+            default:
+                changed = false;
+                break;
+            }
+        }
+        if (!changed)
+            return false;
+        relayout(*tab);
+        dirty = true;
+        return true;
+    }
+
+    // A typed character into the focused text control.
+    void type_into_control(char32_t code_point)
+    {
+        Tab* const tab = tab_with_focused_control();
+        if (!tab)
+            return;
+        dom::Element const& control = *tab->controls.focused;
+        if (!layout::is_text_kind(layout::control_kind(control)) || control.has_attribute("disabled")
+            || control.has_attribute("readonly"))
+            return;
+        layout::ControlState& state = state_of(*tab, control);
+        std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
+        std::size_t const position = std::min(state.caret, value.size());
+        value.insert(position, 1, code_point);
+        state.value = utf8_of(value);
+        state.caret = position + 1;
+        relayout(*tab);
+        dirty = true;
+    }
+
     void mouse_down(int x, int y, int button)
     {
         update_hover(x, y);
@@ -1014,8 +1340,13 @@ struct Browser::Impl {
             case Hover::Address: focus_address(true); break;
             case Hover::Content:
                 blur_address();
-                if (hover_link)
-                    open(*hover_link);
+                if (dom::Element const* const control = control_at(x, y)) {
+                    activate_control(*control);
+                } else {
+                    blur_control();
+                    if (hover_link)
+                        open(*hover_link);
+                }
                 break;
             case Hover::None: blur_address(); break;
             }
@@ -1084,6 +1415,8 @@ struct Browser::Impl {
             edit_address(key);
             return;
         }
+        if (edit_control(key))
+            return;
         Tab* const tab = active_tab();
         if (!tab)
             return;
@@ -1167,8 +1500,12 @@ struct Browser::Impl {
 
     void text_input(char32_t code_point)
     {
-        if (!address_focus || code_point < 0x20 || code_point == 0x7F)
+        if (code_point < 0x20 || code_point == 0x7F)
             return;
+        if (!address_focus) {
+            type_into_control(code_point);
+            return;
+        }
         if (select_all) {
             address.clear();
             caret = 0;
@@ -1428,8 +1765,13 @@ bool Browser::needs_paint() const { return m_impl->dirty; }
 
 platform::Cursor Browser::cursor() const
 {
-    if (m_impl->hover == Impl::Hover::Content && m_impl->hover_link)
-        return Cursor::Hand;
+    if (m_impl->hover == Impl::Hover::Content) {
+        if (dom::Element const* const control = m_impl->control_at(m_impl->mouse_x, m_impl->mouse_y))
+            return layout::is_text_kind(layout::control_kind(*control)) ? Cursor::Text
+                                                                          : Cursor::Arrow;
+        if (m_impl->hover_link)
+            return Cursor::Hand;
+    }
     if (m_impl->hover == Impl::Hover::Address)
         return Cursor::Text;
     return Cursor::Arrow;
@@ -1499,5 +1841,40 @@ std::optional<std::pair<int, int>> Browser::find_text(std::string const& text) c
 }
 
 ChromeLayout Browser::chrome_layout() const { return m_impl->layout_chrome(); }
+
+bool Browser::focus_control(std::string const& name)
+{
+    Impl::Tab* const tab = m_impl->active_tab();
+    if (!tab || !tab->document)
+        return false;
+    dom::Element const* const control = control_named(*tab->document, name);
+    if (!control || !layout::is_control(*control))
+        return false;
+    tab->controls.focused = control;
+    m_impl->caret_to_end(*tab, *control);
+    m_impl->relayout(*tab);
+    m_impl->dirty = true;
+    return true;
+}
+
+std::optional<std::string> Browser::control_value(std::string const& name) const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab || !tab->document)
+        return std::nullopt;
+    dom::Element const* const control = control_named(*tab->document, name);
+    if (!control)
+        return std::nullopt;
+    return layout::control_value(*control, &tab->controls);
+}
+
+std::string Browser::focused_control_name() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab || !tab->controls.focused)
+        return "";
+    dom::Attr const* const name = tab->controls.focused->find_attribute("name");
+    return name ? name->value : "";
+}
 
 }

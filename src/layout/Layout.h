@@ -9,6 +9,7 @@
 
 #include "css/ComputedStyle.h"
 #include "css/StyleResolver.h"
+#include "layout/Controls.h"
 
 #include <memory>
 #include <optional>
@@ -58,6 +59,22 @@ struct Fragment {
         float height = 0;
     };
     std::optional<ImageBox> image;
+
+    // A form control drawn by the painter: its kind, box and state. The
+    // text inside is this fragment's runs.
+    struct ControlBox {
+        ControlKind kind = ControlKind::Text;
+        float x = 0;
+        float y = 0;
+        float width = 0;
+        float height = 0;
+        bool checked = false;
+        bool focused = false;
+        bool disabled = false;
+        std::optional<float> caret_x; // the caret's page x, when focused and editable
+    };
+    std::optional<ControlBox> control;
+
     // Out of flow, placed beside or below its siblings' lines; painted
     // after the in-flow boxes at its level.
     bool floating = false;
@@ -80,7 +97,10 @@ struct PageImage {
 // Decoded images by element, supplied by whoever fetched them.
 using ImageMap = std::unordered_map<dom::Element const*, PageImage>;
 
+// `controls` is the live state of the page's form controls (values typed,
+// boxes checked, the focused one); without it the markup's defaults show.
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
-    float viewport_width, ImageMap const* images = nullptr);
+    float viewport_width, ImageMap const* images = nullptr,
+    ControlStates const* controls = nullptr);
 
 }

@@ -56,6 +56,10 @@ u, ins { text-decoration: underline }
 center, caption, th { text-align: center }
 hr { margin-top: 0.5em; margin-bottom: 0.5em; border-top: 1px solid; color: gray }
 mark { background-color: yellow }
+input, textarea, select, button { font-size: 13.333px; line-height: normal; font-family: sans-serif }
+input[type=hidden] { display: none }
+input[type=checkbox], input[type=radio] { margin: 3px 3px 3px 4px }
+textarea { white-space: pre-wrap }
 )CSS";
 
 enum class CascadeRank : int {
