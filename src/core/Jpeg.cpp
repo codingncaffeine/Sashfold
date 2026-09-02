@@ -557,18 +557,46 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
     if (!frame_seen || !any_scan)
         return std::nullopt;
 
-    // Samples to pixels: each component read at its own sampling, nearest.
+    // Samples to pixels. A subsampled plane is read bilinearly between the
+    // samples whose centers straddle the pixel (the 3/4-1/4 weights of the
+    // usual "fancy" upsampling at factor two), edges replicated, integer
+    // arithmetic; a full-resolution plane is read straight.
     Bitmap out(width, height, Color::rgb(0, 0, 0));
     bool const color = components.size() == 3;
     bool const ycbcr = color && !adobe_rgb
         && !(components[0].id == 'R' && components[1].id == 'G' && components[2].id == 'B');
+    auto const axis = [](int pixel, int factor, int factor_max, int valid, int& i0, int& i1, int& remainder,
+                          int& denominator) {
+        denominator = 2 * factor_max;
+        int const numerator = (2 * pixel + 1) * factor - factor_max; // the sample coordinate, times denominator
+        if (numerator <= 0) {
+            i0 = i1 = 0;
+            remainder = 0;
+            return;
+        }
+        i0 = std::min(numerator / denominator, valid - 1);
+        remainder = i0 == valid - 1 ? 0 : numerator % denominator;
+        i1 = std::min(i0 + 1, valid - 1);
+    };
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             auto const sample = [&](Component const& component) {
-                int const sx = x * component.h / h_max;
-                int const sy = y * component.v / v_max;
-                return static_cast<int>(component.plane[static_cast<std::size_t>(sy) * static_cast<std::size_t>(component.plane_width)
-                    + static_cast<std::size_t>(sx)]);
+                auto const plane_at = [&](int sx, int sy) {
+                    return static_cast<int>(component.plane[static_cast<std::size_t>(sy)
+                            * static_cast<std::size_t>(component.plane_width)
+                        + static_cast<std::size_t>(sx)]);
+                };
+                if (component.h == h_max && component.v == v_max)
+                    return plane_at(x, y);
+                int const valid_width = (width * component.h + h_max - 1) / h_max;
+                int const valid_height = (height * component.v + v_max - 1) / v_max;
+                int x0, x1, rx, dx;
+                int y0, y1, ry, dy;
+                axis(x, component.h, h_max, valid_width, x0, x1, rx, dx);
+                axis(y, component.v, v_max, valid_height, y0, y1, ry, dy);
+                int const top = plane_at(x0, y0) * (dx - rx) + plane_at(x1, y0) * rx;
+                int const bottom = plane_at(x0, y1) * (dx - rx) + plane_at(x1, y1) * rx;
+                return (top * (dy - ry) + bottom * ry + dx * dy / 2) / (dx * dy);
             };
             if (!color) {
                 auto const g = static_cast<std::uint8_t>(sample(components[0]));
