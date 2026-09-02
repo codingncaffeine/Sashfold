@@ -52,8 +52,13 @@ struct TlsSocket::Impl {
     {
         SCHANNEL_CRED credential_config {};
         credential_config.dwVersion = SCHANNEL_CRED_VERSION;
+        // The chain is validated with revocation checked below the root: a
+        // revoked certificate is refused, while a revocation source that is
+        // unreachable or unpublished does not fail an otherwise valid chain
+        // (the soft-fail every browser settles on).
         credential_config.dwFlags = SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS
-            | SCH_USE_STRONG_CRYPTO;
+            | SCH_USE_STRONG_CRYPTO | SCH_CRED_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT
+            | SCH_CRED_IGNORE_NO_REVOCATION_CHECK | SCH_CRED_IGNORE_REVOCATION_OFFLINE;
         if (AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W),
                 SECPKG_CRED_OUTBOUND, nullptr, &credential_config, nullptr, nullptr, &credentials,
                 nullptr)
