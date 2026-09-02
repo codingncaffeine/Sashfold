@@ -2,9 +2,12 @@
 
 #include "text/Face.h"
 #include "text/FontManager.h"
+#include "text/SashfoldMono.h"
 
+#include <cstdint>
 #include <iostream>
 #include <string>
+#include <vector>
 
 // The font manager: with system fonts off every request is the built-in
 // face; with them on, the machine's fonts answer by family, weight and
@@ -33,6 +36,46 @@ int main()
     CHECK(&plain.face_for(0x4E00) == &builtin);
     CHECK(&manager.resolve(FontRequest { { "Arial", "sans-serif" }, 700, true }) == &plain);
     CHECK(&manager.resolve(FontRequest { {}, 400, false }).primary() == &builtin);
+
+    // --- Page fonts -------------------------------------------------------------------
+    // A page's @font-face fonts answer their family with system fonts off
+    // or on; the same bytes on the next page reuse the parsed face; the
+    // stacks handed out before stay alive for the layouts that hold them.
+    std::vector<std::uint8_t> const ttf = text::SashfoldMono::instance().to_truetype();
+    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf } });
+    CHECK_EQ(manager.page_font_count(), 1u);
+    FontStack const& page = manager.resolve(FontRequest { { "ahem", "serif" }, 400, false });
+    CHECK_EQ(page.faces().size(), 2u);
+    CHECK(&page.primary() != &builtin);
+    CHECK(page.primary().glyph_index(U'A') != 0);
+    CHECK(&page.face_for(U'A') == &page.primary());
+    CHECK(page.faces().back() == &builtin);
+    CHECK_EQ(plain.faces().size(), 1u); // retired, not destroyed
+    CHECK(&manager.resolve(FontRequest { { "Arial", "sans-serif" }, 700, true }) != &plain);
+    // The same set again changes nothing: the stacks stand.
+    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf } });
+    CHECK(&manager.resolve(FontRequest { { "ahem", "serif" }, 400, false }) == &page);
+    // Weight and slant pick among a family's faces; a face of the other
+    // slant is the last resort.
+    text::TrueTypeOptions bold_options;
+    bold_options.bold = true;
+    std::vector<std::uint8_t> const bold_ttf = text::SashfoldMono::instance().to_truetype(bold_options);
+    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf },
+        text::PageFont { "Ahem", 700, false, bold_ttf }, text::PageFont { "Solo", 400, true, ttf } });
+    CHECK_EQ(manager.page_font_count(), 3u);
+    text::Face const& page_regular = manager.resolve(FontRequest { { "Ahem" }, 400, false }).primary();
+    text::Face const& page_bold = manager.resolve(FontRequest { { "Ahem" }, 700, false }).primary();
+    CHECK(&page_regular != &page_bold);
+    CHECK(&manager.resolve(FontRequest { { "Ahem" }, 500, false }).primary() == &page_regular);
+    CHECK(&manager.resolve(FontRequest { { "Ahem" }, 600, false }).primary() == &page_bold);
+    CHECK(&manager.resolve(FontRequest { { "Ahem" }, 400, true }).primary() == &page_regular);
+    CHECK(&manager.resolve(FontRequest { { "Solo" }, 400, false }).primary() != &builtin);
+    // Bytes that are not a font register nothing, and the family falls through.
+    manager.set_page_fonts({ text::PageFont { "Junk", 400, false, { 1, 2, 3 } } });
+    CHECK_EQ(manager.page_font_count(), 0u);
+    CHECK(&manager.resolve(FontRequest { { "Junk", "Ahem" }, 400, false }).primary() == &builtin);
+    manager.set_page_fonts({});
+    CHECK(&manager.resolve(FontRequest { { "ahem", "serif" }, 400, false }).primary() == &builtin);
 
     // --- System fonts --------------------------------------------------------------------
     manager.set_system_fonts(true);

@@ -289,6 +289,7 @@ struct Browser::Impl {
         std::size_t index = 0;
         std::unique_ptr<dom::Document> document;
         std::vector<css::SheetSource> sheets; // the page's stylesheets, kept so a resize can restyle
+        std::vector<text::PageFont> fonts; // the fonts its @font-face rules brought along
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
         css::MediaContext style_media;
         css::StyleMap styles;
@@ -567,6 +568,7 @@ struct Browser::Impl {
     {
         if (!tab.document)
             return;
+        text::FontManager::instance().set_page_fonts(tab.fonts);
         css::MediaContext const media = media_context();
         if (!tab.style_set || tab.style_media.width != media.width
             || tab.style_media.height != media.height) {
@@ -580,6 +582,9 @@ struct Browser::Impl {
     {
         if (!tab.document)
             return;
+        // The page's own fonts answer this tab's families; another tab may
+        // have set its own since.
+        text::FontManager::instance().set_page_fonts(tab.fonts);
         ChromeLayout const c = layout_chrome();
         tab.layout = layout::layout_document(*tab.document, tab.styles,
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls);
@@ -630,6 +635,7 @@ struct Browser::Impl {
             return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
         };
         tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
+        tab.fonts = css::collect_page_fonts(tab.sheets, fetch_sheet, media_context());
         tab.style_set.reset();
         restyle(tab);
         auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {

@@ -77,6 +77,18 @@ bool has_font_extension(std::filesystem::path const& path)
     return extension == ".ttf" || extension == ".ttc" || extension == ".otf";
 }
 
+// FNV-1a over a font file: the key that tells one page font's bytes from
+// another's without keeping the bytes.
+std::uint64_t fnv1a(std::vector<std::uint8_t> const& bytes)
+{
+    std::uint64_t hash = 14695981039346656037ull;
+    for (std::uint8_t const byte : bytes) {
+        hash ^= byte;
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
 } // namespace
 
 Face const& FontStack::face_for(char32_t code_point) const
@@ -130,7 +142,7 @@ void FontManager::add_font_file(std::string const& path)
         m_by_family[lowercased(info.family)].push_back(m_catalogue.size());
         m_catalogue.push_back(std::move(info));
     }
-    m_stacks.clear();
+    retire_stacks();
     m_fallbacks.clear();
 }
 
@@ -139,8 +151,74 @@ void FontManager::set_system_fonts(bool enabled)
     if (m_system_fonts == enabled)
         return;
     m_system_fonts = enabled;
-    m_stacks.clear();
+    retire_stacks();
     m_fallbacks.clear();
+}
+
+// A stack, once handed out, is referenced by every text run laid out with
+// it; when the answers change, the old stacks are set aside rather than
+// destroyed, so a layout that still holds one paints and measures as before.
+void FontManager::retire_stacks()
+{
+    for (auto& [key, stack] : m_stacks)
+        m_retired_stacks.push_back(std::move(stack));
+    m_stacks.clear();
+}
+
+void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
+{
+    std::vector<PageFace> faces;
+    for (PageFont const& font : fonts) {
+        std::string key = lowercased(font.family);
+        key += '\n';
+        key += std::to_string(font.weight);
+        key += font.italic ? 'i' : 'n';
+        key += '\n';
+        key += std::to_string(font.bytes.size());
+        key += '\n';
+        key += std::to_string(fnv1a(font.bytes));
+        auto it = m_page_face_cache.find(key);
+        if (it == m_page_face_cache.end()) {
+            std::unique_ptr<Face> face;
+            if (std::optional<TrueTypeFont> parsed = TrueTypeFont::parse(font.bytes);
+                parsed && parsed->has_outlines())
+                face = make_truetype_face(std::move(*parsed));
+            it = m_page_face_cache.emplace(std::move(key), std::move(face)).first;
+        }
+        if (!it->second)
+            continue; // not a font this engine draws: the family falls through to the next
+        faces.push_back(PageFace { lowercased(font.family), font.weight, font.italic, it->second.get() });
+    }
+    bool same = faces.size() == m_page_faces.size();
+    for (std::size_t i = 0; same && i < faces.size(); ++i) {
+        same = faces[i].face == m_page_faces[i].face && faces[i].family_lower == m_page_faces[i].family_lower
+            && faces[i].weight == m_page_faces[i].weight && faces[i].italic == m_page_faces[i].italic;
+    }
+    if (same)
+        return; // the same fonts as the last page: every stack still answers right
+    m_page_faces = std::move(faces);
+    retire_stacks();
+}
+
+// The page's own face for a family, chosen the way best_face chooses: the
+// requested slant first, then the nearest weight.
+Face const* FontManager::page_face(std::string const& family_lower, int weight, bool italic) const
+{
+    Face const* best = nullptr;
+    long best_score = -1;
+    for (PageFace const& candidate : m_page_faces) {
+        if (candidate.family_lower != family_lower)
+            continue;
+        long score = candidate.italic != italic ? 100000 : 0;
+        int const distance = std::abs(candidate.weight - weight);
+        bool const wrong_side = weight <= 500 ? candidate.weight > weight : candidate.weight < weight;
+        score += distance * 2 + (wrong_side ? 1 : 0);
+        if (best_score < 0 || score < best_score) {
+            best_score = score;
+            best = candidate.face;
+        }
+    }
+    return best;
 }
 
 std::vector<FaceInfo> const& FontManager::catalogue()
@@ -235,31 +313,36 @@ FontStack const& FontManager::resolve(FontRequest const& request)
 
     auto stack = std::make_unique<FontStack>();
     stack->m_manager = this;
-    if (m_system_fonts) {
+    auto const add = [&](Face const* face) {
+        if (face && std::find(stack->m_faces.begin(), stack->m_faces.end(), face) == stack->m_faces.end())
+            stack->m_faces.push_back(face);
+    };
+    auto const add_family = [&](std::string const& name) {
+        std::string const lower = lowercased(name);
+        // A page's own font shadows an installed one of the same name.
+        if (Face const* face = page_face(lower, request.weight, request.italic)) {
+            add(face);
+            return;
+        }
+        if (!m_system_fonts)
+            return;
         scan();
-        auto const add = [&](Face const* face) {
-            if (face && std::find(stack->m_faces.begin(), stack->m_faces.end(), face) == stack->m_faces.end())
-                stack->m_faces.push_back(face);
-        };
-        auto const add_family = [&](std::string const& name) {
-            std::string const lower = lowercased(name);
-            std::vector<std::string_view> const generics = generic_candidates(lower);
-            if (generics.empty()) {
-                add(best_face(lower, request.weight, request.italic));
+        std::vector<std::string_view> const generics = generic_candidates(lower);
+        if (generics.empty()) {
+            add(best_face(lower, request.weight, request.italic));
+            return;
+        }
+        for (std::string_view const candidate : generics) {
+            if (Face const* face = best_face(lowercased(candidate), request.weight, request.italic)) {
+                add(face);
                 return;
             }
-            for (std::string_view const candidate : generics) {
-                if (Face const* face = best_face(lowercased(candidate), request.weight, request.italic)) {
-                    add(face);
-                    return;
-                }
-            }
-        };
-        for (std::string const& family : request.families)
-            add_family(family);
-        if (stack->m_faces.empty())
-            add_family("serif"); // the initial value, when nothing asked for exists
-    }
+        }
+    };
+    for (std::string const& family : request.families)
+        add_family(family);
+    if (m_system_fonts && stack->m_faces.empty())
+        add_family("serif"); // the initial value, when nothing asked for exists
     stack->m_faces.push_back(&builtin_face());
     FontStack const& result = *stack;
     m_stacks.emplace(std::move(key), std::move(stack));

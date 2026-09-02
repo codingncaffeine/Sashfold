@@ -19,6 +19,10 @@ namespace sashfold::dom {
 class Document;
 }
 
+namespace sashfold::text {
+struct PageFont;
+}
+
 namespace sashfold::css {
 
 struct SheetSource {
@@ -53,6 +57,36 @@ std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::strin
 // The URLs of the @import rules at the head of a sheet, as written, minus
 // those whose media condition the context fails.
 std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext const& media = {});
+
+// One source of an @font-face rule: a URL as written (the caller resolves
+// it) or a local() family name, with the format() hint when one is given.
+struct FontFaceSource {
+    std::string url; // empty for local()
+    std::string local; // the local() name, when it is one
+    std::string format; // lowercased, unquoted; empty when not written
+};
+
+// An @font-face rule as declared: the family, the weight and slant its
+// descriptors claim (the first value of a range), and its sources in order.
+struct FontFaceRule {
+    std::string family;
+    int weight = 400;
+    bool italic = false;
+    std::vector<FontFaceSource> sources;
+};
+
+// The @font-face rules of a sheet — at its top level and inside the @media
+// blocks the context satisfies — in order; a rule without a family or a
+// source is left out.
+std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaContext const& media = {});
+
+// The fonts the sheets bring along, fetched: for each @font-face rule the
+// first source in a format this engine reads (TrueType or OpenType, or
+// unsaid and not a web-font extension) that the fetcher can supply, its
+// reference resolved against the sheet. Each URL is fetched once; bounded
+// per page. Hand the result to text::FontManager::set_page_fonts.
+std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets,
+    SheetFetcher const& fetch, MediaContext const& media = {});
 
 // Media Queries evaluated against the context: media types (screen and
 // all apply), not/only/and/or, width and height features in both plain

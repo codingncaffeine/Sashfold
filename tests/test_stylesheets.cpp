@@ -6,6 +6,7 @@
 #include "html/TreeBuilder.h"
 #include "net/Http.h"
 #include "net/Url.h"
+#include "text/FontManager.h"
 #include "ui/ShellLoader.h"
 
 #include <algorithm>
@@ -153,6 +154,71 @@ int main()
         CHECK_EQ(imports[1], std::string("b.css"));
         CHECK_EQ(imports[2], std::string("d.css"));
     }
+
+    // --- @font-face ------------------------------------------------------------------------------
+    css::MediaContext const font_media { 800, 600 };
+    std::vector<css::FontFaceRule> const faces = css::font_face_rules(
+        "@font-face { font-family: Ahem; src: url('/fonts/Ahem.ttf'); }\n"
+        "@font-face { font-family: \"Two Words\"; font-weight: bold; font-style: italic;\n"
+        "  src: local(\"Two Words\"), url(two.woff2) format(\"woff2\"), url(two.ttf) format(truetype) tech(variations); }\n"
+        "@font-face { font-family: Ranged; font-weight: 300 800; src: url(ranged.otf) format(\"opentype\"); }\n"
+        "@media (min-width: 600px) { @font-face { font-family: Wide; src: url(wide.ttf); } }\n"
+        "@media (max-width: 500px) { @font-face { font-family: Narrow; src: url(narrow.ttf); } }\n"
+        "@font-face { src: url(nameless.ttf); }\n"
+        "@font-face { font-family: Sourceless; }\n"
+        "@font-face { font-family: Junk; src: 12px; }\n",
+        font_media);
+    if (CHECK_EQ(faces.size(), 4u)) {
+        CHECK_EQ(faces[0].family, std::string("Ahem"));
+        CHECK_EQ(faces[0].weight, 400);
+        CHECK(!faces[0].italic);
+        CHECK_EQ(faces[0].sources.size(), 1u);
+        CHECK_EQ(faces[0].sources[0].url, std::string("/fonts/Ahem.ttf"));
+        CHECK(faces[0].sources[0].format.empty());
+        CHECK_EQ(faces[1].family, std::string("Two Words"));
+        CHECK_EQ(faces[1].weight, 700);
+        CHECK(faces[1].italic);
+        if (CHECK_EQ(faces[1].sources.size(), 3u)) {
+            CHECK_EQ(faces[1].sources[0].local, std::string("Two Words"));
+            CHECK(faces[1].sources[0].url.empty());
+            CHECK_EQ(faces[1].sources[1].url, std::string("two.woff2"));
+            CHECK_EQ(faces[1].sources[1].format, std::string("woff2"));
+            CHECK_EQ(faces[1].sources[2].url, std::string("two.ttf"));
+            CHECK_EQ(faces[1].sources[2].format, std::string("truetype"));
+        }
+        CHECK_EQ(faces[2].weight, 300);
+        CHECK_EQ(faces[3].family, std::string("Wide"));
+    }
+    // Fetching: the first readable source of each rule, resolved against
+    // its sheet, each URL once; a rule whose sources are all web-font
+    // formats or unreachable brings nothing.
+    FakeFetcher font_fetcher;
+    font_fetcher.sheets["https://example.test/dir/fonts/a.ttf"] = "AAAA";
+    font_fetcher.sheets["https://example.test/two.ttf"] = "TWO";
+    std::vector<css::SheetSource> const font_sheets {
+        css::SheetSource { "@font-face { font-family: A; src: url(fonts/a.ttf); }\n"
+                           "@font-face { font-family: A; font-weight: 700; src: url(fonts/a.ttf); }\n"
+                           "@font-face { font-family: W; src: url(w.woff) format(\"woff\"), url(w.woff2); }\n"
+                           "@font-face { font-family: Gone; src: url(missing.ttf), url(fonts/a.ttf?v=2#x); }\n",
+            base },
+        css::SheetSource { "@font-face { font-family: Two; src: local(Two), url(/two.ttf) format(truetype); }",
+            base },
+    };
+    std::vector<text::PageFont> const fonts = css::collect_page_fonts(font_sheets,
+        [&](net::Url const& url) { return font_fetcher(url); }, font_media);
+    if (CHECK_EQ(fonts.size(), 3u)) {
+        CHECK_EQ(fonts[0].family, std::string("A"));
+        CHECK_EQ(fonts[0].bytes.size(), 4u);
+        CHECK_EQ(fonts[1].weight, 700);
+        CHECK_EQ(fonts[2].family, std::string("Two"));
+        CHECK(fonts[2].bytes == bytes_of("TWO"));
+    }
+    // a.ttf once, missing.ttf once, a.ttf?v=2 once (a different URL), two.ttf once; no woff at all.
+    CHECK_EQ(font_fetcher.requested.size(), 4u);
+    CHECK(std::find(font_fetcher.requested.begin(), font_fetcher.requested.end(),
+              std::string("https://example.test/dir/w.woff2"))
+        == font_fetcher.requested.end());
+    CHECK(css::collect_page_fonts(font_sheets, {}, font_media).empty());
 
     // --- Decoding ----------------------------------------------------------------------------
     CHECK_EQ(css::decode_stylesheet(bytes_of("\xEF\xBB\xBFp{}"), ""), std::string("p{}"));

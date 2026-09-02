@@ -26,6 +26,16 @@ struct FontRequest {
     bool italic = false;
 };
 
+// A font a page brings along through @font-face: the family name it
+// answers to, the weight and slant its descriptors claim, and the font
+// file's bytes (TrueType outlines; anything else parses to nothing).
+struct PageFont {
+    std::string family;
+    int weight = 400;
+    bool italic = false;
+    std::vector<std::uint8_t> bytes;
+};
+
 class FontManager;
 
 // The faces answering one request, most preferred first, the built-in
@@ -68,18 +78,37 @@ public:
     // Every face the OS directories offer (scanned on first use).
     std::vector<FaceInfo> const& catalogue();
     // Adds one font file's faces to the catalogue, as if it were installed:
-    // for tests, and for fonts a page brings along.
+    // for tests.
     void add_font_file(std::string const& path);
+
+    // The fonts the current page declared with @font-face, replacing the
+    // last page's. They answer their family names ahead of the machine's
+    // fonts, with system fonts on or off, and take no part in fallback.
+    // A file is parsed once and its face kept for as long as the manager
+    // lives, so the same font on the next page costs a lookup; the stacks
+    // resolved against an earlier set stay valid for the layouts that
+    // hold them.
+    void set_page_fonts(std::vector<PageFont> const& fonts);
+    std::size_t page_font_count() const { return m_page_faces.size(); }
 
     // The first catalogued face with a glyph for the code point, loading
     // faces as needed and remembering the answer; null when none has it.
     Face const* fallback_for(char32_t code_point);
 
 private:
+    struct PageFace {
+        std::string family_lower;
+        int weight;
+        bool italic;
+        Face const* face;
+    };
+
     FontManager() = default;
     void scan();
+    void retire_stacks();
     Face const* load(std::size_t catalogue_index);
     Face const* best_face(std::string const& family_lower, int weight, bool italic);
+    Face const* page_face(std::string const& family_lower, int weight, bool italic) const;
 
     bool m_system_fonts = true;
     bool m_scanned = false;
@@ -87,7 +116,10 @@ private:
     std::unordered_map<std::string, std::vector<std::size_t>> m_by_family; // lowercased
     std::unordered_map<std::size_t, std::unique_ptr<Face>> m_loaded; // catalogue index -> face (null: unreadable)
     std::unordered_map<std::string, std::unique_ptr<FontStack>> m_stacks;
+    std::vector<std::unique_ptr<FontStack>> m_retired_stacks; // superseded, kept for the layouts holding them
     std::unordered_map<char32_t, Face const*> m_fallbacks;
+    std::vector<PageFace> m_page_faces; // the current page's, in declaration order
+    std::unordered_map<std::string, std::unique_ptr<Face>> m_page_face_cache; // by family, weight, slant, bytes
 };
 
 }

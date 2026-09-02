@@ -240,8 +240,11 @@ int render_page(std::string const& path, std::string const& output, int viewport
     css::MediaContext const media { static_cast<float>(viewport_width),
         static_cast<float>(viewport_height) };
     auto document = html::parse_document_bytes(loaded->bytes);
-    css::StyleMap const styles = css::resolve_styles(*document,
-        css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded), media), media);
+    std::vector<css::SheetSource> const sheets
+        = css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded), media);
+    text::FontManager::instance().set_page_fonts(
+        css::collect_page_fonts(sheets, sheet_fetcher(*loaded), media));
+    css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
     layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded), media);
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images);
@@ -381,6 +384,8 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         auto const first = html::parse_document_bytes(loaded->bytes);
         return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
     }();
+    text::FontManager::instance().set_page_fonts(
+        css::collect_page_fonts(sheets, sheet_fetcher(*loaded), media));
     double const sheets_ms = ms(clock::now() - sheets_started).count();
     std::size_t image_count = 0;
     double images_ms = 0;

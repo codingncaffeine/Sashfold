@@ -6,8 +6,10 @@
 #include "css/Tokenizer.h"
 #include "dom/Dom.h"
 #include "html/Encoding.h"
+#include "text/FontManager.h"
 
 #include <algorithm>
+#include <map>
 #include <set>
 
 namespace sashfold::css {
@@ -240,6 +242,222 @@ std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext c
             urls.push_back(*url);
     }
     return urls;
+}
+
+// --- @font-face ------------------------------------------------------------------
+
+namespace {
+
+constexpr std::size_t max_page_fonts = 32;
+constexpr std::size_t max_font_bytes = 16u * 1024u * 1024u;
+
+// A family name: one string, or a run of identifiers joined by spaces.
+std::string family_of(std::vector<ComponentValue> const& values)
+{
+    std::string family;
+    bool after_string = false;
+    for (ComponentValue const& value : values) {
+        if (value.is_token(Token::Type::Whitespace))
+            continue;
+        if (value.is_token(Token::Type::String) && family.empty() && !after_string) {
+            family = value.token().value;
+            after_string = true;
+            continue;
+        }
+        if (value.is_token(Token::Type::Ident) && !after_string) {
+            if (!family.empty())
+                family += ' ';
+            family += value.token().value;
+            continue;
+        }
+        return {};
+    }
+    return family;
+}
+
+// url(...) as a token or as a function around a string; empty otherwise.
+std::string url_of(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Url))
+        return value.token().value;
+    if (value.is_function() && lowercased(value.function().name) == "url") {
+        for (ComponentValue const& inner : value.function().values) {
+            if (inner.is_token(Token::Type::String))
+                return inner.token().value;
+        }
+    }
+    return {};
+}
+
+// src: a comma-separated list of url(...) [format(...)] [tech(...)] and
+// local(...) entries; an entry that starts with anything else is skipped.
+std::vector<FontFaceSource> sources_of(std::vector<ComponentValue> const& values)
+{
+    std::vector<FontFaceSource> out;
+    FontFaceSource current;
+    bool started = false;
+    auto const flush = [&] {
+        if (started && (!current.url.empty() || !current.local.empty()))
+            out.push_back(current);
+        current = {};
+        started = false;
+    };
+    for (ComponentValue const& value : values) {
+        if (value.is_token(Token::Type::Whitespace))
+            continue;
+        if (value.is_token(Token::Type::Comma)) {
+            flush();
+            continue;
+        }
+        if (!started) {
+            started = true;
+            if (std::string url = url_of(value); !url.empty()) {
+                current.url = std::move(url);
+            } else if (value.is_function() && lowercased(value.function().name) == "local") {
+                current.local = family_of(value.function().values);
+            }
+            continue;
+        }
+        if (value.is_function() && lowercased(value.function().name) == "format") {
+            for (ComponentValue const& inner : value.function().values) {
+                if (inner.is_token(Token::Type::String) || inner.is_token(Token::Type::Ident)) {
+                    current.format = lowercased(inner.token().value);
+                    break;
+                }
+            }
+        }
+        // tech(...) and anything else in the entry: no bearing on the choice.
+    }
+    flush();
+    return out;
+}
+
+std::optional<FontFaceRule> font_face_of(AtRule const& at)
+{
+    FontFaceRule rule;
+    for (Rule const& child : at.child_rules) {
+        if (!child.is_nested_declarations())
+            continue;
+        for (Declaration const& declaration : child.nested_declarations().declarations) {
+            std::string const name = lowercased(declaration.name);
+            if (name == "font-family") {
+                rule.family = family_of(declaration.value);
+            } else if (name == "src") {
+                rule.sources = sources_of(declaration.value);
+            } else if (name == "font-weight") {
+                for (ComponentValue const& value : declaration.value) {
+                    if (value.is_token(Token::Type::Number) && value.token().numeric_value >= 1
+                        && value.token().numeric_value <= 1000) {
+                        rule.weight = static_cast<int>(value.token().numeric_value);
+                        break;
+                    }
+                    if (value.is_token(Token::Type::Ident)) {
+                        std::string const word = lowercased(value.token().value);
+                        if (word == "bold")
+                            rule.weight = 700;
+                        else if (word == "normal")
+                            rule.weight = 400;
+                        break;
+                    }
+                }
+            } else if (name == "font-style") {
+                for (ComponentValue const& value : declaration.value) {
+                    if (value.is_token(Token::Type::Ident)) {
+                        std::string const word = lowercased(value.token().value);
+                        rule.italic = word == "italic" || word == "oblique";
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (rule.family.empty() || rule.sources.empty())
+        return std::nullopt;
+    return rule;
+}
+
+void gather_font_faces(std::vector<Rule> const& rules, MediaContext const& media,
+    std::vector<FontFaceRule>& out)
+{
+    for (Rule const& rule : rules) {
+        if (!rule.is_at_rule())
+            continue;
+        AtRule const& at = rule.at_rule();
+        if (!at.has_block)
+            continue;
+        std::string const name = lowercased(at.name);
+        if (name == "font-face") {
+            if (std::optional<FontFaceRule> face = font_face_of(at))
+                out.push_back(std::move(*face));
+        } else if (name == "media" && media_prelude_matches(at.prelude, media)) {
+            gather_font_faces(at.child_rules, media, out);
+        }
+    }
+}
+
+// Whether a source is worth fetching: a URL in a format this engine reads,
+// or in no stated format and not under a web-font extension.
+bool readable_source(FontFaceSource const& source)
+{
+    if (source.url.empty())
+        return false;
+    if (!source.format.empty())
+        return source.format == "truetype" || source.format == "opentype";
+    std::string path = lowercased(source.url);
+    if (std::size_t const cut = path.find_first_of("?#"); cut != std::string::npos)
+        path.erase(cut);
+    for (std::string_view const extension : { ".woff", ".woff2", ".eot", ".svg", ".svgz" }) {
+        if (path.ends_with(extension))
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaContext const& media)
+{
+    std::vector<FontFaceRule> out;
+    Stylesheet const sheet = parse_stylesheet(sheet_text);
+    gather_font_faces(sheet.rules, media, out);
+    return out;
+}
+
+std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets,
+    SheetFetcher const& fetch, MediaContext const& media)
+{
+    std::vector<text::PageFont> fonts;
+    if (!fetch)
+        return fonts;
+    std::map<std::string, std::optional<std::vector<std::uint8_t>>> fetched; // by URL: once each
+    for (SheetSource const& sheet : sheets) {
+        for (FontFaceRule const& rule : font_face_rules(sheet.text, media)) {
+            if (fonts.size() >= max_page_fonts)
+                return fonts;
+            for (FontFaceSource const& source : rule.sources) {
+                if (!readable_source(source))
+                    continue;
+                std::optional<net::Url> const url
+                    = net::parse_url(source.url, sheet.url ? &*sheet.url : nullptr);
+                if (!url)
+                    continue;
+                std::string const key = url->serialize(true);
+                auto it = fetched.find(key);
+                if (it == fetched.end()) {
+                    std::optional<std::vector<std::uint8_t>> bytes;
+                    if (std::optional<FetchedSheet> got = fetch(*url);
+                        got && !got->bytes.empty() && got->bytes.size() <= max_font_bytes)
+                        bytes = std::move(got->bytes);
+                    it = fetched.emplace(key, std::move(bytes)).first;
+                }
+                if (!it->second)
+                    continue; // unreachable: the next source may do
+                fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second });
+                break;
+            }
+        }
+    }
+    return fonts;
 }
 
 // --- Media queries -------------------------------------------------------------
