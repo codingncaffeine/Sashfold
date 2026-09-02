@@ -163,6 +163,12 @@ struct ComputedStyle {
     Display display = Display::Inline;
     LengthPercent width = LengthPercent::auto_value();
     LengthPercent height = LengthPercent::auto_value();
+    // The bounds on the used size: auto means none for a maximum, and the
+    // automatic minimum (zero, or a flex item's content) for a minimum.
+    LengthPercent min_width = LengthPercent::auto_value();
+    LengthPercent max_width = LengthPercent::auto_value();
+    LengthPercent min_height = LengthPercent::auto_value();
+    LengthPercent max_height = LengthPercent::auto_value();
     LengthPercent margin_top = LengthPercent::px(0);
     LengthPercent margin_right = LengthPercent::px(0);
     LengthPercent margin_bottom = LengthPercent::px(0);

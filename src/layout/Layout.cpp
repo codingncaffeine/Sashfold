@@ -180,11 +180,40 @@ int attribute_int(dom::Element const& element, char const* name, int fallback)
     return digits == 0 ? fallback : value;
 }
 
+// A width held within the style's min-width and max-width, percentages
+// against the containing width; an auto minimum is zero, an auto maximum
+// is none.
+float clamp_width(ComputedStyle const& style, float width, float containing_width)
+{
+    // A percentage bound needs a containing width to resolve against;
+    // without one (intrinsic sizing) it reads as none.
+    auto const applies = [&](LengthPercent const& bound) {
+        return !bound.is_auto() && (bound.kind == LengthPercent::Kind::Px || containing_width > 0);
+    };
+    if (applies(style.max_width))
+        width = std::min(width, resolve(style.max_width, containing_width));
+    if (applies(style.min_width))
+        width = std::max(width, resolve(style.min_width, containing_width));
+    return std::max(0.0f, width);
+}
+
+// The same for a height, where only lengths count: a percentage has no
+// definite base here and reads as none, as the specification says.
+float clamp_height(ComputedStyle const& style, float height)
+{
+    if (style.max_height.kind == LengthPercent::Kind::Px)
+        height = std::min(height, style.max_height.value);
+    if (style.min_height.kind == LengthPercent::Kind::Px)
+        height = std::max(height, style.min_height.value);
+    return std::max(0.0f, height);
+}
+
 // The used size of a replaced box from its CSS width and height, else its
 // width and height attributes, else its intrinsic size. With `keep_ratio`
 // one given dimension scales the other by the intrinsic ratio (a picture);
 // without it the other stays intrinsic (a control). A box wider than its
-// container shrinks to fit. nullopt when nothing sizes it.
+// container shrinks to fit, and min/max bounds hold it, the ratio kept.
+// nullopt when nothing sizes it.
 std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle const& style,
     std::optional<ReplacedSize> const& intrinsic, float containing_width, bool keep_ratio)
 {
@@ -231,6 +260,18 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
         used_width = containing_width;
         if (keep_ratio)
             used_height = *used_height * scale;
+    }
+    // The bounds: a width held by its bounds scales the height with it
+    // when the ratio is kept, then the height's own bounds hold that.
+    if (float const bounded = clamp_width(style, *used_width, containing_width); bounded != *used_width) {
+        if (keep_ratio && *used_width > 0)
+            used_height = *used_height * bounded / *used_width;
+        used_width = bounded;
+    }
+    if (float const bounded = clamp_height(style, *used_height); bounded != *used_height) {
+        if (keep_ratio && *used_height > 0)
+            used_width = *used_width * bounded / *used_height;
+        used_height = bounded;
     }
     return ReplacedSize { std::max(0.0f, *used_width), std::max(0.0f, *used_height) };
 }
@@ -1035,17 +1076,20 @@ struct Layouter {
         float const border_top = style.border_top.width;
         float const border_bottom = style.border_bottom.width;
 
+        float const horizontal_edges = padding_left + padding_right + border_left + border_right;
         float border_box_width;
         float extra_left = margin_left;
         if (options.content_width) {
             // Settled by a float's shrink-to-fit or a flex line.
-            border_box_width = *options.content_width + padding_left + padding_right + border_left
-                + border_right;
+            border_box_width = *options.content_width + horizontal_edges;
         } else if (style.width.is_auto()) {
-            border_box_width = containing_width - margin_left - margin_right;
+            border_box_width = clamp_width(style,
+                                   containing_width - margin_left - margin_right - horizontal_edges,
+                                   containing_width)
+                + horizontal_edges;
         } else {
-            border_box_width = resolve(style.width, containing_width) + padding_left
-                + padding_right + border_left + border_right;
+            border_box_width = clamp_width(style, resolve(style.width, containing_width), containing_width)
+                + horizontal_edges;
             // Both margins auto with a definite width: center (a float's or a
             // flex item's auto margins are zero instead).
             if (!options.zero_auto_margins && style.margin_left.is_auto()
@@ -1103,10 +1147,13 @@ struct Layouter {
             if (std::optional<float> const bottom = own_floats.lowest_bottom())
                 used_height = std::max(used_height, *bottom - content_y);
         }
-        if (options.content_height)
+        if (options.content_height) {
             used_height = *options.content_height;
-        else if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
-            used_height = style.height.value;
+        } else {
+            if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
+                used_height = style.height.value;
+            used_height = clamp_height(style, used_height);
+        }
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
         return fragment;
     }
@@ -1414,8 +1461,24 @@ struct Layouter {
         return result;
     }
 
-    // The intrinsic widths of an element's contents, inside its edges.
+    // The intrinsic widths of an element's contents, inside its edges, held
+    // by its min-width and max-width when those are lengths (a percentage
+    // has no base in intrinsic sizing).
     Intrinsic intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
+    {
+        Intrinsic result = content_intrinsic_widths(element, style);
+        if (style.max_width.kind == LengthPercent::Kind::Px) {
+            result.max = std::min(result.max, style.max_width.value);
+            result.min = std::min(result.min, style.max_width.value);
+        }
+        if (style.min_width.kind == LengthPercent::Kind::Px) {
+            result.min = std::max(result.min, style.min_width.value);
+            result.max = std::max(result.max, style.min_width.value);
+        }
+        return result;
+    }
+
+    Intrinsic content_intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
     {
         if (element.is_html("img")) {
             PageImage const image = image_for(element);
@@ -1514,10 +1577,12 @@ struct Layouter {
             Intrinsic const intrinsic = intrinsic_widths(element, style);
             float const available = std::max(0.0f,
                 containing_width - result.margin_left - result.margin_right - edges);
-            result.shrink = std::min(std::max(intrinsic.min, available), intrinsic.max);
+            result.shrink = clamp_width(style, std::min(std::max(intrinsic.min, available), intrinsic.max),
+                containing_width);
             result.border_box = *result.shrink + edges;
         } else {
-            result.border_box = resolve(style.width, containing_width) + edges;
+            result.border_box = clamp_width(style, resolve(style.width, containing_width), containing_width)
+                + edges;
         }
         return result;
     }
@@ -1574,7 +1639,8 @@ struct Layouter {
         float grow = 0;
         float shrink = 1;
         float base = 0; // the flex base size: the content main size to start from
-        float minimum = 0; // the automatic minimum: what the content cannot go below
+        float minimum = 0; // the minimum main size: min-width/height, else the content's narrowest
+        std::optional<float> maximum; // the maximum main size, when max-width/height says
         float hypothetical = 0; // the base size, clamped
         float main = 0; // the content main size, once resolved
         float cross = 0; // the content cross size, once known
@@ -1817,15 +1883,24 @@ struct Layouter {
                 = anonymous ? inline_intrinsic(item.inline_items) : intrinsic_widths(*item.element, s);
             if (horizontal) {
                 item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : intrinsic.max;
-                // The automatic minimum: the content's narrowest, no more than
-                // a written width.
-                item.minimum = intrinsic.min;
-                if (!anonymous && !s.width.is_auto())
-                    item.minimum = std::min(item.minimum, resolve(s.width, content_width));
+                // The minimum: min-width as written, else the automatic one —
+                // the content's narrowest, no more than a written width or a
+                // maximum.
+                if (!anonymous && !s.min_width.is_auto()) {
+                    item.minimum = resolve(s.min_width, content_width);
+                } else {
+                    item.minimum = intrinsic.min;
+                    if (!anonymous && !s.width.is_auto())
+                        item.minimum = std::min(item.minimum, resolve(s.width, content_width));
+                }
+                if (!anonymous && !s.max_width.is_auto()) {
+                    item.maximum = resolve(s.max_width, content_width);
+                    item.minimum = std::min(item.minimum, *item.maximum);
+                }
                 item.cross_is_auto
                     = anonymous || s.height.is_auto() || s.height.kind != LengthPercent::Kind::Px;
                 if (!item.cross_is_auto)
-                    item.cross = s.height.value;
+                    item.cross = clamp_height(s, s.height.value);
             } else {
                 // A column's cross size is the width — stretched to the line,
                 // as written, or shrink-to-fit — and the base is the height at
@@ -1841,13 +1916,24 @@ struct Layouter {
                                          : std::min(std::max(intrinsic.min, available), intrinsic.max);
                     item.cross_is_auto = true;
                 }
+                if (!anonymous)
+                    item.cross = clamp_width(s, item.cross, content_width);
                 float const content_height
                     = measure_item_height(item, item.cross, content_width, list_depth);
                 item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : content_height;
-                item.minimum = std::min(content_height, item.base);
+                if (!anonymous && s.min_height.kind == LengthPercent::Kind::Px)
+                    item.minimum = s.min_height.value;
+                else
+                    item.minimum = std::min(content_height, item.base);
+                if (!anonymous && s.max_height.kind == LengthPercent::Kind::Px) {
+                    item.maximum = s.max_height.value;
+                    item.minimum = std::min(item.minimum, *item.maximum);
+                }
             }
             item.base = std::max(0.0f, item.base);
             item.hypothetical = std::max(item.base, item.minimum);
+            if (item.maximum)
+                item.hypothetical = std::min(item.hypothetical, *item.maximum);
         }
 
         // 3. Lines: everything on one, or as many as fit when wrapping.
@@ -1923,8 +2009,10 @@ struct Layouter {
                         target = item.base + free * item.grow / sum_factor;
                     else if (!growing && free < 0 && sum_scaled > 0)
                         target = item.base + free * (item.shrink * item.base) / sum_scaled;
-                    float const size = std::max(target, item.minimum);
-                    if (size > target + 0.001f)
+                    float size = std::max(target, item.minimum);
+                    if (item.maximum)
+                        size = std::min(size, *item.maximum);
+                    if (size > target + 0.001f || size < target - 0.001f)
                         clamped.push_back(i);
                     item.main = size;
                 }

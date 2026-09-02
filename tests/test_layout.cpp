@@ -379,5 +379,63 @@ int main(int argc, char** argv)
         CHECK_EQ(page.result.page_height, 258.0f);
     }
 
+    // --- min-width, max-width, min-height, max-height -------------------------------
+    {
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { margin: 0 }
+  #capped { max-width: 100px }
+  #floored { width: 50px; min-width: 200px }
+  #pct { max-width: 50% }
+  #tall { height: 10px; min-height: 30px }
+  #short { height: 100px; max-height: 40px }
+  #auto { max-height: 5px }
+  #fl { float: left; max-width: 60px }
+  #row { display: flex; width: 400px }
+  #item { flex: 1; max-width: 120px }
+  #none { max-width: none; min-width: auto }
+</style></head><body>
+<div id="capped">x</div>
+<div id="floored">x</div>
+<div id="pct">x</div>
+<div id="tall">x</div>
+<div id="short">x</div>
+<div id="auto">x</div>
+<div id="fl">a b c d e f g h i j k l</div>
+<div id="row"><div id="item">x</div></div>
+<div id="none">x</div>
+</body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const width_of = [&](std::string_view id) {
+            layout::Fragment const* box = find_box(page.result.root, id);
+            return box ? box->width : -1.0f;
+        };
+        auto const height_of = [&](std::string_view id) {
+            layout::Fragment const* box = find_box(page.result.root, id);
+            return box ? box->height : -1.0f;
+        };
+        CHECK_EQ(width_of("capped"), 100.0f); // an auto width, held by its maximum
+        CHECK_EQ(width_of("floored"), 200.0f); // a written width, raised to its minimum
+        CHECK_EQ(width_of("pct"), 200.0f); // a percentage against the container
+        CHECK_EQ(height_of("tall"), 30.0f);
+        CHECK_EQ(height_of("short"), 40.0f);
+        CHECK_EQ(height_of("auto"), 5.0f); // an auto height, held by its maximum
+        CHECK_EQ(width_of("fl"), 60.0f); // a float's shrink-to-fit, held by its maximum
+        CHECK_EQ(width_of("item"), 120.0f); // a growing flex item, held by its maximum
+        CHECK_EQ(width_of("none"), 400.0f);
+    }
+
     return test::report("layout");
 }

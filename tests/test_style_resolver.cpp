@@ -65,6 +65,7 @@ int main()
   .sized { font-size: 2em; line-height: 1.5 }
   .hidden { display: none }
   .units { margin: 1in 2.54cm 10mm 1pc; padding: 4Q 1.5pt 0 0 }
+  .bounds { min-width: 5px; max-width: none; min-height: 1em; max-height: 50% }
 </style></head>
 <body id="body">
   <p id="plain">plain</p>
@@ -75,6 +76,7 @@ int main()
   <span id="sized" class="sized">sized</span>
   <div id="hidden" class="hidden">gone</div>
   <div id="units" class="units">units</div>
+  <div id="bounds" class="bounds">bounds</div>
   <h1 id="h1">title</h1>
   <a id="link" href="/x">link</a>
   <pre id="pre">   pre   </pre>
@@ -123,6 +125,16 @@ int main()
         CHECK(close(units.margin_left.value, 16)); // 1pc
         CHECK(close(units.padding_top.value, 96.0f / 101.6f * 4)); // 4Q
         CHECK(close(units.padding_right.value, 2)); // 1.5pt
+        // The size bounds: none and auto read as auto, lengths and percentages as themselves.
+        ComputedStyle const& bounds = style_of("bounds");
+        CHECK(bounds.min_width.kind == LengthPercent::Kind::Px);
+        CHECK(close(bounds.min_width.value, 5));
+        CHECK(bounds.max_width.is_auto());
+        CHECK(close(bounds.min_height.value, 20)); // 1em of body's 20px
+        CHECK(bounds.max_height.kind == LengthPercent::Kind::Percent);
+        CHECK(close(bounds.max_height.value, 50));
+        CHECK(style_of("plain").max_width.is_auto()); // the initial value
+        CHECK(style_of("plain").min_width.is_auto());
     }
 
     // --- Hex colors ----------------------------------------------------------

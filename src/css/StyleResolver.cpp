@@ -1312,12 +1312,25 @@ struct Resolver {
             }
             return;
         }
-        if (name == "width") {
-            one_length(style.width, true);
-            return;
-        }
-        if (name == "height") {
-            one_length(style.height, true);
+        if (name == "width" || name == "height" || name == "min-width" || name == "min-height"
+            || name == "max-width" || name == "max-height") {
+            // A size is never negative: such a declaration is invalid and
+            // leaves the property as it was. none is a maximum's auto.
+            LengthPercent& target = name == "width" ? style.width
+                : name == "height"                  ? style.height
+                : name == "min-width"               ? style.min_width
+                : name == "min-height"              ? style.min_height
+                : name == "max-width"               ? style.max_width
+                                                    : style.max_height;
+            bool const maximum = name == "max-width" || name == "max-height";
+            if (maximum && values.size() == 1 && is_ident(values[0], "none")) {
+                target = LengthPercent::auto_value();
+                return;
+            }
+            LengthPercent const previous = target;
+            one_length(target, !maximum);
+            if (!target.is_auto() && target.value < 0)
+                target = previous;
             return;
         }
         if (name == "margin") {
