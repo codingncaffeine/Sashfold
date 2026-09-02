@@ -1,6 +1,7 @@
 #include "ui/PageImages.h"
 
 #include "core/Gif.h"
+#include "core/Jpeg.h"
 #include "core/Png.h"
 #include "dom/Dom.h"
 
@@ -57,6 +58,8 @@ struct Collector {
                     decoded = decode_png(*bytes);
                 else if (looks_like_gif(*bytes))
                     decoded = decode_gif(*bytes);
+                else if (looks_like_jpeg(*bytes))
+                    decoded = decode_jpeg(*bytes);
                 if (decoded)
                     image = std::make_shared<Bitmap const>(std::move(*decoded));
             }

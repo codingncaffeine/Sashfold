@@ -53,6 +53,7 @@ jobs:
       - run: ./build/fuzz_truetype -max_total_time=30 -timeout=5 fuzz/corpus/truetype
       - run: ./build/fuzz_png -max_total_time=30 -timeout=5 fuzz/corpus/png
       - run: ./build/fuzz_gif -max_total_time=30 -timeout=5 fuzz/corpus/gif
+      - run: ./build/fuzz_jpeg -max_total_time=30 -timeout=5 fuzz/corpus/jpeg
 
   windows-mingw:
     runs-on: windows-latest

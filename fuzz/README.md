@@ -24,5 +24,8 @@ Harnesses:
   small render by our own encoder); smoke run in CI.
 - `gif.cpp` — the GIF decoder: blocks, color tables, LZW, interlace (seed:
   the 1x1 transparent pixel); smoke run in CI.
+- `jpeg.cpp` — the JPEG decoder: markers, tables, the entropy decoder, the
+  IDCT (seed: a tiny baseline file written by the test encoder); smoke run
+  in CI.
 
-Still to come, one per parser as each lands: jpeg, xkb, x509_der, js_lexer.
+Still to come, one per parser as each lands: xkb, x509_der, js_lexer.
