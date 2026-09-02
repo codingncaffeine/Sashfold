@@ -31,6 +31,8 @@ constexpr Token<Color> color_tokens[] = {
     { "selection", &Theme::selection },
     { "find-highlight", &Theme::find_highlight },
     { "find-current", &Theme::find_current },
+    { "hint-background", &Theme::hint_background },
+    { "hint-text", &Theme::hint_text },
     { "button-hover-background", &Theme::button_hover_background },
     { "button-disabled-text", &Theme::button_disabled_text },
     { "status-background", &Theme::status_background },

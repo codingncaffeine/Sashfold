@@ -359,6 +359,17 @@ struct Browser::Impl {
     std::size_t find_caret = 0; // bytes into find_query
     bool find_select_all = false;
 
+    // Keyboard link-hints: a label on every visible link while they show.
+    struct Hint {
+        std::string label;
+        net::Url url;
+        float x = 0; // page coordinates of the link's first run
+        float y = 0;
+    };
+    bool hints_active = false;
+    std::string hint_typed;
+    std::vector<Hint> hints;
+
     Bitmap frame;
     bool dirty = true;
 
@@ -561,6 +572,7 @@ struct Browser::Impl {
         tab.selection.reset();
         selecting = false;
         update_matches(tab);
+        stop_hints(); // the labels pointed into the old layout
     }
 
     void render(Tab& tab)
@@ -1427,6 +1439,111 @@ struct Browser::Impl {
         }
     }
 
+    // --- Keyboard link-hints ---------------------------------------------------------
+
+    // A label on every link with a run in view, in reading order, from a
+    // home-row alphabet with as many letters as the count needs.
+    void start_hints(Tab& tab)
+    {
+        hints.clear();
+        hint_typed.clear();
+        HistoryEntry const* const entry = tab.current();
+        if (!entry)
+            return;
+        ChromeLayout const c = layout_chrome();
+        float const top = static_cast<float>(tab.scroll_y);
+        float const bottom = top + static_cast<float>(c.content.height);
+        std::vector<dom::Element const*> seen;
+        for (layout::TextRun const* const run : tab.runs) {
+            if (run->text.empty())
+                continue;
+            text::FaceMetrics const metrics = run_metrics(*run);
+            if (run->baseline_y + metrics.descent < top || run->baseline_y - metrics.ascent > bottom)
+                continue;
+            dom::Element const* anchor = nullptr;
+            for (dom::Node const* node = run->element; node; node = node->parent()) {
+                if (!node->is_element())
+                    continue;
+                auto const& element = static_cast<dom::Element const&>(*node);
+                if (element.is_html("a") && element.find_attribute("href")) {
+                    anchor = &element;
+                    break;
+                }
+            }
+            if (!anchor || std::find(seen.begin(), seen.end(), anchor) != seen.end())
+                continue;
+            std::optional<net::Url> const url
+                = net::parse_url(anchor->find_attribute("href")->value, &entry->final_url);
+            if (!url)
+                continue;
+            seen.push_back(anchor);
+            hints.push_back(Hint { {}, *url, run->x, run->baseline_y - metrics.ascent });
+        }
+        if (hints.empty())
+            return;
+        static constexpr char alphabet[] = "asdfghjkl";
+        std::size_t length = 1;
+        std::size_t room = 9;
+        while (room < hints.size()) {
+            room *= 9;
+            ++length;
+        }
+        for (std::size_t i = 0; i < hints.size(); ++i) {
+            std::string label(length, 'a');
+            std::size_t value = i;
+            for (std::size_t k = length; k > 0; --k) {
+                label[k - 1] = alphabet[value % 9];
+                value /= 9;
+            }
+            hints[i].label = label;
+        }
+        hints_active = true;
+        dirty = true;
+    }
+
+    void stop_hints()
+    {
+        if (!hints_active && hints.empty())
+            return;
+        hints_active = false;
+        hints.clear();
+        hint_typed.clear();
+        dirty = true;
+    }
+
+    // A letter narrows the labels; the full label follows its link; a
+    // letter no label starts with begins again; Escape puts them away.
+    void hint_key(KeyEvent const& key)
+    {
+        if (key.key == Key::Escape) {
+            stop_hints();
+            return;
+        }
+        if (key.key == Key::Backspace) {
+            if (!hint_typed.empty())
+                hint_typed.pop_back();
+            dirty = true;
+            return;
+        }
+        if (key.key != Key::Letter || key.ctrl || key.alt)
+            return;
+        hint_typed += static_cast<char>(to_ascii_lowercase(key.letter));
+        bool any = false;
+        for (Hint const& hint : hints) {
+            if (hint.label == hint_typed) {
+                net::Url const url = hint.url;
+                stop_hints();
+                open(url);
+                return;
+            }
+            if (hint.label.compare(0, hint_typed.size(), hint_typed) == 0)
+                any = true;
+        }
+        if (!any)
+            hint_typed.clear();
+        dirty = true;
+    }
+
     // --- Reader mode -----------------------------------------------------------------
 
     // A page fetched from the web, a file or a data: URL can be read; the
@@ -2014,6 +2131,10 @@ struct Browser::Impl {
 
     void key_down(KeyEvent const& key)
     {
+        if (hints_active) {
+            hint_key(key);
+            return;
+        }
         if (key.ctrl && key.key == Key::Letter) {
             switch (key.letter) {
             case U'L': focus_address(true); return;
@@ -2069,6 +2190,12 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        // A bare f with nothing focused: labels on the links in view.
+        if (key.key == Key::Letter && !key.ctrl && !key.alt && !key.shift
+            && (key.letter == U'F' || key.letter == U'f')) {
+            start_hints(*tab);
+            return;
+        }
         if (key.shift && extend_selection(*tab, key))
             return;
         if (key.key == Key::Escape && tab->selection) {
@@ -2156,8 +2283,8 @@ struct Browser::Impl {
 
     void text_input(char32_t code_point)
     {
-        if (code_point < 0x20 || code_point == 0x7F)
-            return;
+        if (code_point < 0x20 || code_point == 0x7F || hints_active)
+            return; // a hint's letters are keys, not text
         if (find_focus) {
             type_into_find(code_point);
             return;
@@ -2329,6 +2456,23 @@ struct Browser::Impl {
             if (tab->selection) {
                 auto const [start, end] = ordered(*tab->selection);
                 paint_bands(content, *tab, start, end, t.selection);
+            }
+            if (hints_active) {
+                // The labels still possible, each at its link's top-left.
+                float const size = t.tab_font_size;
+                for (Hint const& hint : hints) {
+                    if (hint.label.compare(0, hint_typed.size(), hint_typed) != 0)
+                        continue;
+                    std::u32string const label = decode_utf8(hint.label);
+                    int const label_width = static_cast<int>(text_width(label, size) + 0.5f) + 6;
+                    int const label_height = static_cast<int>(size + 0.5f) + 4;
+                    Rect const box { static_cast<int>(hint.x + 0.5f),
+                        static_cast<int>(hint.y - static_cast<float>(tab->scroll_y) + 0.5f) - 2,
+                        label_width, label_height };
+                    content.fill_round_rect(box, 3, t.hint_background);
+                    draw_text(content, label, static_cast<float>(box.x + 3), centered_baseline(box, size),
+                        size, t.hint_text, true);
+                }
             }
             int const page_height = static_cast<int>(tab->layout.page_height + 0.5f);
             if (page_height > c.content.height) {
@@ -2645,5 +2789,7 @@ std::string Browser::find_status() const
 }
 
 void Browser::toggle_reader() { m_impl->toggle_reader(); }
+
+std::size_t Browser::hint_count() const { return m_impl->hints_active ? m_impl->hints.size() : 0; }
 
 }

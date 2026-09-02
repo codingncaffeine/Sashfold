@@ -1,0 +1,23 @@
+# Keyboard link-hints: f with nothing focused labels every visible link
+# from the home row, typing a label follows its link, a wrong letter starts
+# the label over, Escape puts the labels away.
+resize 800 500
+open data:text/html,<title>Hints</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><p>Links: <a href="data:text/html,<title>First</title>First">one</a> and <a href="data:text/html,<title>Second</title>Second">two</a> and <a href="data:text/html,<title>Third</title>Third">three</a>.</p>
+assert-title Hints
+assert-hints 0
+key f
+assert-hints 3
+assert-golden goldens/hints.png
+key s
+assert-title Second
+back
+assert-title Hints
+assert-hints 0
+key f
+key escape
+assert-hints 0
+key f
+key x
+assert-hints 3
+key d
+assert-title Third

@@ -58,6 +58,9 @@ add_test(NAME shell_find
 add_test(NAME shell_reader
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/reader.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_hints
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hints.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed
 # baseline, ratchet it upward as the tokenizer grows.

@@ -35,6 +35,7 @@
 //   assert-selection <text>      the selected text (one line)
 //   assert-find <text>   the find bar's count: "3 of 12", "No matches", "" when closed
 //   reader               toggle reader mode on the current page
+//   assert-hints <n>     the number of keyboard link-hint labels showing
 //   echo <text>
 
 #include "ui/Browser.h"

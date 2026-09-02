@@ -163,6 +163,8 @@ public:
     std::string find_status() const;
     // Shows the current page in reader mode, or leaves it.
     void toggle_reader();
+    // Keyboard link-hints: how many labels are showing (0 when they are not).
+    std::size_t hint_count() const;
 
 private:
     struct Impl;

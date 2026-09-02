@@ -34,6 +34,8 @@ struct Theme {
     Color selection = Color::rgba(0x5b, 0x9c, 0xf6, 0x66);
     Color find_highlight = Color::rgba(0xff, 0xd5, 0x4f, 0x99); // every match on the page
     Color find_current = Color::rgba(0xff, 0x98, 0x00, 0xcc); // the match the find bar is on
+    Color hint_background = Color::rgb(0xff, 0xe0, 0x66); // keyboard link-hint labels
+    Color hint_text = Color::rgb(0x1c, 0x1b, 0x19);
     Color button_hover_background = Color::rgb(0x33, 0x39, 0x44);
     Color button_disabled_text = Color::rgb(0x55, 0x5b, 0x66);
     Color status_background = Color::rgb(0x1f, 0x22, 0x28);

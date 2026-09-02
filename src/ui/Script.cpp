@@ -351,6 +351,8 @@ struct Runner {
         } else if (command == "reader") {
             browser.toggle_reader();
             settle();
+        } else if (command == "assert-hints") {
+            expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
         } else if (command == "echo") {
