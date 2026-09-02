@@ -53,6 +53,17 @@ struct Component {
     int plane_width = 0;
     int plane_height = 0;
     std::vector<std::uint8_t> plane;
+    // Progressive files gather coefficients across scans, block by block
+    // in natural order, and transform them once at the end.
+    int blocks_wide = 0;
+    int blocks_high = 0;
+    std::vector<std::int16_t> coefficients;
+
+    std::int16_t* block(int bx, int by)
+    {
+        return coefficients.data()
+            + (static_cast<std::size_t>(by) * static_cast<std::size_t>(blocks_wide) + static_cast<std::size_t>(bx)) * 64;
+    }
 };
 
 // The entropy-coded segment: bits most significant first, 0xFF00 unstuffed
@@ -286,8 +297,12 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
     int mcus_y = 0;
     int restart_interval = 0;
     bool frame_seen = false;
+    bool progressive = false;
     bool adobe_rgb = false; // Adobe APP14 transform 0 with three components
     bool any_scan = false;
+    std::array<std::uint8_t, 64> natural_to_zigzag {};
+    for (std::size_t k = 0; k < 64; ++k)
+        natural_to_zigzag[zigzag_to_natural[k]] = static_cast<std::uint8_t>(k);
 
     std::size_t at = 2;
     while (at + 4 <= bytes.size()) {
@@ -371,9 +386,11 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                 adobe_rgb = bytes[segment + 11] == 0;
             break;
         case 0xC0:
-        case 0xC1: { // SOF0 baseline, SOF1 extended sequential: the same decoding at 8 bits
+        case 0xC1:
+        case 0xC2: { // SOF0 baseline, SOF1 extended sequential, SOF2 progressive; all Huffman, 8 bits
             if (frame_seen || length < 8)
                 return std::nullopt;
+            progressive = marker == 0xC2;
             int const precision = bytes[segment];
             height = read_u16(bytes, segment + 1);
             width = read_u16(bytes, segment + 3);
@@ -404,11 +421,17 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                 component.plane.assign(static_cast<std::size_t>(component.plane_width)
                         * static_cast<std::size_t>(component.plane_height),
                     128);
+                if (progressive) {
+                    component.blocks_wide = mcus_x * component.h;
+                    component.blocks_high = mcus_y * component.v;
+                    component.coefficients.assign(static_cast<std::size_t>(component.blocks_wide)
+                            * static_cast<std::size_t>(component.blocks_high) * 64,
+                        0);
+                }
             }
             frame_seen = true;
             break;
         }
-        case 0xC2:
         case 0xC3:
         case 0xC5:
         case 0xC6:
@@ -447,15 +470,133 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                     return std::nullopt;
                 scan.push_back(found);
             }
-            // Ss, Se, Ah/Al: baseline has one value each; anything else is progressive.
+            // Ss, Se, Ah/Al: the spectral band and the successive-approximation
+            // bit position. Sequential scans cover the whole block at once.
             std::size_t const s = segment + 1 + static_cast<std::size_t>(scan_count) * 2;
-            if (bytes[s] != 0 || bytes[s + 1] != 63 || bytes[s + 2] != 0)
-                return std::nullopt;
+            int const spectral_start = bytes[s];
+            int const spectral_end = bytes[s + 1];
+            int const ah = bytes[s + 2] >> 4;
+            int const al = bytes[s + 2] & 0x0F;
+            if (!progressive) {
+                if (spectral_start != 0 || spectral_end != 63 || ah != 0 || al != 0)
+                    return std::nullopt;
+            } else {
+                bool const dc_scan = spectral_start == 0;
+                if ((dc_scan && spectral_end != 0) || (!dc_scan && (spectral_end < spectral_start || spectral_end > 63))
+                    || (!dc_scan && scan_count != 1) || ah > 13 || al > 13)
+                    return std::nullopt;
+            }
 
             for (Component& component : components)
                 component.dc_prediction = 0;
             BitReader reader(bytes, segment_end);
             any_scan = true;
+            int eob_run = 0; // progressive AC scans: blocks with nothing more in the band
+
+            // Progressive: DC scans deliver or refine the DC bit at `al`; AC
+            // scans deliver a band's coefficients, first or refined, with
+            // end-of-band runs across blocks.
+            auto const decode_progressive_block = [&](Component& component, int block_x, int block_y) {
+                if (block_x >= component.blocks_wide || block_y >= component.blocks_high)
+                    return true;
+                std::int16_t* block = component.block(block_x, block_y);
+                if (spectral_start == 0) {
+                    if (ah == 0) {
+                        std::optional<int> const dc_size
+                            = decode_symbol(reader, dc_tables[static_cast<std::size_t>(component.dc_table)]);
+                        if (!dc_size || *dc_size > 11)
+                            return false;
+                        int const diff = extend(*dc_size ? reader.bits(*dc_size) : 0, *dc_size);
+                        component.dc_prediction += diff;
+                        block[0] = static_cast<std::int16_t>(component.dc_prediction * (1 << al));
+                    } else if (reader.bit()) {
+                        block[0] = static_cast<std::int16_t>(block[0] | (1 << al));
+                    }
+                    return true;
+                }
+                HuffmanTable const& ac = ac_tables[static_cast<std::size_t>(component.ac_table)];
+                if (ah == 0) {
+                    if (eob_run > 0) {
+                        --eob_run;
+                        return true;
+                    }
+                    int k = spectral_start;
+                    do {
+                        std::optional<int> const symbol = decode_symbol(reader, ac);
+                        if (!symbol)
+                            return false;
+                        int const run = *symbol >> 4;
+                        int const size = *symbol & 0x0F;
+                        if (size == 0) {
+                            if (run < 15) {
+                                eob_run = 1 << run;
+                                if (run)
+                                    eob_run += reader.bits(run);
+                                --eob_run;
+                                break;
+                            }
+                            k += 16;
+                        } else {
+                            k += run;
+                            if (k > 63)
+                                return false;
+                            block[zigzag_to_natural[static_cast<std::size_t>(k++)]]
+                                = static_cast<std::int16_t>(extend(reader.bits(size), size) * (1 << al));
+                        }
+                    } while (k <= spectral_end);
+                    return true;
+                }
+                // Refinement: one more bit for every coefficient the band already
+                // has, and new coefficients of magnitude one.
+                int const bit = 1 << al;
+                auto const refine = [&](std::int16_t& coefficient) {
+                    if (reader.bit() && (coefficient & bit) == 0)
+                        coefficient = static_cast<std::int16_t>(coefficient + (coefficient > 0 ? bit : -bit));
+                };
+                if (eob_run > 0) {
+                    --eob_run;
+                    for (int k = spectral_start; k <= spectral_end; ++k) {
+                        std::int16_t& coefficient = block[zigzag_to_natural[static_cast<std::size_t>(k)]];
+                        if (coefficient != 0)
+                            refine(coefficient);
+                    }
+                    return true;
+                }
+                int k = spectral_start;
+                do {
+                    std::optional<int> const symbol = decode_symbol(reader, ac);
+                    if (!symbol)
+                        return false;
+                    int run = *symbol >> 4;
+                    int const size = *symbol & 0x0F;
+                    int value = 0;
+                    if (size == 0) {
+                        if (run < 15) {
+                            eob_run = (1 << run) - 1;
+                            if (run)
+                                eob_run += reader.bits(run);
+                            run = 64; // the band's remaining coefficients are only refined
+                        }
+                    } else {
+                        if (size != 1)
+                            return false;
+                        value = reader.bit() ? bit : -bit;
+                    }
+                    while (k <= spectral_end) {
+                        std::int16_t& coefficient = block[zigzag_to_natural[static_cast<std::size_t>(k++)]];
+                        if (coefficient != 0) {
+                            refine(coefficient);
+                        } else {
+                            if (run == 0) {
+                                coefficient = static_cast<std::int16_t>(value);
+                                break;
+                            }
+                            --run;
+                        }
+                    }
+                } while (k <= spectral_end);
+                return true;
+            };
             auto const decode_block = [&](Component& component, int block_x, int block_y) {
                 std::array<int, 64> coefficients {};
                 std::array<std::uint16_t, 64> const& q = quant[static_cast<std::size_t>(component.quant_table)];
@@ -521,16 +662,21 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                         }
                         for (Component* component : scan)
                             component->dc_prediction = 0;
+                        eob_run = 0;
                         until_restart = restart_interval;
                     }
+                    auto const one_block = [&](Component& component, int block_x, int block_y) {
+                        return progressive ? decode_progressive_block(component, block_x, block_y)
+                                           : decode_block(component, block_x, block_y);
+                    };
                     if (scan.size() == 1) {
-                        if (!decode_block(*scan[0], ux, uy))
+                        if (!one_block(*scan[0], ux, uy))
                             stopped = true;
                     } else {
                         for (Component* component : scan) {
                             for (int v = 0; v < component->v && !stopped; ++v) {
                                 for (int h = 0; h < component->h && !stopped; ++h) {
-                                    if (!decode_block(*component, ux * component->h + h, uy * component->v + v))
+                                    if (!one_block(*component, ux * component->h + h, uy * component->v + v))
                                         stopped = true;
                                 }
                             }
@@ -556,6 +702,26 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
     }
     if (!frame_seen || !any_scan)
         return std::nullopt;
+
+    // Progressive: every block's coefficients are in; dequantize and transform.
+    if (progressive) {
+        for (Component& component : components) {
+            std::array<std::uint16_t, 64> const& q = quant[static_cast<std::size_t>(component.quant_table)];
+            for (int by = 0; by < component.blocks_high; ++by) {
+                for (int bx = 0; bx < component.blocks_wide; ++bx) {
+                    std::int16_t const* block = component.block(bx, by);
+                    std::array<int, 64> dequantized {};
+                    for (std::size_t i = 0; i < 64; ++i)
+                        dequantized[i] = block[i] * q[natural_to_zigzag[i]];
+                    idct_block(dequantized,
+                        component.plane.data()
+                            + static_cast<std::size_t>(by) * 8 * static_cast<std::size_t>(component.plane_width)
+                            + static_cast<std::size_t>(bx) * 8,
+                        component.plane_width);
+                }
+            }
+        }
+    }
 
     // Samples to pixels. A subsampled plane is read bilinearly between the
     // samples whose centers straddle the pixel (the 3/4-1/4 weights of the
