@@ -493,8 +493,20 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["grid"];
     else if (name == "display" && first_ident == "contents")
         ++census["display-contents"];
-    else if (name == "transform" || name == "translate" || name == "rotate" || name == "scale")
+    else if (name == "rotate" || name == "scale")
         ++census["transforms"];
+    else if (name == "transform") {
+        // Translations are drawn; the rest of a transform list is not.
+        for (css::ComponentValue const& value : declaration.value) {
+            if (!value.is_function())
+                continue;
+            std::string const function = lowercase_ascii(value.function().name);
+            if (!function.starts_with("translate")) {
+                ++census["transforms"];
+                break;
+            }
+        }
+    }
     else if (name.starts_with("animation") || name.starts_with("transition"))
         ++census["animations"];
     else if (name == "vertical-align")

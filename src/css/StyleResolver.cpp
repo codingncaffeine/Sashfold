@@ -1689,6 +1689,86 @@ struct Resolver {
                 style.display = Display::Inline; // inline-block is not supported yet
             return;
         }
+        if (name == "transform" || name == "translate") {
+            // The translations add up; other functions are passed over
+            // (the box stays put, unrotated and unscaled). `none` clears.
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                style.translate_x = LengthPercent::px(0);
+                style.translate_y = LengthPercent::px(0);
+                style.transformed = false;
+                return;
+            }
+            float px_x = 0;
+            float px_y = 0;
+            float percent_x = 0;
+            float percent_y = 0;
+            auto const add = [&](LengthPercent const& length, bool horizontal) {
+                float& px = horizontal ? px_x : px_y;
+                float& percent = horizontal ? percent_x : percent_y;
+                if (length.kind == LengthPercent::Kind::Percent)
+                    percent += length.value;
+                else if (length.kind == LengthPercent::Kind::Calc) {
+                    px += length.value;
+                    percent += length.percent;
+                } else
+                    px += length.value;
+            };
+            bool any = false;
+            if (name == "translate") {
+                // translate: <x> [<y>]
+                std::optional<LengthPercent> const x = parse_length_percent(*values[0], context, false);
+                if (!x)
+                    return;
+                add(*x, true);
+                if (values.size() > 1) {
+                    std::optional<LengthPercent> const y = parse_length_percent(*values[1], context, false);
+                    if (!y)
+                        return;
+                    add(*y, false);
+                }
+                any = true;
+            } else {
+                for (ComponentValue const* value : values) {
+                    if (!value->is_function())
+                        return;
+                    std::string const function = lowercase_name(value->function().name);
+                    auto const arguments = significant(value->function().values);
+                    std::vector<ComponentValue const*> parts;
+                    for (ComponentValue const* argument : arguments) {
+                        if (!argument->is_token(Token::Type::Comma))
+                            parts.push_back(argument);
+                    }
+                    if (function == "translate" || function == "translate3d") {
+                        if (parts.empty())
+                            return;
+                        std::optional<LengthPercent> const x = parse_length_percent(*parts[0], context, false);
+                        if (!x)
+                            return;
+                        add(*x, true);
+                        if (parts.size() > 1) {
+                            std::optional<LengthPercent> const y = parse_length_percent(*parts[1], context, false);
+                            if (!y)
+                                return;
+                            add(*y, false);
+                        }
+                    } else if (function == "translatex" || function == "translatey") {
+                        if (parts.size() != 1)
+                            return;
+                        std::optional<LengthPercent> const amount = parse_length_percent(*parts[0], context, false);
+                        if (!amount)
+                            return;
+                        add(*amount, function == "translatex");
+                    }
+                    any = true;
+                }
+            }
+            if (!any)
+                return;
+            style.translate_x = LengthPercent::calc(px_x, percent_x);
+            style.translate_y = LengthPercent::calc(px_y, percent_y);
+            style.transformed = true;
+            return;
+        }
         if (name == "visibility") {
             if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
                 return;

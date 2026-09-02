@@ -211,7 +211,7 @@ constexpr FeatureName feature_names[] = {
     { "tables", "tables" },
     { "grid", "grid" },
     { "display-contents", "display: contents" },
-    { "transforms", "transforms" },
+    { "transforms", "rotations, scales and skews (translations are drawn)" },
     { "animations", "animations and transitions" },
     { "vertical-align", "vertical-align" },
     { "background-images", "background images" },

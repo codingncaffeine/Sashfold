@@ -278,6 +278,14 @@ struct ComputedStyle {
     Visibility visibility = Visibility::Visible;
     float opacity = 1;
 
+    // Transforms: the translation parts of `transform` and `translate`,
+    // percentages of the box's own size, applied after layout without
+    // touching the flow; any transform makes the box a stacking context.
+    // Rotations, scales and skews are not drawn yet.
+    LengthPercent translate_x = LengthPercent::px(0);
+    LengthPercent translate_y = LengthPercent::px(0);
+    bool transformed = false;
+
     bool positioned() const { return position != Position::Static; }
     bool out_of_flow() const { return position == Position::Absolute || position == Position::Fixed; }
     bool hidden() const { return visibility == Visibility::Hidden; }

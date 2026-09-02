@@ -464,6 +464,54 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Translate transforms: moved after layout, the flow untouched ------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { margin: 0; width: 100px; height: 20px }
+  p { margin: 0 }
+  #t1 { transform: translate(10px, 5px) }
+  #t2 { transform: translateX(-100%) }
+  #t3 { transform: translate3d(50%, 25%, 0) rotate(45deg) }
+  #t4 { translate: 3px 4px }
+  #t5 { transform: none }
+</style></head><body><div id="t1"></div><div id="t2"></div><div id="t3"></div><div id="t4"></div><div id="t5"></div><p id="after">x</p></body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id && f.style)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* t1 = find_box(page.result.root, "t1");
+        layout::Fragment const* t2 = find_box(page.result.root, "t2");
+        layout::Fragment const* t3 = find_box(page.result.root, "t3");
+        layout::Fragment const* t4 = find_box(page.result.root, "t4");
+        layout::Fragment const* t5 = find_box(page.result.root, "t5");
+        layout::Fragment const* after = find_box(page.result.root, "after");
+        if (CHECK(t1 && t2 && t3 && t4 && t5 && after)) {
+            CHECK_EQ(t1->x, 10.0f); // moved by its translation
+            CHECK_EQ(t1->y, 5.0f);
+            CHECK(t1->stacking_context);
+            CHECK_EQ(t2->x, -100.0f); // a full width to the left: off the page
+            CHECK_EQ(t2->y, 20.0f);
+            CHECK_EQ(t3->x, 50.0f); // half its width, a quarter of its height; the rotation is passed over
+            CHECK_EQ(t3->y, 45.0f);
+            CHECK_EQ(t4->x, 3.0f); // the translate property
+            CHECK_EQ(t4->y, 64.0f);
+            CHECK_EQ(t5->x, 0.0f);
+            CHECK(!t5->stacking_context);
+            CHECK_EQ(after->y, 100.0f); // the flow never moved
+        }
+    }
+
     // --- Margins collapsing through parents and empty boxes (CSS 2.1 §8.3.1) ------
     {
         Page const page = lay_out(R"HTML(<!doctype html><html><head><style>

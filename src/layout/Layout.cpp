@@ -450,11 +450,17 @@ struct Layouter {
     // once the flow has read the box's bottom, since the shift is not flow.
     static void mark_positioned(Fragment& box, ComputedStyle const& style, float containing_width)
     {
+        if (style.transformed) {
+            // A translation moves the box after layout, percentages of its
+            // own size; any transform makes it a stacking context.
+            shift_fragment(box, resolve(style.translate_x, box.width), resolve(style.translate_y, box.height));
+            box.stacking_context = true;
+        }
         if (!style.positioned())
             return;
         box.positioned = true;
         box.z_index = style.z_index.value_or(0);
-        box.stacking_context = style.z_index.has_value() || style.opacity < 1;
+        box.stacking_context = box.stacking_context || style.z_index.has_value() || style.opacity < 1;
         if (style.position == css::Position::Relative)
             shift_fragment(box, relative_dx(style, containing_width), relative_dy(style));
     }
@@ -579,7 +585,9 @@ struct Layouter {
             fragment.positioned = true;
             fragment.out_of_flow = true;
             fragment.z_index = s.z_index.value_or(0);
-            fragment.stacking_context = s.z_index.has_value() || s.opacity < 1;
+            fragment.stacking_context = s.z_index.has_value() || s.opacity < 1 || s.transformed;
+            if (s.transformed)
+                shift_fragment(fragment, resolve(s.translate_x, fragment.width), resolve(s.translate_y, fragment.height));
             parent.children.push_back(std::move(fragment));
         }
     }
