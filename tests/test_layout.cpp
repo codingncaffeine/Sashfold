@@ -956,6 +956,45 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Percentage heights resolve against a definite containing height ---------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { margin: 0 }
+</style></head><body>
+<div id="outer" style="height: 200px"><div id="half" style="height: 50%"></div><div id="auto"><div id="deep" style="height: 25%">x</div></div><div id="capped" style="height: 80%; max-height: 10%"></div></div>
+<div id="unknown"><div id="none" style="height: 50%">y</div></div>
+<div id="flexc" style="display: flex; height: 100px"><div id="fi" style="height: 50%; width: 20px"></div></div>
+<div id="rep" style="height: 100px"><iframe id="fr" height="50%"></iframe></div>
+<div id="cb" style="position: relative; height: 120px"><img id="ai" style="position: absolute; height: 50%; width: 10px" src="x.png"></div>
+</body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const height_of = [&](std::string_view id) {
+            layout::Fragment const* box = find_box(page.result.root, id);
+            return box ? box->height : -1.0f;
+        };
+        CHECK_EQ(height_of("half"), 100.0f); // half of a written 200
+        CHECK_EQ(height_of("deep"), 20.0f); // its parent's height is auto: the percentage is auto too
+        CHECK_EQ(height_of("capped"), 20.0f); // max-height in percent holds it
+        CHECK_EQ(height_of("none"), 20.0f); // no definite base anywhere: auto
+        CHECK_EQ(height_of("fi"), 50.0f); // a flex item's percentage against the container's definite height
+        CHECK_EQ(height_of("fr"), 50.0f); // a replaced box's height attribute in percent
+        CHECK_EQ(height_of("ai"), 60.0f); // an absolutely positioned picture against its containing block
+    }
+
     // --- Table cells stand side by side as top-aligned inline-blocks, until tables land
     {
         text::FontManager::instance().set_system_fonts(false);

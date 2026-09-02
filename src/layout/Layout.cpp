@@ -232,15 +232,32 @@ float clamp_width(ComputedStyle const& style, float width, float containing_widt
     return std::max(0.0f, width);
 }
 
-// The same for a height, where only lengths count: a percentage has no
-// definite base here and reads as none, as the specification says.
-float clamp_height(ComputedStyle const& style, float height)
+// The same for a height: a length always, a percentage only against a
+// definite containing height — without one it reads as none, as the
+// specification says.
+float clamp_height(ComputedStyle const& style, float height, std::optional<float> containing_height = std::nullopt)
 {
-    if (style.max_height.kind == LengthPercent::Kind::Px)
-        height = std::min(height, style.max_height.value);
-    if (style.min_height.kind == LengthPercent::Kind::Px)
-        height = std::max(height, style.min_height.value);
+    auto const applies = [&](LengthPercent const& bound) {
+        return !bound.is_auto() && (bound.kind == LengthPercent::Kind::Px || containing_height.has_value());
+    };
+    if (applies(style.max_height))
+        height = std::min(height, resolve(style.max_height, containing_height.value_or(0)));
+    if (applies(style.min_height))
+        height = std::max(height, resolve(style.min_height, containing_height.value_or(0)));
     return std::max(0.0f, height);
+}
+
+// A written height: a length, or a percentage of a definite containing
+// height; nullopt when it is auto or has no base.
+std::optional<float> definite_height_of(ComputedStyle const& style, std::optional<float> containing_height)
+{
+    if (style.height.is_auto())
+        return std::nullopt;
+    if (style.height.kind == LengthPercent::Kind::Px)
+        return style.height.value;
+    if (containing_height)
+        return resolve(style.height, *containing_height);
+    return std::nullopt;
 }
 
 // The used size of a replaced box from its CSS width and height, else its
@@ -250,7 +267,8 @@ float clamp_height(ComputedStyle const& style, float height)
 // container shrinks to fit, and min/max bounds hold it, the ratio kept.
 // nullopt when nothing sizes it.
 std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle const& style,
-    std::optional<ReplacedSize> const& intrinsic, float containing_width, bool keep_ratio)
+    std::optional<ReplacedSize> const& intrinsic, float containing_width, bool keep_ratio,
+    std::optional<float> containing_height = std::nullopt)
 {
     LengthPercent width = style.width;
     if (width.is_auto()) {
@@ -268,8 +286,13 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
     std::optional<float> used_height;
     if (!width.is_auto())
         used_width = resolve(width, containing_width);
-    if (!height.is_auto() && height.kind == LengthPercent::Kind::Px)
-        used_height = height.value; // a percentage height has no definite base here
+    if (!height.is_auto()) {
+        // A percentage height needs a definite containing height; without one it is auto.
+        if (height.kind == LengthPercent::Kind::Px)
+            used_height = height.value;
+        else if (containing_height)
+            used_height = resolve(height, *containing_height);
+    }
     if (!used_width && !used_height) {
         if (!intrinsic)
             return std::nullopt;
@@ -303,7 +326,7 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
             used_height = *used_height * bounded / *used_width;
         used_width = bounded;
     }
-    if (float const bounded = clamp_height(style, *used_height); bounded != *used_height) {
+    if (float const bounded = clamp_height(style, *used_height, containing_height); bounded != *used_height) {
         if (keep_ratio && *used_height > 0)
             used_width = *used_width * bounded / *used_height;
         used_height = bounded;
@@ -333,7 +356,8 @@ bool keeps_ratio(dom::Element const& element)
 // chosen at give the intrinsic size. An embedded element with no picture
 // of its own has none, and CSS 2.1 §10.3.2 gives it 300 by 150.
 std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
-    Bitmap const* image, float density, float containing_width)
+    Bitmap const* image, float density, float containing_width,
+    std::optional<float> containing_height = std::nullopt)
 {
     std::optional<ReplacedSize> intrinsic;
     if (image) {
@@ -343,7 +367,7 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
     } else if (!element.is_html("img") && is_replaced(element)) {
         intrinsic = ReplacedSize { 300, 150 };
     }
-    return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element));
+    return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element), containing_height);
 }
 
 // The edges an inline-level replaced box carries on its line: margins
@@ -466,6 +490,9 @@ struct BlockOptions {
     std::optional<float> content_height; // the used content height, likewise
     bool zero_auto_margins = false; // floats and flex items: auto margins are zero, never centering
     bool own_context = false; // the box forms its own formatting context regardless of style
+    // The containing block's content height when it is definite: the base
+    // for percentage heights (and min/max-height) of this box.
+    std::optional<float> containing_height;
 };
 
 struct Layouter {
@@ -643,6 +670,7 @@ struct Layouter {
             BlockOptions options;
             options.own_context = true;
             options.zero_auto_margins = true;
+            options.containing_height = cb_height; // definite for an absolutely positioned box
             bool const replaced = is_replaced(*box.element);
             if (s.width.is_auto() && !replaced) {
                 if (has_left && has_right) {
@@ -1109,7 +1137,7 @@ struct Layouter {
     // come, and their boxes join `out`.
     float layout_lines(std::vector<InlineItem> const& items, ComputedStyle const& block_style,
         float content_x, float content_y, float content_width, Fragment& out,
-        FloatContext& floats, int list_depth) const
+        FloatContext& floats, int list_depth, std::optional<float> containing_height = std::nullopt) const
     {
         struct Placed {
             Placed(std::u32string the_text, ComputedStyle const* the_style, bool space, float the_width,
@@ -1481,7 +1509,7 @@ struct Layouter {
             }
             if (item.kind == InlineItem::Kind::Image) {
                 std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
-                    item.image.get(), item.image_density, content_width);
+                    item.image.get(), item.image_density, content_width, containing_height);
                 if (!size)
                     continue;
                 // The margin box is what the line holds; the bottom margin
@@ -1814,8 +1842,8 @@ struct Layouter {
             // the size a formatting context settled for it (a flex line's
             // item); a picture keeps its ratio and its own size.
             PageImage image = image_for(element);
-            std::optional<ReplacedSize> const size
-                = replaced_size(element, style, image.bitmap.get(), image.density, content_width);
+            std::optional<ReplacedSize> const size = replaced_size(element, style, image.bitmap.get(),
+                image.density, content_width, options.containing_height);
             if (size) {
                 bool const settled = !keeps_ratio(element);
                 float const width = settled ? options.content_width.value_or(size->width) : size->width;
@@ -1848,12 +1876,22 @@ struct Layouter {
         FloatContext own_floats;
         bool const own_context = options.own_context || establishes_bfc(style);
         bool const flex = is_flex_container(style);
+        // This box's definite content height, when it has one — settled by
+        // its formatting context, written as a length, or a percentage of a
+        // definite containing height: the base for its children's percentages.
+        std::optional<float> const own_height = options.content_height
+            ? options.content_height
+            : definite_height_of(style, options.containing_height);
+        std::optional<float> const children_base
+            = own_height ? std::optional<float>(clamp_height(style, *own_height, options.containing_height))
+                         : std::nullopt;
         float const content_height = flex
-            ? layout_flex(element, style, content_x, content_y, content_width, fragment, list_depth)
+            ? layout_flex(element, style, content_x, content_y, content_width, fragment, list_depth,
+                  children_base)
             : layout_children(element, style, content_x, content_y, content_width, fragment,
                   list_depth, own_context ? own_floats : floats,
                   top_edge_collapses(element, style, containing_width, options),
-                  bottom_edge_collapses(element, style, containing_width, options));
+                  bottom_edge_collapses(element, style, containing_width, options), children_base);
         // The box's baseline, for an inline-block's sake: its own lines set
         // it; with block children it is the last in-flow child's (a flex
         // container's the first item's).
@@ -1884,9 +1922,9 @@ struct Layouter {
         if (options.content_height) {
             used_height = *options.content_height;
         } else {
-            if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
-                used_height = style.height.value;
-            used_height = clamp_height(style, used_height);
+            if (std::optional<float> const written = definite_height_of(style, options.containing_height))
+                used_height = *written;
+            used_height = clamp_height(style, used_height, options.containing_height);
         }
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
         if (containing_block && !absolute_stack.empty() && !absolute_stack.back().empty()) {
@@ -1908,7 +1946,7 @@ struct Layouter {
     float layout_children(dom::Element const& element, ComputedStyle const& style,
         float content_x, float content_y, float content_width, Fragment& fragment,
         int list_depth, FloatContext& floats, bool collapse_top = false,
-        bool collapse_bottom = false) const
+        bool collapse_bottom = false, std::optional<float> containing_height = std::nullopt) const
     {
         // Does this element establish a block or an inline formatting context?
         css::GeneratedBox const* const before = before_of(&style);
@@ -1922,7 +1960,7 @@ struct Layouter {
             if (items.empty())
                 return 0;
             return layout_lines(items, style, content_x, content_y, content_width, fragment,
-                floats, list_depth);
+                floats, list_depth, containing_height);
         }
 
         // Block context: inline runs between blocks wrap in anonymous boxes.
@@ -1948,7 +1986,8 @@ struct Layouter {
             anonymous.y = cursor + previous_bottom_margin;
             anonymous.width = content_width;
             float const height = layout_lines(pending_inline, style, content_x,
-                cursor + previous_bottom_margin, content_width, anonymous, floats, list_depth);
+                cursor + previous_bottom_margin, content_width, anonymous, floats, list_depth,
+                containing_height);
             anonymous.height = height;
             cursor += previous_bottom_margin + height;
             previous_bottom_margin = 0;
@@ -2113,8 +2152,10 @@ struct Layouter {
                 child_x = band.left;
                 child_width = std::max(0.0f, band.right - band.left);
             }
+            BlockOptions child_options;
+            child_options.containing_height = containing_height;
             Fragment child_fragment = layout_block(child_element, *child_style, child_x, child_y,
-                child_width, child_list_depth, floats);
+                child_width, child_list_depth, floats, child_options);
             if (establishes_bfc(*child_style) && !floats.floats.empty()) {
                 // Its border box must not overlap a float anywhere along its
                 // height (§9.5): a float starting lower narrows it (an auto
@@ -2143,7 +2184,7 @@ struct Layouter {
                         child_width = room;
                     }
                     child_fragment = layout_block(child_element, *child_style, child_x, child_y,
-                        child_width, child_list_depth, floats);
+                        child_width, child_list_depth, floats, child_options);
                 }
             }
             // Relative: laid out in flow, then shifted once the flow has read
@@ -2730,7 +2771,8 @@ struct Layouter {
     // lines, flexible lengths, cross sizes and alignment, then placement.
     // Returns the content height.
     float layout_flex(dom::Element const& container, ComputedStyle const& style, float content_x,
-        float content_y, float content_width, Fragment& fragment, int list_depth) const
+        float content_y, float content_width, Fragment& fragment, int list_depth,
+        std::optional<float> own_height = std::nullopt) const
     {
         using css::AlignContent;
         using css::AlignItems;
@@ -2742,11 +2784,10 @@ struct Layouter {
             || style.flex_direction == FlexDirection::ColumnReverse;
         bool const wrap = style.flex_wrap != css::FlexWrap::NoWrap;
         bool const wrap_reversed = style.flex_wrap == css::FlexWrap::WrapReverse;
-        // The inner sizes: the width is definite here, the height only when written.
-        std::optional<float> const definite_height
-            = !style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px
-            ? std::optional<float>(style.height.value)
-            : std::nullopt;
+        // The inner sizes: the width is definite here, the height when
+        // written as a length, a percentage of a definite containing
+        // height, or settled by the container's own formatting context.
+        std::optional<float> const definite_height = own_height;
         std::optional<float> const main_size
             = horizontal ? std::optional<float>(content_width) : definite_height;
         std::optional<float> const cross_size
@@ -2879,10 +2920,11 @@ struct Layouter {
                     item.maximum = resolve(s.max_width, content_width);
                     item.minimum = std::min(item.minimum, *item.maximum);
                 }
-                item.cross_is_auto
-                    = anonymous || s.height.is_auto() || s.height.kind != LengthPercent::Kind::Px;
-                if (!item.cross_is_auto)
-                    item.cross = clamp_height(s, s.height.value);
+                std::optional<float> const written_cross
+                    = anonymous ? std::nullopt : definite_height_of(s, cross_size);
+                item.cross_is_auto = !written_cross;
+                if (written_cross)
+                    item.cross = clamp_height(s, *written_cross, cross_size);
             } else {
                 // A column's cross size is the width — stretched to the line,
                 // as written, or shrink-to-fit — and the base is the height at
@@ -3202,7 +3244,12 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // with no positioned ancestor; the fixed ones join them. It has the
     // viewport's size, or the page's height when no viewport height is known.
     layouter.absolute_stack.emplace_back();
-    result.root = layouter.layout_block(*html, *html_style, 0, 0, viewport_width, 0, root_floats);
+    // The initial containing block has the viewport's height: the root's
+    // percentage height resolves against it.
+    BlockOptions root_options;
+    if (viewport_height > 0)
+        root_options.containing_height = viewport_height;
+    result.root = layouter.layout_block(*html, *html_style, 0, 0, viewport_width, 0, root_floats, root_options);
     if (std::optional<float> const bottom = root_floats.lowest_bottom())
         result.root.height = std::max(result.root.height, *bottom - result.root.y);
     result.page_height = result.root.y + result.root.height
