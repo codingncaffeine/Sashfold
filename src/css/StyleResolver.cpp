@@ -30,6 +30,8 @@ address, article, aside, blockquote, center, dd, details, dialog, div, dl, dt,
 fieldset, figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
 main, menu, nav, ol, p, plaintext, pre, search, section, summary, ul, xmp,
 h1, h2, h3, h4, h5, h6, dir, table, caption, tbody, thead, tfoot, tr { display: block }
+td, th { display: inline-block; vertical-align: top; padding: 1px }
+th { font-weight: bold }
 li { display: list-item }
 p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-top: 1em; margin-bottom: 1em }
 blockquote, figure { margin-left: 40px; margin-right: 40px }
@@ -498,6 +500,74 @@ std::optional<Color> parse_color_component(ComponentValue const& value, Color cu
     }
     if (value.is_function()) {
         FunctionValue const& function = value.function();
+        if (ascii_ci_equals(function.name, "hsl") || ascii_ci_equals(function.name, "hsla")) {
+            // hsl(H S L / A) or the legacy hsl(H, S%, L%, A): the hue an
+            // angle (a bare number is degrees), saturation and lightness
+            // percentages (bare numbers read as such), then CSS Color 4's
+            // conversion.
+            double parts[4] = { 0, 0, 0, 1 };
+            int part = 0;
+            bool alpha_seen = false;
+            for (ComponentValue const& argument : function.values) {
+                if (argument.is_token(Token::Type::Whitespace) || argument.is_token(Token::Type::Comma))
+                    continue;
+                if (argument.is_token(Token::Type::Delim) && argument.token().delim == U'/')
+                    continue;
+                if (part >= 4 || !argument.is_token())
+                    return std::nullopt;
+                Token const& token = argument.token();
+                double parsed = 0;
+                if (part == 0) {
+                    if (token.type == Token::Type::Number) {
+                        parsed = token.numeric_value;
+                    } else if (token.type == Token::Type::Dimension) {
+                        if (ascii_ci_equals(token.unit, "deg"))
+                            parsed = token.numeric_value;
+                        else if (ascii_ci_equals(token.unit, "grad"))
+                            parsed = token.numeric_value * 360.0 / 400.0;
+                        else if (ascii_ci_equals(token.unit, "rad"))
+                            parsed = token.numeric_value * 180.0 / 3.14159265358979323846;
+                        else if (ascii_ci_equals(token.unit, "turn"))
+                            parsed = token.numeric_value * 360.0;
+                        else
+                            return std::nullopt;
+                    } else {
+                        return std::nullopt;
+                    }
+                } else if (part == 3) {
+                    alpha_seen = true;
+                    if (token.type == Token::Type::Number)
+                        parsed = token.numeric_value;
+                    else if (token.type == Token::Type::Percentage)
+                        parsed = token.numeric_value / 100.0;
+                    else
+                        return std::nullopt;
+                } else {
+                    if (token.type == Token::Type::Percentage || token.type == Token::Type::Number)
+                        parsed = token.numeric_value;
+                    else
+                        return std::nullopt;
+                }
+                parts[part++] = parsed;
+            }
+            if (part < 3)
+                return std::nullopt;
+            double hue = parts[0];
+            hue = hue - 360.0 * static_cast<double>(static_cast<long long>(hue / 360.0));
+            if (hue < 0)
+                hue += 360.0;
+            double const saturation = std::clamp(parts[1], 0.0, 100.0) / 100.0;
+            double const lightness = std::clamp(parts[2], 0.0, 100.0) / 100.0;
+            auto const channel = [&](double n) {
+                double k = n + hue / 30.0;
+                k = k - 12.0 * static_cast<double>(static_cast<long long>(k / 12.0));
+                double const a = saturation * std::min(lightness, 1.0 - lightness);
+                double const m = std::max(-1.0, std::min({ k - 3.0, 9.0 - k, 1.0 }));
+                return (lightness - a * m) * 255.0;
+            };
+            return Color { clamp_channel(channel(0)), clamp_channel(channel(8)), clamp_channel(channel(4)),
+                alpha_seen ? clamp_channel(parts[3] * 255.0) : std::uint8_t { 255 } };
+        }
         if (!ascii_ci_equals(function.name, "rgb") && !ascii_ci_equals(function.name, "rgba"))
             return std::nullopt;
         double channels[4] = { 0, 0, 0, 255 };
@@ -2095,8 +2165,14 @@ struct Resolver {
                 style.display = Display::InlineGrid;
             else if (ascii_ci_equals(keyword, "table"))
                 style.display = Display::FlowRoot; // a table is a block-level root until tables land
-            else if (ascii_ci_equals(keyword, "inline-block") || ascii_ci_equals(keyword, "inline-table"))
-                style.display = Display::InlineBlock; // an inline table is an inline-level root until then
+            else if (ascii_ci_equals(keyword, "inline-block") || ascii_ci_equals(keyword, "inline-table")
+                || ascii_ci_equals(keyword, "table-cell"))
+                // An inline table is an inline-level root until then, and a
+                // cell an inline-block: side by side in its row, holding its
+                // blocks, aligned at the top by the UA sheet.
+                style.display = Display::InlineBlock;
+            else if (ascii_ci_equals(keyword, "table-caption"))
+                style.display = Display::Block;
             else if (ascii_ci_equals(keyword, "table-column") || ascii_ci_equals(keyword, "table-column-group"))
                 style.display = Display::TableColumn;
             else if (ascii_ci_equals(keyword, "table-row-group") || ascii_ci_equals(keyword, "table-header-group")

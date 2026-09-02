@@ -7,6 +7,7 @@
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <string>
 #include <tuple>
@@ -1599,6 +1600,38 @@ struct Layouter {
         return true;
     }
 
+    // Whether an in-flow block-level box lives inside the element, as a
+    // child or inside inline boxes (CSS 2.1 §9.2.1.1: an inline box holding
+    // a block is broken around it, and the block becomes a block child of
+    // the containing block). Floats, out-of-flow boxes and atomic inline
+    // boxes (controls, pictures, inline-blocks) hold their contents in.
+    bool contains_block_descendant(dom::Element const& element) const
+    {
+        for (dom::Node const* child : element.children()) {
+            if (!child->is_element())
+                continue;
+            auto const& child_element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(child_element);
+            if (!child_style || child_style->display == Display::None || is_floating(*child_style)
+                || child_style->out_of_flow())
+                continue;
+            if (is_block_level(*child_style))
+                return true;
+            if (splits_around_blocks(child_element, *child_style))
+                return true;
+        }
+        return false;
+    }
+
+    // An inline box that a block inside it splits: a plain inline element
+    // (not a control, a replaced box, an inline-block or a br) holding a
+    // block-level descendant.
+    bool splits_around_blocks(dom::Element const& element, ComputedStyle const& style) const
+    {
+        return !is_block_level(style) && !is_control(element) && !is_replaced(element)
+            && !is_atomic_inline(style) && !element.is_html("br") && contains_block_descendant(element);
+    }
+
     // Whether a float lives anywhere inside the element: an empty box that
     // holds one still places it, so the margins after that box must not
     // reach past it and carry the float along.
@@ -1844,16 +1877,8 @@ struct Layouter {
         // Does this element establish a block or an inline formatting context?
         css::GeneratedBox const* const before = before_of(&style);
         css::GeneratedBox const* const after = after_of(&style);
-        bool has_block_child = (before && is_block_level(before->style))
-            || (after && is_block_level(after->style));
-        for (dom::Node const* child : element.children()) {
-            if (!child->is_element())
-                continue;
-            ComputedStyle const* child_style = style_of(static_cast<dom::Element const&>(*child));
-            if (child_style && !is_floating(*child_style) && !child_style->out_of_flow()
-                && is_block_level(*child_style))
-                has_block_child = true;
-        }
+        bool const has_block_child = (before && is_block_level(before->style))
+            || (after && is_block_level(after->style)) || contains_block_descendant(element);
 
         if (!has_block_child) {
             std::vector<InlineItem> items;
@@ -1937,11 +1962,20 @@ struct Layouter {
         if (before)
             place_or_append(*before);
 
-        for (dom::Node const* child : element.children()) {
+        // The children in a block context: text and inline-level boxes
+        // gather into the pending inline content; a block-level box is a
+        // block child — at any depth through inline boxes, which CSS 2.1
+        // §9.2.1.1 breaks around it, their content before and after it
+        // staying inline (their generated boxes at either end).
+        std::function<void(dom::Node const&, ComputedStyle const&)> walk;
+        walk = [&](dom::Node const& parent_node, ComputedStyle const& parent_style) {
+        dom::Element const* const parent_element
+            = parent_node.is_element() ? static_cast<dom::Element const*>(&parent_node) : nullptr;
+        for (dom::Node const* child : parent_node.children()) {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
-                    append_text(text, &style, pending_inline, &element);
+                    append_text(text, &parent_style, pending_inline, parent_element);
                 continue;
             }
             if (!child->is_element())
@@ -1983,6 +2017,16 @@ struct Layouter {
                 continue;
             }
             if (!is_block_level(*child_style)) {
+                if (splits_around_blocks(child_element, *child_style)) {
+                    std::size_t const first = pending_inline.size();
+                    if (css::GeneratedBox const* const own_before = before_of(child_style))
+                        append_generated(*own_before, child_element, pending_inline);
+                    walk(child_element, *child_style);
+                    if (css::GeneratedBox const* const own_after = after_of(child_style))
+                        append_generated(*own_after, child_element, pending_inline);
+                    mark_aligned(pending_inline, first, *child_style);
+                    continue;
+                }
                 collect_inline_element(child_element, *child_style, pending_inline);
                 continue;
             }
@@ -2071,6 +2115,8 @@ struct Layouter {
             first_in_flow = false;
             hand_over(child_fragment);
         }
+        };
+        walk(element, style);
         if (after)
             place_or_append(*after);
         flush_inline();
@@ -2309,17 +2355,8 @@ struct Layouter {
         }
         if (is_flex_container(style))
             return flex_intrinsic_widths(element, style);
-        bool has_block_child = false;
-        for (dom::Node const* child : element.children()) {
-            if (!child->is_element())
-                continue;
-            ComputedStyle const* child_style = style_of(static_cast<dom::Element const&>(*child));
-            if (child_style && !is_floating(*child_style) && !child_style->out_of_flow()
-                && is_block_level(*child_style))
-                has_block_child = true;
-        }
         std::vector<InlineItem> pending;
-        if (!has_block_child) {
+        if (!contains_block_descendant(element)) {
             collect_inline(element, &style, pending);
             return inline_intrinsic(pending);
         }
@@ -2330,30 +2367,41 @@ struct Layouter {
             result.max = std::max(result.max, run.max);
             pending.clear();
         };
-        for (dom::Node const* child : element.children()) {
-            if (child->is_text()) {
-                std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
-                if (!text.empty())
-                    append_text(text, &style, pending, &element);
-                continue;
+        // The same walk as layout: inline content gathers, a block at any
+        // depth through inline boxes counts on its own.
+        std::function<void(dom::Node const&, ComputedStyle const&)> walk;
+        walk = [&](dom::Node const& parent_node, ComputedStyle const& parent_style) {
+            dom::Element const* const parent_element
+                = parent_node.is_element() ? static_cast<dom::Element const*>(&parent_node) : nullptr;
+            for (dom::Node const* child : parent_node.children()) {
+                if (child->is_text()) {
+                    std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
+                    if (!text.empty())
+                        append_text(text, &parent_style, pending, parent_element);
+                    continue;
+                }
+                if (!child->is_element())
+                    continue;
+                auto const& child_element = static_cast<dom::Element const&>(*child);
+                ComputedStyle const* child_style = style_of(child_element);
+                if (!child_style || child_style->display == Display::None)
+                    continue;
+                if (child_style->out_of_flow())
+                    continue; // takes no room in the flow
+                if (is_floating(*child_style) || !is_block_level(*child_style)) {
+                    if (splits_around_blocks(child_element, *child_style))
+                        walk(child_element, *child_style);
+                    else
+                        collect_inline_element(child_element, *child_style, pending);
+                    continue;
+                }
+                flush();
+                Intrinsic const box = block_intrinsic(child_element, *child_style);
+                result.min = std::max(result.min, box.min);
+                result.max = std::max(result.max, box.max);
             }
-            if (!child->is_element())
-                continue;
-            auto const& child_element = static_cast<dom::Element const&>(*child);
-            ComputedStyle const* child_style = style_of(child_element);
-            if (!child_style || child_style->display == Display::None)
-                continue;
-            if (child_style->out_of_flow())
-                continue; // takes no room in the flow
-            if (is_floating(*child_style) || !is_block_level(*child_style)) {
-                collect_inline_element(child_element, *child_style, pending);
-                continue;
-            }
-            flush();
-            Intrinsic const box = block_intrinsic(child_element, *child_style);
-            result.min = std::max(result.min, box.min);
-            result.max = std::max(result.max, box.max);
-        }
+        };
+        walk(element, style);
         flush();
         return result;
     }

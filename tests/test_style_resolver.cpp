@@ -338,6 +338,29 @@ int main()
         CHECK(close(style_of("fs").font_size, 20));
     }
 
+    // --- hsl() and hsla() ------------------------------------------------------------
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  #a { color: hsl(60, 100%, 50%) }
+  #b { color: hsl(120deg 100% 25%) }
+  #c { color: hsla(240, 100%, 50%, 0.5) }
+  #d { color: hsl(0.5turn 50% 50% / 20%) }
+  #e { color: hsl(-60, 20%, 50%) }
+  #f { color: hsl(60, 20%, 50%) }
+  #g { color: hsl(10px, 1, 1) }
+</style></head>
+<body><p id="a">a</p><p id="b">b</p><p id="c">c</p><p id="d">d</p><p id="e">e</p><p id="f">f</p><p id="g">g</p></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        CHECK(style_of("a").color == Color::rgb(255, 255, 0)); // yellow
+        CHECK(style_of("b").color == Color::rgb(0, 128, 0)); // green, the modern syntax
+        CHECK(style_of("c").color == Color::rgba(0, 0, 255, 128));
+        CHECK(style_of("d").color == Color::rgba(64, 191, 191, 51)); // half a turn is 180: a cyan
+        CHECK(style_of("e").color == Color::rgb(153, 102, 153)); // a negative hue wraps: 300
+        CHECK(style_of("f").color == Color::rgb(153, 153, 102)); // the specification's own example
+        CHECK(style_of("g").color == Color::rgb(0, 0, 0)); // a length is no hue: the declaration is ignored
+    }
+
     // --- The border side longhands ---------------------------------------------
     g_document = html::parse_document(std::string_view(R"(<!doctype html>
 <html><head><style>

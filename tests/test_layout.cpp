@@ -839,6 +839,117 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A block inside an inline box splits it: the block is a block child ----
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 16px 0 }
+  #card { border: 2px solid black; padding: 5px; margin: 4px 0; background: #eee }
+</style></head><body>
+<div id="host">aa <a href="#"><span>bb</span><div id="card">cc<p>dd</p></div>ee</a> ff</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::TextRun const* dd = run_of(U"dd");
+        layout::TextRun const* ee = run_of(U"ee");
+        layout::TextRun const* ff = run_of(U"ff");
+        layout::Fragment const* card = find_box(page.result.root, "card");
+        layout::Fragment const* host = find_box(page.result.root, "host");
+        if (CHECK(aa && bb && cc && dd && ee && ff && card && host)) {
+            float const g = aa->width / 2;
+            CHECK_EQ(bb->baseline_y, aa->baseline_y); // the inline content before the block stays on its line
+            CHECK_EQ(bb->x, 3 * g);
+            CHECK_EQ(card->x, 0.0f); // the block is a child of the containing block: full width, its own edges
+            CHECK_EQ(card->width, 400.0f);
+            CHECK_EQ(card->y, 24.0f); // below the 20 px line, past its 4 px margin
+            CHECK_EQ(cc->x, 7.0f); // inside border and padding
+            CHECK_EQ(cc->baseline_y - aa->baseline_y, 31.0f); // 24 down plus border and padding
+            CHECK_EQ(dd->baseline_y - cc->baseline_y, 36.0f); // the paragraph's margin inside the card holds
+            CHECK_EQ(card->height, 86.0f); // 7 + 20 + 16 + 20 + 16 + 7
+            CHECK_EQ(ee->baseline_y - aa->baseline_y, 114.0f); // the content after the block on a new line
+            CHECK_EQ(ee->x, 0.0f);
+            CHECK_EQ(ff->baseline_y, ee->baseline_y);
+            CHECK_EQ(host->height, 134.0f); // 20 + 4 + 86 + 4 + 20
+        }
+    }
+
+    // --- Table cells stand side by side as top-aligned inline-blocks, until tables land
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  td, th { padding: 0 }
+</style></head><body>
+<table><tr><th id="h">aa</th><td id="c">bb<div>cc</div></td><td id="d">dd</td></tr></table>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::TextRun const* dd = run_of(U"dd");
+        layout::Fragment const* h = find_box(page.result.root, "h");
+        layout::Fragment const* c = find_box(page.result.root, "c");
+        layout::Fragment const* d = find_box(page.result.root, "d");
+        if (CHECK(aa && bb && cc && dd && h && c && d)) {
+            float const g = aa->width / 2;
+            CHECK_EQ(h->x, 0.0f);
+            CHECK_EQ(h->width, 2 * g); // each cell shrinks to its content
+            CHECK_EQ(c->x, 2 * g); // the next cell beside it, no space between the tags
+            CHECK_EQ(c->height, 40.0f); // its block inside stays inside: two lines
+            CHECK_EQ(cc->x, c->x); // the block is the cell's, full width of the cell
+            CHECK_EQ(d->x, 4 * g);
+            CHECK_EQ(h->y, c->y); // aligned at the top, not on a baseline
+            CHECK_EQ(d->y, c->y);
+            CHECK_EQ(aa->baseline_y, dd->baseline_y);
+            CHECK(aa->style->bold()); // th is bold
+        }
+    }
+
     // --- Replaced boxes on a line carry their edges; the embedded kinds are 300 by 150
     {
         text::FontManager::instance().set_system_fonts(false);
