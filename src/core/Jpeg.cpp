@@ -450,26 +450,6 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
             if (scan_count < 1 || scan_count > static_cast<int>(components.size())
                 || length < 6 + static_cast<std::size_t>(scan_count) * 2)
                 return std::nullopt;
-            std::vector<Component*> scan;
-            for (int i = 0; i < scan_count; ++i) {
-                std::size_t const s = segment + 1 + static_cast<std::size_t>(i) * 2;
-                int const id = bytes[s];
-                Component* found = nullptr;
-                for (Component& component : components) {
-                    if (component.id == id)
-                        found = &component;
-                }
-                if (!found)
-                    return std::nullopt;
-                found->dc_table = bytes[s + 1] >> 4;
-                found->ac_table = bytes[s + 1] & 0x0F;
-                if (found->dc_table > 3 || found->ac_table > 3
-                    || !dc_tables[static_cast<std::size_t>(found->dc_table)].present
-                    || !ac_tables[static_cast<std::size_t>(found->ac_table)].present
-                    || !quant_present[static_cast<std::size_t>(found->quant_table)])
-                    return std::nullopt;
-                scan.push_back(found);
-            }
             // Ss, Se, Ah/Al: the spectral band and the successive-approximation
             // bit position. Sequential scans cover the whole block at once.
             std::size_t const s = segment + 1 + static_cast<std::size_t>(scan_count) * 2;
@@ -485,6 +465,31 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                 if ((dc_scan && spectral_end != 0) || (!dc_scan && (spectral_end < spectral_start || spectral_end > 63))
                     || (!dc_scan && scan_count != 1) || ah > 13 || al > 13)
                     return std::nullopt;
+            }
+            // A scan needs only the tables it reads: progressive encoders
+            // define the AC tables just before the first AC scan, and a DC
+            // refinement scan reads raw bits with no table at all.
+            bool const needs_dc = !progressive || (spectral_start == 0 && ah == 0);
+            bool const needs_ac = !progressive || spectral_start > 0;
+            std::vector<Component*> scan;
+            for (int i = 0; i < scan_count; ++i) {
+                std::size_t const c = segment + 1 + static_cast<std::size_t>(i) * 2;
+                int const id = bytes[c];
+                Component* found = nullptr;
+                for (Component& component : components) {
+                    if (component.id == id)
+                        found = &component;
+                }
+                if (!found)
+                    return std::nullopt;
+                found->dc_table = bytes[c + 1] >> 4;
+                found->ac_table = bytes[c + 1] & 0x0F;
+                if (found->dc_table > 3 || found->ac_table > 3
+                    || (needs_dc && !dc_tables[static_cast<std::size_t>(found->dc_table)].present)
+                    || (needs_ac && !ac_tables[static_cast<std::size_t>(found->ac_table)].present)
+                    || !quant_present[static_cast<std::size_t>(found->quant_table)])
+                    return std::nullopt;
+                scan.push_back(found);
             }
 
             for (Component& component : components)

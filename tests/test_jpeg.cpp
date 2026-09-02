@@ -197,7 +197,7 @@ std::vector<std::uint8_t> encode(Bitmap const& image, Options const& options)
     }
     Table const dc = options.standard_dc ? standard_dc_table() : flat_dc_table();
     Table const ac = flat_ac_table();
-    for (int table_class = 0; table_class < 2; ++table_class) {
+    auto const write_table = [&](int table_class) {
         Table const& table = table_class == 0 ? dc : ac;
         w.marker(0xC4);
         w.u16(static_cast<int>(2 + 17 + table.symbols.size()));
@@ -206,7 +206,13 @@ std::vector<std::uint8_t> encode(Bitmap const& image, Options const& options)
             w.byte(table.counts[static_cast<std::size_t>(len)]);
         for (std::uint8_t const symbol : table.symbols)
             w.byte(symbol);
-    }
+    };
+    write_table(0);
+    // Progressive encoders define the AC table only when the first AC scan
+    // needs it; the decoder must not ask for it sooner.
+    bool ac_table_written = !options.progressive;
+    if (ac_table_written)
+        write_table(1);
     if (options.restart_interval) {
         w.marker(0xDD);
         w.u16(4);
@@ -413,6 +419,10 @@ std::vector<std::uint8_t> encode(Bitmap const& image, Options const& options)
         w.flush();
     };
     auto const ac_first_scan = [&](int c, int ss, int se, int al) {
+        if (!ac_table_written) {
+            write_table(1);
+            ac_table_written = true;
+        }
         write_sos({ c }, ss, se, 0, al);
         Plane const& plane = planes[static_cast<std::size_t>(c)];
         eob_run = 0;
