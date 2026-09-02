@@ -32,6 +32,8 @@ struct Theme {
     Color address_border = Color::rgb(0x3a, 0x40, 0x4b);
     Color accent = Color::rgb(0x5b, 0x9c, 0xf6);
     Color selection = Color::rgba(0x5b, 0x9c, 0xf6, 0x66);
+    Color find_highlight = Color::rgba(0xff, 0xd5, 0x4f, 0x99); // every match on the page
+    Color find_current = Color::rgba(0xff, 0x98, 0x00, 0xcc); // the match the find bar is on
     Color button_hover_background = Color::rgb(0x33, 0x39, 0x44);
     Color button_disabled_text = Color::rgb(0x55, 0x5b, 0x66);
     Color status_background = Color::rgb(0x1f, 0x22, 0x28);
@@ -55,6 +57,7 @@ struct Theme {
     int padding = 6;
     int border_width = 1;
     int status_height = 22;
+    int find_height = 36;
     int scroll_step = 60;
 
     // Type, px.

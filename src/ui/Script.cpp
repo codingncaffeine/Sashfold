@@ -348,6 +348,8 @@ struct Runner {
                 return fail("select-text: no text run contains \"" + argument + "\"");
         } else if (command == "assert-selection") {
             expect_equal("assert-selection", browser.selected_text(), argument);
+        } else if (command == "assert-find") {
+            expect_equal("assert-find", browser.find_status(), argument);
         } else if (command == "echo") {
             out << argument << "\n";
         } else {

@@ -13,6 +13,8 @@
     "address-border": "#3a404b",
     "accent": "#5b9cf6",
     "selection": "#5b9cf666",
+    "find-highlight": "#ffd54f99",
+    "find-current": "#ff9800cc",
     "button-hover-background": "#333944",
     "button-disabled-text": "#555b66",
     "status-background": "#1f2228",
@@ -36,6 +38,7 @@
     "padding": 6,
     "border-width": 1,
     "status-height": 22,
+    "find-height": 36,
     "scroll-step": 60
   },
   "type": {

@@ -275,6 +275,12 @@ struct Browser::Impl {
         TextPosition focus;
     };
 
+    // One occurrence of the find bar's query in the page's text.
+    struct Match {
+        TextPosition start;
+        TextPosition end;
+    };
+
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
@@ -288,6 +294,8 @@ struct Browser::Impl {
         layout::LayoutResult layout;
         std::vector<layout::TextRun const*> runs; // the layout's runs in tree order
         std::optional<Selection> selection; // positions into `runs`; dropped with the layout
+        std::vector<Match> matches; // the find bar's query in this tab, refreshed with the layout
+        std::size_t current_match = 0;
         int scroll_y = 0;
         std::string status;
 
@@ -307,7 +315,7 @@ struct Browser::Impl {
         bool https_first = false;
     };
 
-    enum class Hover { None, Back, Forward, Reload, NewTab, Tab, TabClose, Address, Content };
+    enum class Hover { None, Back, Forward, Reload, NewTab, Tab, TabClose, Address, FindBox, Content };
 
     Loader& loader;
     Theme theme;
@@ -329,6 +337,13 @@ struct Browser::Impl {
     std::size_t hover_index = 0;
     std::optional<net::Url> hover_link;
     bool selecting = false; // the left button went down on page text and is still held
+
+    // The find bar: shared by the tabs, its matches kept per tab.
+    bool find_open = false;
+    bool find_focus = false;
+    std::string find_query;
+    std::size_t find_caret = 0; // bytes into find_query
+    bool find_select_all = false;
 
     Bitmap frame;
     bool dirty = true;
@@ -405,6 +420,7 @@ struct Browser::Impl {
 
     void focus_address(bool select_everything)
     {
+        find_focus = false;
         address_focus = true;
         select_all = select_everything && !address.empty();
         caret = address.size();
@@ -428,7 +444,15 @@ struct Browser::Impl {
         ChromeLayout c;
         c.tab_strip = Rect { 0, 0, width, t.tab_strip_height };
         c.toolbar = Rect { 0, t.tab_strip_height, width, t.toolbar_height };
-        int const content_top = t.tab_strip_height + t.toolbar_height;
+        int content_top = t.tab_strip_height + t.toolbar_height;
+        if (find_open) {
+            // The find bar sits under the toolbar and takes its height from the content.
+            c.find_bar = Rect { 0, content_top, width, t.find_height };
+            int const box_width = std::min(std::clamp(width / 2, 120, 360), std::max(0, width - 2 * t.padding));
+            c.find_box = Rect { t.padding, content_top + (t.find_height - t.address_height) / 2,
+                box_width, t.address_height };
+            content_top += t.find_height;
+        }
         c.status = Rect { 0, height - t.status_height, width, t.status_height };
         c.content = Rect { 0, content_top, width,
             std::max(0, height - content_top - t.status_height) };
@@ -518,6 +542,7 @@ struct Browser::Impl {
         gather_runs(tab.layout.root, tab.runs);
         tab.selection.reset();
         selecting = false;
+        update_matches(tab);
     }
 
     void render(Tab& tab)
@@ -903,6 +928,8 @@ struct Browser::Impl {
         active = index;
         blur_address();
         sync_address();
+        if (find_open)
+            update_matches(tabs[index]); // the query may have changed while another tab showed
         refresh_hover();
         dirty = true;
     }
@@ -1086,6 +1113,8 @@ struct Browser::Impl {
                 next = Hover::Reload;
             else if (c.address.contains(x, y))
                 next = Hover::Address;
+            else if (find_open && c.find_box.contains(x, y))
+                next = Hover::FindBox;
             else if (c.content.contains(x, y)) {
                 next = Hover::Content;
                 link = link_at(x, y);
@@ -1359,6 +1388,248 @@ struct Browser::Impl {
         }
     }
 
+    // --- Find in page ----------------------------------------------------------------
+
+    // A translucent band over the runs between two positions.
+    static void paint_bands(Bitmap& content, Tab const& tab, TextPosition start, TextPosition end,
+        Color color)
+    {
+        for (std::size_t i = start.run; i <= end.run && i < tab.runs.size(); ++i) {
+            layout::TextRun const& run = *tab.runs[i];
+            std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
+            std::size_t const to = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
+            if (to <= from)
+                continue;
+            text::FaceMetrics const metrics = run_metrics(run);
+            float const x1 = run.x + prefix_width(run, from);
+            float const x2 = run.x + prefix_width(run, to);
+            float const top = run.baseline_y - metrics.ascent - static_cast<float>(tab.scroll_y);
+            content.fill_rect(Rect { static_cast<int>(x1 + 0.5f), static_cast<int>(top + 0.5f),
+                                  static_cast<int>(x2 - x1 + 0.5f),
+                                  static_cast<int>(metrics.ascent + metrics.descent + 0.5f) },
+                color);
+        }
+    }
+
+    // The editing keys the find box takes — Backspace, Delete, Left, Right,
+    // Home, End — over a UTF-8 string with a byte caret and a select-all
+    // flag. True when the key was one of those.
+    static bool edit_text(std::string& text, std::size_t& caret, bool& select_all, KeyEvent const& key)
+    {
+        switch (key.key) {
+        case Key::Backspace:
+            if (select_all) {
+                text.clear();
+                caret = 0;
+                select_all = false;
+            } else if (caret > 0) {
+                std::size_t const previous = previous_code_point(text, caret);
+                text.erase(previous, caret - previous);
+                caret = previous;
+            }
+            return true;
+        case Key::Delete:
+            if (select_all) {
+                text.clear();
+                caret = 0;
+                select_all = false;
+            } else if (caret < text.size()) {
+                text.erase(caret, next_code_point(text, caret) - caret);
+            }
+            return true;
+        case Key::Left:
+            if (select_all) {
+                select_all = false;
+                caret = 0;
+            } else {
+                caret = previous_code_point(text, caret);
+            }
+            return true;
+        case Key::Right:
+            if (select_all) {
+                select_all = false;
+                caret = text.size();
+            } else {
+                caret = next_code_point(text, caret);
+            }
+            return true;
+        case Key::Home:
+            select_all = false;
+            caret = 0;
+            return true;
+        case Key::End:
+            select_all = false;
+            caret = text.size();
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // ASCII letters folded to lowercase; everything else as it is.
+    static std::u32string folded(std::u32string_view text)
+    {
+        std::u32string out;
+        out.reserve(text.size());
+        for (char32_t const c : text)
+            out.push_back(c < 0x80 ? to_ascii_lowercase(c) : c);
+        return out;
+    }
+
+    // Every occurrence of the query in the tab's text, line by line; the
+    // current match keeps its place while it still exists.
+    void update_matches(Tab& tab)
+    {
+        tab.matches.clear();
+        if (!find_open || find_query.empty()) {
+            tab.current_match = 0;
+            return;
+        }
+        std::u32string const needle = folded(decode_utf8(find_query));
+        std::size_t line_start = 0;
+        while (line_start < tab.runs.size()) {
+            std::size_t line_end = line_start + 1;
+            while (line_end < tab.runs.size()
+                && tab.runs[line_end]->baseline_y == tab.runs[line_start]->baseline_y)
+                ++line_end;
+            std::u32string line;
+            std::vector<std::size_t> starts;
+            for (std::size_t i = line_start; i < line_end; ++i) {
+                starts.push_back(line.size());
+                line += folded(tab.runs[i]->text);
+            }
+            auto const locate = [&](std::size_t index) {
+                std::size_t run = 0;
+                for (std::size_t k = 0; k < starts.size(); ++k) {
+                    if (starts[k] <= index)
+                        run = k;
+                }
+                return TextPosition { line_start + run, index - starts[run] };
+            };
+            for (std::size_t at = line.find(needle); at != std::u32string::npos;
+                 at = line.find(needle, at + needle.size()))
+                tab.matches.push_back(Match { locate(at), locate(at + needle.size()) });
+            line_start = line_end;
+        }
+        if (tab.current_match >= tab.matches.size())
+            tab.current_match = 0;
+    }
+
+    // Scrolls so the current match's line is in view.
+    void scroll_to_match(Tab& tab)
+    {
+        if (tab.matches.empty())
+            return;
+        Match const& match = tab.matches[std::min(tab.current_match, tab.matches.size() - 1)];
+        if (match.start.run >= tab.runs.size())
+            return;
+        layout::TextRun const& run = *tab.runs[match.start.run];
+        text::FaceMetrics const metrics = run_metrics(run);
+        int const top = static_cast<int>(run.baseline_y - metrics.ascent);
+        int const bottom = static_cast<int>(run.baseline_y + metrics.descent + 1);
+        ChromeLayout const c = layout_chrome();
+        if (top >= tab.scroll_y && bottom <= tab.scroll_y + c.content.height)
+            return;
+        set_scroll(tab, top - c.content.height / 3);
+    }
+
+    void focus_find(bool select_everything)
+    {
+        find_focus = true;
+        find_select_all = select_everything && !find_query.empty();
+        find_caret = find_query.size();
+        dirty = true;
+    }
+
+    void blur_find()
+    {
+        if (!find_focus)
+            return;
+        find_focus = false;
+        find_select_all = false;
+        dirty = true;
+    }
+
+    void open_find()
+    {
+        find_open = true;
+        blur_address();
+        focus_find(true);
+        if (Tab* const tab = active_tab()) {
+            update_matches(*tab);
+            scroll_to_match(*tab);
+        }
+        dirty = true;
+    }
+
+    void close_find()
+    {
+        find_open = false;
+        find_focus = false;
+        find_select_all = false;
+        for (Tab& tab : tabs)
+            update_matches(tab);
+        dirty = true;
+    }
+
+    void find_step(int direction)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || tab->matches.empty())
+            return;
+        std::size_t const count = tab->matches.size();
+        tab->current_match = (tab->current_match + (direction > 0 ? 1 : count - 1)) % count;
+        scroll_to_match(*tab);
+        dirty = true;
+    }
+
+    void refind()
+    {
+        if (Tab* const tab = active_tab()) {
+            tab->current_match = 0;
+            update_matches(*tab);
+            scroll_to_match(*tab);
+        }
+        dirty = true;
+    }
+
+    void edit_find(KeyEvent const& key)
+    {
+        if (key.key == Key::Enter) {
+            find_step(key.shift ? -1 : +1);
+            return;
+        }
+        if (key.key == Key::Escape) {
+            close_find();
+            return;
+        }
+        if (edit_text(find_query, find_caret, find_select_all, key))
+            refind();
+    }
+
+    void type_into_find(char32_t code_point)
+    {
+        if (find_select_all) {
+            find_query.clear();
+            find_caret = 0;
+            find_select_all = false;
+        }
+        std::string utf8;
+        append_utf8(utf8, code_point);
+        find_query.insert(find_caret, utf8);
+        find_caret += utf8.size();
+        refind();
+    }
+
+    std::string find_status(Tab const& tab) const
+    {
+        if (!find_open || find_query.empty())
+            return {};
+        if (tab.matches.empty())
+            return "No matches";
+        return std::to_string(tab.current_match + 1) + " of " + std::to_string(tab.matches.size());
+    }
+
     // --- Forms -----------------------------------------------------------------------
 
     Tab* tab_with_focused_control()
@@ -1626,8 +1897,13 @@ struct Browser::Impl {
             case Hover::Forward: go(+1); break;
             case Hover::Reload: reload(); break;
             case Hover::Address: focus_address(true); break;
+            case Hover::FindBox:
+                blur_address();
+                focus_find(true);
+                break;
             case Hover::Content:
                 blur_address();
+                blur_find();
                 if (dom::Element const* const control = control_at(x, y)) {
                     activate_control(*control);
                 } else {
@@ -1681,6 +1957,7 @@ struct Browser::Impl {
                 return;
             case U'C': copy_selection(); return;
             case U'V': paste(); return;
+            case U'F': open_find(); return;
             case U'9': select_tab(tabs.size() - 1); return;
             default:
                 if (key.letter >= U'1' && key.letter <= U'8')
@@ -1704,6 +1981,10 @@ struct Browser::Impl {
         }
         if (key.key == Key::F5) {
             reload();
+            return;
+        }
+        if (find_focus) {
+            edit_find(key);
             return;
         }
         if (address_focus) {
@@ -1804,6 +2085,10 @@ struct Browser::Impl {
     {
         if (code_point < 0x20 || code_point == 0x7F)
             return;
+        if (find_focus) {
+            type_into_find(code_point);
+            return;
+        }
         if (!address_focus) {
             type_into_control(code_point);
             return;
@@ -1912,30 +2197,64 @@ struct Browser::Impl {
             frame.blit(strip, text_area.x, text_area.y);
         }
 
+        // Find bar: the query box and the count of matches.
+        if (find_open) {
+            frame.fill_rect(c.find_bar, t.chrome_background);
+            frame.fill_rect(Rect { 0, c.find_bar.bottom() - t.border_width, width, t.border_width },
+                t.chrome_border);
+            frame.fill_round_rect(c.find_box, t.address_corner_radius,
+                find_focus ? t.accent : t.address_border);
+            Rect const box_inner { c.find_box.x + t.border_width, c.find_box.y + t.border_width,
+                c.find_box.width - 2 * t.border_width, c.find_box.height - 2 * t.border_width };
+            frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width),
+                t.address_background);
+            Rect const box_text { box_inner.x + t.padding, box_inner.y,
+                std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
+            if (!box_text.is_empty()) {
+                Bitmap strip(box_text.width, box_text.height, t.address_background);
+                std::u32string const query = decode_utf8(find_query);
+                Rect const local { 0, 0, box_text.width, box_text.height };
+                float const baseline = centered_baseline(local, t.font_size);
+                if (find_focus && find_select_all && !query.empty())
+                    strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f),
+                                        box_text.height - 4 },
+                        t.selection);
+                draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0,
+                    baseline, t.font_size, t.address_text);
+                if (find_focus) {
+                    std::size_t const index = decode_utf8(find_query.substr(0, find_caret)).size();
+                    int const caret_x = static_cast<int>(
+                        static_cast<float>(index) * text::SashfoldMono::advance(t.font_size) + 0.5f);
+                    strip.fill_rect(Rect { caret_x, 4, 1, box_text.height - 8 }, t.accent);
+                }
+                frame.blit(strip, box_text.x, box_text.y);
+            }
+            std::string const count = tab ? find_status(*tab) : std::string();
+            if (!count.empty()) {
+                Rect const label { c.find_box.right() + 2 * t.padding, c.find_bar.y,
+                    std::max(0, width - c.find_box.right() - 3 * t.padding), t.find_height };
+                draw_text(frame, decode_utf8(count), static_cast<float>(label.x),
+                    centered_baseline(label, t.font_size), t.font_size, t.chrome_text_muted);
+            }
+        }
+
         // Content.
         frame.fill_rect(c.content, t.content_background);
         if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
             paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y));
-            if (tab->selection) {
-                // The selected slices of each run, as translucent bands.
-                auto const [start, end] = ordered(*tab->selection);
-                for (std::size_t i = start.run; i <= end.run && i < tab->runs.size(); ++i) {
-                    layout::TextRun const& run = *tab->runs[i];
-                    std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
-                    std::size_t const to
-                        = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
-                    if (to <= from)
-                        continue;
-                    text::FaceMetrics const metrics = run_metrics(run);
-                    float const x1 = run.x + prefix_width(run, from);
-                    float const x2 = run.x + prefix_width(run, to);
-                    float const top = run.baseline_y - metrics.ascent - static_cast<float>(tab->scroll_y);
-                    content.fill_rect(Rect { static_cast<int>(x1 + 0.5f), static_cast<int>(top + 0.5f),
-                                          static_cast<int>(x2 - x1 + 0.5f),
-                                          static_cast<int>(metrics.ascent + metrics.descent + 0.5f) },
-                        t.selection);
+            // The find bar's matches, the current one stronger; then the
+            // selection over them, all as translucent bands.
+            if (find_open) {
+                for (std::size_t m = 0; m < tab->matches.size(); ++m) {
+                    Match const& match = tab->matches[m];
+                    paint_bands(content, *tab, match.start, match.end,
+                        m == tab->current_match ? t.find_current : t.find_highlight);
                 }
+            }
+            if (tab->selection) {
+                auto const [start, end] = ordered(*tab->selection);
+                paint_bands(content, *tab, start, end, t.selection);
             }
             int const page_height = static_cast<int>(tab->layout.page_height + 0.5f);
             if (page_height > c.content.height) {
@@ -2243,6 +2562,12 @@ bool Browser::select_text(std::string const& text)
         line_start = line_end;
     }
     return false;
+}
+
+std::string Browser::find_status() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab ? m_impl->find_status(*tab) : std::string();
 }
 
 }

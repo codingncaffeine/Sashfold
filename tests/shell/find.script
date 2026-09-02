@@ -1,0 +1,33 @@
+# Find in page: Ctrl+F opens the bar, typing counts the matches as you go
+# (ASCII case folded), Enter and Shift+Enter walk them and scroll the
+# current one into view, editing the query restarts, Escape closes. The
+# page is tall enough that the last match sits below the fold.
+resize 800 500
+open data:text/html,<title>Find</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><p>The quick brown fox jumps over the lazy dog.</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>x</p><p>Second line: the fox again, and THE end.</p>
+assert-title Find
+assert-find
+key ctrl+f
+type the
+assert-find 1 of 4
+assert-scroll 0
+assert-golden goldens/find-first.png
+key Enter
+assert-find 2 of 4
+key Enter
+key Enter
+assert-find 4 of 4
+assert-scrolled
+key Enter
+assert-find 1 of 4
+assert-scroll 0
+key shift+Enter
+assert-find 4 of 4
+type zzz
+assert-find No matches
+key Backspace
+key Backspace
+key Backspace
+assert-find 1 of 4
+key Escape
+assert-find
+assert-golden goldens/find-closed.png

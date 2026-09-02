@@ -29,6 +29,8 @@ constexpr Token<Color> color_tokens[] = {
     { "address-border", &Theme::address_border },
     { "accent", &Theme::accent },
     { "selection", &Theme::selection },
+    { "find-highlight", &Theme::find_highlight },
+    { "find-current", &Theme::find_current },
     { "button-hover-background", &Theme::button_hover_background },
     { "button-disabled-text", &Theme::button_disabled_text },
     { "status-background", &Theme::status_background },
@@ -53,6 +55,7 @@ constexpr Token<int> metric_tokens[] = {
     { "padding", &Theme::padding },
     { "border-width", &Theme::border_width },
     { "status-height", &Theme::status_height },
+    { "find-height", &Theme::find_height },
     { "scroll-step", &Theme::scroll_step },
 };
 

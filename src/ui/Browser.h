@@ -73,6 +73,8 @@ struct ChromeLayout {
     Rect reload_button;
     Rect new_tab_button;
     Rect address;
+    Rect find_bar; // empty unless the find bar is open
+    Rect find_box;
     std::vector<Rect> tabs;
     std::vector<Rect> tab_close_buttons;
 };
@@ -154,6 +156,10 @@ public:
     std::string selected_text() const;
     // Selects the first occurrence of `text` within one run; false when none.
     bool select_text(std::string const& text);
+
+    // --- Find in page (tests and --script) ----------------------------------
+    // "3 of 12", "No matches", or "" when the find bar is closed or empty.
+    std::string find_status() const;
 
 private:
     struct Impl;
