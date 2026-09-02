@@ -88,6 +88,7 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
     options.first_party = nullptr; // a navigation is its own first party
     options.referrer = referrer;
     options.cache = bypass_cache ? nullptr : &m_cache;
+    options.pool = &m_pool;
     return net::fetch(url, options);
 }
 
@@ -105,6 +106,7 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url con
     options.first_party = &first_party;
     options.referrer = referrer;
     options.cache = &m_cache;
+    options.pool = &m_pool;
     return net::fetch(url, options);
 }
 

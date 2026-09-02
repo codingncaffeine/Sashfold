@@ -5,6 +5,7 @@
 // a shell concern, so the engine's fetch stays network-only.
 
 #include "net/Cache.h"
+#include "net/Connections.h"
 #include "net/Cookies.h"
 #include "ui/Browser.h"
 
@@ -18,11 +19,13 @@ public:
         std::string const& referrer) override;
 
     net::MemoryCache& cache() { return m_cache; }
+    net::ConnectionPool& pool() { return m_pool; }
     net::CookieJar& cookies() { return m_cookies; }
 
 private:
     net::CookieJar m_cookies;
     net::MemoryCache m_cache;
+    net::ConnectionPool m_pool;
 };
 
 }

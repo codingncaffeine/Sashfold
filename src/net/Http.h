@@ -2,10 +2,10 @@
 
 // HTTP/1.1, ours: request serialization, response parsing (status line,
 // headers, Content-Length / chunked / read-to-close framing), content
-// decoding (gzip, deflate in both zlib and raw spellings), and redirect
-// following — all behind fetch(), the one choke point every load will pass
-// through. Plain http for now; https arrives when the Tls seam lands and
-// until then returns a clear error.
+// decoding (gzip, deflate in both zlib and raw spellings), redirect
+// following, and persistent connections through a session's ConnectionPool
+// — all behind fetch(), the one choke point every load passes through.
+// https runs over the platform Tls seam where a backend exists.
 
 #include "net/Url.h"
 
@@ -32,6 +32,7 @@ struct FetchResponse {
     bool from_cache = false; // served by the MemoryCache, no network touched
 };
 
+class ConnectionPool;
 class CookieJar;
 class MemoryCache;
 
@@ -50,6 +51,11 @@ struct FetchOptions {
     // The session cache: consulted before every connection
     // and fed by every cacheable 200. Null means no caching at all.
     MemoryCache* cache = nullptr;
+    // The session's persistent connections: a request goes out on a pooled
+    // connection to its origin when one is idle, and the connection it used
+    // is kept when the response leaves it reusable. Null means one
+    // connection per request, closed after the response.
+    ConnectionPool* pool = nullptr;
 };
 
 struct FetchResult {
@@ -67,11 +73,16 @@ std::string_view user_agent();
 
 // Exposed for tests: parses one HTTP/1.1 response from a read callback
 // (>0 bytes, 0 close, <0 error), applying framing but not content decoding.
+// Interim 1xx responses are skipped; 204 and 304 carry no body.
 struct RawResponse {
     int status = 0;
     std::string status_text;
     std::vector<Header> headers;
     std::vector<std::uint8_t> body;
+    // The connection can carry another request: the body was delimited
+    // (not read to close), nothing followed it, and neither the version nor
+    // a Connection header asked for a close.
+    bool keep_alive = false;
 };
 std::optional<RawResponse> read_response(
     std::function<std::ptrdiff_t(std::uint8_t*, std::size_t)> const& read,

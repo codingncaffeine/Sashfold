@@ -39,6 +39,7 @@ add_library(sashfold_core STATIC
   src/dom/Dom.cpp
   src/layout/Layout.cpp
   src/net/Cache.cpp
+  src/net/Connections.cpp
   src/net/Cookies.cpp
   src/net/DataUrl.cpp
   src/net/Http.cpp

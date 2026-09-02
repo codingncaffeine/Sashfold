@@ -28,6 +28,7 @@ sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)
 sashfold_test(test_cache)
+sashfold_test(test_connections)
 sashfold_test(test_downloads)
 sashfold_test(test_font_manager)
 

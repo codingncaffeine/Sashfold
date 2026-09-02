@@ -195,13 +195,23 @@ std::optional<LoadedPage> load_page(std::string const& source)
         result.response->final_url, std::move(loader) };
 }
 
+// Why a subresource did not arrive: the fetch error, or the status.
+std::string describe_failure(net::FetchResult const& result)
+{
+    if (!result.response)
+        return result.error;
+    return "status " + std::to_string(result.response->status);
+}
+
 // The page's stylesheets, fetched through its own session.
 css::SheetFetcher sheet_fetcher(LoadedPage const& page)
 {
     return [&page](net::Url const& url) -> std::optional<css::FetchedSheet> {
         net::FetchResult result = page.loader->load_subresource(url, page.url, "");
-        if (!result.response || result.response->status != 200)
+        if (!result.response || result.response->status != 200) {
+            std::cerr << "stylesheet " << url.serialize() << ": " << describe_failure(result) << "\n";
             return std::nullopt;
+        }
         std::string const* type = net::find_header(result.response->headers, "content-type");
         return css::FetchedSheet { std::move(result.response->body), type ? *type : "" };
     };
@@ -212,8 +222,10 @@ ui::ImageFetcher image_fetcher(LoadedPage const& page)
 {
     return [&page](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
         net::FetchResult result = page.loader->load_subresource(url, page.url, "");
-        if (!result.response || result.response->status != 200)
+        if (!result.response || result.response->status != 200) {
+            std::cerr << "image " << url.serialize() << ": " << describe_failure(result) << "\n";
             return std::nullopt;
+        }
         return std::move(result.response->body);
     };
 }
@@ -352,20 +364,25 @@ int smoke_scene(std::string const& output)
 // perf budgets are checked against these numbers.
 int bench(std::string const& input, int runs, int viewport_width, int viewport_height)
 {
+    using clock = std::chrono::steady_clock;
+    using ms = std::chrono::duration<double, std::milli>;
+    auto const page_started = clock::now();
     std::optional<LoadedPage> const loaded = load_page(input);
     if (!loaded)
         return 1;
+    double const page_ms = ms(clock::now() - page_started).count();
     css::MediaContext const media { static_cast<float>(viewport_width),
         static_cast<float>(viewport_height) };
     // The sheets are fetched once, outside the timed runs: the network is
-    // not what is being measured.
+    // not what the phases measure — what it cost is reported on its own line.
+    auto const sheets_started = clock::now();
     std::vector<css::SheetSource> const sheets = [&] {
         auto const first = html::parse_document_bytes(loaded->bytes);
         return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
     }();
+    double const sheets_ms = ms(clock::now() - sheets_started).count();
     std::size_t image_count = 0;
-    using clock = std::chrono::steady_clock;
-    using ms = std::chrono::duration<double, std::milli>;
+    double images_ms = 0;
     struct Sample {
         double parse = 0;
         double sheets = 0;
@@ -389,10 +406,12 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         rule_count = style_set.rule_count();
         universal_count = style_set.universal_count();
         // Images are fetched here on every run, so the first run pays the
-        // network and the rest the session cache; neither is timed.
+        // network and the rest the session cache; neither counts as a phase.
         layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded));
         image_count = images.size();
         auto const t2b = clock::now();
+        if (run == 0)
+            images_ms = ms(t2b - t2).count();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width), &images);
         auto const t3 = clock::now();
@@ -419,6 +438,11 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
                 "%d run(s), viewport %d px wide, page %d px tall\n",
         loaded->bytes.size(), sheets.size(), rule_count, universal_count, image_count, runs,
         viewport_width, static_cast<int>(page_height + 0.5f));
+    net::ConnectionPool::Stats const& connections = loaded->loader->pool().stats();
+    std::printf("  network page %.0f ms, sheets %.0f ms, images %.0f ms (first run); "
+                "connections opened %zu, reused %zu, retried %zu\n",
+        page_ms, sheets_ms, images_ms, connections.opened, connections.reused,
+        connections.retried);
     report("parse", &Sample::parse);
     report("sheets", &Sample::sheets);
     report("style", &Sample::style);

@@ -3,9 +3,9 @@
 #include "core/Ascii.h"
 #include "core/Inflate.h"
 #include "net/Cache.h"
+#include "net/Connections.h"
 #include "net/Cookies.h"
 #include "net/DataUrl.h"
-#include "platform/Net.h"
 #include "platform/Tls.h"
 
 #include <algorithm>
@@ -67,6 +67,10 @@ public:
         }
         return true;
     }
+
+    // Bytes received but not consumed — past the end of a delimited body,
+    // they belong to nothing we asked for.
+    std::size_t buffered() const { return m_buffer.size() - m_position; }
 
     // Reads until the peer closes, appending to out (cap enforced).
     bool read_to_close(std::vector<std::uint8_t>& out, std::size_t max_total)
@@ -161,46 +165,67 @@ std::optional<RawResponse> read_response(
 {
     ResponseReader reader(read);
     RawResponse response;
+    bool http11 = false;
 
-    std::optional<std::string> const status_line = reader.read_line();
-    if (!status_line || status_line->size() < 12)
-        return std::nullopt;
-    if (!status_line->starts_with("HTTP/1.1 ") && !status_line->starts_with("HTTP/1.0 "))
-        return std::nullopt;
-    if (!is_ascii_digit(static_cast<unsigned char>((*status_line)[9]))
-        || !is_ascii_digit(static_cast<unsigned char>((*status_line)[10]))
-        || !is_ascii_digit(static_cast<unsigned char>((*status_line)[11])))
-        return std::nullopt;
-    response.status = ((*status_line)[9] - '0') * 100 + ((*status_line)[10] - '0') * 10
-        + ((*status_line)[11] - '0');
-    if (status_line->size() > 13)
-        response.status_text = status_line->substr(13);
-
+    // The final response, past any interim 1xx ones (100 Continue, 103
+    // Early Hints) — a bounded number, so a server cannot keep us here.
+    int interim = 0;
     while (true) {
-        std::optional<std::string> const line = reader.read_line();
-        if (!line)
+        std::optional<std::string> const status_line = reader.read_line();
+        if (!status_line || status_line->size() < 12)
             return std::nullopt;
-        if (line->empty())
-            break;
-        std::size_t const colon = line->find(':');
-        if (colon == std::string::npos || colon == 0)
-            return std::nullopt; // malformed header (or obsolete folding)
-        Header header;
-        header.name = line->substr(0, colon);
-        for (char const c : header.name) {
-            if (c == ' ' || c == '\t')
-                return std::nullopt; // no whitespace in field names
+        if (!status_line->starts_with("HTTP/1.1 ") && !status_line->starts_with("HTTP/1.0 "))
+            return std::nullopt;
+        if (!is_ascii_digit(static_cast<unsigned char>((*status_line)[9]))
+            || !is_ascii_digit(static_cast<unsigned char>((*status_line)[10]))
+            || !is_ascii_digit(static_cast<unsigned char>((*status_line)[11])))
+            return std::nullopt;
+        http11 = status_line->starts_with("HTTP/1.1 ");
+        response.status = ((*status_line)[9] - '0') * 100 + ((*status_line)[10] - '0') * 10
+            + ((*status_line)[11] - '0');
+        response.status_text.clear();
+        if (status_line->size() > 13)
+            response.status_text = status_line->substr(13);
+        response.headers.clear();
+
+        while (true) {
+            std::optional<std::string> const line = reader.read_line();
+            if (!line)
+                return std::nullopt;
+            if (line->empty())
+                break;
+            std::size_t const colon = line->find(':');
+            if (colon == std::string::npos || colon == 0)
+                return std::nullopt; // malformed header (or obsolete folding)
+            Header header;
+            header.name = line->substr(0, colon);
+            for (char const c : header.name) {
+                if (c == ' ' || c == '\t')
+                    return std::nullopt; // no whitespace in field names
+            }
+            header.value = std::string(trim_ows(std::string_view(*line).substr(colon + 1)));
+            response.headers.push_back(std::move(header));
+            if (response.headers.size() > 500)
+                return std::nullopt;
         }
-        header.value = std::string(trim_ows(std::string_view(*line).substr(colon + 1)));
-        response.headers.push_back(std::move(header));
-        if (response.headers.size() > 500)
+
+        bool const is_interim
+            = response.status >= 100 && response.status < 200 && response.status != 101;
+        if (!is_interim)
+            break;
+        if (++interim > 8)
             return std::nullopt;
     }
 
-    // Framing: chunked wins over Content-Length; neither means read-to-close.
+    // Framing: 204 and 304 carry no body whatever their headers say; then
+    // chunked wins over Content-Length; neither means read-to-close, which
+    // uses the connection up.
+    bool delimited = true;
     std::string const* const transfer_encoding
         = find_header(response.headers, "transfer-encoding");
-    if (transfer_encoding
+    if (response.status == 204 || response.status == 304) {
+        // Nothing to read.
+    } else if (transfer_encoding
         && ascii_ci_equals(trim_ows(*transfer_encoding), "chunked")) {
         while (true) {
             std::optional<std::string> const size_line = reader.read_line();
@@ -239,10 +264,7 @@ std::optional<RawResponse> read_response(
             if (trailer->empty())
                 break;
         }
-        return response;
-    }
-
-    if (std::string const* const content_length
+    } else if (std::string const* const content_length
         = find_header(response.headers, "content-length")) {
         std::string_view const text = trim_ows(*content_length);
         if (text.empty())
@@ -259,11 +281,36 @@ std::optional<RawResponse> read_response(
             return std::nullopt;
         if (!reader.read_exact(response.body, length))
             return std::nullopt;
-        return response;
+    } else {
+        delimited = false;
+        if (!reader.read_to_close(response.body, max_body))
+            return std::nullopt;
     }
 
-    if (!reader.read_to_close(response.body, max_body))
-        return std::nullopt;
+    // Persistence: HTTP/1.1 keeps the connection unless a Connection header
+    // says close; HTTP/1.0 closes unless one says keep-alive. Every
+    // Connection header counts, token by token. Bytes past the body mean
+    // the stream is out of step with us, so that connection is not trusted.
+    bool close_asked = false;
+    bool keep_alive_asked = false;
+    for (Header const& header : response.headers) {
+        if (!ascii_ci_equals(header.name, "connection"))
+            continue;
+        std::string_view rest = header.value;
+        while (true) {
+            std::size_t const comma = rest.find(',');
+            std::string_view const token = trim_ows(rest.substr(0, comma));
+            if (ascii_ci_equals(token, "close"))
+                close_asked = true;
+            else if (ascii_ci_equals(token, "keep-alive"))
+                keep_alive_asked = true;
+            if (comma == std::string_view::npos)
+                break;
+            rest.remove_prefix(comma + 1);
+        }
+    }
+    response.keep_alive = delimited && !close_asked && (http11 || keep_alive_asked)
+        && reader.buffered() == 0;
     return response;
 }
 
@@ -336,17 +383,22 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         }
 
         std::uint16_t const port = current.port.value_or(secure ? 443 : 80);
-        // (IPv6 hosts are stored bracket-free, which is what getaddrinfo wants.)
-        auto tcp = platform::TcpSocket::connect(current.host, port);
-        if (!tcp)
-            return { std::nullopt, "could not connect to " + current.serialize_host() };
-        std::optional<platform::TlsSocket> tls;
-        if (secure) {
-            tls = platform::TlsSocket::connect(std::move(*tcp), current.host);
-            if (!tls)
-                return { std::nullopt,
-                    "TLS handshake or certificate validation failed for "
-                        + current.serialize_host() };
+        std::string const key = origin_key(secure, current.host, port);
+
+        // An idle pooled connection to the origin first; a fresh one otherwise.
+        std::optional<Connection> connection;
+        bool reused = false;
+        if (options.pool) {
+            connection = options.pool->take(key, unix_now());
+            reused = connection.has_value();
+        }
+        if (!connection) {
+            std::string error;
+            connection = Connection::open(current.host, port, secure, error);
+            if (!connection)
+                return { std::nullopt, std::move(error) };
+            if (options.pool)
+                options.pool->note_opened();
         }
 
         std::string target = current.serialize_path();
@@ -372,19 +424,41 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
             if (!cookies.empty())
                 request += "Cookie: " + cookies + "\r\n";
         }
-        request += "Connection: close\r\n\r\n";
-        bool const sent = secure
-            ? tls->send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size())
-            : tcp->send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size());
-        if (!sent)
-            return { std::nullopt, "send failed" };
+        request += options.pool ? "Connection: keep-alive\r\n\r\n" : "Connection: close\r\n\r\n";
 
-        auto const read = [&](std::uint8_t* buffer, std::size_t size) {
-            return secure ? tls->receive(buffer, size) : tcp->receive(buffer, size);
+        // One request-response exchange over a connection; the returned
+        // error is empty on success.
+        auto const exchange = [&](Connection& over, std::optional<RawResponse>& raw) {
+            if (!over.send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size()))
+                return std::string("send failed");
+            auto const read = [&over](std::uint8_t* buffer, std::size_t size) {
+                return over.receive(buffer, size);
+            };
+            raw = read_response(read, options.max_body);
+            if (!raw)
+                return "malformed HTTP response from " + current.serialize_host();
+            return std::string();
         };
-        std::optional<RawResponse> raw = read_response(read, options.max_body);
+        std::optional<RawResponse> raw;
+        std::string failure = exchange(*connection, raw);
+        if (!raw && reused) {
+            // The pooled connection was dead — the server's idle timeout won
+            // the race — so the request goes out once more, on a fresh one.
+            options.pool->note_retried();
+            std::string error;
+            connection = Connection::open(current.host, port, secure, error);
+            if (!connection)
+                return { std::nullopt, std::move(error) };
+            options.pool->note_opened();
+            failure = exchange(*connection, raw);
+        }
         if (!raw)
-            return { std::nullopt, "malformed HTTP response from " + current.serialize_host() };
+            return { std::nullopt, std::move(failure) };
+
+        // The connection outlives the response when the server left it open.
+        if (options.pool && raw->keep_alive)
+            options.pool->give(key, std::move(*connection), unix_now());
+        connection.reset();
 
         // Set-Cookie applies on every hop, redirects included.
         if (options.cookie_jar)
