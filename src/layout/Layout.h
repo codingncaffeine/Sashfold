@@ -58,6 +58,9 @@ struct Fragment {
         float height = 0;
     };
     std::optional<ImageBox> image;
+    // Out of flow, placed beside or below its siblings' lines; painted
+    // after the in-flow boxes at its level.
+    bool floating = false;
 };
 
 struct LayoutResult {

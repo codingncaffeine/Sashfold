@@ -860,12 +860,59 @@ struct Resolver {
                 style.display = Display::Inline;
             else if (ascii_ci_equals(keyword, "list-item"))
                 style.display = Display::ListItem;
-            else if (ascii_ci_equals(keyword, "block") || ascii_ci_equals(keyword, "flow-root")
-                || ascii_ci_equals(keyword, "flex") || ascii_ci_equals(keyword, "grid")
-                || ascii_ci_equals(keyword, "table"))
+            else if (ascii_ci_equals(keyword, "flow-root"))
+                style.display = Display::FlowRoot;
+            else if (ascii_ci_equals(keyword, "block") || ascii_ci_equals(keyword, "flex")
+                || ascii_ci_equals(keyword, "grid") || ascii_ci_equals(keyword, "table"))
                 style.display = Display::Block; // flex/grid lay out as blocks until they land
             else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::Inline; // inline-block is not supported yet
+            return;
+        }
+        if (name == "float") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "left"))
+                style.floating = Float::Left;
+            else if (ascii_ci_equals(keyword, "right"))
+                style.floating = Float::Right;
+            else if (ascii_ci_equals(keyword, "none"))
+                style.floating = Float::None;
+            return;
+        }
+        if (name == "clear") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "left"))
+                style.clear = Clear::Left;
+            else if (ascii_ci_equals(keyword, "right"))
+                style.clear = Clear::Right;
+            else if (ascii_ci_equals(keyword, "both"))
+                style.clear = Clear::Both;
+            else if (ascii_ci_equals(keyword, "none"))
+                style.clear = Clear::None;
+            return;
+        }
+        if (name == "overflow" || name == "overflow-x" || name == "overflow-y") {
+            // One keyword, or one per axis; any axis that is not visible
+            // makes the box contain its floats (the other axis computes to
+            // auto then, as the specification says).
+            if (values.empty() || values.size() > 2)
+                return;
+            bool visible = true;
+            for (ComponentValue const* value : values) {
+                if (!value->is_token(Token::Type::Ident))
+                    return;
+                std::string_view const keyword = value->token().value;
+                if (ascii_ci_equals(keyword, "hidden") || ascii_ci_equals(keyword, "clip")
+                    || ascii_ci_equals(keyword, "auto") || ascii_ci_equals(keyword, "scroll"))
+                    visible = false;
+                else if (!ascii_ci_equals(keyword, "visible"))
+                    return;
+            }
+            style.overflow = visible ? Overflow::Visible : Overflow::Hidden;
             return;
         }
         if (name == "color") {

@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Floats</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 400px }
+  p { margin: 0 0 6px }
+  .left { float: left; width: 90px; height: 60px; background: #c8e6ff; border: 2px solid #3366aa; margin: 0 8px 4px 0 }
+  .right { float: right; width: 70px; height: 40px; background: #ffe0b0; border: 2px solid #aa6600; margin: 0 0 4px 8px }
+  .fit { float: left; background: #d8f5d0; border: 1px solid #338833; padding: 2px 6px; margin: 0 8px 4px 0 }
+  .clear { clear: both; background: #eeeeee; margin-top: 6px }
+  .bfc { overflow: hidden; background: #fff4c2; border: 1px solid #cc9900; padding: 4px }
+  .over { background: #f0d0f0; padding: 4px }
+  .narrow { width: 120px; margin-top: 6px }
+</style>
+</head>
+<body>
+<div class="left"></div>
+<div class="right"></div>
+<p>Text flows beside the floats on the left and the right, line after line, until it passes below them and takes the full width of the paragraph again, as it does here at the end.</p>
+<p class="clear">Cleared below both floats.</p>
+<div class="fit">shrink to fit</div>
+<div class="bfc">A box with its own formatting context sits beside the float and keeps its own width, wrapping inside it.</div>
+<div class="clear"></div>
+<div class="left"></div>
+<div class="over">A block whose background the float paints over, because floats paint above the blocks whose lines flow around them. More words make more lines here.</div>
+<div class="narrow"><span class="fit">one two three four</span>after the float that had to wrap</div>
+<p class="clear">mid <span class="fit">line</span> float, and the text before it moves right.</p>
+<div class="clear">end</div>
+</body>
+</html>

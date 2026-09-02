@@ -32,7 +32,28 @@ enum class Display : std::uint8_t {
     Block,
     Inline,
     ListItem,
+    FlowRoot, // a block whose contents form their own formatting context
     None,
+};
+
+enum class Float : std::uint8_t {
+    None,
+    Left,
+    Right,
+};
+
+enum class Clear : std::uint8_t {
+    None,
+    Left,
+    Right,
+    Both,
+};
+
+enum class Overflow : std::uint8_t {
+    Visible,
+    // hidden, clip, auto and scroll: the box contains its floats and keeps
+    // clear of others; clipping and scrolling arrive with scroll containers.
+    Hidden,
 };
 
 enum class FontStyle : std::uint8_t {
@@ -107,6 +128,9 @@ struct ComputedStyle {
     BorderSide border_right;
     BorderSide border_bottom;
     BorderSide border_left;
+    Float floating = Float::None;
+    Clear clear = Clear::None;
+    Overflow overflow = Overflow::Visible;
 
     // Text and inheritance-carried properties.
     Color color = Color::rgb(0, 0, 0);

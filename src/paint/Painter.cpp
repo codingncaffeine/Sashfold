@@ -102,9 +102,16 @@ void paint_fragment(Context& context, Fragment const& fragment, bool is_canvas_b
         context.target.draw_scaled(*box.bitmap,
             snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
     }
+    // In-flow boxes first, then the floats at this level over them: a float
+    // paints above the blocks whose lines flow around it.
     for (Fragment const& child : fragment.children) {
         // The element whose background became the canvas skips its own.
-        paint_fragment(context, child, false);
+        if (!child.floating)
+            paint_fragment(context, child, false);
+    }
+    for (Fragment const& child : fragment.children) {
+        if (child.floating)
+            paint_fragment(context, child, false);
     }
     for (TextRun const& run : fragment.runs)
         paint_run(context, run);
