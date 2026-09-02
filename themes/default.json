@@ -41,6 +41,7 @@
     "border-width": 1,
     "status-height": 22,
     "find-height": 36,
+    "devtools-height": 220,
     "scroll-step": 60
   },
   "type": {

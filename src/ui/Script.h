@@ -36,6 +36,8 @@
 //   assert-find <text>   the find bar's count: "3 of 12", "No matches", "" when closed
 //   reader               toggle reader mode on the current page
 //   assert-hints <n>     the number of keyboard link-hint labels showing
+//   inspect-text <text>  devtools: inspect the element of the first run containing text
+//   assert-inspected <tag#id.class>   the inspected element
 //   echo <text>
 
 #include "ui/Browser.h"

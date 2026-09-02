@@ -58,6 +58,7 @@ constexpr Token<int> metric_tokens[] = {
     { "border-width", &Theme::border_width },
     { "status-height", &Theme::status_height },
     { "find-height", &Theme::find_height },
+    { "devtools-height", &Theme::devtools_height },
     { "scroll-step", &Theme::scroll_step },
 };
 

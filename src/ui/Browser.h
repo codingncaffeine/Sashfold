@@ -76,6 +76,9 @@ struct ChromeLayout {
     Rect address;
     Rect find_bar; // empty unless the find bar is open
     Rect find_box;
+    Rect devtools; // empty unless the devtools panel is open
+    Rect devtools_tree;
+    Rect devtools_styles;
     std::vector<Rect> tabs;
     std::vector<Rect> tab_close_buttons;
 };
@@ -165,6 +168,10 @@ public:
     void toggle_reader();
     // Keyboard link-hints: how many labels are showing (0 when they are not).
     std::size_t hint_count() const;
+    // Devtools: inspects the element of the first run containing text; the inspected
+    // element as "tag#id.class" ("" when none).
+    bool inspect_text(std::string const& text);
+    std::string inspected_summary() const;
 
 private:
     struct Impl;

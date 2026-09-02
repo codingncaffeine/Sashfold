@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <utility>
 
 namespace sashfold::ui {
@@ -298,6 +299,8 @@ struct Browser::Impl {
         std::optional<Selection> selection; // positions into `runs`; dropped with the layout
         std::vector<Match> matches; // the find bar's query in this tab, refreshed with the layout
         std::size_t current_match = 0;
+        dom::Node const* inspected = nullptr; // devtools: the node under inspection
+        int tree_scroll = 0; // devtools: the first tree line shown
         int scroll_y = 0;
         std::string status;
 
@@ -328,6 +331,8 @@ struct Browser::Impl {
         TabClose,
         Address,
         FindBox,
+        DevtoolsTree,
+        DevtoolsStyles,
         Content
     };
 
@@ -369,6 +374,8 @@ struct Browser::Impl {
     bool hints_active = false;
     std::string hint_typed;
     std::vector<Hint> hints;
+
+    bool devtools_open = false; // the panel under the content: DOM tree, box and style
 
     Bitmap frame;
     bool dirty = true;
@@ -481,6 +488,17 @@ struct Browser::Impl {
         c.status = Rect { 0, height - t.status_height, width, t.status_height };
         c.content = Rect { 0, content_top, width,
             std::max(0, height - content_top - t.status_height) };
+        if (devtools_open) {
+            // The panel takes the bottom of the content: the tree left, the
+            // inspected element's box and style right.
+            int const panel = std::min(t.devtools_height, c.content.height / 2);
+            c.devtools = Rect { 0, c.content.bottom() - panel, width, panel };
+            c.content.height -= panel;
+            int const tree_width = width * 55 / 100;
+            c.devtools_tree = Rect { 0, c.devtools.y + t.border_width, tree_width, panel - t.border_width };
+            c.devtools_styles = Rect { tree_width + t.padding, c.devtools.y + t.border_width + t.padding / 2,
+                std::max(0, width - tree_width - 2 * t.padding), panel - t.border_width };
+        }
 
         int const count = static_cast<int>(tabs.size());
         int const available = width - 3 * t.padding - t.button_size;
@@ -597,6 +615,8 @@ struct Browser::Impl {
         }
         tab.document = html::parse_document_bytes(source);
         tab.controls = {}; // a new document: nothing typed into it yet
+        tab.inspected = nullptr;
+        tab.tree_scroll = 0;
         // The page's stylesheets come through the loader with the page as
         // first party and the usual referrer policy; a sheet that fails to
         // load is simply absent.
@@ -1166,6 +1186,10 @@ struct Browser::Impl {
                 next = Hover::Address;
             else if (find_open && c.find_box.contains(x, y))
                 next = Hover::FindBox;
+            else if (devtools_open && c.devtools_tree.contains(x, y))
+                next = Hover::DevtoolsTree;
+            else if (devtools_open && c.devtools.contains(x, y))
+                next = Hover::DevtoolsStyles;
             else if (c.content.contains(x, y)) {
                 next = Hover::Content;
                 link = link_at(x, y);
@@ -1437,6 +1461,247 @@ struct Browser::Impl {
             if (c >= 0x20 && c != 0x7F)
                 text_input(c);
         }
+    }
+
+    // --- Devtools --------------------------------------------------------------------
+
+    static constexpr int tree_line_height = 16;
+
+    struct TreeLine {
+        int depth;
+        dom::Node const* node;
+        std::string text;
+    };
+
+    // The document as an outline: elements with their id and class, text
+    // nodes as short quotes.
+    static void build_tree(dom::Node const& node, int depth, std::vector<TreeLine>& lines)
+    {
+        for (dom::Node const* child : node.children()) {
+            if (child->is_element()) {
+                auto const& element = static_cast<dom::Element const&>(*child);
+                std::string text = "<" + element.local_name();
+                if (dom::Attr const* const id = element.find_attribute("id"))
+                    text += " id=\"" + id->value + "\"";
+                if (dom::Attr const* const classes = element.find_attribute("class"))
+                    text += " class=\"" + classes->value + "\"";
+                text += ">";
+                lines.push_back(TreeLine { depth, child, std::move(text) });
+                build_tree(*child, depth + 1, lines);
+            } else if (child->is_text()) {
+                std::string const snippet
+                    = collapse_whitespace(static_cast<dom::Text const*>(child)->data);
+                if (snippet.empty())
+                    continue;
+                lines.push_back(TreeLine { depth, child,
+                    "\"" + (snippet.size() > 60 ? snippet.substr(0, 57) + "..." : snippet) + "\"" });
+            }
+        }
+    }
+
+    // The nearest element: the node itself, or a text node's parent.
+    static dom::Element const* element_of(dom::Node const* node)
+    {
+        for (dom::Node const* current = node; current; current = current->parent()) {
+            if (current->is_element())
+                return static_cast<dom::Element const*>(current);
+        }
+        return nullptr;
+    }
+
+    // "tag#id.class.class" for the nearest element.
+    static std::string node_summary(dom::Node const* node)
+    {
+        dom::Element const* const element = element_of(node);
+        if (!element)
+            return {};
+        std::string summary = element->local_name();
+        if (dom::Attr const* const id = element->find_attribute("id"))
+            summary += "#" + id->value;
+        if (dom::Attr const* const classes = element->find_attribute("class")) {
+            std::string name;
+            for (char const c : classes->value + " ") {
+                if (c == ' ' || c == '\t' || c == '\n') {
+                    if (!name.empty())
+                        summary += "." + name;
+                    name.clear();
+                } else {
+                    name += c;
+                }
+            }
+        }
+        return summary;
+    }
+
+    static layout::Fragment const* fragment_for(layout::Fragment const& fragment,
+        dom::Element const* target)
+    {
+        if (fragment.element == target)
+            return &fragment;
+        for (layout::Fragment const& child : fragment.children) {
+            if (layout::Fragment const* const found = fragment_for(child, target))
+                return found;
+        }
+        return nullptr;
+    }
+
+    // The deepest box under a page point.
+    static dom::Element const* element_at_point(layout::Fragment const& fragment, float px, float py)
+    {
+        for (layout::Fragment const& child : fragment.children) {
+            if (dom::Element const* const hit = element_at_point(child, px, py))
+                return hit;
+        }
+        if (fragment.element && px >= fragment.x && px < fragment.x + fragment.width && py >= fragment.y
+            && py < fragment.y + fragment.height)
+            return fragment.element;
+        return nullptr;
+    }
+
+    static std::string number_text(float value)
+    {
+        char buffer[32];
+        std::snprintf(buffer, sizeof buffer, "%.2f", static_cast<double>(value));
+        std::string text = buffer;
+        while (text.size() > 1 && text.back() == '0')
+            text.pop_back();
+        if (!text.empty() && text.back() == '.')
+            text.pop_back();
+        return text;
+    }
+
+    static std::string length_text(css::LengthPercent const& length)
+    {
+        switch (length.kind) {
+        case css::LengthPercent::Kind::Auto: return "auto";
+        case css::LengthPercent::Kind::Px: return number_text(length.value) + "px";
+        case css::LengthPercent::Kind::Percent: return number_text(length.value) + "%";
+        }
+        return "?";
+    }
+
+    static std::string color_text(Color color)
+    {
+        char buffer[16];
+        if (color.a == 255)
+            std::snprintf(buffer, sizeof buffer, "#%02x%02x%02x", color.r, color.g, color.b);
+        else
+            std::snprintf(buffer, sizeof buffer, "#%02x%02x%02x%02x", color.r, color.g, color.b, color.a);
+        return buffer;
+    }
+
+    static char const* display_text(css::Display display)
+    {
+        switch (display) {
+        case css::Display::Block: return "block";
+        case css::Display::Inline: return "inline";
+        case css::Display::ListItem: return "list-item";
+        case css::Display::FlowRoot: return "flow-root";
+        case css::Display::Flex: return "flex";
+        case css::Display::None: return "none";
+        }
+        return "?";
+    }
+
+    // What the styles pane says about the inspected node.
+    std::vector<std::string> style_lines(Tab const& tab) const
+    {
+        std::vector<std::string> lines;
+        dom::Element const* const element = element_of(tab.inspected);
+        if (!element) {
+            lines.push_back("Click the page, or a line of the tree, to inspect an element.");
+            return lines;
+        }
+        lines.push_back(node_summary(element));
+        if (layout::Fragment const* const box = fragment_for(tab.layout.root, element))
+            lines.push_back("box " + number_text(box->x) + "," + number_text(box->y) + "  "
+                + number_text(box->width) + " x " + number_text(box->height));
+        else
+            lines.push_back("box inline");
+        auto const it = tab.styles.find(element);
+        if (it == tab.styles.end())
+            return lines;
+        css::ComputedStyle const& s = it->second;
+        std::string display = std::string("display ") + display_text(s.display);
+        if (s.floating != css::Float::None)
+            display += std::string("  float ") + (s.floating == css::Float::Left ? "left" : "right");
+        if (s.overflow != css::Overflow::Visible)
+            display += "  overflow hidden";
+        lines.push_back(display);
+        lines.push_back("width " + length_text(s.width) + "  height " + length_text(s.height));
+        lines.push_back("margin " + length_text(s.margin_top) + " " + length_text(s.margin_right) + " "
+            + length_text(s.margin_bottom) + " " + length_text(s.margin_left));
+        lines.push_back("padding " + length_text(s.padding_top) + " " + length_text(s.padding_right) + " "
+            + length_text(s.padding_bottom) + " " + length_text(s.padding_left));
+        lines.push_back("border " + number_text(s.border_top.width) + " " + number_text(s.border_right.width)
+            + " " + number_text(s.border_bottom.width) + " " + number_text(s.border_left.width));
+        std::string const family
+            = s.font_family && !s.font_family->empty() ? s.font_family->front() : "(default)";
+        lines.push_back("font " + family + " " + number_text(s.font_size) + "px" + (s.bold() ? " bold" : "")
+            + (s.font_style == css::FontStyle::Italic ? " italic" : "") + "  line-height "
+            + number_text(s.line_height_px()));
+        lines.push_back("color " + color_text(s.color) + "  background " + color_text(s.background_color));
+        if (s.display == css::Display::Flex) {
+            bool const row = s.flex_direction == css::FlexDirection::Row
+                || s.flex_direction == css::FlexDirection::RowReverse;
+            lines.push_back(std::string("flex ") + (row ? "row" : "column")
+                + (s.flex_wrap != css::FlexWrap::NoWrap ? " wrap" : ""));
+        }
+        return lines;
+    }
+
+    // Selects a node, keeping its line in view.
+    void inspect(Tab& tab, dom::Node const* node)
+    {
+        tab.inspected = node;
+        std::vector<TreeLine> lines;
+        if (tab.document)
+            build_tree(*tab.document, 0, lines);
+        ChromeLayout const c = layout_chrome();
+        int const visible = std::max(1, c.devtools_tree.height / tree_line_height);
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            if (lines[i].node != node)
+                continue;
+            int const index = static_cast<int>(i);
+            if (index < tab.tree_scroll || index >= tab.tree_scroll + visible)
+                tab.tree_scroll = std::max(0, index - visible / 2);
+            break;
+        }
+        dirty = true;
+    }
+
+    // The element under a window point: its run, its control, or its box.
+    void inspect_at(Tab& tab, int x, int y)
+    {
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!point)
+            return;
+        dom::Element const* element = hit_run(tab.layout.root, point->first, point->second);
+        if (!element)
+            element = hit_control(tab.layout.root, point->first, point->second);
+        if (!element)
+            element = element_at_point(tab.layout.root, point->first, point->second);
+        if (element)
+            inspect(tab, element);
+    }
+
+    void inspect_tree_line(Tab& tab, int y)
+    {
+        ChromeLayout const c = layout_chrome();
+        std::vector<TreeLine> lines;
+        if (tab.document)
+            build_tree(*tab.document, 0, lines);
+        int const index = tab.tree_scroll + (y - c.devtools_tree.y) / tree_line_height;
+        if (index >= 0 && static_cast<std::size_t>(index) < lines.size())
+            inspect(tab, lines[static_cast<std::size_t>(index)].node);
+    }
+
+    void toggle_devtools()
+    {
+        devtools_open = !devtools_open;
+        if (Tab* const tab = active_tab())
+            set_scroll(*tab, tab->scroll_y); // the content is shorter or taller now
+        dirty = true;
     }
 
     // --- Keyboard link-hints ---------------------------------------------------------
@@ -2091,9 +2356,21 @@ struct Browser::Impl {
                 blur_address();
                 focus_find(true);
                 break;
+            case Hover::DevtoolsTree:
+                if (Tab* const tab = active_tab())
+                    inspect_tree_line(*tab, y);
+                break;
+            case Hover::DevtoolsStyles:
+                break;
             case Hover::Content:
                 blur_address();
                 blur_find();
+                if (devtools_open) {
+                    // With the panel open a click inspects instead of navigating.
+                    if (Tab* const tab = active_tab())
+                        inspect_at(*tab, x, y);
+                    break;
+                }
                 if (dom::Element const* const control = control_at(x, y)) {
                     activate_control(*control);
                 } else {
@@ -2133,6 +2410,11 @@ struct Browser::Impl {
     {
         if (hints_active) {
             hint_key(key);
+            return;
+        }
+        if (key.key == Key::F12
+            || (key.ctrl && key.shift && key.key == Key::Letter && key.letter == U'I')) {
+            toggle_devtools();
             return;
         }
         if (key.ctrl && key.key == Key::Letter) {
@@ -2474,6 +2756,32 @@ struct Browser::Impl {
                         size, t.hint_text, true);
                 }
             }
+            if (devtools_open && tab->inspected) {
+                // The inspected element's box, or the runs of an inline one.
+                if (dom::Element const* const element = element_of(tab->inspected)) {
+                    if (layout::Fragment const* const box = fragment_for(tab->layout.root, element)) {
+                        content.fill_rect(Rect { static_cast<int>(box->x + 0.5f),
+                                              static_cast<int>(box->y - static_cast<float>(tab->scroll_y) + 0.5f),
+                                              static_cast<int>(box->width + 0.5f),
+                                              static_cast<int>(box->height + 0.5f) },
+                            t.selection);
+                    } else {
+                        for (std::size_t i = 0; i < tab->runs.size(); ++i) {
+                            layout::TextRun const& run = *tab->runs[i];
+                            bool inside = false;
+                            for (dom::Node const* node = run.element; node; node = node->parent()) {
+                                if (node == element) {
+                                    inside = true;
+                                    break;
+                                }
+                            }
+                            if (inside)
+                                paint_bands(content, *tab, TextPosition { i, 0 },
+                                    TextPosition { i, run.text.size() }, t.selection);
+                        }
+                    }
+                }
+            }
             int const page_height = static_cast<int>(tab->layout.page_height + 0.5f);
             if (page_height > c.content.height) {
                 int const track = c.content.height;
@@ -2490,6 +2798,49 @@ struct Browser::Impl {
                     thumb_color);
             }
             frame.blit(content, c.content.x, c.content.y);
+        }
+
+        // Devtools panel: the tree on the left, the inspected element's box
+        // and style on the right.
+        if (devtools_open) {
+            frame.fill_rect(c.devtools, t.chrome_background);
+            frame.fill_rect(Rect { 0, c.devtools.y, width, t.border_width }, t.chrome_border);
+            frame.fill_rect(Rect { c.devtools_styles.x - t.padding, c.devtools.y, t.border_width,
+                                c.devtools.height },
+                t.chrome_border);
+            float const size = t.status_font_size;
+            if (tab && tab->document) {
+                std::vector<TreeLine> lines;
+                build_tree(*tab->document, 0, lines);
+                int const visible = std::max(0, c.devtools_tree.height / tree_line_height);
+                for (int i = 0; i < visible; ++i) {
+                    auto const index = static_cast<std::size_t>(tab->tree_scroll + i);
+                    if (index >= lines.size())
+                        break;
+                    TreeLine const& line = lines[index];
+                    Rect const row { c.devtools_tree.x, c.devtools_tree.y + i * tree_line_height,
+                        c.devtools_tree.width, tree_line_height };
+                    if (line.node == tab->inspected)
+                        frame.fill_rect(row, t.tab_active_background);
+                    float const x = static_cast<float>(row.x + t.padding + line.depth * 12);
+                    float const room = static_cast<float>(row.right() - t.padding) - x;
+                    draw_text(frame, ellipsize(decode_utf8(line.text), room, size), x,
+                        centered_baseline(row, size), size,
+                        line.node->is_element() ? t.chrome_text : t.chrome_text_muted);
+                }
+                std::vector<std::string> const details = style_lines(*tab);
+                for (std::size_t i = 0; i < details.size(); ++i) {
+                    Rect const row { c.devtools_styles.x,
+                        c.devtools_styles.y + static_cast<int>(i) * tree_line_height,
+                        c.devtools_styles.width, tree_line_height };
+                    if (row.bottom() > c.devtools.bottom())
+                        break;
+                    draw_text(frame,
+                        ellipsize(decode_utf8(details[i]), static_cast<float>(row.width - t.padding), size),
+                        static_cast<float>(row.x), centered_baseline(row, size), size,
+                        i == 0 ? t.chrome_text : t.chrome_text_muted);
+                }
+            }
         }
 
         // Status bar.
@@ -2791,5 +3142,26 @@ std::string Browser::find_status() const
 void Browser::toggle_reader() { m_impl->toggle_reader(); }
 
 std::size_t Browser::hint_count() const { return m_impl->hints_active ? m_impl->hints.size() : 0; }
+
+bool Browser::inspect_text(std::string const& text)
+{
+    Impl::Tab* const tab = m_impl->active_tab();
+    if (!tab || text.empty())
+        return false;
+    std::u32string const needle = decode_utf8(text);
+    for (layout::TextRun const* const run : tab->runs) {
+        if (run->element && run->text.find(needle) != std::u32string::npos) {
+            m_impl->inspect(*tab, run->element);
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string Browser::inspected_summary() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab ? Impl::node_summary(tab->inspected) : std::string();
+}
 
 }

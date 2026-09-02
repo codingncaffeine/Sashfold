@@ -23,6 +23,7 @@ enum class Key {
     PageUp,
     PageDown,
     F5,
+    F12,
     Letter, // a letter or digit key; KeyEvent::letter holds it, uppercase
 };
 

@@ -60,6 +60,7 @@ struct Theme {
     int border_width = 1;
     int status_height = 22;
     int find_height = 36;
+    int devtools_height = 220;
     int scroll_step = 60;
 
     // Type, px.

@@ -81,6 +81,7 @@ KeyEvent key_event_from(WPARAM virtual_key)
     case VK_PRIOR: event.key = Key::PageUp; break;
     case VK_NEXT: event.key = Key::PageDown; break;
     case VK_F5: event.key = Key::F5; break;
+    case VK_F12: event.key = Key::F12; break;
     default:
         if ((virtual_key >= 'A' && virtual_key <= 'Z') || (virtual_key >= '0' && virtual_key <= '9')) {
             event.key = Key::Letter;

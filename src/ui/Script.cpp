@@ -99,7 +99,7 @@ std::optional<KeyEvent> parse_chord(std::string const& chord)
         { "tab", Key::Tab }, { "space", Key::Space }, { "left", Key::Left },
         { "right", Key::Right }, { "up", Key::Up }, { "down", Key::Down }, { "home", Key::Home },
         { "end", Key::End }, { "pageup", Key::PageUp }, { "pagedown", Key::PageDown },
-        { "f5", Key::F5 },
+        { "f5", Key::F5 }, { "f12", Key::F12 },
     };
     for (auto const& [text, key] : named) {
         if (name == text) {
@@ -351,6 +351,11 @@ struct Runner {
         } else if (command == "reader") {
             browser.toggle_reader();
             settle();
+        } else if (command == "inspect-text") {
+            if (!browser.inspect_text(argument))
+                return fail("inspect-text: no text run contains \"" + argument + "\"");
+        } else if (command == "assert-inspected") {
+            expect_equal("assert-inspected", browser.inspected_summary(), argument);
         } else if (command == "assert-hints") {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {

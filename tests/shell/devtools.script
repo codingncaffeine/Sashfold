@@ -1,0 +1,20 @@
+# Devtools: F12 opens a panel under the content with the document's tree
+# and the inspected element's box and style; while it is open a click in
+# the page inspects the element there instead of following links, and the
+# tree names the node. F12 again closes it and clicks navigate once more.
+resize 800 500
+open data:text/html,<title>Devtools</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><div id="main" class="wide box"><p>A paragraph with <a href="data:text/html,Gone">a link</a> inside.</p><ul><li>Item one</li></ul></div>
+assert-title Devtools
+assert-inspected
+key f12
+inspect-text paragraph
+assert-inspected p
+inspect-text Item
+assert-inspected li
+assert-golden goldens/devtools.png
+click-text link
+assert-inspected a
+assert-title Devtools
+key ctrl+shift+i
+click-text link
+assert-text Gone
