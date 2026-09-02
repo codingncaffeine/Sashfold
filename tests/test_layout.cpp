@@ -407,6 +407,63 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Positioning: relative shifts, absolute boxes in a containing block ------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p, div { margin: 0 }
+  #rel { position: relative; left: 10px; top: 5px }
+  #cb { position: relative; width: 300px; height: 100px; padding: 10px; border: 2px solid black }
+  #abs { position: absolute; top: 20px; left: 30px; width: 50px; height: 40px }
+  #br { position: absolute; right: 0; bottom: 0; width: 60px; height: 20px }
+  #auto { position: absolute }
+  #fix { position: fixed; top: 100px; left: 200px; width: 20px; height: 20px }
+</style></head><body><p id="rel">rr</p><div id="cb"><div id="abs"></div>cc<div id="auto">au</div><div id="br"></div></div><p id="after">dd</p><div id="fix"></div></body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id && f.style)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* rel = find_box(page.result.root, "rel");
+        layout::Fragment const* cb = find_box(page.result.root, "cb");
+        layout::Fragment const* abs = find_box(page.result.root, "abs");
+        layout::Fragment const* br = find_box(page.result.root, "br");
+        layout::Fragment const* automatic = find_box(page.result.root, "auto");
+        layout::Fragment const* after = find_box(page.result.root, "after");
+        layout::Fragment const* fix = find_box(page.result.root, "fix");
+        if (CHECK(rel && cb && abs && br && automatic && after && fix)) {
+            CHECK_EQ(rel->x, 10.0f); // shifted right and down, still taking its room in flow
+            CHECK_EQ(rel->y, 5.0f);
+            CHECK(rel->positioned);
+            CHECK(!rel->runs.empty() && rel->runs[0].x == 10.0f);
+            CHECK_EQ(cb->y, 20.0f); // the shifted box left its 20 px in the flow
+            CHECK_EQ(cb->width, 324.0f);
+            CHECK_EQ(cb->height, 124.0f);
+            CHECK_EQ(abs->x, 32.0f); // the padding box's left plus left: 30px
+            CHECK_EQ(abs->y, 42.0f);
+            CHECK_EQ(abs->width, 50.0f);
+            CHECK_EQ(abs->height, 40.0f);
+            CHECK(abs->positioned);
+            CHECK_EQ(br->x, 262.0f); // anchored at the padding box's right and bottom
+            CHECK_EQ(br->y, 122.0f);
+            CHECK_EQ(automatic->x, 12.0f); // its static position: below the line of "cc"
+            CHECK_EQ(automatic->y, 52.0f);
+            CHECK_EQ(automatic->width, 20.0f); // shrink-to-fit around "au"
+            CHECK_EQ(after->y, 144.0f); // the absolute boxes took no room
+            CHECK_EQ(fix->x, 200.0f); // fixed: against the initial containing block
+            CHECK_EQ(fix->y, 100.0f);
+        }
+    }
+
     // --- Margins collapsing through parents and empty boxes (CSS 2.1 §8.3.1) ------
     {
         Page const page = lay_out(R"HTML(<!doctype html><html><head><style>

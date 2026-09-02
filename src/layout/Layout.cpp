@@ -108,6 +108,7 @@ struct InlineItem {
         Float, // an out-of-flow box met here; style and element are its own
         Control, // a form control: an atomic box sized by its kind
         SoftBreak, // ends the line when it holds anything: a block inside inline content
+        Absolute, // an absolutely positioned box met here: records its static position, takes no room
     };
     InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
         dom::Element const* the_element)
@@ -380,6 +381,192 @@ struct Layouter {
     // of nested containers costs two to the power of its depth.
     mutable std::map<std::tuple<dom::Element const*, float, float, int>, float> measured_heights;
 
+    // Absolutely positioned boxes wait for their containing block — the
+    // nearest positioned ancestor, else the initial one — to finish, then
+    // are placed in its padding box: one list per positioned ancestor being
+    // laid out (the root's first), and the fixed ones for the viewport.
+    struct OutOfFlow {
+        dom::Element const* element = nullptr;
+        ComputedStyle const* style = nullptr;
+        bool static_known = false; // where the box would have been in flow
+        float static_x = 0;
+        float static_y = 0;
+    };
+    mutable std::vector<std::vector<OutOfFlow>> absolute_stack;
+    mutable std::vector<OutOfFlow> fixed_boxes;
+
+    // Remembers an out-of-flow child for its containing block. A scratch
+    // layout may record the same element again; the last record wins.
+    void record_out_of_flow(dom::Element const& element, ComputedStyle const& style,
+        std::optional<std::pair<float, float>> static_position) const
+    {
+        std::vector<OutOfFlow>& list = style.position == css::Position::Fixed || absolute_stack.empty()
+            ? fixed_boxes
+            : absolute_stack.back();
+        OutOfFlow entry;
+        entry.element = &element;
+        entry.style = &style;
+        if (static_position) {
+            entry.static_known = true;
+            entry.static_x = static_position->first;
+            entry.static_y = static_position->second;
+        }
+        for (OutOfFlow& existing : list) {
+            if (existing.element == &element) {
+                existing = entry;
+                return;
+            }
+        }
+        list.push_back(entry);
+    }
+
+    // Moves a fragment and everything in it.
+    static void shift_fragment(Fragment& fragment, float dx, float dy)
+    {
+        fragment.x += dx;
+        fragment.y += dy;
+        for (TextRun& run : fragment.runs) {
+            run.x += dx;
+            run.baseline_y += dy;
+        }
+        if (fragment.image) {
+            fragment.image->x += dx;
+            fragment.image->y += dy;
+        }
+        if (fragment.control) {
+            fragment.control->x += dx;
+            fragment.control->y += dy;
+            if (fragment.control->caret_x)
+                *fragment.control->caret_x += dx;
+        }
+        for (Fragment& child : fragment.children)
+            shift_fragment(child, dx, dy);
+    }
+
+    // A relatively positioned box's shift: left, else the negative of
+    // right; top, else the negative of bottom (percentages of the
+    // containing block's width horizontally; vertical percentages wait for
+    // a definite height and count as zero).
+    static float relative_dx(ComputedStyle const& style, float containing_width)
+    {
+        if (!style.left.is_auto())
+            return resolve(style.left, containing_width);
+        if (!style.right.is_auto())
+            return -resolve(style.right, containing_width);
+        return 0;
+    }
+
+    static float relative_dy(ComputedStyle const& style)
+    {
+        auto const px = [](LengthPercent const& length) {
+            return length.kind == LengthPercent::Kind::Px ? length.value : 0.0f;
+        };
+        if (!style.top.is_auto())
+            return px(style.top);
+        if (!style.bottom.is_auto())
+            return -px(style.bottom);
+        return 0;
+    }
+
+    // Lays the collected out-of-flow boxes out against their containing
+    // block's padding box and adds them to `parent` as positioned children.
+    void place_out_of_flow(std::vector<OutOfFlow> const& boxes, float cb_x, float cb_y, float cb_width,
+        float cb_height, Fragment& parent, int list_depth) const
+    {
+        for (OutOfFlow const& box : boxes) {
+            ComputedStyle const& s = *box.style;
+            if (s.display == Display::TableColumn)
+                continue; // a column box renders nothing, positioned or not
+            float const margin_left = resolve(s.margin_left, cb_width);
+            float const margin_right = resolve(s.margin_right, cb_width);
+            float const margin_top = resolve(s.margin_top, cb_width);
+            float const margin_bottom = resolve(s.margin_bottom, cb_width);
+            float const horizontal_edges = resolve(s.padding_left, cb_width) + resolve(s.padding_right, cb_width)
+                + s.border_left.width + s.border_right.width;
+            bool const has_left = !s.left.is_auto();
+            bool const has_right = !s.right.is_auto();
+            bool const has_top = !s.top.is_auto();
+            bool const has_bottom = !s.bottom.is_auto();
+            float const left = has_left ? resolve(s.left, cb_width) : 0;
+            float const right = has_right ? resolve(s.right, cb_width) : 0;
+            float const top = has_top ? resolve(s.top, cb_height) : 0;
+            float const bottom = has_bottom ? resolve(s.bottom, cb_height) : 0;
+
+            // The content width: as written; stretched between two offsets;
+            // else shrink-to-fit within what the offsets leave.
+            BlockOptions options;
+            options.own_context = true;
+            options.zero_auto_margins = true;
+            if (s.width.is_auto()) {
+                if (has_left && has_right) {
+                    options.content_width = std::max(0.0f,
+                        cb_width - left - right - margin_left - margin_right - horizontal_edges);
+                } else {
+                    float const available = std::max(0.0f, cb_width - left - right - margin_left - margin_right);
+                    FloatWidth const measure = float_width(*box.element, s, available);
+                    if (measure.shrink)
+                        options.content_width = *measure.shrink;
+                }
+            }
+            if (!s.height.is_auto() && s.height.kind == LengthPercent::Kind::Percent && cb_height > 0)
+                options.content_height = clamp_height(s, s.height.value / 100.0f * cb_height);
+            else if (s.height.is_auto() && has_top && has_bottom)
+                options.content_height = std::max(0.0f,
+                    cb_height - top - bottom - margin_top - margin_bottom - resolve(s.padding_top, cb_width)
+                        - resolve(s.padding_bottom, cb_width) - s.border_top.width - s.border_bottom.width);
+
+            float const static_x = box.static_known ? box.static_x : cb_x;
+            float const static_y = box.static_known ? box.static_y : cb_y;
+            // Laid out at x = 0 first, then moved: a right-anchored box needs its width.
+            FloatContext own_floats;
+            Fragment fragment = layout_block(*box.element, s, 0, 0, cb_width, list_depth, own_floats, options);
+            if (std::optional<float> const lowest = own_floats.lowest_bottom())
+                fragment.height = std::max(fragment.height, *lowest - fragment.y);
+            float x;
+            if (has_left && has_right && !s.width.is_auto()) {
+                // Over-constrained (§10.3.7): auto margins take what is
+                // left, split when both are auto; with neither auto, right
+                // gives way.
+                float const free = cb_width - left - right - fragment.width;
+                float left_margin = margin_left;
+                if (s.margin_left.is_auto() && s.margin_right.is_auto())
+                    left_margin = free >= 0 ? free / 2.0f : 0.0f;
+                else if (s.margin_left.is_auto())
+                    left_margin = free - margin_right;
+                x = cb_x + left + left_margin;
+            } else if (has_left) {
+                x = cb_x + left + margin_left;
+            } else if (has_right) {
+                x = cb_x + cb_width - right - margin_right - fragment.width;
+            } else {
+                x = static_x + margin_left;
+            }
+            float y;
+            if (has_top && has_bottom && !s.height.is_auto()) {
+                // Over-constrained vertically (§10.6.4): auto margins take
+                // what is left, split when both are auto; else bottom gives way.
+                float const free = cb_height - top - bottom - fragment.height;
+                float top_margin = margin_top;
+                if (s.margin_top.is_auto() && s.margin_bottom.is_auto())
+                    top_margin = free >= 0 ? free / 2.0f : 0.0f;
+                else if (s.margin_top.is_auto())
+                    top_margin = free - margin_bottom;
+                y = cb_y + top + top_margin;
+            } else if (has_top) {
+                y = cb_y + top + margin_top;
+            } else if (has_bottom) {
+                y = cb_y + cb_height - bottom - margin_bottom - fragment.height;
+            } else {
+                y = static_y + margin_top;
+            }
+            shift_fragment(fragment, x - fragment.x, y - fragment.y);
+            fragment.positioned = true;
+            fragment.z_index = s.z_index.value_or(0);
+            fragment.stacking_context = s.z_index.has_value();
+            parent.children.push_back(std::move(fragment));
+        }
+    }
+
     PageImage image_for(dom::Element const& element) const
     {
         if (!images)
@@ -560,6 +747,12 @@ struct Layouter {
             ComputedStyle const* style = style_of(element);
             if (!style || style->display == Display::None)
                 continue;
+            if (style->out_of_flow()) {
+                // Out of the line; the line layout records where it would
+                // have stood.
+                items.push_back(InlineItem { InlineItem::Kind::Absolute, {}, style, &element });
+                continue;
+            }
             if (is_floating(*style)) {
                 items.push_back(InlineItem { InlineItem::Kind::Float, {}, style, &element });
                 continue;
@@ -881,6 +1074,17 @@ struct Layouter {
             && block_style.white_space != WhiteSpace::Pre;
 
         for (InlineItem const& item : items) {
+            if (item.kind == InlineItem::Kind::Absolute) {
+                // Its static position: an inline-level box would have begun
+                // where the line stands; a block-level one on the line
+                // below (taken as one line tall when this line holds
+                // anything).
+                bool const inline_level = item.style->blockified;
+                float const static_x = inline_level ? line_left + line_width : line_left;
+                float const static_y = inline_level || line.empty() ? y : y + line_height_of(block_style);
+                record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y));
+                continue;
+            }
             if (item.kind == InlineItem::Kind::SoftBreak) {
                 if (!line.empty())
                     flush_line();
@@ -1067,7 +1271,8 @@ struct Layouter {
                 continue;
             auto const& child_element = static_cast<dom::Element const&>(*child);
             ComputedStyle const* child_style = style_of(child_element);
-            if (!child_style || child_style->display == Display::None || is_floating(*child_style))
+            if (!child_style || child_style->display == Display::None || is_floating(*child_style)
+                || child_style->out_of_flow())
                 continue;
             if (!is_block_level(*child_style) || !is_empty_block(child_element, *child_style, inner_width))
                 return false;
@@ -1151,6 +1356,23 @@ struct Layouter {
         Fragment fragment;
         fragment.element = &element;
         fragment.style = &style;
+
+        // A positioned box is the containing block of the absolutely
+        // positioned boxes inside it: they collect here and are placed
+        // once this box's padding box is known.
+        bool const containing_block = style.positioned();
+        if (containing_block)
+            absolute_stack.emplace_back();
+        struct PopOnExit {
+            std::vector<std::vector<OutOfFlow>>& stack;
+            bool active;
+            std::vector<OutOfFlow> taken;
+            ~PopOnExit()
+            {
+                if (active && !stack.empty())
+                    stack.pop_back();
+            }
+        } pop { absolute_stack, containing_block, {} };
 
         float const margin_left = resolve(style.margin_left, containing_width);
         float const margin_right = resolve(style.margin_right, containing_width);
@@ -1242,6 +1464,14 @@ struct Layouter {
             used_height = clamp_height(style, used_height);
         }
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
+        if (containing_block && !absolute_stack.empty() && !absolute_stack.back().empty()) {
+            // The padding box is settled: place what collected inside.
+            std::vector<OutOfFlow> const boxes = std::move(absolute_stack.back());
+            absolute_stack.back().clear();
+            place_out_of_flow(boxes, fragment.x + border_left, fragment.y + border_top,
+                std::max(0.0f, fragment.width - border_left - border_right),
+                std::max(0.0f, fragment.height - border_top - border_bottom), fragment, list_depth);
+        }
         return fragment;
     }
 
@@ -1264,7 +1494,8 @@ struct Layouter {
             if (!child->is_element())
                 continue;
             ComputedStyle const* child_style = style_of(static_cast<dom::Element const&>(*child));
-            if (child_style && !is_floating(*child_style) && is_block_level(*child_style))
+            if (child_style && !is_floating(*child_style) && !child_style->out_of_flow()
+                && is_block_level(*child_style))
                 has_block_child = true;
         }
 
@@ -1363,6 +1594,21 @@ struct Layouter {
             ComputedStyle const* child_style = style_of(child_element);
             if (!child_style || child_style->display == Display::None)
                 continue;
+            if (child_style->out_of_flow()) {
+                // Out of the flow; it remembers where it would have been:
+                // below the inline content gathered so far, taken as one
+                // line (the common menu-under-a-link case; a longer run
+                // before it lands short).
+                bool pending_content = false;
+                for (InlineItem const& item : pending_inline) {
+                    if (is_inline_content(item))
+                        pending_content = true;
+                }
+                record_out_of_flow(child_element, *child_style,
+                    std::make_pair(content_x,
+                        cursor + previous_bottom_margin + (pending_content ? line_height_of(style) : 0.0f)));
+                continue;
+            }
             if (is_floating(*child_style)) {
                 // A float among inline content rides with that content; one
                 // between blocks is placed here, outside the flow (its
@@ -1433,6 +1679,20 @@ struct Layouter {
             }
             Fragment child_fragment = layout_block(child_element, *child_style, child_x, child_y,
                 child_width, child_list_depth, floats);
+            // Relative: laid out in flow, then shifted once the flow has read
+            // its bottom; sticky stays put until scroll containers land.
+            // Either paints in the positioned layer.
+            auto const hand_over = [&](Fragment& box) {
+                if (child_style->positioned()) {
+                    box.positioned = true;
+                    box.z_index = child_style->z_index.value_or(0);
+                    box.stacking_context = child_style->z_index.has_value();
+                    if (child_style->position == css::Position::Relative)
+                        shift_fragment(box, relative_dx(*child_style, content_width),
+                            relative_dy(*child_style));
+                }
+                fragment.children.push_back(std::move(box));
+            };
 
             if (child_style->display == Display::ListItem) {
                 ++list_index;
@@ -1454,13 +1714,13 @@ struct Layouter {
                     previous_bottom_margin = effective_bottom;
                 if (holds_float)
                     first_in_flow = false;
-                fragment.children.push_back(std::move(child_fragment));
+                hand_over(child_fragment);
                 continue;
             }
             cursor = child_fragment.y + child_fragment.height;
             previous_bottom_margin = effective_bottom;
             first_in_flow = false;
-            fragment.children.push_back(std::move(child_fragment));
+            hand_over(child_fragment);
         }
         if (after)
             place_or_append(*after);
@@ -1619,6 +1879,8 @@ struct Layouter {
             case InlineItem::Kind::Space:
                 pending_space += measure(*item.style, item.text);
                 break;
+            case InlineItem::Kind::Absolute:
+                break; // takes no room
             case InlineItem::Kind::HardBreak:
             case InlineItem::Kind::SoftBreak:
                 result.max = std::max(result.max, line);
@@ -1697,7 +1959,8 @@ struct Layouter {
             if (!child->is_element())
                 continue;
             ComputedStyle const* child_style = style_of(static_cast<dom::Element const&>(*child));
-            if (child_style && !is_floating(*child_style) && is_block_level(*child_style))
+            if (child_style && !is_floating(*child_style) && !child_style->out_of_flow()
+                && is_block_level(*child_style))
                 has_block_child = true;
         }
         std::vector<InlineItem> pending;
@@ -1725,6 +1988,8 @@ struct Layouter {
             ComputedStyle const* child_style = style_of(child_element);
             if (!child_style || child_style->display == Display::None)
                 continue;
+            if (child_style->out_of_flow())
+                continue; // takes no room in the flow
             if (is_floating(*child_style) || !is_block_level(*child_style)) {
                 collect_inline_element(child_element, *child_style, pending);
                 continue;
@@ -2063,6 +2328,11 @@ struct Layouter {
             ComputedStyle const* child_style = style_of(element);
             if (!child_style || child_style->display == Display::None)
                 continue;
+            if (child_style->out_of_flow()) {
+                // Not an item: placed against the container once it is done.
+                record_out_of_flow(element, *child_style, std::make_pair(content_x, content_y));
+                continue;
+            }
             flush_text();
             FlexItem item;
             item.element = &element;
@@ -2416,7 +2686,7 @@ struct Layouter {
 } // namespace
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
-    float viewport_width, ImageMap const* images, ControlStates const* controls)
+    float viewport_width, ImageMap const* images, ControlStates const* controls, float viewport_height)
 {
     LayoutResult result;
     result.canvas_background = Color::rgb(255, 255, 255);
@@ -2429,7 +2699,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, {} };
+    Layouter layouter { styles, {}, images, controls, {}, {}, {} };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;
@@ -2452,11 +2722,29 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // The root's formatting context holds the page's floats, and the page
     // reaches around them.
     FloatContext root_floats;
+    // The initial containing block collects the absolutely positioned boxes
+    // with no positioned ancestor; the fixed ones join them. It has the
+    // viewport's size, or the page's height when no viewport height is known.
+    layouter.absolute_stack.emplace_back();
     result.root = layouter.layout_block(*html, *html_style, 0, 0, viewport_width, 0, root_floats);
     if (std::optional<float> const bottom = root_floats.lowest_bottom())
         result.root.height = std::max(result.root.height, *bottom - result.root.y);
     result.page_height = result.root.y + result.root.height
         + resolve(html_style->margin_bottom, viewport_width);
+    {
+        std::vector<Layouter::OutOfFlow> boxes = std::move(layouter.absolute_stack.back());
+        layouter.absolute_stack.pop_back();
+        boxes.insert(boxes.end(), layouter.fixed_boxes.begin(), layouter.fixed_boxes.end());
+        layouter.fixed_boxes.clear();
+        if (!boxes.empty()) {
+            float const icb_height = viewport_height > 0 ? viewport_height : result.page_height;
+            layouter.place_out_of_flow(boxes, 0, 0, viewport_width, icb_height, result.root, 0);
+            for (Fragment const& child : result.root.children) {
+                if (child.positioned)
+                    result.page_height = std::max(result.page_height, child.y + child.height);
+            }
+        }
+    }
     return result;
 }
 

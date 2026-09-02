@@ -421,7 +421,7 @@ private:
         css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
         layout::ImageMap const images = ui::collect_images(*document, &*url, fetch_image, media);
         layout::LayoutResult const page = layout::layout_document(*document, styles,
-            static_cast<float>(viewport_width), &images);
+            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
         auto canvas = std::make_shared<Bitmap>(viewport_width, viewport_height, page.canvas_background);
         paint::paint_page(*canvas, page);
         rendered->bitmap = std::move(canvas);

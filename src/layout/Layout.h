@@ -79,6 +79,17 @@ struct Fragment {
     // after the in-flow boxes at its level.
     bool floating = false;
 
+    // Positioned (relative, absolute, fixed or sticky): painted after the
+    // in-flow boxes and floats at its level, in z-index order, negative
+    // ones under them.
+    bool positioned = false;
+    int z_index = 0;
+    // A positioned box with a z-index other than auto: a stacking context,
+    // painted as one unit at its level in the parent context; a positioned
+    // box with z-index auto paints at level zero but its own positioned
+    // descendants belong to the parent context.
+    bool stacking_context = false;
+
     // The margin that reaches through this box's bottom edge from its last
     // in-flow child (CSS 2.1 §8.3.1): the caller joins it with the box's
     // own bottom margin. Zero when the edge lets nothing through.
@@ -104,8 +115,10 @@ using ImageMap = std::unordered_map<dom::Element const*, PageImage>;
 
 // `controls` is the live state of the page's form controls (values typed,
 // boxes checked, the focused one); without it the markup's defaults show.
+// `viewport_height` sizes the initial containing block for absolutely and
+// fixed positioned boxes; zero means the page's own height.
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
     float viewport_width, ImageMap const* images = nullptr,
-    ControlStates const* controls = nullptr);
+    ControlStates const* controls = nullptr, float viewport_height = 0);
 
 }

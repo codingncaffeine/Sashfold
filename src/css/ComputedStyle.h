@@ -136,6 +136,14 @@ enum class Float : std::uint8_t {
     Right,
 };
 
+enum class Position : std::uint8_t {
+    Static,
+    Relative, // laid out in flow, then shifted by its offsets
+    Absolute, // out of flow, placed in the nearest positioned ancestor's padding box
+    Fixed, // out of flow, placed in the viewport
+    Sticky, // in flow; treated as relative until scroll containers land
+};
+
 enum class Clear : std::uint8_t {
     None,
     Left,
@@ -231,6 +239,22 @@ struct ComputedStyle {
     Float floating = Float::None;
     Clear clear = Clear::None;
     Overflow overflow = Overflow::Visible;
+
+    // Positioning: the scheme, the four offsets (auto = not written), and
+    // z-index (nullopt = auto).
+    Position position = Position::Static;
+    LengthPercent top = LengthPercent::auto_value();
+    LengthPercent right = LengthPercent::auto_value();
+    LengthPercent bottom = LengthPercent::auto_value();
+    LengthPercent left = LengthPercent::auto_value();
+    std::optional<int> z_index;
+    // An absolutely positioned box that was inline-level before §9.7 made
+    // it a block: its static position is where the inline box would have
+    // begun.
+    bool blockified = false;
+
+    bool positioned() const { return position != Position::Static; }
+    bool out_of_flow() const { return position == Position::Absolute || position == Position::Fixed; }
 
     // Flex containers and their items.
     FlexDirection flex_direction = FlexDirection::Row;

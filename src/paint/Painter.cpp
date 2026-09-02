@@ -3,7 +3,9 @@
 #include "text/Face.h"
 #include "text/FontManager.h"
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace sashfold::paint {
 
@@ -166,7 +168,14 @@ void paint_control(Context& context, Fragment const& fragment)
         context.target.fill_rect(snap(*control.caret_x + context.dx, y + 4, 1, control.height - 8), ink);
 }
 
-void paint_fragment(Context& context, Fragment const& fragment, bool is_canvas_background_owner)
+void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner);
+
+// A box and what flows inside it: its background and borders, its picture
+// or control, its in-flow children, the floats over them (a float paints
+// above the blocks whose lines flow around it), and its own lines. The
+// positioned descendants are not here: they belong to the stacking context
+// and paint at their level in it.
+void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner)
 {
     if (fragment.style)
         paint_background_and_borders(context, fragment, is_canvas_background_owner);
@@ -177,19 +186,83 @@ void paint_fragment(Context& context, Fragment const& fragment, bool is_canvas_b
         context.target.draw_scaled(*box.bitmap,
             snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
     }
-    // In-flow boxes first, then the floats at this level over them: a float
-    // paints above the blocks whose lines flow around it.
     for (Fragment const& child : fragment.children) {
-        // The element whose background became the canvas skips its own.
-        if (!child.floating)
-            paint_fragment(context, child, false);
+        if (!child.floating && !child.positioned)
+            paint_flow(context, child, false);
     }
     for (Fragment const& child : fragment.children) {
-        if (child.floating)
-            paint_fragment(context, child, false);
+        if (child.floating && !child.positioned)
+            paint_flow(context, child, false);
     }
     for (TextRun const& run : fragment.runs)
         paint_run(context, run);
+}
+
+// The positioned boxes a stacking context paints: every positioned
+// descendant reached without crossing another stacking context (a
+// positioned box with z-index auto is walked through — its positioned
+// descendants are the parent context's, per CSS 2.1 Appendix E).
+void collect_positioned(Fragment const& fragment, std::vector<Fragment const*>& out)
+{
+    for (Fragment const& child : fragment.children) {
+        if (child.positioned) {
+            out.push_back(&child);
+            if (child.stacking_context)
+                continue;
+        }
+        collect_positioned(child, out);
+    }
+}
+
+// CSS 2.1 Appendix E, the reader-web subset: the context's own flow first,
+// then its positioned descendants by z-index — negative ones under the
+// flow — in tree order within a level; a descendant that is itself a
+// stacking context paints as one unit, one with z-index auto as its flow
+// alone (its positioned descendants are already in this list).
+void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
+{
+    std::vector<Fragment const*> positioned;
+    collect_positioned(root, positioned);
+    std::stable_sort(positioned.begin(), positioned.end(),
+        [](Fragment const* a, Fragment const* b) { return a->z_index < b->z_index; });
+    auto const paint_one = [&](Fragment const& box) {
+        if (box.stacking_context)
+            paint_stacking_context(context, box, false);
+        else
+            paint_flow(context, box, false);
+    };
+    // The root's own background and borders come before its negative
+    // descendants, which come before the rest of its flow.
+    if (root.style)
+        paint_background_and_borders(context, root, is_canvas_background_owner);
+    for (Fragment const* box : positioned) {
+        if (box->z_index < 0)
+            paint_one(*box);
+    }
+    {
+        // The flow without the background already painted: children, floats, lines.
+        if (root.control && root.style)
+            paint_control(context, root);
+        if (root.image && root.image->bitmap) {
+            Fragment::ImageBox const& box = *root.image;
+            context.target.draw_scaled(*box.bitmap,
+                snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
+        }
+        for (Fragment const& child : root.children) {
+            if (!child.floating && !child.positioned)
+                paint_flow(context, child, false);
+        }
+        for (Fragment const& child : root.children) {
+            if (child.floating && !child.positioned)
+                paint_flow(context, child, false);
+        }
+        for (TextRun const& run : root.runs)
+            paint_run(context, run);
+    }
+    for (Fragment const* box : positioned) {
+        if (box->z_index >= 0)
+            paint_one(*box);
+    }
 }
 
 } // namespace
@@ -204,7 +277,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
     Context context { target, offset_x, offset_y };
-    paint_fragment(context, page.root, true);
+    paint_stacking_context(context, page.root, true);
 }
 
 }

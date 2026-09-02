@@ -483,11 +483,9 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     }
     if (name.starts_with("--"))
         return; // custom properties are written; what they hold is counted where it is used
-    if (name == "position" && (first_ident == "absolute" || first_ident == "fixed" || first_ident == "relative" || first_ident == "sticky"))
-        ++census["position"];
-    else if (name == "z-index")
-        ++census["z-index"];
-    else if (name == "display" && first_ident == "inline-block")
+    if (name == "position" || name == "z-index")
+        return; // positioning and z-index are written
+    if (name == "display" && first_ident == "inline-block")
         ++census["inline-block"];
     else if (name == "display" && (first_ident.starts_with("table") || first_ident == "inline-table"))
         ++census["tables"];
@@ -611,7 +609,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         image_fetcher(loaded, &image_failures), media);
     auto const t4 = clock::now();
     layout::LayoutResult const page = layout::layout_document(*document, styles,
-        static_cast<float>(viewport_width), &images);
+        static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
     auto const t5 = clock::now();
 
     int height = std::max(1, static_cast<int>(page.page_height + 0.5f));
@@ -850,7 +848,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         if (run == 0)
             images_ms = ms(t2b - t2).count();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
-            static_cast<float>(viewport_width), &images);
+            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
         auto const t3 = clock::now();
         Bitmap canvas(viewport_width, 1000, page.canvas_background);
         paint::paint_page(canvas, page);

@@ -1266,6 +1266,15 @@ struct Resolver {
             if (side->style == BorderStyle::None)
                 side->width = 0;
         }
+        // CSS 2.1 §9.7: an absolutely positioned box does not float, and
+        // an inline one becomes block-level.
+        if (style.out_of_flow()) {
+            style.floating = Float::None;
+            if (style.display == Display::Inline) {
+                style.display = Display::Block;
+                style.blockified = true;
+            }
+        }
         return style;
     }
 
@@ -1458,6 +1467,46 @@ struct Resolver {
                 style.display = Display::TableColumn;
             else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::Inline; // inline-block is not supported yet
+            return;
+        }
+        if (name == "position") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "static"))
+                style.position = Position::Static;
+            else if (ascii_ci_equals(keyword, "relative"))
+                style.position = Position::Relative;
+            else if (ascii_ci_equals(keyword, "absolute"))
+                style.position = Position::Absolute;
+            else if (ascii_ci_equals(keyword, "fixed"))
+                style.position = Position::Fixed;
+            else if (ascii_ci_equals(keyword, "sticky") || ascii_ci_equals(keyword, "-webkit-sticky"))
+                style.position = Position::Sticky;
+            return;
+        }
+        if (name == "top" || name == "right" || name == "bottom" || name == "left") {
+            LengthPercent& side = name == "top" ? style.top
+                : name == "right"               ? style.right
+                : name == "bottom"              ? style.bottom
+                                                : style.left;
+            one_length(side, true);
+            return;
+        }
+        if (name == "inset") {
+            four_lengths(style.top, style.right, style.bottom, style.left, true);
+            return;
+        }
+        if (name == "z-index") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto")) {
+                style.z_index = std::nullopt;
+            } else if (values[0]->is_token(Token::Type::Number)) {
+                Token const& token = values[0]->token();
+                if (token.numeric_type == Token::NumericType::Integer)
+                    style.z_index = static_cast<int>(token.numeric_value);
+            }
             return;
         }
         if (name == "float") {

@@ -207,8 +207,6 @@ struct FeatureName {
 };
 
 constexpr FeatureName feature_names[] = {
-    { "position", "positioning (absolute, fixed, relative, sticky)" },
-    { "z-index", "z-index" },
     { "inline-block", "inline-block" },
     { "tables", "tables" },
     { "grid", "grid" },

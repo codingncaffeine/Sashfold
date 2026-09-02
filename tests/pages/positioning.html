@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 0 8px }
+  .stage { position: relative; height: 120px; border: 2px solid #444; background: #f4f4f4 }
+  .corner { position: absolute; width: 60px; height: 30px; background: #6c9; color: #fff }
+  .tl { top: 0; left: 0 }
+  .tr { top: 0; right: 0 }
+  .bl { bottom: 0; left: 0 }
+  .br { bottom: 0; right: 0 }
+  .stretch { position: absolute; left: 80px; right: 80px; top: 40px; height: 40px; background: #69c; color: #fff }
+  .under { position: absolute; left: 20px; top: 20px; width: 200px; height: 80px; background: #fc6; z-index: -1 }
+  .over { position: absolute; left: 120px; top: 10px; width: 100px; height: 30px; background: #c66; color: #fff; z-index: 2 }
+  .between { position: absolute; left: 160px; top: 25px; width: 100px; height: 30px; background: #96c; color: #fff; z-index: 1 }
+  .shift { position: relative; left: 40px; top: -4px; background: #ddd }
+  .menu { position: relative; display: inline; background: #eee }
+  .drop { position: absolute; display: block; background: #333; color: #fff; padding: 4px; width: 90px }
+  .tag { position: absolute; background: #c93; color: #fff; padding: 0 4px }
+</style>
+</head>
+<body>
+<p>Four corners of a stage, a stretched band, and stacking:</p>
+<div class="stage">
+  <div class="corner tl">tl</div>
+  <div class="corner tr">tr</div>
+  <div class="corner bl">bl</div>
+  <div class="corner br">br</div>
+  <div class="stretch">left 80 to right 80</div>
+  <div class="under">under</div>
+  <div class="over">over</div>
+  <div class="between">between</div>
+</div>
+<p class="shift">A relatively shifted paragraph, 40 right and 4 up.</p>
+<p>A <span class="menu">menu item<span class="drop">dropped below</span></span> and the text after it stays in place.</p>
+<p>An inline box positioned where it stood<span class="tag">tag</span> leaves the line alone.</p>
+<p>The end of the page.</p>
+</body>
+</html>

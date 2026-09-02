@@ -587,7 +587,8 @@ struct Browser::Impl {
         text::FontManager::instance().set_page_fonts(tab.fonts);
         ChromeLayout const c = layout_chrome();
         tab.layout = layout::layout_document(*tab.document, tab.styles,
-            static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls);
+            static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
+            static_cast<float>(std::max(1, c.content.height)));
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
         // The selection pointed into the old layout's runs.
         tab.runs.clear();
