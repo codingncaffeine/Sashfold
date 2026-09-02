@@ -60,6 +60,9 @@ struct Row {
     long ms_fetch = 0;
     long ms_total = 0;
     std::string rendered;
+    // What the page's stylesheets ask for that the engine does not do yet:
+    // feature key → declarations.
+    std::vector<std::pair<std::string, long>> asks;
 
     bool has_flag(std::string_view flag) const
     {
@@ -187,6 +190,86 @@ void read_report(Row& row, std::filesystem::path const& path)
     row.ms_fetch = nested_number(*report, "ms", "fetch");
     row.ms_total = nested_number(*report, "ms", "total");
     row.rendered = string_of(*report, "rendered");
+    if (JsonValue const* const asks = report->get("asks"); asks && asks->is_object()) {
+        for (JsonValue::Member const& member : asks->as_object()) {
+            if (member.second.is_number() && member.second.as_number() > 0)
+                row.asks.emplace_back(member.first, static_cast<long>(member.second.as_number()));
+        }
+        std::sort(row.asks.begin(), row.asks.end(),
+            [](auto const& a, auto const& b) { return a.second > b.second; });
+    }
+}
+
+// The features the census counts, with the words the page uses for them.
+struct FeatureName {
+    std::string_view key;
+    std::string_view label;
+};
+
+constexpr FeatureName feature_names[] = {
+    { "position", "positioning (absolute, fixed, relative, sticky)" },
+    { "custom-properties", "custom properties and var()" },
+    { "z-index", "z-index" },
+    { "inline-block", "inline-block" },
+    { "tables", "tables" },
+    { "grid", "grid" },
+    { "display-contents", "display: contents" },
+    { "overflow-clipping", "overflow clipping and scroll containers" },
+    { "transforms", "transforms" },
+    { "animations", "animations and transitions" },
+    { "visibility", "visibility" },
+    { "vertical-align", "vertical-align" },
+    { "background-images", "background images" },
+    { "gradients", "gradients" },
+    { "border-radius", "rounded corners" },
+    { "shadows", "shadows" },
+    { "effects", "opacity, filters, clipping paths" },
+    { "text-properties", "letter-spacing, text-transform, text-overflow" },
+    { "multi-column", "multi-column layout" },
+    { "sizing", "object-fit and aspect-ratio" },
+    { "outline", "outlines" },
+    { "direction", "writing direction" },
+    { "counters", "counters" },
+    { "calc", "calc() and min/max/clamp" },
+    { "web-fonts", "web fonts in WOFF or WOFF2" },
+    { "at-rules", "@supports, @layer, @container, @keyframes, @scope" },
+};
+
+std::string feature_label(std::string const& key)
+{
+    for (FeatureName const& name : feature_names) {
+        if (name.key == key)
+            return std::string(name.label);
+    }
+    return key;
+}
+
+// Across the corpus: how many pages ask for each feature, and how many
+// declarations in all — the ranking of what to write next.
+struct FeatureTotal {
+    std::string key;
+    long pages = 0;
+    long declarations = 0;
+};
+
+std::vector<FeatureTotal> feature_totals(std::vector<Row> const& rows)
+{
+    std::map<std::string, FeatureTotal> totals;
+    for (Row const& row : rows) {
+        for (auto const& [key, count] : row.asks) {
+            FeatureTotal& total = totals[key];
+            total.key = key;
+            ++total.pages;
+            total.declarations += count;
+        }
+    }
+    std::vector<FeatureTotal> list;
+    for (auto const& [key, total] : totals)
+        list.push_back(total);
+    std::sort(list.begin(), list.end(), [](FeatureTotal const& a, FeatureTotal const& b) {
+        return a.pages != b.pages ? a.pages > b.pages : a.declarations > b.declarations;
+    });
+    return list;
 }
 
 std::string html_escaped(std::string_view text)
@@ -405,6 +488,19 @@ void write_card(std::ostream& out, Row const& row)
         if (row.fonts > 0)
             out << " · " << row.fonts << " font" << (row.fonts == 1 ? "" : "s");
         out << "</p>\n";
+        if (!row.asks.empty()) {
+            out << "  <p class=\"asks\">asks for ";
+            std::size_t shown = 0;
+            for (auto const& [key, count] : row.asks) {
+                if (shown == 3)
+                    break;
+                out << (shown ? ", " : "") << html_escaped(feature_label(key)) << " ×" << count;
+                ++shown;
+            }
+            if (row.asks.size() > 3)
+                out << ", and " << (row.asks.size() - 3) << " more";
+            out << "</p>\n";
+        }
     } else if (row.outcome == "certificate-error") {
         out << "  <p class=\"facts\">" << html_escaped(row.error) << "</p>\n";
     } else if (row.outcome == "error") {
@@ -468,7 +564,13 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
            "  .card .site a { color: var(--navy); text-decoration: none; }\n"
            "  .card .rank { color: var(--muted); font-weight: 400; font-size: 0.9rem; }\n"
            "  .card .title { font-size: 0.95rem; }\n"
-           "  .card .note, .card .facts { color: var(--muted); font-size: 0.86rem; }\n"
+           "  .card .note, .card .facts, .card .asks { color: var(--muted); font-size: 0.86rem; }\n"
+           "  table { border-collapse: collapse; width: 100%; margin: 20px 0; }\n"
+           "  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }\n"
+           "  th { color: var(--muted); font-weight: 600; font-size: 0.92rem; }\n"
+           "  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }\n"
+           "  .bar { background: var(--code-bg); border-radius: 4px; height: 10px; width: 100%; min-width: 120px; }\n"
+           "  .bar span { display: block; height: 10px; border-radius: 4px; background: var(--accent); }\n"
            "  .card.greyed img, .card.greyed .title { opacity: 0.45; }\n"
            "  .pill { font-size: 0.8rem; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }\n"
            "  .pill.ok { color: var(--ok); background: var(--ok-bg); }\n"
@@ -500,6 +602,27 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
         << "  <div class=\"stat\"><span class=\"big\">" << html_escaped(stamp)
         << "</span><span class=\"what\">last rendered, on a Windows runner</span></div>\n"
         << "</div>\n";
+    std::vector<FeatureTotal> const asked = feature_totals(corpus.rows);
+    if (!asked.empty()) {
+        long pages_with_report = 0;
+        for (Row const& row : corpus.rows)
+            if (row.outcome == "document")
+                ++pages_with_report;
+        out << "<h2>What the hundred ask for that is not written yet</h2>\n"
+               "<p class=\"lens\">Every page's stylesheets are read for the features Sashfold does not do yet, "
+               "counted as declarations; a row's card names its three biggest asks. This is the honest reason a "
+               "page looks wrong, and the order the engine work goes in: by pages asking.</p>\n"
+               "<table>\n<thead><tr><th>Feature</th> <th></th> <th>Pages asking</th> <th>Declarations</th></tr></thead>\n<tbody>\n";
+        // Spaces between the cells: a table renders as one, and an engine
+        // without tables (this one, today) keeps the numbers apart.
+        for (FeatureTotal const& total : asked) {
+            int const width = pages_with_report == 0 ? 0 : static_cast<int>(100 * total.pages / pages_with_report);
+            out << "<tr><td>" << html_escaped(feature_label(total.key)) << "</td> <td><div class=\"bar\"><span style=\"width: "
+                << width << "%\"></span></div></td> <td class=\"num\">" << total.pages << " pages</td> <td class=\"num\">"
+                << total.declarations << " declarations</td></tr>\n";
+        }
+        out << "</tbody>\n</table>\n";
+    }
     for (Category const& category : corpus.categories) {
         out << "<h2>" << html_escaped(category.title) << "</h2>\n<p class=\"lens\">"
             << html_escaped(category.description) << "</p>\n<div class=\"cards\">\n";
@@ -529,7 +652,13 @@ void write_json(std::filesystem::path const& path, Corpus const& corpus, Totals 
         << "  \"rendered\": \"" << json_escaped(stamp) << "\",\n"
         << "  \"rows\": " << totals.rows << ",\n  \"loaded\": " << totals.loaded << ",\n  \"refused\": "
         << totals.refused << ",\n  \"refusals_expected\": " << totals.refusals_expected
-        << ",\n  \"median_ms\": " << totals.median_ms << ",\n  \"pages\": [\n";
+        << ",\n  \"median_ms\": " << totals.median_ms << ",\n  \"asks\": [\n";
+    std::vector<FeatureTotal> const asked = feature_totals(corpus.rows);
+    for (std::size_t i = 0; i < asked.size(); ++i) {
+        out << "    { \"feature\": \"" << json_escaped(asked[i].key) << "\", \"pages\": " << asked[i].pages
+            << ", \"declarations\": " << asked[i].declarations << " }" << (i + 1 < asked.size() ? "," : "") << "\n";
+    }
+    out << "  ],\n  \"pages\": [\n";
     for (std::size_t i = 0; i < corpus.rows.size(); ++i) {
         Row const& row = corpus.rows[i];
         Verdict const verdict = verdict_of(row);

@@ -253,9 +253,18 @@ GlyphMask rasterize(GlyphOutline const& outline, int units_per_em, int size_q, R
         }
     }
 
+    // Coverage to alpha. Below 14 px an unhinted stem lands across two
+    // pixels at half coverage each and reads faint; a contrast curve
+    // (coverage^0.7) lifts those halves without touching full or empty
+    // pixels — a small-size darkening in place of hinting.
+    static constexpr std::uint8_t plain[17] = { 0, 15, 31, 47, 63, 79, 95, 111, 127, 143, 159, 175,
+        191, 207, 223, 239, 255 }; // hits * 255 / 16, truncated
+    static constexpr std::uint8_t darkened[17] = { 0, 36, 59, 78, 96, 113, 129, 144, 158, 172,
+        186, 199, 211, 223, 234, 245, 255 };
+    std::uint8_t const* const curve = size_q < 56 ? darkened : plain;
     mask.alpha.resize(hits.size());
     for (std::size_t i = 0; i < hits.size(); ++i)
-        mask.alpha[i] = static_cast<std::uint8_t>(std::min<int>(hits[i], 16) * 255 / 16);
+        mask.alpha[i] = curve[std::min<int>(hits[i], 16)];
     if (options.embolden) {
         for (std::int64_t row = 0; row < height; ++row) {
             std::uint8_t* line = mask.alpha.data() + row * width;

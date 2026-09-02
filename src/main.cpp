@@ -1,5 +1,6 @@
 #include "core/Bitmap.h"
 #include "core/Png.h"
+#include "css/Parser.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
@@ -31,6 +32,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -436,6 +438,153 @@ long whole_ms(std::chrono::steady_clock::duration duration)
     return static_cast<long>(std::chrono::duration<double, std::milli>(duration).count() + 0.5);
 }
 
+// What a page's stylesheets ask for that the engine does not do yet, as
+// declaration counts per feature — the report's account of why a render
+// may look wrong, and the ranking of what to write next by pages asking.
+using FeatureCensus = std::map<std::string, long>;
+
+std::string lowercase_ascii(std::string_view text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for (char const c : text)
+        out += (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    return out;
+}
+
+void census_values(std::vector<css::ComponentValue> const& values, FeatureCensus& census)
+{
+    for (css::ComponentValue const& value : values) {
+        if (value.is_function()) {
+            std::string const name = lowercase_ascii(value.function().name);
+            if (name == "var")
+                ++census["custom-properties"];
+            else if (name == "calc" || name == "min" || name == "max" || name == "clamp")
+                ++census["calc"];
+            else if (name.ends_with("gradient"))
+                ++census["gradients"];
+            else if (name == "counter" || name == "counters")
+                ++census["counters"];
+            census_values(value.function().values, census);
+        } else if (value.is_block()) {
+            census_values(value.block().values, census);
+        }
+    }
+}
+
+void census_declaration(css::Declaration const& declaration, FeatureCensus& census)
+{
+    std::string const name = lowercase_ascii(declaration.name);
+    std::string first_ident;
+    bool has_url = false;
+    for (css::ComponentValue const& value : declaration.value) {
+        if (value.is_token(css::Token::Type::Ident) && first_ident.empty())
+            first_ident = lowercase_ascii(value.token().value);
+        if (value.is_token(css::Token::Type::Url) || (value.is_function() && lowercase_ascii(value.function().name) == "url"))
+            has_url = true;
+    }
+    if (name.starts_with("--"))
+        ++census["custom-properties"];
+    else if (name == "position" && (first_ident == "absolute" || first_ident == "fixed" || first_ident == "relative" || first_ident == "sticky"))
+        ++census["position"];
+    else if (name == "z-index")
+        ++census["z-index"];
+    else if (name == "display" && first_ident == "inline-block")
+        ++census["inline-block"];
+    else if (name == "display" && (first_ident.starts_with("table") || first_ident == "inline-table"))
+        ++census["tables"];
+    else if (name == "display" && (first_ident == "grid" || first_ident == "inline-grid"))
+        ++census["grid"];
+    else if (name.starts_with("grid-") || name == "grid")
+        ++census["grid"];
+    else if (name == "display" && first_ident == "contents")
+        ++census["display-contents"];
+    else if ((name == "overflow" || name == "overflow-x" || name == "overflow-y")
+        && (first_ident == "hidden" || first_ident == "auto" || first_ident == "scroll" || first_ident == "clip"))
+        ++census["overflow-clipping"];
+    else if (name == "transform" || name == "translate" || name == "rotate" || name == "scale")
+        ++census["transforms"];
+    else if (name.starts_with("animation") || name.starts_with("transition"))
+        ++census["animations"];
+    else if (name == "visibility")
+        ++census["visibility"];
+    else if (name == "vertical-align")
+        ++census["vertical-align"];
+    else if (name == "background-image" || (name == "background" && has_url))
+        ++census["background-images"];
+    else if (name.starts_with("border") && name.find("radius") != std::string::npos)
+        ++census["border-radius"];
+    else if (name == "box-shadow" || name == "text-shadow")
+        ++census["shadows"];
+    else if (name == "opacity" || name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")
+        ++census["effects"];
+    else if (name == "letter-spacing" || name == "word-spacing" || name == "text-transform" || name == "text-overflow")
+        ++census["text-properties"];
+    else if (name == "columns" || name == "column-count" || name == "column-width")
+        ++census["multi-column"];
+    else if (name == "object-fit" || name == "aspect-ratio")
+        ++census["sizing"];
+    else if (name == "outline" || name.starts_with("outline-"))
+        ++census["outline"];
+    else if (name == "direction" || name == "writing-mode")
+        ++census["direction"];
+    else if (name == "counter-reset" || name == "counter-increment")
+        ++census["counters"];
+    if (name != "src")
+        census_values(declaration.value, census);
+}
+
+void census_rules(std::vector<css::Rule> const& rules, FeatureCensus& census)
+{
+    for (css::Rule const& rule : rules) {
+        if (rule.is_qualified()) {
+            for (css::Declaration const& declaration : rule.qualified().declarations)
+                census_declaration(declaration, census);
+            census_rules(rule.qualified().child_rules, census);
+        } else if (rule.is_at_rule()) {
+            std::string const name = lowercase_ascii(rule.at_rule().name);
+            if (name == "font-face") {
+                for (css::Rule const& child : rule.at_rule().child_rules) {
+                    if (!child.is_nested_declarations())
+                        continue;
+                    for (css::Declaration const& declaration : child.nested_declarations().declarations) {
+                        if (lowercase_ascii(declaration.name) != "src")
+                            continue;
+                        for (css::ComponentValue const& value : declaration.value) {
+                            std::string text;
+                            if (value.is_token(css::Token::Type::Url) || value.is_token(css::Token::Type::String))
+                                text = lowercase_ascii(value.token().value);
+                            else if (value.is_function())
+                                for (css::ComponentValue const& inner : value.function().values)
+                                    if (inner.is_token(css::Token::Type::String))
+                                        text = lowercase_ascii(inner.token().value);
+                            if (text.find("woff") != std::string::npos) {
+                                ++census["web-fonts"];
+                                break;
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if (name == "supports" || name == "layer" || name == "container" || name == "keyframes" || name == "scope")
+                ++census["at-rules"];
+            census_rules(rule.at_rule().child_rules, census);
+        } else if (rule.is_nested_declarations()) {
+            for (css::Declaration const& declaration : rule.nested_declarations().declarations)
+                census_declaration(declaration, census);
+        }
+    }
+}
+
+FeatureCensus feature_census(std::vector<css::SheetSource> const& sheets)
+{
+    FeatureCensus census;
+    for (css::SheetSource const& sheet : sheets)
+        census_rules(css::parse_stylesheet(sheet.text).rules, census);
+    return census;
+}
+
 int render_page(std::string const& path, std::string const& output, int viewport_width,
     int viewport_height, RenderExtras const& extras)
 {
@@ -521,7 +670,15 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << " },\n"
             << "  \"fonts\": " << fonts.size() << ",\n"
             << "  \"connections\": { \"opened\": " << connections.opened << ", \"reused\": "
-            << connections.reused << ", \"retried\": " << connections.retried << " },\n"
+            << connections.reused << ", \"retried\": " << connections.retried << " },\n";
+        FeatureCensus const census = feature_census(sheets);
+        out << "  \"asks\": {";
+        bool first_ask = true;
+        for (auto const& [feature, count] : census) {
+            out << (first_ask ? " " : ", ") << json_string(feature) << ": " << count;
+            first_ask = false;
+        }
+        out << (first_ask ? "" : " ") << "},\n"
             << "  \"ms\": { \"fetch\": " << static_cast<long>(load->fetch_ms + 0.5)
             << ", \"parse\": " << whole_ms(t1 - t0) << ", \"stylesheets\": " << whole_ms(t2 - t1)
             << ", \"style\": " << whole_ms(t3 - t2) << ", \"images\": " << whole_ms(t4 - t3)
