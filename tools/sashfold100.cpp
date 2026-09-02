@@ -225,7 +225,6 @@ constexpr FeatureName feature_names[] = {
     { "outline", "outlines" },
     { "direction", "writing direction" },
     { "counters", "counters" },
-    { "calc", "calc() and min/max/clamp" },
     { "web-fonts", "web fonts in WOFF or WOFF2" },
     { "at-rules", "@supports, @layer, @container, @keyframes, @scope" },
 };

@@ -27,6 +27,7 @@ float resolve(LengthPercent const& length, float percent_base)
     case LengthPercent::Kind::Auto: return 0;
     case LengthPercent::Kind::Px: return length.value;
     case LengthPercent::Kind::Percent: return percent_base * length.value / 100.0f;
+    case LengthPercent::Kind::Calc: return length.value + percent_base * length.percent / 100.0f;
     }
     return 0;
 }
@@ -159,7 +160,7 @@ std::optional<LengthPercent> attribute_length(dom::Element const& element, char 
     if (digits == 0)
         return std::nullopt;
     if (digits < text.size() && text[digits] == '%')
-        return LengthPercent::percent(value);
+        return LengthPercent::percent_of(value);
     return LengthPercent::px(value);
 }
 
@@ -1451,8 +1452,14 @@ struct Layouter {
             }
         }
         if (is_control(element)) {
-            // A block-level control: its own box is the whole of it.
-            ControlSpec const spec = control_spec(element, style, content_width);
+            // A block-level control: its own box is the whole of it — unless
+            // a formatting context settled its size (a control stretched
+            // between left and right, or a flex line's item).
+            ControlSpec spec = control_spec(element, style, content_width);
+            if (options.content_width)
+                spec.size.width = *options.content_width + horizontal_edges;
+            if (options.content_height)
+                spec.size.height = *options.content_height + padding_top + padding_bottom + border_top + border_bottom;
             fragment.width = spec.size.width;
             fragment.height = spec.size.height;
             fill_control(fragment, spec, style);

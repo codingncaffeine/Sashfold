@@ -1583,6 +1583,9 @@ struct Browser::Impl {
         case css::LengthPercent::Kind::Auto: return "auto";
         case css::LengthPercent::Kind::Px: return number_text(length.value) + "px";
         case css::LengthPercent::Kind::Percent: return number_text(length.value) + "%";
+        case css::LengthPercent::Kind::Calc:
+            return "calc(" + number_text(length.percent) + "% "
+                + (length.value < 0 ? "- " + number_text(-length.value) : "+ " + number_text(length.value)) + "px)";
         }
         return "?";
     }

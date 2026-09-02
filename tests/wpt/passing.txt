@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (5331 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (5352 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-004e.xht
@@ -3505,6 +3505,7 @@ css/css-flexbox/flexbox-flex-wrap-nowrap.htm
 css/css-flexbox/flexbox-gap-position-absolute.html
 css/css-flexbox/flexbox-iframe-intrinsic-size-001.html
 css/css-flexbox/flexbox-min-height-auto-002b.html
+css/css-flexbox/flexbox-min-width-auto-001.html
 css/css-flexbox/flexbox-order-only-flexitems.html
 css/css-flexbox/flexbox-overflow-horiz-002.html
 css/css-flexbox/flexbox-overflow-horiz-003.html
@@ -3609,9 +3610,6 @@ css/css-flexbox/gap-001-lr.html
 css/css-flexbox/gap-001-ltr.html
 css/css-flexbox/gap-001-rl.html
 css/css-flexbox/gap-001-rtl.html
-css/css-flexbox/gap-003-ltr.html
-css/css-flexbox/gap-003-rtl.html
-css/css-flexbox/gap-008-ltr.html
 css/css-flexbox/gap-009-ltr.html
 css/css-flexbox/gap-010-ltr.html
 css/css-flexbox/gap-011.html
@@ -3654,6 +3652,11 @@ css/css-flexbox/remove-wrapped-002.html
 css/css-flexbox/scrollbars-auto.html
 css/css-flexbox/scrollbars-no-margin.html
 css/css-flexbox/scrollbars.html
+css/css-flexbox/select-element-multiple.html
+css/css-flexbox/select-element-zero-height-001.html
+css/css-flexbox/select-element-zero-height-002.html
+css/css-flexbox/stretch-flex-item-checkbox-input.html
+css/css-flexbox/stretch-flex-item-radio-input.html
 css/css-flexbox/stretch-input-in-column.html
 css/css-flexbox/stretching-orthogonal-flows.html
 css/css-flexbox/table-as-item-change-cell.html
@@ -3893,6 +3896,7 @@ css/css-grid/animation/grid-template-columns-001.html
 css/css-grid/animation/grid-template-rows-001.html
 css/css-grid/anonymous-grid-items-001.html
 css/css-grid/empty-grid-within-flexbox.html
+css/css-grid/grid-calc-margin.html
 css/css-grid/grid-container-as-flex-item-001.html
 css/css-grid/grid-container-as-flex-item-002.html
 css/css-grid/grid-container-as-flex-item-003.html
@@ -4061,7 +4065,6 @@ css/css-grid/grid-lanes/item-placement/row-auto-placement-002.html
 css/css-grid/grid-lanes/items/column-flex-spanning-items.html
 css/css-grid/grid-lanes/items/column-item-minmax-img-001.html
 css/css-grid/grid-lanes/items/column-item-minmax-img-002.html
-css/css-grid/grid-lanes/items/column-item-percentage-sizes-003.html
 css/css-grid/grid-lanes/items/row-flex-spanning-items.html
 css/css-grid/grid-lanes/items/row-item-minmax-img-001.html
 css/css-grid/grid-lanes/items/row-item-minmax-img-002.html
@@ -4643,9 +4646,6 @@ css/css-position/position-absolute-replaced-with-display-table.html
 css/css-position/position-absolute-root-element-flex.html
 css/css-position/position-absolute-root-element-grid.html
 css/css-position/position-absolute-scrollable-overflow-zero.html
-css/css-position/position-absolute-semi-replaced-stretch-button.html
-css/css-position/position-absolute-semi-replaced-stretch-input.html
-css/css-position/position-absolute-semi-replaced-stretch-other.html
 css/css-position/position-absolute-under-non-containing-stacking-context.html
 css/css-position/position-change.html
 css/css-position/position-fixed-root-element-flex.html
@@ -4691,7 +4691,6 @@ css/css-position/sticky/position-sticky-bottom-005.html
 css/css-position/sticky/position-sticky-bottom-006.html
 css/css-position/sticky/position-sticky-column-reverse-flex.html
 css/css-position/sticky/position-sticky-fixed-ancestor-iframe.html
-css/css-position/sticky/position-sticky-fixed-ancestor.html
 css/css-position/sticky/position-sticky-fractional-offset.html
 css/css-position/sticky/position-sticky-hyperlink.html
 css/css-position/sticky/position-sticky-left-002.html
@@ -5160,7 +5159,22 @@ css/css-values/calc-background-linear-gradient-1.html
 css/css-values/calc-background-position-1.html
 css/css-values/calc-background-size-1.html
 css/css-values/calc-border-radius-1.html
+css/css-values/calc-ch-ex-lang.html
+css/css-values/calc-height-table-1.html
+css/css-values/calc-in-calc.html
+css/css-values/calc-in-max.html
 css/css-values/calc-invalid-range-clamping.html
+css/css-values/calc-margin-block-1.html
+css/css-values/calc-max-width-block-1.html
+css/css-values/calc-min-width-block-1.html
+css/css-values/calc-offsets-absolute-bottom-1.html
+css/css-values/calc-offsets-absolute-left-1.html
+css/css-values/calc-offsets-absolute-right-1.html
+css/css-values/calc-offsets-absolute-top-1.html
+css/css-values/calc-offsets-relative-left-1.html
+css/css-values/calc-offsets-relative-right-1.html
+css/css-values/calc-padding-block-1.html
+css/css-values/calc-parenthesis-stack.html
 css/css-values/calc-rounding-001.html
 css/css-values/calc-rounding-002.html
 css/css-values/calc-size/calc-size-flex-007.html
@@ -5170,11 +5184,15 @@ css/css-values/calc-size/calc-size-no-body-height-quirk-001.html
 css/css-values/calc-text-indent-1.html
 css/css-values/calc-transform-origin-1.html
 css/css-values/calc-vertical-align-1.html
+css/css-values/calc-width-block-1.html
 css/css-values/calc-width-table-auto-1.html
 css/css-values/calc-width-table-fixed-1.html
 css/css-values/calc-zero-percent-height.html
+css/css-values/ex-calc-expression-001.html
 css/css-values/ex-unit-001.html
 css/css-values/ex-unit-004.html
+css/css-values/max-20-arguments.html
+css/css-values/max-unitless-zero-invalid.html
 css/css-values/negative-calc-to-non-negative-integer.html
 css/css-values/q-unit-case-insensitivity-001.html
 css/css-values/q-unit-case-insensitivity-002.html
@@ -5189,9 +5207,12 @@ css/css-values/urls/cross-origin/url-import-cross-origin-anonymous-negative.sub.
 css/css-values/urls/cross-origin/url-import-cross-origin-use-credentials-negative.sub.html
 css/css-values/urls/integrity/url-image-integrity-negative.sub.html
 css/css-values/urls/integrity/url-import-integrity-negative.sub.html
+css/css-values/vh-calc-support.html
+css/css-values/vh-em-inherit.html
 css/css-values/vh-support-margin.html
 css/css-values/vh-support-transform-origin.html
 css/css-values/vh-support-transform-translate.html
+css/css-values/vh-support.html
 css/css-values/vh-update-and-transition-in-subframe.html
 css/css-values/vh-zero-support.html
 css/css-values/viewport-unit-011.html

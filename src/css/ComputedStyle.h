@@ -60,13 +60,23 @@ struct LengthPercent {
         Auto,
         Px,
         Percent, // value holds 0-100
+        Calc, // value holds the pixels, percent the percentage: calc(100% - 20px)
     };
     Kind kind = Kind::Px;
     float value = 0;
+    float percent = 0; // Calc only
 
-    static constexpr LengthPercent auto_value() { return { Kind::Auto, 0 }; }
-    static constexpr LengthPercent px(float value) { return { Kind::Px, value }; }
-    static constexpr LengthPercent percent(float value) { return { Kind::Percent, value }; }
+    static constexpr LengthPercent auto_value() { return { Kind::Auto, 0, 0 }; }
+    static constexpr LengthPercent px(float value) { return { Kind::Px, value, 0 }; }
+    static constexpr LengthPercent percent_of(float value) { return { Kind::Percent, value, 0 }; }
+    static constexpr LengthPercent calc(float px, float percent)
+    {
+        if (percent == 0)
+            return { Kind::Px, px, 0 };
+        if (px == 0)
+            return { Kind::Percent, percent, 0 };
+        return { Kind::Calc, px, percent };
+    }
     bool is_auto() const { return kind == Kind::Auto; }
 };
 

@@ -81,6 +81,9 @@ int main()
   #vars-grandchild { background-color: var(--main); padding-top: var(--missing) }
   #vars-loop { color: var(--loop-a, rgb(5, 5, 5)) }
   #vars-initial { --main: initial; color: var(--main, rgb(8, 8, 8)) }
+  #calc { width: calc(100% - 20px); margin-left: calc(2em + 4px); padding-top: calc(10px * 2); padding-bottom: calc((10px + 5px) / 3);
+          height: 50vh; min-width: min(100px, 50px); max-width: clamp(10px, 5px, 20px); margin-top: max(10%, 30%); margin-right: calc(3em * 2 - 6px) }
+  #calc-bad { width: calc(10px * 10px); height: calc(10px + 5); margin-top: calc(5px }
 </style></head>
 <body id="body">
   <p id="plain">plain</p>
@@ -105,8 +108,28 @@ int main()
   <div id="vars"><div id="vars-child"><span id="vars-grandchild">g</span></div></div>
   <div id="vars-loop">l</div>
   <div id="vars-initial">i</div>
+  <div id="calc">c</div>
+  <div id="calc-bad">b</div>
 </body></html>)"));
     g_styles = css::resolve_styles(*g_document);
+
+    // --- calc(), min(), max(), clamp(), the viewport units ---------------------
+    {
+        ComputedStyle const& c = style_of("calc");
+        CHECK(c.width.kind == LengthPercent::Kind::Calc && close(c.width.percent, 100) && close(c.width.value, -20));
+        CHECK(c.margin_left.kind == LengthPercent::Kind::Px && close(c.margin_left.value, 44)); // 2em of 20px, plus 4
+        CHECK(close(c.padding_top.value, 20));
+        CHECK(close(c.padding_bottom.value, 5)); // (10 + 5) / 3
+        CHECK(c.height.kind == LengthPercent::Kind::Px && close(c.height.value, 384)); // 50vh of the default 768
+        CHECK(close(c.min_width.value, 50));
+        CHECK(close(c.max_width.value, 10)); // clamp holds 5 up to its 10 floor
+        CHECK(c.margin_top.kind == LengthPercent::Kind::Percent && close(c.margin_top.value, 30)); // max in one currency
+        CHECK(close(c.margin_right.value, 114)); // 3em of 20 is 60, twice, less 6
+        ComputedStyle const& bad = style_of("calc-bad");
+        CHECK(bad.width.is_auto()); // a length times a length is no length
+        CHECK(bad.height.is_auto()); // a length plus a number neither
+        CHECK(close(bad.margin_top.value, 0)); // an unclosed calc is dropped by the parser
+    }
 
     // --- Custom properties and var() ------------------------------------------
     {

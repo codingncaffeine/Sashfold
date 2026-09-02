@@ -457,9 +457,7 @@ void census_values(std::vector<css::ComponentValue> const& values, FeatureCensus
     for (css::ComponentValue const& value : values) {
         if (value.is_function()) {
             std::string const name = lowercase_ascii(value.function().name);
-            if (name == "calc" || name == "min" || name == "max" || name == "clamp")
-                ++census["calc"];
-            else if (name.ends_with("gradient"))
+            if (name.ends_with("gradient"))
                 ++census["gradients"];
             else if (name == "counter" || name == "counters")
                 ++census["counters"];

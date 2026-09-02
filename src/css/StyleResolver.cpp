@@ -460,11 +460,216 @@ std::optional<Color> parse_color_component(ComponentValue const& value, Color cu
 struct LengthContext {
     float font_size = 16;
     float root_font_size = 16;
+    float viewport_width = 1024;
+    float viewport_height = 768;
 };
 
 std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
-    LengthContext const& context, bool allow_auto, bool allow_percent = true)
+    LengthContext const& context, bool allow_auto, bool allow_percent = true);
+
+std::string lowercase_name(std::string_view text)
 {
+    std::string out;
+    out.reserve(text.size());
+    for (char const c : text)
+        out += static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+    return out;
+}
+
+// calc(), min(), max() and clamp() over lengths and percentages: a sum of
+// products of lengths, percentages and numbers, with parentheses and the
+// four functions nested. A value is pixels plus a percentage, or a bare
+// number (a factor). Comparisons need all arms in one currency — pixels
+// alone or percentages alone.
+struct CalcValue {
+    float px = 0;
+    float percent = 0;
+    bool number = false; // a unitless number: only a factor
+    float scalar = 0;
+};
+
+class CalcEvaluator {
+public:
+    CalcEvaluator(std::vector<ComponentValue const*> items, LengthContext const& context, bool allow_percent)
+        : m_items(std::move(items))
+        , m_context(context)
+        , m_allow_percent(allow_percent)
+    {
+    }
+
+    std::optional<CalcValue> whole()
+    {
+        std::optional<CalcValue> const result = sum();
+        if (!result || m_at != m_items.size())
+            return std::nullopt;
+        return result;
+    }
+
+private:
+    bool is_delim(char32_t which) const
+    {
+        return m_at < m_items.size() && m_items[m_at]->is_token(Token::Type::Delim)
+            && m_items[m_at]->token().delim == which;
+    }
+
+    std::optional<CalcValue> sum()
+    {
+        std::optional<CalcValue> left = product();
+        if (!left)
+            return std::nullopt;
+        while (is_delim(U'+') || is_delim(U'-')) {
+            bool const minus = is_delim(U'-');
+            ++m_at;
+            std::optional<CalcValue> const right = product();
+            if (!right || left->number != right->number)
+                return std::nullopt;
+            float const sign = minus ? -1.0f : 1.0f;
+            left->px += sign * right->px;
+            left->percent += sign * right->percent;
+            left->scalar += sign * right->scalar;
+        }
+        return left;
+    }
+
+    std::optional<CalcValue> product()
+    {
+        std::optional<CalcValue> left = unit();
+        if (!left)
+            return std::nullopt;
+        while (is_delim(U'*') || is_delim(U'/')) {
+            bool const divide = is_delim(U'/');
+            ++m_at;
+            std::optional<CalcValue> const right = unit();
+            if (!right)
+                return std::nullopt;
+            if (divide) {
+                if (!right->number || right->scalar == 0)
+                    return std::nullopt;
+                left->px /= right->scalar;
+                left->percent /= right->scalar;
+                left->scalar /= right->scalar;
+            } else if (right->number) {
+                left->px *= right->scalar;
+                left->percent *= right->scalar;
+                left->scalar *= right->scalar;
+            } else if (left->number) {
+                float const factor = left->scalar;
+                left = right;
+                left->px *= factor;
+                left->percent *= factor;
+            } else {
+                return std::nullopt; // a length times a length
+            }
+        }
+        return left;
+    }
+
+    std::optional<CalcValue> unit()
+    {
+        if (m_at >= m_items.size())
+            return std::nullopt;
+        ComponentValue const& value = *m_items[m_at];
+        if (value.is_block() && value.block().open == Token::Type::OpenParen) {
+            ++m_at;
+            CalcEvaluator inner(significant(value.block().values), m_context, m_allow_percent);
+            return inner.whole();
+        }
+        if (value.is_function()) {
+            ++m_at;
+            return function(value.function());
+        }
+        if (value.is_token(Token::Type::Number)) {
+            ++m_at;
+            CalcValue number;
+            number.number = true;
+            number.scalar = static_cast<float>(value.token().numeric_value);
+            return number;
+        }
+        std::optional<LengthPercent> const length = parse_length_percent(value, m_context, false, m_allow_percent);
+        if (!length)
+            return std::nullopt;
+        ++m_at;
+        CalcValue result;
+        if (length->kind == LengthPercent::Kind::Percent)
+            result.percent = length->value;
+        else if (length->kind == LengthPercent::Kind::Calc) {
+            result.px = length->value;
+            result.percent = length->percent;
+        } else
+            result.px = length->value;
+        return result;
+    }
+
+    std::optional<CalcValue> function(FunctionValue const& call)
+    {
+        std::string const name = lowercase_name(call.name);
+        std::vector<std::vector<ComponentValue const*>> arguments(1);
+        for (ComponentValue const* item : significant(call.values)) {
+            if (item->is_token(Token::Type::Comma))
+                arguments.emplace_back();
+            else
+                arguments.back().push_back(item);
+        }
+        std::vector<CalcValue> values;
+        for (std::vector<ComponentValue const*> const& argument : arguments) {
+            CalcEvaluator inner(argument, m_context, m_allow_percent);
+            std::optional<CalcValue> const value = inner.whole();
+            if (!value)
+                return std::nullopt;
+            values.push_back(*value);
+        }
+        if (name == "calc")
+            return values.size() == 1 ? std::optional<CalcValue>(values[0]) : std::nullopt;
+        if (name != "min" && name != "max" && name != "clamp")
+            return std::nullopt;
+        if (name == "clamp" ? values.size() != 3 : values.empty())
+            return std::nullopt;
+        // Comparable only in one currency.
+        bool const pixels = std::all_of(values.begin(), values.end(),
+            [](CalcValue const& v) { return !v.number && v.percent == 0; });
+        bool const percents = std::all_of(values.begin(), values.end(),
+            [](CalcValue const& v) { return !v.number && v.px == 0; });
+        if (!pixels && !percents)
+            return std::nullopt;
+        auto const measure = [&](CalcValue const& v) { return pixels ? v.px : v.percent; };
+        CalcValue result = values[0];
+        if (name == "min") {
+            for (CalcValue const& v : values)
+                if (measure(v) < measure(result))
+                    result = v;
+        } else if (name == "max") {
+            for (CalcValue const& v : values)
+                if (measure(v) > measure(result))
+                    result = v;
+        } else {
+            result = values[1];
+            if (measure(result) < measure(values[0]))
+                result = values[0];
+            if (measure(result) > measure(values[2]))
+                result = values[2];
+        }
+        return result;
+    }
+
+    std::vector<ComponentValue const*> m_items;
+    std::size_t m_at = 0;
+    LengthContext const& m_context;
+    bool m_allow_percent;
+};
+
+std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
+    LengthContext const& context, bool allow_auto, bool allow_percent)
+{
+    if (value.is_function()) {
+        std::string const name = lowercase_name(value.function().name);
+        if (name != "calc" && name != "min" && name != "max" && name != "clamp")
+            return std::nullopt;
+        CalcEvaluator evaluator({ &value }, context, allow_percent);
+        std::optional<CalcValue> const result = evaluator.whole();
+        if (!result || result->number)
+            return std::nullopt;
+        return LengthPercent::calc(result->px, result->percent);
+    }
     if (!value.is_token())
         return std::nullopt;
     Token const& token = value.token();
@@ -478,7 +683,7 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
     if (token.type == Token::Type::Percentage) {
         if (!allow_percent)
             return std::nullopt;
-        return LengthPercent::percent(static_cast<float>(token.numeric_value));
+        return LengthPercent::percent_of(static_cast<float>(token.numeric_value));
     }
     if (token.type != Token::Type::Dimension)
         return std::nullopt;
@@ -505,6 +710,17 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
         return LengthPercent::px(static_cast<float>(number * 16.0));
     if (ascii_ci_equals(unit, "ex") || ascii_ci_equals(unit, "ch"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.font_size) * 0.5));
+    // The viewport units, against the viewport this resolution is for.
+    if (ascii_ci_equals(unit, "vw"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_width) / 100.0));
+    if (ascii_ci_equals(unit, "vh"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_height) / 100.0));
+    if (ascii_ci_equals(unit, "vmin"))
+        return LengthPercent::px(static_cast<float>(
+            number * static_cast<double>(std::min(context.viewport_width, context.viewport_height)) / 100.0));
+    if (ascii_ci_equals(unit, "vmax"))
+        return LengthPercent::px(static_cast<float>(
+            number * static_cast<double>(std::max(context.viewport_width, context.viewport_height)) / 100.0));
     return std::nullopt;
 }
 
@@ -1314,7 +1530,7 @@ struct Resolver {
             return;
         }
         // em/% on font-size resolve against the parent's font-size.
-        LengthContext const context { parent.font_size, root_font_size };
+        LengthContext const context { parent.font_size, root_font_size, set.media.width, set.media.height };
         auto length = parse_length_percent(value, context, false);
         if (!length)
             return;
@@ -1336,7 +1552,7 @@ struct Resolver {
         auto const values = significant(declaration.value);
         if (values.empty())
             return;
-        LengthContext const context { style.font_size, root_font_size };
+        LengthContext const context { style.font_size, root_font_size, set.media.width, set.media.height };
 
         auto const one_length = [&](LengthPercent& out, bool allow_auto) {
             if (values.size() != 1)
@@ -1725,7 +1941,7 @@ struct Resolver {
             if (is_ident(&value, "content"))
                 return LengthPercent::auto_value();
             auto length = parse_length_percent(value, context, true);
-            if (!length || (!length->is_auto() && length->value < 0))
+            if (!length || (!length->is_auto() && length->kind != LengthPercent::Kind::Calc && length->value < 0))
                 return std::nullopt;
             return length;
         };
@@ -1804,7 +2020,7 @@ struct Resolver {
                 auto length = parse_length_percent(value, context, false);
                 if (!length)
                     return std::nullopt;
-                if (length->kind == LengthPercent::Kind::Percent)
+                if (length->kind == LengthPercent::Kind::Percent || length->kind == LengthPercent::Kind::Calc)
                     return 0.0f; // percentages wait for their base
                 if (length->value < 0)
                     return std::nullopt;
@@ -1871,7 +2087,7 @@ struct Resolver {
             }
             LengthPercent const previous = target;
             one_length(target, !maximum);
-            if (!target.is_auto() && target.value < 0)
+            if (!target.is_auto() && target.kind != LengthPercent::Kind::Calc && target.value < 0)
                 target = previous;
             return;
         }
