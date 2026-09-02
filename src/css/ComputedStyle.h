@@ -10,10 +10,17 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace sashfold::css {
+
+struct ComponentValue;
+
+// Custom properties (--name) by name, each the component values it was
+// written as, with any var() inside them already substituted.
+using CustomProperties = std::unordered_map<std::string, std::vector<ComponentValue>>;
 
 // One piece of the content property's value.
 struct ContentItem {
@@ -260,6 +267,10 @@ struct ComputedStyle {
     Content content;
     std::shared_ptr<QuotePairs const> quotes;
     std::shared_ptr<GeneratedContent const> generated;
+    // The custom properties in force (--name → its component values, as
+    // written, var() references already substituted): inherited, shared
+    // with the parent until an element declares one of its own.
+    std::shared_ptr<CustomProperties const> custom;
 
     bool bold() const { return font_weight >= 600; }
     float line_height_px() const

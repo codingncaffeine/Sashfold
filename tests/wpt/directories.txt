@@ -17,3 +17,4 @@ css/css-syntax
 css/css-text
 css/css-values
 css/selectors
+css/css-variables

@@ -457,9 +457,7 @@ void census_values(std::vector<css::ComponentValue> const& values, FeatureCensus
     for (css::ComponentValue const& value : values) {
         if (value.is_function()) {
             std::string const name = lowercase_ascii(value.function().name);
-            if (name == "var")
-                ++census["custom-properties"];
-            else if (name == "calc" || name == "min" || name == "max" || name == "clamp")
+            if (name == "calc" || name == "min" || name == "max" || name == "clamp")
                 ++census["calc"];
             else if (name.ends_with("gradient"))
                 ++census["gradients"];
@@ -484,8 +482,8 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
             has_url = true;
     }
     if (name.starts_with("--"))
-        ++census["custom-properties"];
-    else if (name == "position" && (first_ident == "absolute" || first_ident == "fixed" || first_ident == "relative" || first_ident == "sticky"))
+        return; // custom properties are written; what they hold is counted where it is used
+    if (name == "position" && (first_ident == "absolute" || first_ident == "fixed" || first_ident == "relative" || first_ident == "sticky"))
         ++census["position"];
     else if (name == "z-index")
         ++census["z-index"];

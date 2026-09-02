@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -922,7 +923,190 @@ struct Resolver {
         style.white_space = parent.white_space;
         style.list_style_type = parent.list_style_type;
         style.quotes = parent.quotes;
+        style.custom = parent.custom;
         return style;
+    }
+
+    // --- Custom properties and var() ------------------------------------------
+
+    static bool is_var(ComponentValue const& value)
+    {
+        return value.is_function() && ascii_ci_equals(value.function().name, "var");
+    }
+
+    static bool contains_var(std::vector<ComponentValue> const& values)
+    {
+        for (ComponentValue const& value : values) {
+            if (value.is_function()) {
+                if (is_var(value) || contains_var(value.function().values))
+                    return true;
+            } else if (value.is_block() && contains_var(value.block().values)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static std::vector<ComponentValue> trimmed(std::vector<ComponentValue> const& values)
+    {
+        std::size_t start = 0;
+        std::size_t end = values.size();
+        while (start < end && values[start].is_token(Token::Type::Whitespace))
+            ++start;
+        while (end > start && values[end - 1].is_token(Token::Type::Whitespace))
+            --end;
+        return std::vector<ComponentValue>(values.begin() + static_cast<std::ptrdiff_t>(start),
+            values.begin() + static_cast<std::ptrdiff_t>(end));
+    }
+
+    // Replaces every var() in `in` with the named custom property's value,
+    // or the fallback after the comma, into `out`. False when a reference
+    // has neither (the declaration is then invalid at computed-value
+    // time), when the nesting runs too deep, or when the result outgrows
+    // the budget — the guard against a value that doubles itself.
+    static bool substitute_vars(std::vector<ComponentValue> const& in, CustomProperties const* custom,
+        std::vector<ComponentValue>& out, int depth, std::size_t& budget)
+    {
+        if (depth > 32)
+            return false;
+        for (ComponentValue const& value : in) {
+            if (budget == 0)
+                return false;
+            --budget;
+            if (value.is_function()) {
+                FunctionValue const& function = value.function();
+                if (is_var(value)) {
+                    std::vector<ComponentValue> const& arguments = function.values;
+                    std::size_t i = 0;
+                    while (i < arguments.size() && arguments[i].is_token(Token::Type::Whitespace))
+                        ++i;
+                    if (i >= arguments.size() || !arguments[i].is_token(Token::Type::Ident)
+                        || !arguments[i].token().value.starts_with("--"))
+                        return false;
+                    std::string const& name = arguments[i].token().value;
+                    ++i;
+                    while (i < arguments.size() && arguments[i].is_token(Token::Type::Whitespace))
+                        ++i;
+                    bool has_fallback = false;
+                    std::vector<ComponentValue> fallback;
+                    if (i < arguments.size()) {
+                        if (!arguments[i].is_token(Token::Type::Comma))
+                            return false;
+                        has_fallback = true;
+                        fallback.assign(arguments.begin() + static_cast<std::ptrdiff_t>(i) + 1, arguments.end());
+                    }
+                    auto const it = custom ? custom->find(name) : CustomProperties::const_iterator {};
+                    if (custom && it != custom->end()) {
+                        if (it->second.size() > budget)
+                            return false;
+                        budget -= it->second.size();
+                        out.insert(out.end(), it->second.begin(), it->second.end());
+                    } else if (has_fallback) {
+                        if (!substitute_vars(fallback, custom, out, depth + 1, budget))
+                            return false;
+                    } else {
+                        return false;
+                    }
+                    continue;
+                }
+                FunctionValue copy;
+                copy.name = function.name;
+                if (!substitute_vars(function.values, custom, copy.values, depth + 1, budget))
+                    return false;
+                out.push_back(ComponentValue { std::move(copy) });
+            } else if (value.is_block()) {
+                SimpleBlock copy;
+                copy.open = value.block().open;
+                if (!substitute_vars(value.block().values, custom, copy.values, depth + 1, budget))
+                    return false;
+                out.push_back(ComponentValue { std::move(copy) });
+            } else {
+                out.push_back(value);
+            }
+        }
+        return true;
+    }
+
+    // The custom properties an element declares, over the inherited set:
+    // each value's own var() references resolved against the others (in
+    // any order, with cycles and dead ends dropping the property, the
+    // guaranteed-invalid value), then stored substituted.
+    static std::shared_ptr<CustomProperties const> settle_custom_properties(
+        CustomProperties&& own, CustomProperties const* inherited)
+    {
+        auto settled = std::make_shared<CustomProperties>();
+        if (inherited)
+            *settled = *inherited;
+        // The declared ones override; resolve them against a working map
+        // that holds the inherited values and the declared raw ones.
+        CustomProperties working = *settled;
+        for (auto const& [name, value] : own)
+            working[name] = value;
+        std::unordered_map<std::string, int> state; // 0 untouched, 1 in progress, 2 done
+        std::function<bool(std::string const&)> const resolve = [&](std::string const& name) -> bool {
+            auto const it = working.find(name);
+            if (it == working.end())
+                return false;
+            int& mark = state[name];
+            if (mark == 2)
+                return true;
+            if (mark == 1)
+                return false; // a cycle
+            mark = 1;
+            if (contains_var(it->second)) {
+                // Resolve what this value refers to first, so the working
+                // map holds substituted values when this one is built.
+                std::vector<std::string> referenced;
+                std::function<void(std::vector<ComponentValue> const&)> const collect
+                    = [&](std::vector<ComponentValue> const& values) {
+                          for (ComponentValue const& value : values) {
+                              if (value.is_function()) {
+                                  if (is_var(value)) {
+                                      for (ComponentValue const& argument : value.function().values) {
+                                          if (argument.is_token(Token::Type::Ident)
+                                              && argument.token().value.starts_with("--")) {
+                                              referenced.push_back(argument.token().value);
+                                              break;
+                                          }
+                                      }
+                                  }
+                                  collect(value.function().values);
+                              } else if (value.is_block()) {
+                                  collect(value.block().values);
+                              }
+                          }
+                      };
+                collect(it->second);
+                bool ok = true;
+                for (std::string const& other : referenced) {
+                    if (working.count(other) && !resolve(other))
+                        ok = false;
+                }
+                std::vector<ComponentValue> substituted;
+                std::size_t budget = 65536;
+                if (!ok || !substitute_vars(it->second, &working, substituted, 0, budget)) {
+                    working.erase(name);
+                    state[name] = 2;
+                    return false;
+                }
+                it->second = std::move(substituted);
+            }
+            state[name] = 2;
+            return true;
+        };
+        std::vector<std::string> names;
+        for (auto const& [name, value] : own)
+            names.push_back(name);
+        for (std::string const& name : names)
+            (void)resolve(name);
+        for (std::string const& name : names) {
+            auto const it = working.find(name);
+            if (it != working.end())
+                (*settled)[name] = it->second;
+            else
+                settled->erase(name);
+        }
+        return settled;
     }
 
     ComputedStyle compute_for(dom::Element const& element, ComputedStyle const& parent)
@@ -979,29 +1163,92 @@ struct Resolver {
 
         std::stable_sort(matched.begin(), matched.end(), cascades_before);
 
+        // Custom properties first: they cascade like any property and the
+        // var() references in everything else read the settled set.
+        // `initial` drops one, `inherit` and `unset` keep the inherited.
+        {
+            CustomProperties own;
+            std::vector<std::string> initial; // `--x: initial`: dropped from the inherited set too
+            bool declared = false;
+            for (MatchedDeclaration const& entry : matched) {
+                Declaration const& declaration = *entry.declaration;
+                if (!declaration.name.starts_with("--"))
+                    continue;
+                declared = true;
+                std::string const& name = declaration.name;
+                std::erase(initial, name); // the latest declaration in cascade order wins
+                std::vector<ComponentValue> value = trimmed(declaration.value);
+                if (value.size() == 1 && value[0].is_token(Token::Type::Ident)) {
+                    std::string_view const keyword = value[0].token().value;
+                    if (ascii_ci_equals(keyword, "initial")) {
+                        own.erase(name);
+                        initial.push_back(name);
+                        continue;
+                    }
+                    if (ascii_ci_equals(keyword, "inherit") || ascii_ci_equals(keyword, "unset")) {
+                        own.erase(name);
+                        continue;
+                    }
+                }
+                own[name] = std::move(value);
+            }
+            if (declared) {
+                std::shared_ptr<CustomProperties const> settled
+                    = settle_custom_properties(std::move(own), parent.custom.get());
+                if (!initial.empty()) {
+                    auto without = std::make_shared<CustomProperties>(*settled);
+                    for (std::string const& name : initial)
+                        without->erase(name);
+                    settled = without;
+                }
+                style.custom = settled;
+            }
+        }
+        // A declaration that reads custom properties is applied through its
+        // substituted copy; one whose reference has no value and no fallback
+        // is invalid at computed-value time and skipped.
+        auto const with_vars = [&](Declaration const& declaration, auto&& use) {
+            if (declaration.name.starts_with("--"))
+                return;
+            if (!contains_var(declaration.value)) {
+                use(declaration);
+                return;
+            }
+            Declaration copy;
+            copy.name = declaration.name;
+            copy.important = declaration.important;
+            std::size_t budget = 65536;
+            if (substitute_vars(declaration.value, style.custom.get(), copy.value, 0, budget))
+                use(copy);
+        };
+
         // font-size first: em and font-relative units in the same element's
         // other declarations resolve against it.
         for (MatchedDeclaration const& entry : matched) {
-            if (ascii_ci_equals(entry.declaration->name, "font-size")) {
-                apply_font_size(style, parent, *entry.declaration);
-            } else if (ascii_ci_equals(entry.declaration->name, "font")) {
-                // The shorthand's size goes first too; its other parts follow in apply().
-                if (std::optional<FontShorthand> const parts
-                    = split_font_shorthand(significant(entry.declaration->value))) {
-                    Declaration size_only;
-                    size_only.name = "font-size";
-                    size_only.value.push_back(*parts->size);
-                    apply_font_size(style, parent, size_only);
+            with_vars(*entry.declaration, [&](Declaration const& declaration) {
+                if (ascii_ci_equals(declaration.name, "font-size")) {
+                    apply_font_size(style, parent, declaration);
+                } else if (ascii_ci_equals(declaration.name, "font")) {
+                    // The shorthand's size goes first too; its other parts follow in apply().
+                    if (std::optional<FontShorthand> const parts
+                        = split_font_shorthand(significant(declaration.value))) {
+                        Declaration size_only;
+                        size_only.name = "font-size";
+                        size_only.value.push_back(*parts->size);
+                        apply_font_size(style, parent, size_only);
+                    }
                 }
-            }
+            });
         }
         bool border_top_color_set = false;
         bool border_right_color_set = false;
         bool border_bottom_color_set = false;
         bool border_left_color_set = false;
         for (MatchedDeclaration const& entry : matched) {
-            apply(style, *entry.declaration, border_top_color_set, border_right_color_set,
-                border_bottom_color_set, border_left_color_set);
+            with_vars(*entry.declaration, [&](Declaration const& declaration) {
+                apply(style, declaration, border_top_color_set, border_right_color_set,
+                    border_bottom_color_set, border_left_color_set);
+            });
         }
 
         // currentColor is the border default.

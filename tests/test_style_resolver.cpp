@@ -75,6 +75,12 @@ int main()
   #normal::before { color: red }
   #legacy:before { content: "L" }
   #legacy::before span, #legacy { color: blue }
+  :root { --main: rgb(1, 2, 3); --gap: 4px 6px; --chain: var(--main); --loop-a: var(--loop-b); --loop-b: var(--loop-a) }
+  #vars { color: var(--main); margin: var(--gap); padding-left: var(--missing, 7px); background-color: var(--chain) }
+  #vars-child { --main: rgb(9, 9, 9); color: var(--main) }
+  #vars-grandchild { background-color: var(--main); padding-top: var(--missing) }
+  #vars-loop { color: var(--loop-a, rgb(5, 5, 5)) }
+  #vars-initial { --main: initial; color: var(--main, rgb(8, 8, 8)) }
 </style></head>
 <body id="body">
   <p id="plain">plain</p>
@@ -96,8 +102,27 @@ int main()
   <div id="url">u</div>
   <div id="normal">n</div>
   <div id="legacy">l</div>
+  <div id="vars"><div id="vars-child"><span id="vars-grandchild">g</span></div></div>
+  <div id="vars-loop">l</div>
+  <div id="vars-initial">i</div>
 </body></html>)"));
     g_styles = css::resolve_styles(*g_document);
+
+    // --- Custom properties and var() ------------------------------------------
+    {
+        ComputedStyle const& vars = style_of("vars");
+        CHECK(vars.color == Color::rgb(1, 2, 3)); // var() from the root
+        CHECK(close(vars.margin_top.value, 4) && close(vars.margin_right.value, 6)); // two tokens through a shorthand
+        CHECK(close(vars.padding_left.value, 7)); // the fallback of a missing property
+        CHECK(vars.background_color == Color::rgb(1, 2, 3)); // a custom property made of another
+        ComputedStyle const& child = style_of("vars-child");
+        CHECK(child.color == Color::rgb(9, 9, 9)); // its own value overrides the inherited one
+        ComputedStyle const& grandchild = style_of("vars-grandchild");
+        CHECK(grandchild.background_color == Color::rgb(9, 9, 9)); // custom properties inherit
+        CHECK(close(grandchild.padding_top.value, 0)); // no value, no fallback: the declaration is dropped
+        CHECK(style_of("vars-loop").color == Color::rgb(5, 5, 5)); // a cycle drops both; the fallback stands
+        CHECK(style_of("vars-initial").color == Color::rgb(8, 8, 8)); // initial drops the inherited value
+    }
 
     // --- Generated content: ::before and ::after ------------------------------
     {
