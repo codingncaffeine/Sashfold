@@ -839,5 +839,73 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Replaced boxes on a line carry their edges; the embedded kinds are 300 by 150
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 }
+  #pic { width: 20px; height: 10px; margin: 1px 4px; border: 2px solid black; padding: 3px }
+  #box { width: 30px; margin-left: 5px }
+</style></head><body>
+<p>aa<img id="pic" src="x.png">bb</p>
+<p><iframe id="frame"></iframe></p>
+<p><canvas id="canvas" width="100" height="50"></canvas></p>
+<p>cc<input id="box" type="checkbox">dd</p>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::Fragment const* pic = find_box(page.result.root, "pic");
+        if (CHECK(aa && bb && pic && pic->image)) {
+            float const g = aa->width / 2;
+            CHECK_EQ(pic->x, 2 * g + 4); // past its left margin
+            CHECK_EQ(pic->width, 30.0f); // border box: 20 + padding and border each side
+            CHECK_EQ(pic->height, 20.0f);
+            CHECK_EQ(pic->image->x, pic->x + 5); // the picture inside border and padding
+            CHECK_EQ(pic->image->width, 20.0f);
+            CHECK_EQ(pic->y + pic->height + 1, aa->baseline_y); // the bottom margin edge on the baseline
+            CHECK_EQ(bb->x, 2 * g + 38); // margin, border box, margin
+        }
+        layout::Fragment const* frame = find_box(page.result.root, "frame");
+        layout::Fragment const* canvas = find_box(page.result.root, "canvas");
+        if (CHECK(frame && canvas)) {
+            CHECK_EQ(frame->width, 300.0f); // no picture, no size written: CSS 2.1 §10.3.2
+            CHECK_EQ(frame->height, 150.0f);
+            CHECK_EQ(canvas->width, 100.0f); // its attributes size it
+            CHECK_EQ(canvas->height, 50.0f);
+        }
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::TextRun const* dd = run_of(U"dd");
+        layout::Fragment const* box = find_box(page.result.root, "box");
+        if (CHECK(cc && dd && box && box->control)) {
+            float const g = cc->width / 2;
+            CHECK_EQ(box->x, 2 * g + 5); // a control's margin goes around its own box
+            CHECK_EQ(box->width, 30.0f);
+            CHECK_EQ(dd->x, 2 * g + 35 + 3); // the UA sheet's 3 px right margin on a checkbox
+        }
+    }
+
     return test::report("layout");
 }

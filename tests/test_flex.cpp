@@ -333,5 +333,20 @@ int main()
         }
     }
 
+    // --- A wrapping container whose items fit one line keeps that line its items' size
+    {
+        Page const page = lay_out(page_with(R"(<div class="c" style="flex-wrap:wrap;height:100px;align-content:flex-start"><div id="fits" style="width:100px">f</div></div>
+<div class="c" style="flex-wrap:wrap;height:100px"><div id="stretched" style="width:100px">t</div></div>
+<div class="c" style="height:100px"><div id="single" style="width:100px">s</div></div>)"));
+        layout::Fragment const* fits = find_box(page.result.root, "fits");
+        layout::Fragment const* stretched = find_box(page.result.root, "stretched");
+        layout::Fragment const* single = find_box(page.result.root, "single");
+        if (CHECK(fits && stretched && single)) {
+            CHECK_EQ(fits->height, 20.0f); // multi-line: the line is as tall as its item, which stretches to it
+            CHECK_EQ(stretched->height, 100.0f); // the same line stretched to the container by align-content
+            CHECK_EQ(single->height, 100.0f); // single-line: the line is the container's height
+        }
+    }
+
     return sashfold::test::report("flex");
 }

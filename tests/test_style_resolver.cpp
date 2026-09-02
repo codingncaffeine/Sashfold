@@ -287,6 +287,33 @@ int main()
         CHECK(style_of("code").font_family == families);
     }
 
+    // --- The border side longhands ---------------------------------------------
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  #a { border-left-style: solid; border-left-width: 2px; border-left-color: red }
+  #b { border-top-style: solid }
+  #c { border-right-width: 4px }
+  #d { border-bottom-style: solid; border-bottom-width: -1px }
+  #e { border: 1px solid blue; border-right-color: lime; border-right-width: thick }
+</style></head>
+<body><p id="a">a</p><p id="b">b</p><p id="c">c</p><p id="d">d</p><p id="e">e</p></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        css::ComputedStyle const& a = style_of("a");
+        CHECK(a.border_left.style == css::BorderStyle::Solid);
+        CHECK(close(a.border_left.width, 2));
+        CHECK(a.border_left.color == Color::rgb(255, 0, 0));
+        CHECK(close(a.border_top.width, 0)); // the other sides untouched
+        CHECK(close(style_of("b").border_top.width, 3)); // a style alone is medium wide
+        CHECK(close(style_of("c").border_right.width, 0)); // a width with no style has no used width
+        CHECK(close(style_of("d").border_bottom.width, 3)); // a negative width is ignored: medium stands
+        css::ComputedStyle const& e = style_of("e");
+        CHECK(close(e.border_right.width, 5));
+        CHECK(e.border_right.color == Color::rgb(0, 255, 0));
+        CHECK(e.border_left.color == Color::rgb(0, 0, 255));
+        CHECK(close(e.border_left.width, 1));
+    }
+
     // --- The font shorthand ---------------------------------------------------
     g_document = html::parse_document(std::string_view(R"(<!doctype html>
 <html><head><style>

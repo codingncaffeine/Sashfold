@@ -812,8 +812,8 @@ std::optional<float> parse_border_width(ComponentValue const& value, LengthConte
     if (is_ident(&value, "thick"))
         return 5.0f;
     auto length = parse_length_percent(value, context, false, false);
-    if (length && length->kind == LengthPercent::Kind::Px)
-        return length->value;
+    if (length && length->kind == LengthPercent::Kind::Px && length->value >= 0)
+        return length->value; // a negative width is no width at all: the declaration is ignored
     return std::nullopt;
 }
 
@@ -2653,6 +2653,44 @@ struct Resolver {
             border_top_color_set = border_right_color_set = true;
             border_bottom_color_set = border_left_color_set = true;
             return;
+        }
+        if (name.starts_with("border-") && values.size() == 1) {
+            // The side longhands: border-top-width, border-left-style,
+            // border-bottom-color and the rest.
+            std::string_view const rest = std::string_view(name).substr(7);
+            BorderSide* side = nullptr;
+            bool* color_flag = nullptr;
+            std::string_view property;
+            auto const pick = [&](std::string_view prefix, BorderSide& candidate, bool& flag) {
+                if (!rest.starts_with(prefix))
+                    return false;
+                side = &candidate;
+                color_flag = &flag;
+                property = rest.substr(prefix.size());
+                return true;
+            };
+            if (pick("top-", style.border_top, border_top_color_set)
+                || pick("right-", style.border_right, border_right_color_set)
+                || pick("bottom-", style.border_bottom, border_bottom_color_set)
+                || pick("left-", style.border_left, border_left_color_set)) {
+                if (property == "width") {
+                    if (auto width = parse_border_width(*values[0], context))
+                        side->width = *width;
+                } else if (property == "style") {
+                    if (auto border_style = parse_border_style(*values[0])) {
+                        side->style = *border_style;
+                        // A style with no width written yet is medium wide.
+                        if (side->style == BorderStyle::Solid && side->width == 0)
+                            side->width = 3;
+                    }
+                } else if (property == "color") {
+                    if (auto color = parse_color_component(*values[0], style.color)) {
+                        side->color = *color;
+                        *color_flag = true;
+                    }
+                }
+                return;
+            }
         }
         // Unknown properties fall on the floor, by design.
     }

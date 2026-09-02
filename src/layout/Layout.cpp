@@ -310,8 +310,27 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
     return ReplacedSize { std::max(0.0f, *used_width), std::max(0.0f, *used_height) };
 }
 
+// A replaced element: a picture, or one of the embedded kinds that lay out
+// as a box of their own and show none of their children (an iframe, a
+// canvas, a video, an embed or an object).
+bool is_replaced(dom::Element const& element)
+{
+    return element.is_html("img") || element.is_html("iframe") || element.is_html("canvas")
+        || element.is_html("video") || element.is_html("embed") || element.is_html("object");
+}
+
+// A replaced element with an intrinsic ratio: a picture, or a canvas
+// (whose size is its own). An iframe, an embed, an object or a video
+// without a picture has a default size but no ratio: one written
+// dimension leaves the other at its default.
+bool keeps_ratio(dom::Element const& element)
+{
+    return element.is_html("img") || element.is_html("canvas");
+}
+
 // An image box: the picture's pixels over the density its source was
-// chosen at give the intrinsic size.
+// chosen at give the intrinsic size. An embedded element with no picture
+// of its own has none, and CSS 2.1 §10.3.2 gives it 300 by 150.
 std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
     Bitmap const* image, float density, float containing_width)
 {
@@ -320,8 +339,37 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
         float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
         intrinsic = ReplacedSize { static_cast<float>(image->width()) * px_per_pixel,
             static_cast<float>(image->height()) * px_per_pixel };
+    } else if (!element.is_html("img") && is_replaced(element)) {
+        intrinsic = ReplacedSize { 300, 150 };
     }
-    return sized_box(element, style, intrinsic, containing_width, true);
+    return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element));
+}
+
+// The edges an inline-level replaced box carries on its line: margins
+// outside its border box, border and padding around its content.
+struct InlineEdges {
+    float margin_left = 0;
+    float margin_right = 0;
+    float margin_top = 0;
+    float margin_bottom = 0;
+    float left = 0; // border and padding
+    float right = 0;
+    float top = 0;
+    float bottom = 0;
+};
+
+InlineEdges inline_edges(ComputedStyle const& style, float containing_width)
+{
+    InlineEdges edges;
+    edges.margin_left = resolve(style.margin_left, containing_width);
+    edges.margin_right = resolve(style.margin_right, containing_width);
+    edges.margin_top = resolve(style.margin_top, containing_width);
+    edges.margin_bottom = resolve(style.margin_bottom, containing_width);
+    edges.left = style.border_left.width + resolve(style.padding_left, containing_width);
+    edges.right = style.border_right.width + resolve(style.padding_right, containing_width);
+    edges.top = style.border_top.width + resolve(style.padding_top, containing_width);
+    edges.bottom = style.border_bottom.width + resolve(style.padding_bottom, containing_width);
+    return edges;
 }
 
 // A float's margin box in page coordinates.
@@ -571,11 +619,14 @@ struct Layouter {
             float const bottom = has_bottom ? resolve(s.bottom, cb_height) : 0;
 
             // The content width: as written; stretched between two offsets;
-            // else shrink-to-fit within what the offsets leave.
+            // else shrink-to-fit within what the offsets leave. A replaced
+            // box keeps its own size either way (§10.3.8, §10.6.5): the
+            // offsets place it, they do not stretch it.
             BlockOptions options;
             options.own_context = true;
             options.zero_auto_margins = true;
-            if (s.width.is_auto()) {
+            bool const replaced = is_replaced(*box.element);
+            if (s.width.is_auto() && !replaced) {
                 if (has_left && has_right) {
                     options.content_width = std::max(0.0f,
                         cb_width - left - right - margin_left - margin_right - horizontal_edges);
@@ -588,7 +639,7 @@ struct Layouter {
             }
             if (!s.height.is_auto() && s.height.kind == LengthPercent::Kind::Percent && cb_height > 0)
                 options.content_height = clamp_height(s, s.height.value / 100.0f * cb_height);
-            else if (s.height.is_auto() && has_top && has_bottom)
+            else if (s.height.is_auto() && has_top && has_bottom && !replaced)
                 options.content_height = std::max(0.0f,
                     cb_height - top - bottom - margin_top - margin_bottom - resolve(s.padding_top, cb_width)
                         - resolve(s.padding_bottom, cb_width) - s.border_top.width - s.border_bottom.width);
@@ -657,13 +708,15 @@ struct Layouter {
     }
 
     // An <img> becomes an image item when a picture or a size is known;
-    // otherwise its alt text stands in.
+    // otherwise its alt text stands in. The other replaced elements always
+    // have a size (their own, or 300 by 150).
     void append_image(dom::Element const& element, ComputedStyle const* style,
         std::vector<InlineItem>& items) const
     {
         PageImage image = image_for(element);
         bool const sized = !style->width.is_auto() || !style->height.is_auto()
-            || attribute_length(element, "width") || attribute_length(element, "height");
+            || attribute_length(element, "width") || attribute_length(element, "height")
+            || !element.is_html("img");
         if (image.bitmap || sized) {
             InlineItem item(InlineItem::Kind::Image, {}, style, &element);
             item.image = std::move(image.bitmap);
@@ -849,7 +902,7 @@ struct Layouter {
                 // rule) is a line of its own rather than nothing, since it
                 // has no children to collect.
                 items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
-                if (element.is_html("img"))
+                if (is_replaced(element))
                     append_image(element, style, items);
                 else
                     collect_inline(element, style, items);
@@ -859,7 +912,7 @@ struct Layouter {
                 InlineItem item(InlineItem::Kind::HardBreak, {}, inherited, &element);
                 item.clear = break_clear(element, *style);
                 items.push_back(std::move(item));
-            } else if (element.is_html("img")) {
+            } else if (is_replaced(element)) {
                 append_image(element, style, items);
             } else if (is_atomic_inline(*style)) {
                 // One box on the line, laid out as a block inside.
@@ -1056,9 +1109,15 @@ struct Layouter {
             float width;
             dom::Element const* element;
             std::shared_ptr<Bitmap const> image; // an image item's picture (may be null)
-            float image_height = 0;
+            float image_height = 0; // a picture's or a control's margin box height: its reach above the baseline
             bool is_image = false; // a picture or a control: an atomic box on the baseline
             std::optional<ControlSpec> control;
+            // A picture's or a control's edges (a control's border and
+            // padding are inside its own size, so only its margins count)
+            // and the content box within them; `width` is the margin box.
+            InlineEdges edges;
+            float content_width = 0;
+            float content_height = 0;
             // An inline-block: laid out at the origin, moved onto the line
             // at flush; its margin box reaches `ascent` above the baseline
             // and `descent` below it, and [since, until) names the
@@ -1222,17 +1281,21 @@ struct Layouter {
                     mark_positioned(*placed.block, *placed.style, content_width);
                     out.children.push_back(std::move(*placed.block));
                 } else if (placed.is_image) {
+                    // The border box inside the margin box, the content
+                    // (the picture) inside the border and padding.
+                    InlineEdges const& e = placed.edges;
                     Fragment box;
                     box.element = placed.element;
                     box.style = placed.style;
-                    box.x = x;
-                    box.y = own_baseline - placed.image_height;
-                    box.width = width;
-                    box.height = placed.image_height;
+                    box.x = x + e.margin_left;
+                    box.y = own_baseline - placed.image_height + e.margin_top;
+                    box.width = e.left + placed.content_width + e.right;
+                    box.height = e.top + placed.content_height + e.bottom;
                     if (placed.control)
                         fill_control(box, *placed.control, *placed.style);
                     else
-                        box.image = Fragment::ImageBox { placed.image, box.x, box.y, box.width, box.height };
+                        box.image = Fragment::ImageBox { placed.image, box.x + e.left, box.y + e.top,
+                            placed.content_width, placed.content_height };
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
                     out.runs.push_back(TextRun { x, own_baseline, std::move(placed.text), placed.style,
@@ -1347,16 +1410,22 @@ struct Layouter {
                 continue;
             }
             if (item.kind == InlineItem::Kind::Control) {
-                // An atomic box on the baseline, like a picture.
+                // An atomic box on the baseline, like a picture; its own
+                // size holds its border and padding, its margins go around.
                 ControlSpec spec = control_spec(*item.element, *item.style, content_width);
-                float const width = spec.size.width;
+                InlineEdges edges = inline_edges(*item.style, content_width);
+                edges.left = edges.right = edges.top = edges.bottom = 0;
+                float const width = edges.margin_left + spec.size.width + edges.margin_right;
                 if (allow_wrap && !line.empty() && line_width + width > line_avail)
                     flush_line();
                 if (allow_wrap)
                     widen_for(width);
                 Placed placed({}, item.style, false, width, item.element);
                 placed.aligned = item.aligned;
-                placed.image_height = spec.size.height;
+                placed.edges = edges;
+                placed.content_width = spec.size.width;
+                placed.content_height = spec.size.height;
+                placed.image_height = edges.margin_top + spec.size.height + edges.margin_bottom;
                 placed.is_image = true;
                 placed.control = std::move(spec);
                 line.push_back(std::move(placed));
@@ -1378,17 +1447,26 @@ struct Layouter {
                     item.image.get(), item.image_density, content_width);
                 if (!size)
                     continue;
-                if (allow_wrap && !line.empty() && line_width + size->width > line_avail)
+                // The margin box is what the line holds; the bottom margin
+                // edge sits on the baseline (CSS 2.1 §10.8.1).
+                InlineEdges const edges = inline_edges(*item.style, content_width);
+                float const width = edges.margin_left + edges.left + size->width + edges.right
+                    + edges.margin_right;
+                if (allow_wrap && !line.empty() && line_width + width > line_avail)
                     flush_line();
                 if (allow_wrap)
-                    widen_for(size->width);
-                Placed placed({}, item.style, false, size->width, item.element);
+                    widen_for(width);
+                Placed placed({}, item.style, false, width, item.element);
                 placed.aligned = item.aligned;
                 placed.image = item.image;
-                placed.image_height = size->height;
+                placed.edges = edges;
+                placed.content_width = size->width;
+                placed.content_height = size->height;
+                placed.image_height = edges.margin_top + edges.top + size->height + edges.bottom
+                    + edges.margin_bottom;
                 placed.is_image = true;
                 line.push_back(std::move(placed));
-                line_width += size->width;
+                line_width += width;
                 continue;
             }
             std::u32string word = item.text;
@@ -1462,7 +1540,7 @@ struct Layouter {
     {
         return !options.own_context && !establishes_bfc(style) && style.border_top.width == 0
             && resolve(style.padding_top, containing_width) == 0 && !is_root(element)
-            && !element.is_html("img") && !is_control(element) && !is_grid_item(element);
+            && !is_replaced(element) && !is_control(element) && !is_grid_item(element);
     }
 
     // The same for the bottom edge, which also needs an auto height.
@@ -1471,7 +1549,7 @@ struct Layouter {
     {
         return !options.own_context && !options.content_height && !establishes_bfc(style)
             && style.border_bottom.width == 0 && resolve(style.padding_bottom, containing_width) == 0
-            && style.height.is_auto() && !is_root(element) && !element.is_html("img")
+            && style.height.is_auto() && !is_root(element) && !is_replaced(element)
             && !is_control(element) && !is_grid_item(element);
     }
 
@@ -1661,17 +1739,23 @@ struct Layouter {
             border_box_width - border_left - border_right - padding_left - padding_right);
         float const content_y = fragment.y + border_top + padding_top;
 
-        if (element.is_html("img")) {
-            // A block-level picture: its own size, shrunk to fit, no children.
+        if (is_replaced(element)) {
+            // A block-level picture (or embedded box): its own size, shrunk
+            // to fit, no children. A box without a ratio of its own takes
+            // the size a formatting context settled for it (a flex line's
+            // item); a picture keeps its ratio and its own size.
             PageImage image = image_for(element);
             std::optional<ReplacedSize> const size
                 = replaced_size(element, style, image.bitmap.get(), image.density, content_width);
             if (size) {
-                if (style.width.is_auto())
-                    fragment.width = size->width + border_left + border_right + padding_left + padding_right;
-                fragment.height = size->height + border_top + border_bottom + padding_top + padding_bottom;
-                fragment.image = Fragment::ImageBox { std::move(image.bitmap), content_x, content_y,
-                    size->width, size->height };
+                bool const settled = !keeps_ratio(element);
+                float const width = settled ? options.content_width.value_or(size->width) : size->width;
+                float const height = settled ? options.content_height.value_or(size->height) : size->height;
+                if (style.width.is_auto() || (settled && options.content_width))
+                    fragment.width = width + border_left + border_right + padding_left + padding_right;
+                fragment.height = height + border_top + border_bottom + padding_top + padding_bottom;
+                fragment.image = Fragment::ImageBox { std::move(image.bitmap), content_x, content_y, width,
+                    height };
                 return fragment;
             }
         }
@@ -2070,7 +2154,7 @@ struct Layouter {
             InlineItem item(InlineItem::Kind::HardBreak, {}, &style, &element);
             item.clear = break_clear(element, style);
             items.push_back(std::move(item));
-        } else if (element.is_html("img")) {
+        } else if (is_replaced(element)) {
             append_image(element, &style, items);
         } else if (is_atomic_inline(style)) {
             items.push_back(InlineItem { InlineItem::Kind::Block, {}, &style, &element });
@@ -2155,7 +2239,10 @@ struct Layouter {
             case InlineItem::Kind::Image: {
                 std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
                     item.image.get(), item.image_density, 0);
-                float const width = size ? size->width : 0;
+                InlineEdges const edges = inline_edges(*item.style, 0);
+                float const width = size
+                    ? edges.margin_left + edges.left + size->width + edges.right + edges.margin_right
+                    : 0;
                 result.min = std::max(result.min, width);
                 add(width);
                 break;
@@ -2168,7 +2255,9 @@ struct Layouter {
                 break;
             }
             case InlineItem::Kind::Control: {
-                float const width = control_spec(*item.element, *item.style, 0).size.width;
+                InlineEdges const edges = inline_edges(*item.style, 0);
+                float const width = edges.margin_left + control_spec(*item.element, *item.style, 0).size.width
+                    + edges.margin_right;
                 result.min = std::max(result.min, width);
                 add(width);
                 break;
@@ -2207,7 +2296,7 @@ struct Layouter {
 
     Intrinsic content_intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
     {
-        if (element.is_html("img")) {
+        if (is_replaced(element)) {
             PageImage const image = image_for(element);
             std::optional<ReplacedSize> const size
                 = replaced_size(element, style, image.bitmap.get(), image.density, 0);
@@ -2811,7 +2900,10 @@ struct Layouter {
             for (std::size_t const i : lines[l])
                 line_cross[l] = std::max(line_cross[l], items[i].outer_cross());
         }
-        if (lines.size() == 1 && cross_size)
+        // A single-line container (flex-wrap: nowrap) with a definite cross
+        // size gives its one line that size; a wrapping container whose
+        // items happened to fit one line keeps that line its items' size.
+        if (!wrap && cross_size)
             line_cross[0] = *cross_size;
 
         // 6. The lines across the container: align-content shares the free
