@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Grid</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 384px }
+  h2 { font-size: 14px; margin: 8px 0 4px }
+  .cell { background: #dbe7ff; border: 1px solid #5b7fd1; padding: 2px }
+  .grid { display: grid; margin-bottom: 6px }
+  #tracks { grid-template-columns: 80px 1fr 2fr; column-gap: 6px; row-gap: 4px }
+  #areas { grid-template-areas: "head head head" "nav main main" "foot foot foot";
+           grid-template-columns: 70px 1fr 1fr; grid-template-rows: 24px auto 24px; gap: 4px }
+  #areas .head { grid-area: head; background: #ffe2b8; border-color: #d18f2b }
+  #areas .nav { grid-area: nav }
+  #areas .main { grid-area: main }
+  #areas .foot { grid-area: foot; background: #d9f3d0; border-color: #4f9a3a }
+  #fill { grid-template-columns: repeat(auto-fill, 60px); justify-content: space-between; row-gap: 4px }
+  #align { grid-template-columns: repeat(3, 1fr); grid-auto-rows: 44px; gap: 4px }
+  #align .start { justify-self: start; align-self: start }
+  #align .center { justify-self: center; align-self: center }
+  #align .end { justify-self: end; align-self: end }
+  #align .auto { width: 40px; margin: auto }
+  #spans { grid-template-columns: repeat(4, 1fr); grid-auto-flow: row dense; gap: 4px }
+  #spans .wide { grid-column: span 2 }
+  #spans .tall { grid-row: span 2 }
+  #spans .pinned { grid-column: 4; grid-row: 1 / 3; background: #f5d0d0; border-color: #b84a4a }
+  .inline { display: inline-grid; grid-template-columns: auto auto; column-gap: 8px; vertical-align: middle;
+            border: 1px solid #888; padding: 2px }
+  #order .grid { grid-template-columns: repeat(3, 1fr); gap: 4px }
+  #order .first { order: -1; background: #ffe2b8 }
+</style>
+</head>
+<body>
+<h2>Tracks: 80px 1fr 2fr, gaps</h2>
+<div class="grid" id="tracks">
+  <div class="cell">one</div><div class="cell">two words</div><div class="cell">three of them here</div>
+  <div class="cell">four</div><div class="cell">five</div><div class="cell">six</div>
+</div>
+
+<h2>Areas: head, nav, main, foot</h2>
+<div class="grid" id="areas">
+  <div class="cell main">main content wraps onto a second line here</div>
+  <div class="cell head">head</div>
+  <div class="cell nav">nav</div>
+  <div class="cell foot">foot</div>
+</div>
+
+<h2>auto-fill 60px, space-between</h2>
+<div class="grid" id="fill">
+  <div class="cell">a</div><div class="cell">b</div><div class="cell">c</div><div class="cell">d</div>
+  <div class="cell">e</div><div class="cell">f</div><div class="cell">g</div>
+</div>
+
+<h2>Alignment in 44px rows</h2>
+<div class="grid" id="align">
+  <div class="cell start">start</div><div class="cell center">center</div><div class="cell end">end</div>
+  <div class="cell auto">auto</div><div class="cell">stretch</div><div class="cell" style="align-self: center; justify-self: stretch">stretch x</div>
+</div>
+
+<h2>Spans, dense flow, a pinned item</h2>
+<div class="grid" id="spans">
+  <div class="cell pinned">pinned</div>
+  <div class="cell wide">wide</div><div class="cell tall">tall</div><div class="cell">1</div>
+  <div class="cell">2</div><div class="cell wide">wide 2</div><div class="cell">3</div><div class="cell">4</div>
+</div>
+
+<h2>Inline grid on a line</h2>
+<p>Before <span class="inline"><span>k</span><span>v</span><span>key</span><span>value</span></span> after.</p>
+
+<h2>Order and the container's own text</h2>
+<div id="order"><div class="grid">
+  <div class="cell">second</div>loose text<div class="cell first">first</div>
+</div></div>
+</body>
+</html>

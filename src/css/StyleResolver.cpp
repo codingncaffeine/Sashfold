@@ -1,6 +1,7 @@
 #include "css/StyleResolver.h"
 
 #include "core/Ascii.h"
+#include "css/Grid.h"
 #include "css/Parser.h"
 #include "css/Selector.h"
 #include "dom/Dom.h"
@@ -1479,7 +1480,87 @@ struct Resolver {
                     to.column_gap = from.column_gap;
                 },
                 0 },
+            { "grid-row-gap", false, [](S& to, S const& from) { to.row_gap = from.row_gap; }, 0 },
+            { "grid-column-gap", false, [](S& to, S const& from) { to.column_gap = from.column_gap; }, 0 },
+            { "grid-gap", false,
+                [](S& to, S const& from) {
+                    to.row_gap = from.row_gap;
+                    to.column_gap = from.column_gap;
+                },
+                0 },
             { "order", false, [](S& to, S const& from) { to.order = from.order; }, 0 },
+            { "justify-items", false, [](S& to, S const& from) { to.justify_items = from.justify_items; }, 0 },
+            { "justify-self", false, [](S& to, S const& from) { to.justify_self = from.justify_self; }, 0 },
+            { "place-items", false,
+                [](S& to, S const& from) {
+                    to.align_items = from.align_items;
+                    to.justify_items = from.justify_items;
+                },
+                0 },
+            { "place-self", false,
+                [](S& to, S const& from) {
+                    to.align_self = from.align_self;
+                    to.justify_self = from.justify_self;
+                },
+                0 },
+            { "place-content", false,
+                [](S& to, S const& from) {
+                    to.align_content = from.align_content;
+                    to.justify_content = from.justify_content;
+                },
+                0 },
+            { "grid-template-columns", false,
+                [](S& to, S const& from) { to.grid_template_columns = from.grid_template_columns; }, 0 },
+            { "grid-template-rows", false,
+                [](S& to, S const& from) { to.grid_template_rows = from.grid_template_rows; }, 0 },
+            { "grid-template-areas", false,
+                [](S& to, S const& from) { to.grid_template_areas = from.grid_template_areas; }, 0 },
+            { "grid-template", false,
+                [](S& to, S const& from) {
+                    to.grid_template_columns = from.grid_template_columns;
+                    to.grid_template_rows = from.grid_template_rows;
+                    to.grid_template_areas = from.grid_template_areas;
+                },
+                0 },
+            { "grid-auto-columns", false,
+                [](S& to, S const& from) { to.grid_auto_columns = from.grid_auto_columns; }, 0 },
+            { "grid-auto-rows", false, [](S& to, S const& from) { to.grid_auto_rows = from.grid_auto_rows; }, 0 },
+            { "grid-auto-flow", false, [](S& to, S const& from) { to.grid_auto_flow = from.grid_auto_flow; }, 0 },
+            { "grid", false,
+                [](S& to, S const& from) {
+                    to.grid_template_columns = from.grid_template_columns;
+                    to.grid_template_rows = from.grid_template_rows;
+                    to.grid_template_areas = from.grid_template_areas;
+                    to.grid_auto_columns = from.grid_auto_columns;
+                    to.grid_auto_rows = from.grid_auto_rows;
+                    to.grid_auto_flow = from.grid_auto_flow;
+                },
+                0 },
+            { "grid-row-start", false, [](S& to, S const& from) { to.grid_row_start = from.grid_row_start; }, 0 },
+            { "grid-row-end", false, [](S& to, S const& from) { to.grid_row_end = from.grid_row_end; }, 0 },
+            { "grid-column-start", false,
+                [](S& to, S const& from) { to.grid_column_start = from.grid_column_start; }, 0 },
+            { "grid-column-end", false, [](S& to, S const& from) { to.grid_column_end = from.grid_column_end; }, 0 },
+            { "grid-row", false,
+                [](S& to, S const& from) {
+                    to.grid_row_start = from.grid_row_start;
+                    to.grid_row_end = from.grid_row_end;
+                },
+                0 },
+            { "grid-column", false,
+                [](S& to, S const& from) {
+                    to.grid_column_start = from.grid_column_start;
+                    to.grid_column_end = from.grid_column_end;
+                },
+                0 },
+            { "grid-area", false,
+                [](S& to, S const& from) {
+                    to.grid_row_start = from.grid_row_start;
+                    to.grid_row_end = from.grid_row_end;
+                    to.grid_column_start = from.grid_column_start;
+                    to.grid_column_end = from.grid_column_end;
+                },
+                0 },
             { "color", true, [](S& to, S const& from) { to.color = from.color; }, 0 },
             { "background-color", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
             { "background", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
@@ -1547,6 +1628,12 @@ struct Resolver {
                     || property.name == "border-width" || property.name == "border-style"
                     || property.name == "border-color" || property.name == "inset"
                     || property.name == "flex-flow" || property.name == "flex" || property.name == "gap"
+                    || property.name == "grid-gap" || property.name == "grid-row-gap"
+                    || property.name == "grid-column-gap" || property.name == "place-items"
+                    || property.name == "place-self" || property.name == "place-content"
+                    || property.name == "grid-template" || property.name == "grid"
+                    || property.name == "grid-row" || property.name == "grid-column"
+                    || property.name == "grid-area"
                     || property.name == "background" || property.name == "font"
                     || property.name == "list-style" || property.name == "translate"
                     || property.name == "overflow-x" || property.name == "overflow-y"
@@ -2428,34 +2515,81 @@ struct Resolver {
             style.flex_wrap = wrap.value_or(FlexWrap::NoWrap);
             return;
         }
-        if (name == "justify-content") {
-            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
-                return;
-            std::string_view const keyword = values[0]->token().value;
+        // The alignment keywords, with an optional safe/unsafe or
+        // first/last word in front (a position keyword's overflow safety,
+        // a baseline's choice — neither changes where a box goes yet).
+        auto const alignment_words = [&](std::size_t first, std::size_t count) -> std::optional<std::string_view> {
+            if (count == 0 || count > 2)
+                return std::nullopt;
+            for (std::size_t i = first; i < first + count; ++i) {
+                if (!values[i]->is_token(Token::Type::Ident))
+                    return std::nullopt;
+            }
+            if (count == 2) {
+                std::string_view const prefix = values[first]->token().value;
+                if (!ascii_ci_equals(prefix, "safe") && !ascii_ci_equals(prefix, "unsafe")
+                    && !ascii_ci_equals(prefix, "first") && !ascii_ci_equals(prefix, "last"))
+                    return std::nullopt;
+                return values[first + 1]->token().value;
+            }
+            return values[first]->token().value;
+        };
+        auto const justify_content_of = [](std::string_view keyword) -> std::optional<JustifyContent> {
+            if (ascii_ci_equals(keyword, "normal"))
+                return JustifyContent::Normal;
+            if (ascii_ci_equals(keyword, "stretch"))
+                return JustifyContent::Stretch;
             if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start")
-                || ascii_ci_equals(keyword, "left") || ascii_ci_equals(keyword, "normal"))
-                style.justify_content = JustifyContent::FlexStart;
-            else if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end")
+                || ascii_ci_equals(keyword, "left"))
+                return JustifyContent::FlexStart;
+            if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end")
                 || ascii_ci_equals(keyword, "right"))
-                style.justify_content = JustifyContent::FlexEnd;
-            else if (ascii_ci_equals(keyword, "center"))
-                style.justify_content = JustifyContent::Center;
-            else if (ascii_ci_equals(keyword, "space-between"))
-                style.justify_content = JustifyContent::SpaceBetween;
-            else if (ascii_ci_equals(keyword, "space-around"))
-                style.justify_content = JustifyContent::SpaceAround;
-            else if (ascii_ci_equals(keyword, "space-evenly"))
-                style.justify_content = JustifyContent::SpaceEvenly;
+                return JustifyContent::FlexEnd;
+            if (ascii_ci_equals(keyword, "center"))
+                return JustifyContent::Center;
+            if (ascii_ci_equals(keyword, "space-between"))
+                return JustifyContent::SpaceBetween;
+            if (ascii_ci_equals(keyword, "space-around"))
+                return JustifyContent::SpaceAround;
+            if (ascii_ci_equals(keyword, "space-evenly"))
+                return JustifyContent::SpaceEvenly;
+            return std::nullopt;
+        };
+        auto const align_content_of = [](std::string_view keyword) -> std::optional<AlignContent> {
+            if (ascii_ci_equals(keyword, "stretch") || ascii_ci_equals(keyword, "normal"))
+                return AlignContent::Stretch;
+            if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start"))
+                return AlignContent::FlexStart;
+            if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end"))
+                return AlignContent::FlexEnd;
+            if (ascii_ci_equals(keyword, "center"))
+                return AlignContent::Center;
+            if (ascii_ci_equals(keyword, "space-between"))
+                return AlignContent::SpaceBetween;
+            if (ascii_ci_equals(keyword, "space-around"))
+                return AlignContent::SpaceAround;
+            if (ascii_ci_equals(keyword, "space-evenly"))
+                return AlignContent::SpaceEvenly;
+            return std::nullopt;
+        };
+        if (name == "justify-content") {
+            std::optional<std::string_view> const keyword = alignment_words(0, values.size());
+            if (!keyword)
+                return;
+            if (std::optional<JustifyContent> const justify = justify_content_of(*keyword))
+                style.justify_content = *justify;
             return;
         }
         auto const alignment_of = [](std::string_view keyword) -> std::optional<AlignItems> {
-            if (ascii_ci_equals(keyword, "stretch") || ascii_ci_equals(keyword, "normal"))
+            if (ascii_ci_equals(keyword, "normal"))
+                return AlignItems::Normal;
+            if (ascii_ci_equals(keyword, "stretch"))
                 return AlignItems::Stretch;
             if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start")
-                || ascii_ci_equals(keyword, "self-start"))
+                || ascii_ci_equals(keyword, "self-start") || ascii_ci_equals(keyword, "left"))
                 return AlignItems::FlexStart;
             if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end")
-                || ascii_ci_equals(keyword, "self-end"))
+                || ascii_ci_equals(keyword, "self-end") || ascii_ci_equals(keyword, "right"))
                 return AlignItems::FlexEnd;
             if (ascii_ci_equals(keyword, "center"))
                 return AlignItems::Center;
@@ -2463,21 +2597,92 @@ struct Resolver {
                 return AlignItems::Baseline;
             return std::nullopt;
         };
-        if (name == "align-items") {
-            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+        // *-items takes an alignment; *-self takes auto or an alignment.
+        auto const items_of = [&](std::string_view keyword) -> std::optional<AlignItems> {
+            if (ascii_ci_equals(keyword, "auto"))
+                return std::nullopt;
+            return alignment_of(keyword);
+        };
+        auto const self_of = [&](std::string_view keyword) -> std::optional<AlignItems> {
+            if (ascii_ci_equals(keyword, "auto"))
+                return AlignItems::Auto;
+            return alignment_of(keyword);
+        };
+        if (name == "align-items" || name == "justify-items" || name == "align-self"
+            || name == "justify-self") {
+            std::optional<std::string_view> const keyword = alignment_words(0, values.size());
+            if (!keyword)
                 return;
-            if (std::optional<AlignItems> const alignment = alignment_of(values[0]->token().value))
+            bool const self = name == "align-self" || name == "justify-self";
+            std::optional<AlignItems> const alignment = self ? self_of(*keyword) : items_of(*keyword);
+            if (!alignment)
+                return;
+            if (name == "align-items")
                 style.align_items = *alignment;
+            else if (name == "justify-items")
+                style.justify_items = *alignment;
+            else if (name == "align-self")
+                style.align_self = *alignment;
+            else
+                style.justify_self = *alignment;
             return;
         }
-        if (name == "align-self") {
-            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+        if (name == "place-items" || name == "place-self") {
+            // The block-axis value, then the inline-axis one; one value
+            // stands for both. Each may carry a prefix word.
+            bool const self = name == "place-self";
+            std::optional<std::string_view> first;
+            std::optional<std::string_view> second;
+            if (values.size() <= 2)
+                first = alignment_words(0, values.size());
+            if (first) {
+                second = first;
+            } else {
+                for (std::size_t split = 1; split < values.size() && !first; ++split) {
+                    first = alignment_words(0, split);
+                    second = alignment_words(split, values.size() - split);
+                    if (!second)
+                        first = std::nullopt;
+                }
+            }
+            if (!first || !second)
                 return;
-            std::string_view const keyword = values[0]->token().value;
-            if (ascii_ci_equals(keyword, "auto"))
-                style.align_self = AlignItems::Auto;
-            else if (std::optional<AlignItems> const alignment = alignment_of(keyword))
-                style.align_self = *alignment;
+            std::optional<AlignItems> const block = self ? self_of(*first) : items_of(*first);
+            std::optional<AlignItems> const inline_axis = self ? self_of(*second) : items_of(*second);
+            if (!block || !inline_axis)
+                return;
+            if (self) {
+                style.align_self = *block;
+                style.justify_self = *inline_axis;
+            } else {
+                style.align_items = *block;
+                style.justify_items = *inline_axis;
+            }
+            return;
+        }
+        if (name == "place-content") {
+            std::optional<std::string_view> first;
+            std::optional<std::string_view> second;
+            if (values.size() <= 2)
+                first = alignment_words(0, values.size());
+            if (first) {
+                second = first;
+            } else {
+                for (std::size_t split = 1; split < values.size() && !first; ++split) {
+                    first = alignment_words(0, split);
+                    second = alignment_words(split, values.size() - split);
+                    if (!second)
+                        first = std::nullopt;
+                }
+            }
+            if (!first || !second)
+                return;
+            std::optional<AlignContent> const align = align_content_of(*first);
+            std::optional<JustifyContent> const justify = justify_content_of(*second);
+            if (!align || !justify)
+                return;
+            style.align_content = *align;
+            style.justify_content = *justify;
             return;
         }
         if (name == "align-content") {
@@ -2584,24 +2789,25 @@ struct Resolver {
             style.flex_basis = basis.value_or(grow ? LengthPercent::px(0) : LengthPercent::auto_value());
             return;
         }
-        if (name == "gap" || name == "row-gap" || name == "column-gap") {
-            auto const gap_px = [&](ComponentValue const& value) -> std::optional<float> {
+        if (name == "gap" || name == "row-gap" || name == "column-gap" || name == "grid-gap"
+            || name == "grid-row-gap" || name == "grid-column-gap") {
+            // The grid-prefixed names are the old spellings of the same properties.
+            auto const gap_of = [&](ComponentValue const& value) -> std::optional<LengthPercent> {
                 if (is_ident(&value, "normal"))
-                    return 0.0f;
+                    return LengthPercent::px(0);
                 auto length = parse_length_percent(value, context, false);
                 if (!length)
                     return std::nullopt;
-                if (length->kind == LengthPercent::Kind::Percent || length->kind == LengthPercent::Kind::Calc)
-                    return 0.0f; // percentages wait for their base
-                if (length->value < 0)
+                if ((length->kind == LengthPercent::Kind::Px || length->kind == LengthPercent::Kind::Percent)
+                    && length->value < 0)
                     return std::nullopt;
-                return length->value;
+                return length;
             };
-            if (name == "gap") {
+            if (name == "gap" || name == "grid-gap") {
                 if (values.size() > 2)
                     return;
-                std::optional<float> const row = gap_px(*values[0]);
-                std::optional<float> const column = values.size() == 2 ? gap_px(*values[1]) : row;
+                std::optional<LengthPercent> const row = gap_of(*values[0]);
+                std::optional<LengthPercent> const column = values.size() == 2 ? gap_of(*values[1]) : row;
                 if (!row || !column)
                     return;
                 style.row_gap = *row;
@@ -2610,8 +2816,103 @@ struct Resolver {
             }
             if (values.size() != 1)
                 return;
-            if (std::optional<float> const gap = gap_px(*values[0]))
-                (name == "row-gap" ? style.row_gap : style.column_gap) = *gap;
+            if (std::optional<LengthPercent> const gap = gap_of(*values[0]))
+                (name == "row-gap" || name == "grid-row-gap" ? style.row_gap : style.column_gap) = *gap;
+            return;
+        }
+        // --- Grid containers and items --------------------------------------
+        auto const length_parser = [&](ComponentValue const& value) {
+            return parse_length_percent(value, context, false);
+        };
+        if (name == "grid-template-columns" || name == "grid-template-rows") {
+            std::optional<GridTrackList> list = parse_track_list(values, length_parser);
+            if (!list)
+                return;
+            std::shared_ptr<GridTrackList const> shared;
+            if (!list->empty())
+                shared = std::make_shared<GridTrackList const>(std::move(*list));
+            (name == "grid-template-columns" ? style.grid_template_columns : style.grid_template_rows)
+                = std::move(shared);
+            return;
+        }
+        if (name == "grid-template-areas") {
+            std::optional<GridAreas> areas = parse_grid_template_areas(values);
+            if (!areas)
+                return;
+            style.grid_template_areas
+                = areas->rows == 0 ? nullptr : std::make_shared<GridAreas const>(std::move(*areas));
+            return;
+        }
+        if (name == "grid-auto-columns" || name == "grid-auto-rows") {
+            std::optional<std::vector<TrackSize>> sizes = parse_track_sizes(values, length_parser);
+            if (!sizes)
+                return;
+            // A lone auto is the initial value.
+            bool const plain_auto = sizes->size() == 1 && sizes->front().min.kind == TrackBreadth::Kind::Auto
+                && sizes->front().max.kind == TrackBreadth::Kind::Auto && !sizes->front().fit_content;
+            std::shared_ptr<std::vector<TrackSize> const> shared;
+            if (!plain_auto)
+                shared = std::make_shared<std::vector<TrackSize> const>(std::move(*sizes));
+            (name == "grid-auto-columns" ? style.grid_auto_columns : style.grid_auto_rows) = std::move(shared);
+            return;
+        }
+        if (name == "grid-auto-flow") {
+            if (std::optional<GridAutoFlow> const flow = parse_grid_auto_flow(values))
+                style.grid_auto_flow = *flow;
+            return;
+        }
+        if (name == "grid-template" || name == "grid") {
+            std::optional<GridShorthand> const parsed = name == "grid"
+                ? parse_grid_shorthand(values, length_parser)
+                : parse_grid_template(values, length_parser);
+            if (!parsed)
+                return;
+            style.grid_template_rows = parsed->rows;
+            style.grid_template_columns = parsed->columns;
+            style.grid_template_areas = parsed->areas;
+            if (name == "grid") {
+                style.grid_auto_flow = parsed->auto_flow;
+                style.grid_auto_rows = parsed->auto_rows;
+                style.grid_auto_columns = parsed->auto_columns;
+            }
+            return;
+        }
+        if (name == "grid-row-start" || name == "grid-row-end" || name == "grid-column-start"
+            || name == "grid-column-end") {
+            std::optional<GridLine> line = parse_grid_line(values);
+            if (!line)
+                return;
+            if (name == "grid-row-start")
+                style.grid_row_start = std::move(*line);
+            else if (name == "grid-row-end")
+                style.grid_row_end = std::move(*line);
+            else if (name == "grid-column-start")
+                style.grid_column_start = std::move(*line);
+            else
+                style.grid_column_end = std::move(*line);
+            return;
+        }
+        if (name == "grid-row" || name == "grid-column") {
+            std::optional<std::pair<GridLine, GridLine>> lines = parse_grid_line_pair(values);
+            if (!lines)
+                return;
+            if (name == "grid-row") {
+                style.grid_row_start = std::move(lines->first);
+                style.grid_row_end = std::move(lines->second);
+            } else {
+                style.grid_column_start = std::move(lines->first);
+                style.grid_column_end = std::move(lines->second);
+            }
+            return;
+        }
+        if (name == "grid-area") {
+            std::optional<std::array<GridLine, 4>> lines = parse_grid_area(values);
+            if (!lines)
+                return;
+            style.grid_row_start = std::move((*lines)[0]);
+            style.grid_column_start = std::move((*lines)[1]);
+            style.grid_row_end = std::move((*lines)[2]);
+            style.grid_column_end = std::move((*lines)[3]);
             return;
         }
         if (name == "order") {

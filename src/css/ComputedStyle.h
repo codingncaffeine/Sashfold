@@ -115,20 +115,27 @@ enum class FlexWrap : std::uint8_t {
     WrapReverse,
 };
 
-// How a line's free main-axis space is shared out.
+// How a line's free main-axis space is shared out — and, for a grid, how
+// the columns share the container's free width. Normal is the initial
+// value: flex-start on a flex line, stretch (the auto tracks grow) in a grid.
 enum class JustifyContent : std::uint8_t {
+    Normal,
     FlexStart,
     FlexEnd,
     Center,
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
+    Stretch,
 };
 
-// How items sit across their line; Auto (align-self only) defers to the
-// container's align-items.
+// How items sit across their line, or in their grid area's axis; Auto
+// (align-self and justify-self only) defers to the container's align-items
+// or justify-items. Normal is the initial value: stretch, except that a
+// replaced grid item keeps its own size (start).
 enum class AlignItems : std::uint8_t {
     Auto,
+    Normal,
     Stretch,
     FlexStart,
     FlexEnd,
@@ -249,6 +256,106 @@ struct VerticalAlign {
     LengthPercent offset = LengthPercent::px(0);
 };
 
+// --- Grid ---------------------------------------------------------------------
+
+// One side of a grid track's sizing function (css-grid-1 §7.2.3): a
+// length or percentage (of the container's content box in that axis; auto
+// when that is indefinite), a flexible fr factor, or a content-based
+// keyword.
+struct TrackBreadth {
+    enum class Kind : std::uint8_t {
+        Length,
+        Flex,
+        Auto,
+        MinContent,
+        MaxContent,
+    };
+    Kind kind = Kind::Auto;
+    LengthPercent length = LengthPercent::px(0); // Length
+    float fr = 0; // Flex
+
+    bool is_intrinsic() const
+    {
+        return kind == Kind::Auto || kind == Kind::MinContent || kind == Kind::MaxContent;
+    }
+    bool is_flexible() const { return kind == Kind::Flex; }
+    bool is_fixed() const { return kind == Kind::Length; }
+};
+
+// A track's sizing function: a minimum and a maximum. One value stands for
+// both; a flex factor alone has an auto minimum; fit-content(l) is
+// minmax(auto, max-content) capped at l.
+struct TrackSize {
+    TrackBreadth min;
+    TrackBreadth max;
+    std::optional<LengthPercent> fit_content; // the cap, when the track is fit-content()
+};
+
+// grid-template-columns and -rows: the explicit tracks with their line
+// names — the names before each track, and after the last — and the
+// auto-repeat when there is one: repeat(auto-fill | auto-fit, ...) is
+// expanded at layout to as many repetitions as fit the container.
+struct GridTrackList {
+    struct Track {
+        std::vector<std::string> names; // the line names before this track
+        TrackSize size;
+    };
+    std::vector<Track> tracks; // integer repeats already expanded
+    std::vector<std::string> trailing_names; // after the last track
+    enum class AutoRepeat : std::uint8_t {
+        None,
+        Fill,
+        Fit, // like fill, but the empty repetitions collapse to nothing
+    };
+    AutoRepeat auto_repeat = AutoRepeat::None;
+    std::size_t auto_repeat_at = 0; // the repetitions go before this track index
+    std::vector<std::string> auto_repeat_leading_names; // before the first repetition
+    std::vector<Track> auto_repeat_tracks; // one repetition, names as written
+    std::vector<std::string> auto_repeat_trailing_names; // after each repetition
+
+    bool empty() const { return tracks.empty() && auto_repeat == AutoRepeat::None; }
+};
+
+// grid-template-areas: the named areas, each a rectangle of cells in
+// 1-based lines with the end exclusive, and the grid the strings span.
+struct GridAreas {
+    struct Area {
+        std::string name;
+        int row_start = 1;
+        int row_end = 2;
+        int column_start = 1;
+        int column_end = 2;
+    };
+    std::vector<Area> areas;
+    int rows = 0;
+    int columns = 0;
+};
+
+// grid-row-start and its three siblings (css-grid-1 §8.3): auto; a line by
+// number (negative counts back from the last explicit line), the nth line
+// with a name, or a name alone (its area's edge, else the first line so
+// named); or a span of so many tracks, or up to the nth line with a name.
+struct GridLine {
+    enum class Kind : std::uint8_t {
+        Auto,
+        Line, // number (nonzero), and the name when one was written
+        Name, // a name alone
+        Span, // number ≥ 1, and the name when one was written
+    };
+    Kind kind = Kind::Auto;
+    int number = 0;
+    std::string name;
+
+    bool is_auto() const { return kind == Kind::Auto; }
+};
+
+enum class GridAutoFlow : std::uint8_t {
+    Row,
+    Column,
+    RowDense,
+    ColumnDense,
+};
+
 struct BorderSide {
     float width = 0; // px, already zeroed when style is None
     BorderStyle style = BorderStyle::None;
@@ -319,19 +426,41 @@ struct ComputedStyle {
     bool out_of_flow() const { return position == Position::Absolute || position == Position::Fixed; }
     bool hidden() const { return visibility == Visibility::Hidden; }
 
-    // Flex containers and their items.
+    // Flex and grid containers and their items.
     FlexDirection flex_direction = FlexDirection::Row;
     FlexWrap flex_wrap = FlexWrap::NoWrap;
-    JustifyContent justify_content = JustifyContent::FlexStart;
-    AlignItems align_items = AlignItems::Stretch;
+    JustifyContent justify_content = JustifyContent::Normal;
+    AlignItems align_items = AlignItems::Normal;
     AlignItems align_self = AlignItems::Auto;
     AlignContent align_content = AlignContent::Stretch;
+    // The inline-axis counterparts of align-items and align-self: how a
+    // grid item sits across its area's width.
+    AlignItems justify_items = AlignItems::Normal;
+    AlignItems justify_self = AlignItems::Auto;
     float flex_grow = 0;
     float flex_shrink = 1;
     LengthPercent flex_basis = LengthPercent::auto_value();
-    float row_gap = 0; // px; percentages wait for their base
-    float column_gap = 0;
+    // The gutters; a percentage is of the container's content box in that
+    // axis, zero while that is indefinite.
+    LengthPercent row_gap = LengthPercent::px(0);
+    LengthPercent column_gap = LengthPercent::px(0);
     int order = 0;
+
+    // Grid containers: the explicit tracks in each axis (null: none), the
+    // named areas (null: none), the sizes of implicit tracks (null: auto),
+    // and how auto-placed items flow. Shared, since they are set on one
+    // element and never inherited.
+    std::shared_ptr<GridTrackList const> grid_template_columns;
+    std::shared_ptr<GridTrackList const> grid_template_rows;
+    std::shared_ptr<GridAreas const> grid_template_areas;
+    std::shared_ptr<std::vector<TrackSize> const> grid_auto_columns;
+    std::shared_ptr<std::vector<TrackSize> const> grid_auto_rows;
+    GridAutoFlow grid_auto_flow = GridAutoFlow::Row;
+    // Grid items: where the item goes.
+    GridLine grid_row_start;
+    GridLine grid_row_end;
+    GridLine grid_column_start;
+    GridLine grid_column_end;
 
     // Text and inheritance-carried properties.
     Color color = Color::rgb(0, 0, 0);

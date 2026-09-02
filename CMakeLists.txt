@@ -31,6 +31,7 @@ add_library(sashfold_core STATIC
   src/core/Normalize.cpp
   src/core/Png.cpp
   src/core/Unicode.cpp
+  src/css/Grid.cpp
   src/css/Parser.cpp
   src/css/Selector.cpp
   src/css/StyleResolver.cpp
@@ -38,6 +39,7 @@ add_library(sashfold_core STATIC
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
   src/layout/Controls.cpp
+  src/layout/GridAlgorithm.cpp
   src/layout/Layout.cpp
   src/net/Cache.cpp
   src/net/Connections.cpp

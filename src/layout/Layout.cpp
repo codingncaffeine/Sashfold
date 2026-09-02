@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Unicode.h"
 #include "dom/Dom.h"
+#include "layout/GridAlgorithm.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
@@ -57,6 +58,11 @@ bool is_atomic_inline(ComputedStyle const& style)
 bool is_flex_container(ComputedStyle const& style)
 {
     return style.display == Display::Flex || style.display == Display::InlineFlex;
+}
+
+bool is_grid_container(ComputedStyle const& style)
+{
+    return style.display == Display::Grid || style.display == Display::InlineGrid;
 }
 
 // Whether a box's contents form their own block formatting context: its
@@ -1876,6 +1882,7 @@ struct Layouter {
         FloatContext own_floats;
         bool const own_context = options.own_context || establishes_bfc(style);
         bool const flex = is_flex_container(style);
+        bool const grid = is_grid_container(style);
         // This box's definite content height, when it has one — settled by
         // its formatting context, written as a length, or a percentage of a
         // definite containing height: the base for its children's percentages.
@@ -1885,19 +1892,25 @@ struct Layouter {
         std::optional<float> const children_base
             = own_height ? std::optional<float>(clamp_height(style, *own_height, options.containing_height))
                          : std::nullopt;
-        float const content_height = flex
-            ? layout_flex(element, style, content_x, content_y, content_width, fragment, list_depth,
-                  children_base)
-            : layout_children(element, style, content_x, content_y, content_width, fragment,
-                  list_depth, own_context ? own_floats : floats,
-                  top_edge_collapses(element, style, containing_width, options),
-                  bottom_edge_collapses(element, style, containing_width, options), children_base);
+        float content_height;
+        if (flex) {
+            content_height = layout_flex(element, style, content_x, content_y, content_width, fragment,
+                list_depth, children_base);
+        } else if (grid) {
+            content_height = layout_grid(element, style, content_x, content_y, content_width, fragment,
+                list_depth, children_base);
+        } else {
+            content_height = layout_children(element, style, content_x, content_y, content_width, fragment,
+                list_depth, own_context ? own_floats : floats,
+                top_edge_collapses(element, style, containing_width, options),
+                bottom_edge_collapses(element, style, containing_width, options), children_base);
+        }
         // The box's baseline, for an inline-block's sake: its own lines set
-        // it; with block children it is the last in-flow child's (a flex
-        // container's the first item's).
+        // it; with block children it is the last in-flow child's (a flex or
+        // grid container's the first item's).
         if (!fragment.last_baseline) {
             auto const in_flow = [](Fragment const& child) { return !child.floating && !child.out_of_flow; };
-            if (flex) {
+            if (flex || grid) {
                 for (Fragment const& child : fragment.children) {
                     if (in_flow(child) && child.last_baseline) {
                         fragment.last_baseline = child.last_baseline;
@@ -2463,6 +2476,8 @@ struct Layouter {
         }
         if (is_flex_container(style))
             return flex_intrinsic_widths(element, style);
+        if (is_grid_container(style))
+            return grid_intrinsic_widths(element, style);
         std::vector<InlineItem> pending;
         if (!contains_block_descendant(element)) {
             collect_inline(element, &style, pending);
@@ -2636,43 +2651,64 @@ struct Layouter {
     // container's align-items.
     static css::AlignItems item_alignment(FlexItem const& item, ComputedStyle const& container)
     {
-        if (!item.element || item.style->align_self == css::AlignItems::Auto)
-            return container.align_items;
-        return item.style->align_self;
+        css::AlignItems const alignment = !item.element || item.style->align_self == css::AlignItems::Auto
+            ? container.align_items
+            : item.style->align_self;
+        // normal is stretch on a flex line.
+        return alignment == css::AlignItems::Normal ? css::AlignItems::Stretch : alignment;
     }
 
-    // An item's content height when laid out `width` wide, from a scratch layout.
-    float measure_item_height(FlexItem const& item, float width, float containing_width,
-        int list_depth) const
+    // A flex or grid item's content height when laid out `width` wide,
+    // from a scratch layout: an anonymous item (no element) is its lines, a
+    // generated box (element = the container, style = the box's) its text.
+    float measure_item_height(dom::Element const* element, ComputedStyle const& s,
+        std::vector<InlineItem> const& inline_items, css::GeneratedBox const* generated, float width,
+        float containing_width, int list_depth) const
     {
         FloatContext scratch_floats;
-        if (!item.element) {
+        if (!element) {
             Fragment scratch;
-            return layout_lines(item.inline_items, *item.style, 0, 0, width, scratch, scratch_floats,
-                list_depth);
+            return layout_lines(inline_items, s, 0, 0, width, scratch, scratch_floats, list_depth);
         }
-        ComputedStyle const& s = *item.style;
-        if (item.generated) {
-            Fragment const box = layout_generated_block(*item.generated, *item.element, 0, 0,
-                containing_width, scratch_floats, width);
+        if (generated) {
+            Fragment const box = layout_generated_block(*generated, *element, 0, 0, containing_width,
+                scratch_floats, width);
             float const vertical_edges = resolve(s.padding_top, containing_width)
                 + resolve(s.padding_bottom, containing_width) + s.border_top.width + s.border_bottom.width;
             return std::max(0.0f, box.height - vertical_edges);
         }
-        auto const key = std::make_tuple(item.element, width, containing_width, list_depth);
+        auto const key = std::make_tuple(element, width, containing_width, list_depth);
         if (auto const it = measured_heights.find(key); it != measured_heights.end())
             return it->second;
         BlockOptions options;
         options.content_width = width;
         options.zero_auto_margins = true;
         options.own_context = true;
-        Fragment const box = layout_block(*item.element, s, 0, 0, containing_width, list_depth,
-            scratch_floats, options);
+        Fragment const box = layout_block(*element, s, 0, 0, containing_width, list_depth, scratch_floats,
+            options);
         float const vertical_edges = resolve(s.padding_top, containing_width)
             + resolve(s.padding_bottom, containing_width) + s.border_top.width + s.border_bottom.width;
         float const height = std::max(0.0f, box.height - vertical_edges);
         measured_heights.emplace(key, height);
         return height;
+    }
+
+    float measure_item_height(FlexItem const& item, float width, float containing_width,
+        int list_depth) const
+    {
+        return measure_item_height(item.element, *item.style, item.inline_items, item.generated, width,
+            containing_width, list_depth);
+    }
+
+    // A flex or grid item with a z-index paints in that order among its
+    // container's positioned boxes, positioned itself or not.
+    static void mark_item_layer(Fragment& box, ComputedStyle const& style)
+    {
+        if (style.positioned() || !style.z_index)
+            return;
+        box.positioned = true;
+        box.z_index = *style.z_index;
+        box.stacking_context = true;
     }
 
     // Lays an item out at its settled sizes, its margin box at (x, y).
@@ -2707,6 +2743,7 @@ struct Layouter {
         Fragment box = layout_block(*item.element, *item.style, x, y + margin_top,
             containing_width, list_depth, scratch_floats, options);
         mark_positioned(box, *item.style, containing_width);
+        mark_item_layer(box, *item.style);
         parent.children.push_back(std::move(box));
     }
 
@@ -2721,11 +2758,12 @@ struct Layouter {
         std::size_t count = 0;
         auto const take = [&](Intrinsic const& box) {
             if (row) {
-                result.max += (count > 0 ? style.column_gap : 0) + box.max;
+                float const gap = count > 0 ? resolve(style.column_gap, 0) : 0.0f;
+                result.max += gap + box.max;
                 if (wrap)
                     result.min = std::max(result.min, box.min);
                 else
-                    result.min += (count > 0 ? style.column_gap : 0) + box.min;
+                    result.min += gap + box.min;
             } else {
                 result.max = std::max(result.max, box.max);
                 result.min = std::max(result.min, box.min);
@@ -2767,6 +2805,742 @@ struct Layouter {
         return result;
     }
 
+    // --- Grid ---------------------------------------------------------------------
+
+    // A grid item: an element child, the container's own text wrapped in
+    // an anonymous block, or one of its generated boxes (element = the
+    // container, style = the box's own).
+    struct GridItem {
+        dom::Element const* element = nullptr;
+        ComputedStyle const* style = nullptr;
+        std::vector<InlineItem> inline_items;
+        css::GeneratedBox const* generated = nullptr;
+        int order = 0;
+        grid::Area area;
+        // Settled by the column pass: the content width, and where the
+        // margin box starts across its area; then the content height at
+        // that width, for the row pass.
+        float content_width = 0;
+        float x_offset = 0;
+        float measured_height = 0;
+    };
+
+    // The items in order-modified document order. Out-of-flow children are
+    // recorded against the container.
+    std::vector<GridItem> collect_grid_items(dom::Element const& container, ComputedStyle const& style,
+        float content_x, float content_y) const
+    {
+        std::vector<GridItem> items;
+        std::vector<InlineItem> pending;
+        auto const flush_text = [&] {
+            bool content = false;
+            for (InlineItem const& item : pending)
+                content = content || is_inline_content(item);
+            if (content) {
+                GridItem item;
+                item.style = &style;
+                item.inline_items = std::move(pending);
+                items.push_back(std::move(item));
+            }
+            pending.clear();
+        };
+        auto const add_generated = [&](css::GeneratedBox const& box) {
+            GridItem item;
+            item.element = &container;
+            item.style = &box.style;
+            item.generated = &box;
+            item.order = box.style.order;
+            std::u32string const text = decode_utf8(box.text);
+            if (!text.empty())
+                append_text(text, &box.style, item.inline_items, &container);
+            items.push_back(std::move(item));
+        };
+        if (css::GeneratedBox const* const before = before_of(&style))
+            add_generated(*before);
+        for (dom::Node const* child : container.children()) {
+            if (child->is_text()) {
+                std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
+                if (!text.empty())
+                    append_text(text, &style, pending, &container);
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            auto const& element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(element);
+            if (!child_style || child_style->display == Display::None)
+                continue;
+            if (child_style->out_of_flow()) {
+                record_out_of_flow(element, *child_style, std::make_pair(content_x, content_y));
+                continue;
+            }
+            flush_text();
+            GridItem item;
+            item.element = &element;
+            item.style = child_style;
+            item.order = child_style->order;
+            items.push_back(std::move(item));
+        }
+        flush_text();
+        if (css::GeneratedBox const* const after = after_of(&style))
+            add_generated(*after);
+        std::stable_sort(items.begin(), items.end(),
+            [](GridItem const& a, GridItem const& b) { return a.order < b.order; });
+        return items;
+    }
+
+    // A track sizing function's side with its length resolved: a percentage
+    // is of the container's content size in that axis, auto while that is
+    // indefinite.
+    static grid::Breadth breadth_of(css::TrackBreadth const& breadth, std::optional<float> percent_base)
+    {
+        grid::Breadth out;
+        switch (breadth.kind) {
+        case css::TrackBreadth::Kind::Length:
+            if (breadth.length.kind == LengthPercent::Kind::Px) {
+                out.kind = grid::Breadth::Kind::Fixed;
+                out.value = breadth.length.value;
+            } else if (percent_base) {
+                out.kind = grid::Breadth::Kind::Fixed;
+                out.value = resolve(breadth.length, *percent_base);
+            } else {
+                out.kind = grid::Breadth::Kind::Auto;
+            }
+            break;
+        case css::TrackBreadth::Kind::Flex:
+            out.kind = grid::Breadth::Kind::Flex;
+            out.value = breadth.fr;
+            break;
+        case css::TrackBreadth::Kind::Auto:
+            out.kind = grid::Breadth::Kind::Auto;
+            break;
+        case css::TrackBreadth::Kind::MinContent:
+            out.kind = grid::Breadth::Kind::MinContent;
+            break;
+        case css::TrackBreadth::Kind::MaxContent:
+            out.kind = grid::Breadth::Kind::MaxContent;
+            break;
+        }
+        return out;
+    }
+
+    static grid::Track track_of(css::TrackSize const& size, std::optional<float> percent_base)
+    {
+        grid::Track track;
+        track.min = breadth_of(size.min, percent_base);
+        track.max = breadth_of(size.max, percent_base);
+        if (track.min.kind == grid::Breadth::Kind::Flex)
+            track.min.kind = grid::Breadth::Kind::Auto;
+        if (size.fit_content) {
+            if (size.fit_content->kind == LengthPercent::Kind::Px)
+                track.fit_content = size.fit_content->value;
+            else if (percent_base)
+                track.fit_content = resolve(*size.fit_content, *percent_base);
+        }
+        return track;
+    }
+
+    // The explicit tracks of one axis: the template's list with its
+    // auto-repeat expanded to what fits, padded to the areas' extent, and
+    // the line names — the template's own and the areas' -start and -end.
+    struct AxisTracks {
+        std::vector<grid::Track> tracks;
+        grid::AxisLines lines;
+        // The auto-repeat's tracks, for auto-fit's collapsing of empty ones.
+        std::size_t repeat_first = 0;
+        std::size_t repeat_count = 0;
+        bool fit = false;
+    };
+
+    // `available` is the container's definite content size in this axis;
+    // while it is indefinite an auto-repeat is counted against the maximum
+    // size, else the minimum size, else it repeats once.
+    static AxisTracks explicit_tracks(css::GridTrackList const* list, css::GridAreas const* areas, bool columns,
+        std::optional<float> available, std::optional<float> max_size, std::optional<float> min_size, float gap,
+        std::vector<css::TrackSize> const* auto_sizes)
+    {
+        AxisTracks axis;
+        std::vector<std::vector<std::string>> line_names;
+        std::vector<std::string> carried; // names for the next line
+        auto const append = [&](css::GridTrackList::Track const& track) {
+            std::vector<std::string> names = carried;
+            names.insert(names.end(), track.names.begin(), track.names.end());
+            carried.clear();
+            line_names.push_back(std::move(names));
+            axis.tracks.push_back(track_of(track.size, available));
+        };
+        auto const expand_repeat = [&] {
+            int repetitions = 1;
+            {
+                auto const size_for_count = [&](css::TrackSize const& size) {
+                    grid::Track const track = track_of(size, available);
+                    if (track.max.kind == grid::Breadth::Kind::Fixed)
+                        return track.max.value;
+                    if (track.min.kind == grid::Breadth::Kind::Fixed)
+                        return track.min.value;
+                    return 0.0f;
+                };
+                float fixed = 0;
+                for (css::GridTrackList::Track const& track : list->tracks)
+                    fixed += size_for_count(track.size);
+                float repeat = 0;
+                for (css::GridTrackList::Track const& track : list->auto_repeat_tracks)
+                    repeat += size_for_count(track.size);
+                auto const fixed_count = static_cast<int>(list->tracks.size());
+                auto const repeat_count = static_cast<int>(list->auto_repeat_tracks.size());
+                if (available)
+                    repetitions = grid::repetitions_that_fit(*available, false, fixed, fixed_count, repeat,
+                        repeat_count, gap);
+                else if (max_size)
+                    repetitions = grid::repetitions_that_fit(*max_size, false, fixed, fixed_count, repeat,
+                        repeat_count, gap);
+                else if (min_size)
+                    repetitions = grid::repetitions_that_fit(*min_size, true, fixed, fixed_count, repeat,
+                        repeat_count, gap);
+            }
+            axis.repeat_first = axis.tracks.size();
+            axis.fit = list->auto_repeat == css::GridTrackList::AutoRepeat::Fit;
+            carried.insert(carried.end(), list->auto_repeat_leading_names.begin(),
+                list->auto_repeat_leading_names.end());
+            for (int r = 0; r < repetitions; ++r) {
+                for (css::GridTrackList::Track const& track : list->auto_repeat_tracks)
+                    append(track);
+                carried = list->auto_repeat_trailing_names;
+            }
+            axis.repeat_count = axis.tracks.size() - axis.repeat_first;
+            // The names after the last repetition are already on the next
+            // track (or the list's end) — the parser put them there.
+            carried.clear();
+        };
+        if (list) {
+            bool const repeats = list->auto_repeat != css::GridTrackList::AutoRepeat::None;
+            for (std::size_t i = 0; i < list->tracks.size(); ++i) {
+                if (repeats && i == list->auto_repeat_at)
+                    expand_repeat();
+                append(list->tracks[i]);
+            }
+            if (repeats && list->auto_repeat_at >= list->tracks.size())
+                expand_repeat();
+            carried.insert(carried.end(), list->trailing_names.begin(), list->trailing_names.end());
+        }
+        // The areas may reach past the template; the tracks added take
+        // their sizes from grid-auto-columns or -rows, from its start.
+        int const from_areas = areas ? (columns ? areas->columns : areas->rows) : 0;
+        for (int k = 0; static_cast<int>(axis.tracks.size()) < from_areas; ++k) {
+            css::GridTrackList::Track track;
+            if (auto_sizes && !auto_sizes->empty())
+                track.size = (*auto_sizes)[static_cast<std::size_t>(k) % auto_sizes->size()];
+            append(track);
+        }
+        line_names.push_back(std::move(carried));
+        if (areas) {
+            for (css::GridAreas::Area const& area : areas->areas) {
+                auto const start = static_cast<std::size_t>((columns ? area.column_start : area.row_start) - 1);
+                auto const end = static_cast<std::size_t>((columns ? area.column_end : area.row_end) - 1);
+                if (start < line_names.size())
+                    line_names[start].push_back(area.name + "-start");
+                if (end < line_names.size())
+                    line_names[end].push_back(area.name + "-end");
+            }
+        }
+        axis.lines.names = std::move(line_names);
+        return axis;
+    }
+
+    // The implicit grid's tracks in one axis: the explicit ones with the
+    // implicit ones before and after them, sized by grid-auto-columns or
+    // -rows — the pattern runs forwards after the explicit grid and
+    // backwards before it.
+    static std::vector<grid::Track> implicit_tracks(AxisTracks const& axis, int count, int offset,
+        std::vector<css::TrackSize> const* auto_sizes, std::optional<float> percent_base)
+    {
+        std::vector<grid::Track> tracks;
+        auto const explicit_count = static_cast<int>(axis.tracks.size());
+        auto const pattern = [&](int k) {
+            if (!auto_sizes || auto_sizes->empty())
+                return grid::Track {};
+            auto const n = static_cast<int>(auto_sizes->size());
+            int const i = ((k % n) + n) % n;
+            return track_of((*auto_sizes)[static_cast<std::size_t>(i)], percent_base);
+        };
+        for (int i = 0; i < count; ++i) {
+            if (i < offset)
+                tracks.push_back(pattern(i - offset)); // -1 is the one just before the grid
+            else if (i - offset < explicit_count)
+                tracks.push_back(axis.tracks[static_cast<std::size_t>(i - offset)]);
+            else
+                tracks.push_back(pattern(i - offset - explicit_count));
+        }
+        return tracks;
+    }
+
+    // auto-fit: a repetition's track that no item spans collapses.
+    static void collapse_empty(std::vector<grid::Track>& tracks, AxisTracks const& axis, int offset,
+        std::vector<GridItem> const& items, bool columns)
+    {
+        if (!axis.fit || axis.repeat_count == 0)
+            return;
+        for (std::size_t k = 0; k < axis.repeat_count; ++k) {
+            int const t = offset + static_cast<int>(axis.repeat_first + k);
+            if (t < 0 || t >= static_cast<int>(tracks.size()))
+                continue;
+            bool used = false;
+            for (GridItem const& item : items) {
+                int const start = columns ? item.area.column_start : item.area.row_start;
+                int const end = columns ? item.area.column_end : item.area.row_end;
+                if (start <= t && t < end) {
+                    used = true;
+                    break;
+                }
+            }
+            if (!used)
+                tracks[static_cast<std::size_t>(t)].collapsed = true;
+        }
+    }
+
+    // The tracks' free space goes where the content-distribution says.
+    static grid::Distribution distribution_of(css::JustifyContent justify)
+    {
+        using css::JustifyContent;
+        switch (justify) {
+        case JustifyContent::Normal:
+        case JustifyContent::Stretch: return grid::Distribution::Stretch;
+        case JustifyContent::FlexStart: return grid::Distribution::Start;
+        case JustifyContent::FlexEnd: return grid::Distribution::End;
+        case JustifyContent::Center: return grid::Distribution::Center;
+        case JustifyContent::SpaceBetween: return grid::Distribution::SpaceBetween;
+        case JustifyContent::SpaceAround: return grid::Distribution::SpaceAround;
+        case JustifyContent::SpaceEvenly: return grid::Distribution::SpaceEvenly;
+        }
+        return grid::Distribution::Start;
+    }
+
+    static grid::Distribution distribution_of(css::AlignContent align)
+    {
+        using css::AlignContent;
+        switch (align) {
+        case AlignContent::Stretch: return grid::Distribution::Stretch;
+        case AlignContent::FlexStart: return grid::Distribution::Start;
+        case AlignContent::FlexEnd: return grid::Distribution::End;
+        case AlignContent::Center: return grid::Distribution::Center;
+        case AlignContent::SpaceBetween: return grid::Distribution::SpaceBetween;
+        case AlignContent::SpaceAround: return grid::Distribution::SpaceAround;
+        case AlignContent::SpaceEvenly: return grid::Distribution::SpaceEvenly;
+        }
+        return grid::Distribution::Start;
+    }
+
+    // Where the items go: their lines resolved and the rest auto-placed.
+    static grid::PlacedGrid place_grid(std::vector<GridItem>& items, AxisTracks const& columns,
+        AxisTracks const& rows, css::GridAutoFlow flow)
+    {
+        std::vector<grid::ItemPlacement> placements;
+        placements.reserve(items.size());
+        for (GridItem const& item : items) {
+            grid::ItemPlacement placement;
+            if (item.element) {
+                placement.rows = grid::resolve_lines(item.style->grid_row_start, item.style->grid_row_end, rows.lines);
+                placement.columns = grid::resolve_lines(item.style->grid_column_start,
+                    item.style->grid_column_end, columns.lines);
+            }
+            placements.push_back(placement);
+        }
+        grid::PlacedGrid placed = grid::place_items(placements, rows.lines.tracks(), columns.lines.tracks(), flow);
+        for (std::size_t i = 0; i < items.size(); ++i)
+            items[i].area = placed.areas[i];
+        return placed;
+    }
+
+    // An item's contributions along the columns: its outer min-content,
+    // max-content and minimum sizes (percentages of the area count as
+    // zero until the area is known).
+    grid::Contribution column_contribution(GridItem const& item) const
+    {
+        grid::Contribution contribution;
+        contribution.start = item.area.column_start;
+        contribution.end = item.area.column_end;
+        Intrinsic const intrinsic
+            = item.element ? block_intrinsic(*item.element, *item.style) : inline_intrinsic(item.inline_items);
+        contribution.min_content = intrinsic.min;
+        contribution.max_content = intrinsic.max;
+        contribution.minimum = intrinsic.min;
+        if (item.element) {
+            // The automatic minimum is the min-content size (a written
+            // width stands in for it), unless the box clips its overflow
+            // or writes a minimum.
+            ComputedStyle const& s = *item.style;
+            float const edges = resolve(s.margin_left, 0) + resolve(s.margin_right, 0)
+                + resolve(s.padding_left, 0) + resolve(s.padding_right, 0) + s.border_left.width
+                + s.border_right.width;
+            if (s.min_width.kind == LengthPercent::Kind::Px)
+                contribution.minimum = s.min_width.value + edges;
+            else if (s.overflow != css::Overflow::Visible)
+                contribution.minimum = edges;
+        }
+        return contribution;
+    }
+
+    // Whether an item keeps its own size under a normal alignment: a
+    // picture, an embedded box or a control does; a block stretches.
+    static bool keeps_own_size(GridItem const& item)
+    {
+        return item.element && !item.generated && (is_replaced(*item.element) || is_control(*item.element));
+    }
+
+    // Settles an item's content width and where its margin box starts
+    // across an area this wide: stretched to it, sized as written, or
+    // shrink-to-fit and placed by justify-self (auto margins take the
+    // free space first).
+    void size_grid_item_width(GridItem& item, float area_width, ComputedStyle const& container) const
+    {
+        if (!item.element) {
+            item.content_width = area_width;
+            item.x_offset = 0;
+            return;
+        }
+        ComputedStyle const& s = *item.style;
+        bool const auto_left = s.margin_left.is_auto();
+        bool const auto_right = s.margin_right.is_auto();
+        float const margin_left = resolve(s.margin_left, area_width);
+        float const margin_right = resolve(s.margin_right, area_width);
+        float const edges = resolve(s.padding_left, area_width) + resolve(s.padding_right, area_width)
+            + s.border_left.width + s.border_right.width;
+        css::AlignItems justify = s.justify_self == css::AlignItems::Auto ? container.justify_items : s.justify_self;
+        bool const own_size = keeps_own_size(item);
+        if (justify == css::AlignItems::Normal || justify == css::AlignItems::Auto)
+            justify = own_size ? css::AlignItems::FlexStart : css::AlignItems::Stretch;
+        if (justify == css::AlignItems::Baseline)
+            justify = css::AlignItems::FlexStart;
+        float const available = std::max(0.0f, area_width - margin_left - margin_right - edges);
+        float content;
+        if (!s.width.is_auto()) {
+            content = clamp_width(s, resolve(s.width, area_width), area_width);
+        } else if (justify == css::AlignItems::Stretch && !auto_left && !auto_right && !own_size) {
+            content = clamp_width(s, available, area_width);
+        } else {
+            Intrinsic const intrinsic = intrinsic_widths(*item.element, s);
+            content = clamp_width(s, std::min(std::max(intrinsic.min, available), intrinsic.max), area_width);
+        }
+        float const free = area_width - (margin_left + edges + content + margin_right);
+        float offset = 0;
+        if (auto_left && auto_right)
+            offset = std::max(0.0f, free) / 2;
+        else if (auto_left)
+            offset = std::max(0.0f, free);
+        else if (!auto_right && justify == css::AlignItems::FlexEnd)
+            offset = free;
+        else if (!auto_right && justify == css::AlignItems::Center)
+            offset = free / 2;
+        item.content_width = content;
+        item.x_offset = offset;
+    }
+
+    // An item's content height at its settled width.
+    float grid_item_height(GridItem const& item, float area_width, int list_depth) const
+    {
+        return measure_item_height(item.element, *item.style, item.inline_items, item.generated,
+            item.content_width, area_width, list_depth);
+    }
+
+    // An item's contribution along the rows: its outer height at its width.
+    grid::Contribution row_contribution(GridItem const& item, float area_width) const
+    {
+        grid::Contribution contribution;
+        contribution.start = item.area.row_start;
+        contribution.end = item.area.row_end;
+        float outer = item.measured_height;
+        float minimum = outer;
+        if (item.element) {
+            ComputedStyle const& s = *item.style;
+            float const edges = resolve(s.margin_top, area_width) + resolve(s.margin_bottom, area_width)
+                + resolve(s.padding_top, area_width) + resolve(s.padding_bottom, area_width)
+                + s.border_top.width + s.border_bottom.width;
+            outer += edges;
+            minimum = outer;
+            if (s.min_height.kind == LengthPercent::Kind::Px)
+                minimum = s.min_height.value + edges;
+            else if (s.overflow != css::Overflow::Visible)
+                minimum = edges;
+        }
+        contribution.minimum = minimum;
+        contribution.min_content = outer;
+        contribution.max_content = outer;
+        return contribution;
+    }
+
+    // Lays an item out in its area: across it as the column pass settled,
+    // down it by align-self — stretched to the area's height, sized as
+    // written, or its own height placed (auto margins first).
+    void place_grid_item(GridItem const& item, float area_x, float area_y, float area_width,
+        float area_height, ComputedStyle const& container, int list_depth, Fragment& parent) const
+    {
+        FloatContext scratch_floats;
+        float const x = area_x + item.x_offset;
+        if (!item.element) {
+            Fragment box;
+            box.x = x;
+            box.y = area_y;
+            box.width = item.content_width;
+            box.height = layout_lines(item.inline_items, *item.style, x, area_y, item.content_width, box,
+                scratch_floats, list_depth);
+            parent.children.push_back(std::move(box));
+            return;
+        }
+        ComputedStyle const& s = *item.style;
+        bool const auto_top = s.margin_top.is_auto();
+        bool const auto_bottom = s.margin_bottom.is_auto();
+        float const margin_top = resolve(s.margin_top, area_width);
+        float const margin_bottom = resolve(s.margin_bottom, area_width);
+        float const edges = resolve(s.padding_top, area_width) + resolve(s.padding_bottom, area_width)
+            + s.border_top.width + s.border_bottom.width;
+        css::AlignItems align = s.align_self == css::AlignItems::Auto ? container.align_items : s.align_self;
+        bool const own_size = keeps_own_size(item);
+        if (align == css::AlignItems::Normal || align == css::AlignItems::Auto)
+            align = own_size ? css::AlignItems::FlexStart : css::AlignItems::Stretch;
+        if (align == css::AlignItems::Baseline)
+            align = css::AlignItems::FlexStart;
+        std::optional<float> content_height;
+        if (std::optional<float> const written = definite_height_of(s, area_height))
+            content_height = clamp_height(s, *written, area_height);
+        else if (align == css::AlignItems::Stretch && !auto_top && !auto_bottom && !own_size)
+            content_height = clamp_height(s, std::max(0.0f, area_height - margin_top - margin_bottom - edges),
+                area_height);
+        float const content = content_height.value_or(item.measured_height);
+        float const free = area_height - (margin_top + edges + content + margin_bottom);
+        float offset = 0;
+        if (auto_top && auto_bottom)
+            offset = std::max(0.0f, free) / 2;
+        else if (auto_top)
+            offset = std::max(0.0f, free);
+        else if (!auto_bottom && align == css::AlignItems::FlexEnd)
+            offset = free;
+        else if (!auto_bottom && align == css::AlignItems::Center)
+            offset = free / 2;
+        float const y = area_y + offset + margin_top;
+        if (item.generated) {
+            parent.children.push_back(layout_generated_block(*item.generated, *item.element, x, y, area_width,
+                scratch_floats, item.content_width, content_height));
+            return;
+        }
+        BlockOptions options;
+        options.content_width = item.content_width;
+        options.content_height = content_height;
+        options.zero_auto_margins = true;
+        options.own_context = true;
+        options.containing_height = area_height;
+        Fragment box = layout_block(*item.element, s, x, y, area_width, list_depth, scratch_floats, options);
+        mark_positioned(box, s, area_width);
+        mark_item_layer(box, s);
+        parent.children.push_back(std::move(box));
+    }
+
+    // The offset and size of the tracks an item spans, collapsed ones aside.
+    static std::pair<float, float> span_extent(std::vector<float> const& sizes,
+        grid::TrackPositions const& positions, std::vector<grid::Track> const& tracks, int start, int end)
+    {
+        auto const n = static_cast<int>(sizes.size());
+        start = std::clamp(start, 0, std::max(0, n - 1));
+        end = std::clamp(end, start + 1, n);
+        if (n == 0)
+            return { 0.0f, 0.0f };
+        float const from = positions.offsets[static_cast<std::size_t>(start)];
+        float to = from;
+        for (int t = end - 1; t >= start; --t) {
+            auto const i = static_cast<std::size_t>(t);
+            if (!tracks[i].collapsed) {
+                to = positions.offsets[i] + sizes[i];
+                break;
+            }
+        }
+        return { from, std::max(0.0f, to - from) };
+    }
+
+    static std::optional<float> px_of(LengthPercent const& length)
+    {
+        if (length.kind == LengthPercent::Kind::Px)
+            return length.value;
+        return std::nullopt;
+    }
+
+    // Whether a track size has a percentage in it.
+    static bool uses_percentage(css::TrackSize const& size)
+    {
+        auto const percent = [](css::TrackBreadth const& breadth) {
+            return breadth.kind == css::TrackBreadth::Kind::Length
+                && breadth.length.kind != LengthPercent::Kind::Px;
+        };
+        return percent(size.min) || percent(size.max)
+            || (size.fit_content && size.fit_content->kind != LengthPercent::Kind::Px);
+    }
+
+    // Whether the rows or the row gap ask for a percentage of the height.
+    static bool rows_use_percentages(ComputedStyle const& style)
+    {
+        if (style.row_gap.kind != LengthPercent::Kind::Px)
+            return true;
+        if (css::GridTrackList const* const list = style.grid_template_rows.get()) {
+            for (css::GridTrackList::Track const& track : list->tracks) {
+                if (uses_percentage(track.size))
+                    return true;
+            }
+            for (css::GridTrackList::Track const& track : list->auto_repeat_tracks) {
+                if (uses_percentage(track.size))
+                    return true;
+            }
+        }
+        if (style.grid_auto_rows) {
+            for (css::TrackSize const& size : *style.grid_auto_rows) {
+                if (uses_percentage(size))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // The grid layout algorithm: the items and the explicit grid, their
+    // placement, the column sizes, then the row sizes from the items'
+    // heights at their widths, then each item in its area. Returns the
+    // content height.
+    float layout_grid(dom::Element const& container, ComputedStyle const& style, float content_x,
+        float content_y, float content_width, Fragment& fragment, int list_depth,
+        std::optional<float> own_height) const
+    {
+        std::vector<GridItem> items = collect_grid_items(container, style, content_x, content_y);
+        float const column_gap = resolve(style.column_gap, content_width);
+        float const row_gap = resolve(style.row_gap, own_height.value_or(0.0f));
+        css::GridAreas const* const areas = style.grid_template_areas.get();
+        AxisTracks const columns = explicit_tracks(style.grid_template_columns.get(), areas, true, content_width,
+            std::nullopt, std::nullopt, column_gap, style.grid_auto_columns.get());
+        AxisTracks const rows = explicit_tracks(style.grid_template_rows.get(), areas, false, own_height,
+            own_height ? std::nullopt : px_of(style.max_height), own_height ? std::nullopt : px_of(style.min_height),
+            row_gap, style.grid_auto_rows.get());
+        grid::PlacedGrid const placed = place_grid(items, columns, rows, style.grid_auto_flow);
+
+        std::vector<grid::Track> column_tracks = implicit_tracks(columns, placed.columns, placed.column_offset,
+            style.grid_auto_columns.get(), content_width);
+        collapse_empty(column_tracks, columns, placed.column_offset, items, true);
+
+        // Columns.
+        grid::SizingInput column_input;
+        column_input.tracks = column_tracks;
+        for (GridItem const& item : items)
+            column_input.items.push_back(column_contribution(item));
+        column_input.available = content_width;
+        column_input.gap = column_gap;
+        column_input.stretch = style.justify_content == css::JustifyContent::Normal
+            || style.justify_content == css::JustifyContent::Stretch;
+        std::vector<float> const column_sizes = grid::size_tracks(column_input);
+        std::vector<bool> column_collapsed;
+        for (grid::Track const& track : column_tracks)
+            column_collapsed.push_back(track.collapsed);
+        grid::TrackPositions const column_positions = grid::distribute_tracks(column_sizes, column_collapsed,
+            column_gap, content_width, distribution_of(style.justify_content));
+
+        // The items' widths, and their heights at those widths.
+        std::vector<float> widths(items.size(), 0.0f);
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            GridItem& item = items[i];
+            auto const [x, width]
+                = span_extent(column_sizes, column_positions, column_tracks, item.area.column_start, item.area.column_end);
+            size_grid_item_width(item, width, style);
+            item.measured_height = grid_item_height(item, width, list_depth);
+            widths[i] = width;
+        }
+
+        // Rows: sized within the container's definite height, else to their
+        // content. A percentage row or row gap under an indefinite height
+        // counts as auto (and zero) while the content height is found, then
+        // resolves against that height and the rows are sized again in it.
+        struct RowPass {
+            float gap = 0;
+            std::vector<grid::Track> tracks;
+            std::vector<float> sizes;
+            grid::TrackPositions positions;
+        };
+        auto const size_rows = [&](std::optional<float> height) {
+            RowPass pass;
+            pass.gap = resolve(style.row_gap, height.value_or(0.0f));
+            AxisTracks const axis = explicit_tracks(style.grid_template_rows.get(), areas, false, height,
+                height ? std::nullopt : px_of(style.max_height), height ? std::nullopt : px_of(style.min_height),
+                pass.gap, style.grid_auto_rows.get());
+            pass.tracks = implicit_tracks(axis, placed.rows, placed.row_offset, style.grid_auto_rows.get(), height);
+            collapse_empty(pass.tracks, axis, placed.row_offset, items, false);
+            grid::SizingInput input;
+            input.tracks = pass.tracks;
+            for (std::size_t i = 0; i < items.size(); ++i)
+                input.items.push_back(row_contribution(items[i], widths[i]));
+            input.available = height;
+            input.gap = pass.gap;
+            input.stretch = style.align_content == css::AlignContent::Stretch;
+            pass.sizes = grid::size_tracks(input);
+            std::vector<bool> collapsed;
+            for (grid::Track const& track : pass.tracks)
+                collapsed.push_back(track.collapsed);
+            pass.positions = grid::distribute_tracks(pass.sizes, collapsed, pass.gap, height,
+                distribution_of(style.align_content));
+            return pass;
+        };
+        std::optional<float> row_height = own_height;
+        RowPass row_pass = size_rows(row_height);
+        if (!own_height && rows_use_percentages(style)) {
+            row_height = clamp_height(style, row_pass.positions.extent);
+            row_pass = size_rows(row_height);
+        }
+
+        // Each item in its area.
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            GridItem const& item = items[i];
+            auto const [x, width]
+                = span_extent(column_sizes, column_positions, column_tracks, item.area.column_start, item.area.column_end);
+            auto const [y, height]
+                = span_extent(row_pass.sizes, row_pass.positions, row_pass.tracks, item.area.row_start, item.area.row_end);
+            place_grid_item(item, content_x + x, content_y + y, width, height, style, list_depth, fragment);
+        }
+        if (row_height)
+            return *row_height;
+        return row_pass.positions.extent;
+    }
+
+    // A grid container's intrinsic widths: its columns sized under a
+    // min-content, then a max-content constraint, gaps included.
+    Intrinsic grid_intrinsic_widths(dom::Element const& container, ComputedStyle const& style) const
+    {
+        std::vector<GridItem> items = collect_grid_items(container, style, 0, 0);
+        float const column_gap = resolve(style.column_gap, 0);
+        css::GridAreas const* const areas = style.grid_template_areas.get();
+        AxisTracks const columns = explicit_tracks(style.grid_template_columns.get(), areas, true, std::nullopt,
+            px_of(style.max_width), px_of(style.min_width), column_gap, style.grid_auto_columns.get());
+        AxisTracks const rows = explicit_tracks(style.grid_template_rows.get(), areas, false, std::nullopt,
+            px_of(style.max_height), px_of(style.min_height), 0, style.grid_auto_rows.get());
+        grid::PlacedGrid const placed = place_grid(items, columns, rows, style.grid_auto_flow);
+        std::vector<grid::Track> column_tracks = implicit_tracks(columns, placed.columns, placed.column_offset,
+            style.grid_auto_columns.get(), std::nullopt);
+        collapse_empty(column_tracks, columns, placed.column_offset, items, true);
+        grid::SizingInput input;
+        input.tracks = column_tracks;
+        for (GridItem const& item : items)
+            input.items.push_back(column_contribution(item));
+        input.gap = column_gap;
+        input.stretch = false;
+        auto const total = [&](grid::Constraint constraint) {
+            input.constraint = constraint;
+            std::vector<float> const sizes = grid::size_tracks(input);
+            float sum = 0;
+            int count = 0;
+            for (std::size_t t = 0; t < sizes.size(); ++t) {
+                if (column_tracks[t].collapsed)
+                    continue;
+                sum += sizes[t];
+                ++count;
+            }
+            return sum + (count > 1 ? column_gap * static_cast<float>(count - 1) : 0.0f);
+        };
+        Intrinsic result;
+        result.min = total(grid::Constraint::MinContent);
+        result.max = total(grid::Constraint::MaxContent);
+        return result;
+    }
+
     // The flexbox algorithm in one pass: the items, their base sizes, the
     // lines, flexible lengths, cross sizes and alignment, then placement.
     // Returns the content height.
@@ -2792,8 +3566,12 @@ struct Layouter {
             = horizontal ? std::optional<float>(content_width) : definite_height;
         std::optional<float> const cross_size
             = horizontal ? definite_height : std::optional<float>(content_width);
-        float const main_gap = horizontal ? style.column_gap : style.row_gap;
-        float const cross_gap = horizontal ? style.row_gap : style.column_gap;
+        // A percentage gap is of the container's content box in that axis,
+        // zero while the height is indefinite.
+        float const column_gap = resolve(style.column_gap, content_width);
+        float const row_gap = resolve(style.row_gap, definite_height.value_or(0.0f));
+        float const main_gap = horizontal ? column_gap : row_gap;
+        float const cross_gap = horizontal ? row_gap : column_gap;
 
         // 1. The items: element children in order, and the container's own
         // text wrapped in anonymous items; a ::before or ::after box is an
@@ -3122,6 +3900,9 @@ struct Layouter {
             extent_main = std::max(extent_main, used);
             float const free = main_size ? *main_size - used : 0.0f;
             JustifyContent justify = style.justify_content;
+            // normal and stretch are flex-start on a flex line.
+            if (justify == JustifyContent::Normal || justify == JustifyContent::Stretch)
+                justify = JustifyContent::FlexStart;
             if (reversed) {
                 if (justify == JustifyContent::FlexStart)
                     justify = JustifyContent::FlexEnd;
@@ -3135,6 +3916,8 @@ struct Layouter {
             float main_cursor = 0;
             float between = main_gap;
             switch (justify) {
+            case JustifyContent::Normal:
+            case JustifyContent::Stretch:
             case JustifyContent::FlexStart:
                 break;
             case JustifyContent::FlexEnd:
@@ -3173,6 +3956,7 @@ struct Layouter {
                     cross_pos = (height_of_line - item.outer_cross()) / 2;
                     break;
                 case AlignItems::Auto:
+                case AlignItems::Normal: // never here: item_alignment made it stretch
                 case AlignItems::FlexStart:
                 case AlignItems::Baseline: // as flex-start until baselines are gathered
                     break;
