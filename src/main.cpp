@@ -13,7 +13,10 @@
 #include "ui/ShellLoader.h"
 #include "ui/Theme.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -28,9 +31,10 @@ namespace {
 
 int usage(char const* program)
 {
-    std::cerr << "usage: " << program << " [url] [--theme <file.json>]\n"
+    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--downloads <dir>]\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N]\n"
+              << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
               << "       " << program << " --font-sampler <output.png>\n"
@@ -40,8 +44,11 @@ int usage(char const* program)
               << "  --theme applies a theme file to the window and to --script; the default is\n"
               << "          themes/default.json beside the executable or its parent, reloaded\n"
               << "          whenever the file changes while the window is open.\n"
+              << "  --downloads is where downloads are saved (the window defaults to your\n"
+              << "          Downloads folder; --script saves nothing unless told where).\n"
               << "  --script replays a shell script headlessly and checks its assertions.\n"
               << "  --render lays out the page (local file or live URL) and writes a PNG.\n"
+              << "  --bench times parse, style, layout and paint of a page, several runs.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
               << "  --font-sampler draws the Sashfold Mono QA sheet.\n"
@@ -201,6 +208,82 @@ int smoke_scene(std::string const& output)
     return 0;
 }
 
+// The engine's stages timed separately, best and median of several runs,
+// painting a viewport-sized slice the way the shell does each frame. The
+// perf budgets (plan M3) are checked against these numbers.
+int bench(std::string const& input, int runs, int viewport_width)
+{
+    std::optional<std::string> const bytes = load_input(input);
+    if (!bytes)
+        return 1;
+    using clock = std::chrono::steady_clock;
+    using ms = std::chrono::duration<double, std::milli>;
+    struct Sample {
+        double parse = 0;
+        double style = 0;
+        double layout = 0;
+        double paint = 0;
+    };
+    std::vector<Sample> samples;
+    float page_height = 0;
+    for (int run = 0; run < runs; ++run) {
+        Sample sample;
+        auto const t0 = clock::now();
+        auto document = html::parse_document_bytes(*bytes);
+        auto const t1 = clock::now();
+        css::StyleMap const styles = css::resolve_styles(*document);
+        auto const t2 = clock::now();
+        layout::LayoutResult const page = layout::layout_document(*document, styles,
+            static_cast<float>(viewport_width));
+        auto const t3 = clock::now();
+        Bitmap canvas(viewport_width, 1000, page.canvas_background);
+        paint::paint_page(canvas, page);
+        auto const t4 = clock::now();
+        sample.parse = ms(t1 - t0).count();
+        sample.style = ms(t2 - t1).count();
+        sample.layout = ms(t3 - t2).count();
+        sample.paint = ms(t4 - t3).count();
+        samples.push_back(sample);
+        page_height = page.page_height;
+    }
+    auto const report = [&](char const* name, double Sample::*member) {
+        std::vector<double> values;
+        for (Sample const& sample : samples)
+            values.push_back(sample.*member);
+        std::sort(values.begin(), values.end());
+        std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", name, values.front(),
+            values[values.size() / 2]);
+    };
+    std::printf("bench: %zu bytes, %d run(s), viewport %d px wide, page %d px tall\n",
+        bytes->size(), runs, viewport_width, static_cast<int>(page_height + 0.5f));
+    report("parse", &Sample::parse);
+    report("style", &Sample::style);
+    report("layout", &Sample::layout);
+    report("paint", &Sample::paint);
+    std::vector<double> totals;
+    for (Sample const& sample : samples)
+        totals.push_back(sample.parse + sample.style + sample.layout + sample.paint);
+    std::sort(totals.begin(), totals.end());
+    std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", "total", totals.front(),
+        totals[totals.size() / 2]);
+    return 0;
+}
+
+// The user's Downloads folder, when the OS has the convention and it exists.
+std::string default_downloads_directory()
+{
+#ifdef _WIN32
+    char const* const home = std::getenv("USERPROFILE");
+#else
+    char const* const home = std::getenv("HOME");
+#endif
+    if (!home || !*home)
+        return {};
+    std::error_code error;
+    std::filesystem::path const downloads = std::filesystem::path(home) / "Downloads";
+    return std::filesystem::is_directory(downloads, error) ? downloads.string() : std::string();
+}
+
 // themes/default.json beside the executable, or beside its parent directory
 // (a build tree inside the repository), else the built-in defaults.
 std::string default_theme_path(char const* program)
@@ -230,15 +313,17 @@ ui::Theme load_theme(std::string const& path)
 }
 
 int run_script_mode(std::string const& script, bool update_goldens, int width, int height,
-    std::string const& theme_path)
+    std::string const& theme_path, std::string const& downloads)
 {
     ui::ShellLoader loader;
     ui::Browser browser(loader, load_theme(theme_path), width, height);
+    browser.set_downloads_directory(downloads);
     ui::ScriptResult const result = ui::run_script(browser, script, update_goldens, std::cout);
     return result.ok() ? 0 : 1;
 }
 
-int run_window(std::string const& start_url, std::string const& theme_path)
+int run_window(std::string const& start_url, std::string const& theme_path,
+    std::string const& downloads)
 {
     std::unique_ptr<platform::Window> window = platform::Window::create("Sashfold", 1100, 760);
     if (!window) {
@@ -248,6 +333,7 @@ int run_window(std::string const& start_url, std::string const& theme_path)
     }
     ui::ShellLoader loader;
     ui::Browser browser(loader, load_theme(theme_path), window->width(), window->height());
+    browser.set_downloads_directory(downloads);
     browser.navigate(start_url.empty() ? "about:sashfold" : start_url);
 
     std::error_code error;
@@ -319,8 +405,10 @@ int main(int argc, char** argv)
     std::string output = "sashfold-out.png";
     std::string start_url;
     std::string theme_path = default_theme_path(argv[0]);
+    std::optional<std::string> downloads;
     int width = 0;
     int height = 0;
+    int runs = 5;
     bool update_goldens = false;
 
     auto const value_after = [&](std::size_t& i, std::string& into) {
@@ -336,8 +424,13 @@ int main(int argc, char** argv)
         if (arg == "--theme") {
             if (!value_after(i, theme_path))
                 return usage(argv[0]);
+        } else if (arg == "--downloads") {
+            std::string directory;
+            if (!value_after(i, directory))
+                return usage(argv[0]);
+            downloads = directory;
         } else if (arg == "--script" || arg == "--render" || arg == "--fetch" || arg == "--dump-dom"
-            || arg == "--font-sampler") {
+            || arg == "--font-sampler" || arg == "--bench") {
             mode = arg;
             if (!value_after(i, input))
                 return usage(argv[0]);
@@ -345,6 +438,11 @@ int main(int argc, char** argv)
             mode = arg;
         } else if (arg == "--update-goldens") {
             update_goldens = true;
+        } else if (arg == "--runs") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            runs = std::clamp(std::atoi(text.c_str()), 1, 1000);
         } else if (arg == "--width" || arg == "--height") {
             std::string text;
             if (!value_after(i, text))
@@ -366,9 +464,11 @@ int main(int argc, char** argv)
 
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
-            theme_path);
+            theme_path, downloads.value_or(""));
     if (mode == "--render")
         return render_page(input, output, width ? width : 800);
+    if (mode == "--bench")
+        return bench(input, runs, width ? width : 800);
     if (mode == "--fetch")
         return fetch_url(input);
     if (mode == "--dump-dom")
@@ -377,5 +477,5 @@ int main(int argc, char** argv)
         return font_sampler(input);
     if (mode == "--smoke")
         return smoke_scene(output);
-    return run_window(start_url, theme_path);
+    return run_window(start_url, theme_path, downloads.value_or(default_downloads_directory()));
 }

@@ -44,6 +44,7 @@ add_library(sashfold_core STATIC
   src/paint/Painter.cpp
   src/text/SashfoldMono.cpp
   src/ui/Browser.cpp
+  src/ui/Downloads.cpp
   src/ui/InternalPages.cpp
   src/ui/Script.cpp
   src/ui/ShellLoader.cpp

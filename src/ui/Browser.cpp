@@ -8,6 +8,7 @@
 #include "layout/Layout.h"
 #include "paint/Painter.h"
 #include "text/SashfoldMono.h"
+#include "ui/Downloads.h"
 #include "ui/InternalPages.h"
 
 #include <algorithm>
@@ -259,6 +260,7 @@ struct Browser::Impl {
 
     Loader& loader;
     Theme theme;
+    std::string downloads_directory;
     int width;
     int height;
     std::vector<Tab> tabs;
@@ -527,6 +529,33 @@ struct Browser::Impl {
         }
     }
 
+    // A response the engine cannot render, or one the server marked as an
+    // attachment: saved with the mark of the web, never opened, and the
+    // page says what landed where. Returns the status-bar text.
+    std::string receive_download(HistoryEntry& entry, net::FetchResponse& response,
+        std::string const* disposition, std::string const& referrer)
+    {
+        std::string const name = download_file_name(disposition, response.final_url);
+        std::string const type = entry.content_type;
+        std::string const url = response.final_url.serialize();
+        entry.internal = true;
+        if (downloads_directory.empty()) {
+            set_document(entry, unsupported_content_page(url, type, response.body.size()));
+            return "Not saved, no downloads folder: " + name + " ("
+                + std::to_string(response.body.size()) + " bytes)";
+        }
+        DownloadResult const saved
+            = save_download(downloads_directory, name, response.body, response.final_url, referrer);
+        if (!saved.error.empty()) {
+            set_document(entry, error_page("Download failed", saved.error, url));
+            return "Download failed: " + saved.error;
+        }
+        set_document(entry,
+            download_page(saved.file_name, saved.path, response.body.size(), type, saved.marked));
+        return "Downloaded " + saved.file_name + " (" + std::to_string(response.body.size())
+            + " bytes)";
+    }
+
     void show_internal(std::string const& html, net::Url const& url, std::string const& status)
     {
         Tab* const tab = active_tab();
@@ -567,6 +596,7 @@ struct Browser::Impl {
         entry.url = load.url;
         entry.final_url = load.url;
         bool fell_back_to_http = false;
+        std::string download_status;
 
         if (load.url.scheme == "about" && load.url.serialize_path() == "sashfold") {
             set_document(entry, about_sashfold_page());
@@ -612,12 +642,20 @@ struct Browser::Impl {
                 entry.from_cache = response.from_cache;
                 if (std::string const* const type = net::find_header(response.headers, "content-type"))
                     entry.content_type = *type;
-                entry.bytes = std::move(response.body);
+                std::string const* const disposition
+                    = net::find_header(response.headers, "content-disposition");
+                bool const attachment = disposition && starts_with_ci(trim(*disposition), "attachment");
+                if (attachment || !is_renderable_content_type(entry.content_type))
+                    download_status = receive_download(entry, response, disposition, referrer);
+                else
+                    entry.bytes = std::move(response.body);
             }
         }
 
         std::string status;
-        if (!entry.error.empty()) {
+        if (!download_status.empty()) {
+            status = download_status;
+        } else if (!entry.error.empty()) {
             status = entry.error;
         } else if (fell_back_to_http) {
             status = "Loaded over plain HTTP: the site did not answer on HTTPS";
@@ -1251,6 +1289,11 @@ void Browser::set_theme(Theme theme)
 }
 
 Theme const& Browser::theme() const { return m_impl->theme; }
+
+void Browser::set_downloads_directory(std::string directory)
+{
+    m_impl->downloads_directory = std::move(directory);
+}
 
 void Browser::resize(int width, int height)
 {

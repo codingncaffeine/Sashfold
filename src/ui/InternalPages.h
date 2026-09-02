@@ -32,9 +32,13 @@ std::string source_page(std::string_view url, std::vector<std::uint8_t> const& b
 // Plain text, shown preformatted.
 std::string text_page(std::string_view title, std::vector<std::uint8_t> const& bytes);
 
-// A content type the engine cannot show yet (downloads are a later
-// milestone; nothing is written to disk in the meantime).
+// A content type the engine cannot show and no downloads folder to save it
+// to; nothing is written to disk.
 std::string unsupported_content_page(std::string_view url, std::string_view content_type,
     std::size_t byte_count);
+
+// What a download saved, and where; the file is never opened.
+std::string download_page(std::string_view file_name, std::string_view path,
+    std::size_t byte_count, std::string_view content_type, bool marked);
 
 }

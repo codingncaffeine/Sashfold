@@ -75,6 +75,9 @@ public:
 
     void set_theme(Theme theme);
     Theme const& theme() const;
+    // Where downloads land. Empty disables downloading: a response the
+    // engine cannot render then shows the unsupported-content page instead.
+    void set_downloads_directory(std::string directory);
     void resize(int width, int height);
     int width() const;
     int height() const;

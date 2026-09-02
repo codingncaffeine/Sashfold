@@ -54,3 +54,11 @@ assert-title Third
 close-tab 1
 assert-tabs 1
 assert-title Third
+
+# A response the engine cannot render is a download: saved, marked, never opened.
+open data:application/octet-stream;base64,SGVsbG8sIFNhc2hmb2xkIQ==
+assert-status Downloaded download
+assert-text 16 bytes of application/octet-stream
+assert-text never opens
+back
+assert-title Third

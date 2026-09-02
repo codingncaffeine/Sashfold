@@ -147,7 +147,13 @@ std::string_view user_agent()
 {
     // The compat-shaped token every engine ships (plan M3, documented in the
     // README when the shell lands).
+#ifdef _WIN32
     return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/0.3";
+#elif defined(__APPLE__)
+    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Sashfold/0.3";
+#else
+    return "Mozilla/5.0 (X11; Linux x86_64) Sashfold/0.3";
+#endif
 }
 
 std::optional<RawResponse> read_response(

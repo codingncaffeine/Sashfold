@@ -21,6 +21,7 @@ sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)
 sashfold_test(test_cache)
+sashfold_test(test_downloads)
 
 add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
@@ -29,7 +30,8 @@ add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.j
 # The shell, driven headlessly by --script on every OS: chrome goldens are
 # byte-identical because every pixel is ours.
 add_test(NAME shell_smoke
-  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/smoke.script)
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/smoke.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed
 # baseline, ratchet it upward as the tokenizer grows.

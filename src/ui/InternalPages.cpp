@@ -119,13 +119,28 @@ std::string text_page(std::string_view title, std::vector<std::uint8_t> const& b
 std::string unsupported_content_page(std::string_view url, std::string_view content_type,
     std::size_t byte_count)
 {
-    std::string body = "<h1>Sashfold can't show this yet</h1>";
+    std::string body = "<h1>Sashfold can't show this</h1>";
     body += "<div class=box><p>The server sent <b>" + html_escape(content_type) + "</b> ("
-        + std::to_string(byte_count) + " bytes). This version renders HTML and plain text; "
-          "images, downloads, and other kinds of content arrive in later milestones. Nothing "
-          "was saved to disk.</p>";
+        + std::to_string(byte_count) + " bytes). This version renders HTML and plain text, and "
+          "there is no downloads folder to save anything else to, so nothing was written to "
+          "disk.</p>";
     body += "<p class=url>" + html_escape(url) + "</p></div>";
     return wrap("Unsupported content", body);
+}
+
+std::string download_page(std::string_view file_name, std::string_view path,
+    std::size_t byte_count, std::string_view content_type, bool marked)
+{
+    std::string body = "<h1>Downloaded</h1>";
+    body += "<div class=box><p><b>" + html_escape(file_name) + "</b>, " + std::to_string(byte_count)
+        + " bytes of " + html_escape(content_type) + "</p>";
+    body += "<p class=url>" + html_escape(path) + "</p>";
+    if (marked)
+        body += "<p class=muted>Marked as downloaded from the Internet, so the system treats it "
+                "with the usual caution.</p>";
+    body += "</div><p class=muted>Sashfold never opens what it downloads. Open it yourself, "
+            "from the folder, when you mean to.</p>";
+    return wrap("Downloaded " + std::string(file_name), body);
 }
 
 }
