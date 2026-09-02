@@ -96,6 +96,11 @@ endif()
 add_executable(gen_font tools/gen-font.cpp)
 target_link_libraries(gen_font PRIVATE sashfold_core sashfold_warnings)
 
+# sashfold100 writes the Sashfold 100 dashboard from the renders and reports
+# that tools/sashfold100.sh leaves beside each page. A build tool, never shipped.
+add_executable(sashfold100 tools/sashfold100.cpp)
+target_link_libraries(sashfold100 PRIVATE sashfold_core sashfold_warnings)
+
 enable_testing()
 add_subdirectory(tests)
 

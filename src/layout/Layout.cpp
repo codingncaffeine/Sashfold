@@ -512,9 +512,15 @@ struct Layouter {
                 continue;
             }
             if (is_block_level(*style)) {
-                // A block inside inline content takes lines of its own.
+                // A block inside inline content takes lines of its own; a
+                // block-level picture (an image link's <img> is one, as a
+                // rule) is a line of its own rather than nothing, since it
+                // has no children to collect.
                 items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
-                collect_inline(element, style, items);
+                if (element.is_html("img"))
+                    append_image(element, style, items);
+                else
+                    collect_inline(element, style, items);
                 items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
                 continue;
             }

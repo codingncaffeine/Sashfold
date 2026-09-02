@@ -318,6 +318,54 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A block-level picture inside inline content is a line of its own -------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page page;
+        page.document = html::parse_document(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 }
+  img { display: block; width: 40px; height: 30px }
+</style></head><body><p>aa <a href="#"><img src="a.png"></a> bb</p></body></html>)HTML");
+        page.styles = css::resolve_styles(*page.document);
+        auto const picture = std::make_shared<Bitmap const>(Bitmap(20, 30, Color::rgb(255, 0, 0)));
+        layout::ImageMap images;
+        std::function<void(dom::Node const&)> const gather = [&](dom::Node const& node) {
+            if (node.is_element() && static_cast<dom::Element const&>(node).is_html("img"))
+                images.emplace(static_cast<dom::Element const*>(&node), layout::PageImage { picture, 1.0f });
+            for (dom::Node const* child : node.children())
+                gather(*child);
+        };
+        gather(*page.document);
+        page.result = layout::layout_document(*page.document, page.styles, 400, &images);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        layout::Fragment const* box = nullptr;
+        std::function<void(layout::Fragment const&)> const find_image = [&](layout::Fragment const& f) {
+            if (f.image)
+                box = &f;
+            for (layout::Fragment const& child : f.children)
+                find_image(child);
+        };
+        find_image(page.result.root);
+        layout::TextRun const* aa = nullptr;
+        layout::TextRun const* bb = nullptr;
+        for (layout::TextRun const* const run : runs) {
+            if (run->text == U"aa")
+                aa = run;
+            if (run->text == U"bb")
+                bb = run;
+        }
+        if (CHECK(box && box->image) && CHECK(aa && bb)) {
+            CHECK_EQ(box->image->width, 40.0f); // the picture is there, at its written size
+            CHECK_EQ(box->image->height, 30.0f);
+            CHECK_EQ(box->image->x, 0.0f); // on a line of its own, at the left
+            CHECK_EQ(box->image->y, 20.0f); // the line after aa's
+            CHECK(bb->baseline_y >= 50.0f); // and bb on a line after the picture's
+            CHECK(bb->baseline_y < 100.0f);
+        }
+    }
+
     // --- Margins collapsing through parents and empty boxes (CSS 2.1 §8.3.1) ------
     {
         Page const page = lay_out(R"HTML(<!doctype html><html><head><style>

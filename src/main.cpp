@@ -2,6 +2,7 @@
 #include "core/Png.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
+#include "dom/Dom.h"
 #include "html/TreeBuilder.h"
 #include "html/TreeDump.h"
 #include "layout/Layout.h"
@@ -14,6 +15,7 @@
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 #include "ui/Browser.h"
+#include "ui/InternalPages.h"
 #include "ui/PageImages.h"
 #include "ui/Script.h"
 #include "ui/ShellLoader.h"
@@ -21,8 +23,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -30,6 +34,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace sashfold;
@@ -40,7 +45,9 @@ int usage(char const* program)
 {
     std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--downloads <dir>]\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
-              << "       " << program << " --render <file.html|url> [-o out.png] [--width N]\n"
+              << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
+              << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
+              << "                 [--report out.json]\n"
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
@@ -57,7 +64,10 @@ int usage(char const* program)
               << "  --downloads is where downloads are saved (the window defaults to your\n"
               << "          Downloads folder; --script saves nothing unless told where).\n"
               << "  --script replays a shell script headlessly and checks its assertions.\n"
-              << "  --render lays out the page (local file or live URL) and writes a PNG.\n"
+              << "  --render lays out the page (local file or live URL) and writes a PNG; a load\n"
+              << "          that fails renders the page the window would show. --max-height caps the\n"
+              << "          picture, --thumbnail draws the viewport's top small, --report writes a\n"
+              << "          JSON account of the load and the render.\n"
               << "  --bench times parse, style, layout and paint of a page, several runs.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
@@ -164,9 +174,9 @@ struct LoadedPage {
     std::unique_ptr<ui::ShellLoader> loader; // fetches the page's stylesheets with the same session
 };
 
-// Loads a --render / --bench input through the shell's loader: a URL as
-// typed, anything else as a local file.
-std::optional<LoadedPage> load_page(std::string const& source)
+// A --render / --bench input as a URL: one as typed, anything else as a
+// local file.
+std::optional<net::Url> input_url(std::string const& source)
 {
     std::optional<net::Url> url;
     if (source.starts_with("http://") || source.starts_with("https://") || source.starts_with("file:")
@@ -179,10 +189,17 @@ std::optional<LoadedPage> load_page(std::string const& source)
             generic = "/" + generic;
         url = net::parse_url("file://" + generic);
     }
-    if (!url) {
+    if (!url)
         std::cerr << "error: unparseable input " << source << "\n";
+    return url;
+}
+
+// Loads a --render / --bench input through the shell's loader.
+std::optional<LoadedPage> load_page(std::string const& source)
+{
+    std::optional<net::Url> const url = input_url(source);
+    if (!url)
         return std::nullopt;
-    }
     auto loader = std::make_unique<ui::ShellLoader>();
     net::FetchResult result = loader->load(*url, "", false);
     if (!result.response) {
@@ -204,13 +221,16 @@ std::string describe_failure(net::FetchResult const& result)
     return "status " + std::to_string(result.response->status);
 }
 
-// The page's stylesheets, fetched through its own session.
-css::SheetFetcher sheet_fetcher(LoadedPage const& page)
+// The page's stylesheets, fetched through its own session; a failure is
+// named on stderr and counted when a counter is given.
+css::SheetFetcher sheet_fetcher(LoadedPage const& page, int* failures = nullptr)
 {
-    return [&page](net::Url const& url) -> std::optional<css::FetchedSheet> {
+    return [&page, failures](net::Url const& url) -> std::optional<css::FetchedSheet> {
         net::FetchResult result = page.loader->load_subresource(url, page.url, "");
         if (!result.response || result.response->status != 200) {
             std::cerr << "stylesheet " << url.serialize() << ": " << describe_failure(result) << "\n";
+            if (failures)
+                ++*failures;
             return std::nullopt;
         }
         std::string const* type = net::find_header(result.response->headers, "content-type");
@@ -219,44 +239,300 @@ css::SheetFetcher sheet_fetcher(LoadedPage const& page)
 }
 
 // The page's images, fetched through its own session.
-ui::ImageFetcher image_fetcher(LoadedPage const& page)
+ui::ImageFetcher image_fetcher(LoadedPage const& page, int* failures = nullptr)
 {
-    return [&page](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+    return [&page, failures](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
         net::FetchResult result = page.loader->load_subresource(url, page.url, "");
         if (!result.response || result.response->status != 200) {
             std::cerr << "image " << url.serialize() << ": " << describe_failure(result) << "\n";
+            if (failures)
+                ++*failures;
             return std::nullopt;
         }
         return std::move(result.response->body);
     };
 }
 
-int render_page(std::string const& path, std::string const& output, int viewport_width,
-    int viewport_height)
+bool starts_with_ci(std::string_view text, std::string_view lowercase_prefix)
 {
-    std::optional<LoadedPage> const loaded = load_page(path);
-    if (!loaded)
+    if (text.size() < lowercase_prefix.size())
+        return false;
+    for (std::size_t i = 0; i < lowercase_prefix.size(); ++i) {
+        char c = text[i];
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+        if (c != lowercase_prefix[i])
+            return false;
+    }
+    return true;
+}
+
+std::string host_of(net::Url const& url)
+{
+    return url.has_host() && !url.host.empty() ? url.serialize_host() : url.serialize();
+}
+
+// The document's <title>, its whitespace collapsed.
+std::string document_title(dom::Node const& node)
+{
+    if (node.is_element()) {
+        auto const& element = static_cast<dom::Element const&>(node);
+        if (element.is_html("title")) {
+            std::string text;
+            for (dom::Node const* child : element.children()) {
+                if (child->is_text())
+                    text += static_cast<dom::Text const*>(child)->data;
+            }
+            std::string out;
+            bool pending_space = false;
+            for (char const c : text) {
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f') {
+                    pending_space = !out.empty();
+                    continue;
+                }
+                if (pending_space) {
+                    out += ' ';
+                    pending_space = false;
+                }
+                out += c;
+            }
+            return out;
+        }
+    }
+    for (dom::Node const* child : node.children()) {
+        std::string title = document_title(*child);
+        if (!title.empty())
+            return title;
+    }
+    return {};
+}
+
+// A --render load with the shell's answer to whatever went wrong: a fetch
+// that failed renders the error page (the certificate page when validation
+// failed), a type the engine cannot show renders the text or the
+// unsupported-content page — so a picture always results, of what the
+// window would show.
+struct RenderLoad {
+    LoadedPage page;
+    std::string outcome = "document"; // document, text, unsupported, certificate-error, error
+    int status = 0; // the HTTP status; 0 when nothing answered
+    std::string error; // the loader's, when nothing answered
+    std::string content_type;
+    std::size_t bytes = 0; // of the response body
+    double fetch_ms = 0;
+};
+
+std::optional<RenderLoad> load_for_render(std::string const& source)
+{
+    using clock = std::chrono::steady_clock;
+    std::optional<net::Url> const url = input_url(source);
+    if (!url)
+        return std::nullopt;
+    RenderLoad load;
+    load.page.url = *url;
+    load.page.loader = std::make_unique<ui::ShellLoader>();
+    auto const started = clock::now();
+    net::FetchResult result = load.page.loader->load(*url, "", false);
+    load.fetch_ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
+    if (!result.response) {
+        std::string const host = host_of(*url);
+        load.error = result.error;
+        if (result.error.find("certificate validation failed") != std::string::npos) {
+            load.outcome = "certificate-error";
+            load.page.bytes = ui::certificate_error_page(host, url->serialize());
+        } else {
+            load.outcome = "error";
+            load.page.bytes
+                = ui::error_page("Sashfold can't reach " + host, result.error, url->serialize());
+        }
+        std::cerr << "error: " << result.error << "\n";
+        return load;
+    }
+    net::FetchResponse& response = *result.response;
+    load.status = response.status;
+    load.page.url = response.final_url;
+    load.bytes = response.body.size();
+    if (std::string const* const type = net::find_header(response.headers, "content-type"))
+        load.content_type = *type;
+    if (url->scheme != "file")
+        std::cerr << "fetched " << response.final_url.serialize() << " (" << response.status << ", "
+                  << response.body.size() << " bytes)\n";
+    std::string_view const type = load.content_type;
+    if (type.empty() || starts_with_ci(type, "text/html") || starts_with_ci(type, "application/xhtml")) {
+        load.page.bytes.assign(response.body.begin(), response.body.end());
+    } else if (starts_with_ci(type, "text/")) {
+        load.outcome = "text";
+        load.page.bytes = ui::text_page(response.final_url.serialize(), response.body);
+    } else {
+        load.outcome = "unsupported";
+        load.page.bytes = ui::unsupported_content_page(response.final_url.serialize(),
+            load.content_type, response.body.size());
+    }
+    return load;
+}
+
+// What --render leaves beside the picture when asked.
+struct RenderExtras {
+    std::string report; // a JSON account of the load and the render
+    std::string thumbnail; // a small PNG of the viewport's top
+    int thumbnail_width = 320;
+    int max_height = 0; // a cap on the picture's height; 0 keeps the page's
+};
+
+std::string json_string(std::string_view text)
+{
+    std::string out = "\"";
+    for (unsigned char const c : text) {
+        switch (c) {
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            if (c < 0x20) {
+                char buffer[8];
+                std::snprintf(buffer, sizeof buffer, "\\u%04x", c);
+                out += buffer;
+            } else {
+                out += static_cast<char>(c);
+            }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+std::string utc_now()
+{
+    std::time_t const now = std::time(nullptr);
+    char buffer[32] = {};
+    if (std::strftime(buffer, sizeof buffer, "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now)) == 0)
+        return "";
+    return buffer;
+}
+
+void count_text(layout::Fragment const& fragment, std::size_t& runs, std::size_t& characters)
+{
+    runs += fragment.runs.size();
+    for (layout::TextRun const& run : fragment.runs)
+        characters += run.text.size();
+    for (layout::Fragment const& child : fragment.children)
+        count_text(child, runs, characters);
+}
+
+long whole_ms(std::chrono::steady_clock::duration duration)
+{
+    return static_cast<long>(std::chrono::duration<double, std::milli>(duration).count() + 0.5);
+}
+
+int render_page(std::string const& path, std::string const& output, int viewport_width,
+    int viewport_height, RenderExtras const& extras)
+{
+    using clock = std::chrono::steady_clock;
+    auto const started = clock::now();
+    std::optional<RenderLoad> const load = load_for_render(path);
+    if (!load)
         return 1;
+    LoadedPage const& loaded = load->page;
     css::MediaContext const media { static_cast<float>(viewport_width),
         static_cast<float>(viewport_height) };
-    auto document = html::parse_document_bytes(loaded->bytes);
-    std::vector<css::SheetSource> const sheets
-        = css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded), media);
-    text::FontManager::instance().set_page_fonts(
-        css::collect_page_fonts(sheets, sheet_fetcher(*loaded), media));
+    auto const t0 = clock::now();
+    auto document = html::parse_document_bytes(loaded.bytes);
+    auto const t1 = clock::now();
+    int sheet_failures = 0;
+    int image_failures = 0;
+    std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, &loaded.url,
+        sheet_fetcher(loaded, &sheet_failures), media);
+    std::vector<text::PageFont> const fonts
+        = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures), media);
+    text::FontManager::instance().set_page_fonts(fonts);
+    auto const t2 = clock::now();
     css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
-    layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded), media);
+    auto const t3 = clock::now();
+    layout::ImageMap const images = ui::collect_images(*document, &loaded.url,
+        image_fetcher(loaded, &image_failures), media);
+    auto const t4 = clock::now();
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images);
+    auto const t5 = clock::now();
 
-    int const height = std::max(1, static_cast<int>(page.page_height + 0.5f));
+    int height = std::max(1, static_cast<int>(page.page_height + 0.5f));
+    if (extras.max_height > 0)
+        height = std::min(height, extras.max_height);
     Bitmap canvas(viewport_width, height, page.canvas_background);
     paint::paint_page(canvas, page);
+    auto const t6 = clock::now();
     if (!write_png(output, canvas)) {
         std::cerr << "error: could not write " << output << "\n";
         return 1;
     }
     std::cout << "wrote " << output << " (" << canvas.width() << "x" << canvas.height() << ")\n";
+
+    if (!extras.thumbnail.empty()) {
+        // The viewport's top, as the window would first show it, scaled
+        // down; a page shorter than the viewport leaves its canvas color.
+        Bitmap view(viewport_width, viewport_height, page.canvas_background);
+        view.blit(canvas, 0, 0);
+        int const thumb_width = std::max(16, extras.thumbnail_width);
+        int const thumb_height = std::max(1, thumb_width * viewport_height / viewport_width);
+        Bitmap thumb(thumb_width, thumb_height, page.canvas_background);
+        thumb.draw_scaled(view, Rect { 0, 0, thumb_width, thumb_height });
+        if (!write_png(extras.thumbnail, thumb)) {
+            std::cerr << "error: could not write " << extras.thumbnail << "\n";
+            return 1;
+        }
+    }
+    if (!extras.report.empty()) {
+        std::size_t runs = 0;
+        std::size_t characters = 0;
+        count_text(page.root, runs, characters);
+        net::ConnectionPool::Stats const& connections = loaded.loader->pool().stats();
+        std::ofstream out(extras.report, std::ios::binary);
+        out << "{\n"
+            << "  \"input\": " << json_string(path) << ",\n"
+            << "  \"url\": " << json_string(loaded.url.serialize()) << ",\n"
+            << "  \"outcome\": " << json_string(load->outcome) << ",\n"
+            << "  \"status\": " << load->status << ",\n"
+            << "  \"error\": " << json_string(load->error) << ",\n"
+            << "  \"content_type\": " << json_string(load->content_type) << ",\n"
+            << "  \"bytes\": " << load->bytes << ",\n"
+            << "  \"title\": " << json_string(document_title(*document)) << ",\n"
+            << "  \"rendered\": " << json_string(utc_now()) << ",\n"
+            << "  \"viewport\": { \"width\": " << viewport_width << ", \"height\": " << viewport_height
+            << " },\n"
+            << "  \"page_height\": " << static_cast<int>(page.page_height + 0.5f) << ",\n"
+            << "  \"picture\": { \"width\": " << canvas.width() << ", \"height\": " << canvas.height()
+            << " },\n"
+            << "  \"text\": { \"runs\": " << runs << ", \"characters\": " << characters << " },\n"
+            << "  \"stylesheets\": { \"count\": " << sheets.size() << ", \"failed\": " << sheet_failures
+            << " },\n"
+            << "  \"images\": { \"count\": " << images.size() << ", \"failed\": " << image_failures
+            << " },\n"
+            << "  \"fonts\": " << fonts.size() << ",\n"
+            << "  \"connections\": { \"opened\": " << connections.opened << ", \"reused\": "
+            << connections.reused << ", \"retried\": " << connections.retried << " },\n"
+            << "  \"ms\": { \"fetch\": " << static_cast<long>(load->fetch_ms + 0.5)
+            << ", \"parse\": " << whole_ms(t1 - t0) << ", \"stylesheets\": " << whole_ms(t2 - t1)
+            << ", \"style\": " << whole_ms(t3 - t2) << ", \"images\": " << whole_ms(t4 - t3)
+            << ", \"layout\": " << whole_ms(t5 - t4) << ", \"paint\": " << whole_ms(t6 - t5)
+            << ", \"total\": " << whole_ms(t6 - started) << " }\n"
+            << "}\n";
+        if (!out) {
+            std::cerr << "error: could not write " << extras.report << "\n";
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -607,6 +883,7 @@ int main(int argc, char** argv)
     int height = 0;
     int runs = 5;
     bool update_goldens = false;
+    RenderExtras extras;
 
     auto const value_after = [&](std::size_t& i, std::string& into) {
         if (i + 1 >= args.size()) {
@@ -658,6 +935,18 @@ int main(int argc, char** argv)
         } else if (arg == "-o" || arg == "--output") {
             if (!value_after(i, output))
                 return usage(argv[0]);
+        } else if (arg == "--report") {
+            if (!value_after(i, extras.report))
+                return usage(argv[0]);
+        } else if (arg == "--thumbnail") {
+            if (!value_after(i, extras.thumbnail))
+                return usage(argv[0]);
+        } else if (arg == "--thumbnail-width" || arg == "--max-height") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            (arg == "--max-height" ? extras.max_height : extras.thumbnail_width)
+                = std::max(0, std::atoi(text.c_str()));
         } else if (arg == "-h" || arg == "--help") {
             usage(argv[0]);
             return 0;
@@ -679,7 +968,7 @@ int main(int argc, char** argv)
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
             theme_path, downloads.value_or(""));
     if (mode == "--render")
-        return render_page(input, output, width ? width : 800, height ? height : 720);
+        return render_page(input, output, width ? width : 800, height ? height : 720, extras);
     if (mode == "--bench")
         return bench(input, runs, width ? width : 800, height ? height : 720);
     if (mode == "--fetch")

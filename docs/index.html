@@ -175,13 +175,16 @@ by baselines in CI that only ratchet upward.</p>
   <div class="stat"><span class="big">1784 / 1784</span><span class="what">html5lib tree construction — 100%</span></div>
   <div class="stat"><span class="big">893 / 893</span><span class="what">WPT URL parsing — 100%</span></div>
   <div class="stat"><span class="big">4552 / 13295</span><span class="what"><a href="wpt.html">WPT CSS reference tests</a> — 34.2%, by directory</span></div>
+  <div class="stat"><span class="big">100 pages</span><span class="what"><a href="sashfold100/">the Sashfold 100</a> — the live web, rendered nightly, every picture published</span></div>
   <div class="stat"><span class="big">3 OSes</span><span class="what">byte-identical rendering, proven in CI</span></div>
 </div>
 <p>The renderer is deterministic by construction — its own font, integer-only rasterization,
 no system text stack — so a page renders to the <em>same bytes</em> on Windows, Linux, and macOS.
 Reference screenshots are compared byte-for-byte on every commit, and so are screenshots of the browser chrome itself: a script drives the same shell the window uses, headlessly, on all three OSes. A live HTTPS page fetches,
 decompresses, parses, and renders to pixels in about a quarter of a second, through Sashfold’s
-own URL parser, HTTP/1.1 client, and inflate.</p>
+own URL parser, HTTP/1.1 client, and inflate. Every night the engine renders a hundred pages of
+the live web — drawn from the Tranco list of the most visited domains — and the pictures go up
+unretouched, each with what its load cost: <a href="sashfold100/">the Sashfold 100</a>.</p>
 
 <figure>
   <img src="first-light.png" alt="A page rendered by Sashfold: headings, wrapped paragraphs, bold, italic and linked text, a blockquote, bulleted and numbered lists, a bordered box, centered text and preformatted text" width="720">

@@ -1,0 +1,149 @@
+# The Sashfold 100: a hundred pages of the web, rendered every night by
+# Sashfold itself and shown at https://sashfold.com/sashfold100/.
+#
+# The sites come from the Tranco list (https://tranco-list.eu), the
+# research ranking of the web's most visited domains, and each row carries
+# its site's rank on the list named below. The rows were chosen to cover
+# the web a reading browser meets: an encyclopedia in nine languages,
+# documentation, news, government, blogs, link aggregators, the standards
+# themselves, the plain and table-built web, image-heavy pages, the TLS
+# report card, and the ten most visited sites of all, as they are.
+#
+# Records are tab-separated:
+#   list      <id>  <date>  <url>
+#   category  <id>  <title>  <description>
+#   row       <id>  <category>  <rank>  <url>  <flags>  <note>
+# The rank is the row's registrable domain's place on the list. flags is
+# "-" or a comma-separated list: rtl marks a right-to-left page (the row is
+# shown greyed, since bidirectional text is not written yet); refuse marks
+# a page whose certificate must be refused for the row to count as right.
+#
+# tools/sashfold100.sh renders every row (build/sashfold --render, one
+# process per page under a time limit) and writes the dashboard.
+
+list	K9QPW	2026-09-01	https://tranco-list.eu/list/K9QPW/1000000
+
+category	wikipedia	Wikipedia	The same article, "Web browser", in nine languages: Latin script with its accents, Japanese, Chinese, Cyrillic, and two right-to-left scripts.
+category	docs	Documentation	The reference pages programmers keep open: long text, code blocks, tables, sidebars.
+category	news	News	Front pages and sections of the world's newsrooms, as they are on the night of the render.
+category	gov	Government	Public sites built to be read by everyone.
+category	blogs	Blogs and their engines	Sites built with the tools most personal blogs run on, and the hosted platforms.
+category	aggregators	Link aggregators	Dense lists of links, the oldest layout on the web.
+category	specs	The standards	The specifications the engine is written against, rendered by it.
+category	plain	The plain web	Text-first and table-built pages: the web as it was written before scripts.
+category	images	Pictures	Pages whose point is the pictures on them.
+category	tls	The TLS report card	badssl.com's deliberately broken certificates: the right answer for each bad one is a refusal, with no way through.
+category	top	The ten most visited	The top of the list as it stands — mostly applications that draw themselves with scripts, shown here as they arrive without any.
+category	projects	Projects and communities	Source hosting, question sites, and the homes of languages and distributions.
+
+row	en-wikipedia	wikipedia	31	https://en.wikipedia.org/wiki/Web_browser	-	English
+row	de-wikipedia	wikipedia	31	https://de.wikipedia.org/wiki/Webbrowser	-	German
+row	fr-wikipedia	wikipedia	31	https://fr.wikipedia.org/wiki/Navigateur_web	-	French
+row	es-wikipedia	wikipedia	31	https://es.wikipedia.org/wiki/Navegador_web	-	Spanish
+row	ja-wikipedia	wikipedia	31	https://ja.wikipedia.org/wiki/%E3%82%A6%E3%82%A7%E3%83%96%E3%83%96%E3%83%A9%E3%82%A6%E3%82%B6	-	Japanese
+row	zh-wikipedia	wikipedia	31	https://zh.wikipedia.org/wiki/%E7%B6%B2%E9%A0%81%E7%80%8F%E8%A6%BD%E5%99%A8	-	Chinese
+row	ru-wikipedia	wikipedia	31	https://ru.wikipedia.org/wiki/%D0%91%D1%80%D0%B0%D1%83%D0%B7%D0%B5%D1%80	-	Russian
+row	ar-wikipedia	wikipedia	31	https://ar.wikipedia.org/wiki/%D9%85%D8%AA%D8%B5%D9%81%D8%AD_%D9%88%D9%8A%D8%A8	rtl	Arabic
+row	he-wikipedia	wikipedia	31	https://he.wikipedia.org/wiki/%D7%93%D7%A4%D7%93%D7%A4%D7%9F	rtl	Hebrew
+
+row	mdn	docs	98	https://developer.mozilla.org/en-US/docs/Web/CSS/flex	-	MDN's page on the flex shorthand
+row	cppreference	docs	16499	https://en.cppreference.com/w/cpp/container/vector	-	std::vector on cppreference
+row	docs-rs	docs	5925	https://docs.rs/serde/latest/serde/	-	A crate's documentation on docs.rs
+row	learn-microsoft	docs	6	https://learn.microsoft.com/en-us/dotnet/csharp/tour-of-csharp/	-	A tour of C# on Microsoft Learn
+row	python-docs	docs	746	https://docs.python.org/3/tutorial/introduction.html	-	The Python tutorial
+row	rust-book	docs	6808	https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html	-	A chapter of the Rust book
+row	man7	docs	3584	https://man7.org/linux/man-pages/man2/open.2.html	-	A Linux manual page
+row	sqlite	docs	4726	https://www.sqlite.org/lang_select.html	-	SQLite's SELECT, with its railroad diagrams
+row	postgresql	docs	1258	https://www.postgresql.org/docs/current/sql-select.html	-	PostgreSQL's SELECT reference
+row	go-dev	docs	3270	https://go.dev/doc/effective_go	-	Effective Go
+row	nodejs	docs	2236	https://nodejs.org/api/fs.html	-	Node's file system API
+row	php	docs	315	https://www.php.net/manual/en/function.array-map.php	-	A PHP manual page
+
+row	bbc	news	212	https://www.bbc.com/news	-	BBC News
+row	guardian	news	199	https://www.theguardian.com/international	-	The Guardian, international edition
+row	reuters	news	272	https://www.reuters.com/	-	Reuters
+row	apnews	news	796	https://apnews.com/	-	The Associated Press
+row	npr	news	496	https://www.npr.org/	-	NPR
+row	cnn	news	195	https://www.cnn.com/	-	CNN
+row	aljazeera	news	1412	https://www.aljazeera.com/	-	Al Jazeera English
+row	dw	news	1348	https://www.dw.com/en/top-stories/s-9097	-	Deutsche Welle, top stories
+row	lemonde	news	690	https://www.lemonde.fr/	-	Le Monde
+row	spiegel	news	791	https://www.spiegel.de/	-	Der Spiegel
+row	nytimes	news	155	https://www.nytimes.com/	-	The New York Times
+row	abc-au	news	1273	https://www.abc.net.au/news	-	ABC News, Australia
+
+row	irs	gov	1351	https://www.irs.gov/	-	The US Internal Revenue Service
+row	gov-uk	gov	289	https://www.gov.uk/	-	GOV.UK
+row	usa-gov	gov	2973	https://www.usa.gov/	-	USA.gov
+row	nasa	gov	397	https://www.nasa.gov/	-	NASA
+row	nih	gov	136	https://www.nih.gov/health-information	-	The US National Institutes of Health
+row	europa	gov	113	https://european-union.europa.eu/index_en	-	The European Union
+row	canada	gov	1275	https://www.canada.ca/en.html	-	The Government of Canada
+row	weather-gov	gov	2331	https://www.weather.gov/	-	The US National Weather Service
+
+row	hugo	blogs	4449	https://gohugo.io/documentation/	-	Hugo's documentation, a Hugo site
+row	jekyll	blogs	12641	https://jekyllrb.com/docs/	-	Jekyll's documentation, a Jekyll site
+row	wordpress-org	blogs	47	https://wordpress.org/news/	-	The WordPress news blog
+row	ghost	blogs	4166	https://ghost.org/blog/	-	The Ghost blog
+row	medium	blogs	193	https://medium.com/	-	Medium
+row	substack	blogs	439	https://on.substack.com/	-	A Substack newsletter
+row	dev-to	blogs	3696	https://dev.to/	-	DEV Community
+row	blogger	blogs	330	https://android-developers.googleblog.com/	-	A Blogger-hosted blog
+
+row	hn	aggregators	2258	https://news.ycombinator.com/	-	Hacker News
+row	lobsters	aggregators	47340	https://lobste.rs/	-	Lobsters
+row	old-reddit	aggregators	105	https://old.reddit.com/r/programming/	-	Old Reddit
+row	slashdot	aggregators	2543	https://slashdot.org/	-	Slashdot
+
+row	html-spec	specs	8672	https://html.spec.whatwg.org/multipage/parsing.html	-	The HTML standard's parsing chapter
+row	url-spec	specs	8672	https://url.spec.whatwg.org/	-	The URL standard
+row	dom-spec	specs	8672	https://dom.spec.whatwg.org/	-	The DOM standard
+row	css22	specs	188	https://www.w3.org/TR/CSS22/visuren.html	-	CSS 2.2, the visual formatting model
+row	css-flexbox	specs	188	https://www.w3.org/TR/css-flexbox-1/	-	CSS Flexible Box Layout
+row	rfc9110	specs	1718	https://www.rfc-editor.org/rfc/rfc9110.html	-	RFC 9110, HTTP Semantics
+
+row	text-npr	plain	496	https://text.npr.org/	-	NPR's text-only edition
+row	lite-cnn	plain	195	https://lite.cnn.com/	-	CNN's text-only edition
+row	craigslist	plain	945	https://www.craigslist.org/about/sites	-	Craigslist's list of sites
+row	w3schools	plain	1793	https://www.w3schools.com/html/html_tables.asp	-	A tutorial page on tables
+row	textfiles	plain	26927	http://textfiles.com/	-	textfiles.com, over plain HTTP
+row	gutenberg	plain	2668	https://www.gutenberg.org/browse/scores/top	-	Project Gutenberg's most downloaded
+row	arxiv	plain	481	https://arxiv.org/list/cs.PL/recent	-	An arXiv listing
+row	timeanddate	plain	2088	https://www.timeanddate.com/worldclock/	-	The world clock, a table
+row	openbsd	plain	16254	https://www.openbsd.org/	-	OpenBSD
+row	lwn	plain	10902	https://lwn.net/	-	LWN.net
+
+row	xkcd	images	3642	https://xkcd.com/	-	xkcd
+row	apod	images	397	https://apod.nasa.gov/apod/astropix.html	-	Astronomy Picture of the Day
+row	commons	images	252	https://commons.wikimedia.org/wiki/Main_Page	-	Wikimedia Commons
+row	wikipedia-painting	images	31	https://en.wikipedia.org/wiki/Painting	-	An illustrated encyclopedia article
+row	nasa-image	images	397	https://www.nasa.gov/image-of-the-day/	-	NASA's image of the day
+row	smashing	images	5602	https://www.smashingmagazine.com/	-	Smashing Magazine
+row	loc	images	616	https://www.loc.gov/free-to-use/	-	The Library of Congress's free-to-use sets
+row	unsplash	images	409	https://unsplash.com/	-	Unsplash
+
+row	badssl	tls	95195	https://badssl.com/	-	The badssl.com index, a valid certificate
+row	badssl-expired	tls	95195	https://expired.badssl.com/	refuse	An expired certificate
+row	badssl-self-signed	tls	95195	https://self-signed.badssl.com/	refuse	A self-signed certificate
+row	badssl-wrong-host	tls	95195	https://wrong.host.badssl.com/	refuse	A certificate for another host
+row	badssl-untrusted-root	tls	95195	https://untrusted-root.badssl.com/	refuse	A certificate from an untrusted root
+row	badssl-revoked	tls	95195	https://revoked.badssl.com/	refuse	A revoked certificate
+row	badssl-http	tls	95195	http://http.badssl.com/	-	A page over plain HTTP
+
+row	google	top	1	https://www.google.com/	-	Google
+row	facebook	top	3	https://www.facebook.com/	-	Facebook
+row	microsoft	top	6	https://www.microsoft.com/	-	Microsoft
+row	youtube	top	8	https://www.youtube.com/	-	YouTube
+row	apple	top	9	https://www.apple.com/	-	Apple
+row	instagram	top	11	https://www.instagram.com/	-	Instagram
+row	mail-ru	top	12	https://mail.ru/	-	Mail.ru
+row	dzen	top	16	https://dzen.ru/	-	Dzen
+row	twitter	top	17	https://twitter.com/	-	Twitter, which forwards to X
+row	linkedin	top	18	https://www.linkedin.com/	-	LinkedIn
+
+row	github	projects	29	https://github.com/codingncaffeine/Sashfold	-	Sashfold's own repository on GitHub
+row	stackoverflow	projects	506	https://stackoverflow.com/questions/11227809/why-is-processing-a-sorted-array-faster-than-processing-an-unsorted-array	-	A Stack Overflow question
+row	python	projects	746	https://www.python.org/	-	Python
+row	rust-lang	projects	6808	https://www.rust-lang.org/	-	Rust
+row	debian	projects	294	https://www.debian.org/	-	Debian
+row	archwiki	projects	2695	https://wiki.archlinux.org/title/Installation_guide	-	The Arch Linux wiki

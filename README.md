@@ -40,6 +40,8 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 
 **Measured.** On the Web Platform Tests' CSS *reference tests* — the tests that need no scripting: a test page and a reference page must render to the same pixels — Sashfold passes **4552 / 13295 (34.2%)** across the CSS2 suite and the fourteen `css-*` directories named in [`tests/wpt/directories.txt`](tests/wpt/directories.txt), every test and every reference rendered headless by Sashfold itself at the suite's 800×600 viewport, compared by the suite's own rules (pixel-identical unless the test declares a fuzziness allowance; references may chain). The per-directory table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html). A baseline names every passing test and CI fails when one stops passing; the checkout is fetched at a pinned revision by `tools/wpt-fetch.sh`, nothing of it is vendored, and what the engine cannot do, it does not score.
 
+**Watched.** Every night Sashfold renders [the Sashfold 100](https://sashfold.com/sashfold100/): a hundred pages of the live web, drawn from the [Tranco list](https://tranco-list.eu) of the most visited domains — Wikipedia in nine languages, documentation, news, government, blogs, link aggregators, the standards themselves, the plain web, pictures, the badssl.com report card, the ten most visited sites as they are, projects — headless at 1024×768 from a GitHub Actions runner, and publishes every picture with what its load cost: the status, the time from request to pixels, the page's height, its stylesheets, pictures and fonts, and whether a bad certificate was refused. Nothing is retouched; a page that arrives blank without scripts is shown blank. The corpus is [`tests/sashfold100/corpus.txt`](tests/sashfold100/corpus.txt) and `tools/sashfold100.sh` renders it anywhere, one page per process under a time limit.
+
 **Parsing.** The WHATWG tokenizer at **7032/7032 (100%)** on the html5lib tokenizer suite, and tree construction — the complete insertion-mode machine, adoption agency, foster parenting, templates, fragments, SVG/MathML foreign content, the customizable-`<select>` parser with `<selectedcontent>` cloning — at **1784/1784 (100%)** on the html5lib tree-construction suite. Character encoding is sniffed the way the spec says: BOM first, then the `<meta>` prescan, then the windows-1252 fallback (UTF-8, UTF-16LE/BE, and windows-1252 decoders, all written here). Both scores are enforced in CI by baselines that only ratchet upward, and both parser halves ship with libFuzzer harnesses. `sashfold --dump-dom page.html` prints the tree of any file you feed it.
 
 **Underneath.** A build with warnings-as-errors from commit one; an RGBA software canvas with source-over compositing; a from-scratch PNG encoder whose zlib container is written here, not linked; unit tests that validate the PNG output by re-decoding it with an independent decoder written for the test; `pledge-check`; CI for all three OSes.
@@ -68,8 +70,9 @@ ctest --test-dir build --output-on-failure
 sashfold                              # the browser window (Windows for now)
 sashfold https://example.org/         # ...opened on a page
 sashfold --script tests/shell/live.script   # drive the shell from a text file
-sashfold --render page.html -o out.png      # render a page headlessly
+sashfold --render page.html -o out.png      # render a page headlessly (--report, --thumbnail, --max-height)
 sashfold --bench page.html                  # time parse, style, layout, paint
+bash tools/sashfold100.sh build/sashfold out/     # render the Sashfold 100 and write its dashboard into out/
 bash tools/wpt-fetch.sh                     # fetch the Web Platform Tests checkout, then:
 build/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt   # score the CSS reference tests
 ```
