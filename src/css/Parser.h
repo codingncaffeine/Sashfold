@@ -96,4 +96,8 @@ std::vector<Rule> parse_blocks_contents_rules(std::string_view utf8,
 // Declarations of a style attribute (leading run only, the common case).
 std::vector<Declaration> parse_declaration_list(std::string_view utf8);
 
+// §5.4.9. Parse a list of component values — an attribute that holds CSS
+// values but no declarations (sizes, media conditions).
+std::vector<ComponentValue> parse_component_value_list(std::string_view utf8);
+
 }

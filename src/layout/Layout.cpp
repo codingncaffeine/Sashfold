@@ -54,6 +54,7 @@ struct InlineItem {
     ComputedStyle const* style = nullptr;
     dom::Element const* element = nullptr; // nearest element, for hit-testing
     std::shared_ptr<Bitmap const> image; // Kind::Image: the picture, or null while it is missing
+    float image_density = 1; // Kind::Image: picture pixels per CSS px
 };
 
 // A replaced element's used size, in px.
@@ -89,7 +90,7 @@ std::optional<LengthPercent> attribute_length(dom::Element const& element, char 
 // dimension scales the other by the picture's ratio. A picture wider than
 // its container shrinks to fit, ratio kept. nullopt when nothing sizes it.
 std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
-    Bitmap const* image, float containing_width)
+    Bitmap const* image, float density, float containing_width)
 {
     LengthPercent width = style.width;
     if (width.is_auto()) {
@@ -101,8 +102,10 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
         if (std::optional<LengthPercent> const attribute = attribute_length(element, "height"))
             height = *attribute;
     }
-    float const intrinsic_width = image ? static_cast<float>(image->width()) : 0;
-    float const intrinsic_height = image ? static_cast<float>(image->height()) : 0;
+    // The picture's pixels over the density its source was chosen at.
+    float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
+    float const intrinsic_width = image ? static_cast<float>(image->width()) * px_per_pixel : 0;
+    float const intrinsic_height = image ? static_cast<float>(image->height()) * px_per_pixel : 0;
     std::optional<float> used_width;
     std::optional<float> used_height;
     if (!width.is_auto())
@@ -135,12 +138,12 @@ struct Layouter {
     mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
     ImageMap const* images = nullptr;
 
-    std::shared_ptr<Bitmap const> image_for(dom::Element const& element) const
+    PageImage image_for(dom::Element const& element) const
     {
         if (!images)
-            return nullptr;
+            return {};
         auto const it = images->find(&element);
-        return it == images->end() ? nullptr : it->second;
+        return it == images->end() ? PageImage {} : it->second;
     }
 
     // An <img> becomes an image item when a picture or a size is known;
@@ -148,12 +151,13 @@ struct Layouter {
     void append_image(dom::Element const& element, ComputedStyle const* style,
         std::vector<InlineItem>& items) const
     {
-        std::shared_ptr<Bitmap const> image = image_for(element);
+        PageImage image = image_for(element);
         bool const sized = !style->width.is_auto() || !style->height.is_auto()
             || attribute_length(element, "width") || attribute_length(element, "height");
-        if (image || sized) {
+        if (image.bitmap || sized) {
             InlineItem item(InlineItem::Kind::Image, {}, style, &element);
-            item.image = std::move(image);
+            item.image = std::move(image.bitmap);
+            item.image_density = image.density;
             items.push_back(std::move(item));
             return;
         }
@@ -366,8 +370,8 @@ struct Layouter {
                 continue;
             }
             if (item.kind == InlineItem::Kind::Image) {
-                std::optional<ReplacedSize> const size
-                    = replaced_size(*item.element, *item.style, item.image.get(), content_width);
+                std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
+                    item.image.get(), item.image_density, content_width);
                 if (!size)
                     continue;
                 if (allow_wrap && !line.empty() && line_width + size->width > content_width)
@@ -471,15 +475,15 @@ struct Layouter {
 
         if (element.is_html("img")) {
             // A block-level picture: its own size, shrunk to fit, no children.
-            std::shared_ptr<Bitmap const> image = image_for(element);
+            PageImage image = image_for(element);
             std::optional<ReplacedSize> const size
-                = replaced_size(element, style, image.get(), content_width);
+                = replaced_size(element, style, image.bitmap.get(), image.density, content_width);
             if (size) {
                 if (style.width.is_auto())
                     fragment.width = size->width + border_left + border_right + padding_left + padding_right;
                 fragment.height = size->height + border_top + border_bottom + padding_top + padding_bottom;
-                fragment.image = Fragment::ImageBox { std::move(image), content_x, content_y, size->width,
-                    size->height };
+                fragment.image = Fragment::ImageBox { std::move(image.bitmap), content_x, content_y,
+                    size->width, size->height };
                 return fragment;
             }
         }

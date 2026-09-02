@@ -530,7 +530,7 @@ struct Browser::Impl {
                 return std::nullopt;
             return std::move(result.response->body);
         };
-        tab.images = collect_images(*tab.document, &page_url, fetch_image);
+        tab.images = collect_images(*tab.document, &page_url, fetch_image, media_context());
         entry->title = find_title(*tab.document);
         tab.scroll_y = entry->scroll_y;
         relayout(tab);

@@ -4,6 +4,7 @@
 #include "core/Jpeg.h"
 #include "core/Png.h"
 #include "dom/Dom.h"
+#include "ui/SourceSet.h"
 
 #include <map>
 #include <string>
@@ -17,6 +18,7 @@ constexpr std::size_t max_image_bytes = 8u * 1024u * 1024u;
 
 struct Collector {
     net::Url const* base;
+    css::MediaContext const& media;
     ImageFetcher const& fetch;
     layout::ImageMap& out;
     std::map<std::string, std::shared_ptr<Bitmap const>> by_url; // one fetch per URL
@@ -35,22 +37,22 @@ struct Collector {
 
     void consider(dom::Element const& element)
     {
-        dom::Attr const* src = element.find_attribute("src");
-        if (!src || src->value.empty())
+        // The source the standard's selection names for this viewport: a
+        // <picture> parent's applicable <source>, else srcset and src.
+        std::optional<ImageSource> const source = select_image_source(element, base, media);
+        if (!source)
             return;
-        std::optional<net::Url> const url = net::parse_url(src->value, base);
-        if (!url)
-            return;
-        std::string const key = url->serialize(true);
+        net::Url const& url = source->url;
+        std::string const key = url.serialize(true);
         if (auto const it = by_url.find(key); it != by_url.end()) {
             if (it->second)
-                out.emplace(&element, it->second);
+                out.emplace(&element, layout::PageImage { it->second, source->density });
             return;
         }
         std::shared_ptr<Bitmap const> image;
         if (fetched < max_images_per_page && fetch) {
             ++fetched;
-            if (std::optional<std::vector<std::uint8_t>> bytes = fetch(*url);
+            if (std::optional<std::vector<std::uint8_t>> bytes = fetch(url);
                 bytes && bytes->size() <= max_image_bytes) {
                 // The bytes say what they are; the transport's claim does not.
                 std::optional<Bitmap> decoded;
@@ -66,17 +68,17 @@ struct Collector {
         }
         by_url.emplace(key, image);
         if (image)
-            out.emplace(&element, std::move(image));
+            out.emplace(&element, layout::PageImage { std::move(image), source->density });
     }
 };
 
 } // namespace
 
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
-    ImageFetcher const& fetch)
+    ImageFetcher const& fetch, css::MediaContext const& media)
 {
     layout::ImageMap images;
-    Collector collector { base, fetch, images, {}, 0 };
+    Collector collector { base, media, fetch, images, {}, 0 };
     collector.visit(document);
     return images;
 }

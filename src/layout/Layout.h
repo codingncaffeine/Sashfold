@@ -66,8 +66,16 @@ struct LayoutResult {
     Color canvas_background; // html/body background propagation
 };
 
+// A decoded picture and the density its source was chosen at: a 400-pixel
+// picture picked for a 200 px slot has density 2, and its intrinsic size in
+// CSS px is its pixel size over the density.
+struct PageImage {
+    std::shared_ptr<Bitmap const> bitmap;
+    float density = 1;
+};
+
 // Decoded images by element, supplied by whoever fetched them.
-using ImageMap = std::unordered_map<dom::Element const*, std::shared_ptr<Bitmap const>>;
+using ImageMap = std::unordered_map<dom::Element const*, PageImage>;
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
     float viewport_width, ImageMap const* images = nullptr);

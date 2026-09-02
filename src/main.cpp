@@ -241,7 +241,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
     auto document = html::parse_document_bytes(loaded->bytes);
     css::StyleMap const styles = css::resolve_styles(*document,
         css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded), media), media);
-    layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded));
+    layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded), media);
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images);
 
@@ -407,7 +407,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         universal_count = style_set.universal_count();
         // Images are fetched here on every run, so the first run pays the
         // network and the rest the session cache; neither counts as a phase.
-        layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded));
+        layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded), media);
         image_count = images.size();
         auto const t2b = clock::now();
         if (run == 0)

@@ -426,6 +426,12 @@ std::vector<Rule> parse_blocks_contents_rules(std::string_view utf8,
     return contents;
 }
 
+std::vector<ComponentValue> parse_component_value_list(std::string_view utf8)
+{
+    Parser parser(utf8);
+    return parser.consume_component_value_list(Token::Type::EndOfFile, false);
+}
+
 std::vector<Declaration> parse_declaration_list(std::string_view utf8)
 {
     // A style attribute keeps every declaration run and drops rules (the

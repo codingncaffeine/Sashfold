@@ -165,7 +165,7 @@ int main(int argc, char** argv)
                 if (element.is_html("img")) {
                     imgs.push_back(&element);
                     if (dom::Attr const* src = element.find_attribute("src"); src && src->value == "a.png")
-                        images.emplace(&element, picture);
+                        images.emplace(&element, layout::PageImage { picture, 1.0f });
                 }
             }
             for (dom::Node const* child : node.children())
