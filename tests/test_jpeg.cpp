@@ -3,6 +3,7 @@
 #include "core/Bitmap.h"
 #include "core/Jpeg.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
