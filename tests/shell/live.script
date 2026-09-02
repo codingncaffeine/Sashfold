@@ -52,3 +52,15 @@ type Web browser
 assert-value search Web browser
 key Enter
 assert-title Web browser - Wikipedia
+
+# Acid1, the CSS1 box and float test: it renders as its reference (font
+# rasterization aside) since the font shorthand and blocks inside inline
+# content landed; the texts below sit in the boxes the reference shows.
+open https://www.w3.org/Style/CSS/Test/CSS1/current/test5526c.htm
+assert-title display/box/float/clear test
+assert-text toggle
+assert-text the world ends
+assert-text bang
+assert-text whimper
+assert-text bar maids,
+assert-text sing to me, erbarme dich

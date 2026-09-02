@@ -75,6 +75,7 @@ struct InlineItem {
         Image,
         Float, // an out-of-flow box met here; style and element are its own
         Control, // a form control: an atomic box sized by its kind
+        SoftBreak, // ends the line when it holds anything: a block inside inline content
     };
     InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
         dom::Element const* the_element)
@@ -427,6 +428,13 @@ struct Layouter {
                 items.push_back(InlineItem { InlineItem::Kind::Control, {}, style, &element });
                 continue;
             }
+            if (is_block_level(*style)) {
+                // A block inside inline content takes lines of its own.
+                items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
+                collect_inline(element, style, items);
+                items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
+                continue;
+            }
             if (element.is_html("br")) {
                 InlineItem item(InlineItem::Kind::HardBreak, {}, inherited, &element);
                 item.clear = break_clear(element, *style);
@@ -695,6 +703,11 @@ struct Layouter {
             && block_style.white_space != WhiteSpace::Pre;
 
         for (InlineItem const& item : items) {
+            if (item.kind == InlineItem::Kind::SoftBreak) {
+                if (!line.empty())
+                    flush_line();
+                continue;
+            }
             if (item.kind == InlineItem::Kind::HardBreak) {
                 flush_line();
                 if (item.clear != css::Clear::None) {
@@ -1138,6 +1151,7 @@ struct Layouter {
                 pending_space += measure(*item.style, item.text);
                 break;
             case InlineItem::Kind::HardBreak:
+            case InlineItem::Kind::SoftBreak:
                 result.max = std::max(result.max, line);
                 line = 0;
                 pending_space = 0;

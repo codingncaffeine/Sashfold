@@ -288,5 +288,35 @@ int main(int argc, char** argv)
         CHECK(clipped.pixel(2, 2) == Color::rgb(9, 9, 9));
     }
 
+    // --- A block inside inline content takes lines of its own ------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 }
+</style></head><body><p>aa <span>bb<div>cc</div>dd</span> ee</p></body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::TextRun const* dd = run_of(U"dd");
+        layout::TextRun const* ee = run_of(U"ee");
+        if (CHECK(aa && bb && cc && dd && ee)) {
+            CHECK_EQ(aa->baseline_y, bb->baseline_y);
+            CHECK_EQ(cc->baseline_y - aa->baseline_y, 20.0f); // the block starts a line of its own
+            CHECK_EQ(dd->baseline_y - cc->baseline_y, 20.0f); // and what follows starts another
+            CHECK_EQ(dd->baseline_y, ee->baseline_y);
+            CHECK_EQ(cc->x, 0.0f);
+        }
+    }
+
     return test::report("layout");
 }

@@ -171,6 +171,99 @@ bool is_ident(ComponentValue const* value, std::string_view name)
         && ascii_ci_equals(value->token().value, name);
 }
 
+// The names of a font-family value (or a font shorthand's tail):
+// comma-separated, each a string or identifiers joined by single spaces.
+// Null when any name is bad.
+std::shared_ptr<std::vector<std::string>> parse_family_list(
+    std::vector<ComponentValue const*> const& values)
+{
+    auto families = std::make_shared<std::vector<std::string>>();
+    std::string current;
+    bool after_string = false;
+    for (ComponentValue const* value : values) {
+        if (value->is_token(Token::Type::Comma)) {
+            if (current.empty())
+                return nullptr;
+            families->push_back(std::move(current));
+            current.clear();
+            after_string = false;
+            continue;
+        }
+        if (value->is_token(Token::Type::Ident) && !after_string) {
+            if (!current.empty())
+                current += ' ';
+            current += value->token().value;
+            continue;
+        }
+        if (value->is_token(Token::Type::String) && current.empty()) {
+            current = value->token().value;
+            after_string = true;
+            continue;
+        }
+        return nullptr;
+    }
+    if (current.empty())
+        return nullptr;
+    families->push_back(std::move(current));
+    return families;
+}
+
+bool is_font_size_value(ComponentValue const& value)
+{
+    if (!value.is_token())
+        return false;
+    Token const& token = value.token();
+    if (token.type == Token::Type::Dimension || token.type == Token::Type::Percentage)
+        return true;
+    if (token.type == Token::Type::Number)
+        return token.numeric_value == 0;
+    if (token.type != Token::Type::Ident)
+        return false;
+    for (std::string_view const keyword : { "xx-small", "x-small", "small", "medium", "large",
+             "x-large", "xx-large", "xxx-large", "larger", "smaller" }) {
+        if (ascii_ci_equals(token.value, keyword))
+            return true;
+    }
+    return false;
+}
+
+// A font shorthand split into its parts: what precedes the size (style,
+// variant, weight, normal), the size, a line-height after a slash, and the
+// family. nullopt when the value is not one — the system font keywords
+// included.
+struct FontShorthand {
+    std::vector<ComponentValue const*> before;
+    ComponentValue const* size = nullptr;
+    ComponentValue const* line_height = nullptr;
+    std::vector<ComponentValue const*> family;
+};
+
+std::optional<FontShorthand> split_font_shorthand(std::vector<ComponentValue const*> const& values)
+{
+    FontShorthand parts;
+    std::size_t i = 0;
+    for (; i < values.size() && !is_font_size_value(*values[i]); ++i) {
+        if (parts.before.size() >= 4)
+            return std::nullopt;
+        parts.before.push_back(values[i]);
+    }
+    if (i >= values.size())
+        return std::nullopt;
+    parts.size = values[i++];
+    if (i < values.size() && values[i]->is_token(Token::Type::Delim)
+        && values[i]->token().delim == U'/') {
+        ++i;
+        if (i >= values.size())
+            return std::nullopt;
+        parts.line_height = values[i++];
+    }
+    for (; i < values.size(); ++i)
+        parts.family.push_back(values[i]);
+    if (parts.family.empty())
+        return std::nullopt;
+    return parts;
+}
+
 struct NamedColor {
     std::string_view name;
     Color color;
@@ -733,8 +826,18 @@ struct Resolver {
         // font-size first: em and font-relative units in the same element's
         // other declarations resolve against it.
         for (MatchedDeclaration const& entry : matched) {
-            if (ascii_ci_equals(entry.declaration->name, "font-size"))
+            if (ascii_ci_equals(entry.declaration->name, "font-size")) {
                 apply_font_size(style, parent, *entry.declaration);
+            } else if (ascii_ci_equals(entry.declaration->name, "font")) {
+                // The shorthand's size goes first too; its other parts follow in apply().
+                if (std::optional<FontShorthand> const parts
+                    = split_font_shorthand(significant(entry.declaration->value))) {
+                    Declaration size_only;
+                    size_only.name = "font-size";
+                    size_only.value.push_back(*parts->size);
+                    apply_font_size(style, parent, size_only);
+                }
+            }
         }
         bool border_top_color_set = false;
         bool border_right_color_set = false;
@@ -1267,38 +1370,60 @@ struct Resolver {
                                                             : 700;
             return;
         }
-        if (name == "font-family") {
-            // Comma-separated names: a string, or identifiers joined by
-            // single spaces. One bad name drops the whole declaration.
-            auto families = std::make_shared<std::vector<std::string>>();
-            std::string current;
-            bool after_string = false;
-            for (ComponentValue const* value : values) {
-                if (value->is_token(Token::Type::Comma)) {
-                    if (current.empty())
-                        return;
-                    families->push_back(std::move(current));
-                    current.clear();
-                    after_string = false;
-                    continue;
-                }
-                if (value->is_token(Token::Type::Ident) && !after_string) {
-                    if (!current.empty())
-                        current += ' ';
-                    current += value->token().value;
-                    continue;
-                }
-                if (value->is_token(Token::Type::String) && current.empty()) {
-                    current = value->token().value;
-                    after_string = true;
-                    continue;
-                }
+        if (name == "font") {
+            // The shorthand: [style || variant || weight] size [/ line-height]
+            // family. The size went first (apply_font_size); the rest resets
+            // to normal and takes what is written, all or nothing.
+            std::optional<FontShorthand> const parts = split_font_shorthand(values);
+            if (!parts)
                 return;
+            std::shared_ptr<std::vector<std::string>> families = parse_family_list(parts->family);
+            if (!families)
+                return;
+            FontStyle font_style = FontStyle::Normal;
+            int weight = 400;
+            for (ComponentValue const* value : parts->before) {
+                if (is_ident(value, "italic") || is_ident(value, "oblique"))
+                    font_style = FontStyle::Italic;
+                else if (is_ident(value, "bold"))
+                    weight = 700;
+                else if (is_ident(value, "bolder"))
+                    weight = std::min(900, style.font_weight + 300);
+                else if (is_ident(value, "lighter"))
+                    weight = std::max(100, style.font_weight - 300);
+                else if (value->is_token(Token::Type::Number)
+                    && value->token().numeric_value >= 1 && value->token().numeric_value <= 1000)
+                    weight = static_cast<int>(value->token().numeric_value);
+                else if (!is_ident(value, "normal") && !is_ident(value, "small-caps"))
+                    return;
             }
-            if (current.empty())
-                return;
-            families->push_back(std::move(current));
+            LineHeight line_height;
+            if (ComponentValue const* const height = parts->line_height) {
+                if (is_ident(height, "normal")) {
+                    line_height = LineHeight {};
+                } else if (height->is_token(Token::Type::Number)) {
+                    if (height->token().numeric_value < 0)
+                        return;
+                    line_height = LineHeight { LineHeight::Kind::Number,
+                        static_cast<float>(height->token().numeric_value) };
+                } else if (auto length = parse_length_percent(*height, context, false)) {
+                    line_height = LineHeight { LineHeight::Kind::Px,
+                        length->kind == LengthPercent::Kind::Percent
+                            ? style.font_size * length->value / 100.0f
+                            : length->value };
+                } else {
+                    return;
+                }
+            }
+            style.font_style = font_style;
+            style.font_weight = weight;
+            style.line_height = line_height;
             style.font_family = std::move(families);
+            return;
+        }
+        if (name == "font-family") {
+            if (std::shared_ptr<std::vector<std::string>> families = parse_family_list(values))
+                style.font_family = std::move(families);
             return;
         }
         if (name == "font-style") {

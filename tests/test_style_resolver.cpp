@@ -174,5 +174,37 @@ int main()
         CHECK(style_of("code").font_family == families);
     }
 
+    // --- The font shorthand ---------------------------------------------------
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  body { font: 20px serif }
+  #full { font: italic bold 12px/1.5 Verdana, sans-serif }
+  #ratio { font: 10px/1 Verdana }
+  #weight { font: 300 2em "Segoe UI" }
+  #bad { font: bold }
+  #system { font: menu }
+</style></head>
+<body><p id="base">a</p><p id="full">b</p><p id="ratio">c</p><p id="weight">d</p><p id="bad">e</p><p id="system">f</p></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        CHECK(close(style_of("base").font_size, 20));
+        css::ComputedStyle const& full = style_of("full");
+        CHECK(close(full.font_size, 12));
+        CHECK_EQ(full.font_weight, 700);
+        CHECK(full.font_style == css::FontStyle::Italic);
+        CHECK(close(full.line_height_px(), 18)); // 1.5 x 12
+        CHECK(full.font_family && full.font_family->size() == 2 && (*full.font_family)[0] == "Verdana");
+        css::ComputedStyle const& ratio = style_of("ratio");
+        CHECK(close(ratio.font_size, 10));
+        CHECK(close(ratio.line_height_px(), 10));
+        CHECK_EQ(ratio.font_weight, 400); // the shorthand resets what it does not name
+        css::ComputedStyle const& weight = style_of("weight");
+        CHECK_EQ(weight.font_weight, 300);
+        CHECK(close(weight.font_size, 40)); // 2em of the body's 20
+        CHECK(close(style_of("bad").font_size, 20)); // no size and no family: not a shorthand
+        CHECK_EQ(style_of("bad").font_weight, 400);
+        CHECK(close(style_of("system").font_size, 20)); // the system fonts are not written
+    }
+
     return sashfold::test::report("style-resolver");
 }
