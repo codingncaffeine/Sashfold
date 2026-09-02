@@ -7,7 +7,9 @@
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <map>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 
 namespace sashfold::layout {
@@ -301,6 +303,11 @@ struct Layouter {
     mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
     ImageMap const* images = nullptr;
     ControlStates const* controls = nullptr;
+    // A flex item's content height at a width, remembered: an item is
+    // measured before it is placed, and an item that is itself a flex
+    // container measures its own items each time, so without this a chain
+    // of nested containers costs two to the power of its depth.
+    mutable std::map<std::tuple<dom::Element const*, float, float, int>, float> measured_heights;
 
     PageImage image_for(dom::Element const& element) const
     {
@@ -394,7 +401,12 @@ struct Layouter {
             }
             if (is_space || is_newline) {
                 flush_word();
-                if (items.empty() || items.back().kind != InlineItem::Kind::Space)
+                // A space after a space collapses, and a float between them
+                // is out of the flow: it does not keep them apart.
+                std::size_t back = items.size();
+                while (back > 0 && items[back - 1].kind == InlineItem::Kind::Float)
+                    --back;
+                if (back == 0 || items[back - 1].kind != InlineItem::Kind::Space)
                     items.push_back(InlineItem { InlineItem::Kind::Space, U" ", style, element });
                 continue;
             }
@@ -635,6 +647,21 @@ struct Layouter {
         };
         start_line();
 
+        // A float met mid-line that does not fit beside what the line holds
+        // goes under the line, once the line is complete: the line itself
+        // runs on as if the float were not there.
+        std::vector<InlineItem const*> pending_floats;
+        auto const place_pending = [&] {
+            if (pending_floats.empty())
+                return;
+            for (InlineItem const* pending : pending_floats) {
+                place_float(*pending->element, *pending->style, content_x, content_x + content_width, y,
+                    list_depth, floats, out);
+            }
+            pending_floats.clear();
+            start_line();
+        };
+
         auto const flush_line = [&] {
             while (!line.empty() && line.back().is_space) {
                 line_width -= line.back().width;
@@ -685,6 +712,7 @@ struct Layouter {
             line.clear();
             line_width = 0;
             start_line();
+            place_pending();
         };
 
         // A line beside a float is short: content that would fit the full
@@ -718,10 +746,15 @@ struct Layouter {
             }
             if (item.kind == InlineItem::Kind::Float) {
                 // At the top of the current line when it fits beside what the
-                // line holds, else below the line.
+                // line holds, else under the line once it is complete.
                 float const outer = float_width(*item.element, *item.style, content_width).outer();
-                if (!line.empty() && line_width + outer > line_avail)
-                    flush_line();
+                // Once one float waits for the line's end, the floats after
+                // it on the line wait too: none may sit higher than an
+                // earlier one.
+                if (!pending_floats.empty() || (!line.empty() && line_width + outer > line_avail)) {
+                    pending_floats.push_back(&item);
+                    continue;
+                }
                 place_float(*item.element, *item.style, content_x, content_x + content_width, y,
                     list_depth, floats, out);
                 start_line();
@@ -810,6 +843,7 @@ struct Layouter {
         }
         if (!line.empty())
             flush_line();
+        place_pending();
         return y - content_y;
     }
 
@@ -1374,6 +1408,9 @@ struct Layouter {
                 list_depth);
         }
         ComputedStyle const& s = *item.style;
+        auto const key = std::make_tuple(item.element, width, containing_width, list_depth);
+        if (auto const it = measured_heights.find(key); it != measured_heights.end())
+            return it->second;
         BlockOptions options;
         options.content_width = width;
         options.zero_auto_margins = true;
@@ -1382,7 +1419,9 @@ struct Layouter {
             scratch_floats, options);
         float const vertical_edges = resolve(s.padding_top, containing_width)
             + resolve(s.padding_bottom, containing_width) + s.border_top.width + s.border_bottom.width;
-        return std::max(0.0f, box.height - vertical_edges);
+        float const height = std::max(0.0f, box.height - vertical_edges);
+        measured_heights.emplace(key, height);
+        return height;
     }
 
     // Lays an item out at its settled sizes, its margin box at (x, y).
@@ -1865,7 +1904,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls };
+    Layouter layouter { styles, {}, images, controls, {} };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;
