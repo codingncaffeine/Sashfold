@@ -6,6 +6,7 @@
 #include "layout/Controls.h"
 #include "layout/Layout.h"
 #include "net/Url.h"
+#include "text/Face.h"
 #include "text/FontManager.h"
 #include "ui/Forms.h"
 
@@ -220,9 +221,13 @@ b</textarea></body></html>)HTML";
         CHECK(ta != nullptr);
         if (q && c && go && s && pw && block && ta) {
             float const glyph = 13.333f * 0.625f;
+            // A control's line is the face's normal line at its size: ascent,
+            // descent and line gap of Sashfold Mono (38/32 of the size).
+            text::FaceMetrics const metrics = text::builtin_face().metrics(13.333f);
+            float const line = metrics.ascent + metrics.descent + metrics.line_gap;
             CHECK(q->control && q->control->kind == ControlKind::Text);
             CHECK(near(q->width, 20 * glyph + 6)); // size=20 glyphs and the edges
-            CHECK(near(q->height, 16 + 6)); // one 16 px line and the edges
+            CHECK(near(q->height, line + 6)); // one line and the edges
             CHECK(q->runs.empty()); // nothing typed yet
             CHECK(c->control && c->control->kind == ControlKind::Checkbox && c->control->checked);
             CHECK_EQ(c->width, 13.0f);
@@ -235,8 +240,8 @@ b</textarea></body></html>)HTML";
             CHECK(s->runs.size() == 1 && s->runs[0].text == U"one"); // the first option shows
             CHECK(pw->runs.size() == 1 && pw->runs[0].text == U"•••");
             CHECK_EQ(block->width, 100.0f); // block-level, sized by CSS
-            CHECK(near(block->height, 22));
-            CHECK(near(ta->height, 3 * 16 + 6));
+            CHECK(near(block->height, line + 6));
+            CHECK(near(ta->height, 3 * line + 6));
             CHECK_EQ(ta->runs.size(), std::size_t { 2 }); // one run per line
         }
 

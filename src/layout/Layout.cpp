@@ -622,7 +622,7 @@ struct Layouter {
         spec.box.checked = control_checked(element, controls);
         ControlState const* state = controls ? controls->find(element) : nullptr;
         float const glyph = measure(style, U"0");
-        float const line = style.line_height_px();
+        float const line = line_height_of(style);
         float const edges = 6; // a 1px border and 2px of padding each side
         ReplacedSize intrinsic { 0, line + edges };
         std::u32string text = decode_utf8(control_caption(element, controls));
@@ -697,7 +697,7 @@ struct Layouter {
         control.y = box.y;
         control.width = box.width;
         control.height = box.height;
-        float const line = style.line_height_px();
+        float const line = line_height_of(style);
         float const ascent = ascent_in_line(style);
         text::FontStack const* const stack = &fonts_for(style);
         if (spec.box.kind == ControlKind::TextArea) {
@@ -737,12 +737,24 @@ struct Layouter {
 
     // --- Inline layout: line building ----------------------------------------
 
+    // The used line-height: as written, or for `normal` what the primary
+    // face asks for — its ascent, descent and line gap at this size (Ahem's
+    // is exactly one em; a typical text face's a little over).
+    float line_height_of(ComputedStyle const& style) const
+    {
+        if (style.line_height.kind != css::LineHeight::Kind::Normal)
+            return style.line_height_px();
+        text::FaceMetrics const metrics = fonts_for(style).primary().metrics(style.font_size);
+        return metrics.ascent + metrics.descent + metrics.line_gap;
+    }
+
     float ascent_in_line(ComputedStyle const& style) const
     {
         // The half-leading model: the face's ascent, plus half of what the
-        // line-height adds beyond the font size.
-        float const leading = style.line_height_px() - style.font_size;
-        return fonts_for(style).primary().metrics(style.font_size).ascent + leading / 2.0f;
+        // line-height adds beyond the face's own height.
+        text::FaceMetrics const metrics = fonts_for(style).primary().metrics(style.font_size);
+        float const leading = line_height_of(style) - (metrics.ascent + metrics.descent);
+        return metrics.ascent + leading / 2.0f;
     }
 
     // Lays the items into lines beside the context's floats; returns the
@@ -805,10 +817,10 @@ struct Layouter {
                 line_width -= line.back().width;
                 line.pop_back();
             }
-            float line_height = block_style.line_height_px();
+            float line_height = line_height_of(block_style);
             float max_ascent = ascent_in_line(block_style);
             for (Placed const& placed : line) {
-                line_height = std::max(line_height, placed.style->line_height_px());
+                line_height = std::max(line_height, line_height_of(*placed.style));
                 max_ascent = std::max(max_ascent, ascent_in_line(*placed.style));
             }
             // Images sit on the baseline: a tall one lifts it, keeping the

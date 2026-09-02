@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (4728 of 13295) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (4740 of 13295) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -575,6 +575,16 @@ css/CSS2/floats/new-fc-separates-from-float-4.html
 css/CSS2/floats/new-fc-separates-from-float.html
 css/CSS2/floats/zero-available-space-float-positioning.html
 css/CSS2/fonts/font-003.xht
+css/CSS2/fonts/font-011.xht
+css/CSS2/fonts/font-012.xht
+css/CSS2/fonts/font-013.xht
+css/CSS2/fonts/font-014.xht
+css/CSS2/fonts/font-015.xht
+css/CSS2/fonts/font-016.xht
+css/CSS2/fonts/font-029.xht
+css/CSS2/fonts/font-030.xht
+css/CSS2/fonts/font-031.xht
+css/CSS2/fonts/font-032.xht
 css/CSS2/fonts/font-051.xht
 css/CSS2/fonts/font-146.xht
 css/CSS2/fonts/font-applies-to-001.xht
@@ -593,6 +603,7 @@ css/CSS2/fonts/font-applies-to-017.xht
 css/CSS2/fonts/font-family-008.xht
 css/CSS2/fonts/font-family-009.xht
 css/CSS2/fonts/font-family-011.xht
+css/CSS2/fonts/font-family-013.xht
 css/CSS2/fonts/font-family-014.xht
 css/CSS2/fonts/font-family-applies-to-016.xht
 css/CSS2/fonts/font-family-invalid-characters-001.xht
@@ -681,6 +692,7 @@ css/CSS2/fonts/font-weight-rule-006.xht
 css/CSS2/fonts/font-weight-rule-007.xht
 css/CSS2/fonts/font-weight-rule-008.xht
 css/CSS2/fonts/fonts-011.xht
+css/CSS2/fonts/fonts-013.xht
 css/CSS2/fonts/fonts-014.xht
 css/CSS2/fonts/shand-font-000.xht
 css/CSS2/fonts/shand-font-001.xht

@@ -222,7 +222,7 @@ int main(int argc, char** argv)
     text::FaceMetrics const at32 = face->metrics(32);
     CHECK_EQ(at32.ascent, 25.0f);
     CHECK_EQ(at32.descent, 7.0f);
-    CHECK_EQ(at32.line_gap, 0.0f);
+    CHECK_EQ(at32.line_gap, 6.0f); // the face's leading, 6 of 32 units at 32 px
     CHECK_EQ(face->advance(face->glyph_index(U'W'), 32), 20.0f);
     CHECK_EQ(face->advance(face->glyph_index(U'i'), 16), 10.0f);
     CHECK_EQ(face->glyph_index(0x0430), 0u);

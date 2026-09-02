@@ -617,7 +617,7 @@ std::vector<std::uint8_t> SashfoldMono::to_truetype(TrueTypeOptions const& optio
     font.units_per_em = 2048;
     font.ascender = design_ascent * 64;
     font.descender = -design_descent * 64;
-    font.line_gap = 0;
+    font.line_gap = design_line_gap * 64;
     font.x_height = (design_ascent - 10) * 64;
     font.cap_height = (design_ascent - 3) * 64;
     font.weight_class = options.bold ? 700 : 400;

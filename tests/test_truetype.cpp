@@ -123,7 +123,7 @@ int main(int argc, char** argv)
     CHECK_EQ(mono.units_per_em(), 2048);
     CHECK_EQ(mono.ascender(), 1600);
     CHECK_EQ(mono.descender(), -448);
-    CHECK_EQ(mono.line_gap(), 0);
+    CHECK_EQ(mono.line_gap(), 384); // 6 of 32 grid units: the face's leading
     CHECK_EQ(mono.x_height(), 960);
     CHECK_EQ(mono.cap_height(), 1408);
     CHECK_EQ(mono.weight_class(), 400);

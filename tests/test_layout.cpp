@@ -52,7 +52,7 @@ void collect(layout::Fragment const& fragment, std::vector<layout::TextRun const
 
 constexpr std::string_view page_html = R"(<!doctype html>
 <html><head><style>
-  body { font-family: "Sashfold Mono"; font-size: 16px; margin: 8px }
+  body { font-family: "Sashfold Mono"; font-size: 16px; margin: 8px; line-height: 20px }
   h1 { font-size: 32px }
   .narrow { width: 100px }
   .sans { font-family: sans-serif }

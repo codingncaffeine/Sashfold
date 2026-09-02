@@ -2,10 +2,10 @@
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-02",
   "viewport": [800, 600],
-  "passed": 4728,
+  "passed": 4740,
   "total": 13295,
   "directories": [
-    { "path": "css/CSS2", "passed": 2523, "total": 6169 },
+    { "path": "css/CSS2", "passed": 2535, "total": 6169 },
     { "path": "css/css-backgrounds", "passed": 212, "total": 711 },
     { "path": "css/css-box", "passed": 26, "total": 69 },
     { "path": "css/css-cascade", "passed": 10, "total": 43 },

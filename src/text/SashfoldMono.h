@@ -41,13 +41,17 @@ public:
     static constexpr int design_advance = 20;
     static constexpr int design_ascent = 25; // baseline y on the grid
     static constexpr int design_descent = 7;
+    // The leading the face asks for: a normal line is ascent + descent +
+    // this, 38/32 of the size — the face's own answer to line-height: normal.
+    static constexpr int design_line_gap = 6;
 
     static FontMetrics metrics(float size)
     {
         // Spelled as design * size / em, the same expression as advance():
         // layout's numbers must not shift by a rounding between the two.
         return { design_ascent * size / static_cast<float>(units_per_em),
-            design_descent * size / static_cast<float>(units_per_em), advance(size), 0 };
+            design_descent * size / static_cast<float>(units_per_em), advance(size),
+            design_line_gap * size / static_cast<float>(units_per_em) };
     }
 
     static float advance(float size)
