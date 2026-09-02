@@ -64,6 +64,7 @@ int main()
   #deep em { font-size: 150% }
   .sized { font-size: 2em; line-height: 1.5 }
   .hidden { display: none }
+  .units { margin: 1in 2.54cm 10mm 1pc; padding: 4Q 1.5pt 0 0 }
 </style></head>
 <body id="body">
   <p id="plain">plain</p>
@@ -73,6 +74,7 @@ int main()
   <div id="deep"><em id="em">big</em></div>
   <span id="sized" class="sized">sized</span>
   <div id="hidden" class="hidden">gone</div>
+  <div id="units" class="units">units</div>
   <h1 id="h1">title</h1>
   <a id="link" href="/x">link</a>
   <pre id="pre">   pre   </pre>
@@ -113,6 +115,14 @@ int main()
         CHECK(boxed.border_left.color.r == 255); // red
         CHECK(boxed.width.kind == LengthPercent::Kind::Percent);
         CHECK(close(boxed.width.value, 50));
+        // The absolute units, at 96 px to the inch.
+        ComputedStyle const& units = style_of("units");
+        CHECK(close(units.margin_top.value, 96)); // 1in
+        CHECK(close(units.margin_right.value, 96)); // 2.54cm
+        CHECK(close(units.margin_bottom.value, 96.0f / 25.4f * 10)); // 10mm
+        CHECK(close(units.margin_left.value, 16)); // 1pc
+        CHECK(close(units.padding_top.value, 96.0f / 101.6f * 4)); // 4Q
+        CHECK(close(units.padding_right.value, 2)); // 1.5pt
     }
 
     // --- Hex colors ----------------------------------------------------------

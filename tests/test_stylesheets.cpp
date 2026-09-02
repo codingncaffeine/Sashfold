@@ -254,6 +254,14 @@ int main()
         R"HTML(<style media="(max-width: 500px)">p { color: rgb(3, 0, 0) }</style><p id="p">x</p>)HTML"));
     CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, wide).size(), 0u);
     CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, narrow).size(), 1u);
+    // An XHTML page's CDATA-wrapped sheet, parsed as HTML: the markers are
+    // dropped so the sheet is not swallowed into a bracket block.
+    auto const cdata = html::parse_document(std::string_view(
+        "<style>\n  <![CDATA[\n  p { color: rgb(9, 0, 0) }\n  ]]>\n</style><p id=\"p\">x</p>"));
+    CHECK_EQ(red_of(css::resolve_styles(*cdata), *cdata, "p"), 9);
+    auto const plain_brackets = html::parse_document(std::string_view(
+        "<style>p { color: rgb(9, 0, 0) } ]]></style><p id=\"p\">x</p>"));
+    CHECK_EQ(red_of(css::resolve_styles(*plain_brackets), *plain_brackets, "p"), 9);
 
     // --- The shell loader, over data: URLs -----------------------------------------------------
     ui::ShellLoader loader;

@@ -112,6 +112,15 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
                 if (child->is_text())
                     text += static_cast<dom::Text const*>(child)->data;
             }
+            // XHTML pages wrap a sheet in a CDATA section; parsed as HTML,
+            // the markers arrive as text, and the opening one would swallow
+            // the sheet into a bracket block. An XML parser would drop them.
+            std::size_t const start = text.find_first_not_of(" \t\n\r\f");
+            if (start != std::string::npos && text.compare(start, 9, "<![CDATA[") == 0) {
+                std::size_t const end = text.rfind("]]>");
+                if (end != std::string::npos && end >= start + 9)
+                    text = text.substr(start + 9, end - (start + 9));
+            }
             collector.add_text(std::move(text),
                 base ? std::optional<net::Url>(*base) : std::nullopt, 0);
             return;

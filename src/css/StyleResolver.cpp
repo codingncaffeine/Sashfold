@@ -491,6 +491,17 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.root_font_size)));
     if (ascii_ci_equals(unit, "pt"))
         return LengthPercent::px(static_cast<float>(number * 4.0 / 3.0));
+    // The absolute units, anchored to 96 px per inch.
+    if (ascii_ci_equals(unit, "in"))
+        return LengthPercent::px(static_cast<float>(number * 96.0));
+    if (ascii_ci_equals(unit, "cm"))
+        return LengthPercent::px(static_cast<float>(number * 96.0 / 2.54));
+    if (ascii_ci_equals(unit, "mm"))
+        return LengthPercent::px(static_cast<float>(number * 96.0 / 25.4));
+    if (ascii_ci_equals(unit, "q"))
+        return LengthPercent::px(static_cast<float>(number * 96.0 / 101.6));
+    if (ascii_ci_equals(unit, "pc"))
+        return LengthPercent::px(static_cast<float>(number * 16.0));
     if (ascii_ci_equals(unit, "ex") || ascii_ci_equals(unit, "ch"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.font_size) * 0.5));
     return std::nullopt;
