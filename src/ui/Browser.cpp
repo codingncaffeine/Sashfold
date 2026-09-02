@@ -8,6 +8,7 @@
 #include "html/TreeBuilder.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
+#include "platform/Clipboard.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
@@ -16,6 +17,7 @@
 #include "ui/InternalPages.h"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace sashfold::ui {
@@ -253,6 +255,26 @@ std::string_view bytes_view(std::vector<std::uint8_t> const& bytes)
 } // namespace
 
 struct Browser::Impl {
+    // A place in the page's text: a run in tree order and a code point
+    // offset within it.
+    struct TextPosition {
+        std::size_t run = 0;
+        std::size_t offset = 0;
+
+        friend bool operator==(TextPosition const&, TextPosition const&) = default;
+        friend bool operator<(TextPosition const& a, TextPosition const& b)
+        {
+            return a.run != b.run ? a.run < b.run : a.offset < b.offset;
+        }
+    };
+
+    // The anchor stays where the selection began; the focus follows the
+    // mouse or the keyboard. Equal positions are a caret with nothing selected.
+    struct Selection {
+        TextPosition anchor;
+        TextPosition focus;
+    };
+
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
@@ -264,6 +286,8 @@ struct Browser::Impl {
         layout::ImageMap images; // the page's pictures, decoded
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
         layout::LayoutResult layout;
+        std::vector<layout::TextRun const*> runs; // the layout's runs in tree order
+        std::optional<Selection> selection; // positions into `runs`; dropped with the layout
         int scroll_y = 0;
         std::string status;
 
@@ -304,6 +328,7 @@ struct Browser::Impl {
     Hover hover = Hover::None;
     std::size_t hover_index = 0;
     std::optional<net::Url> hover_link;
+    bool selecting = false; // the left button went down on page text and is still held
 
     Bitmap frame;
     bool dirty = true;
@@ -488,6 +513,11 @@ struct Browser::Impl {
         tab.layout = layout::layout_document(*tab.document, tab.styles,
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls);
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
+        // The selection pointed into the old layout's runs.
+        tab.runs.clear();
+        gather_runs(tab.layout.root, tab.runs);
+        tab.selection.reset();
+        selecting = false;
     }
 
     void render(Tab& tab)
@@ -1071,6 +1101,264 @@ struct Browser::Impl {
 
     // --- Input ---------------------------------------------------------------------
 
+    // --- Selection ---------------------------------------------------------------------
+
+    static void gather_runs(layout::Fragment const& fragment, std::vector<layout::TextRun const*>& out)
+    {
+        for (layout::TextRun const& run : fragment.runs)
+            out.push_back(&run);
+        for (layout::Fragment const& child : fragment.children)
+            gather_runs(child, out);
+    }
+
+    // The code point offset in a run nearest to page x.
+    static std::size_t offset_at(layout::TextRun const& run, float px)
+    {
+        std::size_t best = 0;
+        float best_distance = std::fabs(run.x - px);
+        for (std::size_t i = 1; i <= run.text.size(); ++i) {
+            float const distance = std::fabs(run.x + prefix_width(run, i) - px);
+            if (distance < best_distance) {
+                best = i;
+                best_distance = distance;
+            }
+        }
+        return best;
+    }
+
+    // The text position nearest to a page point: inside the run under it,
+    // else the nearest run on its line, else the end of the nearest line
+    // above, else the very start.
+    static std::optional<TextPosition> position_at(Tab const& tab, float px, float py)
+    {
+        if (tab.runs.empty())
+            return std::nullopt;
+        std::optional<std::size_t> same_line;
+        float same_line_distance = 0;
+        std::optional<std::size_t> above;
+        float above_bottom = 0;
+        for (std::size_t i = 0; i < tab.runs.size(); ++i) {
+            layout::TextRun const& run = *tab.runs[i];
+            if (run.text.empty())
+                continue;
+            text::FaceMetrics const metrics = run_metrics(run);
+            float const top = run.baseline_y - metrics.ascent;
+            float const bottom = run.baseline_y + metrics.descent;
+            if (py >= top && py < bottom) {
+                if (px >= run.x && px < run.x + run.width)
+                    return TextPosition { i, offset_at(run, px) };
+                float const distance = px < run.x ? run.x - px : px - (run.x + run.width);
+                if (!same_line || distance < same_line_distance) {
+                    same_line = i;
+                    same_line_distance = distance;
+                }
+            } else if (bottom <= py && (!above || bottom >= above_bottom)) {
+                above = i;
+                above_bottom = bottom;
+            }
+        }
+        if (same_line) {
+            layout::TextRun const& run = *tab.runs[*same_line];
+            return TextPosition { *same_line, px < run.x ? 0 : run.text.size() };
+        }
+        if (above)
+            return TextPosition { *above, tab.runs[*above]->text.size() };
+        return TextPosition { 0, 0 };
+    }
+
+    static std::pair<TextPosition, TextPosition> ordered(Selection const& selection)
+    {
+        if (selection.focus < selection.anchor)
+            return { selection.focus, selection.anchor };
+        return { selection.anchor, selection.focus };
+    }
+
+    // The selected text: each run's slice, lines separated by newlines.
+    static std::string selected_text(Tab const& tab)
+    {
+        if (!tab.selection || tab.runs.empty())
+            return {};
+        auto const [start, end] = ordered(*tab.selection);
+        std::string out;
+        std::optional<float> last_baseline;
+        for (std::size_t i = start.run; i <= end.run && i < tab.runs.size(); ++i) {
+            layout::TextRun const& run = *tab.runs[i];
+            std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
+            std::size_t const to = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
+            if (to <= from)
+                continue;
+            if (last_baseline && run.baseline_y != *last_baseline)
+                out += '\n';
+            last_baseline = run.baseline_y;
+            out += to_utf8(std::u32string_view(run.text).substr(from, to - from));
+        }
+        return out;
+    }
+
+    // A position one code point along, crossing into the next or previous
+    // run past a run's ends.
+    static TextPosition step(Tab const& tab, TextPosition position, int direction)
+    {
+        std::size_t const size = tab.runs[position.run]->text.size();
+        if (direction > 0) {
+            if (position.offset < size) {
+                ++position.offset;
+            } else if (position.run + 1 < tab.runs.size()) {
+                ++position.run;
+                position.offset = std::min<std::size_t>(1, tab.runs[position.run]->text.size());
+            }
+        } else {
+            if (position.offset > 0) {
+                --position.offset;
+            } else if (position.run > 0) {
+                --position.run;
+                std::size_t const previous = tab.runs[position.run]->text.size();
+                position.offset = previous > 0 ? previous - 1 : 0;
+            }
+        }
+        return position;
+    }
+
+    // The position on the line above or below, at the same x.
+    static std::optional<TextPosition> line_step(Tab const& tab, TextPosition position, int direction)
+    {
+        layout::TextRun const& run = *tab.runs[position.run];
+        float const x = run.x + prefix_width(run, position.offset);
+        std::optional<float> target;
+        for (layout::TextRun const* const other : tab.runs) {
+            if (other->text.empty())
+                continue;
+            float const baseline = other->baseline_y;
+            bool const candidate = direction > 0 ? baseline > run.baseline_y : baseline < run.baseline_y;
+            if (!candidate)
+                continue;
+            if (!target || (direction > 0 ? baseline < *target : baseline > *target))
+                target = baseline;
+        }
+        if (!target)
+            return std::nullopt;
+        return position_at(tab, x, *target);
+    }
+
+    // The first or last position on the line a position sits on.
+    static TextPosition line_end(Tab const& tab, TextPosition position, bool end)
+    {
+        float const baseline = tab.runs[position.run]->baseline_y;
+        std::size_t index = position.run;
+        if (end) {
+            while (index + 1 < tab.runs.size() && tab.runs[index + 1]->baseline_y == baseline)
+                ++index;
+            return TextPosition { index, tab.runs[index]->text.size() };
+        }
+        while (index > 0 && tab.runs[index - 1]->baseline_y == baseline)
+            --index;
+        return TextPosition { index, 0 };
+    }
+
+    void start_selection(Tab& tab, int x, int y)
+    {
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        std::optional<TextPosition> const position
+            = point ? position_at(tab, point->first, point->second) : std::nullopt;
+        if (!position) {
+            tab.selection.reset();
+            selecting = false;
+            return;
+        }
+        tab.selection = Selection { *position, *position };
+        selecting = true;
+        dirty = true;
+    }
+
+    void mouse_move(int x, int y)
+    {
+        update_hover(x, y);
+        if (!selecting)
+            return;
+        Tab* const tab = active_tab();
+        if (!tab || !tab->selection)
+            return;
+        // The drag may leave the content area: the point is held to its edges.
+        ChromeLayout const c = layout_chrome();
+        float const px = static_cast<float>(std::clamp(x, c.content.x, c.content.x + c.content.width - 1)
+            - c.content.x);
+        float const py = static_cast<float>(std::clamp(y, c.content.y, c.content.y + c.content.height - 1)
+            - c.content.y + tab->scroll_y);
+        if (std::optional<TextPosition> const focus = position_at(*tab, px, py);
+            focus && !(*focus == tab->selection->focus)) {
+            tab->selection->focus = *focus;
+            dirty = true;
+        }
+    }
+
+    void mouse_up(int button)
+    {
+        if (button == 1)
+            selecting = false;
+    }
+
+    void select_all_text(Tab& tab)
+    {
+        if (tab.runs.empty())
+            return;
+        tab.selection = Selection { TextPosition { 0, 0 },
+            TextPosition { tab.runs.size() - 1, tab.runs.back()->text.size() } };
+        dirty = true;
+    }
+
+    // Shift with an arrow, Home or End: the focus moves, the anchor stays.
+    bool extend_selection(Tab& tab, KeyEvent const& key)
+    {
+        if (!tab.selection || tab.runs.empty())
+            return false;
+        TextPosition const focus = tab.selection->focus;
+        std::optional<TextPosition> next;
+        switch (key.key) {
+        case Key::Left: next = step(tab, focus, -1); break;
+        case Key::Right: next = step(tab, focus, +1); break;
+        case Key::Up: next = line_step(tab, focus, -1); break;
+        case Key::Down: next = line_step(tab, focus, +1); break;
+        case Key::Home: next = line_end(tab, focus, false); break;
+        case Key::End: next = line_end(tab, focus, true); break;
+        default: return false;
+        }
+        if (next && !(*next == focus)) {
+            tab.selection->focus = *next;
+            dirty = true;
+        }
+        return true;
+    }
+
+    void copy_selection()
+    {
+        if (address_focus) {
+            if (!address.empty())
+                platform::write_clipboard_text(address);
+            return;
+        }
+        Tab const* const tab = active_tab();
+        if (!tab)
+            return;
+        std::string const text = selected_text(*tab);
+        if (!text.empty())
+            platform::write_clipboard_text(text);
+    }
+
+    // The clipboard's text typed into whatever has focus.
+    void paste()
+    {
+        std::optional<std::string> const text = platform::read_clipboard_text();
+        if (!text || text->empty())
+            return;
+        bool const into_control = !address_focus && tab_with_focused_control() != nullptr;
+        if (!address_focus && !into_control)
+            return;
+        for (char32_t const c : decode_utf8(*text)) {
+            if (c >= 0x20 && c != 0x7F)
+                text_input(c);
+        }
+    }
+
     // --- Forms -----------------------------------------------------------------------
 
     Tab* tab_with_focused_control()
@@ -1344,8 +1632,11 @@ struct Browser::Impl {
                     activate_control(*control);
                 } else {
                     blur_control();
-                    if (hover_link)
+                    if (hover_link) {
                         open(*hover_link);
+                    } else if (Tab* const tab = active_tab()) {
+                        start_selection(*tab, x, y);
+                    }
                 }
                 break;
             case Hover::None: blur_address(); break;
@@ -1384,8 +1675,12 @@ struct Browser::Impl {
                 if (address_focus) {
                     select_all = !address.empty();
                     dirty = true;
+                } else if (Tab* const tab = active_tab(); tab && !tab_with_focused_control()) {
+                    select_all_text(*tab);
                 }
                 return;
+            case U'C': copy_selection(); return;
+            case U'V': paste(); return;
             case U'9': select_tab(tabs.size() - 1); return;
             default:
                 if (key.letter >= U'1' && key.letter <= U'8')
@@ -1420,6 +1715,13 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        if (key.shift && extend_selection(*tab, key))
+            return;
+        if (key.key == Key::Escape && tab->selection) {
+            tab->selection.reset();
+            dirty = true;
+            return;
+        }
         ChromeLayout const c = layout_chrome();
         int const page = std::max(theme.scroll_step, c.content.height - theme.scroll_step);
         switch (key.key) {
@@ -1615,6 +1917,26 @@ struct Browser::Impl {
         if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
             paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y));
+            if (tab->selection) {
+                // The selected slices of each run, as translucent bands.
+                auto const [start, end] = ordered(*tab->selection);
+                for (std::size_t i = start.run; i <= end.run && i < tab->runs.size(); ++i) {
+                    layout::TextRun const& run = *tab->runs[i];
+                    std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
+                    std::size_t const to
+                        = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
+                    if (to <= from)
+                        continue;
+                    text::FaceMetrics const metrics = run_metrics(run);
+                    float const x1 = run.x + prefix_width(run, from);
+                    float const x2 = run.x + prefix_width(run, to);
+                    float const top = run.baseline_y - metrics.ascent - static_cast<float>(tab->scroll_y);
+                    content.fill_rect(Rect { static_cast<int>(x1 + 0.5f), static_cast<int>(top + 0.5f),
+                                          static_cast<int>(x2 - x1 + 0.5f),
+                                          static_cast<int>(metrics.ascent + metrics.descent + 0.5f) },
+                        t.selection);
+                }
+            }
             int const page_height = static_cast<int>(tab->layout.page_height + 0.5f);
             if (page_height > c.content.height) {
                 int const track = c.content.height;
@@ -1718,9 +2040,9 @@ void Browser::resize(int width, int height)
 int Browser::width() const { return m_impl->width; }
 int Browser::height() const { return m_impl->height; }
 
-void Browser::mouse_move(int x, int y) { m_impl->update_hover(x, y); }
+void Browser::mouse_move(int x, int y) { m_impl->mouse_move(x, y); }
 void Browser::mouse_down(int x, int y, int button) { m_impl->mouse_down(x, y, button); }
-void Browser::mouse_up(int, int, int) { }
+void Browser::mouse_up(int, int, int button) { m_impl->mouse_up(button); }
 
 void Browser::wheel(int x, int y, int notches)
 {
@@ -1875,6 +2197,52 @@ std::string Browser::focused_control_name() const
         return "";
     dom::Attr const* const name = tab->controls.focused->find_attribute("name");
     return name ? name->value : "";
+}
+
+std::string Browser::selected_text() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab ? Impl::selected_text(*tab) : std::string();
+}
+
+bool Browser::select_text(std::string const& text)
+{
+    Impl::Tab* const tab = m_impl->active_tab();
+    if (!tab || text.empty())
+        return false;
+    std::u32string const needle = decode_utf8(text);
+    // A line is a stretch of runs sharing a baseline, in tree order; the
+    // text may span several of its runs.
+    std::size_t line_start = 0;
+    while (line_start < tab->runs.size()) {
+        std::size_t line_end = line_start + 1;
+        while (line_end < tab->runs.size()
+            && tab->runs[line_end]->baseline_y == tab->runs[line_start]->baseline_y)
+            ++line_end;
+        std::u32string line;
+        std::vector<std::size_t> starts; // each run's offset within `line`
+        for (std::size_t i = line_start; i < line_end; ++i) {
+            starts.push_back(line.size());
+            line += tab->runs[i]->text;
+        }
+        std::size_t const at = line.find(needle);
+        if (at != std::u32string::npos) {
+            auto const locate = [&](std::size_t index) {
+                std::size_t run = 0;
+                for (std::size_t k = 0; k < starts.size(); ++k) {
+                    if (starts[k] <= index)
+                        run = k;
+                }
+                return Impl::TextPosition { line_start + run, index - starts[run] };
+            };
+            tab->selection = Impl::Selection { locate(at), locate(at + needle.size()) };
+            m_impl->blur_address();
+            m_impl->dirty = true;
+            return true;
+        }
+        line_start = line_end;
+    }
+    return false;
 }
 
 }

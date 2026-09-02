@@ -47,6 +47,7 @@ add_library(sashfold_core STATIC
   src/net/Idna.cpp
   src/net/Url.cpp
   src/paint/Painter.cpp
+  src/platform/Clipboard.cpp
   src/text/Face.cpp
   src/text/FontManager.cpp
   src/text/Rasterizer.cpp
@@ -69,11 +70,11 @@ add_library(sashfold_core STATIC
   src/html/TreeDump.cpp
 )
 if(WIN32)
-  target_sources(sashfold_core PRIVATE src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp
+  target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp
     src/platform/win32/WindowWin32.cpp src/platform/win32/FontsWin32.cpp)
   target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32)
 else()
-  target_sources(sashfold_core PRIVATE src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp
+  target_sources(sashfold_core PRIVATE src/platform/posix/ClipboardPosix.cpp src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp
     src/platform/posix/WindowPosix.cpp src/platform/posix/FontsPosix.cpp)
 endif()
 target_include_directories(sashfold_core PUBLIC src)

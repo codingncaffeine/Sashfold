@@ -1,0 +1,41 @@
+# Text selection and the clipboard: a run selected by name, a drag across
+# words, Shift with the arrow keys, select-all, copy, and paste into a
+# field. The clipboard is the process's own during a script, so nothing the
+# user copied is touched. The content area starts 76 px down (tab strip +
+# toolbar), the first paragraph sits 24 px below that (the body margin and
+# its own top margin), and its text starts 8 px in; Sashfold Mono at 16px is
+# 10 px per glyph, so the drag coordinates below land on known glyphs.
+resize 800 500
+open data:text/html,<title>Selection</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><p>The quick brown fox jumps over the lazy dog.</p><p>Second line of text here.</p><form><input name="q"></form>
+assert-title Selection
+assert-selection
+
+select-text quick brown
+assert-selection quick brown
+assert-golden goldens/selection-words.png
+key ctrl+c
+focus q
+key ctrl+v
+assert-value q quick brown
+key Escape
+
+drag 30 110 120 110
+assert-selection e quick b
+
+select-text The
+key shift+right
+key shift+right
+assert-selection The q
+key shift+end
+assert-selection The quick brown fox jumps over the lazy dog.
+key shift+left
+assert-selection The quick brown fox jumps over the lazy dog
+key shift+down
+assert-golden goldens/selection-lines.png
+key Escape
+assert-selection
+
+key ctrl+a
+assert-golden goldens/selection-all.png
+key Escape
+assert-selection

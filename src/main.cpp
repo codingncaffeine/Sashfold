@@ -7,6 +7,7 @@
 #include "layout/Layout.h"
 #include "net/Http.h"
 #include "paint/Painter.h"
+#include "platform/Clipboard.h"
 #include "platform/Window.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
@@ -505,6 +506,7 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
 {
     ui::ShellLoader loader;
     ui::Browser browser(loader, load_theme(theme_path), width, height);
+    platform::use_process_clipboard(true); // a script never touches the real clipboard
     browser.set_downloads_directory(downloads);
     ui::ScriptResult const result = ui::run_script(browser, script, update_goldens, std::cout);
     return result.ok() ? 0 : 1;

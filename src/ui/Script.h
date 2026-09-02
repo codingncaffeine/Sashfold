@@ -30,6 +30,9 @@
 //   focus <name>         focus the first form control with that name
 //   assert-value <name> <text>   the control's current value
 //   assert-focused <name>        the focused control's name ("" = none)
+//   drag <x1> <y1> <x2> <y2>     press, move, release the left button
+//   select-text <text>   select the first run's occurrence of text
+//   assert-selection <text>      the selected text (one line)
 //   echo <text>
 
 #include "ui/Browser.h"

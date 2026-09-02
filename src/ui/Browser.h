@@ -149,6 +149,12 @@ public:
     // The focused control's name, or "" when focus is elsewhere.
     std::string focused_control_name() const;
 
+    // --- Selection (tests and --script) -------------------------------------
+    // The selected page text, lines separated by newlines; "" when none.
+    std::string selected_text() const;
+    // Selects the first occurrence of `text` within one run; false when none.
+    bool select_text(std::string const& text);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

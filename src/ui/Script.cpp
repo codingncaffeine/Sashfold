@@ -331,6 +331,23 @@ struct Runner {
             expect_equal("assert-value " + name, *value, expected);
         } else if (command == "assert-focused") {
             expect_equal("assert-focused", browser.focused_control_name(), argument);
+        } else if (command == "drag") {
+            auto const x1 = int_arg(0);
+            auto const y1 = int_arg(1);
+            auto const x2 = int_arg(2);
+            auto const y2 = int_arg(3);
+            if (!x1 || !y1 || !x2 || !y2)
+                return fail("drag: needs x1 y1 x2 y2");
+            browser.mouse_move(*x1, *y1);
+            browser.mouse_down(*x1, *y1, 1);
+            browser.mouse_move(*x2, *y2);
+            browser.mouse_up(*x2, *y2, 1);
+            settle();
+        } else if (command == "select-text") {
+            if (!browser.select_text(argument))
+                return fail("select-text: no text run contains \"" + argument + "\"");
+        } else if (command == "assert-selection") {
+            expect_equal("assert-selection", browser.selected_text(), argument);
         } else if (command == "echo") {
             out << argument << "\n";
         } else {
