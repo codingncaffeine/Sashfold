@@ -7,6 +7,7 @@
 #include "net/Http.h"
 #include "paint/Painter.h"
 #include "platform/Window.h"
+#include "text/Face.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 #include "ui/Browser.h"
@@ -39,7 +40,7 @@ int usage(char const* program)
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
-              << "       " << program << " --font-sampler <output.png>\n"
+              << "       " << program << " --font-sampler <output.png> [--font <file.ttf>]\n"
               << "       " << program << " --font-info <file.ttf|file.ttc>\n"
               << "       " << program << " --smoke [-o output.png]\n"
               << "\n"
@@ -199,9 +200,36 @@ int dump_dom(std::string const& path)
 
 // Renders every glyph of Sashfold Mono at several sizes — the standing QA
 // sheet for the face.
-int font_sampler(std::string const& output)
+// The QA sheet for a face: the built-in one by default, or any TrueType
+// file, drawn through the same Face interface the page renderer uses. Code
+// points the file lacks fall back to the built-in face, so a gap shows as
+// a Sashfold Mono glyph rather than nothing.
+int font_sampler(std::string const& output, std::string const& font_path)
 {
-    text::SashfoldMono const& font = text::SashfoldMono::instance();
+    std::unique_ptr<text::Face> loaded;
+    if (!font_path.empty()) {
+        std::ifstream file(font_path, std::ios::binary);
+        std::vector<std::uint8_t> const bytes((std::istreambuf_iterator<char>(file)),
+            std::istreambuf_iterator<char>());
+        std::optional<text::TrueTypeFont> parsed = text::TrueTypeFont::parse(bytes);
+        if (!parsed) {
+            std::cerr << "error: cannot read " << font_path << " as a TrueType font\n";
+            return 1;
+        }
+        loaded = text::make_truetype_face(std::move(*parsed));
+    }
+    text::Face const& builtin = text::builtin_face();
+    text::Face const& font = loaded ? *loaded : builtin;
+    auto const draw = [&](Bitmap& canvas, char32_t c, float x, float y, float size, bool bold,
+                          bool italic) {
+        std::uint32_t const glyph = font.glyph_index(c);
+        if (glyph != 0) {
+            font.draw_glyph(canvas, glyph, x, y, size, Color::rgb(20, 20, 24), bold, italic);
+            return font.advance(glyph, size);
+        }
+        builtin.draw_glyph(canvas, c, x, y, size, Color::rgb(20, 20, 24), bold, italic);
+        return builtin.advance(c, size);
+    };
     Bitmap canvas(980, 760, Color::rgb(252, 252, 250));
     std::u32string const rows[] = {
         U"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -218,10 +246,8 @@ int font_sampler(std::string const& output)
     for (float size : { 16.0f, 24.0f }) {
         for (std::u32string const& row : rows) {
             float x = 16;
-            for (char32_t const c : row) {
-                font.draw_glyph(canvas, c, x, y, size, Color::rgb(20, 20, 24), false, false);
-                x += text::SashfoldMono::advance(size);
-            }
+            for (char32_t const c : row)
+                x += draw(canvas, c, x, y, size, false, false);
             y += size * 1.4f;
         }
         y += 12;
@@ -230,11 +256,8 @@ int font_sampler(std::string const& output)
     for (int variant = 0; variant < 3; ++variant) {
         std::u32string const sample = U"Weight and slant: Hamburgefonstiv 017";
         float x = 16;
-        for (char32_t const c : sample) {
-            font.draw_glyph(canvas, c, x, y, 22.0f, Color::rgb(20, 20, 24), variant == 1,
-                variant == 2);
-            x += text::SashfoldMono::advance(22.0f);
-        }
+        for (char32_t const c : sample)
+            x += draw(canvas, c, x, y, 22.0f, variant == 1, variant == 2);
         y += 34;
     }
     if (!write_png(output, canvas)) {
@@ -462,6 +485,7 @@ int main(int argc, char** argv)
     std::string start_url;
     std::string theme_path = default_theme_path(argv[0]);
     std::optional<std::string> downloads;
+    std::string font_path;
     int width = 0;
     int height = 0;
     int runs = 5;
@@ -489,6 +513,9 @@ int main(int argc, char** argv)
             || arg == "--font-sampler" || arg == "--font-info" || arg == "--bench") {
             mode = arg;
             if (!value_after(i, input))
+                return usage(argv[0]);
+        } else if (arg == "--font") {
+            if (!value_after(i, font_path))
                 return usage(argv[0]);
         } else if (arg == "--smoke") {
             mode = arg;
@@ -530,7 +557,7 @@ int main(int argc, char** argv)
     if (mode == "--dump-dom")
         return dump_dom(input);
     if (mode == "--font-sampler")
-        return font_sampler(input);
+        return font_sampler(input, font_path);
     if (mode == "--font-info")
         return font_info(input);
     if (mode == "--smoke")

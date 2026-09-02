@@ -2,6 +2,7 @@
 // face_count, parse, and every accessor a renderer would call — no crash,
 // no sanitizer finding.
 
+#include "text/Rasterizer.h"
 #include "text/TrueType.h"
 
 #include <algorithm>
@@ -24,9 +25,12 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
         std::size_t const glyphs = std::min<std::size_t>(font->glyph_count(), 2048);
         for (std::size_t glyph = 0; glyph < glyphs; ++glyph) {
             auto const g = static_cast<std::uint16_t>(glyph);
-            (void)font->outline(g);
+            auto const outline = font->outline(g);
             (void)font->advance_width(g);
             (void)font->left_side_bearing(g);
+            // Outlines are hostile too: rasterize the first few at a text size.
+            if (outline && glyph < 32)
+                (void)sashfold::text::rasterize(*outline, font->units_per_em(), 16 * 4);
         }
         for (char32_t const c : { 0x41u, 0x20u, 0xE9u, 0x4E00u, 0x1F600u, 0xFFFFu })
             (void)font->glyph_index(c);

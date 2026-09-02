@@ -591,6 +591,13 @@ void SashfoldMono::draw_glyph(Bitmap& target, char32_t code_point, float x, floa
     }
 }
 
+bool SashfoldMono::has_glyph(char32_t code_point) const
+{
+    if (code_point < 0x21)
+        return code_point == U' ' || code_point == U'\t' || code_point == U'\n';
+    return is_blank(code_point) || rasterizer().find(code_point) != nullptr;
+}
+
 std::vector<std::uint8_t> SashfoldMono::to_truetype(TrueTypeOptions const& options) const
 {
     Rasterizer& faces = rasterizer();

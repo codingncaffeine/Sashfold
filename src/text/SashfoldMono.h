@@ -58,6 +58,10 @@ public:
     void draw_glyph(Bitmap& target, char32_t code_point, float x, float baseline_y, float size,
         Color color, bool bold, bool italic) const;
 
+    // Whether draw_glyph would draw the code point itself (or, for blanks,
+    // deliberately nothing) rather than the box.
+    bool has_glyph(char32_t code_point) const;
+
     // Sum of advances (monospace: count * advance), for layout measurement.
     static float measure(std::u32string_view text, float size)
     {

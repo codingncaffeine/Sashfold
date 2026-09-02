@@ -42,6 +42,8 @@ add_library(sashfold_core STATIC
   src/net/Idna.cpp
   src/net/Url.cpp
   src/paint/Painter.cpp
+  src/text/Face.cpp
+  src/text/Rasterizer.cpp
   src/text/SashfoldMono.cpp
   src/text/TrueType.cpp
   src/text/TrueTypeWriter.cpp
