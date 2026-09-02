@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Vertical alignment</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px; width: 384px }
+  p { margin: 0 0 10px; background: #f4f4f4 }
+  .box { display: inline-block; width: 24px; height: 36px; background: #6a9fd8; border: 1px solid #245 }
+  .short { height: 10px }
+  .top { vertical-align: top }
+  .bottom { vertical-align: bottom }
+  .middle { vertical-align: middle }
+  .text-top { vertical-align: text-top }
+  .text-bottom { vertical-align: text-bottom }
+  .raised { vertical-align: 6px }
+  .lowered { vertical-align: -30% }
+  .big { font-size: 28px; line-height: 32px }
+  .tall { display: inline-block; height: 60px; width: 20px; background: #dba; border: 1px solid #742 }
+</style>
+</head>
+<body>
+<p>E = mc<sup>2</sup> and H<sub>2</sub>O share a line with <span class="raised">raised</span> and <span class="lowered">lowered</span> text.</p>
+<p>base <span class="box"></span> top <span class="box top"></span> bottom <span class="box bottom"></span> middle <span class="box middle"></span> end.</p>
+<p>text-top <span class="box short text-top"></span> text-bottom <span class="box short text-bottom"></span> middle <span class="box short middle"></span> in a <span class="big">bigger</span> line.</p>
+<p>A tall box at the <span class="tall bottom"></span> bottom lifts the line; one at the <span class="tall top"></span> top drops it.</p>
+<p>Nested <span class="raised">outer <span>inner</span> <span class="box short"></span></span> boxes ride with the raised span.</p>
+</body>
+</html>

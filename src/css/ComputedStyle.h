@@ -230,6 +230,25 @@ struct LineHeight {
     float value = 0;
 };
 
+// How an inline-level box sits on its line: on the baseline; raised or
+// lowered by a keyword or a length (a percentage of the box's own line
+// height); or at the line box's top or bottom.
+struct VerticalAlign {
+    enum class Kind : std::uint8_t {
+        Baseline,
+        Sub,
+        Super,
+        TextTop,
+        TextBottom,
+        Middle,
+        Top,
+        Bottom,
+        Length, // raised by `offset`; negative lowers
+    };
+    Kind kind = Kind::Baseline;
+    LengthPercent offset = LengthPercent::px(0);
+};
+
 struct BorderSide {
     float width = 0; // px, already zeroed when style is None
     BorderStyle style = BorderStyle::None;
@@ -321,6 +340,7 @@ struct ComputedStyle {
     // initial value (the default serif face). Shared down the tree.
     std::shared_ptr<std::vector<std::string> const> font_family;
     LineHeight line_height;
+    VerticalAlign vertical_align; // not inherited
     TextAlign text_align = TextAlign::Left;
     WhiteSpace white_space = WhiteSpace::Normal;
     ListStyleType list_style_type = ListStyleType::Disc;

@@ -48,6 +48,8 @@ b, strong { font-weight: bolder }
 i, em, cite, dfn, var, address { font-style: italic }
 small { font-size: 0.83em }
 big { font-size: 1.17em }
+sub { vertical-align: sub; font-size: smaller }
+sup { vertical-align: super; font-size: smaller }
 pre, listing, plaintext, xmp { white-space: pre }
 pre, listing, plaintext, xmp, code, kbd, samp, tt { font-family: monospace }
 nobr { white-space: nowrap }
@@ -345,6 +347,83 @@ constexpr NamedColor named_colors[] = {
     { "goldenrod", Color { 218, 165, 32, 255 } },
     { "firebrick", Color { 178, 34, 34, 255 } },
     { "rebeccapurple", Color { 102, 51, 153, 255 } },
+    { "antiquewhite", Color { 250, 235, 215, 255 } },
+    { "aquamarine", Color { 127, 255, 212, 255 } },
+    { "azure", Color { 240, 255, 255, 255 } },
+    { "bisque", Color { 255, 228, 196, 255 } },
+    { "blanchedalmond", Color { 255, 235, 205, 255 } },
+    { "blueviolet", Color { 138, 43, 226, 255 } },
+    { "burlywood", Color { 222, 184, 135, 255 } },
+    { "cadetblue", Color { 95, 158, 160, 255 } },
+    { "chartreuse", Color { 127, 255, 0, 255 } },
+    { "cornsilk", Color { 255, 248, 220, 255 } },
+    { "darkcyan", Color { 0, 139, 139, 255 } },
+    { "darkgoldenrod", Color { 184, 134, 11, 255 } },
+    { "darkkhaki", Color { 189, 183, 107, 255 } },
+    { "darkmagenta", Color { 139, 0, 139, 255 } },
+    { "darkolivegreen", Color { 85, 107, 47, 255 } },
+    { "darkorchid", Color { 153, 50, 204, 255 } },
+    { "darksalmon", Color { 233, 150, 122, 255 } },
+    { "darkseagreen", Color { 143, 188, 143, 255 } },
+    { "darkslateblue", Color { 72, 61, 139, 255 } },
+    { "darkslategray", Color { 47, 79, 79, 255 } },
+    { "darkslategrey", Color { 47, 79, 79, 255 } },
+    { "darkturquoise", Color { 0, 206, 209, 255 } },
+    { "deeppink", Color { 255, 20, 147, 255 } },
+    { "deepskyblue", Color { 0, 191, 255, 255 } },
+    { "floralwhite", Color { 255, 250, 240, 255 } },
+    { "greenyellow", Color { 173, 255, 47, 255 } },
+    { "honeydew", Color { 240, 255, 240, 255 } },
+    { "hotpink", Color { 255, 105, 180, 255 } },
+    { "indianred", Color { 205, 92, 92, 255 } },
+    { "lavenderblush", Color { 255, 240, 245, 255 } },
+    { "lawngreen", Color { 124, 252, 0, 255 } },
+    { "lemonchiffon", Color { 255, 250, 205, 255 } },
+    { "lightcoral", Color { 240, 128, 128, 255 } },
+    { "lightcyan", Color { 224, 255, 255, 255 } },
+    { "lightgoldenrodyellow", Color { 250, 250, 210, 255 } },
+    { "lightpink", Color { 255, 182, 193, 255 } },
+    { "lightsalmon", Color { 255, 160, 122, 255 } },
+    { "lightseagreen", Color { 32, 178, 170, 255 } },
+    { "lightskyblue", Color { 135, 206, 250, 255 } },
+    { "lightslategray", Color { 119, 136, 153, 255 } },
+    { "lightslategrey", Color { 119, 136, 153, 255 } },
+    { "lightsteelblue", Color { 176, 196, 222, 255 } },
+    { "limegreen", Color { 50, 205, 50, 255 } },
+    { "linen", Color { 250, 240, 230, 255 } },
+    { "mediumaquamarine", Color { 102, 205, 170, 255 } },
+    { "mediumblue", Color { 0, 0, 205, 255 } },
+    { "mediumorchid", Color { 186, 85, 211, 255 } },
+    { "mediumpurple", Color { 147, 112, 219, 255 } },
+    { "mediumseagreen", Color { 60, 179, 113, 255 } },
+    { "mediumslateblue", Color { 123, 104, 238, 255 } },
+    { "mediumspringgreen", Color { 0, 250, 154, 255 } },
+    { "mediumturquoise", Color { 72, 209, 204, 255 } },
+    { "mediumvioletred", Color { 199, 21, 133, 255 } },
+    { "mintcream", Color { 245, 255, 250, 255 } },
+    { "mistyrose", Color { 255, 228, 225, 255 } },
+    { "moccasin", Color { 255, 228, 181, 255 } },
+    { "navajowhite", Color { 255, 222, 173, 255 } },
+    { "oldlace", Color { 253, 245, 230, 255 } },
+    { "olivedrab", Color { 107, 142, 35, 255 } },
+    { "orangered", Color { 255, 69, 0, 255 } },
+    { "palegoldenrod", Color { 238, 232, 170, 255 } },
+    { "palegreen", Color { 152, 251, 152, 255 } },
+    { "paleturquoise", Color { 175, 238, 238, 255 } },
+    { "palevioletred", Color { 219, 112, 147, 255 } },
+    { "papayawhip", Color { 255, 239, 213, 255 } },
+    { "peachpuff", Color { 255, 218, 185, 255 } },
+    { "peru", Color { 205, 133, 63, 255 } },
+    { "powderblue", Color { 176, 224, 230, 255 } },
+    { "rosybrown", Color { 188, 143, 143, 255 } },
+    { "saddlebrown", Color { 139, 69, 19, 255 } },
+    { "sandybrown", Color { 244, 164, 96, 255 } },
+    { "seashell", Color { 255, 245, 238, 255 } },
+    { "sienna", Color { 160, 82, 45, 255 } },
+    { "slateblue", Color { 106, 90, 205, 255 } },
+    { "springgreen", Color { 0, 255, 127, 255 } },
+    { "thistle", Color { 216, 191, 216, 255 } },
+    { "yellowgreen", Color { 154, 205, 50, 255 } },
 };
 
 int hex_nibble(char c)
@@ -2399,6 +2478,33 @@ struct Resolver {
                 style.white_space = WhiteSpace::PreWrap;
             else if (is_ident(values[0], "pre-line"))
                 style.white_space = WhiteSpace::PreLine;
+            return;
+        }
+        if (name == "vertical-align") {
+            if (values.size() != 1)
+                return;
+            struct Keyword {
+                std::string_view name;
+                VerticalAlign::Kind kind;
+            };
+            static constexpr Keyword keywords[] = {
+                { "baseline", VerticalAlign::Kind::Baseline },
+                { "sub", VerticalAlign::Kind::Sub },
+                { "super", VerticalAlign::Kind::Super },
+                { "text-top", VerticalAlign::Kind::TextTop },
+                { "text-bottom", VerticalAlign::Kind::TextBottom },
+                { "middle", VerticalAlign::Kind::Middle },
+                { "top", VerticalAlign::Kind::Top },
+                { "bottom", VerticalAlign::Kind::Bottom },
+            };
+            for (Keyword const& keyword : keywords) {
+                if (is_ident(values[0], keyword.name)) {
+                    style.vertical_align = VerticalAlign { keyword.kind, LengthPercent::px(0) };
+                    return;
+                }
+            }
+            if (auto length = parse_length_percent(*values[0], context, false))
+                style.vertical_align = VerticalAlign { VerticalAlign::Kind::Length, *length };
             return;
         }
         if (name == "list-style-type" || name == "list-style") {

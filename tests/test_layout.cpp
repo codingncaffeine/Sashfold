@@ -751,5 +751,93 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- vertical-align: where a box sits on its line (CSS 2.1 §10.8) ---------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p, div { margin: 0 }
+  .box { display: inline-block; width: 10px; height: 36px }
+  .top { vertical-align: top }
+  .bottom { vertical-align: bottom }
+  .middle { vertical-align: middle }
+  .up { vertical-align: 6px }
+  .pct { vertical-align: -50% }
+  .own { vertical-align: 10px }
+</style></head><body>
+<p>ff<span id="t" class="box top"></span><span id="b" class="box bottom"></span><span id="m" class="box middle"></span>gg</p>
+<div class="own">hh</div>
+<p>zz</p>
+<p>ii<span class="up">jj <span>kk</span></span></p>
+<p>aa<sup>bb</sup><sub>cc</sub><span class="up">dd</span><span class="pct">ee</span></p>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::TextRun const* dd = run_of(U"dd");
+        layout::TextRun const* ee = run_of(U"ee");
+        if (CHECK(aa && bb && cc && dd && ee)) {
+            CHECK(std::abs(aa->baseline_y - bb->baseline_y - 16.0f / 3.0f) < 0.01f); // super: a third of the parent's em up
+            CHECK(std::abs(cc->baseline_y - aa->baseline_y - 16.0f / 5.0f) < 0.01f); // sub: a fifth down
+            CHECK_EQ(aa->baseline_y - dd->baseline_y, 6.0f); // a length raises by itself
+            CHECK_EQ(ee->baseline_y - aa->baseline_y, 10.0f); // a percentage of the box's own line height, 20 px
+            CHECK(bb->style->font_size < aa->style->font_size); // sup and sub are smaller
+        }
+        layout::TextRun const* ff = run_of(U"ff");
+        layout::TextRun const* gg = run_of(U"gg");
+        layout::Fragment const* t = find_box(page.result.root, "t");
+        layout::Fragment const* b = find_box(page.result.root, "b");
+        layout::Fragment const* m = find_box(page.result.root, "m");
+        if (CHECK(ff && gg && t && b && m)) {
+            // The first paragraph's line holds three 36 px boxes: the
+            // middle one reaches 18 + 4 above the baseline and 18 − 4
+            // below, more than the text's own ascent and descent, so the
+            // line is 22 + 14 = 36 tall and the top and bottom boxes fit
+            // within it.
+            CHECK_EQ(t->y, 0.0f); // top-aligned: at the line's top
+            CHECK_EQ(b->y + b->height, 36.0f); // bottom-aligned: at the line's bottom
+            CHECK_EQ(ff->baseline_y, 22.0f); // the baseline 22 below the line's top
+            CHECK_EQ(gg->baseline_y, ff->baseline_y);
+            CHECK_EQ(m->y + m->height / 2, ff->baseline_y - 4); // its midpoint 4 px above the baseline
+            CHECK_EQ(m->y, 0.0f); // so a 36 px box tops out at the line's top
+        }
+        layout::TextRun const* hh = run_of(U"hh");
+        layout::TextRun const* zz = run_of(U"zz");
+        layout::TextRun const* ii = run_of(U"ii");
+        layout::TextRun const* jj = run_of(U"jj");
+        layout::TextRun const* kk = run_of(U"kk");
+        if (CHECK(hh && zz && ii && jj && kk)) {
+            // A block's own vertical-align does not move its text: the
+            // division's line is a plain 20 px line like the paragraph's
+            // after it.
+            CHECK_EQ(zz->baseline_y - hh->baseline_y, 20.0f);
+            // A run nested in a raised span rides with it.
+            CHECK_EQ(ii->baseline_y - jj->baseline_y, 6.0f);
+            CHECK_EQ(ii->baseline_y - kk->baseline_y, 6.0f);
+        }
+    }
+
     return test::report("layout");
 }

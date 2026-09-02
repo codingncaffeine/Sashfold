@@ -1,5 +1,6 @@
 #include "core/Bitmap.h"
 #include "core/Png.h"
+#include "core/Unicode.h"
 #include "css/Parser.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
@@ -49,7 +50,7 @@ int usage(char const* program)
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
-              << "                 [--report out.json]\n"
+              << "                 [--report out.json] [--dump-layout]\n"
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
@@ -69,7 +70,8 @@ int usage(char const* program)
               << "  --render lays out the page (local file or live URL) and writes a PNG; a load\n"
               << "          that fails renders the page the window would show. --max-height caps the\n"
               << "          picture, --thumbnail draws the viewport's top small, --report writes a\n"
-              << "          JSON account of the load and the render.\n"
+              << "          JSON account of the load and the render, --dump-layout prints every\n"
+              << "          laid-out box and text run with its position and size.\n"
               << "  --bench times parse, style, layout and paint of a page, several runs.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
@@ -379,7 +381,45 @@ struct RenderExtras {
     std::string thumbnail; // a small PNG of the viewport's top
     int thumbnail_width = 320;
     int max_height = 0; // a cap on the picture's height; 0 keeps the page's
+    bool dump_layout = false; // print the fragment tree after layout
 };
+
+// The fragment tree as text, one box per line — the instrument for a
+// layout question: what box is where, how big, on which baseline.
+void dump_fragments(layout::Fragment const& fragment, int depth)
+{
+    std::string const indent(static_cast<std::size_t>(depth) * 2, ' ');
+    std::string name = "anonymous";
+    if (fragment.element) {
+        name = fragment.element->local_name();
+        if (dom::Attr const* id = fragment.element->find_attribute("id"))
+            name += "#" + id->value;
+        if (dom::Attr const* class_attribute = fragment.element->find_attribute("class"))
+            name += "." + class_attribute->value;
+    }
+    std::string flags;
+    if (fragment.floating)
+        flags += " float";
+    if (fragment.positioned)
+        flags += fragment.out_of_flow ? " out-of-flow" : " positioned";
+    if (fragment.stacking_context)
+        flags += " stacking-context";
+    if (fragment.image)
+        flags += " image";
+    if (fragment.control)
+        flags += " control";
+    std::cout << indent << name << " @ " << fragment.x << "," << fragment.y << " " << fragment.width << "x"
+              << fragment.height;
+    if (fragment.last_baseline)
+        std::cout << " baseline " << *fragment.last_baseline;
+    std::cout << flags << "\n";
+    for (layout::TextRun const& run : fragment.runs) {
+        std::cout << indent << "  \"" << to_utf8(run.text) << "\" @ " << run.x << "," << run.baseline_y
+                  << " w " << run.width << "\n";
+    }
+    for (layout::Fragment const& child : fragment.children)
+        dump_fragments(child, depth + 1);
+}
 
 std::string json_string(std::string_view text)
 {
@@ -510,7 +550,7 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     else if (name.starts_with("animation") || name.starts_with("transition"))
         ++census["animations"];
     else if (name == "vertical-align")
-        ++census["vertical-align"];
+        return; // vertical-align is written
     else if (name == "background-image" || (name == "background" && has_url))
         ++census["background-images"];
     else if (name.starts_with("border") && name.find("radius") != std::string::npos)
@@ -616,6 +656,11 @@ int render_page(std::string const& path, std::string const& output, int viewport
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
     auto const t5 = clock::now();
+    if (extras.dump_layout) {
+        std::cout << "layout " << viewport_width << "x" << viewport_height << ", page height "
+                  << page.page_height << "\n";
+        dump_fragments(page.root, 0);
+    }
 
     int height = std::max(1, static_cast<int>(page.page_height + 0.5f));
     if (extras.max_height > 0)
@@ -1080,6 +1125,8 @@ int main(int argc, char** argv)
             mode = arg;
         } else if (arg == "--update-goldens") {
             update_goldens = true;
+        } else if (arg == "--dump-layout") {
+            extras.dump_layout = true;
         } else if (arg == "--runs") {
             std::string text;
             if (!value_after(i, text))

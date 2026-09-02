@@ -141,7 +141,23 @@ struct InlineItem {
     std::shared_ptr<Bitmap const> image; // Kind::Image: the picture, or null while it is missing
     float image_density = 1; // Kind::Image: picture pixels per CSS px
     css::Clear clear = css::Clear::None; // Kind::HardBreak: the floats the next line starts below
+    // The nearest inline box around this item (itself included) whose
+    // vertical-align is not baseline: the item sits on the line by it.
+    // Null for the block's own text, which has no inline box.
+    ComputedStyle const* aligned = nullptr;
 };
+
+// Gives the items appended since `first` the alignment of the inline box
+// they were collected in, when they have none nearer and the box has one.
+void mark_aligned(std::vector<InlineItem>& items, std::size_t first, ComputedStyle const& box)
+{
+    if (box.vertical_align.kind == css::VerticalAlign::Kind::Baseline)
+        return;
+    for (std::size_t i = first; i < items.size(); ++i) {
+        if (!items[i].aligned)
+            items[i].aligned = &box;
+    }
+}
 
 // Whether an item puts something on a line: a word, a picture, a control
 // or an inline-block (spaces and breaks alone make no line, and a float
@@ -780,9 +796,11 @@ struct Layouter {
         bool const block = is_block_level(box.style);
         if (block)
             items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, &box.style, &element });
+        std::size_t const first = items.size();
         std::u32string const text = decode_utf8(box.text);
         if (!text.empty())
             append_text(text, &box.style, items, &element);
+        mark_aligned(items, first, box.style);
         if (block)
             items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, &box.style, &element });
     }
@@ -822,11 +840,10 @@ struct Layouter {
                 items.push_back(InlineItem { InlineItem::Kind::Float, {}, style, &element });
                 continue;
             }
+            std::size_t const first = items.size();
             if (is_control(element)) {
                 items.push_back(InlineItem { InlineItem::Kind::Control, {}, style, &element });
-                continue;
-            }
-            if (is_block_level(*style)) {
+            } else if (is_block_level(*style)) {
                 // A block inside inline content takes lines of its own; a
                 // block-level picture (an image link's <img> is one, as a
                 // rule) is a line of its own rather than nothing, since it
@@ -837,24 +854,20 @@ struct Layouter {
                 else
                     collect_inline(element, style, items);
                 items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
-                continue;
-            }
-            if (element.is_html("br")) {
+                continue; // a block has no inline box to align
+            } else if (element.is_html("br")) {
                 InlineItem item(InlineItem::Kind::HardBreak, {}, inherited, &element);
                 item.clear = break_clear(element, *style);
                 items.push_back(std::move(item));
-                continue;
-            }
-            if (element.is_html("img")) {
+            } else if (element.is_html("img")) {
                 append_image(element, style, items);
-                continue;
-            }
-            if (is_atomic_inline(*style)) {
+            } else if (is_atomic_inline(*style)) {
                 // One box on the line, laid out as a block inside.
                 items.push_back(InlineItem { InlineItem::Kind::Block, {}, style, &element });
-                continue;
+            } else {
+                collect_inline(element, style, items);
             }
-            collect_inline(element, style, items);
+            mark_aligned(items, first, *style);
         }
         if (owner) {
             if (css::GeneratedBox const* const after = after_of(inherited))
@@ -1055,6 +1068,9 @@ struct Layouter {
             float descent = 0;
             unsigned since = 0;
             unsigned until = 0;
+            // The inline box whose vertical-align places this on the line
+            // (see InlineItem::aligned); null sits on the baseline.
+            ComputedStyle const* aligned = nullptr;
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -1089,40 +1105,118 @@ struct Layouter {
                 line_width -= line.back().width;
                 line.pop_back();
             }
-            float line_height = line_height_of(block_style);
-            float max_ascent = ascent_in_line(block_style);
-            for (Placed const& placed : line) {
-                line_height = std::max(line_height, line_height_of(*placed.style));
-                max_ascent = std::max(max_ascent, ascent_in_line(*placed.style));
+            // The line box (CSS 2.1 §10.8): every box on the line reaches
+            // some way above and below the baseline it is aligned to — the
+            // strut of the block's own font, text by its ascent and descent
+            // within its line height, a picture by its height, an
+            // inline-block by its ascent and descent — raised or lowered by
+            // its vertical-align; the line runs from the uppermost top to
+            // the lowermost bottom. A box aligned top or bottom sits at the
+            // line's edge once the rest is placed, and a taller one grows
+            // the line.
+            using Kind = css::VerticalAlign::Kind;
+            struct Extent {
+                float above;
+                float below;
+            };
+            auto const extent_of = [&](Placed const& placed) -> Extent {
+                if (placed.block)
+                    return { placed.ascent, placed.descent };
+                if (placed.is_image)
+                    return { placed.image_height, 0 };
+                float const ascent = ascent_in_line(*placed.style);
+                return { ascent, line_height_of(*placed.style) - ascent };
+            };
+            // The parent's metrics for text-top, text-bottom and middle:
+            // the block's face stands in for the nearest inline ancestor.
+            text::FaceMetrics const parent
+                = fonts_for(block_style).primary().metrics(block_style.font_size);
+            // The alignment of a box on the line: that of the nearest
+            // inline box around it (an atomic box's own included) with a
+            // vertical-align; the block's direct text has no inline box, so
+            // the block's own vertical-align (which applies to it as a flex
+            // item or a table cell, not to its lines) never reaches it.
+            auto const alignment_of = [&](Placed const& placed) -> css::VerticalAlign const& {
+                static constexpr css::VerticalAlign baseline {};
+                return placed.aligned ? placed.aligned->vertical_align : baseline;
+            };
+            auto const shift_of = [&](Placed const& placed, Extent const& extent) -> float {
+                css::VerticalAlign const& align = alignment_of(placed);
+                switch (align.kind) {
+                case Kind::Baseline:
+                case Kind::Top:
+                case Kind::Bottom:
+                    return 0;
+                case Kind::Sub:
+                    return -block_style.font_size / 5.0f;
+                case Kind::Super:
+                    return block_style.font_size / 3.0f;
+                case Kind::TextTop:
+                    return parent.ascent - extent.above;
+                case Kind::TextBottom:
+                    return extent.below - parent.descent;
+                case Kind::Middle:
+                    // The box's midpoint half the parent's x-height above
+                    // the baseline, the x-height taken as half an em.
+                    return block_style.font_size / 4.0f - (extent.above - extent.below) / 2.0f;
+                case Kind::Length:
+                    return resolve(align.offset, line_height_of(*placed.style));
+                }
+                return 0;
+            };
+            float above = ascent_in_line(block_style);
+            float below = line_height_of(block_style) - above;
+            std::vector<float> shifts(line.size(), 0.0f);
+            for (std::size_t i = 0; i < line.size(); ++i) {
+                Kind const kind = alignment_of(line[i]).kind;
+                if (kind == Kind::Top || kind == Kind::Bottom)
+                    continue;
+                Extent const extent = extent_of(line[i]);
+                shifts[i] = shift_of(line[i], extent);
+                above = std::max(above, extent.above + shifts[i]);
+                below = std::max(below, extent.below - shifts[i]);
             }
-            // Images sit on the baseline: a tall one lifts it, keeping the
-            // text's descent below. An inline-block reaches above the
-            // baseline by its own ascent and below it by its descent.
-            float max_descent = line_height - max_ascent;
+            float line_top = 0; // both relative to the top the baseline boxes set
+            float line_bottom = above + below;
             for (Placed const& placed : line) {
-                if (placed.block) {
-                    max_ascent = std::max(max_ascent, placed.ascent);
-                    max_descent = std::max(max_descent, placed.descent);
-                } else if (placed.is_image) {
-                    max_ascent = std::max(max_ascent, placed.image_height);
+                if (alignment_of(placed).kind == Kind::Top) {
+                    Extent const extent = extent_of(placed);
+                    line_bottom = std::max(line_bottom, extent.above + extent.below);
                 }
             }
-            line_height = std::max(line_height, max_ascent + max_descent);
+            for (Placed const& placed : line) {
+                if (alignment_of(placed).kind == Kind::Bottom) {
+                    Extent const extent = extent_of(placed);
+                    line_top = std::min(line_top, line_bottom - (extent.above + extent.below));
+                }
+            }
+            float const line_height = line_bottom - line_top;
+            float const baseline = y - line_top + above;
             float x = line_left;
             if (block_style.text_align == css::TextAlign::Center)
                 x += (line_avail - line_width) / 2.0f;
             else if (block_style.text_align == css::TextAlign::Right)
                 x += line_avail - line_width;
-            float const baseline = y + max_ascent;
-            for (Placed& placed : line) {
+            for (std::size_t i = 0; i < line.size(); ++i) {
+                Placed& placed = line[i];
                 float const width = placed.width;
+                // Where this box's own baseline lands: the line's, raised by
+                // its shift; a top-aligned box's top at the line's top, a
+                // bottom-aligned box's bottom at its bottom.
+                Kind const kind = alignment_of(placed).kind;
+                float own_baseline = baseline - shifts[i];
+                if (kind == Kind::Top)
+                    own_baseline = y + extent_of(placed).above;
+                else if (kind == Kind::Bottom)
+                    own_baseline = y + line_height - extent_of(placed).below;
                 if (placed.block) {
                     // Laid out with its margin box's left edge and its
                     // border box's top at the origin: moved so the margin
-                    // box's top-left lands at (x, baseline − ascent), with
-                    // the static positions recorded inside it.
+                    // box's top-left lands at (x, own baseline − ascent),
+                    // with the static positions recorded inside it.
                     float const dx = x;
-                    float const dy = baseline - placed.ascent + resolve(placed.style->margin_top, content_width);
+                    float const dy = own_baseline - placed.ascent
+                        + resolve(placed.style->margin_top, content_width);
                     shift_fragment(*placed.block, dx, dy);
                     shift_recorded(placed.since, placed.until, dx, dy);
                     mark_positioned(*placed.block, *placed.style, content_width);
@@ -1132,7 +1226,7 @@ struct Layouter {
                     box.element = placed.element;
                     box.style = placed.style;
                     box.x = x;
-                    box.y = baseline - placed.image_height;
+                    box.y = own_baseline - placed.image_height;
                     box.width = width;
                     box.height = placed.image_height;
                     if (placed.control)
@@ -1141,7 +1235,7 @@ struct Layouter {
                         box.image = Fragment::ImageBox { placed.image, box.x, box.y, box.width, box.height };
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
-                    out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style,
+                    out.runs.push_back(TextRun { x, own_baseline, std::move(placed.text), placed.style,
                         placed.element, &fonts_for(*placed.style), width });
                 }
                 x += width;
@@ -1224,6 +1318,7 @@ struct Layouter {
                 if (allow_wrap)
                     widen_for(outer);
                 Placed placed({}, item.style, false, outer, item.element);
+                placed.aligned = item.aligned;
                 placed.since = next_serial;
                 BlockOptions options;
                 options.content_width = measure.shrink;
@@ -1260,6 +1355,7 @@ struct Layouter {
                 if (allow_wrap)
                     widen_for(width);
                 Placed placed({}, item.style, false, width, item.element);
+                placed.aligned = item.aligned;
                 placed.image_height = spec.size.height;
                 placed.is_image = true;
                 placed.control = std::move(spec);
@@ -1271,7 +1367,9 @@ struct Layouter {
                 if (line.empty())
                     continue; // leading space on a line collapses away
                 float const width = measure(*item.style, item.text);
-                line.push_back(Placed { item.text, item.style, true, width, item.element });
+                Placed placed(item.text, item.style, true, width, item.element);
+                placed.aligned = item.aligned;
+                line.push_back(std::move(placed));
                 line_width += width;
                 continue;
             }
@@ -1285,6 +1383,7 @@ struct Layouter {
                 if (allow_wrap)
                     widen_for(size->width);
                 Placed placed({}, item.style, false, size->width, item.element);
+                placed.aligned = item.aligned;
                 placed.image = item.image;
                 placed.image_height = size->height;
                 placed.is_image = true;
@@ -1322,14 +1421,18 @@ struct Layouter {
                     }
                     if (fit >= word.size())
                         break;
-                    line.push_back(Placed { word.substr(0, fit), item.style, false, fit_width, item.element });
+                    Placed slice(word.substr(0, fit), item.style, false, fit_width, item.element);
+                    slice.aligned = item.aligned;
+                    line.push_back(std::move(slice));
                     line_width += fit_width;
                     flush_line();
                     word = word.substr(fit);
                     width = measure(*item.style, word);
                 }
             }
-            line.push_back(Placed { std::move(word), item.style, false, width, item.element });
+            Placed placed(std::move(word), item.style, false, width, item.element);
+            placed.aligned = item.aligned;
+            line.push_back(std::move(placed));
             line_width += width;
         }
         if (!line.empty())
@@ -1960,25 +2063,21 @@ struct Layouter {
             items.push_back(InlineItem { InlineItem::Kind::Float, {}, &style, &element });
             return;
         }
+        std::size_t const first = items.size();
         if (is_control(element)) {
             items.push_back(InlineItem { InlineItem::Kind::Control, {}, &style, &element });
-            return;
-        }
-        if (element.is_html("br")) {
+        } else if (element.is_html("br")) {
             InlineItem item(InlineItem::Kind::HardBreak, {}, &style, &element);
             item.clear = break_clear(element, style);
             items.push_back(std::move(item));
-            return;
-        }
-        if (element.is_html("img")) {
+        } else if (element.is_html("img")) {
             append_image(element, &style, items);
-            return;
-        }
-        if (is_atomic_inline(style)) {
+        } else if (is_atomic_inline(style)) {
             items.push_back(InlineItem { InlineItem::Kind::Block, {}, &style, &element });
-            return;
+        } else {
+            collect_inline(element, &style, items);
         }
-        collect_inline(element, &style, items);
+        mark_aligned(items, first, style);
     }
 
     void add_list_marker(Fragment& item_fragment, ComputedStyle const& style,

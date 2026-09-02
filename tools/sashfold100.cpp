@@ -212,7 +212,6 @@ constexpr FeatureName feature_names[] = {
     { "display-contents", "display: contents" },
     { "transforms", "rotations, scales and skews (translations are drawn)" },
     { "animations", "animations and transitions" },
-    { "vertical-align", "vertical-align" },
     { "background-images", "background images" },
     { "gradients", "gradients" },
     { "border-radius", "rounded corners" },
