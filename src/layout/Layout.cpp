@@ -407,6 +407,23 @@ struct FloatContext {
         return band;
     }
 
+    // The room between the floats anywhere within [y0, y1): what a line
+    // box or a box with its own formatting context, that tall, may use
+    // without overlapping a float along its height (CSS 2.1 §9.5).
+    Band band_over(float y0, float y1, float left, float right) const
+    {
+        Band band { left, right };
+        for (FloatBox const& box : floats) {
+            if (box.top >= y1 || box.bottom <= y0)
+                continue;
+            if (box.is_left)
+                band.left = std::max(band.left, box.right);
+            else
+                band.right = std::min(band.right, box.left);
+        }
+        return band;
+    }
+
     // The nearest float bottom below `y`: where the band may next widen.
     std::optional<float> next_bottom(float y) const
     {
@@ -1251,6 +1268,25 @@ struct Layouter {
                 }
             }
             float const line_height = line_bottom - line_top;
+            // The line must not overlap a float anywhere along its height
+            // (CSS 2.1 §9.5): where a float starting lower narrows it, the
+            // line takes the narrower room when its content fits, else it
+            // moves below the next float and reads its room again.
+            for (int round = 0; round < 16; ++round) {
+                FloatContext::Band const over
+                    = floats.band_over(y, y + line_height, content_x, content_x + content_width);
+                float const room = std::max(0.0f, over.right - over.left);
+                if (room >= line_avail - 0.01f && over.left <= line_left + 0.01f)
+                    break;
+                std::optional<float> const next = floats.next_bottom(y);
+                if (line_width <= room || line.empty() || !next || *next <= y) {
+                    line_left = over.left;
+                    line_avail = room;
+                    break;
+                }
+                y = *next;
+                start_line();
+            }
             float const baseline = y - line_top + above;
             float x = line_left;
             if (block_style.text_align == css::TextAlign::Center)
@@ -2079,6 +2115,37 @@ struct Layouter {
             }
             Fragment child_fragment = layout_block(child_element, *child_style, child_x, child_y,
                 child_width, child_list_depth, floats);
+            if (establishes_bfc(*child_style) && !floats.floats.empty()) {
+                // Its border box must not overlap a float anywhere along its
+                // height (§9.5): a float starting lower narrows it (an auto
+                // width is laid out again in the narrower room) or, when a
+                // written width no longer fits, sends it below the next float.
+                for (int round = 0; round < 6; ++round) {
+                    FloatContext::Band const over = floats.band_over(child_y,
+                        child_y + child_fragment.height, content_x, content_x + content_width);
+                    float const room = std::max(0.0f, over.right - over.left);
+                    float const needed = child_style->width.is_auto()
+                        ? 0.0f
+                        : child_fragment.width + resolve(child_style->margin_left, content_width)
+                            + resolve(child_style->margin_right, content_width);
+                    if (needed > room + 0.01f) {
+                        std::optional<float> const next = floats.next_bottom(child_y);
+                        if (!next || *next <= child_y)
+                            break;
+                        child_y = *next;
+                        FloatContext::Band const band = floats.band_at(child_y, content_x, content_x + content_width);
+                        child_x = band.left;
+                        child_width = std::max(0.0f, band.right - band.left);
+                    } else if (room >= child_width - 0.01f && over.left <= child_x + 0.01f) {
+                        break; // laid out in a room no wider than what its whole height allows
+                    } else {
+                        child_x = over.left;
+                        child_width = room;
+                    }
+                    child_fragment = layout_block(child_element, *child_style, child_x, child_y,
+                        child_width, child_list_depth, floats);
+                }
+            }
             // Relative: laid out in flow, then shifted once the flow has read
             // its bottom; sticky stays put until scroll containers land.
             // Either paints in the positioned layer.

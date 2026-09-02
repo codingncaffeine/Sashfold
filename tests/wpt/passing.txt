@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (5824 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (5837 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-004e.xht
@@ -824,6 +824,7 @@ css/CSS2/floats-clear/floats-152.xht
 css/CSS2/floats-clear/floats-154.xht
 css/CSS2/floats-clear/floats-bfc-001.xht
 css/CSS2/floats-clear/floats-bfc-002.xht
+css/CSS2/floats-clear/floats-bfc-003.html
 css/CSS2/floats-clear/floats-clear-multicol-000.html
 css/CSS2/floats-clear/floats-clear-multicol-001.html
 css/CSS2/floats-clear/floats-clear-multicol-002.html
@@ -882,7 +883,19 @@ css/CSS2/floats/floats-wrap-bfc-with-margin-003.tentative.html
 css/CSS2/floats/floats-wrap-bfc-with-margin-006.tentative.html
 css/CSS2/floats/floats-wrap-bfc-with-margin-007.tentative.html
 css/CSS2/floats/floats-wrap-bfc-with-margin-008.tentative.html
+css/CSS2/floats/floats-wrap-bfc-with-margin-010.html
+css/CSS2/floats/floats-wrap-top-below-bfc-001l.xht
 css/CSS2/floats/floats-wrap-top-below-bfc-001r.xht
+css/CSS2/floats/floats-wrap-top-below-bfc-002l.xht
+css/CSS2/floats/floats-wrap-top-below-bfc-002r.xht
+css/CSS2/floats/floats-wrap-top-below-bfc-003l.xht
+css/CSS2/floats/floats-wrap-top-below-bfc-003r.xht
+css/CSS2/floats/floats-wrap-top-below-inline-001l.xht
+css/CSS2/floats/floats-wrap-top-below-inline-001r.xht
+css/CSS2/floats/floats-wrap-top-below-inline-003l.xht
+css/CSS2/floats/floats-wrap-top-below-inline-003r.xht
+css/CSS2/floats/floats-zero-height-wrap-001.xht
+css/CSS2/floats/floats-zero-height-wrap-002.xht
 css/CSS2/floats/intrinsic-size-float-and-line.html
 css/CSS2/floats/negative-block-margin-pushing-float-out-of-block-formatting-context.html
 css/CSS2/floats/negative-margin-float-positioning.html

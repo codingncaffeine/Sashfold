@@ -897,6 +897,65 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Lines and formatting-context boxes keep clear of floats along their height
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .f1 { float: left; width: 50px; height: 75px }
+  .f2 { float: left; clear: left; width: 100px; height: 75px }
+  .ib { display: inline-block; vertical-align: top; width: 200px; height: 50px }
+  .tall { overflow: hidden; height: 100px }
+  .wide { overflow: hidden; height: 100px; width: 350px }
+</style></head><body>
+<div id="a" style="width: 400px; overflow: hidden"><div class="f1"></div><div class="f2"></div><span id="s1" class="ib"></span><span id="s2" class="ib"></span></div>
+<div id="b" style="width: 400px; overflow: hidden"><div class="f1"></div><div class="f2"></div><div id="box" class="tall"></div></div>
+<div id="c" style="width: 400px; overflow: hidden"><div class="f1"></div><div class="f2"></div><div id="wide" class="wide"></div></div>
+</body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* s1 = find_box(page.result.root, "s1");
+        layout::Fragment const* s2 = find_box(page.result.root, "s2");
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        if (CHECK(s1 && s2 && a)) {
+            CHECK_EQ(s1->x, 50.0f); // beside the first float
+            CHECK_EQ(s1->y, 0.0f);
+            // The second line spans 50 to 100: the second float (75 to 150)
+            // narrows it, and the box fits beside it.
+            CHECK_EQ(s2->x, 100.0f);
+            CHECK_EQ(s2->y, 50.0f);
+            CHECK_EQ(a->height, 150.0f); // the container reaches around its floats
+        }
+        layout::Fragment const* box = find_box(page.result.root, "box");
+        layout::Fragment const* b = find_box(page.result.root, "b");
+        if (CHECK(box && b)) {
+            // A box of its own context, 100 tall from the top, meets both
+            // floats along its height: laid out again in the narrower room.
+            CHECK_EQ(box->y, b->y);
+            CHECK_EQ(box->x, 100.0f);
+            CHECK_EQ(box->width, 300.0f);
+        }
+        layout::Fragment const* wide = find_box(page.result.root, "wide");
+        layout::Fragment const* c = find_box(page.result.root, "c");
+        if (CHECK(wide && c)) {
+            // A written width that fits beside the first float alone but not
+            // both goes below them.
+            CHECK_EQ(wide->x, c->x);
+            CHECK_EQ(wide->y, c->y + 150.0f);
+        }
+    }
+
     // --- Table cells stand side by side as top-aligned inline-blocks, until tables land
     {
         text::FontManager::instance().set_system_fonts(false);
