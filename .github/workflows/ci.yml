@@ -51,6 +51,7 @@ jobs:
       - run: ./build/fuzz_html_tokenizer -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_html_tree -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_truetype -max_total_time=30 -timeout=5 fuzz/corpus/truetype
+      - run: ./build/fuzz_png -max_total_time=30 -timeout=5 fuzz/corpus/png
 
   windows-mingw:
     runs-on: windows-latest

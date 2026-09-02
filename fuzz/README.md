@@ -20,6 +20,8 @@ Harnesses:
 - `truetype.cpp` — the TrueType reader: table directory, cmap, glyf,
   composites (seed: a small Sashfold Mono from `gen_font --seed`); smoke run
   in CI.
+- `png.cpp` — the PNG decoder: chunks, filters, interlace, palettes (seed: a
+  small render by our own encoder); smoke run in CI.
 
-Still to come, one per parser as each lands: png, gif, jpeg, xkb, x509_der,
+Still to come, one per parser as each lands: gif, jpeg, xkb, x509_der,
 js_lexer.
