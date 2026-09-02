@@ -22,6 +22,7 @@ Harnesses:
   in CI.
 - `png.cpp` — the PNG decoder: chunks, filters, interlace, palettes (seed: a
   small render by our own encoder); smoke run in CI.
+- `gif.cpp` — the GIF decoder: blocks, color tables, LZW, interlace (seed:
+  the 1x1 transparent pixel); smoke run in CI.
 
-Still to come, one per parser as each lands: gif, jpeg, xkb, x509_der,
-js_lexer.
+Still to come, one per parser as each lands: jpeg, xkb, x509_der, js_lexer.

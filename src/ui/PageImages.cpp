@@ -1,5 +1,6 @@
 #include "ui/PageImages.h"
 
+#include "core/Gif.h"
 #include "core/Png.h"
 #include "dom/Dom.h"
 
@@ -49,8 +50,14 @@ struct Collector {
         if (fetched < max_images_per_page && fetch) {
             ++fetched;
             if (std::optional<std::vector<std::uint8_t>> bytes = fetch(*url);
-                bytes && bytes->size() <= max_image_bytes && looks_like_png(*bytes)) {
-                if (std::optional<Bitmap> decoded = decode_png(*bytes))
+                bytes && bytes->size() <= max_image_bytes) {
+                // The bytes say what they are; the transport's claim does not.
+                std::optional<Bitmap> decoded;
+                if (looks_like_png(*bytes))
+                    decoded = decode_png(*bytes);
+                else if (looks_like_gif(*bytes))
+                    decoded = decode_gif(*bytes);
+                if (decoded)
                     image = std::make_shared<Bitmap const>(std::move(*decoded));
             }
         }

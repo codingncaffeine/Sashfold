@@ -9,6 +9,7 @@ endfunction()
 
 sashfold_test(test_bitmap)
 sashfold_test(test_font)
+sashfold_test(test_gif)
 add_executable(test_png test_png.cpp)
 target_link_libraries(test_png PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_png COMMAND test_png ${CMAKE_CURRENT_SOURCE_DIR}/goldens ${CMAKE_CURRENT_SOURCE_DIR}/shell/goldens)

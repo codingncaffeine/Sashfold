@@ -24,6 +24,7 @@ endif()
 add_library(sashfold_core STATIC
   src/core/Base64.cpp
   src/core/Bitmap.cpp
+  src/core/Gif.cpp
   src/core/Inflate.cpp
   src/core/Json.cpp
   src/core/Normalize.cpp
@@ -111,4 +112,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(http_response)
   sashfold_fuzzer(truetype)
   sashfold_fuzzer(png)
+  sashfold_fuzzer(gif)
 endif()
