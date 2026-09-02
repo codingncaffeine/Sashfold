@@ -294,6 +294,7 @@ struct Browser::Impl {
         css::MediaContext style_media;
         css::StyleMap styles;
         layout::ImageMap images; // the page's pictures, decoded
+        layout::BackgroundImages backgrounds; // the pictures its styles name as backgrounds
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
         layout::LayoutResult layout;
         std::vector<layout::TextRun const*> runs; // the layout's runs in tree order
@@ -572,7 +573,9 @@ struct Browser::Impl {
         css::MediaContext const media = media_context();
         if (!tab.style_set || tab.style_media.width != media.width
             || tab.style_media.height != media.height) {
-            tab.style_set.emplace(tab.sheets, media);
+            net::Url const* const page_url
+                = tab.index < tab.history.size() ? &tab.history[tab.index].final_url : nullptr;
+            tab.style_set.emplace(tab.sheets, media, page_url);
             tab.style_media = media;
         }
         tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
@@ -646,6 +649,7 @@ struct Browser::Impl {
             return std::move(result.response->body);
         };
         tab.images = collect_images(*tab.document, &page_url, fetch_image, media_context());
+        tab.backgrounds = collect_background_images(tab.styles, fetch_image);
         entry->title = find_title(*tab.document);
         tab.scroll_y = entry->scroll_y;
         relayout(tab);
@@ -2749,7 +2753,7 @@ struct Browser::Impl {
         frame.fill_rect(c.content, t.content_background);
         if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
-            paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y));
+            paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y), &tab->backgrounds);
             // The find bar's matches, the current one stronger; then the
             // selection over them, all as translucent bands.
             if (find_open) {

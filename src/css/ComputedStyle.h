@@ -408,6 +408,97 @@ enum class GridAutoFlow : std::uint8_t {
     ColumnDense,
 };
 
+// --- Backgrounds ----------------------------------------------------------------
+
+// A color stop of a gradient: its color and, when written, where it sits
+// along the gradient line.
+struct GradientStop {
+    Color color;
+    std::optional<LengthPercent> position;
+};
+
+// A gradient image (css-images-3): linear along an angle or toward a side
+// or corner, or radial from a point; its color stops; repeating or not.
+struct Gradient {
+    enum class Kind : std::uint8_t {
+        Linear,
+        Radial,
+    };
+    Kind kind = Kind::Linear;
+    bool repeating = false;
+    // Linear: the angle in degrees (0 points up, 90 right; 180, down, is
+    // the default), or the corner the line points at.
+    float angle = 180;
+    enum class Corner : std::uint8_t {
+        None,
+        TopLeft,
+        TopRight,
+        BottomRight,
+        BottomLeft,
+    };
+    Corner corner = Corner::None;
+    // Radial: the shape, how far it reaches, and its center.
+    enum class Shape : std::uint8_t {
+        Ellipse,
+        Circle,
+    };
+    Shape shape = Shape::Ellipse;
+    enum class Extent : std::uint8_t {
+        FarthestCorner,
+        ClosestSide,
+        ClosestCorner,
+        FarthestSide,
+    };
+    Extent extent = Extent::FarthestCorner;
+    LengthPercent center_x = LengthPercent::percent_of(50);
+    LengthPercent center_y = LengthPercent::percent_of(50);
+    std::vector<GradientStop> stops;
+};
+
+// One background image: a picture by its resolved URL, or a gradient;
+// neither for none.
+struct BackgroundImage {
+    std::string url;
+    std::shared_ptr<Gradient const> gradient;
+
+    bool none() const { return url.empty() && !gradient; }
+};
+
+enum class BackgroundRepeat : std::uint8_t {
+    Repeat, // space and round tile like this too
+    NoRepeat,
+};
+
+struct BackgroundRepeatPair {
+    BackgroundRepeat x = BackgroundRepeat::Repeat;
+    BackgroundRepeat y = BackgroundRepeat::Repeat;
+};
+
+enum class BackgroundBox : std::uint8_t {
+    BorderBox,
+    PaddingBox,
+    ContentBox,
+};
+
+struct BackgroundSize {
+    enum class Kind : std::uint8_t {
+        Auto,
+        Cover,
+        Contain,
+        Lengths, // width and height, either auto
+    };
+    Kind kind = Kind::Auto;
+    LengthPercent width = LengthPercent::auto_value();
+    LengthPercent height = LengthPercent::auto_value();
+};
+
+// Where an image's box sits in the positioning area: percentages place
+// the image's point at the area's same point.
+struct BackgroundPosition {
+    LengthPercent x = LengthPercent::percent_of(0);
+    LengthPercent y = LengthPercent::percent_of(0);
+};
+
 struct BorderSide {
     float width = 0; // px, already zeroed when style is None
     BorderStyle style = BorderStyle::None;
@@ -527,6 +618,16 @@ struct ComputedStyle {
     // Text and inheritance-carried properties.
     Color color = Color::rgb(0, 0, 0);
     Color background_color = Color::rgba(0, 0, 0, 0);
+    // The background images (css-backgrounds-3), the first nearest the
+    // viewer, and the lists the other background properties give them —
+    // each repeated along the images when shorter. A null list is the
+    // initial value: no image; repeat; 0% 0%; auto; padding-box; border-box.
+    std::shared_ptr<std::vector<BackgroundImage> const> background_images;
+    std::shared_ptr<std::vector<BackgroundRepeatPair> const> background_repeats;
+    std::shared_ptr<std::vector<BackgroundPosition> const> background_positions;
+    std::shared_ptr<std::vector<BackgroundSize> const> background_sizes;
+    std::shared_ptr<std::vector<BackgroundBox> const> background_origins;
+    std::shared_ptr<std::vector<BackgroundBox> const> background_clips;
     float font_size = 16;
     int font_weight = 400; // 700+ paints bold
     FontStyle font_style = FontStyle::Normal;

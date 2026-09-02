@@ -5,6 +5,7 @@
 #include "css/Parser.h"
 #include "css/Selector.h"
 #include "dom/Dom.h"
+#include "net/Url.h"
 
 #include <algorithm>
 #include <array>
@@ -91,10 +92,12 @@ struct CompiledRule {
     std::vector<Declaration> declarations;
     bool user_agent = false;
     int order = 0; // rule order across all sheets
+    std::shared_ptr<net::Url const> base; // the sheet's URL: what its url() values resolve against
 };
 
 struct MatchedDeclaration {
     Declaration const* declaration = nullptr;
+    net::Url const* base = nullptr; // for the URLs in the declaration
     int rank = 0;
     Specificity specificity;
     int order = 0;
@@ -1151,6 +1154,370 @@ std::optional<BorderStyle> parse_border_style(ComponentValue const& value)
 
 // The compiled side of a StyleSet: rules in cascade order and the index
 // over them, built once per media context.
+// --- Backgrounds ------------------------------------------------------------
+
+using Values = std::vector<ComponentValue const*>;
+
+// A declaration's values split at its top-level commas: one group per layer.
+std::vector<Values> split_commas(Values const& values)
+{
+    std::vector<Values> groups(1);
+    for (ComponentValue const* value : values) {
+        if (value->is_token(Token::Type::Comma)) {
+            groups.emplace_back();
+            continue;
+        }
+        groups.back().push_back(value);
+    }
+    return groups;
+}
+
+bool all_none(std::vector<BackgroundImage> const& images)
+{
+    for (BackgroundImage const& image : images) {
+        if (!image.none())
+            return false;
+    }
+    return true;
+}
+
+// url(x) as a token, or url("x") as a function: the text as written.
+std::optional<std::string> url_of(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Url))
+        return value.token().value;
+    if (value.is_function() && ascii_ci_equals(value.function().name, "url")) {
+        for (ComponentValue const& inner : value.function().values) {
+            if (inner.is_token(Token::Type::Whitespace))
+                continue;
+            if (inner.is_token(Token::Type::String))
+                return inner.token().value;
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+// An <angle> in degrees: deg, grad, rad or turn (a bare 0 counts).
+std::optional<float> parse_angle(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Number))
+        return value.token().numeric_value == 0 ? std::optional<float>(0.0f) : std::nullopt;
+    if (!value.is_token(Token::Type::Dimension))
+        return std::nullopt;
+    auto const number = static_cast<float>(value.token().numeric_value);
+    std::string_view const unit = value.token().unit;
+    if (ascii_ci_equals(unit, "deg"))
+        return number;
+    if (ascii_ci_equals(unit, "grad"))
+        return number * 0.9f;
+    if (ascii_ci_equals(unit, "rad"))
+        return number * 180.0f / 3.14159265f;
+    if (ascii_ci_equals(unit, "turn"))
+        return number * 360.0f;
+    return std::nullopt;
+}
+
+// A position keyword or length along one axis of a background position.
+std::optional<LengthPercent> position_component(ComponentValue const& value, LengthContext const& context,
+    bool horizontal, bool& keyword)
+{
+    keyword = false;
+    if (value.is_token(Token::Type::Ident)) {
+        std::string_view const word = value.token().value;
+        keyword = true;
+        if (ascii_ci_equals(word, "center"))
+            return LengthPercent::percent_of(50);
+        if (horizontal && ascii_ci_equals(word, "left"))
+            return LengthPercent::percent_of(0);
+        if (horizontal && ascii_ci_equals(word, "right"))
+            return LengthPercent::percent_of(100);
+        if (!horizontal && ascii_ci_equals(word, "top"))
+            return LengthPercent::percent_of(0);
+        if (!horizontal && ascii_ci_equals(word, "bottom"))
+            return LengthPercent::percent_of(100);
+        keyword = false;
+        return std::nullopt;
+    }
+    return parse_length_percent(value, context, false);
+}
+
+// <bg-position> from `from`: one or two values (keywords in either order
+// when both are keywords). `taken` is how many values it used.
+std::optional<BackgroundPosition> parse_background_position(Values const& values, std::size_t from,
+    LengthContext const& context, std::size_t& taken)
+{
+    taken = 0;
+    if (from >= values.size())
+        return std::nullopt;
+    bool key_a = false;
+    bool key_b = false;
+    std::optional<LengthPercent> const a_x = position_component(*values[from], context, true, key_a);
+    std::optional<LengthPercent> const a_y = position_component(*values[from], context, false, key_a);
+    if (!a_x && !a_y)
+        return std::nullopt;
+    BackgroundPosition position;
+    if (from + 1 < values.size()) {
+        ComponentValue const& second = *values[from + 1];
+        std::optional<LengthPercent> const b_y = position_component(second, context, false, key_b);
+        std::optional<LengthPercent> const b_x = position_component(second, context, true, key_b);
+        if (a_x && b_y) {
+            position.x = *a_x;
+            position.y = *b_y;
+            taken = 2;
+            return position;
+        }
+        if (key_a && key_b && a_y && b_x) {
+            position.x = *b_x;
+            position.y = *a_y;
+            taken = 2;
+            return position;
+        }
+    }
+    // One value: the other axis is centered.
+    taken = 1;
+    if (a_x) {
+        position.x = *a_x;
+        position.y = LengthPercent::percent_of(50);
+    } else {
+        position.x = LengthPercent::percent_of(50);
+        position.y = *a_y;
+    }
+    return position;
+}
+
+// <bg-size> from `from`: auto | cover | contain | [<length-percentage> | auto]{1,2}.
+std::optional<BackgroundSize> parse_background_size(Values const& values, std::size_t from,
+    LengthContext const& context, std::size_t& taken)
+{
+    taken = 0;
+    if (from >= values.size())
+        return std::nullopt;
+    BackgroundSize size;
+    ComponentValue const& first = *values[from];
+    if (is_ident(&first, "cover") || is_ident(&first, "contain")) {
+        size.kind = is_ident(&first, "cover") ? BackgroundSize::Kind::Cover : BackgroundSize::Kind::Contain;
+        taken = 1;
+        return size;
+    }
+    std::optional<LengthPercent> const width = parse_length_percent(first, context, true);
+    if (!width || (width->kind == LengthPercent::Kind::Px && width->value < 0))
+        return std::nullopt;
+    size.width = *width;
+    taken = 1;
+    if (from + 1 < values.size()) {
+        if (std::optional<LengthPercent> const height = parse_length_percent(*values[from + 1], context, true);
+            height && !(height->kind == LengthPercent::Kind::Px && height->value < 0)) {
+            size.height = *height;
+            taken = 2;
+        }
+    }
+    size.kind = size.width.is_auto() && size.height.is_auto() ? BackgroundSize::Kind::Auto
+                                                                 : BackgroundSize::Kind::Lengths;
+    return size;
+}
+
+// <repeat-style> from `from`: repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}.
+std::optional<BackgroundRepeatPair> parse_background_repeat(Values const& values, std::size_t from,
+    std::size_t& taken)
+{
+    taken = 0;
+    if (from >= values.size())
+        return std::nullopt;
+    auto const one = [](ComponentValue const& value) -> std::optional<BackgroundRepeat> {
+        if (is_ident(&value, "repeat") || is_ident(&value, "space") || is_ident(&value, "round"))
+            return BackgroundRepeat::Repeat;
+        if (is_ident(&value, "no-repeat"))
+            return BackgroundRepeat::NoRepeat;
+        return std::nullopt;
+    };
+    BackgroundRepeatPair pair;
+    if (is_ident(values[from], "repeat-x")) {
+        pair.y = BackgroundRepeat::NoRepeat;
+        taken = 1;
+        return pair;
+    }
+    if (is_ident(values[from], "repeat-y")) {
+        pair.x = BackgroundRepeat::NoRepeat;
+        taken = 1;
+        return pair;
+    }
+    std::optional<BackgroundRepeat> const x = one(*values[from]);
+    if (!x)
+        return std::nullopt;
+    pair.x = *x;
+    pair.y = *x;
+    taken = 1;
+    if (from + 1 < values.size()) {
+        if (std::optional<BackgroundRepeat> const y = one(*values[from + 1])) {
+            pair.y = *y;
+            taken = 2;
+        }
+    }
+    return pair;
+}
+
+std::optional<BackgroundBox> parse_background_box(ComponentValue const& value)
+{
+    if (is_ident(&value, "border-box"))
+        return BackgroundBox::BorderBox;
+    if (is_ident(&value, "padding-box"))
+        return BackgroundBox::PaddingBox;
+    if (is_ident(&value, "content-box"))
+        return BackgroundBox::ContentBox;
+    return std::nullopt;
+}
+
+// linear-gradient() and radial-gradient(), repeating or not: the direction
+// or shape and center, then the color stops (a color with up to two
+// positions; a bare length between stops, a hint, is passed over).
+std::optional<Gradient> parse_gradient(ComponentValue const& value, LengthContext const& context, Color current)
+{
+    if (!value.is_function())
+        return std::nullopt;
+    std::string const name = lowercase_name(value.function().name);
+    Gradient gradient;
+    if (name == "linear-gradient" || name == "repeating-linear-gradient")
+        gradient.kind = Gradient::Kind::Linear;
+    else if (name == "radial-gradient" || name == "repeating-radial-gradient")
+        gradient.kind = Gradient::Kind::Radial;
+    else
+        return std::nullopt;
+    gradient.repeating = name.starts_with("repeating");
+    Values const all = significant(value.function().values);
+    std::vector<Values> const args = split_commas(all);
+    if (args.empty())
+        return std::nullopt;
+    std::size_t first_stop = 0;
+    Values const& head = args[0];
+    if (gradient.kind == Gradient::Kind::Linear && !head.empty()) {
+        if (std::optional<float> const angle = parse_angle(*head[0]); angle && head.size() == 1) {
+            gradient.angle = *angle;
+            first_stop = 1;
+        } else if (is_ident(head[0], "to")) {
+            bool top = false;
+            bool bottom = false;
+            bool left = false;
+            bool right = false;
+            for (std::size_t i = 1; i < head.size(); ++i) {
+                if (is_ident(head[i], "top"))
+                    top = true;
+                else if (is_ident(head[i], "bottom"))
+                    bottom = true;
+                else if (is_ident(head[i], "left"))
+                    left = true;
+                else if (is_ident(head[i], "right"))
+                    right = true;
+                else
+                    return std::nullopt;
+            }
+            if (head.size() < 2 || head.size() > 3 || (left && right) || (top && bottom))
+                return std::nullopt;
+            if ((top || bottom) && (left || right)) {
+                gradient.corner = top ? (left ? Gradient::Corner::TopLeft : Gradient::Corner::TopRight)
+                                      : (left ? Gradient::Corner::BottomLeft : Gradient::Corner::BottomRight);
+            } else {
+                gradient.angle = top ? 0.0f : bottom ? 180.0f : left ? 270.0f : 90.0f;
+            }
+            first_stop = 1;
+        }
+    } else if (gradient.kind == Gradient::Kind::Radial && !head.empty()) {
+        bool consumed = false;
+        std::size_t i = 0;
+        while (i < head.size()) {
+            ComponentValue const& item = *head[i];
+            if (is_ident(&item, "circle")) {
+                gradient.shape = Gradient::Shape::Circle;
+            } else if (is_ident(&item, "ellipse")) {
+                gradient.shape = Gradient::Shape::Ellipse;
+            } else if (is_ident(&item, "closest-side")) {
+                gradient.extent = Gradient::Extent::ClosestSide;
+            } else if (is_ident(&item, "closest-corner")) {
+                gradient.extent = Gradient::Extent::ClosestCorner;
+            } else if (is_ident(&item, "farthest-side")) {
+                gradient.extent = Gradient::Extent::FarthestSide;
+            } else if (is_ident(&item, "farthest-corner")) {
+                gradient.extent = Gradient::Extent::FarthestCorner;
+            } else if (is_ident(&item, "at")) {
+                std::size_t taken = 0;
+                std::optional<BackgroundPosition> const center
+                    = parse_background_position(head, i + 1, context, taken);
+                if (!center)
+                    return std::nullopt;
+                gradient.center_x = center->x;
+                gradient.center_y = center->y;
+                i += 1 + taken;
+                consumed = true;
+                continue;
+            } else if (parse_length_percent(item, context, false)) {
+                // An explicit size: drawn at the extent for now.
+            } else {
+                break;
+            }
+            consumed = true;
+            ++i;
+        }
+        if (consumed) {
+            if (i != head.size())
+                return std::nullopt;
+            first_stop = 1;
+        }
+    }
+    for (std::size_t a = first_stop; a < args.size(); ++a) {
+        Values const& arg = args[a];
+        if (arg.empty() || arg.size() > 3)
+            return std::nullopt;
+        std::optional<Color> const color = parse_color_component(*arg[0], current);
+        if (!color) {
+            if (arg.size() == 1 && parse_length_percent(*arg[0], context, false))
+                continue; // a hint
+            return std::nullopt;
+        }
+        GradientStop stop;
+        stop.color = *color;
+        if (arg.size() >= 2) {
+            std::optional<LengthPercent> const position = parse_length_percent(*arg[1], context, false);
+            if (!position)
+                return std::nullopt;
+            stop.position = position;
+        }
+        gradient.stops.push_back(stop);
+        if (arg.size() == 3) {
+            std::optional<LengthPercent> const position = parse_length_percent(*arg[2], context, false);
+            if (!position)
+                return std::nullopt;
+            GradientStop second = stop;
+            second.position = position;
+            gradient.stops.push_back(second);
+        }
+    }
+    if (gradient.stops.size() < 2)
+        return std::nullopt;
+    return gradient;
+}
+
+// <bg-image>: none, a url() resolved against `base`, or a gradient.
+std::optional<BackgroundImage> parse_background_image(ComponentValue const& value, LengthContext const& context,
+    Color current, net::Url const* base)
+{
+    if (is_ident(&value, "none"))
+        return BackgroundImage {};
+    if (std::optional<std::string> const url = url_of(value)) {
+        BackgroundImage image;
+        std::optional<net::Url> const resolved = net::parse_url(*url, base);
+        image.url = resolved ? resolved->serialize(true) : *url;
+        if (image.url.empty())
+            return std::nullopt;
+        return image;
+    }
+    if (std::optional<Gradient> gradient = parse_gradient(value, context, current)) {
+        BackgroundImage image;
+        image.gradient = std::make_shared<Gradient const>(std::move(*gradient));
+        return image;
+    }
+    return std::nullopt;
+}
+
 struct RuleSet {
     std::vector<CompiledRule> rules;
 
@@ -1233,14 +1600,17 @@ struct RuleSet {
     }
 
     MediaContext media;
+    std::optional<net::Url> document_url; // the base for style attributes' URLs
 
-    void compile_sheet(std::string_view text, bool user_agent, int& order)
+    void compile_sheet(std::string_view text, bool user_agent, int& order,
+        std::shared_ptr<net::Url const> const& base)
     {
         Stylesheet sheet = parse_stylesheet(text);
-        compile_rules(sheet.rules, user_agent, order);
+        compile_rules(sheet.rules, user_agent, order, base);
     }
 
-    void compile_rules(std::vector<Rule>& source, bool user_agent, int& order)
+    void compile_rules(std::vector<Rule>& source, bool user_agent, int& order,
+        std::shared_ptr<net::Url const> const& base)
     {
         for (Rule& rule : source) {
             if (rule.is_at_rule()) {
@@ -1250,7 +1620,7 @@ struct RuleSet {
                 auto& at = std::get<AtRule>(rule.value);
                 if (at.has_block && ascii_ci_equals(at.name, "media")
                     && media_prelude_matches(at.prelude, media))
-                    compile_rules(at.child_rules, user_agent, order);
+                    compile_rules(at.child_rules, user_agent, order, base);
                 continue;
             }
             if (!rule.is_qualified())
@@ -1264,6 +1634,7 @@ struct RuleSet {
             compiled.declarations = std::move(qualified.declarations);
             compiled.user_agent = user_agent;
             compiled.order = order++;
+            compiled.base = base;
             rules.push_back(std::move(compiled));
             // Nested child rules wait for the nesting-aware resolver.
         }
@@ -1820,7 +2191,24 @@ struct Resolver {
                 0 },
             { "color", true, [](S& to, S const& from) { to.color = from.color; }, 0 },
             { "background-color", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
-            { "background", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
+            { "background-image", false, [](S& to, S const& from) { to.background_images = from.background_images; }, 0 },
+            { "background-repeat", false, [](S& to, S const& from) { to.background_repeats = from.background_repeats; }, 0 },
+            { "background-position", false,
+                [](S& to, S const& from) { to.background_positions = from.background_positions; }, 0 },
+            { "background-size", false, [](S& to, S const& from) { to.background_sizes = from.background_sizes; }, 0 },
+            { "background-origin", false, [](S& to, S const& from) { to.background_origins = from.background_origins; }, 0 },
+            { "background-clip", false, [](S& to, S const& from) { to.background_clips = from.background_clips; }, 0 },
+            { "background", false,
+                [](S& to, S const& from) {
+                    to.background_color = from.background_color;
+                    to.background_images = from.background_images;
+                    to.background_repeats = from.background_repeats;
+                    to.background_positions = from.background_positions;
+                    to.background_sizes = from.background_sizes;
+                    to.background_origins = from.background_origins;
+                    to.background_clips = from.background_clips;
+                },
+                0 },
             { "font-size", true, [](S& to, S const& from) { to.font_size = from.font_size; }, 0 },
             { "font-weight", true, [](S& to, S const& from) { to.font_weight = from.font_weight; }, 0 },
             { "font-style", true, [](S& to, S const& from) { to.font_style = from.font_style; }, 0 },
@@ -2110,6 +2498,7 @@ struct Resolver {
             for (Declaration const& declaration : rule.declarations) {
                 MatchedDeclaration entry;
                 entry.declaration = &declaration;
+                entry.base = rule.base.get();
                 entry.specificity = specificity;
                 entry.order = rule.order;
                 if (rule.user_agent) {
@@ -2134,6 +2523,7 @@ struct Resolver {
             for (Declaration const& declaration : attribute_declarations) {
                 MatchedDeclaration entry;
                 entry.declaration = &declaration;
+                entry.base = set.document_url ? &*set.document_url : nullptr;
                 entry.order = order++;
                 entry.rank = static_cast<int>(declaration.important
                         ? CascadeRank::StyleAttributeImportant
@@ -2152,6 +2542,7 @@ struct Resolver {
                 for (Declaration const& declaration : hint_declarations) {
                     MatchedDeclaration entry;
                     entry.declaration = &declaration;
+                    entry.base = set.document_url ? &*set.document_url : nullptr;
                     entry.order = -1;
                     entry.rank = static_cast<int>(CascadeRank::AuthorNormal);
                     matched.push_back(entry);
@@ -2259,7 +2650,7 @@ struct Resolver {
                         border_right_color_set, border_bottom_color_set, border_left_color_set);
                     return;
                 }
-                apply(style, declaration, border_top_color_set, border_right_color_set,
+                apply(style, declaration, entry.base, border_top_color_set, border_right_color_set,
                     border_bottom_color_set, border_left_color_set);
             });
         }
@@ -2368,8 +2759,9 @@ struct Resolver {
             style.font_size = parent.font_size * length->value / 100.0f;
     }
 
-    void apply(ComputedStyle& style, Declaration const& declaration, bool& border_top_color_set,
-        bool& border_right_color_set, bool& border_bottom_color_set, bool& border_left_color_set)
+    void apply(ComputedStyle& style, Declaration const& declaration, net::Url const* base,
+        bool& border_top_color_set, bool& border_right_color_set, bool& border_bottom_color_set,
+        bool& border_left_color_set)
     {
         std::string const name = [&] {
             std::string lowered;
@@ -3283,14 +3675,183 @@ struct Resolver {
             (void)one_color(style.background_color);
             return;
         }
+        // --- Backgrounds: one value per layer, comma-separated ------------------
+        if (name == "background-image") {
+            std::vector<BackgroundImage> images;
+            for (std::vector<ComponentValue const*> const& layer : split_commas(values)) {
+                if (layer.size() != 1)
+                    return;
+                std::optional<BackgroundImage> image = parse_background_image(*layer[0], context, style.color, base);
+                if (!image)
+                    return;
+                images.push_back(std::move(*image));
+            }
+            style.background_images = all_none(images)
+                ? nullptr
+                : std::make_shared<std::vector<BackgroundImage> const>(std::move(images));
+            return;
+        }
+        if (name == "background-repeat") {
+            std::vector<BackgroundRepeatPair> repeats;
+            for (std::vector<ComponentValue const*> const& layer : split_commas(values)) {
+                std::size_t taken = 0;
+                std::optional<BackgroundRepeatPair> const repeat = parse_background_repeat(layer, 0, taken);
+                if (!repeat || taken != layer.size())
+                    return;
+                repeats.push_back(*repeat);
+            }
+            style.background_repeats = std::make_shared<std::vector<BackgroundRepeatPair> const>(std::move(repeats));
+            return;
+        }
+        if (name == "background-position") {
+            std::vector<BackgroundPosition> positions;
+            for (std::vector<ComponentValue const*> const& layer : split_commas(values)) {
+                std::size_t taken = 0;
+                std::optional<BackgroundPosition> const position
+                    = parse_background_position(layer, 0, context, taken);
+                if (!position || taken != layer.size())
+                    return;
+                positions.push_back(*position);
+            }
+            style.background_positions
+                = std::make_shared<std::vector<BackgroundPosition> const>(std::move(positions));
+            return;
+        }
+        if (name == "background-size") {
+            std::vector<BackgroundSize> sizes;
+            for (std::vector<ComponentValue const*> const& layer : split_commas(values)) {
+                std::size_t taken = 0;
+                std::optional<BackgroundSize> const size = parse_background_size(layer, 0, context, taken);
+                if (!size || taken != layer.size())
+                    return;
+                sizes.push_back(*size);
+            }
+            style.background_sizes = std::make_shared<std::vector<BackgroundSize> const>(std::move(sizes));
+            return;
+        }
+        if (name == "background-origin" || name == "background-clip") {
+            std::vector<BackgroundBox> boxes;
+            for (std::vector<ComponentValue const*> const& layer : split_commas(values)) {
+                if (layer.size() != 1)
+                    return;
+                std::optional<BackgroundBox> const box = parse_background_box(*layer[0]);
+                if (!box)
+                    return;
+                boxes.push_back(*box);
+            }
+            auto shared = std::make_shared<std::vector<BackgroundBox> const>(std::move(boxes));
+            (name == "background-origin" ? style.background_origins : style.background_clips) = std::move(shared);
+            return;
+        }
         if (name == "background") {
-            // The color-only form, or a color among other layers' parts.
-            for (ComponentValue const* value : values) {
-                if (auto color = parse_color_component(*value, style.color)) {
-                    style.background_color = *color;
+            // Every layer's parts in any order: an image, a position (with a
+            // size after a slash), the repeat, the boxes (one for both, or
+            // origin then clip), an attachment (passed over), and in the
+            // last layer the color. The shorthand resets what it does not set.
+            std::vector<BackgroundImage> images;
+            std::vector<BackgroundRepeatPair> repeats;
+            std::vector<BackgroundPosition> positions;
+            std::vector<BackgroundSize> sizes;
+            std::vector<BackgroundBox> origins;
+            std::vector<BackgroundBox> clips;
+            Color color = Color::rgba(0, 0, 0, 0);
+            std::vector<std::vector<ComponentValue const*>> const layers = split_commas(values);
+            for (std::size_t l = 0; l < layers.size(); ++l) {
+                std::vector<ComponentValue const*> const& layer = layers[l];
+                BackgroundImage image;
+                BackgroundRepeatPair repeat;
+                BackgroundPosition position;
+                BackgroundSize size;
+                std::optional<BackgroundBox> origin;
+                std::optional<BackgroundBox> clip;
+                bool seen_image = false;
+                bool seen_position = false;
+                bool seen_repeat = false;
+                bool seen_color = false;
+                std::size_t i = 0;
+                while (i < layer.size()) {
+                    ComponentValue const& value = *layer[i];
+                    std::size_t taken = 0;
+                    if (value.is_token(Token::Type::Delim) && value.token().delim == U'/') {
+                        if (!seen_position)
+                            return;
+                        std::optional<BackgroundSize> const parsed
+                            = parse_background_size(layer, i + 1, context, taken);
+                        if (!parsed || taken == 0)
+                            return;
+                        size = *parsed;
+                        i += 1 + taken;
+                        continue;
+                    }
+                    if (is_ident(&value, "scroll") || is_ident(&value, "fixed") || is_ident(&value, "local")) {
+                        ++i;
+                        continue;
+                    }
+                    if (!seen_repeat) {
+                        if (std::optional<BackgroundRepeatPair> const parsed = parse_background_repeat(layer, i, taken)) {
+                            repeat = *parsed;
+                            seen_repeat = true;
+                            i += taken;
+                            continue;
+                        }
+                    }
+                    if (std::optional<BackgroundBox> const box = parse_background_box(value)) {
+                        if (!origin) {
+                            origin = box;
+                            clip = box;
+                        } else {
+                            clip = box;
+                        }
+                        ++i;
+                        continue;
+                    }
+                    if (!seen_image) {
+                        if (std::optional<BackgroundImage> parsed
+                            = parse_background_image(value, context, style.color, base)) {
+                            image = std::move(*parsed);
+                            seen_image = true;
+                            ++i;
+                            continue;
+                        }
+                    }
+                    if (!seen_position) {
+                        if (std::optional<BackgroundPosition> const parsed
+                            = parse_background_position(layer, i, context, taken)) {
+                            position = *parsed;
+                            seen_position = true;
+                            i += taken;
+                            continue;
+                        }
+                    }
+                    if (!seen_color) {
+                        if (std::optional<Color> const parsed = parse_color_component(value, style.color)) {
+                            if (l + 1 != layers.size())
+                                return; // a color belongs to the last layer alone
+                            color = *parsed;
+                            seen_color = true;
+                            ++i;
+                            continue;
+                        }
+                    }
                     return;
                 }
+                images.push_back(std::move(image));
+                repeats.push_back(repeat);
+                positions.push_back(position);
+                sizes.push_back(size);
+                origins.push_back(origin.value_or(BackgroundBox::PaddingBox));
+                clips.push_back(clip.value_or(BackgroundBox::BorderBox));
             }
+            style.background_color = color;
+            style.background_images = all_none(images)
+                ? nullptr
+                : std::make_shared<std::vector<BackgroundImage> const>(std::move(images));
+            style.background_repeats = std::make_shared<std::vector<BackgroundRepeatPair> const>(std::move(repeats));
+            style.background_positions
+                = std::make_shared<std::vector<BackgroundPosition> const>(std::move(positions));
+            style.background_sizes = std::make_shared<std::vector<BackgroundSize> const>(std::move(sizes));
+            style.background_origins = std::make_shared<std::vector<BackgroundBox> const>(std::move(origins));
+            style.background_clips = std::make_shared<std::vector<BackgroundBox> const>(std::move(clips));
             return;
         }
         if (name == "width" || name == "height" || name == "min-width" || name == "min-height"
@@ -3714,14 +4275,19 @@ struct Resolver {
     }
 };
 
-StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media)
+StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media, net::Url const* document_url)
     : m_rules(std::make_unique<RuleSet>())
 {
     m_rules->media = media;
+    if (document_url)
+        m_rules->document_url = *document_url;
     int order = 0;
-    m_rules->compile_sheet(ua_stylesheet, true, order);
-    for (SheetSource const& sheet : sheets)
-        m_rules->compile_sheet(sheet.text, false, order);
+    m_rules->compile_sheet(ua_stylesheet, true, order, nullptr);
+    for (SheetSource const& sheet : sheets) {
+        std::shared_ptr<net::Url const> const base
+            = sheet.url ? std::make_shared<net::Url const>(*sheet.url) : nullptr;
+        m_rules->compile_sheet(sheet.text, false, order, base);
+    }
     m_rules->build_index();
 }
 
@@ -3768,9 +4334,9 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
 }
 
 StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets,
-    MediaContext const& media)
+    MediaContext const& media, net::Url const* document_url)
 {
-    return resolve_styles(document, StyleSet(sheets, media));
+    return resolve_styles(document, StyleSet(sheets, media, document_url));
 }
 
 StyleMap resolve_styles(dom::Document const& document)

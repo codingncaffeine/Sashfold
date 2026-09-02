@@ -21,6 +21,7 @@ struct Context {
     Bitmap& target;
     float dx;
     float dy;
+    layout::BackgroundImages const* backgrounds;
 };
 
 int round_px(float value)
@@ -35,15 +36,341 @@ Rect snap(float x, float y, float width, float height)
     return Rect { left, top, round_px(x + width) - left, round_px(y + height) - top };
 }
 
+// --- Backgrounds ------------------------------------------------------------------
+
+float resolve_length(css::LengthPercent const& length, float base)
+{
+    switch (length.kind) {
+    case css::LengthPercent::Kind::Auto: return 0;
+    case css::LengthPercent::Kind::Px: return length.value;
+    case css::LengthPercent::Kind::Percent: return base * length.value / 100.0f;
+    case css::LengthPercent::Kind::Calc: return length.value + base * length.percent / 100.0f;
+    }
+    return 0;
+}
+
+struct Area {
+    float x = 0;
+    float y = 0;
+    float width = 0;
+    float height = 0;
+};
+
+// The box a background property names, in target coordinates: the border
+// box, the padding box inside the borders, or the content box inside the
+// padding too.
+Area box_of(Context const& context, Fragment const& fragment, css::BackgroundBox box)
+{
+    ComputedStyle const& style = *fragment.style;
+    Area area { fragment.x + context.dx, fragment.y + context.dy, fragment.width, fragment.height };
+    if (box == css::BackgroundBox::BorderBox)
+        return area;
+    auto const inset = [&](float left, float top, float right, float bottom) {
+        area.x += left;
+        area.y += top;
+        area.width = std::max(0.0f, area.width - left - right);
+        area.height = std::max(0.0f, area.height - top - bottom);
+    };
+    inset(style.border_left.width, style.border_top.width, style.border_right.width, style.border_bottom.width);
+    if (box == css::BackgroundBox::ContentBox) {
+        float const base = fragment.width;
+        inset(resolve_length(style.padding_left, base), resolve_length(style.padding_top, base),
+            resolve_length(style.padding_right, base), resolve_length(style.padding_bottom, base));
+    }
+    return area;
+}
+
+Rect intersect(Rect const& a, Rect const& b);
+
+// The color at `t` along a gradient whose stops are settled at positions
+// in [0, 1] (repeating ones wrap over their span).
+Color gradient_color(std::vector<std::pair<float, Color>> const& stops, float t, bool repeating)
+{
+    if (stops.empty())
+        return Color::rgba(0, 0, 0, 0);
+    if (repeating) {
+        float const first = stops.front().first;
+        float const last = stops.back().first;
+        float const span = last - first;
+        if (span > 0) {
+            t = first + std::fmod(t - first, span);
+            if (t < first)
+                t += span;
+        }
+    }
+    if (t <= stops.front().first)
+        return stops.front().second;
+    if (t >= stops.back().first)
+        return stops.back().second;
+    for (std::size_t i = 1; i < stops.size(); ++i) {
+        if (t > stops[i].first)
+            continue;
+        auto const& [p0, c0] = stops[i - 1];
+        auto const& [p1, c1] = stops[i];
+        float const f = p1 > p0 ? (t - p0) / (p1 - p0) : 1.0f;
+        auto const mix = [f](std::uint8_t a, std::uint8_t b) {
+            return static_cast<std::uint8_t>(std::clamp(
+                static_cast<int>(static_cast<float>(a) + (static_cast<float>(b) - static_cast<float>(a)) * f + 0.5f), 0, 255));
+        };
+        return Color::rgba(mix(c0.r, c1.r), mix(c0.g, c1.g), mix(c0.b, c1.b), mix(c0.a, c1.a));
+    }
+    return stops.back().second;
+}
+
+// The stops' positions along a line of `length` px, as fractions: written
+// ones resolved, the first at 0 and the last at 1 when unwritten, the rest
+// spread evenly between their neighbors, and none before the one before it.
+std::vector<std::pair<float, Color>> settle_stops(css::Gradient const& gradient, float length)
+{
+    std::vector<std::optional<float>> positions;
+    for (css::GradientStop const& stop : gradient.stops) {
+        if (!stop.position) {
+            positions.emplace_back();
+            continue;
+        }
+        float const px = resolve_length(*stop.position, length);
+        positions.emplace_back(length > 0 ? px / length : 0.0f);
+    }
+    if (!positions.front())
+        positions.front() = 0.0f;
+    if (!positions.back())
+        positions.back() = 1.0f;
+    float floor = *positions.front();
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        if (!positions[i])
+            continue;
+        if (*positions[i] < floor)
+            positions[i] = floor;
+        floor = *positions[i];
+    }
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        if (positions[i])
+            continue;
+        std::size_t next = i;
+        while (!positions[next])
+            ++next;
+        float const from = *positions[i - 1];
+        float const to = *positions[next];
+        auto const count = static_cast<float>(next - i + 1);
+        for (std::size_t k = i; k < next; ++k)
+            positions[k] = from + (to - from) * static_cast<float>(k - i + 1) / count;
+        i = next;
+    }
+    std::vector<std::pair<float, Color>> settled;
+    for (std::size_t i = 0; i < positions.size(); ++i)
+        settled.emplace_back(*positions[i], gradient.stops[i].color);
+    return settled;
+}
+
+// Paints a gradient over one tile of the image, clipped to `clip`: a
+// linear gradient along its line through the tile's center, a radial one
+// out from its center to the extent named.
+void paint_gradient(Bitmap& target, css::Gradient const& gradient, Area const& tile, Rect const& clip)
+{
+    Rect const bounds = intersect(snap(tile.x, tile.y, tile.width, tile.height), clip);
+    if (bounds.width <= 0 || bounds.height <= 0 || tile.width <= 0 || tile.height <= 0)
+        return;
+    float const w = tile.width;
+    float const h = tile.height;
+    if (gradient.kind == css::Gradient::Kind::Linear) {
+        float angle = gradient.angle;
+        float const corner_angle = std::atan2(w, h) * 180.0f / 3.14159265f;
+        switch (gradient.corner) {
+        case css::Gradient::Corner::TopRight: angle = corner_angle; break;
+        case css::Gradient::Corner::BottomRight: angle = 180.0f - corner_angle; break;
+        case css::Gradient::Corner::BottomLeft: angle = 180.0f + corner_angle; break;
+        case css::Gradient::Corner::TopLeft: angle = 360.0f - corner_angle; break;
+        case css::Gradient::Corner::None: break;
+        }
+        float const radians = angle * 3.14159265f / 180.0f;
+        float const dir_x = std::sin(radians);
+        float const dir_y = -std::cos(radians);
+        float const length = std::fabs(w * dir_x) + std::fabs(h * dir_y);
+        std::vector<std::pair<float, Color>> const stops = settle_stops(gradient, length);
+        float const cx = tile.x + w / 2;
+        float const cy = tile.y + h / 2;
+        for (int py = bounds.y; py < bounds.bottom(); ++py) {
+            for (int px = bounds.x; px < bounds.right(); ++px) {
+                float const rx = static_cast<float>(px) + 0.5f - cx;
+                float const ry = static_cast<float>(py) + 0.5f - cy;
+                float const t = length > 0 ? (rx * dir_x + ry * dir_y) / length + 0.5f : 0.0f;
+                target.blend_pixel(px, py, gradient_color(stops, t, gradient.repeating));
+            }
+        }
+        return;
+    }
+    // Radial.
+    float const cx = tile.x + resolve_length(gradient.center_x, w);
+    float const cy = tile.y + resolve_length(gradient.center_y, h);
+    float const to_left = cx - tile.x;
+    float const to_right = tile.x + w - cx;
+    float const to_top = cy - tile.y;
+    float const to_bottom = tile.y + h - cy;
+    float rx = 0;
+    float ry = 0;
+    bool const closest = gradient.extent == css::Gradient::Extent::ClosestSide
+        || gradient.extent == css::Gradient::Extent::ClosestCorner;
+    float const side_x = closest ? std::min(to_left, to_right) : std::max(to_left, to_right);
+    float const side_y = closest ? std::min(to_top, to_bottom) : std::max(to_top, to_bottom);
+    bool const corner = gradient.extent == css::Gradient::Extent::ClosestCorner
+        || gradient.extent == css::Gradient::Extent::FarthestCorner;
+    if (gradient.shape == css::Gradient::Shape::Circle) {
+        float r = closest ? std::min(side_x, side_y) : std::max(side_x, side_y);
+        if (corner)
+            r = std::sqrt(side_x * side_x + side_y * side_y);
+        rx = r;
+        ry = r;
+    } else {
+        rx = side_x;
+        ry = side_y;
+        if (corner && side_x > 0 && side_y > 0) {
+            // The ellipse through the corner with the sides' aspect ratio.
+            float const ratio = side_y / side_x;
+            rx = std::sqrt(side_x * side_x + (side_y * side_y) / (ratio * ratio));
+            ry = rx * ratio;
+        }
+    }
+    if (rx <= 0 || ry <= 0)
+        return;
+    std::vector<std::pair<float, Color>> const stops = settle_stops(gradient, rx);
+    for (int py = bounds.y; py < bounds.bottom(); ++py) {
+        for (int px = bounds.x; px < bounds.right(); ++px) {
+            float const dx = (static_cast<float>(px) + 0.5f - cx) / rx;
+            float const dy = (static_cast<float>(py) + 0.5f - cy) / ry;
+            float const t = std::sqrt(dx * dx + dy * dy);
+            target.blend_pixel(px, py, gradient_color(stops, t, gradient.repeating));
+        }
+    }
+}
+
+// The background images of a box, the last layer first: each sized by
+// background-size against its positioning area, placed by
+// background-position, tiled as background-repeat says, and clipped to
+// its background-clip box.
+void paint_background_layers(Context& context, Fragment const& fragment)
+{
+    ComputedStyle const& style = *fragment.style;
+    std::vector<css::BackgroundImage> const& images = *style.background_images;
+    auto const pick = [](auto const* list, std::size_t i, auto fallback) {
+        if (!list || list->empty())
+            return fallback;
+        return (*list)[i % list->size()];
+    };
+    std::optional<Rect> const saved = context.target.clip();
+    for (std::size_t n = images.size(); n-- > 0;) {
+        css::BackgroundImage const& image = images[n];
+        if (image.none())
+            continue;
+        Bitmap const* bitmap = nullptr;
+        if (!image.url.empty()) {
+            if (!context.backgrounds)
+                continue;
+            auto const it = context.backgrounds->find(image.url);
+            if (it == context.backgrounds->end() || !it->second)
+                continue;
+            bitmap = it->second.get();
+        }
+        css::BackgroundRepeatPair const repeat
+            = pick(style.background_repeats.get(), n, css::BackgroundRepeatPair {});
+        css::BackgroundPosition const position
+            = pick(style.background_positions.get(), n, css::BackgroundPosition {});
+        css::BackgroundSize const size = pick(style.background_sizes.get(), n, css::BackgroundSize {});
+        css::BackgroundBox const origin = pick(style.background_origins.get(), n, css::BackgroundBox::PaddingBox);
+        css::BackgroundBox const clip = pick(style.background_clips.get(), n, css::BackgroundBox::BorderBox);
+        Area const area = box_of(context, fragment, origin);
+        Area const painting = box_of(context, fragment, clip);
+        Rect clip_rect = snap(painting.x, painting.y, painting.width, painting.height);
+        if (saved)
+            clip_rect = intersect(clip_rect, *saved);
+        if (clip_rect.width <= 0 || clip_rect.height <= 0)
+            continue;
+        // The image's size.
+        float const natural_w = bitmap ? static_cast<float>(bitmap->width()) : area.width;
+        float const natural_h = bitmap ? static_cast<float>(bitmap->height()) : area.height;
+        float w = natural_w;
+        float h = natural_h;
+        switch (size.kind) {
+        case css::BackgroundSize::Kind::Auto:
+            break;
+        case css::BackgroundSize::Kind::Cover:
+        case css::BackgroundSize::Kind::Contain:
+            if (natural_w > 0 && natural_h > 0) {
+                float const sx = area.width / natural_w;
+                float const sy = area.height / natural_h;
+                float const s = size.kind == css::BackgroundSize::Kind::Cover ? std::max(sx, sy) : std::min(sx, sy);
+                w = natural_w * s;
+                h = natural_h * s;
+            }
+            break;
+        case css::BackgroundSize::Kind::Lengths:
+            if (!size.width.is_auto())
+                w = resolve_length(size.width, area.width);
+            if (!size.height.is_auto())
+                h = resolve_length(size.height, area.height);
+            // A picture keeps its ratio through an auto side; a gradient,
+            // having none, takes the area's size there.
+            if (bitmap && size.width.is_auto() && !size.height.is_auto() && natural_h > 0)
+                w = h * natural_w / natural_h;
+            if (bitmap && !size.width.is_auto() && size.height.is_auto() && natural_w > 0)
+                h = w * natural_h / natural_w;
+            break;
+        }
+        if (w < 0.5f || h < 0.5f)
+            continue;
+        // Its position: a percentage aligns the image's point with the area's.
+        auto const offset = [](css::LengthPercent const& length, float room, float extent) {
+            if (length.kind == css::LengthPercent::Kind::Percent)
+                return (room - extent) * length.value / 100.0f;
+            if (length.kind == css::LengthPercent::Kind::Calc)
+                return length.value + (room - extent) * length.percent / 100.0f;
+            return resolve_length(length, room);
+        };
+        float const x0 = area.x + offset(position.x, area.width, w);
+        float const y0 = area.y + offset(position.y, area.height, h);
+        // The tiles.
+        float start_x = x0;
+        float end_x = x0 + w;
+        float start_y = y0;
+        float end_y = y0 + h;
+        if (repeat.x == css::BackgroundRepeat::Repeat) {
+            start_x = x0 - std::ceil((x0 - painting.x) / w) * w;
+            end_x = painting.x + painting.width;
+        }
+        if (repeat.y == css::BackgroundRepeat::Repeat) {
+            start_y = y0 - std::ceil((y0 - painting.y) / h) * h;
+            end_y = painting.y + painting.height;
+        }
+        context.target.set_clip(clip_rect);
+        int tiles = 0;
+        for (float ty = start_y; ty < end_y && tiles < 100000; ty += h) {
+            for (float tx = start_x; tx < end_x && tiles < 100000; tx += w) {
+                ++tiles;
+                if (bitmap)
+                    context.target.draw_scaled(*bitmap, snap(tx, ty, w, h));
+                else
+                    paint_gradient(context.target, *image.gradient, Area { tx, ty, w, h }, clip_rect);
+            }
+        }
+        context.target.set_clip(saved);
+    }
+}
+
 void paint_background_and_borders(Context& context, Fragment const& fragment,
     bool skip_background)
 {
     ComputedStyle const& style = *fragment.style;
     float const x = fragment.x + context.dx;
     float const y = fragment.y + context.dy;
-    if (!skip_background && style.background_color.a != 0)
-        context.target.fill_rect(snap(x, y, fragment.width, fragment.height),
-            style.background_color);
+    if (!skip_background && style.background_color.a != 0) {
+        // The color fills the last layer's clip box.
+        css::BackgroundBox clip = css::BackgroundBox::BorderBox;
+        if (style.background_clips && !style.background_clips->empty())
+            clip = style.background_clips->back();
+        Area const area = box_of(context, fragment, clip);
+        context.target.fill_rect(snap(area.x, area.y, area.width, area.height), style.background_color);
+    }
+    if (!skip_background && style.background_images && !style.background_images->empty())
+        paint_background_layers(context, fragment);
 
     if (style.border_top.style == BorderStyle::Solid && style.border_top.width > 0)
         context.target.fill_rect(snap(x, y, fragment.width, style.border_top.width),
@@ -337,7 +664,8 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
 
 } // namespace
 
-void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x, float offset_y)
+void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x, float offset_y,
+    layout::BackgroundImages const* backgrounds)
 {
     target.fill_rect(Rect { 0, 0, target.width(), target.height() }, page.canvas_background);
     if (!page.root.style)
@@ -346,7 +674,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // itself. A promoted opaque body background repaints the same color over
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
-    Context context { target, offset_x, offset_y };
+    Context context { target, offset_x, offset_y, backgrounds };
     paint_stacking_context(context, page.root, true);
 }
 

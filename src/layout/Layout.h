@@ -128,6 +128,11 @@ struct PageImage {
 // Decoded images by element, supplied by whoever fetched them.
 using ImageMap = std::unordered_map<dom::Element const*, PageImage>;
 
+// The pictures the stylesheets name as backgrounds, by the URL a style's
+// background image carries (resolved, fragment dropped), decoded; the
+// painter draws through this.
+using BackgroundImages = std::unordered_map<std::string, std::shared_ptr<Bitmap const>>;
+
 // `controls` is the live state of the page's form controls (values typed,
 // boxes checked, the focused one); without it the markup's defaults show.
 // `viewport_height` sizes the initial containing block for absolutely and

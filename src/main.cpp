@@ -497,9 +497,7 @@ void census_values(std::vector<css::ComponentValue> const& values, FeatureCensus
     for (css::ComponentValue const& value : values) {
         if (value.is_function()) {
             std::string const name = lowercase_ascii(value.function().name);
-            if (name.ends_with("gradient"))
-                ++census["gradients"];
-            else if (name == "counter" || name == "counters")
+            if (name == "counter" || name == "counters")
                 ++census["counters"];
             census_values(value.function().values, census);
         } else if (value.is_block()) {
@@ -512,12 +510,9 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
 {
     std::string const name = lowercase_ascii(declaration.name);
     std::string first_ident;
-    bool has_url = false;
     for (css::ComponentValue const& value : declaration.value) {
         if (value.is_token(css::Token::Type::Ident) && first_ident.empty())
             first_ident = lowercase_ascii(value.token().value);
-        if (value.is_token(css::Token::Type::Url) || (value.is_function() && lowercase_ascii(value.function().name) == "url"))
-            has_url = true;
     }
     if (name.starts_with("--"))
         return; // custom properties are written; what they hold is counted where it is used
@@ -545,8 +540,6 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["animations"];
     else if (name == "vertical-align")
         return; // vertical-align is written
-    else if (name == "background-image" || (name == "background" && has_url))
-        ++census["background-images"];
     else if (name.starts_with("border") && name.find("radius") != std::string::npos)
         ++census["border-radius"];
     else if (name == "box-shadow" || name == "text-shadow")
@@ -642,10 +635,12 @@ int render_page(std::string const& path, std::string const& output, int viewport
         = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures), media);
     text::FontManager::instance().set_page_fonts(fonts);
     auto const t2 = clock::now();
-    css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
+    css::StyleMap const styles = css::resolve_styles(*document, sheets, media, &loaded.url);
     auto const t3 = clock::now();
     layout::ImageMap const images = ui::collect_images(*document, &loaded.url,
         image_fetcher(loaded, &image_failures), media);
+    layout::BackgroundImages const backgrounds
+        = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures));
     auto const t4 = clock::now();
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
@@ -660,7 +655,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
     if (extras.max_height > 0)
         height = std::min(height, extras.max_height);
     Bitmap canvas(viewport_width, height, page.canvas_background);
-    paint::paint_page(canvas, page);
+    paint::paint_page(canvas, page, 0, 0, &backgrounds);
     auto const t6 = clock::now();
     if (!write_png(output, canvas)) {
         std::cerr << "error: could not write " << output << "\n";
@@ -878,7 +873,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         auto const t0 = clock::now();
         auto document = html::parse_document_bytes(loaded->bytes);
         auto const t1 = clock::now();
-        css::StyleSet const style_set(sheets, media);
+        css::StyleSet const style_set(sheets, media, &loaded->url);
         auto const t1b = clock::now();
         css::StyleMap const styles = css::resolve_styles(*document, style_set);
         auto const t2 = clock::now();
@@ -887,6 +882,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         // Images are fetched here on every run, so the first run pays the
         // network and the rest the session cache; neither counts as a phase.
         layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded), media);
+        layout::BackgroundImages const backgrounds = ui::collect_background_images(styles, image_fetcher(*loaded));
         image_count = images.size();
         auto const t2b = clock::now();
         if (run == 0)
@@ -895,7 +891,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
             static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
         auto const t3 = clock::now();
         Bitmap canvas(viewport_width, 1000, page.canvas_background);
-        paint::paint_page(canvas, page);
+        paint::paint_page(canvas, page, 0, 0, &backgrounds);
         auto const t4 = clock::now();
         sample.parse = ms(t1 - t0).count();
         sample.sheets = ms(t1b - t1).count();

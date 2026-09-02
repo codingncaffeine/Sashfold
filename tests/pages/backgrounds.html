@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Backgrounds</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 384px; color: #123 }
+  h2 { font-size: 14px; margin: 8px 0 4px }
+  .box { height: 48px; margin-bottom: 6px; padding: 4px }
+  #stops { background: linear-gradient(to right, #d33, #fd3 40%, #36c) }
+  #corner { background: linear-gradient(to bottom right, #fff, #234) }
+  #angle { background: linear-gradient(30deg, #063 0%, #6c9 50%, #063 100%) }
+  #radial { background: radial-gradient(circle at 25% 50%, #fff, #369 70%) }
+  #ellipse { background: radial-gradient(ellipse farthest-corner at 80% 20%, #ffd, #c63) }
+  #repeat { background: repeating-linear-gradient(90deg, #06c 0, #06c 8px, #fff 8px, #fff 16px) }
+  #tiles { background: linear-gradient(#cde, #468) 0 0 / 40px 24px repeat }
+  #placed { background: linear-gradient(#fc6, #c60) no-repeat center / 120px 30px; border: 2px solid #c60 }
+  #clipped { background: linear-gradient(to right, #9c6, #360); background-clip: content-box; border: 4px dashed #360; padding: 8px }
+  #layers { background: linear-gradient(to right, transparent, #fff), linear-gradient(#f66, #f66); border: 1px solid #966 }
+  #origin { background: linear-gradient(#69c, #036) no-repeat; background-origin: content-box; background-size: 60px 20px; border: 6px solid #cde; padding: 10px }
+</style>
+</head>
+<body>
+<h2>Linear: stops, a corner, an angle</h2>
+<div class="box" id="stops">to right, #fd3 at 40%</div>
+<div class="box" id="corner">to bottom right</div>
+<div class="box" id="angle">30deg, out and back</div>
+
+<h2>Radial: a circle, an ellipse</h2>
+<div class="box" id="radial">circle at 25% 50%</div>
+<div class="box" id="ellipse">ellipse at 80% 20%</div>
+
+<h2>Repeating, tiled, placed, clipped</h2>
+<div class="box" id="repeat">8px stripes</div>
+<div class="box" id="tiles">40 by 24 tiles</div>
+<div class="box" id="placed">120 by 30, centered</div>
+<div class="box" id="clipped">content-box</div>
+
+<h2>Two layers, and an origin</h2>
+<div class="box" id="layers">a fade over red</div>
+<div class="box" id="origin">60 by 20 from the content box</div>
+</body>
+</html>

@@ -29,7 +29,10 @@ struct RuleSet;
 // arrive or its viewport changes; resolve as often as needed.
 class StyleSet {
 public:
-    StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media = {});
+    // `document_url` is the base for the URLs in style attributes and
+    // presentational hints; a sheet's own URLs resolve against the sheet.
+    StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media = {},
+        net::Url const* document_url = nullptr);
     ~StyleSet();
     StyleSet(StyleSet&&) noexcept;
     StyleSet& operator=(StyleSet&&) noexcept;
@@ -52,7 +55,7 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set);
 
 // The same, building the set for this one resolution.
 StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets,
-    MediaContext const& media = {});
+    MediaContext const& media = {}, net::Url const* document_url = nullptr);
 
 // The same over the document's <style> elements alone: nothing is fetched.
 StyleMap resolve_styles(dom::Document const& document);

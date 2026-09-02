@@ -83,4 +83,46 @@ layout::ImageMap collect_images(dom::Document const& document, net::Url const* b
     return images;
 }
 
+layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch)
+{
+    layout::BackgroundImages out;
+    std::size_t fetched = 0;
+    auto const consider = [&](css::ComputedStyle const& style) {
+        if (!style.background_images)
+            return;
+        for (css::BackgroundImage const& image : *style.background_images) {
+            if (image.url.empty() || out.contains(image.url))
+                continue;
+            std::shared_ptr<Bitmap const> bitmap;
+            std::optional<net::Url> const url = net::parse_url(image.url);
+            if (url && fetched < max_images_per_page && fetch) {
+                ++fetched;
+                if (std::optional<std::vector<std::uint8_t>> bytes = fetch(*url);
+                    bytes && bytes->size() <= max_image_bytes) {
+                    std::optional<Bitmap> decoded;
+                    if (looks_like_png(*bytes))
+                        decoded = decode_png(*bytes);
+                    else if (looks_like_gif(*bytes))
+                        decoded = decode_gif(*bytes);
+                    else if (looks_like_jpeg(*bytes))
+                        decoded = decode_jpeg(*bytes);
+                    if (decoded)
+                        bitmap = std::make_shared<Bitmap const>(std::move(*decoded));
+                }
+            }
+            out.emplace(image.url, std::move(bitmap));
+        }
+    };
+    for (auto const& [element, style] : styles) {
+        consider(style);
+        if (style.generated) {
+            if (style.generated->before)
+                consider(style.generated->before->style);
+            if (style.generated->after)
+                consider(style.generated->after->style);
+        }
+    }
+    return out;
+}
+
 }

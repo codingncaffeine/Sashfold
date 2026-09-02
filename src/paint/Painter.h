@@ -11,7 +11,10 @@ namespace sashfold::paint {
 // Renders the laid-out page, translated by the offset — a scrolled viewport
 // paints with offset_y = -scroll. The bitmap must already be sized; the
 // canvas background comes from the layout result and fills the whole target.
+// `backgrounds` holds the decoded background pictures by URL; without it
+// the styles' background images that are pictures paint nothing (gradients
+// need no fetch and paint regardless).
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x = 0,
-    float offset_y = 0);
+    float offset_y = 0, layout::BackgroundImages const* backgrounds = nullptr);
 
 }

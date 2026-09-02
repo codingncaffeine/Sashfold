@@ -29,4 +29,9 @@ using ImageFetcher = std::function<std::optional<std::vector<std::uint8_t>>(net:
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
     ImageFetcher const& fetch, css::MediaContext const& media = {});
 
+// The pictures the styles name as backgrounds (their URLs already
+// resolved), fetched once each and decoded, for the painter. Bounded like
+// the page's pictures.
+layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch);
+
 }

@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (6213 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (6245 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -130,6 +130,7 @@ css/CSS2/backgrounds/background-position-applies-to-006d.xht
 css/CSS2/backgrounds/background-position-applies-to-006e.xht
 css/CSS2/backgrounds/background-position-applies-to-013d.xht
 css/CSS2/backgrounds/background-position-applies-to-013e.xht
+css/CSS2/backgrounds/background-reset-001.xht
 css/CSS2/backgrounds/background-root-001.xht
 css/CSS2/bidi-text/bidi-box-model-001.xht
 css/CSS2/bidi-text/bidi-box-model-002.xht
@@ -795,6 +796,7 @@ css/CSS2/floats-clear/clear-on-child-with-margins.html
 css/CSS2/floats-clear/clear-on-parent-with-margins-no-clearance.html
 css/CSS2/floats-clear/clear-on-parent-with-margins.html
 css/CSS2/floats-clear/clear-on-parent.html
+css/CSS2/floats-clear/clear-on-replaced-element.html
 css/CSS2/floats-clear/clear-with-top-margin-after-cleared-empty-block.html
 css/CSS2/floats-clear/clearance-006.xht
 css/CSS2/floats-clear/float-003.xht
@@ -3123,6 +3125,7 @@ css/CSS2/syntax/comments-006.xht
 css/CSS2/syntax/comments-007.xht
 css/CSS2/syntax/comments-008.xht
 css/CSS2/syntax/comments-009.xht
+css/CSS2/syntax/core-syntax-006.xht
 css/CSS2/syntax/core-syntax-007.xht
 css/CSS2/syntax/core-syntax-008.xht
 css/CSS2/syntax/core-syntax-009.xht
@@ -3153,6 +3156,7 @@ css/CSS2/syntax/escaped-ident-spaces-005.xht
 css/CSS2/syntax/escaped-ident-spaces-006.xht
 css/CSS2/syntax/escaped-ident-spaces-007.xht
 css/CSS2/syntax/escaped-newline-001.xht
+css/CSS2/syntax/escaped-url-001.xht
 css/CSS2/syntax/escapes-000.xht
 css/CSS2/syntax/escapes-001.xht
 css/CSS2/syntax/escapes-002.xht
@@ -3238,6 +3242,8 @@ css/CSS2/syntax/uri-008.xht
 css/CSS2/syntax/uri-009.xht
 css/CSS2/syntax/uri-010.xht
 css/CSS2/syntax/uri-011.xht
+css/CSS2/syntax/uri-012.xht
+css/CSS2/syntax/uri-016.xht
 css/CSS2/syntax/whitespace-001.xht
 css/CSS2/syntax/whitespace-002.xht
 css/CSS2/tables/border-collapse-005.html
@@ -3768,25 +3774,31 @@ css/css-backgrounds/background-attachment-fixed-inline-scrolled.html
 css/css-backgrounds/background-attachment-fixed-inside-transform-1.html
 css/css-backgrounds/background-attachment-local-block-002.html
 css/css-backgrounds/background-attachment-local-inline-002.html
-css/css-backgrounds/background-attachment-margin-root-001.html
-css/css-backgrounds/background-attachment-margin-root-002.html
 css/css-backgrounds/background-clip-002.html
 css/css-backgrounds/background-clip-003.html
+css/css-backgrounds/background-clip-004.html
+css/css-backgrounds/background-clip-005.html
+css/css-backgrounds/background-clip-006.html
+css/css-backgrounds/background-clip-007.html
+css/css-backgrounds/background-clip-008.html
 css/css-backgrounds/background-clip-009.html
-css/css-backgrounds/background-clip-color-repaint.html
+css/css-backgrounds/background-clip-010.html
+css/css-backgrounds/background-clip-color.html
+css/css-backgrounds/background-clip-content-box-001.html
 css/css-backgrounds/background-clip-content-box-002.html
 css/css-backgrounds/background-clip-content-box-with-border-radius-002.html
+css/css-backgrounds/background-clip-content-box-with-border-radius-003.html
 css/css-backgrounds/background-clip-padding-box-with-border-radius-002.html
+css/css-backgrounds/background-clip-padding-box-with-border-radius-003.html
+css/css-backgrounds/background-clip-padding-box-with-border-radius.html
 css/css-backgrounds/background-clip/clip-border-area-background-geometry.html
 css/css-backgrounds/background-clip/clip-border-area-border-image.html
-css/css-backgrounds/background-clip/clip-border-area-border-shape-background-position.html
 css/css-backgrounds/background-clip/clip-border-area-box-decoration-break.html
 css/css-backgrounds/background-clip/clip-border-area-on-body-propagated-to-root.html
 css/css-backgrounds/background-clip/clip-border-area-on-root.html
 css/css-backgrounds/background-clip/clip-border-shape-table-part-background.html
 css/css-backgrounds/background-clip/clip-rounded-corner.html
 css/css-backgrounds/background-clip/clip-text-animated-text.html
-css/css-backgrounds/background-clip/clip-text-background-table-cell.html
 css/css-backgrounds/background-clip/clip-text-composited-descendant-with-bg-color.html
 css/css-backgrounds/background-clip/clip-text-dynamic-2.html
 css/css-backgrounds/background-clip/clip-text-dynamic-text-change.html
@@ -3799,9 +3811,10 @@ css/css-backgrounds/background-color-body-propagation-001.html
 css/css-backgrounds/background-color-body-propagation-002.html
 css/css-backgrounds/background-color-body-propagation-005.html
 css/css-backgrounds/background-color-body-propagation-010.html
-css/css-backgrounds/background-color-clip.html
 css/css-backgrounds/background-color-root-propagation-001.html
 css/css-backgrounds/background-color-root-propagation-003.html
+css/css-backgrounds/background-gradient-interpolation-001.html
+css/css-backgrounds/background-gradient-interpolation-002.html
 css/css-backgrounds/background-gradient-subpixel-fills-area.html
 css/css-backgrounds/background-image-centered.html
 css/css-backgrounds/background-image-first-letter.html
@@ -3810,10 +3823,8 @@ css/css-backgrounds/background-image-gradient-interpolation-repaint.html
 css/css-backgrounds/background-image-large-with-auto.html
 css/css-backgrounds/background-image-with-border-radius-fidelity.html
 css/css-backgrounds/background-margin-iframe-root.html
-css/css-backgrounds/background-margin-root.html
-css/css-backgrounds/background-margin-transformed-root.html
-css/css-backgrounds/background-margin-will-change-root.html
 css/css-backgrounds/background-multiple-layers-table-cell.html
+css/css-backgrounds/background-none-none-and-color.html
 css/css-backgrounds/background-origin-007.html
 css/css-backgrounds/background-paint-order-001.html
 css/css-backgrounds/background-position-negative-percentage-comparison-002.html
@@ -3822,28 +3833,10 @@ css/css-backgrounds/background-position-three-four-values.html
 css/css-backgrounds/background-position-xy-three-four-values-passthru.html
 css/css-backgrounds/background-position/background-position-bottom-right-repeat-round.html
 css/css-backgrounds/background-position/subpixel-position-center.tentative.html
-css/css-backgrounds/background-repeat-round-1a.html
-css/css-backgrounds/background-repeat-round-1b.html
 css/css-backgrounds/background-repeat-round-1c.html
-css/css-backgrounds/background-repeat-round-1d.html
-css/css-backgrounds/background-repeat-round-1e.html
-css/css-backgrounds/background-repeat-round-2.html
-css/css-backgrounds/background-repeat-round-3.html
-css/css-backgrounds/background-repeat-round-4.html
 css/css-backgrounds/background-repeat-space-10.html
-css/css-backgrounds/background-repeat-space-1a.html
-css/css-backgrounds/background-repeat-space-1b.html
-css/css-backgrounds/background-repeat-space-1c.html
-css/css-backgrounds/background-repeat-space-2.html
-css/css-backgrounds/background-repeat-space-3.html
-css/css-backgrounds/background-repeat-space-4.html
-css/css-backgrounds/background-repeat-space-5.html
-css/css-backgrounds/background-repeat-space-6.html
-css/css-backgrounds/background-repeat-space-7.html
-css/css-backgrounds/background-repeat-space-8.html
 css/css-backgrounds/background-repeat-space-9.html
-css/css-backgrounds/background-repeat/gradient-repeat-spaced-with-borders.html
-css/css-backgrounds/background-rounded-image-clip-001.html
+css/css-backgrounds/background-rounded-image-clip-002.html
 css/css-backgrounds/background-size-007.html
 css/css-backgrounds/background-size-010.html
 css/css-backgrounds/background-size-041.html
@@ -3917,6 +3910,7 @@ css/css-backgrounds/border-radius-010.xht
 css/css-backgrounds/border-radius-011.xht
 css/css-backgrounds/border-radius-012.html
 css/css-backgrounds/border-radius-013.html
+css/css-backgrounds/border-radius-clip-002.htm
 css/css-backgrounds/border-radius-clipping-with-transform-001.html
 css/css-backgrounds/border-radius-horizontal-value-is-zero.html
 css/css-backgrounds/border-radius-shorthand-002.html
@@ -3956,6 +3950,9 @@ css/css-backgrounds/box-shadow/slice-inline-fragmentation-001.html
 css/css-backgrounds/box-shadow/slice-inline-fragmentation-002.html
 css/css-backgrounds/box-shadow/slice-inline-fragmentation-003.html
 css/css-backgrounds/css3-background-clip-border-box.html
+css/css-backgrounds/css3-background-clip-content-box.html
+css/css-backgrounds/css3-background-clip-padding-box.html
+css/css-backgrounds/css3-background-clip.html
 css/css-backgrounds/fieldset-inset-shadow.html
 css/css-backgrounds/first-letter-space-not-selected.html
 css/css-backgrounds/inline-background-rtl-001.html
@@ -4215,6 +4212,11 @@ css/css-flexbox/abspos/position-absolute-009.html
 css/css-flexbox/abspos/position-absolute-010.html
 css/css-flexbox/abspos/position-absolute-011.html
 css/css-flexbox/align-baseline.html
+css/css-flexbox/align-content-001.htm
+css/css-flexbox/align-content-002.htm
+css/css-flexbox/align-content-003.htm
+css/css-flexbox/align-content-004.htm
+css/css-flexbox/align-content-005.htm
 css/css-flexbox/align-content-006.htm
 css/css-flexbox/align-content-wrap-004.html
 css/css-flexbox/align-content_center.html
@@ -4223,6 +4225,9 @@ css/css-flexbox/align-content_flex-start.html
 css/css-flexbox/align-content_space-around.html
 css/css-flexbox/align-content_space-between.html
 css/css-flexbox/align-content_stretch.html
+css/css-flexbox/align-items-001.htm
+css/css-flexbox/align-items-002.htm
+css/css-flexbox/align-items-003.htm
 css/css-flexbox/align-items-005.htm
 css/css-flexbox/align-items-006.html
 css/css-flexbox/align-items-007.html
@@ -4652,6 +4657,11 @@ css/css-flexbox/inline-flex-min-content-height.html
 css/css-flexbox/intrinsic-size/row-001.html
 css/css-flexbox/item-with-max-height-and-scrollbar.html
 css/css-flexbox/item-with-table-with-infinite-max-intrinsic-width.html
+css/css-flexbox/justify-content-001.htm
+css/css-flexbox/justify-content-002.htm
+css/css-flexbox/justify-content-003.htm
+css/css-flexbox/justify-content-004.htm
+css/css-flexbox/justify-content-005.htm
 css/css-flexbox/min-size-auto-overflow-clip.html
 css/css-flexbox/multiline-last-baseline-item-count.html
 css/css-flexbox/negative-margins-001.html
@@ -5073,6 +5083,18 @@ css/css-grid/grid-items/grid-items-002.html
 css/css-grid/grid-items/grid-items-003.html
 css/css-grid/grid-items/grid-items-contribution-negative-margins.html
 css/css-grid/grid-items/grid-items-inline-blocks-001.html
+css/css-grid/grid-items/grid-items-percentage-margins-003.html
+css/css-grid/grid-items/grid-items-percentage-margins-004.html
+css/css-grid/grid-items/grid-items-percentage-margins-005.html
+css/css-grid/grid-items/grid-items-percentage-margins-006.html
+css/css-grid/grid-items/grid-items-percentage-margins-007.html
+css/css-grid/grid-items/grid-items-percentage-margins-008.html
+css/css-grid/grid-items/grid-items-percentage-margins-009.html
+css/css-grid/grid-items/grid-items-percentage-margins-010.html
+css/css-grid/grid-items/grid-items-percentage-margins-011.html
+css/css-grid/grid-items/grid-items-percentage-margins-012.html
+css/css-grid/grid-items/grid-items-percentage-margins-013.html
+css/css-grid/grid-items/grid-items-percentage-margins-014.html
 css/css-grid/grid-items/grid-items-percentage-paddings-003.html
 css/css-grid/grid-items/grid-items-percentage-paddings-004.html
 css/css-grid/grid-items/grid-items-percentage-paddings-005.html
@@ -5455,6 +5477,8 @@ css/css-overflow/overflow-clip-margin-002.html
 css/css-overflow/overflow-clip-margin-005.html
 css/css-overflow/overflow-clip-margin-008.html
 css/css-overflow/overflow-clip-margin-009.html
+css/css-overflow/overflow-clip-margin-021.html
+css/css-overflow/overflow-clip-margin-022.html
 css/css-overflow/overflow-clip-margin-border-radius.html
 css/css-overflow/overflow-clip-margin-content-box-dynamic.html
 css/css-overflow/overflow-clip-margin-mul-column-padding-box.html
@@ -5602,8 +5626,6 @@ css/css-text/hyphens/hyphens-auto-min-content.html
 css/css-text/hyphens/hyphens-manual-010.html
 css/css-text/hyphens/hyphens-manual-inline-010.html
 css/css-text/hyphens/hyphens-none-011.html
-css/css-text/hyphens/hyphens-none-014.html
-css/css-text/hyphens/hyphens-none-015.html
 css/css-text/hyphens/hyphens-none-shy-on-2nd-line-001.html
 css/css-text/hyphens/hyphens-punctuation-001.html
 css/css-text/hyphens/hyphens-shaping-001.html
@@ -5952,6 +5974,8 @@ css/css-text/white-space/trailing-space-rtl-001.html
 css/css-text/white-space/white-space-applies-to-text-001.html
 css/css-text/white-space/white-space-intrinsic-size-015.html
 css/css-text/white-space/white-space-intrinsic-size-016.html
+css/css-text/white-space/white-space-intrinsic-size-017.html
+css/css-text/white-space/white-space-intrinsic-size-018.html
 css/css-text/white-space/white-space-intrinsic-size-019.html
 css/css-text/white-space/white-space-intrinsic-size-020.html
 css/css-text/white-space/white-space-intrinsic-size-024.html
@@ -6003,6 +6027,11 @@ css/css-text/word-spacing/word-spacing-animating-word-spacing.html
 css/css-text/word-spacing/word-spacing-percent-001.html
 css/css-text/writing-system/writing-system-font-001.html
 css/css-text/zwnj-renders-invisible.html
+css/css-values/angle-units-001.html
+css/css-values/angle-units-002.html
+css/css-values/angle-units-003.html
+css/css-values/angle-units-004.html
+css/css-values/angle-units-005.html
 css/css-values/attr-dynamic-marker-content.html
 css/css-values/attr-in-slotted.html
 css/css-values/attr-namespace-wildcard.html
@@ -6052,6 +6081,8 @@ css/css-values/calc-zero-percent-height.html
 css/css-values/ex-calc-expression-001.html
 css/css-values/ex-unit-001.html
 css/css-values/ex-unit-004.html
+css/css-values/lh-unit-same-element-font-size-dependency.html
+css/css-values/lh-unit-same-element-line-height-dependency.html
 css/css-values/max-20-arguments.html
 css/css-values/max-unitless-zero-invalid.html
 css/css-values/negative-calc-to-non-negative-integer.html
@@ -6172,6 +6203,7 @@ css/css-variables/variable-reference-38.html
 css/css-variables/variable-reference-39.html
 css/css-variables/variable-reference-40.html
 css/css-variables/variable-supports-58.html
+css/css-variables/vars-background-shorthand-001.html
 css/css-variables/vars-font-shorthand-001.html
 css/css-variables/wide-keyword-fallback-001.html
 css/selectors/caret-color-visited-inheritance.html
