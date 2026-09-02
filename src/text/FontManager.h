@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -37,6 +38,17 @@ public:
     // fallback chain; then the built-in face, which draws the box.
     Face const& face_for(char32_t code_point) const;
 
+    // A face and a glyph id to measure and draw: never "none" — when
+    // nothing has the code point, the built-in face with the code point as
+    // its glyph, which is how it draws the box.
+    struct Glyph {
+        Face const* face;
+        std::uint32_t glyph;
+    };
+    Glyph glyph_for(char32_t code_point) const;
+    // The advance of a string at a size, glyph by glyph.
+    float measure(std::u32string_view text, float size) const;
+
 private:
     friend class FontManager;
     FontManager* m_manager = nullptr;
@@ -55,6 +67,9 @@ public:
 
     // Every face the OS directories offer (scanned on first use).
     std::vector<FaceInfo> const& catalogue();
+    // Adds one font file's faces to the catalogue, as if it were installed:
+    // for tests, and for fonts a page brings along.
+    void add_font_file(std::string const& path);
 
     // The first catalogued face with a glyph for the code point, loading
     // faces as needed and remembering the answer; null when none has it.

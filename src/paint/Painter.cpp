@@ -1,6 +1,7 @@
 #include "paint/Painter.h"
 
-#include "text/SashfoldMono.h"
+#include "text/Face.h"
+#include "text/FontManager.h"
 
 #include <cmath>
 
@@ -68,14 +69,16 @@ void paint_run(Context& context, TextRun const& run)
         || baseline - style.font_size > static_cast<float>(context.target.height()))
         return;
 
-    text::SashfoldMono const& font = text::SashfoldMono::instance();
-    float const advance = text::SashfoldMono::advance(style.font_size);
+    if (!run.fonts)
+        return;
+    bool const italic = style.font_style == css::FontStyle::Italic;
     float const start_x = run.x + context.dx;
     float x = start_x;
     for (char32_t const c : run.text) {
-        font.draw_glyph(context.target, c, x, baseline, style.font_size, style.color, style.bold(),
-            style.font_style == css::FontStyle::Italic);
-        x += advance;
+        text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
+        glyph.face->draw_glyph(context.target, glyph.glyph, x, baseline, style.font_size,
+            style.color, style.bold(), italic);
+        x += glyph.face->advance(glyph.glyph, style.font_size);
     }
 
     if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())

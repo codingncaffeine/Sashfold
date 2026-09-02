@@ -86,3 +86,8 @@ add_executable(test_rasterizer test_rasterizer.cpp)
 target_link_libraries(test_rasterizer PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_rasterizer
   COMMAND test_rasterizer ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SashfoldMono.ttf)
+
+add_executable(test_layout test_layout.cpp)
+target_link_libraries(test_layout PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_layout
+  COMMAND test_layout ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SashfoldMono.ttf)

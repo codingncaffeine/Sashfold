@@ -2,10 +2,12 @@
 
 #include "core/Unicode.h"
 #include "dom/Dom.h"
-#include "text/SashfoldMono.h"
+#include "text/Face.h"
+#include "text/FontManager.h"
 
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 
 namespace sashfold::layout {
 
@@ -46,6 +48,27 @@ struct InlineItem {
 
 struct Layouter {
     css::StyleMap const& styles;
+    // The faces each style resolved to, looked up once per style.
+    mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
+
+    text::FontStack const& fonts_for(ComputedStyle const& style) const
+    {
+        if (auto const it = fonts.find(&style); it != fonts.end())
+            return *it->second;
+        text::FontRequest request;
+        if (style.font_family)
+            request.families = *style.font_family;
+        request.weight = style.font_weight;
+        request.italic = style.font_style == css::FontStyle::Italic;
+        text::FontStack const& stack = text::FontManager::instance().resolve(request);
+        fonts.emplace(&style, &stack);
+        return stack;
+    }
+
+    float measure(ComputedStyle const& style, std::u32string_view text) const
+    {
+        return fonts_for(style).measure(text, style.font_size);
+    }
 
     ComputedStyle const* style_of(dom::Element const& element) const
     {
@@ -135,11 +158,12 @@ struct Layouter {
 
     // --- Inline layout: line building ----------------------------------------
 
-    static float ascent_in_line(ComputedStyle const& style)
+    float ascent_in_line(ComputedStyle const& style) const
     {
-        // The half-leading model: the em box centers in its line-height.
+        // The half-leading model: the face's ascent, plus half of what the
+        // line-height adds beyond the font size.
         float const leading = style.line_height_px() - style.font_size;
-        return style.font_size * 25.0f / 32.0f + leading / 2.0f;
+        return fonts_for(style).primary().metrics(style.font_size).ascent + leading / 2.0f;
     }
 
     // Lays the items into lines; returns the total height used.
@@ -177,7 +201,8 @@ struct Layouter {
             for (Placed& placed : line) {
                 float const width = placed.width;
                 if (!placed.text.empty())
-                    out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style, placed.element });
+                    out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style,
+                        placed.element, &fonts_for(*placed.style), width });
                 x += width;
             }
             y += line_height;
@@ -196,28 +221,45 @@ struct Layouter {
             if (item.kind == InlineItem::Kind::Space) {
                 if (line.empty())
                     continue; // leading space on a line collapses away
-                float const width = text::SashfoldMono::measure(item.text, item.style->font_size);
+                float const width = measure(*item.style, item.text);
                 line.push_back(Placed { item.text, item.style, true, width, item.element });
                 line_width += width;
                 continue;
             }
             std::u32string word = item.text;
-            float width = text::SashfoldMono::measure(word, item.style->font_size);
+            float width = measure(*item.style, word);
             if (allow_wrap && !line.empty() && line_width + width > content_width)
                 flush_line();
             if (allow_wrap && content_width > 0) {
-                // Emergency break: slice a word that cannot fit a whole line.
-                float const advance = text::SashfoldMono::advance(item.style->font_size);
-                std::size_t const fit = std::max<std::size_t>(1,
-                    static_cast<std::size_t>(content_width / advance));
-                while (line.empty() && word.size() > fit) {
-                    line.push_back(Placed { word.substr(0, fit), item.style, false,
-                        static_cast<float>(fit) * advance, item.element });
-                    line_width += line.back().width;
+                // Emergency break: slice a word that cannot fit a whole line,
+                // at the last glyph that still fits (one at least).
+                while (line.empty() && width > content_width) {
+                    std::size_t fit = 0;
+                    float fit_width = 0;
+                    if (fonts_for(*item.style).faces().size() == 1) {
+                        // Fixed pitch: the count is a division.
+                        float const advance = measure(*item.style, U" ");
+                        fit = std::max<std::size_t>(1, static_cast<std::size_t>(content_width / advance));
+                        fit = std::min(fit, word.size());
+                        fit_width = static_cast<float>(fit) * advance;
+                    } else {
+                        for (std::size_t i = 0; i < word.size(); ++i) {
+                            float const glyph_width
+                                = measure(*item.style, std::u32string_view(word).substr(i, 1));
+                            if (fit > 0 && fit_width + glyph_width > content_width)
+                                break;
+                            fit_width += glyph_width;
+                            ++fit;
+                        }
+                    }
+                    if (fit >= word.size())
+                        break;
+                    line.push_back(Placed { word.substr(0, fit), item.style, false, fit_width, item.element });
+                    line_width += fit_width;
                     flush_line();
                     word = word.substr(fit);
+                    width = measure(*item.style, word);
                 }
-                width = text::SashfoldMono::measure(word, item.style->font_size);
             }
             line.push_back(Placed { std::move(word), item.style, false, width, item.element });
             line_width += width;
@@ -425,12 +467,13 @@ struct Layouter {
         }
         if (marker.empty())
             return;
-        float const width = text::SashfoldMono::measure(marker, style.font_size);
+        float const width = measure(style, marker);
         float const gap = style.font_size * 0.4f;
         float const baseline = item_fragment.y + style.border_top.width
             + resolve(style.padding_top, 0) + ascent_in_line(style);
         item_fragment.runs.insert(item_fragment.runs.begin(),
-            TextRun { item_fragment.x - width - gap, baseline, std::move(marker), &style, item_fragment.element });
+            TextRun { item_fragment.x - width - gap, baseline, std::move(marker), &style,
+                item_fragment.element, &fonts_for(style), width });
     }
 };
 
@@ -450,7 +493,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles };
+    Layouter layouter { styles, {} };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;

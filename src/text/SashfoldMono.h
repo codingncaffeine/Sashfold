@@ -44,8 +44,10 @@ public:
 
     static FontMetrics metrics(float size)
     {
-        float const scale = size / static_cast<float>(units_per_em);
-        return { design_ascent * scale, design_descent * scale, design_advance * scale, 0 };
+        // Spelled as design * size / em, the same expression as advance():
+        // layout's numbers must not shift by a rounding between the two.
+        return { design_ascent * size / static_cast<float>(units_per_em),
+            design_descent * size / static_cast<float>(units_per_em), advance(size), 0 };
     }
 
     static float advance(float size)

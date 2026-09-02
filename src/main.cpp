@@ -44,6 +44,7 @@ int usage(char const* program)
               << "       " << program << " --font-sampler <output.png> [--font <file.ttf>]\n"
               << "       " << program << " --font-info <file.ttf|file.ttc>\n"
               << "       " << program << " --font-list\n"
+              << "       any mode: --fonts system|builtin   (system, except --script)\n"
               << "       " << program << " --smoke [-o output.png]\n"
               << "\n"
               << "  With a URL or nothing, opens the browser window.\n"
@@ -507,6 +508,7 @@ int main(int argc, char** argv)
     std::string theme_path = default_theme_path(argv[0]);
     std::optional<std::string> downloads;
     std::string font_path;
+    std::string fonts_mode; // "system" or "builtin"; empty picks per mode
     int width = 0;
     int height = 0;
     int runs = 5;
@@ -538,6 +540,13 @@ int main(int argc, char** argv)
         } else if (arg == "--font") {
             if (!value_after(i, font_path))
                 return usage(argv[0]);
+        } else if (arg == "--fonts") {
+            if (!value_after(i, fonts_mode))
+                return usage(argv[0]);
+            if (fonts_mode != "system" && fonts_mode != "builtin") {
+                std::cerr << "error: --fonts takes system or builtin\n";
+                return usage(argv[0]);
+            }
         } else if (arg == "--smoke" || arg == "--font-list") {
             mode = arg;
         } else if (arg == "--update-goldens") {
@@ -565,6 +574,12 @@ int main(int argc, char** argv)
             start_url = arg;
         }
     }
+
+    // The machine's fonts serve the window, --render and --bench. The script
+    // harness renders the built-in face alone unless told otherwise: its
+    // goldens must match on every OS.
+    bool const system_fonts = fonts_mode.empty() ? mode != "--script" : fonts_mode == "system";
+    text::FontManager::instance().set_system_fonts(system_fonts);
 
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,

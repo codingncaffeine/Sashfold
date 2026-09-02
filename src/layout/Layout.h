@@ -19,6 +19,10 @@ class Document;
 class Element;
 }
 
+namespace sashfold::text {
+class FontStack;
+}
+
 namespace sashfold::layout {
 
 struct TextRun {
@@ -27,6 +31,8 @@ struct TextRun {
     std::u32string text;
     css::ComputedStyle const* style = nullptr;
     dom::Element const* element = nullptr; // nearest element: hit-testing walks up from here
+    text::FontStack const* fonts = nullptr; // the faces the style resolved to; paint draws through them
+    float width = 0; // the run's advance, measured glyph by glyph
 };
 
 struct Fragment {

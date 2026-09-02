@@ -4,6 +4,7 @@
 #include "html/TreeBuilder.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
+#include "text/FontManager.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -62,6 +63,8 @@ int main(int argc, char** argv)
     std::filesystem::path const pages_dir = argv[1];
     std::filesystem::path const goldens_dir = argv[2];
     bool const update = argc > 3 && std::string_view(argv[3]) == "--update";
+    // The built-in face alone: the goldens must match on every machine.
+    text::FontManager::instance().set_system_fonts(false);
 
     std::vector<std::filesystem::path> pages;
     for (auto const& entry : std::filesystem::directory_iterator(pages_dir)) {

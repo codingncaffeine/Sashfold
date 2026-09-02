@@ -7,6 +7,8 @@
 #include "html/TreeBuilder.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
+#include "text/Face.h"
+#include "text/FontManager.h"
 #include "text/SashfoldMono.h"
 #include "ui/Downloads.h"
 #include "ui/InternalPages.h"
@@ -35,6 +37,24 @@ constexpr float font_descent_ratio = 7.0f / 32.0f;
 float text_width(std::u32string_view text, float size)
 {
     return text::SashfoldMono::measure(text, size);
+}
+
+// The ascent and descent of a page run's face at its size.
+text::FaceMetrics run_metrics(layout::TextRun const& run)
+{
+    float const size = run.style->font_size;
+    if (run.fonts)
+        return run.fonts->primary().metrics(size);
+    return text::FaceMetrics { size * font_ascent_ratio, size * font_descent_ratio, 0 };
+}
+
+// The advance of the first `count` code points of a page run.
+float prefix_width(layout::TextRun const& run, std::size_t count)
+{
+    std::u32string_view const text(run.text);
+    std::u32string_view const prefix = text.substr(0, std::min(count, text.size()));
+    float const size = run.style->font_size;
+    return run.fonts ? run.fonts->measure(prefix, size) : text_width(prefix, size);
 }
 
 void draw_text(Bitmap& target, std::u32string_view text, float x, float baseline, float size,
@@ -478,7 +498,7 @@ struct Browser::Impl {
         for (layout::TextRun const& run : fragment.runs) {
             for (dom::Node const* node = run.element; node; node = node->parent()) {
                 if (node == target)
-                    return run.baseline_y - run.style->font_size * font_ascent_ratio;
+                    return run.baseline_y - run_metrics(run).ascent;
             }
         }
         for (layout::Fragment const& child : fragment.children) {
@@ -814,10 +834,10 @@ struct Browser::Impl {
                 return hit;
         }
         for (layout::TextRun const& run : fragment.runs) {
-            float const size = run.style->font_size;
-            float const top = run.baseline_y - size * font_ascent_ratio;
-            float const bottom = run.baseline_y + size * font_descent_ratio;
-            float const right = run.x + text_width(run.text, size);
+            text::FaceMetrics const metrics = run_metrics(run);
+            float const top = run.baseline_y - metrics.ascent;
+            float const bottom = run.baseline_y + metrics.descent;
+            float const right = run.x + run.width;
             if (x >= run.x && x < right && y >= top && y < bottom)
                 return run.element;
         }
@@ -863,11 +883,9 @@ struct Browser::Impl {
                 continue;
             std::size_t const before = decode_utf8(text.substr(0, at)).size();
             std::size_t const length = decode_utf8(needle).size();
-            float const size = run.style->font_size;
-            float const advance = text::SashfoldMono::advance(size);
-            float const center_x = run.x
-                + (static_cast<float>(before) + static_cast<float>(length) / 2.0f) * advance;
-            float const center_y = run.baseline_y - size * font_ascent_ratio / 2.0f;
+            float const start = prefix_width(run, before);
+            float const center_x = run.x + start + (prefix_width(run, before + length) - start) / 2.0f;
+            float const center_y = run.baseline_y - run_metrics(run).ascent / 2.0f;
             return TextHit { c.content.x + static_cast<int>(center_x),
                 c.content.y + static_cast<int>(center_y) - tab.scroll_y };
         }
