@@ -122,3 +122,17 @@ add_executable(test_layout test_layout.cpp)
 target_link_libraries(test_layout PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_layout
   COMMAND test_layout ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SashfoldMono.ttf)
+
+# The Web Platform Tests' CSS reference tests, scored against the checkout
+# tools/wpt-fetch.sh makes at wpt/ (a fresh clone has none: fetch it to run
+# this one). The baseline names every passing test and only grows.
+add_executable(wpt_reftest wpt_reftest.cpp)
+target_link_libraries(wpt_reftest PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/css)
+  add_test(NAME wpt_reftest
+    COMMAND wpt_reftest ${CMAKE_SOURCE_DIR}/wpt
+      ${CMAKE_CURRENT_SOURCE_DIR}/wpt/directories.txt
+      ${CMAKE_CURRENT_SOURCE_DIR}/wpt/passing.txt
+      --revision ${CMAKE_CURRENT_SOURCE_DIR}/wpt/REVISION)
+  set_tests_properties(wpt_reftest PROPERTIES TIMEOUT 1800)
+endif()

@@ -1,0 +1,4 @@
+# The web-platform-tests commit the scores and the baseline refer to.
+# tools/wpt-fetch.sh checks this revision out; move it deliberately, then
+# re-bless the baseline.
+b1a7025f8bc16454e18604c9e195038aa5cf1d94

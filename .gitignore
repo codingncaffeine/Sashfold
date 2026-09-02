@@ -13,3 +13,6 @@ _plans/
 .vscode/
 .idea/
 *.swp
+
+# The Web Platform Tests checkout tools/wpt-fetch.sh makes (never committed)
+/wpt/

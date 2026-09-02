@@ -1,0 +1,19 @@
+# The Web Platform Tests directories the CSS reference-test runner scores,
+# relative to the checkout: the CSSWG specifications this engine implements
+# or is measured against, with CSS 2 as the baseline. tools/wpt-fetch.sh
+# checks out exactly these (plus the shared fonts, images and support).
+css/CSS2
+css/css-backgrounds
+css/css-box
+css/css-cascade
+css/css-color
+css/css-display
+css/css-flexbox
+css/css-fonts
+css/css-grid
+css/css-overflow
+css/css-position
+css/css-syntax
+css/css-text
+css/css-values
+css/selectors

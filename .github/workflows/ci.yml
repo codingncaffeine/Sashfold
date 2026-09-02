@@ -17,6 +17,18 @@ jobs:
       - run: bash tools/pledge-check.sh build/sashfold
       - run: bash tools/egress-check.sh
 
+  # The Web Platform Tests' CSS reference tests: the checkout is fetched at
+  # the pinned revision, and every test the baseline names must still pass.
+  wpt-css:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: bash tools/wpt-fetch.sh
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --target wpt_reftest
+      - run: ./build/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION
+
   linux-clang:
     runs-on: ubuntu-latest
     steps:

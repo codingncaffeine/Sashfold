@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sashfold — Web Platform Tests</title>
+<meta name="description" content="Sashfold's pass rate on the Web Platform Tests' CSS reference tests, by directory.">
+<link rel="icon" type="image/png" href="icon-160.png">
+<link rel="canonical" href="https://sashfold.com/wpt.html">
+<style>
+  :root { --bg: #f7f9fc; --panel: #ffffff; --ink: #16233c; --muted: #4e5d78; --navy: #16305e;
+          --blue: #1e63c4; --sky: #37b6e8; --accent: #f49c3c; --line: #d8e1ee; --code-bg: #eef3fa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1524; --panel: #131e33; --ink: #e6edf7; --muted: #9fb0c9; --navy: #a8c4ef;
+            --blue: #5b9bea; --sky: #4cc3ef; --accent: #f5aa55; --line: #24334f; --code-bg: #1a2740; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 17px/1.65 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
+  a { color: var(--blue); }
+  a:hover { color: var(--sky); }
+  h1, h2 { color: var(--navy); line-height: 1.2; }
+  h1 { margin-top: 48px; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--code-bg);
+         padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
+  .stat { display: inline-block; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 10px; padding: 14px 20px; margin: 8px 0 20px; }
+  .stat .big { font-size: 1.8rem; font-weight: 700; color: var(--blue); display: block; }
+  .stat .what { color: var(--muted); font-size: 0.92rem; }
+  table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.92rem; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar { background: var(--code-bg); border-radius: 4px; height: 10px; width: 100%; min-width: 120px; }
+  .bar span { display: block; height: 10px; border-radius: 4px; background: var(--blue); }
+  p.muted { color: var(--muted); font-size: 0.95rem; }
+</style>
+</head>
+<body>
+<main>
+<p><a href="./">← sashfold.com</a></p>
+<h1>Web Platform Tests</h1>
+<p>Sashfold's pass rate on the CSS <em>reference tests</em> of the <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a> — the tests that need no scripting: a test page and a reference page must render to the same pixels. Every test and every reference is rendered by Sashfold itself, headless, at the suite's 800×600 viewport, with the built-in face and the fonts the tests bring along. The comparison follows the suite's own rules (pixel-identical unless a test declares a fuzziness allowance; references may chain).</p>
+<div class="stat"><span class="big">4324 / 13295</span><span class="what">CSS reference tests passing — 32.5%</span></div>
+<table>
+<thead><tr><th>Directory</th><th></th><th>Passing</th><th>Rate</th></tr></thead>
+<tbody>
+<tr><td><code>css/CSS2</code></td><td><div class="bar"><span style="width: 35%"></span></div></td><td class="num">2188 / 6169</td><td class="num">35.5%</td></tr>
+<tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 29%"></span></div></td><td class="num">208 / 711</td><td class="num">29.3%</td></tr>
+<tr><td><code>css/css-box</code></td><td><div class="bar"><span style="width: 36%"></span></div></td><td class="num">25 / 69</td><td class="num">36.2%</td></tr>
+<tr><td><code>css/css-cascade</code></td><td><div class="bar"><span style="width: 25%"></span></div></td><td class="num">11 / 43</td><td class="num">25.6%</td></tr>
+<tr><td><code>css/css-color</code></td><td><div class="bar"><span style="width: 34%"></span></div></td><td class="num">107 / 307</td><td class="num">34.9%</td></tr>
+<tr><td><code>css/css-display</code></td><td><div class="bar"><span style="width: 23%"></span></div></td><td class="num">51 / 213</td><td class="num">23.9%</td></tr>
+<tr><td><code>css/css-flexbox</code></td><td><div class="bar"><span style="width: 21%"></span></div></td><td class="num">217 / 1003</td><td class="num">21.6%</td></tr>
+<tr><td><code>css/css-fonts</code></td><td><div class="bar"><span style="width: 40%"></span></div></td><td class="num">151 / 371</td><td class="num">40.7%</td></tr>
+<tr><td><code>css/css-grid</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">680 / 1643</td><td class="num">41.4%</td></tr>
+<tr><td><code>css/css-overflow</code></td><td><div class="bar"><span style="width: 23%"></span></div></td><td class="num">142 / 596</td><td class="num">23.8%</td></tr>
+<tr><td><code>css/css-position</code></td><td><div class="bar"><span style="width: 37%"></span></div></td><td class="num">92 / 248</td><td class="num">37.1%</td></tr>
+<tr><td><code>css/css-syntax</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">1 / 1</td><td class="num">100.0%</td></tr>
+<tr><td><code>css/css-text</code></td><td><div class="bar"><span style="width: 23%"></span></div></td><td class="num">344 / 1484</td><td class="num">23.2%</td></tr>
+<tr><td><code>css/css-values</code></td><td><div class="bar"><span style="width: 27%"></span></div></td><td class="num">57 / 211</td><td class="num">27.0%</td></tr>
+<tr><td><code>css/selectors</code></td><td><div class="bar"><span style="width: 22%"></span></div></td><td class="num">50 / 226</td><td class="num">22.1%</td></tr>
+</tbody>
+</table>
+<p class="muted">Scored 2026-09-02 against WPT revision <code>b1a7025f8bc1</code>. The count is every reference test the suite's manifest rules find under these directories, including the ones that wait on scripts (Sashfold runs none yet, so those fail). XHTML test files are parsed by the HTML parser. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>
+</main>
+</body>
+</html>
