@@ -134,5 +134,45 @@ int main()
     CHECK(close(style_of("sized").font_size, 40)); // 2em of 20
     CHECK(close(style_of("sized").line_height_px(), 60)); // 1.5 x 40
 
+    // --- font-family: lists, strings, spaced identifiers, inheritance ---------
+    g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  body { font-family: "Times New Roman", Georgia , serif }
+  .sans { font-family: Segoe UI, sans-serif }
+  .bad { font-family: "Foo" Bar }
+  .empty { font-family: , serif }
+</style></head>
+<body>
+  <p id="fam">x<span id="inherit">y</span></p>
+  <p id="sans" class="sans">z</p>
+  <p id="bad" class="bad">w</p>
+  <p id="empty" class="empty">v</p>
+  <pre id="pre">c</pre>
+  <p id="code"><code id="code-inner">c</code></p>
+</body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        auto const& families = style_of("fam").font_family;
+        if (CHECK(families != nullptr) && CHECK_EQ(families->size(), 3u)) {
+            CHECK_EQ((*families)[0], std::string("Times New Roman"));
+            CHECK_EQ((*families)[1], std::string("Georgia"));
+            CHECK_EQ((*families)[2], std::string("serif"));
+        }
+        CHECK(style_of("inherit").font_family == families); // shared down the tree
+        auto const& sans = style_of("sans").font_family;
+        if (CHECK(sans != nullptr) && CHECK_EQ(sans->size(), 2u)) {
+            CHECK_EQ((*sans)[0], std::string("Segoe UI"));
+            CHECK_EQ((*sans)[1], std::string("sans-serif"));
+        }
+        CHECK(style_of("bad").font_family == families); // invalid: the inherited list stays
+        CHECK(style_of("empty").font_family == families);
+        auto const& pre = style_of("pre").font_family;
+        CHECK(pre != nullptr && pre->size() == 1 && (*pre)[0] == "monospace"); // UA rule
+        auto const& code = style_of("code-inner").font_family;
+        CHECK(code != nullptr && (*code)[0] == "monospace");
+        CHECK(style_of("code").font_family == families);
+    }
+
     return sashfold::test::report("style-resolver");
 }

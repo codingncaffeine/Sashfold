@@ -8,6 +8,7 @@
 // parser. CFF-flavored OpenType is recognized and declined until the CFF
 // interpreter exists: its metrics and cmap load, its outlines do not.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -15,6 +16,10 @@
 #include <vector>
 
 namespace sashfold::text {
+
+// The OS/2 ulUnicodeRange bit that covers a code point, when one does:
+// what a font claims before anyone reads its cmap.
+std::optional<int> os2_unicode_range_bit(char32_t code_point);
 
 struct GlyphPoint {
     std::int16_t x = 0; // font units, y up
@@ -31,6 +36,30 @@ struct GlyphOutline {
     std::int16_t y_max = 0;
 };
 
+// What a font file says about one of its faces, read without loading it:
+// enough to catalogue a directory of fonts and choose among them.
+struct FaceInfo {
+    std::string path;
+    std::size_t face_index = 0;
+    std::string family;
+    std::string subfamily;
+    std::uint16_t weight_class = 400;
+    bool italic = false;
+    bool has_outlines = true; // false for CFF-flavored OpenType
+    std::array<std::uint32_t, 4> unicode_ranges { 0, 0, 0, 0 }; // OS/2 ulUnicodeRange1-4; all zero when unsaid
+
+    bool claims(char32_t code_point) const
+    {
+        std::optional<int> const bit = os2_unicode_range_bit(code_point);
+        return bit && (unicode_ranges[static_cast<std::size_t>(*bit / 32)] >> (*bit % 32)) & 1u;
+    }
+    bool claims_nothing() const
+    {
+        return unicode_ranges[0] == 0 && unicode_ranges[1] == 0 && unicode_ranges[2] == 0
+            && unicode_ranges[3] == 0;
+    }
+};
+
 class TrueTypeFont {
 public:
     // Faces in the file: 1 for a TTF, the collection count for a TTC, 0
@@ -40,6 +69,11 @@ public:
     // Parses one face; nullopt on any structural problem.
     static std::optional<TrueTypeFont> parse(std::vector<std::uint8_t> bytes,
         std::size_t face_index = 0);
+
+    // Reads only the table directory and the head, name and OS/2 tables of
+    // each face in the file, by seeking: a catalogue entry per face, none
+    // when the file is not a font.
+    static std::vector<FaceInfo> scan_file(std::string const& path);
 
     std::uint16_t units_per_em() const { return m_units_per_em; }
     std::uint16_t glyph_count() const { return m_glyph_count; }

@@ -6,6 +6,7 @@
 #include "dom/Dom.h"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -44,6 +45,7 @@ i, em, cite, dfn, var, address { font-style: italic }
 small { font-size: 0.83em }
 big { font-size: 1.17em }
 pre, listing, plaintext, xmp { white-space: pre }
+pre, listing, plaintext, xmp, code, kbd, samp, tt { font-family: monospace }
 nobr { white-space: nowrap }
 a { color: rgb(0, 0, 238); text-decoration: underline }
 s, strike, del { text-decoration: line-through }
@@ -434,6 +436,7 @@ struct Resolver {
         style.font_size = parent.font_size;
         style.font_weight = parent.font_weight;
         style.font_style = parent.font_style;
+        style.font_family = parent.font_family;
         style.line_height = parent.line_height;
         style.text_align = parent.text_align;
         style.white_space = parent.white_space;
@@ -713,6 +716,40 @@ struct Resolver {
                 style.font_weight = style.font_weight < 550 ? 100
                     : style.font_weight < 750               ? 400
                                                             : 700;
+            return;
+        }
+        if (name == "font-family") {
+            // Comma-separated names: a string, or identifiers joined by
+            // single spaces. One bad name drops the whole declaration.
+            auto families = std::make_shared<std::vector<std::string>>();
+            std::string current;
+            bool after_string = false;
+            for (ComponentValue const* value : values) {
+                if (value->is_token(Token::Type::Comma)) {
+                    if (current.empty())
+                        return;
+                    families->push_back(std::move(current));
+                    current.clear();
+                    after_string = false;
+                    continue;
+                }
+                if (value->is_token(Token::Type::Ident) && !after_string) {
+                    if (!current.empty())
+                        current += ' ';
+                    current += value->token().value;
+                    continue;
+                }
+                if (value->is_token(Token::Type::String) && current.empty()) {
+                    current = value->token().value;
+                    after_string = true;
+                    continue;
+                }
+                return;
+            }
+            if (current.empty())
+                return;
+            families->push_back(std::move(current));
+            style.font_family = std::move(families);
             return;
         }
         if (name == "font-style") {

@@ -8,6 +8,7 @@
 #include "paint/Painter.h"
 #include "platform/Window.h"
 #include "text/Face.h"
+#include "text/FontManager.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 #include "ui/Browser.h"
@@ -42,6 +43,7 @@ int usage(char const* program)
               << "       " << program << " --dump-dom <file.html>\n"
               << "       " << program << " --font-sampler <output.png> [--font <file.ttf>]\n"
               << "       " << program << " --font-info <file.ttf|file.ttc>\n"
+              << "       " << program << " --font-list\n"
               << "       " << program << " --smoke [-o output.png]\n"
               << "\n"
               << "  With a URL or nothing, opens the browser window.\n"
@@ -140,6 +142,25 @@ int font_info(std::string const& path)
                   << ", advance " << font->advance_width(a) << ", lsb "
                   << font->left_side_bearing(a) << "\n";
     }
+    return 0;
+}
+
+// Every face the font manager finds on this machine, and how long the
+// catalogue took to build.
+int font_list()
+{
+    auto const started = std::chrono::steady_clock::now();
+    std::vector<text::FaceInfo> const& faces = text::FontManager::instance().catalogue();
+    auto const elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started);
+    for (text::FaceInfo const& face : faces) {
+        std::cout << face.family << " / " << face.subfamily << "  (" << face.weight_class
+                  << (face.italic ? ", italic" : "") << ")  " << face.path;
+        if (face.face_index != 0)
+            std::cout << " #" << face.face_index;
+        std::cout << "\n";
+    }
+    std::cout << faces.size() << " faces catalogued in " << elapsed.count() << " ms\n";
     return 0;
 }
 
@@ -517,7 +538,7 @@ int main(int argc, char** argv)
         } else if (arg == "--font") {
             if (!value_after(i, font_path))
                 return usage(argv[0]);
-        } else if (arg == "--smoke") {
+        } else if (arg == "--smoke" || arg == "--font-list") {
             mode = arg;
         } else if (arg == "--update-goldens") {
             update_goldens = true;
@@ -560,6 +581,8 @@ int main(int argc, char** argv)
         return font_sampler(input, font_path);
     if (mode == "--font-info")
         return font_info(input);
+    if (mode == "--font-list")
+        return font_list();
     if (mode == "--smoke")
         return smoke_scene(output);
     return run_window(start_url, theme_path, downloads.value_or(default_downloads_directory()));

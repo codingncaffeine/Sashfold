@@ -7,6 +7,9 @@
 #include "core/Bitmap.h"
 
 #include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace sashfold::css {
 
@@ -111,6 +114,9 @@ struct ComputedStyle {
     float font_size = 16;
     int font_weight = 400; // 700+ paints bold
     FontStyle font_style = FontStyle::Normal;
+    // The font-family list as written, generic names included; null is the
+    // initial value (the default serif face). Shared down the tree.
+    std::shared_ptr<std::vector<std::string> const> font_family;
     LineHeight line_height;
     TextAlign text_align = TextAlign::Left;
     WhiteSpace white_space = WhiteSpace::Normal;

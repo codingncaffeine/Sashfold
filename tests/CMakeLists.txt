@@ -22,6 +22,7 @@ sashfold_test(test_data_url)
 sashfold_test(test_cookies)
 sashfold_test(test_cache)
 sashfold_test(test_downloads)
+sashfold_test(test_font_manager)
 
 add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)

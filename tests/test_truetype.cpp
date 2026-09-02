@@ -99,6 +99,19 @@ int main(int argc, char** argv)
         std::cerr << "  the fixture drifted from the face: regenerate it with gen_font "
                   << fixture_path << "\n";
 
+    // --- The catalogue view: names without loading ------------------------------------
+    std::vector<text::FaceInfo> const scanned = TrueTypeFont::scan_file(fixture_path);
+    if (CHECK_EQ(scanned.size(), 1u)) {
+        CHECK_EQ(scanned[0].family, std::string("Sashfold Mono"));
+        CHECK_EQ(scanned[0].subfamily, std::string("Regular"));
+        CHECK_EQ(scanned[0].weight_class, 400);
+        CHECK(!scanned[0].italic);
+        CHECK(scanned[0].has_outlines);
+        CHECK_EQ(scanned[0].face_index, 0u);
+        CHECK_EQ(scanned[0].path, fixture_path);
+    }
+    CHECK(TrueTypeFont::scan_file(fixture_path + ".missing").empty());
+
     // --- Reading back what was written ------------------------------------------------
     CHECK_EQ(TrueTypeFont::face_count(generated), 1u);
     std::optional<TrueTypeFont> const parsed = TrueTypeFont::parse(generated);
