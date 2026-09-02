@@ -50,6 +50,7 @@ jobs:
       - run: cmake --build build
       - run: ./build/fuzz_html_tokenizer -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_html_tree -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
+      - run: ./build/fuzz_truetype -max_total_time=30 -timeout=5 fuzz/corpus/truetype
 
   windows-mingw:
     runs-on: windows-latest

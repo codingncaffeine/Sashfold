@@ -2,11 +2,16 @@
 
 #include "core/Ascii.h"
 #include "core/Unicode.h"
+#include "text/TrueTypeWriter.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <deque>
+#include <map>
+#include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sashfold::text {
@@ -385,21 +390,24 @@ public:
         return 0;
     }
 
-    std::vector<Seg> const* find(char32_t code_point)
+    // How a precomposed letter is built: the base glyph, then each mark with
+    // its vertical lift on the grid (negative is up).
+    struct Composition {
+        std::vector<Seg> const* base;
+        struct Mark {
+            std::vector<Seg> const* segments;
+            int lift;
+        };
+        std::vector<Mark> marks;
+    };
+
+    // Letters with diacritics: the base glyph plus the marks of the
+    // canonical decomposition (fully expanded by tools/gen-unicode).
+    std::optional<Composition> compose(char32_t code_point)
     {
-        if (auto const it = index.find(code_point); it != index.end())
-            return it->second;
-        if (char32_t const alias = alias_of(code_point)) {
-            if (std::vector<Seg> const* const segments = find(alias)) {
-                index.emplace(code_point, segments);
-                return segments;
-            }
-        }
-        // Letters with diacritics: the base glyph plus the marks of the
-        // canonical decomposition (fully expanded by tools/gen-unicode).
         std::u32string_view const parts = canonical_decomposition(code_point);
         if (parts.size() < 2)
-            return nullptr;
+            return std::nullopt;
         char32_t base = parts[0];
         bool has_above = false;
         for (char32_t const mark : parts.substr(1))
@@ -410,21 +418,41 @@ public:
             base = 0x0237;
         std::vector<Seg> const* const base_segments = find(base);
         if (!base_segments)
-            return nullptr;
-        std::vector<Seg> glyph = *base_segments;
+            return std::nullopt;
+        Composition composition { base_segments, {} };
         int above_count = 0;
         for (char32_t const mark : parts.substr(1)) {
             auto const mark_it = index.find(mark);
             if (mark_it == index.end())
-                return nullptr;
+                return std::nullopt;
             int lift = 0;
             if (!is_below_mark(mark) && !is_side_mark(mark)) {
                 lift = (is_tall_base(base) ? tall_lift : 0) - 5 * above_count;
                 ++above_count;
             }
-            for (Seg seg : *mark_it->second) {
-                seg.b = static_cast<std::int8_t>(seg.b + lift);
-                seg.d = static_cast<std::int8_t>(seg.d + lift);
+            composition.marks.push_back(Composition::Mark { mark_it->second, lift });
+        }
+        return composition;
+    }
+
+    std::vector<Seg> const* find(char32_t code_point)
+    {
+        if (auto const it = index.find(code_point); it != index.end())
+            return it->second;
+        if (char32_t const alias = alias_of(code_point)) {
+            if (std::vector<Seg> const* const segments = find(alias)) {
+                index.emplace(code_point, segments);
+                return segments;
+            }
+        }
+        std::optional<Composition> const composition = compose(code_point);
+        if (!composition)
+            return nullptr;
+        std::vector<Seg> glyph = *composition->base;
+        for (Composition::Mark const& mark : composition->marks) {
+            for (Seg seg : *mark.segments) {
+                seg.b = static_cast<std::int8_t>(seg.b + mark.lift);
+                seg.d = static_cast<std::int8_t>(seg.d + mark.lift);
                 glyph.push_back(seg);
             }
         }
@@ -561,6 +589,119 @@ void SashfoldMono::draw_glyph(Bitmap& target, char32_t code_point, float x, floa
             target.blend_pixel(origin_x + px, origin_y + py, shaded);
         }
     }
+}
+
+std::vector<std::uint8_t> SashfoldMono::to_truetype(TrueTypeOptions const& options) const
+{
+    Rasterizer& faces = rasterizer();
+    // 2048 units per em: one grid unit is 64, one quarter-unit 16.
+    constexpr int unit = 16;
+    constexpr int baseline_quarters = design_ascent * 4;
+    int const weight = options.bold ? 4 : 3;
+    auto const advance = static_cast<std::uint16_t>(design_advance * 64);
+    auto const wanted = [&](char32_t code_point) {
+        return options.only.empty() || options.only.find(code_point) != std::u32string_view::npos;
+    };
+
+    FontDescription font;
+    font.family = "Sashfold Mono";
+    font.subfamily = options.bold ? (options.italic ? "Bold Italic" : "Bold")
+                                  : (options.italic ? "Italic" : "Regular");
+    font.units_per_em = 2048;
+    font.ascender = design_ascent * 64;
+    font.descender = -design_descent * 64;
+    font.line_gap = 0;
+    font.x_height = (design_ascent - 10) * 64;
+    font.cap_height = (design_ascent - 3) * 64;
+    font.weight_class = options.bold ? 700 : 400;
+    font.italic = options.italic;
+    font.fixed_pitch = true;
+    font.long_loca = options.long_loca;
+
+    // Each stroke becomes one clockwise quad; overlapping quads fill as a
+    // union under nonzero winding, which is how the stroke rasterizer sees
+    // them too.
+    auto const outline_of = [&](std::vector<Seg> const& segments) {
+        GlyphOutline outline;
+        for (Seg const& seg : segments) {
+            Quad const quad = expand(seg, weight);
+            std::array<GlyphPoint, 4> corners;
+            for (std::size_t i = 0; i < 4; ++i) {
+                Point point = quad[i];
+                if (options.italic)
+                    point.x += (baseline_quarters - point.y) / 4;
+                corners[i] = GlyphPoint { static_cast<std::int16_t>(point.x * unit),
+                    static_cast<std::int16_t>((baseline_quarters - point.y) * unit), true };
+            }
+            long long area = 0; // shoelace, y up: clockwise is negative
+            for (std::size_t i = 0; i < 4; ++i) {
+                GlyphPoint const& a = corners[i];
+                GlyphPoint const& b = corners[(i + 1) % 4];
+                area += static_cast<long long>(a.x) * b.y - static_cast<long long>(b.x) * a.y;
+            }
+            if (area == 0)
+                continue; // a zero-length stroke draws nothing
+            if (area > 0)
+                std::reverse(corners.begin(), corners.end());
+            for (GlyphPoint const& corner : corners)
+                outline.points.push_back(corner);
+            outline.contour_ends.push_back(static_cast<std::uint16_t>(outline.points.size() - 1));
+        }
+        return outline;
+    };
+
+    std::map<std::vector<Seg> const*, std::uint16_t> glyph_of;
+    auto const glyph_for = [&](std::vector<Seg> const* segments) {
+        if (auto const it = glyph_of.find(segments); it != glyph_of.end())
+            return it->second;
+        auto const id = static_cast<std::uint16_t>(font.glyphs.size());
+        font.glyphs.push_back(WriterGlyph { outline_of(*segments), {}, advance });
+        glyph_of.emplace(segments, id);
+        return id;
+    };
+
+    // Glyph 0 draws the box; glyph 1 is the space, and every blank maps to it.
+    std::vector<Seg> const* const box = faces.find(0xFFFD);
+    font.glyphs.push_back(WriterGlyph { box ? outline_of(*box) : GlyphOutline {}, {}, advance });
+    font.glyphs.push_back(WriterGlyph { GlyphOutline {}, {}, advance });
+    std::vector<char32_t> blanks { 0x20, 0xA0, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 };
+    for (char32_t c = 0x2000; c <= 0x200A; ++c)
+        blanks.push_back(c);
+    for (char32_t const blank : blanks) {
+        if (wanted(blank))
+            font.mappings.emplace_back(blank, 1);
+    }
+
+    // The designed glyphs, then every alias and composed letter the face can
+    // reach: aliases share the glyph, compositions become composites.
+    std::unordered_set<char32_t> designed;
+    for (GlyphDef const& def : faces.glyphs) {
+        designed.insert(def.code_point);
+        if (wanted(def.code_point))
+            font.mappings.emplace_back(def.code_point, glyph_for(&def.segments));
+    }
+    for (char32_t c = 0x21; c <= 0xFFFF; ++c) {
+        if (!wanted(c) || designed.contains(c))
+            continue;
+        if (char32_t const alias = Rasterizer::alias_of(c)) {
+            if (std::vector<Seg> const* const target = faces.find(alias))
+                font.mappings.emplace_back(c, glyph_for(target));
+            continue;
+        }
+        std::optional<Rasterizer::Composition> const composition = faces.compose(c);
+        if (!composition)
+            continue;
+        WriterGlyph composite;
+        composite.advance = advance;
+        composite.components.push_back(WriterComponent { glyph_for(composition->base), 0, 0 });
+        for (Rasterizer::Composition::Mark const& mark : composition->marks) {
+            composite.components.push_back(WriterComponent { glyph_for(mark.segments), 0,
+                static_cast<std::int16_t>(-mark.lift * 64) });
+        }
+        font.mappings.emplace_back(c, static_cast<std::uint16_t>(font.glyphs.size()));
+        font.glyphs.push_back(std::move(composite));
+    }
+    return write_truetype(font);
 }
 
 }

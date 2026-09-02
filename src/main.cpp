@@ -8,6 +8,7 @@
 #include "paint/Painter.h"
 #include "platform/Window.h"
 #include "text/SashfoldMono.h"
+#include "text/TrueType.h"
 #include "ui/Browser.h"
 #include "ui/Script.h"
 #include "ui/ShellLoader.h"
@@ -20,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -38,6 +40,7 @@ int usage(char const* program)
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
               << "       " << program << " --font-sampler <output.png>\n"
+              << "       " << program << " --font-info <file.ttf|file.ttc>\n"
               << "       " << program << " --smoke [-o output.png]\n"
               << "\n"
               << "  With a URL or nothing, opens the browser window.\n"
@@ -84,6 +87,59 @@ std::optional<std::string> load_input(std::string const& source)
     std::ostringstream stream;
     stream << file.rdbuf();
     return std::move(stream).str();
+}
+
+int font_info(std::string const& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        std::cerr << "error: cannot read " << path << "\n";
+        return 1;
+    }
+    std::vector<std::uint8_t> const bytes((std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>());
+    std::size_t const faces = text::TrueTypeFont::face_count(bytes);
+    if (faces == 0) {
+        std::cerr << "error: not a TrueType font: " << path << "\n";
+        return 1;
+    }
+    for (std::size_t face = 0; face < faces; ++face) {
+        std::optional<text::TrueTypeFont> const font = text::TrueTypeFont::parse(bytes, face);
+        if (!font) {
+            std::cout << "face " << face << ": malformed\n";
+            continue;
+        }
+        std::size_t outlined = 0;
+        std::size_t empty = 0;
+        std::size_t malformed = 0;
+        std::size_t points = 0;
+        for (std::uint32_t glyph = 0; glyph < font->glyph_count(); ++glyph) {
+            auto const outline = font->outline(static_cast<std::uint16_t>(glyph));
+            if (!outline)
+                ++malformed;
+            else if (outline->points.empty())
+                ++empty;
+            else {
+                ++outlined;
+                points += outline->points.size();
+            }
+        }
+        std::uint16_t const a = font->glyph_index(U'A');
+        std::cout << "face " << face << ": " << font->family_name() << " / "
+                  << font->subfamily_name() << "\n"
+                  << "  units/em " << font->units_per_em() << ", ascender " << font->ascender()
+                  << ", descender " << font->descender() << ", line gap " << font->line_gap()
+                  << ", x-height " << font->x_height() << ", cap height " << font->cap_height()
+                  << "\n"
+                  << "  weight " << font->weight_class() << (font->is_italic() ? ", italic" : "")
+                  << (font->has_cff() ? ", CFF outlines (declined)" : "") << "\n"
+                  << "  glyphs " << font->glyph_count() << ": " << outlined << " with outlines, "
+                  << empty << " empty, " << malformed << " malformed; " << points << " points\n"
+                  << "  cmap: " << font->mapped_code_points() << " code points; 'A' -> glyph " << a
+                  << ", advance " << font->advance_width(a) << ", lsb "
+                  << font->left_side_bearing(a) << "\n";
+    }
+    return 0;
 }
 
 int fetch_url(std::string const& input)
@@ -430,7 +486,7 @@ int main(int argc, char** argv)
                 return usage(argv[0]);
             downloads = directory;
         } else if (arg == "--script" || arg == "--render" || arg == "--fetch" || arg == "--dump-dom"
-            || arg == "--font-sampler" || arg == "--bench") {
+            || arg == "--font-sampler" || arg == "--font-info" || arg == "--bench") {
             mode = arg;
             if (!value_after(i, input))
                 return usage(argv[0]);
@@ -475,6 +531,8 @@ int main(int argc, char** argv)
         return dump_dom(input);
     if (mode == "--font-sampler")
         return font_sampler(input);
+    if (mode == "--font-info")
+        return font_info(input);
     if (mode == "--smoke")
         return smoke_scene(output);
     return run_window(start_url, theme_path, downloads.value_or(default_downloads_directory()));

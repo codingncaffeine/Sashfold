@@ -15,8 +15,16 @@
 
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace sashfold::text {
+
+struct TrueTypeOptions {
+    bool bold = false;
+    bool italic = false;
+    bool long_loca = false; // 32-bit glyph offsets, so that reader path gets exercised too
+    std::u32string_view only; // when non-empty, only these code points are mapped
+};
 
 struct FontMetrics {
     float ascent; // baseline offset from the line box top, px
@@ -55,6 +63,12 @@ public:
     {
         return static_cast<float>(text.size()) * advance(size);
     }
+
+    // The face as a TrueType file, 2048 units per em: every stroke a
+    // clockwise contour, every composed letter a composite glyph, every
+    // alias a second cmap entry, the same bytes on every OS. What gen_font
+    // writes to tests/fixtures/fonts and the reader's tests read back.
+    std::vector<std::uint8_t> to_truetype(TrueTypeOptions const& options = {}) const;
 
 private:
     SashfoldMono() = default;

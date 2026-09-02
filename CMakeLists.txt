@@ -43,6 +43,8 @@ add_library(sashfold_core STATIC
   src/net/Url.cpp
   src/paint/Painter.cpp
   src/text/SashfoldMono.cpp
+  src/text/TrueType.cpp
+  src/text/TrueTypeWriter.cpp
   src/ui/Browser.cpp
   src/ui/Downloads.cpp
   src/ui/InternalPages.cpp
@@ -74,6 +76,11 @@ if(MINGW)
   target_link_options(sashfold PRIVATE -static)
 endif()
 
+# gen_font writes Sashfold Mono as a TrueType file: the reader fixture and the
+# fuzzing seed. A build tool, never shipped.
+add_executable(gen_font tools/gen-font.cpp)
+target_link_libraries(gen_font PRIVATE sashfold_core sashfold_warnings)
+
 enable_testing()
 add_subdirectory(tests)
 
@@ -97,4 +104,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(url)
   sashfold_fuzzer(inflate)
   sashfold_fuzzer(http_response)
+  sashfold_fuzzer(truetype)
 endif()

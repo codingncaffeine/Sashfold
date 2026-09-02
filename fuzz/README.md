@@ -8,10 +8,18 @@ Build with `-DSASHFOLD_FUZZ=ON` on a clang toolchain, then e.g.:
 
     ./build/fuzz_html_tokenizer -timeout=5 fuzz/corpus/html_tokenizer
 
-Harnesses so far:
+Harnesses:
 
 - `html_tokenizer.cpp` — the HTML tokenizer (seed corpus in
   `corpus/html_tokenizer/`); a short smoke run also executes in CI.
+- `html_tree.cpp` — tree construction, fed the same corpus.
+- `css_tokenizer.cpp`, `css_parser.cpp` — the CSS front end.
+- `url.cpp` — the URL parser.
+- `inflate.cpp` — zlib, gzip and raw deflate streams.
+- `http_response.cpp` — HTTP/1.1 response heads and bodies.
+- `truetype.cpp` — the TrueType reader: table directory, cmap, glyf,
+  composites (seed: a small Sashfold Mono from `gen_font --seed`); smoke run
+  in CI.
 
-Planned, one per parser as each lands: html_tree, css_tokenizer, url,
-inflate, png, gif, jpeg, ttf, http_headers, xkb, x509_der, js_lexer.
+Still to come, one per parser as each lands: png, gif, jpeg, xkb, x509_der,
+js_lexer.

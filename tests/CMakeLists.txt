@@ -75,3 +75,8 @@ add_executable(test_http test_http.cpp)
 target_link_libraries(test_http PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_http
   COMMAND test_http ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/inflate)
+
+add_executable(test_truetype test_truetype.cpp)
+target_link_libraries(test_truetype PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_truetype
+  COMMAND test_truetype ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SashfoldMono.ttf)
