@@ -1,9 +1,9 @@
-// tools/gen-unicode.cpp — the Unicode table generator (plan §5.2: data in,
-// our code out, nothing linked). Run at dev time; the emitted headers are
+// tools/gen-unicode.cpp — the Unicode table generator (data in, our code
+// out, nothing linked). Run at dev time; the emitted headers are
 // committed. First consumers: UTS #46 domain mapping and NFC normalization
 // for the URL parser's domain-to-ASCII. Later consumers (line-break classes,
 // bidi classes, East Asian width, grapheme clusters) extend this tool
-// alongside the milestone that needs them.
+// alongside the feature that needs them.
 //
 // Usage:
 //   g++ -std=c++23 -O2 tools/gen-unicode.cpp -o gen-unicode

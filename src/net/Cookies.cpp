@@ -73,7 +73,7 @@ bool path_matches(std::string_view request_path, std::string_view cookie_path)
     return cookie_path.ends_with("/") || request_path[cookie_path.size()] == '/';
 }
 
-// The plan §7 third-party gate: with a distinct first-party host, no cookie
+// The third-party gate: with a distinct first-party host, no cookie
 // moves in either direction. Host equality stands in for site equality until
 // the public-suffix list lands (stricter, never looser).
 bool third_party(Url const& url, Url const* first_party)

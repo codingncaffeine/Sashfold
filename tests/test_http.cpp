@@ -145,7 +145,7 @@ int main(int argc, char** argv)
         auto const from_raw_deflate = net::decode_content("deflate", deflated, 1u << 20);
         CHECK(from_raw_deflate && *from_raw_deflate == raw); // the raw spelling
         CHECK(net::decode_content("identity", raw, 1u << 20).has_value());
-        CHECK(!net::decode_content("br", raw, 1u << 20).has_value()); // brotli: M7
+        CHECK(!net::decode_content("br", raw, 1u << 20).has_value()); // brotli: not written yet
     }
 
     // --- The real socket path, hermetically ----------------------------------

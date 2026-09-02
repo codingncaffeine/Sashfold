@@ -2,7 +2,7 @@
 
 // DEFLATE decoding (RFC 1951) with the zlib (RFC 1950) and gzip (RFC 1952)
 // containers — the decompression half of the web: Content-Encoding gzip and
-// deflate now, PNG IDAT at M4. All three block types, integrity checks
+// deflate now, PNG IDAT later. All three block types, integrity checks
 // (Adler-32 / CRC-32 / ISIZE), and a hard output cap so hostile streams
 // cannot balloon.
 

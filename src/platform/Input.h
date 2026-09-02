@@ -2,7 +2,7 @@
 
 // The input vocabulary shared by every platform window and the shell: named
 // keys, the letter or digit of a shortcut chord, modifiers, and the cursor
-// the shell wants shown. IME hooks reserve their place here (plan §5.1).
+// the shell wants shown. IME hooks reserve their place here.
 
 namespace sashfold::platform {
 

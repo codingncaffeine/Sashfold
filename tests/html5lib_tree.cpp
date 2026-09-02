@@ -1,6 +1,6 @@
 // Runs the html5lib tree-construction fixtures (.dat) with the same
 // ratcheting-baseline contract as the tokenizer runner. Tests marked
-// #script-on are skipped (scripting is off by design at this milestone).
+// #script-on are skipped (scripting is off: there is no script engine yet).
 //
 // usage: html5lib_tree <fixtures-dir> <baseline-file>
 

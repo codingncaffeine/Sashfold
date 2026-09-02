@@ -145,8 +145,7 @@ std::string const* find_header(std::vector<Header> const& headers, std::string_v
 
 std::string_view user_agent()
 {
-    // The compat-shaped token every engine ships (plan M3, documented in the
-    // README when the shell lands).
+    // The compat-shaped token every engine ships (documented in the README).
 #ifdef _WIN32
     return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/0.3";
 #elif defined(__APPLE__)
@@ -322,8 +321,8 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         bool const secure = current.scheme == "https";
         if (secure && !platform::TlsSocket::available())
             return { std::nullopt,
-                "https needs the platform TLS backend (our own TLS 1.3 client is the Linux "
-                "deliverable at M3.5)" };
+                "https needs the platform TLS backend (our own TLS 1.3 client for Linux is "
+                "not written yet)" };
         if (!secure && current.scheme != "http")
             return { std::nullopt, "unsupported scheme: " + current.scheme };
         if (!current.has_host() || current.host.empty())

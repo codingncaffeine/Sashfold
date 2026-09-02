@@ -1,6 +1,6 @@
 #pragma once
 
-// The browser shell, OS-free (plan M3): tabs, history, the address bar,
+// The browser shell, OS-free: tabs, history, the address bar,
 // chrome painted through ThemeTokens, the page painted through a scrolled
 // viewport, link hit-testing — everything a window needs except the window.
 // The platform layer feeds it input and blits the frame it paints; the
@@ -9,7 +9,7 @@
 //
 // Loads are synchronous and queued: a navigation is performed by tick(), so
 // the caller can present the "loading" frame first. The event-loop
-// integration of fetch arrives with the multi-process split (plan M8).
+// integration of fetch arrives with the multi-process split.
 
 #include "core/Bitmap.h"
 #include "net/Http.h"

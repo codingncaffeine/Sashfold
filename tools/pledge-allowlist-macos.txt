@@ -1,6 +1,6 @@
 # OS/runtime libraries a Sashfold binary may link on macOS (basenames).
 # Provisional until the macOS CI lane first validates it. System frameworks
-# (AppKit etc.) join the list only when the M5 shell lands.
+# (AppKit etc.) join the list only when the macOS shell lands.
 libSystem.B.dylib
 libc++.1.dylib
 libc++abi.dylib

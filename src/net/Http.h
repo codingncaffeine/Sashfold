@@ -1,6 +1,6 @@
 #pragma once
 
-// HTTP/1.1, ours (M3): request serialization, response parsing (status line,
+// HTTP/1.1, ours: request serialization, response parsing (status line,
 // headers, Content-Length / chunked / read-to-close framing), content
 // decoding (gzip, deflate in both zlib and raw spellings), and redirect
 // following — all behind fetch(), the one choke point every load will pass
@@ -40,14 +40,14 @@ struct FetchOptions {
     std::size_t max_body = 64u * 1024u * 1024u;
     // Cookies flow only when a jar is given. first_party is the top-level
     // document URL; when it names another host, the jar stays closed in both
-    // directions (plan §7: third-party cookies blocked by default). Null
+    // directions (third-party cookies blocked by default). Null
     // first_party marks the request itself as the navigation.
     CookieJar* cookie_jar = nullptr;
     Url const* first_party = nullptr;
     // Referer header value, already policy-shaped by the caller (the shell
     // applies strict-origin-when-cross-origin); empty sends none.
     std::string referrer;
-    // The session cache (plan M3 cache v0): consulted before every connection
+    // The session cache: consulted before every connection
     // and fed by every cacheable 200. Null means no caching at all.
     MemoryCache* cache = nullptr;
 };
@@ -62,7 +62,7 @@ FetchResult fetch(Url const& url, FetchOptions const& options = {});
 
 std::string const* find_header(std::vector<Header> const& headers, std::string_view name);
 
-// The UA policy token (plan M3): compat-shaped, honest suffix.
+// The UA policy token: compat-shaped, honest suffix.
 std::string_view user_agent();
 
 // Exposed for tests: parses one HTTP/1.1 response from a read callback

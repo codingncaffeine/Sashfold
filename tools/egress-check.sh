@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# "One fetch choke point" as a build gate (§7 security defaults): socket and
+# "One fetch choke point" as a build gate: socket and
 # name-resolution primitives may appear only under src/net/ and src/platform/.
 # A source-level tripwire — it catches accidents, not adversaries; the
 # binary-level version can join pledge-check later.

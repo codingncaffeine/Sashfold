@@ -1,10 +1,10 @@
 #pragma once
 
-// HTTP cache v0 (M3): in-memory, per-session, explicit freshness only — a
+// HTTP cache v0: in-memory, per-session, explicit freshness only — a
 // response is served from cache while Cache-Control: max-age (or an Expires
 // date) says it is fresh, and no-store is honored absolutely. No heuristic
 // freshness and no revalidation yet (conditional requests arrive with cache
-// maturity, plan M7), so no-cache is treated as "do not store". History
+// maturity), so no-cache is treated as "do not store". History
 // navigation does not use this cache — the shell keeps its own document
 // copy per history entry, so Back never re-fetches.
 //

@@ -1,6 +1,6 @@
 #include "platform/Window.h"
 
-// The Win32 window (plan §5.1): RegisterClass/CreateWindow, a PeekMessage
+// The Win32 window: RegisterClass/CreateWindow, a PeekMessage
 // pump translated into WindowEvents, MsgWaitForMultipleObjectsEx to sleep,
 // and the frame blitted with SetDIBitsToDevice (the pixels are ours; GDI only
 // copies them). user32 and gdi32 are OS interfaces under the pledge.

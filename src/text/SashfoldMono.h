@@ -1,10 +1,10 @@
 #pragma once
 
-// Sashfold Mono — the bootstrap font (plan §5.3). An original, angular
+// Sashfold Mono — the bootstrap font. An original, angular
 // monospace face authored as stroke segments on a 20x32 design grid
 // (units-per-em 32, advance 20, baseline at y=25). No font files, no
 // parsing: the tables below ARE the font, and tools/gen-font will emit
-// them as a real TTF once the M4 font pipeline exists.
+// them as a real TTF once the font pipeline exists.
 //
 // Determinism: rasterization is pure integer math — segment quads expand
 // on the grid, coordinates scale to 1/4-subpixel fixed point, and coverage

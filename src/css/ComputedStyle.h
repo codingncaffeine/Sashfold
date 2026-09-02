@@ -1,6 +1,6 @@
 #pragma once
 
-// Computed style for the M2 property set: enough to lay out and paint the
+// Computed style for the first property set: enough to lay out and paint the
 // reader web's block/inline content. Lengths that layout must resolve against
 // a containing block stay as LengthPercent; everything else is resolved here.
 
@@ -54,7 +54,7 @@ enum class WhiteSpace : std::uint8_t {
 
 enum class BorderStyle : std::uint8_t {
     None,
-    Solid, // every visible style draws solid in M2
+    Solid, // every visible style draws solid for now
 };
 
 enum class ListStyleType : std::uint8_t {

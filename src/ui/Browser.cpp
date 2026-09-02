@@ -156,7 +156,7 @@ bool is_navigable_scheme(std::string const& scheme)
         || scheme == "view-source";
 }
 
-// strict-origin-when-cross-origin, the §7 default: the full URL to the same
+// strict-origin-when-cross-origin, the default: the full URL to the same
 // origin, the origin alone across origins, nothing on an https-to-http
 // downgrade, and nothing from pages that are not web origins.
 std::string referrer_for(net::Url const* from, net::Url const& to)
@@ -622,7 +622,7 @@ struct Browser::Impl {
             net::FetchResult result = loader.load(load.url, referrer, load.mode == Mode::Reload);
             if (!result.response && load.https_first
                 && result.error.find("could not connect") != std::string::npos) {
-                // HTTPS-first (§7): a host that does not answer on 443 gets one
+                // HTTPS-first: a host that does not answer on 443 gets one
                 // plain-HTTP try, and the address bar says so.
                 net::Url http = load.url;
                 http.scheme = "http";
@@ -693,7 +693,7 @@ struct Browser::Impl {
                 url.reset();
             if (!url) {
                 // No default search: a browser that sends what you type to a
-                // search engine has made a deal on your behalf (plan §4).
+                // search engine has made a deal on your behalf.
                 std::optional<net::Url> const about = net::parse_url("about:blank");
                 show_internal(error_page("That is not a web address",
                                   "Sashfold does not send what you type to a search engine. "

@@ -6,7 +6,7 @@
 // CheckHyphens=false, Transitional_Processing=false, VerifyDnsLength=false,
 // IgnoreInvalidPunycode=false) over the generated mapping table (IdnaData.h,
 // tools/gen-unicode) and NFC. Honest gaps: CheckBidi and CheckJoiners await
-// their data tables (they join with the M8 complex-scripts era; no vendored
+// their data tables (they join with complex-script support; no vendored
 // WPT case exercises them yet).
 
 #include <optional>

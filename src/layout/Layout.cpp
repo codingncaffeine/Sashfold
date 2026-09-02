@@ -124,7 +124,7 @@ struct Layouter {
                 continue;
             }
             if (element.is_html("img")) {
-                // Images arrive in M4; the alt text stands in.
+                // Images are not decoded yet; the alt text stands in.
                 if (dom::Attr const* alt = element.find_attribute("alt"); alt && !alt->value.empty())
                     append_text(decode_utf8("[" + alt->value + "]"), style, items, &element);
                 continue;

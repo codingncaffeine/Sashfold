@@ -1,8 +1,8 @@
 #pragma once
 
-// The platform networking seam (plan §5.1): TCP + name resolution through the
+// The platform networking seam: TCP + name resolution through the
 // OS interface — Winsock on Windows, BSD sockets elsewhere. Synchronous for
-// M3's fetch pipeline; the event-loop integration arrives with the shell.
+// the fetch pipeline; the event-loop integration comes later.
 // The loopback listener exists for hermetic tests.
 
 #include <cstddef>

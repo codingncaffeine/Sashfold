@@ -222,7 +222,7 @@ DownloadResult save_download(std::string const& directory, std::string const& fi
     (void)source;
     (void)referrer;
     // Linux (user.xdg.origin.url) and macOS (com.apple.quarantine) marks arrive
-    // with their shells at M3.5 and M5.
+    // with their shells.
 #endif
     return result;
 }

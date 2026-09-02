@@ -107,7 +107,7 @@ int main()
     CHECK(same(render(0x2032), render(0x2019)));
 
     // --- What the face lacks is a box, and the box is not a zero ------------------
-    CHECK(same(render(0x0430), box)); // Cyrillic a: the M4 system-font stack
+    CHECK(same(render(0x0430), box)); // Cyrillic a: waits for system fonts
     CHECK(same(render(0x65E5), box)); // CJK
     CHECK(!same(box, render(U'0')));
     CHECK(!same(box, render(U'O')));

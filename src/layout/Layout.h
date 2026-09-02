@@ -1,9 +1,9 @@
 #pragma once
 
-// Block and inline layout (M2): styles + DOM in, an immutable fragment tree
+// Block and inline layout: styles + DOM in, an immutable fragment tree
 // out, in absolute page coordinates. Paint consumes only fragments.
 //
-// The architecture rules from the plan hold: layout is a pure function of
+// The architecture rules hold: layout is a pure function of
 // style and constraints; fragments are the only output; physical coordinates
 // live behind these types until logical ones land.
 

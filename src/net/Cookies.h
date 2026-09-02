@@ -1,15 +1,15 @@
 #pragma once
 
-// The cookie jar (RFC 6265, M3): Set-Cookie parsing including the cookie-date
+// The cookie jar (RFC 6265): Set-Cookie parsing including the cookie-date
 // grammar, domain and path matching, expiry, and per-request assembly — with
-// the plan §7 policy built in: THIRD-PARTY COOKIES ARE BLOCKED BY DEFAULT.
+// the policy built in: THIRD-PARTY COOKIES ARE BLOCKED BY DEFAULT.
 // A request whose host differs from the first-party (top-level document)
 // host neither sends nor stores cookies. That is stricter than the spec —
 // site-level grouping needs the public-suffix list, which arrives with the
 // content-blocking era — and honest about it.
 //
 // The jar is session-only for now: nothing touches disk until the profile
-// story (plan M7) decides what persistence should mean.
+// story decides what persistence should mean.
 
 #include "net/Http.h"
 #include "net/Url.h"

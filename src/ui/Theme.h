@@ -1,6 +1,6 @@
 #pragma once
 
-// ThemeTokens (plan M3): every pixel of browser chrome is drawn through this
+// ThemeTokens: every pixel of browser chrome is drawn through this
 // set — colors, metrics, type sizes, animation timings — loaded from a
 // themes/*.json file by our own JSON reader. Themes are data, not code: a
 // theme is one file, shared by posting it anywhere. Every token has a

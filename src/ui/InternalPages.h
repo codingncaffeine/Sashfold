@@ -1,6 +1,6 @@
 #pragma once
 
-// Pages the shell generates itself (plan M3): error pages — including the
+// Pages the shell generates itself: error pages — including the
 // certificate-error page, which offers no way through on purpose — the
 // about:sashfold page, and the view-source and plain-text wrappers. All are
 // ordinary HTML rendered by the engine, so they look the same on every OS
@@ -14,14 +14,14 @@
 
 namespace sashfold::ui {
 
-inline constexpr std::string_view version_string = "0.3 (M3 preview)";
+inline constexpr std::string_view version_string = "0.3 (preview)";
 
 std::string html_escape(std::string_view text);
 
 // A load that failed before any document arrived.
 std::string error_page(std::string_view heading, std::string_view detail, std::string_view url);
 
-// Certificate validation failed: scary, specific, and final (§7 policy).
+// Certificate validation failed: scary, specific, and final — no override.
 std::string certificate_error_page(std::string_view host, std::string_view url);
 
 std::string about_sashfold_page();

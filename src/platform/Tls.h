@@ -1,8 +1,8 @@
 #pragma once
 
-// The TLS seam (plan §7 pillar 3): on Windows and macOS the OS interface
-// carries TLS (SChannel / Network.framework — shipped with, patched by, and
-// trusted like the OS); on Linux our own TLS 1.3 client arrives at M3.5.
+// The TLS seam: on Windows and macOS the OS interface carries TLS (SChannel
+// / Network.framework — shipped with, patched by, and trusted like the OS);
+// on Linux the TLS 1.3 client will be ours, and is not written yet.
 // Certificate validation happens against the OS trust store inside the
 // platform implementation; a failed handshake is indistinguishable from a
 // refused connection on purpose — the caller shows the cert-error page

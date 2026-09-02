@@ -1,9 +1,8 @@
 #include "platform/Tls.h"
 
-// No OS-shipped TLS exists on Linux; our own TLS 1.3 client is the M3.5
-// deliverable (plan §7 pillar 3). Until it lands this backend reports
-// unavailable and fetch says so plainly. (macOS gets Network.framework with
-// its M5 shell.)
+// No OS-shipped TLS exists on Linux; our own TLS 1.3 client is not written
+// yet. Until it lands this backend reports unavailable and fetch says so
+// plainly. (macOS gets Network.framework with its shell.)
 
 namespace sashfold::platform {
 

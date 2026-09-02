@@ -1,10 +1,10 @@
 #pragma once
 
-// The window seam (plan §5.1): open a window, pump its input into events,
-// present a Bitmap into it. Windows first (M3); Wayland spoken directly over
-// its socket arrives at M3.5 and AppKit through the Objective-C runtime at
-// M5. Until then create() returns null on those OSes and every headless mode
-// keeps working — the shell itself never sees an OS type.
+// The window seam: open a window, pump its input into events, present a
+// Bitmap into it. Windows first; Wayland spoken directly over its socket and
+// AppKit through the Objective-C runtime are not written yet, so create()
+// returns null on those OSes and every headless mode keeps working — the
+// shell itself never sees an OS type.
 
 #include "core/Bitmap.h"
 #include "platform/Input.h"

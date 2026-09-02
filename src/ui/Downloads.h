@@ -1,6 +1,6 @@
 #pragma once
 
-// Downloads as fetch (plan M3, §7): a response the engine cannot render is
+// Downloads as fetch: a response the engine cannot render is
 // written to the downloads directory, marked with the mark of the web, and
 // never opened — Sashfold shows a page saying what it saved and where.
 

@@ -1,6 +1,6 @@
 #pragma once
 
-// --script replay (plan M3): deterministic event injection into the OS-free
+// --script replay: deterministic event injection into the OS-free
 // shell. It is at once the shell-test harness — the same script runs on
 // every OS in CI and its chrome screenshots are byte-identical — and the
 // proof of the agent-legibility claim: a browser you can drive, and read

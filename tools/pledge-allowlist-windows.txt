@@ -1,7 +1,7 @@
 # OS libraries a Sashfold binary may import on Windows (lower-case).
 # The language runtime is linked statically (see CMakeLists.txt), so it must
 # not appear here. Extend ONLY alongside the platform work that needs the new
-# import — user32/gdi32 arrived with the M3 shell window, ws2_32 with M3
+# import — user32/gdi32 arrived with the shell window, ws2_32 with
 # networking, secur32 with SChannel TLS.
 kernel32.dll
 msvcrt.dll

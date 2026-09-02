@@ -4,7 +4,7 @@ namespace sashfold::ui {
 
 namespace {
 
-// The style every internal page shares — the M2 property set only, so it
+// The style every internal page shares — the supported property set only, so it
 // renders exactly on today's engine. Content colors are not themed: these
 // are pages, not chrome.
 constexpr std::string_view page_style = R"(<style>
@@ -92,9 +92,9 @@ std::string about_sashfold_page()
     body += "<p>No telemetry. No sponsored tiles. No default-search auction. No account. No cloud "
             "AI. No self-updater.</p></div>";
     body += "<h2>Where things stand</h2>";
-    body += "<p>M3: it's a browser now. Pages load over HTTP and HTTPS through the engine's own "
-            "fetch pipeline with a cookie jar that blocks third-party cookies by default and a "
-            "session cache. Themes are data: every color and size of this window comes from "
+    body += "<p>Pages load over HTTP and HTTPS through the engine's own fetch pipeline, with a "
+            "cookie jar that blocks third-party cookies by default and a session cache. Themes "
+            "are data: every color and size of this window comes from "
             "<code>themes/default.json</code>.</p>";
     body += "<h2>Pages</h2>";
     body += "<p><a href=\"about:blank\">about:blank</a> &middot; view-source: in front of any "

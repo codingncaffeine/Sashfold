@@ -210,7 +210,7 @@ int smoke_scene(std::string const& output)
 
 // The engine's stages timed separately, best and median of several runs,
 // painting a viewport-sized slice the way the shell does each frame. The
-// perf budgets (plan M3) are checked against these numbers.
+// perf budgets are checked against these numbers.
 int bench(std::string const& input, int runs, int viewport_width)
 {
     std::optional<std::string> const bytes = load_input(input);
@@ -327,7 +327,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 {
     std::unique_ptr<platform::Window> window = platform::Window::create("Sashfold", 1100, 760);
     if (!window) {
-        std::cerr << "error: no window backend on this OS yet (Wayland lands at M3.5, macOS at M5);\n"
+        std::cerr << "error: no window backend on this OS yet (the Wayland and AppKit shells are not written);\n"
                      "       --render, --fetch, and --script work everywhere\n";
         return 1;
     }

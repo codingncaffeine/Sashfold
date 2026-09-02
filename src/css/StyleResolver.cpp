@@ -15,7 +15,7 @@ namespace sashfold::css {
 namespace {
 
 // The built-in UA stylesheet: the HTML rendering section's defaults for the
-// reader web, kept to the M2 property set. (One font family exists, so the
+// reader web, kept to the first property set. (One font family exists, so the
 // monospace-ness of pre/code is implicit.)
 constexpr std::string_view ua_stylesheet = R"CSS(
 html { display: block }
@@ -377,7 +377,7 @@ struct Resolver {
         Stylesheet sheet = parse_stylesheet(text);
         for (Rule& rule : sheet.rules) {
             if (!rule.is_qualified())
-                continue; // at-rules (@media and friends) arrive post-M2
+                continue; // at-rules (@media and friends) are not supported yet
             auto& qualified = std::get<QualifiedRule>(rule.value);
             std::optional<SelectorList> selectors = parse_selector_list(qualified.prelude);
             if (!selectors)
@@ -618,7 +618,7 @@ struct Resolver {
                 || ascii_ci_equals(keyword, "table"))
                 style.display = Display::Block; // flex/grid lay out as blocks until they land
             else if (ascii_ci_equals(keyword, "inline-block"))
-                style.display = Display::Inline; // inline-block arrives with M6
+                style.display = Display::Inline; // inline-block is not supported yet
             return;
         }
         if (name == "color") {
