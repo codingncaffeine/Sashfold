@@ -167,18 +167,83 @@ int main()
     CHECK_EQ(css::decode_stylesheet(bytes_of("\xC3\xA9"), "text/css"), std::string("\xC3\xA9"));
     CHECK_EQ(css::decode_stylesheet(bytes_of("\xE9"), ""), std::string("\xEF\xBF\xBD")); // U+FFFD
 
-    // --- Media lists ----------------------------------------------------------------------------
-    CHECK(css::media_list_applies(""));
-    CHECK(css::media_list_applies("screen"));
-    CHECK(css::media_list_applies("all"));
-    CHECK(css::media_list_applies("Screen, print"));
-    CHECK(css::media_list_applies("(max-width: 600px)"));
-    CHECK(css::media_list_applies("only screen and (min-width: 1px)"));
-    CHECK(css::media_list_applies("not print"));
-    CHECK(!css::media_list_applies("print"));
-    CHECK(!css::media_list_applies("print, speech"));
-    CHECK(!css::media_list_applies("not screen"));
-    CHECK(!css::media_list_applies("tty"));
+    // --- Media queries --------------------------------------------------------------------------
+    css::MediaContext const wide { 800, 600 };
+    css::MediaContext const narrow { 400, 700 };
+    auto const wide_says = [&](char const* query) { return css::media_query_matches(query, wide); };
+    auto const narrow_says = [&](char const* query) { return css::media_query_matches(query, narrow); };
+    CHECK(wide_says(""));
+    CHECK(wide_says("screen"));
+    CHECK(wide_says("all"));
+    CHECK(wide_says("Screen, print"));
+    CHECK(wide_says("only screen and (min-width: 1px)"));
+    CHECK(wide_says("not print"));
+    CHECK(!wide_says("print"));
+    CHECK(!wide_says("print, speech"));
+    CHECK(!wide_says("not screen"));
+    CHECK(!wide_says("tty"));
+    // Widths, both syntaxes, and the em unit.
+    CHECK(wide_says("(min-width: 600px)"));
+    CHECK(!narrow_says("(min-width: 600px)"));
+    CHECK(!wide_says("(max-width: 599px)"));
+    CHECK(narrow_says("(max-width: 599px)"));
+    CHECK(wide_says("(max-width: 50em)"));
+    CHECK(wide_says("(width >= 800px)"));
+    CHECK(!wide_says("(width > 800px)"));
+    CHECK(wide_says("(600px <= width <= 900px)"));
+    CHECK(!narrow_says("(600px <= width <= 900px)"));
+    CHECK(wide_says("screen and (min-width: 600px) and (max-width: 900px)"));
+    CHECK(!wide_says("screen and (min-width: 600px) and (max-width: 700px)"));
+    CHECK(wide_says("(min-width: 900px), (min-height: 500px)")); // a list: any query
+    CHECK(wide_says("((min-width: 900px) or (min-height: 500px))"));
+    CHECK(!wide_says("not all and (min-width: 600px)"));
+    CHECK(narrow_says("not all and (min-width: 600px)"));
+    // Orientation, ratio, resolution, the preference and pointer features.
+    CHECK(wide_says("(orientation: landscape)"));
+    CHECK(narrow_says("(orientation: portrait)"));
+    CHECK(wide_says("(min-aspect-ratio: 4/3)"));
+    CHECK(!narrow_says("(min-aspect-ratio: 4/3)"));
+    CHECK(wide_says("(min-resolution: 1dppx)"));
+    CHECK(!wide_says("(min-resolution: 2dppx)"));
+    CHECK(wide_says("(-webkit-min-device-pixel-ratio: 1)"));
+    CHECK(!wide_says("(-webkit-min-device-pixel-ratio: 1.5)"));
+    CHECK(wide_says("(prefers-color-scheme: light)"));
+    CHECK(!wide_says("(prefers-color-scheme: dark)"));
+    CHECK(wide_says("(prefers-reduced-motion: no-preference)"));
+    CHECK(!wide_says("(prefers-reduced-motion: reduce)"));
+    CHECK(wide_says("(hover: hover) and (pointer: fine)"));
+    CHECK(!wide_says("(hover: none)"));
+    CHECK(wide_says("(scripting: none)"));
+    CHECK(wide_says("(color)"));
+    CHECK(!wide_says("(monochrome)"));
+    CHECK(wide_says("not all and (monochrome)"));
+    // Unknown features make their query false, even negated; garbage too.
+    CHECK(!wide_says("(made-up-feature: 3)"));
+    CHECK(!wide_says("not all and (made-up-feature: 3)"));
+    CHECK(!wide_says("screen and"));
+    CHECK(wide_says("screen and (made-up: 1), screen")); // the other query carries the list
+    // The <link media> and @import gates see the same evaluator.
+    CHECK(css::import_urls("@import url(a.css) (min-width: 600px);", narrow).empty());
+    CHECK_EQ(css::import_urls("@import url(a.css) layer(base) screen and (min-width: 600px);", wide).size(), 1u);
+
+    // --- @media blocks in the cascade ---------------------------------------------------------
+    auto const responsive = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  @media screen { @media (min-width: 1px) { p { color: rgb(9, 0, 0) } } }
+  @media print { p { color: rgb(6, 0, 0) } }
+  @media not all and (monochrome) { p { color: rgb(8, 0, 0) } }
+  @media screen and (max-width: 500px) { p { color: rgb(7, 0, 0) } }
+  @media (min-width: 600px) { p { color: rgb(5, 0, 0) } }
+  @supports (display: grid) { p { color: rgb(4, 0, 0) } }
+</style></head><body><p id="p">x</p></body></html>)"));
+    std::vector<css::SheetSource> const responsive_sheets
+        = css::collect_stylesheets(*responsive, nullptr, {});
+    CHECK_EQ(red_of(css::resolve_styles(*responsive, responsive_sheets, wide), *responsive, "p"), 5);
+    CHECK_EQ(red_of(css::resolve_styles(*responsive, responsive_sheets, narrow), *responsive, "p"), 7);
+    auto const link_media = html::parse_document(std::string_view(
+        R"HTML(<style media="(max-width: 500px)">p { color: rgb(3, 0, 0) }</style><p id="p">x</p>)HTML"));
+    CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, wide).size(), 0u);
+    CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, narrow).size(), 1u);
 
     // --- The shell loader, over data: URLs -----------------------------------------------------
     ui::ShellLoader loader;

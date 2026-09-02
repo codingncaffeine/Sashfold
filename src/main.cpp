@@ -206,14 +206,17 @@ css::SheetFetcher sheet_fetcher(LoadedPage const& page)
     };
 }
 
-int render_page(std::string const& path, std::string const& output, int viewport_width)
+int render_page(std::string const& path, std::string const& output, int viewport_width,
+    int viewport_height)
 {
     std::optional<LoadedPage> const loaded = load_page(path);
     if (!loaded)
         return 1;
+    css::MediaContext const media { static_cast<float>(viewport_width),
+        static_cast<float>(viewport_height) };
     auto document = html::parse_document_bytes(loaded->bytes);
     css::StyleMap const styles = css::resolve_styles(*document,
-        css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded)));
+        css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded), media), media);
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width));
 
@@ -334,16 +337,18 @@ int smoke_scene(std::string const& output)
 // The engine's stages timed separately, best and median of several runs,
 // painting a viewport-sized slice the way the shell does each frame. The
 // perf budgets are checked against these numbers.
-int bench(std::string const& input, int runs, int viewport_width)
+int bench(std::string const& input, int runs, int viewport_width, int viewport_height)
 {
     std::optional<LoadedPage> const loaded = load_page(input);
     if (!loaded)
         return 1;
+    css::MediaContext const media { static_cast<float>(viewport_width),
+        static_cast<float>(viewport_height) };
     // The sheets are fetched once, outside the timed runs: the network is
     // not what is being measured.
     std::vector<css::SheetSource> const sheets = [&] {
         auto const first = html::parse_document_bytes(loaded->bytes);
-        return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded));
+        return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
     }();
     using clock = std::chrono::steady_clock;
     using ms = std::chrono::duration<double, std::milli>;
@@ -360,7 +365,7 @@ int bench(std::string const& input, int runs, int viewport_width)
         auto const t0 = clock::now();
         auto document = html::parse_document_bytes(loaded->bytes);
         auto const t1 = clock::now();
-        css::StyleMap const styles = css::resolve_styles(*document, sheets);
+        css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
         auto const t2 = clock::now();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width));
@@ -614,9 +619,9 @@ int main(int argc, char** argv)
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
             theme_path, downloads.value_or(""));
     if (mode == "--render")
-        return render_page(input, output, width ? width : 800);
+        return render_page(input, output, width ? width : 800, height ? height : 720);
     if (mode == "--bench")
-        return bench(input, runs, width ? width : 800);
+        return bench(input, runs, width ? width : 800, height ? height : 720);
     if (mode == "--fetch")
         return fetch_url(input);
     if (mode == "--dump-dom")

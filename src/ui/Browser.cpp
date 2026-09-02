@@ -255,6 +255,7 @@ struct Browser::Impl {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
         std::unique_ptr<dom::Document> document;
+        std::vector<css::SheetSource> sheets; // the page's stylesheets, kept so a resize can restyle
         css::StyleMap styles;
         layout::LayoutResult layout;
         int scroll_y = 0;
@@ -450,6 +451,23 @@ struct Browser::Impl {
 
     // --- Rendering a history entry ------------------------------------------------
 
+    // What media queries see: the content area.
+    css::MediaContext media_context()
+    {
+        ChromeLayout const c = layout_chrome();
+        return css::MediaContext { static_cast<float>(std::max(1, c.content.width)),
+            static_cast<float>(std::max(1, c.content.height)) };
+    }
+
+    // Styles depend on the viewport through media queries: computed when a
+    // page arrives and again when the content area changes size.
+    void restyle(Tab& tab)
+    {
+        if (!tab.document)
+            return;
+        tab.styles = css::resolve_styles(*tab.document, tab.sheets, media_context());
+    }
+
     void relayout(Tab& tab)
     {
         if (!tab.document)
@@ -493,8 +511,8 @@ struct Browser::Impl {
             std::string const* header = net::find_header(result.response->headers, "content-type");
             return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
         };
-        tab.styles = css::resolve_styles(*tab.document,
-            css::collect_stylesheets(*tab.document, &page_url, fetch_sheet));
+        tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
+        restyle(tab);
         entry->title = find_title(*tab.document);
         tab.scroll_y = entry->scroll_y;
         relayout(tab);
@@ -1331,8 +1349,10 @@ void Browser::resize(int width, int height)
     m_impl->width = std::max(width, 1);
     m_impl->height = std::max(height, 1);
     m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
-    for (Impl::Tab& tab : m_impl->tabs)
+    for (Impl::Tab& tab : m_impl->tabs) {
+        m_impl->restyle(tab);
         m_impl->relayout(tab);
+    }
     m_impl->refresh_hover();
     m_impl->dirty = true;
 }

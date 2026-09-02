@@ -488,12 +488,29 @@ struct Resolver {
         std::sort(out.begin(), out.end());
     }
 
+    MediaContext media;
+
     void compile_sheet(std::string_view text, bool user_agent, int& order)
     {
         Stylesheet sheet = parse_stylesheet(text);
-        for (Rule& rule : sheet.rules) {
+        compile_rules(sheet.rules, user_agent, order);
+    }
+
+    void compile_rules(std::vector<Rule>& source, bool user_agent, int& order)
+    {
+        for (Rule& rule : source) {
+            if (rule.is_at_rule()) {
+                // @media blocks whose query the context satisfies contribute
+                // their rules in place; other at-rules (@supports,
+                // @font-face, @keyframes, @layer) are not supported yet.
+                auto& at = std::get<AtRule>(rule.value);
+                if (at.has_block && ascii_ci_equals(at.name, "media")
+                    && media_prelude_matches(at.prelude, media))
+                    compile_rules(at.child_rules, user_agent, order);
+                continue;
+            }
             if (!rule.is_qualified())
-                continue; // at-rules (@media and friends) are not supported yet
+                continue;
             auto& qualified = std::get<QualifiedRule>(rule.value);
             std::optional<SelectorList> selectors = parse_selector_list(qualified.prelude);
             if (!selectors)
@@ -1062,9 +1079,11 @@ struct Resolver {
 
 } // namespace
 
-StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets)
+StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets,
+    MediaContext const& media)
 {
     Resolver resolver;
+    resolver.media = media;
     int order = 0;
     resolver.compile_sheet(ua_stylesheet, true, order);
     for (SheetSource const& sheet : sheets)

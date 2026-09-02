@@ -34,21 +34,33 @@ struct FetchedSheet {
 // Fetches one stylesheet on the document's behalf; nullopt when it cannot be had.
 using SheetFetcher = std::function<std::optional<FetchedSheet>(net::Url const&)>;
 
+// What media queries are answered against: a screen of this size, with a
+// fine pointer that hovers, a light color scheme, and no scripting.
+struct MediaContext {
+    float width = 1024; // CSS px
+    float height = 768;
+};
+
 // Relative references resolve against `base` (the document's URL); with no
 // base or no fetcher, only <style> elements contribute. A sheet that cannot
 // be fetched is simply absent; imports go a few levels deep and never twice.
+// Sheets whose media condition the context fails are left out.
 std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net::Url const* base,
-    SheetFetcher const& fetch);
+    SheetFetcher const& fetch, MediaContext const& media = {});
 
 std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::string_view content_type);
 
 // The URLs of the @import rules at the head of a sheet, as written, minus
-// those whose media list a screen does not satisfy.
-std::vector<std::string> import_urls(std::string_view sheet_text);
+// those whose media condition the context fails.
+std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext const& media = {});
 
-// Whether a media list (a <link media> or @import condition) applies to a
-// screen: an empty list, "all", "screen", and feature-only queries do; a
-// list naming only other media types does not.
-bool media_list_applies(std::string_view media);
+// Media Queries evaluated against the context: media types (screen and
+// all apply), not/only/and/or, width and height features in both plain
+// and range syntax, orientation, aspect ratio, resolution, the preference
+// and pointer features. An unknown feature makes its query false, as the
+// specification says; an empty list is true.
+bool media_query_matches(std::string_view query_list, MediaContext const& media);
+struct ComponentValue;
+bool media_prelude_matches(std::vector<ComponentValue> const& prelude, MediaContext const& media);
 
 }
