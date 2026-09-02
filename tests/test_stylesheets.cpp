@@ -240,6 +240,16 @@ int main()
         = css::collect_stylesheets(*responsive, nullptr, {});
     CHECK_EQ(red_of(css::resolve_styles(*responsive, responsive_sheets, wide), *responsive, "p"), 5);
     CHECK_EQ(red_of(css::resolve_styles(*responsive, responsive_sheets, narrow), *responsive, "p"), 7);
+    // A compiled set resolves the same, as often as asked, and counts the
+    // rules the context admitted (the UA sheet's included).
+    css::StyleSet const wide_set(responsive_sheets, wide);
+    css::StyleSet const narrow_set(responsive_sheets, narrow);
+    CHECK_EQ(red_of(css::resolve_styles(*responsive, wide_set), *responsive, "p"), 5);
+    CHECK_EQ(red_of(css::resolve_styles(*responsive, wide_set), *responsive, "p"), 5);
+    CHECK_EQ(red_of(css::resolve_styles(*responsive, narrow_set), *responsive, "p"), 7);
+    CHECK_EQ(wide_set.rule_count(), narrow_set.rule_count());
+    CHECK(wide_set.rule_count() > 3);
+    CHECK_EQ(wide_set.media().width, 800.0f);
     auto const link_media = html::parse_document(std::string_view(
         R"HTML(<style media="(max-width: 500px)">p { color: rgb(3, 0, 0) }</style><p id="p">x</p>)HTML"));
     CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, wide).size(), 0u);

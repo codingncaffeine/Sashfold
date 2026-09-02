@@ -6,6 +6,7 @@
 #include "dom/Dom.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -16,6 +17,7 @@
 namespace sashfold::css {
 
 namespace {
+
 
 // The built-in UA stylesheet: the HTML rendering section's defaults for the
 // reader web, kept to the first property set.
@@ -77,6 +79,64 @@ struct MatchedDeclaration {
     int rank = 0;
     Specificity specificity;
     int order = 0;
+};
+
+// --- The ancestor filter -------------------------------------------------------
+
+std::uint32_t fnv1a(std::string_view text)
+{
+    std::uint32_t hash = 2166136261u;
+    for (char const c : text) {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+// A counting Bloom filter over the identifiers (#id, .class, tag) of the
+// elements on the way down the tree. A selector whose ancestor compounds
+// require an identifier the filter has never seen cannot match, and is
+// dropped before the real matcher walks the ancestors — the win is that
+// ".site .nav a" costs three counter reads for the links it does not fit.
+class AncestorFilter {
+public:
+    void push(std::uint32_t hash)
+    {
+        std::uint8_t& first = m_counts[hash & mask];
+        std::uint8_t& second = m_counts[(hash >> 14) & mask];
+        if (first != 255)
+            ++first;
+        if (second != 255)
+            ++second;
+    }
+
+    void pop(std::uint32_t hash)
+    {
+        std::uint8_t& first = m_counts[hash & mask];
+        std::uint8_t& second = m_counts[(hash >> 14) & mask];
+        if (first != 255 && first != 0)
+            --first;
+        if (second != 255 && second != 0)
+            --second;
+    }
+
+    bool may_contain(std::uint32_t hash) const
+    {
+        return m_counts[hash & mask] != 0 && m_counts[(hash >> 14) & mask] != 0;
+    }
+
+    bool may_contain_all(std::vector<std::uint32_t> const& hashes) const
+    {
+        for (std::uint32_t const hash : hashes) {
+            if (!may_contain(hash))
+                return false;
+        }
+        return true;
+    }
+
+private:
+    static constexpr std::uint32_t mask = (1u << 14) - 1;
+    std::array<std::uint8_t, 1u << 14> m_counts {};
 };
 
 bool cascades_before(MatchedDeclaration const& a, MatchedDeclaration const& b)
@@ -370,10 +430,12 @@ std::optional<BorderStyle> parse_border_style(ComponentValue const& value)
 
 // --- The resolver -------------------------------------------------------------
 
-struct Resolver {
+} // namespace
+
+// The compiled side of a StyleSet: rules in cascade order and the index
+// over them, built once per media context.
+struct RuleSet {
     std::vector<CompiledRule> rules;
-    StyleMap map;
-    float root_font_size = 16;
 
     // The rule index: every complex selector filed under the id, else the
     // first class, else the type of its rightmost compound (lowercased,
@@ -384,16 +446,34 @@ struct Resolver {
     struct Candidate {
         std::uint32_t rule;
         std::uint32_t selector;
+        // Identifiers the selector's ancestor compounds require: a
+        // descendant or child combinator to the right of a compound makes
+        // it an ancestor of the subject (a sibling combinator does not).
+        std::vector<std::uint32_t> ancestor_hashes;
     };
+
+    static std::vector<std::uint32_t> ancestor_hashes_of(ComplexSelector const& selector)
+    {
+        std::vector<std::uint32_t> hashes;
+        for (std::size_t i = 0; i + 1 < selector.compounds.size(); ++i) {
+            Combinator const combinator = selector.combinators[i];
+            if (combinator != Combinator::Descendant && combinator != Combinator::Child)
+                continue;
+            for (SimpleSelector const& simple : selector.compounds[i].simples) {
+                if (simple.kind == SimpleSelector::Kind::Id)
+                    hashes.push_back(fnv1a("#" + lowercased(simple.name)));
+                else if (simple.kind == SimpleSelector::Kind::Class)
+                    hashes.push_back(fnv1a("." + lowercased(simple.name)));
+                else if (simple.kind == SimpleSelector::Kind::Type)
+                    hashes.push_back(fnv1a(lowercased(simple.name)));
+            }
+        }
+        return hashes;
+    }
     std::unordered_map<std::string, std::vector<Candidate>> by_id;
     std::unordered_map<std::string, std::vector<Candidate>> by_class;
     std::unordered_map<std::string, std::vector<Candidate>> by_type;
     std::vector<Candidate> universal;
-    bool indexed = false;
-    std::vector<int> rule_stamp; // per rule: the element (stamp) it last matched
-    std::vector<Specificity> rule_best; // its best matching selector for that element
-    int stamp = 0;
-    std::vector<std::uint32_t> matched_rules; // scratch, reused per element
 
     static std::string lowercased(std::string_view text)
     {
@@ -422,7 +502,7 @@ struct Resolver {
                             type = &simple.name;
                     }
                 }
-                Candidate const candidate { r, s };
+                Candidate const candidate { r, s, ancestor_hashes_of(selectors[s]) };
                 if (id)
                     by_id[lowercased(*id)].push_back(candidate);
                 else if (class_name)
@@ -433,59 +513,6 @@ struct Resolver {
                     universal.push_back(candidate);
             }
         }
-        rule_stamp.assign(rules.size(), 0);
-        rule_best.assign(rules.size(), Specificity {});
-        indexed = true;
-    }
-
-    // The rules matching the element, in rule order, each with the
-    // specificity of its best matching selector.
-    void matching_rules(dom::Element const& element, std::vector<std::uint32_t>& out)
-    {
-        if (!indexed)
-            build_index();
-        ++stamp;
-        out.clear();
-        auto const consider = [&](std::vector<Candidate> const& candidates) {
-            for (Candidate const& candidate : candidates) {
-                ComplexSelector const& selector
-                    = rules[candidate.rule].selectors.selectors[candidate.selector];
-                if (!matches(selector, element))
-                    continue;
-                if (rule_stamp[candidate.rule] != stamp) {
-                    rule_stamp[candidate.rule] = stamp;
-                    rule_best[candidate.rule] = selector.specificity;
-                    out.push_back(candidate.rule);
-                } else if (selector.specificity > rule_best[candidate.rule]) {
-                    rule_best[candidate.rule] = selector.specificity;
-                }
-            }
-        };
-        auto const consider_bucket
-            = [&](std::unordered_map<std::string, std::vector<Candidate>> const& bucket,
-                  std::string const& key) {
-                  if (auto const it = bucket.find(key); it != bucket.end())
-                      consider(it->second);
-              };
-        if (dom::Attr const* id = element.find_attribute("id"))
-            consider_bucket(by_id, lowercased(id->value));
-        if (dom::Attr const* classes = element.find_attribute("class")) {
-            std::string_view const value = classes->value;
-            std::size_t start = 0;
-            while (start < value.size()) {
-                while (start < value.size() && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
-                    ++start;
-                std::size_t end = start;
-                while (end < value.size() && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
-                    ++end;
-                if (end > start)
-                    consider_bucket(by_class, lowercased(value.substr(start, end - start)));
-                start = end;
-            }
-        }
-        consider_bucket(by_type, lowercased(element.local_name()));
-        consider(universal);
-        std::sort(out.begin(), out.end());
     }
 
     MediaContext media;
@@ -524,10 +551,108 @@ struct Resolver {
             // Nested child rules wait for the nesting-aware resolver.
         }
     }
+};
+
+// One resolution of one document against a RuleSet.
+struct Resolver {
+    RuleSet const& set;
+    StyleMap map;
+    float root_font_size = 16;
+    std::vector<int> rule_stamp; // per rule: the element (stamp) it last matched
+    std::vector<Specificity> rule_best; // its best matching selector for that element
+    int stamp = 0;
+    std::vector<std::uint32_t> matched_rules; // scratch, reused per element
+    AncestorFilter ancestors; // the identifiers of the elements above the one being styled
+
+    explicit Resolver(RuleSet const& the_set)
+        : set(the_set)
+        , rule_stamp(the_set.rules.size(), 0)
+        , rule_best(the_set.rules.size(), Specificity {})
+    {
+    }
+
+    // The rules matching the element, in rule order, each with the
+    // specificity of its best matching selector.
+    void matching_rules(dom::Element const& element, std::vector<std::uint32_t>& out)
+    {
+        ++stamp;
+        out.clear();
+        auto const consider = [&](std::vector<RuleSet::Candidate> const& candidates) {
+            for (RuleSet::Candidate const& candidate : candidates) {
+                if (!ancestors.may_contain_all(candidate.ancestor_hashes))
+                    continue;
+                ComplexSelector const& selector
+                    = set.rules[candidate.rule].selectors.selectors[candidate.selector];
+                if (!matches(selector, element))
+                    continue;
+                if (rule_stamp[candidate.rule] != stamp) {
+                    rule_stamp[candidate.rule] = stamp;
+                    rule_best[candidate.rule] = selector.specificity;
+                    out.push_back(candidate.rule);
+                } else if (selector.specificity > rule_best[candidate.rule]) {
+                    rule_best[candidate.rule] = selector.specificity;
+                }
+            }
+        };
+        auto const consider_bucket
+            = [&](std::unordered_map<std::string, std::vector<RuleSet::Candidate>> const& bucket,
+                  std::string const& key) {
+                  if (auto const it = bucket.find(key); it != bucket.end())
+                      consider(it->second);
+              };
+        if (dom::Attr const* id = element.find_attribute("id"))
+            consider_bucket(set.by_id, RuleSet::lowercased(id->value));
+        if (dom::Attr const* classes = element.find_attribute("class")) {
+            std::string_view const value = classes->value;
+            std::size_t start = 0;
+            while (start < value.size()) {
+                while (start < value.size()
+                    && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
+                    ++start;
+                std::size_t end = start;
+                while (end < value.size()
+                    && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
+                    ++end;
+                if (end > start)
+                    consider_bucket(set.by_class, RuleSet::lowercased(value.substr(start, end - start)));
+                start = end;
+            }
+        }
+        consider_bucket(set.by_type, RuleSet::lowercased(element.local_name()));
+        consider(set.universal);
+        std::sort(out.begin(), out.end());
+    }
+
+    // The identifiers an element offers to the selectors of its descendants.
+    static std::vector<std::uint32_t> identifier_hashes(dom::Element const& element)
+    {
+        std::vector<std::uint32_t> hashes;
+        hashes.push_back(fnv1a(RuleSet::lowercased(element.local_name())));
+        if (dom::Attr const* id = element.find_attribute("id"))
+            hashes.push_back(fnv1a("#" + RuleSet::lowercased(id->value)));
+        if (dom::Attr const* classes = element.find_attribute("class")) {
+            std::string_view const value = classes->value;
+            std::size_t start = 0;
+            while (start < value.size()) {
+                while (start < value.size()
+                    && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
+                    ++start;
+                std::size_t end = start;
+                while (end < value.size()
+                    && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
+                    ++end;
+                if (end > start)
+                    hashes.push_back(fnv1a("." + RuleSet::lowercased(value.substr(start, end - start))));
+                start = end;
+            }
+        }
+        return hashes;
+    }
 
     void resolve_tree(dom::Node const& node, ComputedStyle const& parent_style)
     {
         ComputedStyle const* style_for_children = &parent_style;
+        std::vector<std::uint32_t> offered;
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
             ComputedStyle style = compute_for(element, parent_style);
@@ -537,9 +662,14 @@ struct Resolver {
             auto const [it, inserted] = map.emplace(&element, std::move(style));
             (void)inserted;
             style_for_children = &it->second;
+            offered = identifier_hashes(element);
+            for (std::uint32_t const hash : offered)
+                ancestors.push(hash);
         }
         for (dom::Node const* child : node.children())
             resolve_tree(*child, *style_for_children);
+        for (std::uint32_t const hash : offered)
+            ancestors.pop(hash);
     }
 
     ComputedStyle compute_for(dom::Element const& element, ComputedStyle const& parent)
@@ -559,7 +689,7 @@ struct Resolver {
         std::vector<MatchedDeclaration> matched;
         matching_rules(element, matched_rules);
         for (std::uint32_t const index : matched_rules) {
-            CompiledRule const& rule = rules[index];
+            CompiledRule const& rule = set.rules[index];
             Specificity const specificity = rule_best[index];
             for (Declaration const& declaration : rule.declarations) {
                 MatchedDeclaration entry;
@@ -1077,21 +1207,39 @@ struct Resolver {
     }
 };
 
-} // namespace
+StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media)
+    : m_rules(std::make_unique<RuleSet>())
+{
+    m_rules->media = media;
+    int order = 0;
+    m_rules->compile_sheet(ua_stylesheet, true, order);
+    for (SheetSource const& sheet : sheets)
+        m_rules->compile_sheet(sheet.text, false, order);
+    m_rules->build_index();
+}
+
+StyleSet::~StyleSet() = default;
+StyleSet::StyleSet(StyleSet&&) noexcept = default;
+StyleSet& StyleSet::operator=(StyleSet&&) noexcept = default;
+
+std::size_t StyleSet::rule_count() const { return m_rules->rules.size(); }
+
+std::size_t StyleSet::universal_count() const { return m_rules->universal.size(); }
+
+MediaContext const& StyleSet::media() const { return m_rules->media; }
+
+StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
+{
+    Resolver resolver(*set.m_rules);
+    ComputedStyle initial;
+    resolver.resolve_tree(document, initial);
+    return std::move(resolver.map);
+}
 
 StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets,
     MediaContext const& media)
 {
-    Resolver resolver;
-    resolver.media = media;
-    int order = 0;
-    resolver.compile_sheet(ua_stylesheet, true, order);
-    for (SheetSource const& sheet : sheets)
-        resolver.compile_sheet(sheet.text, false, order);
-
-    ComputedStyle initial;
-    resolver.resolve_tree(document, initial);
-    return std::move(resolver.map);
+    return resolve_styles(document, StyleSet(sheets, media));
 }
 
 StyleMap resolve_styles(dom::Document const& document)

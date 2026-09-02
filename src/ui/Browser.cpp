@@ -256,6 +256,8 @@ struct Browser::Impl {
         std::size_t index = 0;
         std::unique_ptr<dom::Document> document;
         std::vector<css::SheetSource> sheets; // the page's stylesheets, kept so a resize can restyle
+        std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
+        css::MediaContext style_media;
         css::StyleMap styles;
         layout::LayoutResult layout;
         int scroll_y = 0;
@@ -465,7 +467,13 @@ struct Browser::Impl {
     {
         if (!tab.document)
             return;
-        tab.styles = css::resolve_styles(*tab.document, tab.sheets, media_context());
+        css::MediaContext const media = media_context();
+        if (!tab.style_set || tab.style_media.width != media.width
+            || tab.style_media.height != media.height) {
+            tab.style_set.emplace(tab.sheets, media);
+            tab.style_media = media;
+        }
+        tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
     }
 
     void relayout(Tab& tab)
@@ -512,6 +520,7 @@ struct Browser::Impl {
             return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
         };
         tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
+        tab.style_set.reset();
         restyle(tab);
         entry->title = find_title(*tab.document);
         tab.scroll_y = entry->scroll_y;

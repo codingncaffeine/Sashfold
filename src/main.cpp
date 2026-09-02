@@ -354,19 +354,26 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
     using ms = std::chrono::duration<double, std::milli>;
     struct Sample {
         double parse = 0;
+        double sheets = 0;
         double style = 0;
         double layout = 0;
         double paint = 0;
     };
     std::vector<Sample> samples;
     float page_height = 0;
+    std::size_t rule_count = 0;
+    std::size_t universal_count = 0;
     for (int run = 0; run < runs; ++run) {
         Sample sample;
         auto const t0 = clock::now();
         auto document = html::parse_document_bytes(loaded->bytes);
         auto const t1 = clock::now();
-        css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
+        css::StyleSet const style_set(sheets, media);
+        auto const t1b = clock::now();
+        css::StyleMap const styles = css::resolve_styles(*document, style_set);
         auto const t2 = clock::now();
+        rule_count = style_set.rule_count();
+        universal_count = style_set.universal_count();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width));
         auto const t3 = clock::now();
@@ -374,7 +381,8 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         paint::paint_page(canvas, page);
         auto const t4 = clock::now();
         sample.parse = ms(t1 - t0).count();
-        sample.style = ms(t2 - t1).count();
+        sample.sheets = ms(t1b - t1).count();
+        sample.style = ms(t2 - t1b).count();
         sample.layout = ms(t3 - t2).count();
         sample.paint = ms(t4 - t3).count();
         samples.push_back(sample);
@@ -388,16 +396,18 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", name, values.front(),
             values[values.size() / 2]);
     };
-    std::printf("bench: %zu bytes, %zu sheet(s), %d run(s), viewport %d px wide, page %d px tall\n",
-        loaded->bytes.size(), sheets.size(), runs, viewport_width,
+    std::printf("bench: %zu bytes, %zu sheet(s) with %zu rules (%zu universal), %d run(s), "
+                "viewport %d px wide, page %d px tall\n",
+        loaded->bytes.size(), sheets.size(), rule_count, universal_count, runs, viewport_width,
         static_cast<int>(page_height + 0.5f));
     report("parse", &Sample::parse);
+    report("sheets", &Sample::sheets);
     report("style", &Sample::style);
     report("layout", &Sample::layout);
     report("paint", &Sample::paint);
     std::vector<double> totals;
     for (Sample const& sample : samples)
-        totals.push_back(sample.parse + sample.style + sample.layout + sample.paint);
+        totals.push_back(sample.parse + sample.sheets + sample.style + sample.layout + sample.paint);
     std::sort(totals.begin(), totals.end());
     std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", "total", totals.front(),
         totals[totals.size() / 2]);
