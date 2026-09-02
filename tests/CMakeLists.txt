@@ -28,6 +28,7 @@ sashfold_test(test_source_set)
 sashfold_test(test_floats)
 sashfold_test(test_flex)
 sashfold_test(test_forms)
+sashfold_test(test_reader)
 sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)
@@ -53,6 +54,9 @@ add_test(NAME shell_selection
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_find
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/find.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_reader
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/reader.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed

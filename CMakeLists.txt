@@ -59,6 +59,7 @@ add_library(sashfold_core STATIC
   src/ui/Forms.cpp
   src/ui/InternalPages.cpp
   src/ui/PageImages.cpp
+  src/ui/Reader.cpp
   src/ui/Script.cpp
   src/ui/ShellLoader.cpp
   src/ui/SourceSet.cpp

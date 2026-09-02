@@ -71,6 +71,7 @@ struct ChromeLayout {
     Rect back_button;
     Rect forward_button;
     Rect reload_button;
+    Rect reader_button;
     Rect new_tab_button;
     Rect address;
     Rect find_bar; // empty unless the find bar is open
@@ -160,6 +161,8 @@ public:
     // --- Find in page (tests and --script) ----------------------------------
     // "3 of 12", "No matches", or "" when the find bar is closed or empty.
     std::string find_status() const;
+    // Shows the current page in reader mode, or leaves it.
+    void toggle_reader();
 
 private:
     struct Impl;

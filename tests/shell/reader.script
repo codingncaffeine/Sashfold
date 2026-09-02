@@ -1,0 +1,26 @@
+# Reader mode: the article of a page, alone, with the title as its heading
+# and the furniture — navigation, a sidebar, comments — left behind; the
+# same command leaves it again. The page is a data: URL so the run needs no
+# network.
+resize 800 500
+open data:text/html,<title>Article - Site</title><nav><a href="/">Home</a> <a href="/about">About</a></nav><div class="sidebar"><p>Sidebar text that should not be in the reader view, with plenty of words to score, and commas, commas, commas, commas.</p></div><article><h1>The article heading</h1><p>First paragraph of the article, long enough to count as content, with a few commas, and some more words to pass the threshold.</p><p>Second paragraph continues the article with more sentences, more commas, and enough length to score well in the extraction.</p><p>Third paragraph, again long enough, keeps the article the strongest candidate on the page.</p></article><div id="comments"><p>A comment that is long enough to look like content, with commas, but sits in the comments section, so it should be dropped.</p></div>
+assert-title Article - Site
+assert-text Sidebar text
+assert-text Home
+
+reader
+assert-title The article heading
+assert-text First paragraph
+assert-text Third paragraph
+assert-no-text Sidebar text
+assert-no-text A comment
+assert-no-text Home
+assert-golden goldens/reader.png
+
+reader
+assert-title Article - Site
+assert-text Sidebar text
+back
+assert-title The article heading
+back
+assert-title Article - Site

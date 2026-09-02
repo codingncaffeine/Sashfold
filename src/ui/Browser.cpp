@@ -15,6 +15,7 @@
 #include "ui/PageImages.h"
 #include "ui/Downloads.h"
 #include "ui/InternalPages.h"
+#include "ui/Reader.h"
 
 #include <algorithm>
 #include <cmath>
@@ -34,6 +35,7 @@ constexpr char32_t glyph_reload = 0x21BB;
 constexpr char32_t glyph_close = 0x00D7;
 constexpr char32_t glyph_plus = U'+';
 constexpr char32_t glyph_ellipsis = 0x2026;
+constexpr char32_t glyph_reader = 0x00B6; // the pilcrow: reader mode
 
 constexpr float font_ascent_ratio = 25.0f / 32.0f;
 constexpr float font_descent_ratio = 7.0f / 32.0f;
@@ -177,7 +179,7 @@ bool is_web_scheme(std::string const& scheme)
 bool is_navigable_scheme(std::string const& scheme)
 {
     return is_web_scheme(scheme) || scheme == "file" || scheme == "data" || scheme == "about"
-        || scheme == "view-source";
+        || scheme == "view-source" || scheme == "reader";
 }
 
 // strict-origin-when-cross-origin, the default: the full URL to the same
@@ -315,7 +317,19 @@ struct Browser::Impl {
         bool https_first = false;
     };
 
-    enum class Hover { None, Back, Forward, Reload, NewTab, Tab, TabClose, Address, FindBox, Content };
+    enum class Hover {
+        None,
+        Back,
+        Forward,
+        Reload,
+        Reader,
+        NewTab,
+        Tab,
+        TabClose,
+        Address,
+        FindBox,
+        Content
+    };
 
     Loader& loader;
     Theme theme;
@@ -481,8 +495,12 @@ struct Browser::Impl {
         c.forward_button = Rect { t.padding + step, button_y, t.button_size, t.button_size };
         c.reload_button = Rect { t.padding + 2 * step, button_y, t.button_size, t.button_size };
         int const address_x = c.reload_button.right() + 2 * t.padding;
+        // The reader button sits at the toolbar's right end; the address
+        // bar takes what lies between.
+        c.reader_button = Rect { std::max(address_x, width - t.padding - t.button_size), button_y,
+            t.button_size, t.button_size };
         c.address = Rect { address_x, c.toolbar.y + (t.toolbar_height - t.address_height) / 2,
-            std::max(0, width - address_x - t.padding), t.address_height };
+            std::max(0, c.reader_button.x - 2 * t.padding - address_x), t.address_height };
         return c;
     }
 
@@ -739,6 +757,25 @@ struct Browser::Impl {
                     fail_entry(entry, *inner, result.error);
                 } else {
                     set_document(entry, source_page(inner->serialize(), result.response->body));
+                    entry.internal = true;
+                    entry.status = result.response->status;
+                    entry.from_cache = result.response->from_cache;
+                }
+            }
+        } else if (load.url.scheme == "reader") {
+            // The page behind the reader: fetched like any document, then
+            // reduced to its article.
+            std::optional<net::Url> const inner = net::parse_url(load.url.serialize_path());
+            if (!inner) {
+                fail_entry(entry, load.url, "reader: needs a URL after it");
+            } else {
+                net::FetchResult result = loader.load(*inner, "", load.mode == Mode::Reload);
+                if (!result.response) {
+                    fail_entry(entry, *inner, result.error);
+                } else {
+                    std::unique_ptr<dom::Document> const document
+                        = html::parse_document_bytes(bytes_view(result.response->body));
+                    set_document(entry, reader_page(*document, result.response->final_url));
                     entry.internal = true;
                     entry.status = result.response->status;
                     entry.from_cache = result.response->from_cache;
@@ -1111,6 +1148,8 @@ struct Browser::Impl {
                 next = Hover::Forward;
             else if (c.reload_button.contains(x, y))
                 next = Hover::Reload;
+            else if (c.reader_button.contains(x, y))
+                next = Hover::Reader;
             else if (c.address.contains(x, y))
                 next = Hover::Address;
             else if (find_open && c.find_box.contains(x, y))
@@ -1386,6 +1425,39 @@ struct Browser::Impl {
             if (c >= 0x20 && c != 0x7F)
                 text_input(c);
         }
+    }
+
+    // --- Reader mode -----------------------------------------------------------------
+
+    // A page fetched from the web, a file or a data: URL can be read; the
+    // shell's own pages cannot. A reader page can always be left.
+    bool reader_available() const
+    {
+        Tab const* const tab = active_tab();
+        HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+        if (!entry)
+            return false;
+        if (entry->url.scheme == "reader")
+            return true;
+        std::string const& scheme = entry->final_url.scheme;
+        return !entry->internal
+            && (is_web_scheme(scheme) || scheme == "file" || scheme == "data");
+    }
+
+    // Into reader mode for the current page, or back out of it.
+    void toggle_reader()
+    {
+        Tab* const tab = active_tab();
+        HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+        if (!entry || !reader_available())
+            return;
+        if (entry->url.scheme == "reader") {
+            if (std::optional<net::Url> const inner = net::parse_url(entry->url.serialize_path()))
+                queue(active, *inner, Mode::Push);
+            return;
+        }
+        if (std::optional<net::Url> const url = net::parse_url("reader:" + entry->final_url.serialize()))
+            queue(active, *url, Mode::Push);
     }
 
     // --- Find in page ----------------------------------------------------------------
@@ -1896,6 +1968,7 @@ struct Browser::Impl {
             case Hover::Back: go(-1); break;
             case Hover::Forward: go(+1); break;
             case Hover::Reload: reload(); break;
+            case Hover::Reader: toggle_reader(); break;
             case Hover::Address: focus_address(true); break;
             case Hover::FindBox:
                 blur_address();
@@ -2161,6 +2234,7 @@ struct Browser::Impl {
         paint_button(c.forward_button, glyph_forward, can_go(+1), hover == Hover::Forward);
         paint_button(c.reload_button, glyph_reload, tab && tab->current() != nullptr,
             hover == Hover::Reload);
+        paint_button(c.reader_button, glyph_reader, reader_available(), hover == Hover::Reader);
 
         // Address bar.
         frame.fill_round_rect(c.address, t.address_corner_radius,
@@ -2569,5 +2643,7 @@ std::string Browser::find_status() const
     Impl::Tab const* const tab = m_impl->active_tab();
     return tab ? m_impl->find_status(*tab) : std::string();
 }
+
+void Browser::toggle_reader() { m_impl->toggle_reader(); }
 
 }

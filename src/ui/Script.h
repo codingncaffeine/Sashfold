@@ -34,6 +34,7 @@
 //   select-text <text>   select the first run's occurrence of text
 //   assert-selection <text>      the selected text (one line)
 //   assert-find <text>   the find bar's count: "3 of 12", "No matches", "" when closed
+//   reader               toggle reader mode on the current page
 //   echo <text>
 
 #include "ui/Browser.h"
