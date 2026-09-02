@@ -862,9 +862,11 @@ struct Resolver {
                 style.display = Display::ListItem;
             else if (ascii_ci_equals(keyword, "flow-root"))
                 style.display = Display::FlowRoot;
-            else if (ascii_ci_equals(keyword, "block") || ascii_ci_equals(keyword, "flex")
-                || ascii_ci_equals(keyword, "grid") || ascii_ci_equals(keyword, "table"))
-                style.display = Display::Block; // flex/grid lay out as blocks until they land
+            else if (ascii_ci_equals(keyword, "flex") || ascii_ci_equals(keyword, "inline-flex"))
+                style.display = Display::Flex; // inline-flex is block-level until inline-block lands
+            else if (ascii_ci_equals(keyword, "block") || ascii_ci_equals(keyword, "grid")
+                || ascii_ci_equals(keyword, "table"))
+                style.display = Display::Block; // grid lays out as a block until it lands
             else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::Inline; // inline-block is not supported yet
             return;
@@ -913,6 +915,258 @@ struct Resolver {
                     return;
             }
             style.overflow = visible ? Overflow::Visible : Overflow::Hidden;
+            return;
+        }
+        if (name == "flex-direction") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "row"))
+                style.flex_direction = FlexDirection::Row;
+            else if (ascii_ci_equals(keyword, "row-reverse"))
+                style.flex_direction = FlexDirection::RowReverse;
+            else if (ascii_ci_equals(keyword, "column"))
+                style.flex_direction = FlexDirection::Column;
+            else if (ascii_ci_equals(keyword, "column-reverse"))
+                style.flex_direction = FlexDirection::ColumnReverse;
+            return;
+        }
+        if (name == "flex-wrap") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "nowrap"))
+                style.flex_wrap = FlexWrap::NoWrap;
+            else if (ascii_ci_equals(keyword, "wrap"))
+                style.flex_wrap = FlexWrap::Wrap;
+            else if (ascii_ci_equals(keyword, "wrap-reverse"))
+                style.flex_wrap = FlexWrap::WrapReverse;
+            return;
+        }
+        if (name == "flex-flow") {
+            // A direction, a wrap, or both in either order.
+            if (values.size() > 2)
+                return;
+            std::optional<FlexDirection> direction;
+            std::optional<FlexWrap> wrap;
+            for (ComponentValue const* value : values) {
+                if (!value->is_token(Token::Type::Ident))
+                    return;
+                std::string_view const keyword = value->token().value;
+                if (ascii_ci_equals(keyword, "row"))
+                    direction = FlexDirection::Row;
+                else if (ascii_ci_equals(keyword, "row-reverse"))
+                    direction = FlexDirection::RowReverse;
+                else if (ascii_ci_equals(keyword, "column"))
+                    direction = FlexDirection::Column;
+                else if (ascii_ci_equals(keyword, "column-reverse"))
+                    direction = FlexDirection::ColumnReverse;
+                else if (ascii_ci_equals(keyword, "nowrap"))
+                    wrap = FlexWrap::NoWrap;
+                else if (ascii_ci_equals(keyword, "wrap"))
+                    wrap = FlexWrap::Wrap;
+                else if (ascii_ci_equals(keyword, "wrap-reverse"))
+                    wrap = FlexWrap::WrapReverse;
+                else
+                    return;
+            }
+            style.flex_direction = direction.value_or(FlexDirection::Row);
+            style.flex_wrap = wrap.value_or(FlexWrap::NoWrap);
+            return;
+        }
+        if (name == "justify-content") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start")
+                || ascii_ci_equals(keyword, "left") || ascii_ci_equals(keyword, "normal"))
+                style.justify_content = JustifyContent::FlexStart;
+            else if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end")
+                || ascii_ci_equals(keyword, "right"))
+                style.justify_content = JustifyContent::FlexEnd;
+            else if (ascii_ci_equals(keyword, "center"))
+                style.justify_content = JustifyContent::Center;
+            else if (ascii_ci_equals(keyword, "space-between"))
+                style.justify_content = JustifyContent::SpaceBetween;
+            else if (ascii_ci_equals(keyword, "space-around"))
+                style.justify_content = JustifyContent::SpaceAround;
+            else if (ascii_ci_equals(keyword, "space-evenly"))
+                style.justify_content = JustifyContent::SpaceEvenly;
+            return;
+        }
+        auto const alignment_of = [](std::string_view keyword) -> std::optional<AlignItems> {
+            if (ascii_ci_equals(keyword, "stretch") || ascii_ci_equals(keyword, "normal"))
+                return AlignItems::Stretch;
+            if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start")
+                || ascii_ci_equals(keyword, "self-start"))
+                return AlignItems::FlexStart;
+            if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end")
+                || ascii_ci_equals(keyword, "self-end"))
+                return AlignItems::FlexEnd;
+            if (ascii_ci_equals(keyword, "center"))
+                return AlignItems::Center;
+            if (ascii_ci_equals(keyword, "baseline"))
+                return AlignItems::Baseline;
+            return std::nullopt;
+        };
+        if (name == "align-items") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            if (std::optional<AlignItems> const alignment = alignment_of(values[0]->token().value))
+                style.align_items = *alignment;
+            return;
+        }
+        if (name == "align-self") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "auto"))
+                style.align_self = AlignItems::Auto;
+            else if (std::optional<AlignItems> const alignment = alignment_of(keyword))
+                style.align_self = *alignment;
+            return;
+        }
+        if (name == "align-content") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "stretch") || ascii_ci_equals(keyword, "normal"))
+                style.align_content = AlignContent::Stretch;
+            else if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start"))
+                style.align_content = AlignContent::FlexStart;
+            else if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end"))
+                style.align_content = AlignContent::FlexEnd;
+            else if (ascii_ci_equals(keyword, "center"))
+                style.align_content = AlignContent::Center;
+            else if (ascii_ci_equals(keyword, "space-between"))
+                style.align_content = AlignContent::SpaceBetween;
+            else if (ascii_ci_equals(keyword, "space-around"))
+                style.align_content = AlignContent::SpaceAround;
+            else if (ascii_ci_equals(keyword, "space-evenly"))
+                style.align_content = AlignContent::SpaceEvenly;
+            return;
+        }
+        auto const non_negative_number = [](ComponentValue const& value) -> std::optional<float> {
+            if (!value.is_token(Token::Type::Number))
+                return std::nullopt;
+            double const number = value.token().numeric_value;
+            if (number < 0)
+                return std::nullopt;
+            return static_cast<float>(number);
+        };
+        auto const flex_basis_of = [&](ComponentValue const& value) -> std::optional<LengthPercent> {
+            if (is_ident(&value, "content"))
+                return LengthPercent::auto_value();
+            auto length = parse_length_percent(value, context, true);
+            if (!length || (!length->is_auto() && length->value < 0))
+                return std::nullopt;
+            return length;
+        };
+        if (name == "flex-grow" || name == "flex-shrink") {
+            if (values.size() != 1)
+                return;
+            if (std::optional<float> const number = non_negative_number(*values[0]))
+                (name == "flex-grow" ? style.flex_grow : style.flex_shrink) = *number;
+            return;
+        }
+        if (name == "flex-basis") {
+            if (values.size() != 1)
+                return;
+            if (std::optional<LengthPercent> const basis = flex_basis_of(*values[0]))
+                style.flex_basis = *basis;
+            return;
+        }
+        if (name == "flex") {
+            // none | auto | initial | <grow> <shrink>? <basis>?, in either
+            // order — the shorthand settles all three: a number alone means
+            // <number> 1 0, a basis alone means 1 1 <basis>.
+            if (values.size() == 1 && values[0]->is_token(Token::Type::Ident)) {
+                std::string_view const keyword = values[0]->token().value;
+                if (ascii_ci_equals(keyword, "none")) {
+                    style.flex_grow = 0;
+                    style.flex_shrink = 0;
+                    style.flex_basis = LengthPercent::auto_value();
+                } else if (ascii_ci_equals(keyword, "auto") || ascii_ci_equals(keyword, "content")) {
+                    style.flex_grow = 1;
+                    style.flex_shrink = 1;
+                    style.flex_basis = LengthPercent::auto_value();
+                } else if (ascii_ci_equals(keyword, "initial")) {
+                    style.flex_grow = 0;
+                    style.flex_shrink = 1;
+                    style.flex_basis = LengthPercent::auto_value();
+                }
+                return;
+            }
+            if (values.size() > 3)
+                return;
+            std::optional<float> grow;
+            std::optional<float> shrink;
+            std::optional<LengthPercent> basis;
+            for (ComponentValue const* value : values) {
+                if (value->is_token(Token::Type::Number)) {
+                    std::optional<float> const number = non_negative_number(*value);
+                    if (!number)
+                        return;
+                    if (!grow)
+                        grow = number;
+                    else if (!shrink)
+                        shrink = number;
+                    else if (!basis && *number == 0)
+                        basis = LengthPercent::px(0); // a unitless zero after two factors
+                    else
+                        return;
+                    continue;
+                }
+                if (basis)
+                    return;
+                basis = flex_basis_of(*value);
+                if (!basis)
+                    return;
+            }
+            if (!grow && !basis)
+                return;
+            style.flex_grow = grow.value_or(1.0f);
+            style.flex_shrink = shrink.value_or(1.0f);
+            style.flex_basis = basis.value_or(grow ? LengthPercent::px(0) : LengthPercent::auto_value());
+            return;
+        }
+        if (name == "gap" || name == "row-gap" || name == "column-gap") {
+            auto const gap_px = [&](ComponentValue const& value) -> std::optional<float> {
+                if (is_ident(&value, "normal"))
+                    return 0.0f;
+                auto length = parse_length_percent(value, context, false);
+                if (!length)
+                    return std::nullopt;
+                if (length->kind == LengthPercent::Kind::Percent)
+                    return 0.0f; // percentages wait for their base
+                if (length->value < 0)
+                    return std::nullopt;
+                return length->value;
+            };
+            if (name == "gap") {
+                if (values.size() > 2)
+                    return;
+                std::optional<float> const row = gap_px(*values[0]);
+                std::optional<float> const column = values.size() == 2 ? gap_px(*values[1]) : row;
+                if (!row || !column)
+                    return;
+                style.row_gap = *row;
+                style.column_gap = *column;
+                return;
+            }
+            if (values.size() != 1)
+                return;
+            if (std::optional<float> const gap = gap_px(*values[0]))
+                (name == "row-gap" ? style.row_gap : style.column_gap) = *gap;
+            return;
+        }
+        if (name == "order") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Number))
+                return;
+            double const number = values[0]->token().numeric_value;
+            if (number != static_cast<double>(static_cast<int>(number)))
+                return;
+            style.order = static_cast<int>(number);
             return;
         }
         if (name == "color") {

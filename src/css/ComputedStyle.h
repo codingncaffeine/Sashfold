@@ -33,7 +33,53 @@ enum class Display : std::uint8_t {
     Inline,
     ListItem,
     FlowRoot, // a block whose contents form their own formatting context
+    Flex, // a block-level flex container
     None,
+};
+
+enum class FlexDirection : std::uint8_t {
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+};
+
+enum class FlexWrap : std::uint8_t {
+    NoWrap,
+    Wrap,
+    WrapReverse,
+};
+
+// How a line's free main-axis space is shared out.
+enum class JustifyContent : std::uint8_t {
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+};
+
+// How items sit across their line; Auto (align-self only) defers to the
+// container's align-items.
+enum class AlignItems : std::uint8_t {
+    Auto,
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    Baseline,
+};
+
+// How a multi-line container's lines share its free cross-axis space.
+enum class AlignContent : std::uint8_t {
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
 };
 
 enum class Float : std::uint8_t {
@@ -131,6 +177,20 @@ struct ComputedStyle {
     Float floating = Float::None;
     Clear clear = Clear::None;
     Overflow overflow = Overflow::Visible;
+
+    // Flex containers and their items.
+    FlexDirection flex_direction = FlexDirection::Row;
+    FlexWrap flex_wrap = FlexWrap::NoWrap;
+    JustifyContent justify_content = JustifyContent::FlexStart;
+    AlignItems align_items = AlignItems::Stretch;
+    AlignItems align_self = AlignItems::Auto;
+    AlignContent align_content = AlignContent::Stretch;
+    float flex_grow = 0;
+    float flex_shrink = 1;
+    LengthPercent flex_basis = LengthPercent::auto_value();
+    float row_gap = 0; // px; percentages wait for their base
+    float column_gap = 0;
+    int order = 0;
 
     // Text and inheritance-carried properties.
     Color color = Color::rgb(0, 0, 0);

@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Flex</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 400px }
+  .row { display: flex; gap: 6px; margin-bottom: 6px; background: #eeeeee }
+  .box { background: #c8e6ff; border: 1px solid #3366aa; padding: 4px }
+  .grow { flex: 1; background: #ffe0b0; border: 1px solid #aa6600; padding: 4px }
+  .two { flex: 2; background: #d8f5d0; border: 1px solid #338833; padding: 4px }
+  .tall { height: 60px }
+  .center { justify-content: center; align-items: center; height: 80px }
+  .between { justify-content: space-between }
+  .col { display: flex; flex-direction: column; width: 160px; gap: 4px; background: #fff4c2; margin-bottom: 6px }
+  .wrap { flex-wrap: wrap }
+  .w { width: 120px }
+  .end { align-self: flex-end }
+</style>
+</head>
+<body>
+<div class="row"><div class="box">one</div><div class="grow">grows</div><div class="two">grows twice</div></div>
+<div class="row center"><div class="box">centered in a tall row</div><div class="box tall">tall</div></div>
+<div class="row between"><div class="box">start</div><div class="box">middle</div><div class="box">end</div></div>
+<div class="row wrap"><div class="box w">wrap one</div><div class="box w">wrap two</div><div class="box w">wrap three</div><div class="box w">wrap four</div></div>
+<div class="col"><div class="box">column one</div><div class="box end">at the end</div><div class="grow">a column item that wraps its longer text inside the column</div></div>
+<div class="row">Text as an item<div class="box">then a box</div></div>
+<div class="row" style="flex-direction: row-reverse"><div class="box">first</div><div class="box">second</div></div>
+</body>
+</html>

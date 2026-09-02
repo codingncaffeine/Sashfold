@@ -32,7 +32,7 @@ float resolve(LengthPercent const& length, float percent_base)
 bool is_block_level(ComputedStyle const& style)
 {
     return style.display == Display::Block || style.display == Display::ListItem
-        || style.display == Display::FlowRoot;
+        || style.display == Display::FlowRoot || style.display == Display::Flex;
 }
 
 bool is_floating(ComputedStyle const& style)
@@ -45,7 +45,7 @@ bool is_floating(ComputedStyle const& style)
 bool establishes_bfc(ComputedStyle const& style)
 {
     return is_floating(style) || style.display == Display::FlowRoot
-        || style.overflow != css::Overflow::Visible;
+        || style.display == Display::Flex || style.overflow != css::Overflow::Visible;
 }
 
 // The clear a <br> carries: its CSS, else its clear attribute (all = both).
@@ -234,6 +234,15 @@ struct FloatContext {
         }
         return lowest;
     }
+};
+
+// How a block is laid out beyond what its style says: a float or a flex
+// item arrives with its size settled by its formatting context.
+struct BlockOptions {
+    std::optional<float> content_width; // the used content width, whatever the style says
+    std::optional<float> content_height; // the used content height, likewise
+    bool zero_auto_margins = false; // floats and flex items: auto margins are zero, never centering
+    bool own_context = false; // the box forms its own formatting context regardless of style
 };
 
 struct Layouter {
@@ -587,12 +596,11 @@ struct Layouter {
     // containing block's content width. Returns the fragment; the caller
     // advances by margins itself (margin collapsing lives there).
     // `floats` is the formatting context the box sits in; a box that forms
-    // its own gives its children a fresh one. A float passes `shrink_width`
-    // (its shrink-to-fit content width, when its width is auto) and
-    // `as_float` (its auto margins are zero, never centering).
+    // its own gives its children a fresh one. `options` carry what a float
+    // or a flex item has settled already (see BlockOptions).
     Fragment layout_block(dom::Element const& element, ComputedStyle const& style, float x,
         float y, float containing_width, int list_depth, FloatContext& floats,
-        std::optional<float> shrink_width = std::nullopt, bool as_float = false) const
+        BlockOptions const& options = {}) const
     {
         Fragment fragment;
         fragment.element = &element;
@@ -611,17 +619,19 @@ struct Layouter {
 
         float border_box_width;
         float extra_left = margin_left;
-        if (style.width.is_auto()) {
-            // A float's auto width shrinks to fit; in flow it fills the line.
-            border_box_width = shrink_width
-                ? *shrink_width + padding_left + padding_right + border_left + border_right
-                : containing_width - margin_left - margin_right;
+        if (options.content_width) {
+            // Settled by a float's shrink-to-fit or a flex line.
+            border_box_width = *options.content_width + padding_left + padding_right + border_left
+                + border_right;
+        } else if (style.width.is_auto()) {
+            border_box_width = containing_width - margin_left - margin_right;
         } else {
             border_box_width = resolve(style.width, containing_width) + padding_left
                 + padding_right + border_left + border_right;
-            // Both margins auto with a definite width: center (a float's auto
-            // margins are zero instead).
-            if (!as_float && style.margin_left.is_auto() && style.margin_right.is_auto())
+            // Both margins auto with a definite width: center (a float's or a
+            // flex item's auto margins are zero instead).
+            if (!options.zero_auto_margins && style.margin_left.is_auto()
+                && style.margin_right.is_auto())
                 extra_left = (containing_width - border_box_width) / 2.0f;
         }
         if (border_box_width < 0)
@@ -654,16 +664,20 @@ struct Layouter {
         // A box that forms its own block formatting context keeps its floats
         // to itself, and its height reaches around them.
         FloatContext own_floats;
-        bool const own_context = establishes_bfc(style);
-        float const content_height = layout_children(element, style, content_x, content_y,
-            content_width, fragment, list_depth, own_context ? own_floats : floats);
+        bool const own_context = options.own_context || establishes_bfc(style);
+        float const content_height = style.display == Display::Flex
+            ? layout_flex(element, style, content_x, content_y, content_width, fragment, list_depth)
+            : layout_children(element, style, content_x, content_y, content_width, fragment,
+                  list_depth, own_context ? own_floats : floats);
 
         float used_height = content_height;
         if (own_context) {
             if (std::optional<float> const bottom = own_floats.lowest_bottom())
                 used_height = std::max(used_height, *bottom - content_y);
         }
-        if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
+        if (options.content_height)
+            used_height = *options.content_height;
+        else if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
             used_height = style.height.value;
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
         return fragment;
@@ -936,6 +950,8 @@ struct Layouter {
             float const width = size ? size->width : 0;
             return { width, width };
         }
+        if (style.display == Display::Flex)
+            return flex_intrinsic_widths(element, style);
         bool has_block_child = false;
         for (dom::Node const* child : element.children()) {
             if (!child->is_element())
@@ -1054,12 +1070,536 @@ struct Layouter {
         }
         bool const is_left = style.floating == css::Float::Left;
         float const outer_left = is_left ? band.left : band.right - width.outer();
+        BlockOptions options;
+        options.content_width = width.shrink;
+        options.zero_auto_margins = true;
         Fragment box = layout_block(element, style, outer_left, y + margin_top, containing_width,
-            list_depth, floats, width.shrink, true);
+            list_depth, floats, options);
         floats.floats.push_back(FloatBox { outer_left, outer_left + width.outer(), y,
             box.y + box.height + margin_bottom, is_left });
         box.floating = true;
         parent.children.push_back(std::move(box));
+    }
+
+    // --- Flexbox ----------------------------------------------------------------
+
+    struct FlexItem {
+        dom::Element const* element = nullptr; // null: an anonymous item of the container's own text
+        ComputedStyle const* style = nullptr; // the element's; the container's for an anonymous item
+        std::vector<InlineItem> inline_items; // an anonymous item's content
+        float margin_start = 0; // along the main axis
+        float margin_end = 0;
+        float margin_cross_start = 0;
+        float margin_cross_end = 0;
+        float edges_main = 0; // padding and border along the main axis
+        float edges_cross = 0;
+        float grow = 0;
+        float shrink = 1;
+        float base = 0; // the flex base size: the content main size to start from
+        float minimum = 0; // the automatic minimum: what the content cannot go below
+        float hypothetical = 0; // the base size, clamped
+        float main = 0; // the content main size, once resolved
+        float cross = 0; // the content cross size, once known
+        bool cross_is_auto = true;
+        bool frozen = false;
+        int order = 0;
+
+        float outer_main() const { return margin_start + edges_main + main + margin_end; }
+        float outer_cross() const { return margin_cross_start + edges_cross + cross + margin_cross_end; }
+    };
+
+    // How an item sits across its line: its own align-self, else the
+    // container's align-items.
+    static css::AlignItems item_alignment(FlexItem const& item, ComputedStyle const& container)
+    {
+        if (!item.element || item.style->align_self == css::AlignItems::Auto)
+            return container.align_items;
+        return item.style->align_self;
+    }
+
+    // An item's content height when laid out `width` wide, from a scratch layout.
+    float measure_item_height(FlexItem const& item, float width, float containing_width,
+        int list_depth) const
+    {
+        FloatContext scratch_floats;
+        if (!item.element) {
+            Fragment scratch;
+            return layout_lines(item.inline_items, *item.style, 0, 0, width, scratch, scratch_floats,
+                list_depth);
+        }
+        ComputedStyle const& s = *item.style;
+        BlockOptions options;
+        options.content_width = width;
+        options.zero_auto_margins = true;
+        options.own_context = true;
+        Fragment const box = layout_block(*item.element, s, 0, 0, containing_width, list_depth,
+            scratch_floats, options);
+        float const vertical_edges = resolve(s.padding_top, containing_width)
+            + resolve(s.padding_bottom, containing_width) + s.border_top.width + s.border_bottom.width;
+        return std::max(0.0f, box.height - vertical_edges);
+    }
+
+    // Lays an item out at its settled sizes, its margin box at (x, y).
+    void place_flex_item(FlexItem const& item, bool horizontal, float x, float y,
+        float containing_width, int list_depth, Fragment& parent) const
+    {
+        float const content_w = horizontal ? item.main : item.cross;
+        float const content_h = horizontal ? item.cross : item.main;
+        FloatContext scratch_floats;
+        if (!item.element) {
+            Fragment box;
+            box.x = x;
+            box.y = y;
+            box.width = content_w;
+            box.height = content_h;
+            (void)layout_lines(item.inline_items, *item.style, x, y, content_w, box, scratch_floats,
+                list_depth);
+            parent.children.push_back(std::move(box));
+            return;
+        }
+        float const margin_top = horizontal ? item.margin_cross_start : item.margin_start;
+        BlockOptions options;
+        options.content_width = content_w;
+        options.content_height = content_h;
+        options.zero_auto_margins = true;
+        options.own_context = true;
+        parent.children.push_back(layout_block(*item.element, *item.style, x, y + margin_top,
+            containing_width, list_depth, scratch_floats, options));
+    }
+
+    // A flex container's intrinsic widths: a row adds its items up, a
+    // column takes the widest; a wrapping row can break between items.
+    Intrinsic flex_intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
+    {
+        bool const row = style.flex_direction == css::FlexDirection::Row
+            || style.flex_direction == css::FlexDirection::RowReverse;
+        bool const wrap = style.flex_wrap != css::FlexWrap::NoWrap;
+        Intrinsic result;
+        std::size_t count = 0;
+        auto const take = [&](Intrinsic const& box) {
+            if (row) {
+                result.max += (count > 0 ? style.column_gap : 0) + box.max;
+                if (wrap)
+                    result.min = std::max(result.min, box.min);
+                else
+                    result.min += (count > 0 ? style.column_gap : 0) + box.min;
+            } else {
+                result.max = std::max(result.max, box.max);
+                result.min = std::max(result.min, box.min);
+            }
+            ++count;
+        };
+        std::vector<InlineItem> pending;
+        auto const flush = [&] {
+            for (InlineItem const& item : pending) {
+                if (item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image) {
+                    take(inline_intrinsic(pending));
+                    break;
+                }
+            }
+            pending.clear();
+        };
+        for (dom::Node const* child : element.children()) {
+            if (child->is_text()) {
+                std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
+                if (!text.empty())
+                    append_text(text, &style, pending, &element);
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            auto const& child_element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(child_element);
+            if (!child_style || child_style->display == Display::None)
+                continue;
+            flush();
+            take(block_intrinsic(child_element, *child_style));
+        }
+        flush();
+        return result;
+    }
+
+    // The flexbox algorithm in one pass: the items, their base sizes, the
+    // lines, flexible lengths, cross sizes and alignment, then placement.
+    // Returns the content height.
+    float layout_flex(dom::Element const& container, ComputedStyle const& style, float content_x,
+        float content_y, float content_width, Fragment& fragment, int list_depth) const
+    {
+        using css::AlignContent;
+        using css::AlignItems;
+        using css::FlexDirection;
+        using css::JustifyContent;
+        bool const horizontal = style.flex_direction == FlexDirection::Row
+            || style.flex_direction == FlexDirection::RowReverse;
+        bool const reversed = style.flex_direction == FlexDirection::RowReverse
+            || style.flex_direction == FlexDirection::ColumnReverse;
+        bool const wrap = style.flex_wrap != css::FlexWrap::NoWrap;
+        bool const wrap_reversed = style.flex_wrap == css::FlexWrap::WrapReverse;
+        // The inner sizes: the width is definite here, the height only when written.
+        std::optional<float> const definite_height
+            = !style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px
+            ? std::optional<float>(style.height.value)
+            : std::nullopt;
+        std::optional<float> const main_size
+            = horizontal ? std::optional<float>(content_width) : definite_height;
+        std::optional<float> const cross_size
+            = horizontal ? definite_height : std::optional<float>(content_width);
+        float const main_gap = horizontal ? style.column_gap : style.row_gap;
+        float const cross_gap = horizontal ? style.row_gap : style.column_gap;
+
+        // 1. The items: element children in order, and the container's own
+        // text wrapped in anonymous items.
+        std::vector<FlexItem> items;
+        std::vector<InlineItem> pending;
+        auto const flush_text = [&] {
+            bool content = false;
+            for (InlineItem const& item : pending) {
+                if (item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image)
+                    content = true;
+            }
+            if (content) {
+                FlexItem item;
+                item.style = &style;
+                item.inline_items = std::move(pending);
+                items.push_back(std::move(item));
+            }
+            pending.clear();
+        };
+        for (dom::Node const* child : container.children()) {
+            if (child->is_text()) {
+                std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
+                if (!text.empty())
+                    append_text(text, &style, pending, &container);
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            auto const& element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(element);
+            if (!child_style || child_style->display == Display::None)
+                continue;
+            flush_text();
+            FlexItem item;
+            item.element = &element;
+            item.style = child_style;
+            item.order = child_style->order;
+            item.grow = child_style->flex_grow;
+            item.shrink = child_style->flex_shrink;
+            items.push_back(std::move(item));
+        }
+        flush_text();
+        if (items.empty())
+            return definite_height.value_or(0.0f);
+        std::stable_sort(items.begin(), items.end(),
+            [](FlexItem const& a, FlexItem const& b) { return a.order < b.order; });
+
+        // 2. Each item's edges, flex base size and automatic minimum.
+        for (FlexItem& item : items) {
+            ComputedStyle const& s = *item.style;
+            bool const anonymous = !item.element;
+            float const margin_left = anonymous ? 0 : resolve(s.margin_left, content_width);
+            float const margin_right = anonymous ? 0 : resolve(s.margin_right, content_width);
+            float const margin_top = anonymous ? 0 : resolve(s.margin_top, content_width);
+            float const margin_bottom = anonymous ? 0 : resolve(s.margin_bottom, content_width);
+            float const horizontal_edges = anonymous ? 0
+                : resolve(s.padding_left, content_width) + resolve(s.padding_right, content_width)
+                    + s.border_left.width + s.border_right.width;
+            float const vertical_edges = anonymous ? 0
+                : resolve(s.padding_top, content_width) + resolve(s.padding_bottom, content_width)
+                    + s.border_top.width + s.border_bottom.width;
+            if (horizontal) {
+                item.margin_start = margin_left;
+                item.margin_end = margin_right;
+                item.margin_cross_start = margin_top;
+                item.margin_cross_end = margin_bottom;
+                item.edges_main = horizontal_edges;
+                item.edges_cross = vertical_edges;
+            } else {
+                item.margin_start = margin_top;
+                item.margin_end = margin_bottom;
+                item.margin_cross_start = margin_left;
+                item.margin_cross_end = margin_right;
+                item.edges_main = vertical_edges;
+                item.edges_cross = horizontal_edges;
+            }
+
+            // The flex base size: flex-basis, else the main size property,
+            // else the content's size.
+            LengthPercent basis = anonymous ? LengthPercent::auto_value() : s.flex_basis;
+            if (basis.is_auto() && !anonymous)
+                basis = horizontal ? s.width : s.height;
+            bool const definite_basis = !basis.is_auto()
+                && (basis.kind == LengthPercent::Kind::Px || main_size.has_value());
+            Intrinsic const intrinsic
+                = anonymous ? inline_intrinsic(item.inline_items) : intrinsic_widths(*item.element, s);
+            if (horizontal) {
+                item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : intrinsic.max;
+                // The automatic minimum: the content's narrowest, no more than
+                // a written width.
+                item.minimum = intrinsic.min;
+                if (!anonymous && !s.width.is_auto())
+                    item.minimum = std::min(item.minimum, resolve(s.width, content_width));
+                item.cross_is_auto
+                    = anonymous || s.height.is_auto() || s.height.kind != LengthPercent::Kind::Px;
+                if (!item.cross_is_auto)
+                    item.cross = s.height.value;
+            } else {
+                // A column's cross size is the width — stretched to the line,
+                // as written, or shrink-to-fit — and the base is the height at
+                // that width.
+                float const available = std::max(0.0f,
+                    content_width - item.margin_cross_start - item.margin_cross_end - item.edges_cross);
+                if (!anonymous && !s.width.is_auto()) {
+                    item.cross = resolve(s.width, content_width);
+                    item.cross_is_auto = false;
+                } else {
+                    bool const stretch = item_alignment(item, style) == AlignItems::Stretch;
+                    item.cross = stretch ? available
+                                         : std::min(std::max(intrinsic.min, available), intrinsic.max);
+                    item.cross_is_auto = true;
+                }
+                float const content_height
+                    = measure_item_height(item, item.cross, content_width, list_depth);
+                item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : content_height;
+                item.minimum = std::min(content_height, item.base);
+            }
+            item.base = std::max(0.0f, item.base);
+            item.hypothetical = std::max(item.base, item.minimum);
+        }
+
+        // 3. Lines: everything on one, or as many as fit when wrapping.
+        std::vector<std::vector<std::size_t>> lines;
+        {
+            std::vector<std::size_t> line;
+            float used = 0;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                FlexItem const& item = items[i];
+                float const outer
+                    = item.margin_start + item.edges_main + item.hypothetical + item.margin_end;
+                if (wrap && main_size && !line.empty() && used + main_gap + outer > *main_size + 0.01f) {
+                    lines.push_back(std::move(line));
+                    line.clear();
+                    used = 0;
+                }
+                used += (line.empty() ? 0 : main_gap) + outer;
+                line.push_back(i);
+            }
+            lines.push_back(std::move(line));
+        }
+
+        // 4. Flexible lengths: items grow into a line's free space or shrink
+        // out of its overflow, each weighted by its factor (and its base
+        // size when shrinking), never below its minimum — one that hits its
+        // minimum is frozen there and the rest share what remains.
+        for (std::vector<std::size_t> const& line : lines) {
+            for (std::size_t const i : line) {
+                items[i].main = items[i].hypothetical;
+                items[i].frozen = false;
+            }
+            if (!main_size)
+                continue;
+            float const available = *main_size - main_gap * static_cast<float>(line.size() - 1);
+            float sum_hypothetical = 0;
+            for (std::size_t const i : line) {
+                FlexItem const& item = items[i];
+                sum_hypothetical
+                    += item.margin_start + item.edges_main + item.hypothetical + item.margin_end;
+            }
+            bool const growing = sum_hypothetical < available;
+            for (std::size_t const i : line) {
+                FlexItem& item = items[i];
+                float const factor = growing ? item.grow : item.shrink;
+                if (factor <= 0 || (!growing && item.base < item.hypothetical))
+                    item.frozen = true;
+            }
+            for (int round = 0; round < 64; ++round) {
+                float free = available;
+                float sum_factor = 0;
+                float sum_scaled = 0;
+                std::size_t open = 0;
+                for (std::size_t const i : line) {
+                    FlexItem const& item = items[i];
+                    if (item.frozen) {
+                        free -= item.outer_main();
+                    } else {
+                        free -= item.margin_start + item.edges_main + item.base + item.margin_end;
+                        sum_factor += growing ? item.grow : item.shrink;
+                        sum_scaled += item.shrink * item.base;
+                        ++open;
+                    }
+                }
+                if (open == 0)
+                    break;
+                std::vector<std::size_t> clamped;
+                for (std::size_t const i : line) {
+                    FlexItem& item = items[i];
+                    if (item.frozen)
+                        continue;
+                    float target = item.base;
+                    if (growing && free > 0 && sum_factor > 0)
+                        target = item.base + free * item.grow / sum_factor;
+                    else if (!growing && free < 0 && sum_scaled > 0)
+                        target = item.base + free * (item.shrink * item.base) / sum_scaled;
+                    float const size = std::max(target, item.minimum);
+                    if (size > target + 0.001f)
+                        clamped.push_back(i);
+                    item.main = size;
+                }
+                if (clamped.empty())
+                    break;
+                for (std::size_t const i : clamped)
+                    items[i].frozen = true;
+            }
+        }
+
+        // 5. Cross sizes: each item's, then each line's.
+        for (FlexItem& item : items) {
+            if (horizontal && item.cross_is_auto)
+                item.cross = measure_item_height(item, item.main, content_width, list_depth);
+        }
+        std::vector<float> line_cross(lines.size(), 0.0f);
+        for (std::size_t l = 0; l < lines.size(); ++l) {
+            for (std::size_t const i : lines[l])
+                line_cross[l] = std::max(line_cross[l], items[i].outer_cross());
+        }
+        if (lines.size() == 1 && cross_size)
+            line_cross[0] = *cross_size;
+
+        // 6. The lines across the container: align-content shares the free
+        // cross space among them.
+        float cross_cursor = 0;
+        float line_gap = cross_gap;
+        {
+            float total = cross_gap * static_cast<float>(lines.size() - 1);
+            for (float const size : line_cross)
+                total += size;
+            float const free = cross_size ? *cross_size - total : 0.0f;
+            auto const n = static_cast<float>(lines.size());
+            AlignContent align = style.align_content;
+            if (free < 0
+                && (align == AlignContent::SpaceBetween || align == AlignContent::SpaceAround
+                    || align == AlignContent::SpaceEvenly))
+                align = AlignContent::FlexStart;
+            switch (align) {
+            case AlignContent::Stretch:
+                if (free > 0) {
+                    for (float& size : line_cross)
+                        size += free / n;
+                }
+                break;
+            case AlignContent::FlexStart:
+                break;
+            case AlignContent::FlexEnd:
+                cross_cursor = free;
+                break;
+            case AlignContent::Center:
+                cross_cursor = free / 2;
+                break;
+            case AlignContent::SpaceBetween:
+                if (lines.size() > 1)
+                    line_gap += free / (n - 1);
+                break;
+            case AlignContent::SpaceAround:
+                cross_cursor = free / (2 * n);
+                line_gap += free / n;
+                break;
+            case AlignContent::SpaceEvenly:
+                cross_cursor = free / (n + 1);
+                line_gap += free / (n + 1);
+                break;
+            }
+        }
+
+        // 7. Placement: each line's items along the main axis as
+        // justify-content says, each item across its line as its alignment says.
+        float extent_main = 0; // what the items take along an indefinite main axis
+        for (std::size_t step = 0; step < lines.size(); ++step) {
+            std::size_t const l = wrap_reversed ? lines.size() - 1 - step : step;
+            std::vector<std::size_t> const& line = lines[l];
+            float const height_of_line = line_cross[l];
+            auto const n = static_cast<float>(line.size());
+            float used = main_gap * (n - 1);
+            for (std::size_t const i : line)
+                used += items[i].outer_main();
+            extent_main = std::max(extent_main, used);
+            float const free = main_size ? *main_size - used : 0.0f;
+            JustifyContent justify = style.justify_content;
+            if (reversed) {
+                if (justify == JustifyContent::FlexStart)
+                    justify = JustifyContent::FlexEnd;
+                else if (justify == JustifyContent::FlexEnd)
+                    justify = JustifyContent::FlexStart;
+            }
+            if (free < 0
+                && (justify == JustifyContent::SpaceBetween || justify == JustifyContent::SpaceAround
+                    || justify == JustifyContent::SpaceEvenly))
+                justify = JustifyContent::FlexStart;
+            float main_cursor = 0;
+            float between = main_gap;
+            switch (justify) {
+            case JustifyContent::FlexStart:
+                break;
+            case JustifyContent::FlexEnd:
+                main_cursor = free;
+                break;
+            case JustifyContent::Center:
+                main_cursor = free / 2;
+                break;
+            case JustifyContent::SpaceBetween:
+                if (line.size() > 1)
+                    between += free / (n - 1);
+                break;
+            case JustifyContent::SpaceAround:
+                main_cursor = free / (2 * n);
+                between += free / n;
+                break;
+            case JustifyContent::SpaceEvenly:
+                main_cursor = free / (n + 1);
+                between += free / (n + 1);
+                break;
+            }
+            for (std::size_t k = 0; k < line.size(); ++k) {
+                FlexItem& item = items[reversed ? line[line.size() - 1 - k] : line[k]];
+                float cross_pos = 0;
+                switch (item_alignment(item, style)) {
+                case AlignItems::Stretch:
+                    if (item.cross_is_auto)
+                        item.cross = std::max(0.0f,
+                            height_of_line - item.margin_cross_start - item.margin_cross_end
+                                - item.edges_cross);
+                    break;
+                case AlignItems::FlexEnd:
+                    cross_pos = height_of_line - item.outer_cross();
+                    break;
+                case AlignItems::Center:
+                    cross_pos = (height_of_line - item.outer_cross()) / 2;
+                    break;
+                case AlignItems::Auto:
+                case AlignItems::FlexStart:
+                case AlignItems::Baseline: // as flex-start until baselines are gathered
+                    break;
+                }
+                float const x = horizontal ? content_x + main_cursor
+                                           : content_x + cross_cursor + cross_pos;
+                float const y = horizontal ? content_y + cross_cursor + cross_pos
+                                           : content_y + main_cursor;
+                place_flex_item(item, horizontal, x, y, content_width, list_depth, fragment);
+                main_cursor += item.outer_main() + between;
+            }
+            cross_cursor += height_of_line + line_gap;
+        }
+
+        // The content height: written, else the lines' extent for a row and
+        // the items' for a column.
+        if (definite_height)
+            return *definite_height;
+        if (horizontal) {
+            float total = cross_gap * static_cast<float>(lines.size() - 1);
+            for (float const size : line_cross)
+                total += size;
+            return total;
+        }
+        return extent_main;
     }
 };
 
