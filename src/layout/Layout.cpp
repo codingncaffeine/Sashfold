@@ -34,7 +34,8 @@ float resolve(LengthPercent const& length, float percent_base)
 bool is_block_level(ComputedStyle const& style)
 {
     return style.display == Display::Block || style.display == Display::ListItem
-        || style.display == Display::FlowRoot || style.display == Display::Flex;
+        || style.display == Display::FlowRoot || style.display == Display::Flex
+        || style.display == Display::Grid;
 }
 
 bool is_floating(ComputedStyle const& style)
@@ -47,7 +48,36 @@ bool is_floating(ComputedStyle const& style)
 bool establishes_bfc(ComputedStyle const& style)
 {
     return is_floating(style) || style.display == Display::FlowRoot
-        || style.display == Display::Flex || style.overflow != css::Overflow::Visible;
+        || style.display == Display::Flex || style.display == Display::Grid
+        || style.overflow != css::Overflow::Visible;
+}
+
+// CSS 2.1 §8.3.1: two adjoining vertical margins collapse into one — the
+// larger of two positive margins, the more negative of two negative ones,
+// the sum of a positive and a negative.
+float collapse_margins(float a, float b)
+{
+    if (a >= 0 && b >= 0)
+        return std::max(a, b);
+    if (a < 0 && b < 0)
+        return std::min(a, b);
+    return a + b;
+}
+
+// Text that lays out as nothing between blocks.
+bool is_blank(std::string const& text)
+{
+    for (char const c : text) {
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f')
+            return false;
+    }
+    return true;
+}
+
+// The document's element: its margins collapse with nothing.
+bool is_root(dom::Element const& element)
+{
+    return element.parent() != nullptr && !element.parent()->is_element();
 }
 
 // The clear a <br> carries: its CSS, else its clear attribute (all = both).
@@ -847,6 +877,137 @@ struct Layouter {
         return y - content_y;
     }
 
+    // --- Margin collapsing through a box (CSS 2.1 §8.3.1) ----------------------
+
+    // Whether a box's top edge lets its first in-flow child's top margin
+    // through: no top border or padding, no formatting context of its own,
+    // not replaced, not the root.
+    // A grid container's items are formatting context roots of their own.
+    bool is_grid_item(dom::Element const& element) const
+    {
+        dom::Node const* parent = element.parent();
+        if (!parent || !parent->is_element())
+            return false;
+        ComputedStyle const* parent_style = style_of(static_cast<dom::Element const&>(*parent));
+        return parent_style && parent_style->display == Display::Grid;
+    }
+
+    bool top_edge_collapses(dom::Element const& element, ComputedStyle const& style,
+        float containing_width, BlockOptions const& options) const
+    {
+        return !options.own_context && !establishes_bfc(style) && style.border_top.width == 0
+            && resolve(style.padding_top, containing_width) == 0 && !is_root(element)
+            && !element.is_html("img") && !is_control(element) && !is_grid_item(element);
+    }
+
+    // The same for the bottom edge, which also needs an auto height.
+    bool bottom_edge_collapses(dom::Element const& element, ComputedStyle const& style,
+        float containing_width, BlockOptions const& options) const
+    {
+        return !options.own_context && !options.content_height && !establishes_bfc(style)
+            && style.border_bottom.width == 0 && resolve(style.padding_bottom, containing_width) == 0
+            && style.height.is_auto() && !is_root(element) && !element.is_html("img")
+            && !is_control(element) && !is_grid_item(element);
+    }
+
+    // The content width a block child will be given, before float bands.
+    float content_width_of(ComputedStyle const& style, float containing_width) const
+    {
+        float const edges = resolve(style.padding_left, containing_width)
+            + resolve(style.padding_right, containing_width) + style.border_left.width
+            + style.border_right.width;
+        if (style.width.is_auto())
+            return std::max(0.0f, containing_width - resolve(style.margin_left, containing_width)
+                    - resolve(style.margin_right, containing_width) - edges);
+        return std::max(0.0f, resolve(style.width, containing_width));
+    }
+
+    // A block with both edges open and nothing in flow inside it: its top
+    // and bottom margins meet, and it takes no room of its own.
+    bool is_empty_block(dom::Element const& element, ComputedStyle const& style,
+        float containing_width) const
+    {
+        // A cleared box stands where its clearance puts it: not collapsed through.
+        if (style.clear != css::Clear::None)
+            return false;
+        if (!top_edge_collapses(element, style, containing_width, {})
+            || !bottom_edge_collapses(element, style, containing_width, {}))
+            return false;
+        float const inner_width = content_width_of(style, containing_width);
+        for (dom::Node const* child : element.children()) {
+            if (child->is_text()) {
+                if (!is_blank(static_cast<dom::Text const*>(child)->data))
+                    return false;
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            auto const& child_element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(child_element);
+            if (!child_style || child_style->display == Display::None || is_floating(*child_style))
+                continue;
+            if (!is_block_level(*child_style) || !is_empty_block(child_element, *child_style, inner_width))
+                return false;
+        }
+        return true;
+    }
+
+    // Whether a float lives anywhere inside the element: an empty box that
+    // holds one still places it, so the margins after that box must not
+    // reach past it and carry the float along.
+    bool contains_float(dom::Element const& element) const
+    {
+        for (dom::Node const* child : element.children()) {
+            if (!child->is_element())
+                continue;
+            auto const& child_element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(child_element);
+            if (!child_style || child_style->display == Display::None)
+                continue;
+            if (is_floating(*child_style) || contains_float(child_element))
+                return true;
+        }
+        return false;
+    }
+
+    // The margins that reach through a box's top edge from inside it: its
+    // first in-flow block child's top margin joined with what reaches
+    // through that child, and, while a child is empty and collapses
+    // through, its bottom margin and the next child's margins in turn.
+    // Inline content first means nothing reaches through; a cleared child
+    // keeps its margin inside, and an empty box holding a float ends the
+    // walk after its top margin.
+    float collapsed_through_top(dom::Element const& element, ComputedStyle const& style,
+        float containing_width) const
+    {
+        if (!top_edge_collapses(element, style, containing_width, {}))
+            return 0;
+        float const inner_width = content_width_of(style, containing_width);
+        float margin = 0;
+        for (dom::Node const* child : element.children()) {
+            if (child->is_text()) {
+                if (!is_blank(static_cast<dom::Text const*>(child)->data))
+                    break;
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            auto const& child_element = static_cast<dom::Element const&>(*child);
+            ComputedStyle const* child_style = style_of(child_element);
+            if (!child_style || child_style->display == Display::None || is_floating(*child_style))
+                continue;
+            if (!is_block_level(*child_style) || child_style->clear != css::Clear::None)
+                break;
+            margin = collapse_margins(margin,
+                collapse_margins(resolve(child_style->margin_top, inner_width),
+                    collapsed_through_top(child_element, *child_style, inner_width)));
+            if (!is_empty_block(child_element, *child_style, inner_width) || contains_float(child_element))
+                break;
+            margin = collapse_margins(margin, resolve(child_style->margin_bottom, inner_width));
+        }
+        return margin;
+    }
+
     // --- Block layout ---------------------------------------------------------
 
     // Lays out `element` with its border box starting at (x, y) given the
@@ -933,7 +1094,9 @@ struct Layouter {
         float const content_height = style.display == Display::Flex
             ? layout_flex(element, style, content_x, content_y, content_width, fragment, list_depth)
             : layout_children(element, style, content_x, content_y, content_width, fragment,
-                  list_depth, own_context ? own_floats : floats);
+                  list_depth, own_context ? own_floats : floats,
+                  top_edge_collapses(element, style, containing_width, options),
+                  bottom_edge_collapses(element, style, containing_width, options));
 
         float used_height = content_height;
         if (own_context) {
@@ -949,9 +1112,14 @@ struct Layouter {
     }
 
     // Lays out the children of a block container; returns the content height.
+    // With `collapse_top` the first child's top margin was applied by the
+    // caller, outside this box; with `collapse_bottom` the last child's
+    // bottom margin is left out of the height and reported through
+    // fragment.collapsed_bottom for the caller to apply.
     float layout_children(dom::Element const& element, ComputedStyle const& style,
         float content_x, float content_y, float content_width, Fragment& fragment,
-        int list_depth, FloatContext& floats) const
+        int list_depth, FloatContext& floats, bool collapse_top = false,
+        bool collapse_bottom = false) const
     {
         // Does this element establish a block or an inline formatting context?
         bool has_block_child = false;
@@ -1043,9 +1211,17 @@ struct Layouter {
 
             float const margin_top = resolve(child_style->margin_top, content_width);
             float const margin_bottom = resolve(child_style->margin_bottom, content_width);
-            // Sibling margin collapsing: adjacent vertical margins overlap.
-            float const gap = first_in_flow ? margin_top
-                                            : std::max(previous_bottom_margin, margin_top);
+            // Adjoining margins collapse: the previous sibling's bottom, this
+            // child's top, and whatever reaches through the child's own top
+            // edge from inside it. A first child whose margin the caller
+            // already applied through this box's top edge starts flush.
+            bool const empty = is_empty_block(child_element, *child_style, content_width);
+            float const effective_top = collapse_margins(margin_top,
+                collapsed_through_top(child_element, *child_style, content_width));
+            // A cleared child's margin never went through this box's top edge.
+            bool const held_by_caller = first_in_flow && collapse_top
+                && child_style->clear == css::Clear::None;
+            float const gap = held_by_caller ? 0.0f : collapse_margins(previous_bottom_margin, effective_top);
             int const child_list_depth = child_element.is_html("ul") || child_element.is_html("ol")
                 ? list_depth + 1
                 : list_depth;
@@ -1085,12 +1261,34 @@ struct Layouter {
                 add_list_marker(child_fragment, *child_style, element, list_index);
             }
 
+            float const effective_bottom = collapse_margins(margin_bottom, child_fragment.collapsed_bottom);
+            if (empty) {
+                // The box takes no room and its margins meet: they join the
+                // running margin — unless the caller holds them already,
+                // having applied them through this box's top edge. A box
+                // holding a float ended the caller's walk after its top
+                // margin: its bottom margin starts the running margin here.
+                bool const holds_float = contains_float(child_element);
+                if (!held_by_caller)
+                    previous_bottom_margin = collapse_margins(
+                        collapse_margins(previous_bottom_margin, effective_top), effective_bottom);
+                else if (holds_float)
+                    previous_bottom_margin = effective_bottom;
+                if (holds_float)
+                    first_in_flow = false;
+                fragment.children.push_back(std::move(child_fragment));
+                continue;
+            }
             cursor = child_fragment.y + child_fragment.height;
-            previous_bottom_margin = margin_bottom;
+            previous_bottom_margin = effective_bottom;
             first_in_flow = false;
             fragment.children.push_back(std::move(child_fragment));
         }
         flush_inline();
+        if (collapse_bottom) {
+            fragment.collapsed_bottom = previous_bottom_margin;
+            return cursor - content_y;
+        }
         return cursor - content_y + previous_bottom_margin;
     }
 

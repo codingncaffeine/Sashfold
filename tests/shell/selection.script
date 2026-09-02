@@ -19,7 +19,7 @@ key ctrl+v
 assert-value q quick brown
 key Escape
 
-drag 30 110 120 110
+drag 30 102 120 102
 assert-selection e quick b
 
 select-text The

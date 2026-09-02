@@ -34,6 +34,7 @@ enum class Display : std::uint8_t {
     ListItem,
     FlowRoot, // a block whose contents form their own formatting context
     Flex, // a block-level flex container
+    Grid, // a grid container: a block-level formatting context root until grid lands
     None,
 };
 

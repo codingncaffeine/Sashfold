@@ -318,5 +318,66 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Margins collapsing through parents and empty boxes (CSS 2.1 §8.3.1) ------
+    {
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 16px 0 }
+  .bordered { border-top: 1px solid black }
+  .padded { padding-bottom: 5px }
+  .empty { margin: 30px 0 }
+  .neg { margin-top: -10px }
+</style></head><body>
+<div id="wrap"><p id="first">first</p><p id="second">second</p></div>
+<div id="bordered" class="bordered"><p id="inbordered">bordered</p></div>
+<div id="empty" class="empty"></div>
+<p id="after">after</p>
+<div id="padded" class="padded"><p id="inpadded">padded</p></div>
+<p id="last" class="neg">last</p>
+</body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const top_of = [&](std::string_view id) {
+            layout::Fragment const* box = find_box(page.result.root, id);
+            return box ? box->y : -1.0f;
+        };
+        auto const height_of = [&](std::string_view id) {
+            layout::Fragment const* box = find_box(page.result.root, id);
+            return box ? box->height : -1.0f;
+        };
+        // body's 8 and the first paragraph's 16 meet through the wrapper: 16.
+        CHECK_EQ(top_of("wrap"), 16.0f);
+        CHECK_EQ(top_of("first"), 16.0f);
+        CHECK_EQ(top_of("second"), 52.0f);
+        // The last paragraph's bottom margin reaches out of the wrapper.
+        CHECK_EQ(height_of("wrap"), 56.0f);
+        CHECK_EQ(top_of("bordered"), 88.0f);
+        // A top border stops the collapse: the margin stays inside.
+        CHECK_EQ(top_of("inbordered"), 105.0f);
+        CHECK_EQ(height_of("bordered"), 37.0f);
+        // An empty box's margins meet with its neighbours': one margin of 30.
+        CHECK_EQ(height_of("empty"), 0.0f);
+        CHECK_EQ(top_of("after"), 155.0f);
+        CHECK_EQ(top_of("padded"), 191.0f);
+        CHECK_EQ(top_of("inpadded"), 191.0f);
+        // Bottom padding keeps the last child's margin inside.
+        CHECK_EQ(height_of("padded"), 41.0f);
+        // A negative margin adds to a positive one.
+        CHECK_EQ(top_of("last"), 222.0f);
+        // The page ends with the collapsed body/paragraph bottom margin.
+        CHECK_EQ(page.result.page_height, 258.0f);
+    }
+
     return test::report("layout");
 }

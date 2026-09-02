@@ -78,6 +78,11 @@ struct Fragment {
     // Out of flow, placed beside or below its siblings' lines; painted
     // after the in-flow boxes at its level.
     bool floating = false;
+
+    // The margin that reaches through this box's bottom edge from its last
+    // in-flow child (CSS 2.1 §8.3.1): the caller joins it with the box's
+    // own bottom margin. Zero when the edge lets nothing through.
+    float collapsed_bottom = 0;
 };
 
 struct LayoutResult {

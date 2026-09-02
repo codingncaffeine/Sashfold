@@ -982,9 +982,15 @@ struct Resolver {
                 style.display = Display::FlowRoot;
             else if (ascii_ci_equals(keyword, "flex") || ascii_ci_equals(keyword, "inline-flex"))
                 style.display = Display::Flex; // inline-flex is block-level until inline-block lands
-            else if (ascii_ci_equals(keyword, "block") || ascii_ci_equals(keyword, "grid")
-                || ascii_ci_equals(keyword, "table"))
-                style.display = Display::Block; // grid lays out as a block until it lands
+            else if (ascii_ci_equals(keyword, "block"))
+                style.display = Display::Block;
+            else if (ascii_ci_equals(keyword, "grid") || ascii_ci_equals(keyword, "inline-grid"))
+                // A grid container lays out as a block until grid lands, but
+                // as a formatting context root whose items are roots too:
+                // no margin passes through it or them, as the real thing has it.
+                style.display = Display::Grid;
+            else if (ascii_ci_equals(keyword, "table"))
+                style.display = Display::FlowRoot; // a table is a block-level root until tables land
             else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::Inline; // inline-block is not supported yet
             return;
@@ -1027,7 +1033,8 @@ struct Resolver {
                     return;
                 std::string_view const keyword = value->token().value;
                 if (ascii_ci_equals(keyword, "hidden") || ascii_ci_equals(keyword, "clip")
-                    || ascii_ci_equals(keyword, "auto") || ascii_ci_equals(keyword, "scroll"))
+                    || ascii_ci_equals(keyword, "auto") || ascii_ci_equals(keyword, "scroll")
+                    || ascii_ci_equals(keyword, "overlay")) // the legacy spelling of auto
                     visible = false;
                 else if (!ascii_ci_equals(keyword, "visible"))
                     return;
@@ -1674,6 +1681,30 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
     Resolver resolver(*set.m_rules);
     ComputedStyle initial;
     resolver.resolve_tree(document, initial);
+    // CSS 2.1 §11.1.1: the root's overflow applies to the viewport, and when
+    // the root's is visible, body's does instead — and the element it was
+    // taken from is then visible itself, so body still lets margins through
+    // and keeps no floats of its own.
+    for (dom::Node const* child : document.children()) {
+        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("html"))
+            continue;
+        auto const html_it = resolver.map.find(static_cast<dom::Element const*>(child));
+        if (html_it == resolver.map.end())
+            continue;
+        if (html_it->second.overflow != Overflow::Visible) {
+            html_it->second.overflow = Overflow::Visible;
+            break;
+        }
+        for (dom::Node const* grandchild : child->children()) {
+            if (!grandchild->is_element() || !static_cast<dom::Element const*>(grandchild)->is_html("body"))
+                continue;
+            if (auto const body_it = resolver.map.find(static_cast<dom::Element const*>(grandchild));
+                body_it != resolver.map.end())
+                body_it->second.overflow = Overflow::Visible;
+            break;
+        }
+        break;
+    }
     return std::move(resolver.map);
 }
 
