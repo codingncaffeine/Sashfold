@@ -6,9 +6,11 @@
 #include "dom/Dom.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace sashfold::css {
@@ -16,8 +18,7 @@ namespace sashfold::css {
 namespace {
 
 // The built-in UA stylesheet: the HTML rendering section's defaults for the
-// reader web, kept to the first property set. (One font family exists, so the
-// monospace-ness of pre/code is implicit.)
+// reader web, kept to the first property set.
 constexpr std::string_view ua_stylesheet = R"CSS(
 html { display: block }
 head, style, script, title, meta, link, base, template, noscript { display: none }
@@ -374,6 +375,119 @@ struct Resolver {
     StyleMap map;
     float root_font_size = 16;
 
+    // The rule index: every complex selector filed under the id, else the
+    // first class, else the type of its rightmost compound (lowercased,
+    // since quirks mode and HTML type names compare without case), or
+    // under "universal" when it names none. An element then tests only the
+    // selectors that could match it; a selector that matches always has
+    // its rightmost compound satisfied, so it is always among them.
+    struct Candidate {
+        std::uint32_t rule;
+        std::uint32_t selector;
+    };
+    std::unordered_map<std::string, std::vector<Candidate>> by_id;
+    std::unordered_map<std::string, std::vector<Candidate>> by_class;
+    std::unordered_map<std::string, std::vector<Candidate>> by_type;
+    std::vector<Candidate> universal;
+    bool indexed = false;
+    std::vector<int> rule_stamp; // per rule: the element (stamp) it last matched
+    std::vector<Specificity> rule_best; // its best matching selector for that element
+    int stamp = 0;
+    std::vector<std::uint32_t> matched_rules; // scratch, reused per element
+
+    static std::string lowercased(std::string_view text)
+    {
+        std::string out;
+        out.reserve(text.size());
+        for (char const c : text)
+            out += static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+        return out;
+    }
+
+    void build_index()
+    {
+        for (std::uint32_t r = 0; r < rules.size(); ++r) {
+            std::vector<ComplexSelector> const& selectors = rules[r].selectors.selectors;
+            for (std::uint32_t s = 0; s < selectors.size(); ++s) {
+                std::string const* id = nullptr;
+                std::string const* class_name = nullptr;
+                std::string const* type = nullptr;
+                if (!selectors[s].compounds.empty()) {
+                    for (SimpleSelector const& simple : selectors[s].compounds.back().simples) {
+                        if (simple.kind == SimpleSelector::Kind::Id && !id)
+                            id = &simple.name;
+                        else if (simple.kind == SimpleSelector::Kind::Class && !class_name)
+                            class_name = &simple.name;
+                        else if (simple.kind == SimpleSelector::Kind::Type && !type)
+                            type = &simple.name;
+                    }
+                }
+                Candidate const candidate { r, s };
+                if (id)
+                    by_id[lowercased(*id)].push_back(candidate);
+                else if (class_name)
+                    by_class[lowercased(*class_name)].push_back(candidate);
+                else if (type)
+                    by_type[lowercased(*type)].push_back(candidate);
+                else
+                    universal.push_back(candidate);
+            }
+        }
+        rule_stamp.assign(rules.size(), 0);
+        rule_best.assign(rules.size(), Specificity {});
+        indexed = true;
+    }
+
+    // The rules matching the element, in rule order, each with the
+    // specificity of its best matching selector.
+    void matching_rules(dom::Element const& element, std::vector<std::uint32_t>& out)
+    {
+        if (!indexed)
+            build_index();
+        ++stamp;
+        out.clear();
+        auto const consider = [&](std::vector<Candidate> const& candidates) {
+            for (Candidate const& candidate : candidates) {
+                ComplexSelector const& selector
+                    = rules[candidate.rule].selectors.selectors[candidate.selector];
+                if (!matches(selector, element))
+                    continue;
+                if (rule_stamp[candidate.rule] != stamp) {
+                    rule_stamp[candidate.rule] = stamp;
+                    rule_best[candidate.rule] = selector.specificity;
+                    out.push_back(candidate.rule);
+                } else if (selector.specificity > rule_best[candidate.rule]) {
+                    rule_best[candidate.rule] = selector.specificity;
+                }
+            }
+        };
+        auto const consider_bucket
+            = [&](std::unordered_map<std::string, std::vector<Candidate>> const& bucket,
+                  std::string const& key) {
+                  if (auto const it = bucket.find(key); it != bucket.end())
+                      consider(it->second);
+              };
+        if (dom::Attr const* id = element.find_attribute("id"))
+            consider_bucket(by_id, lowercased(id->value));
+        if (dom::Attr const* classes = element.find_attribute("class")) {
+            std::string_view const value = classes->value;
+            std::size_t start = 0;
+            while (start < value.size()) {
+                while (start < value.size() && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
+                    ++start;
+                std::size_t end = start;
+                while (end < value.size() && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
+                    ++end;
+                if (end > start)
+                    consider_bucket(by_class, lowercased(value.substr(start, end - start)));
+                start = end;
+            }
+        }
+        consider_bucket(by_type, lowercased(element.local_name()));
+        consider(universal);
+        std::sort(out.begin(), out.end());
+    }
+
     void compile_sheet(std::string_view text, bool user_agent, int& order)
     {
         Stylesheet sheet = parse_stylesheet(text);
@@ -426,10 +540,10 @@ struct Resolver {
         style.list_style_type = parent.list_style_type;
 
         std::vector<MatchedDeclaration> matched;
-        for (CompiledRule const& rule : rules) {
-            Specificity specificity;
-            if (!matches(rule.selectors, element, &specificity))
-                continue;
+        matching_rules(element, matched_rules);
+        for (std::uint32_t const index : matched_rules) {
+            CompiledRule const& rule = rules[index];
+            Specificity const specificity = rule_best[index];
             for (Declaration const& declaration : rule.declarations) {
                 MatchedDeclaration entry;
                 entry.declaration = &declaration;
