@@ -34,6 +34,9 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 
 ## Status — honest, updated per milestone
 
+**M3: it is a browser now.**
+Sashfold opens a window on Windows and browses the live web over HTTPS, every layer written here: the WHATWG URL parser at **893/893 (100%)** on WPT's `urltestdata`, an HTTP/1.1 client, inflate for gzip and deflate, TLS through the operating system's SChannel with real certificate validation (the badssl matrix is refused, and a certificate that fails lands on a page with no way through — on purpose), a cookie jar that **blocks third-party cookies by default**, a session cache that honors only explicit freshness, HTTPS-first for typed addresses, `strict-origin-when-cross-origin` referrers, and downloads that are saved with the mark of the web and never opened. The shell — tabs, history that keeps each page's bytes so Back never refetches, an address bar, link hit-testing, scrolling — is one OS-free component painted through **ThemeTokens**: every color and size of the chrome comes from `themes/default.json`, which reloads while the window is open. A `--script` mode drives that same shell from a text file; it is how the shell is tested in CI on all three OSes, with chrome screenshots compared byte-for-byte. `sashfold https://en.wikipedia.org/` opens the window; `sashfold --script tests/shell/smoke.script` runs the shell headlessly. Sashfold Mono grew composed diacritics, Latin-1 symbols, and honest empty boxes for the scripts that wait on the M4 font stack.
+
 **M2 (complete): the first page you can read.**
 Sashfold renders real pages to pixels, end to end, all of it in this repository: the CSS tokenizer and parser (css-syntax-3, current draft, nesting-era block contents), selectors with specificity and an+b structural pseudo-classes, the cascade (UA stylesheet, `<style>` sheets, style attributes, importance/origin/specificity/order, inheritance, em/rem units), block and inline layout (margin collapsing, line boxes with greedy breaking, whitespace collapsing, `pre`, lists with markers, auto-margin centering, percentage widths), and painting — backgrounds, solid borders, text decorations, and type set in **Sashfold Mono**, an original monospace face authored as stroke tables in this repo and rasterized with pure integer math. No font files, no libm in the raster path, so **renders are byte-identical across compilers and operating systems** — enforced by a reference-test suite whose PNG goldens (compressed by our own fixed-Huffman deflate encoder, verified against an independent inflate written for the test) are compared byte-for-byte in CI. A live Wikipedia article renders recognizably in ~130 ms; Acid1 runs and fails exactly where float layout should be (that's M4). `sashfold --render page.html -o out.png` is the whole pipeline in one flag.
 
@@ -43,7 +46,11 @@ The full parsing pipeline is up: the WHATWG tokenizer at **7032/7032 (100%)** on
 From M0: build system with warnings-as-errors from commit one; an RGBA software canvas with source-over compositing; a from-scratch PNG encoder whose zlib container is written here, not linked; unit tests that validate the PNG output by re-decoding it with an independent decoder written for the test; `pledge-check`; CI for all three OSes.
 
 The road runs:
-**M1** HTML→DOM, graded publicly on html5lib-tests ✓ → **M2** CSS cascade + block/inline layout: first real pages render to PNG, with reference tests byte-identical across all three OSes ✓ → **M3** HTTP, cookies, a window: it becomes a browser → onward through images, flexbox, our own JavaScript engine, grid, and web-platform-tests scoring. Each milestone ships as a release with its numbers.
+**M1** HTML→DOM, graded publicly on html5lib-tests ✓ → **M2** CSS cascade + block/inline layout: first real pages render to PNG, with reference tests byte-identical across all three OSes ✓ → **M3** HTTP, cookies, a window: it becomes a browser ✓ → **M4** the reader web properly: system fonts through our own TrueType parser, images, floats and flexbox, selection, find-in-page → onward through our own JavaScript engine, grid, and web-platform-tests scoring. Each milestone ships as a release with its numbers.
+
+## The user agent string
+
+Sashfold sends `Mozilla/5.0 (<platform>) Sashfold/0.3` — for example `Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/0.3`. The `Mozilla/5.0` prefix and the platform token are the compatibility-shaped form every engine ships because servers still key on them; the honest part is the `Sashfold/0.3` suffix, the only thing that identifies the browser. The string carries no build number, locale, or hardware detail, and it is the same for every user of a given platform.
 
 ## Building
 
@@ -56,6 +63,18 @@ ctest --test-dir build --output-on-failure
 ```
 
 `bash tools/buildall.sh` runs the gcc and clang lanes plus `pledge-check`.
+
+## Running
+
+```
+sashfold                              # the browser window (Windows for now)
+sashfold https://example.org/         # ...opened on a page
+sashfold --script tests/shell/live.script   # drive the shell from a text file
+sashfold --render page.html -o out.png      # render a page headlessly
+sashfold --bench page.html                  # time parse, style, layout, paint
+```
+
+Every color and size of the window comes from `themes/default.json`; edit it while the window is open and the chrome follows.
 
 ## License
 

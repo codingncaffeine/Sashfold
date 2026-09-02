@@ -178,7 +178,7 @@ by baselines in CI that only ratchet upward.</p>
 </div>
 <p>The renderer is deterministic by construction — its own font, integer-only rasterization,
 no system text stack — so a page renders to the <em>same bytes</em> on Windows, Linux, and macOS.
-Reference screenshots are compared byte-for-byte on every commit. A live HTTPS page fetches,
+Reference screenshots are compared byte-for-byte on every commit, and so are screenshots of the browser chrome itself: a script drives the same shell the window uses, headlessly, on all three OSes. A live HTTPS page fetches,
 decompresses, parses, and renders to pixels in about a quarter of a second, through Sashfold’s
 own URL parser, HTTP/1.1 client, and inflate.</p>
 
@@ -198,8 +198,9 @@ own URL parser, HTTP/1.1 client, and inflate.</p>
   <p class="done"><b>Pixels prove the pipeline</b> — build system, software canvas, PNG encoder, the pledge gate, CI on three OSes.</p>
   <p class="done"><b>HTML in, DOM out</b> — spec tokenizer and tree construction at 100% conformance, encoding sniffing.</p>
   <p class="done"><b>The first page you can read</b> — CSS, selectors, the cascade, block and inline layout, an original typeface, byte-identical reference tests.</p>
-  <p class="done"><b>The network</b> — URL parsing, HTTP/1.1, gzip and deflate, HTTPS with real certificate validation.</p>
-  <p class="next"><b>It becomes a browser</b> — a window, tabs, an address bar; then images, flexbox, a JavaScript engine written here, and web-platform-tests scoring in public.</p>
+  <p class="done"><b>The network</b> — URL parsing, HTTP/1.1, gzip and deflate, HTTPS with real certificate validation, a cookie jar that blocks third-party cookies by default, a cache.</p>
+  <p class="done"><b>It becomes a browser</b> — a window, tabs, history, an address bar, downloads with the mark of the web. Themes are data: every color and size of the chrome comes from one JSON file. The shell is driven from a text file and tested that way on three operating systems.</p>
+  <p class="next"><b>The reader web, properly</b> — system fonts through a TrueType parser written here, images, floats and flexbox, text selection, find-in-page; then a JavaScript engine written here, and web-platform-tests scoring in public.</p>
 </div>
 
 <h2>Why another engine</h2>
