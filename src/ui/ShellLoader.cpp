@@ -91,4 +91,21 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
     return net::fetch(url, options);
 }
 
+net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url const& first_party,
+    std::string const& referrer)
+{
+    if (url.scheme == "file") {
+        // A local page may reference local files; a remote one may not.
+        if (first_party.scheme != "file")
+            return { std::nullopt, "a web page cannot read local files" };
+        return load_file(url);
+    }
+    net::FetchOptions options;
+    options.cookie_jar = &m_cookies;
+    options.first_party = &first_party;
+    options.referrer = referrer;
+    options.cache = &m_cache;
+    return net::fetch(url, options);
+}
+
 }

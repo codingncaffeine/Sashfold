@@ -14,6 +14,8 @@ class ShellLoader final : public Loader {
 public:
     net::FetchResult load(net::Url const& url, std::string const& referrer,
         bool bypass_cache) override;
+    net::FetchResult load_subresource(net::Url const& url, net::Url const& first_party,
+        std::string const& referrer) override;
 
     net::MemoryCache& cache() { return m_cache; }
     net::CookieJar& cookies() { return m_cookies; }

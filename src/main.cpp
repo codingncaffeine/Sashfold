@@ -1,6 +1,7 @@
 #include "core/Bitmap.h"
 #include "core/Png.h"
 #include "css/StyleResolver.h"
+#include "css/Stylesheets.h"
 #include "html/TreeBuilder.h"
 #include "html/TreeDump.h"
 #include "layout/Layout.h"
@@ -61,36 +62,6 @@ int usage(char const* program)
               << "  --font-sampler draws the Sashfold Mono QA sheet.\n"
               << "  --smoke renders the paint smoke scene.\n";
     return 2;
-}
-
-// Loads a --render / --dump-dom input: an http URL through the fetch choke
-// point, anything else as a local file.
-std::optional<std::string> load_input(std::string const& source)
-{
-    if (source.starts_with("http://") || source.starts_with("https://")) {
-        auto const url = net::parse_url(source);
-        if (!url) {
-            std::cerr << "error: unparseable URL " << source << "\n";
-            return std::nullopt;
-        }
-        net::FetchResult result = net::fetch(*url);
-        if (!result.response) {
-            std::cerr << "error: " << result.error << "\n";
-            return std::nullopt;
-        }
-        std::cerr << "fetched " << result.response->final_url.serialize() << " ("
-                  << result.response->status << ", " << result.response->body.size()
-                  << " bytes)\n";
-        return std::string(result.response->body.begin(), result.response->body.end());
-    }
-    std::ifstream file(source, std::ios::binary);
-    if (!file) {
-        std::cerr << "error: cannot read " << source << "\n";
-        return std::nullopt;
-    }
-    std::ostringstream stream;
-    stream << file.rdbuf();
-    return std::move(stream).str();
 }
 
 int font_info(std::string const& path)
@@ -185,13 +156,64 @@ int fetch_url(std::string const& input)
     return 0;
 }
 
+struct LoadedPage {
+    std::string bytes;
+    net::Url url; // where it landed: the base for the page's references
+    std::unique_ptr<ui::ShellLoader> loader; // fetches the page's stylesheets with the same session
+};
+
+// Loads a --render / --bench input through the shell's loader: a URL as
+// typed, anything else as a local file.
+std::optional<LoadedPage> load_page(std::string const& source)
+{
+    std::optional<net::Url> url;
+    if (source.starts_with("http://") || source.starts_with("https://") || source.starts_with("file:")
+        || source.starts_with("data:")) {
+        url = net::parse_url(source);
+    } else {
+        std::error_code error;
+        std::string generic = std::filesystem::absolute(source, error).generic_string();
+        if (!generic.starts_with("/"))
+            generic = "/" + generic;
+        url = net::parse_url("file://" + generic);
+    }
+    if (!url) {
+        std::cerr << "error: unparseable input " << source << "\n";
+        return std::nullopt;
+    }
+    auto loader = std::make_unique<ui::ShellLoader>();
+    net::FetchResult result = loader->load(*url, "", false);
+    if (!result.response) {
+        std::cerr << "error: " << result.error << "\n";
+        return std::nullopt;
+    }
+    if (url->scheme != "file")
+        std::cerr << "fetched " << result.response->final_url.serialize() << " ("
+                  << result.response->status << ", " << result.response->body.size() << " bytes)\n";
+    return LoadedPage { std::string(result.response->body.begin(), result.response->body.end()),
+        result.response->final_url, std::move(loader) };
+}
+
+// The page's stylesheets, fetched through its own session.
+css::SheetFetcher sheet_fetcher(LoadedPage const& page)
+{
+    return [&page](net::Url const& url) -> std::optional<css::FetchedSheet> {
+        net::FetchResult result = page.loader->load_subresource(url, page.url, "");
+        if (!result.response || result.response->status != 200)
+            return std::nullopt;
+        std::string const* type = net::find_header(result.response->headers, "content-type");
+        return css::FetchedSheet { std::move(result.response->body), type ? *type : "" };
+    };
+}
+
 int render_page(std::string const& path, std::string const& output, int viewport_width)
 {
-    std::optional<std::string> const bytes = load_input(path);
-    if (!bytes)
+    std::optional<LoadedPage> const loaded = load_page(path);
+    if (!loaded)
         return 1;
-    auto document = html::parse_document_bytes(*bytes);
-    css::StyleMap const styles = css::resolve_styles(*document);
+    auto document = html::parse_document_bytes(loaded->bytes);
+    css::StyleMap const styles = css::resolve_styles(*document,
+        css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded)));
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width));
 
@@ -314,9 +336,15 @@ int smoke_scene(std::string const& output)
 // perf budgets are checked against these numbers.
 int bench(std::string const& input, int runs, int viewport_width)
 {
-    std::optional<std::string> const bytes = load_input(input);
-    if (!bytes)
+    std::optional<LoadedPage> const loaded = load_page(input);
+    if (!loaded)
         return 1;
+    // The sheets are fetched once, outside the timed runs: the network is
+    // not what is being measured.
+    std::vector<css::SheetSource> const sheets = [&] {
+        auto const first = html::parse_document_bytes(loaded->bytes);
+        return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded));
+    }();
     using clock = std::chrono::steady_clock;
     using ms = std::chrono::duration<double, std::milli>;
     struct Sample {
@@ -330,9 +358,9 @@ int bench(std::string const& input, int runs, int viewport_width)
     for (int run = 0; run < runs; ++run) {
         Sample sample;
         auto const t0 = clock::now();
-        auto document = html::parse_document_bytes(*bytes);
+        auto document = html::parse_document_bytes(loaded->bytes);
         auto const t1 = clock::now();
-        css::StyleMap const styles = css::resolve_styles(*document);
+        css::StyleMap const styles = css::resolve_styles(*document, sheets);
         auto const t2 = clock::now();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width));
@@ -355,8 +383,9 @@ int bench(std::string const& input, int runs, int viewport_width)
         std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", name, values.front(),
             values[values.size() / 2]);
     };
-    std::printf("bench: %zu bytes, %d run(s), viewport %d px wide, page %d px tall\n",
-        bytes->size(), runs, viewport_width, static_cast<int>(page_height + 0.5f));
+    std::printf("bench: %zu bytes, %zu sheet(s), %d run(s), viewport %d px wide, page %d px tall\n",
+        loaded->bytes.size(), sheets.size(), runs, viewport_width,
+        static_cast<int>(page_height + 0.5f));
     report("parse", &Sample::parse);
     report("style", &Sample::style);
     report("layout", &Sample::layout);

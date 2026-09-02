@@ -37,6 +37,17 @@ public:
     virtual net::FetchResult load(net::Url const& url, std::string const& referrer,
         bool bypass_cache)
         = 0;
+    // A resource a page asks for — its stylesheets — fetched on the page's
+    // behalf: the same session, with `first_party` (the page's URL) keeping
+    // third-party cookies out. A loader that serves only documents says so.
+    virtual net::FetchResult load_subresource(net::Url const& url, net::Url const& first_party,
+        std::string const& referrer)
+    {
+        (void)url;
+        (void)first_party;
+        (void)referrer;
+        return { std::nullopt, "this loader serves documents only" };
+    }
 };
 
 struct HistoryEntry {

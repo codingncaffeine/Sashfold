@@ -481,7 +481,20 @@ struct Browser::Impl {
             source = generated;
         }
         tab.document = html::parse_document_bytes(source);
-        tab.styles = css::resolve_styles(*tab.document);
+        // The page's stylesheets come through the loader with the page as
+        // first party and the usual referrer policy; a sheet that fails to
+        // load is simply absent.
+        net::Url const& page_url = entry->final_url;
+        auto const fetch_sheet = [&](net::Url const& url) -> std::optional<css::FetchedSheet> {
+            net::FetchResult result = loader.load_subresource(url, page_url,
+                referrer_for(&page_url, url));
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            std::string const* header = net::find_header(result.response->headers, "content-type");
+            return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+        };
+        tab.styles = css::resolve_styles(*tab.document,
+            css::collect_stylesheets(*tab.document, &page_url, fetch_sheet));
         entry->title = find_title(*tab.document);
         tab.scroll_y = entry->scroll_y;
         relayout(tab);

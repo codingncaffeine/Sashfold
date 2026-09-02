@@ -394,23 +394,6 @@ struct Resolver {
         }
     }
 
-    static void collect_style_text(dom::Node const& node, std::string& out)
-    {
-        if (node.is_element()) {
-            auto const& element = static_cast<dom::Element const&>(node);
-            if (element.is_html("style")) {
-                for (dom::Node const* child : element.children()) {
-                    if (child->is_text())
-                        out += static_cast<dom::Text const*>(child)->data;
-                }
-                out += '\n';
-                return;
-            }
-        }
-        for (dom::Node const* child : node.children())
-            collect_style_text(*child, out);
-    }
-
     void resolve_tree(dom::Node const& node, ComputedStyle const& parent_style)
     {
         ComputedStyle const* style_for_children = &parent_style;
@@ -965,19 +948,22 @@ struct Resolver {
 
 } // namespace
 
-StyleMap resolve_styles(dom::Document const& document)
+StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets)
 {
     Resolver resolver;
     int order = 0;
     resolver.compile_sheet(ua_stylesheet, true, order);
-
-    std::string author_text;
-    Resolver::collect_style_text(document, author_text);
-    resolver.compile_sheet(author_text, false, order);
+    for (SheetSource const& sheet : sheets)
+        resolver.compile_sheet(sheet.text, false, order);
 
     ComputedStyle initial;
     resolver.resolve_tree(document, initial);
     return std::move(resolver.map);
+}
+
+StyleMap resolve_styles(dom::Document const& document)
+{
+    return resolve_styles(document, collect_stylesheets(document, nullptr, {}));
 }
 
 }
