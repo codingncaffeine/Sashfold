@@ -484,8 +484,8 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     if (name == "position" || name == "z-index")
         return; // positioning and z-index are written
     if (name == "display" && first_ident == "inline-block")
-        ++census["inline-block"];
-    else if (name == "display" && (first_ident.starts_with("table") || first_ident == "inline-table"))
+        return; // inline-block is written
+    if (name == "display" && (first_ident.starts_with("table") || first_ident == "inline-table"))
         ++census["tables"];
     else if (name == "display" && (first_ident == "grid" || first_ident == "inline-grid"))
         ++census["grid"];

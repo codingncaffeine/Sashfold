@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Inline-block</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px; width: 384px }
+  p { margin: 0 0 8px }
+  .card { display: inline-block; width: 90px; padding: 4px; border: 2px solid #345; margin: 2px 4px; background: #e8eef4 }
+  .tall { display: inline-block; padding: 2px 6px; border: 1px solid #a33; background: #fde }
+  .empty { display: inline-block; width: 30px; height: 14px; background: #4a4; margin-bottom: 3px }
+  .clip { display: inline-block; width: 60px; height: 12px; overflow: hidden; border: 1px solid #333; background: #ffd }
+  .center { text-align: center; background: #f4f4f4 }
+  .half { display: inline-block; width: 50%; background: #dfd; border: 1px solid #383 }
+  .flex { display: inline-flex; border: 1px solid #338; padding: 2px; gap: 4px }
+  .flex span { background: #ddf; padding: 0 3px }
+  .fl { float: left; margin: 0 6px 0 0; background: #eee; border: 1px solid #999 }
+</style>
+</head>
+<body>
+<p>Words <span class="card">a card</span> then <span class="card">one more card that wraps</span> and text.</p>
+<p>Two <span class="tall">lines<br>inside</span> lift the line; an <span class="empty"></span> empty box sits on the baseline by its bottom edge.</p>
+<p>Clipped <span class="clip">clip clip clip clip</span> keeps its lines within, and <span class="half">half wide</span> percentages resolve.</p>
+<p class="center">Centered <span class="card">card</span> row</p>
+<p><span class="flex"><span>one</span><span>two</span><span>three</span></span> flexes inline.</p>
+<div class="fl"><span class="card">in a float</span></div>
+<p>Beside the float a line of words continues past the shrink-wrapped box and wraps below it in time.</p>
+</body>
+</html>

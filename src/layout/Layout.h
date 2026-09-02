@@ -95,6 +95,11 @@ struct Fragment {
     // in-flow child (CSS 2.1 §8.3.1): the caller joins it with the box's
     // own bottom margin. Zero when the edge lets nothing through.
     float collapsed_bottom = 0;
+
+    // The baseline of the last line box in flow inside this box (absolute
+    // page y), when it has one: an inline-block sits on its line by it
+    // (CSS 2.1 §10.8.1). A flex container's is its first item's.
+    std::optional<float> last_baseline;
 };
 
 struct LayoutResult {

@@ -631,5 +631,125 @@ int main(int argc, char** argv)
         CHECK_EQ(width_of("none"), 400.0f);
     }
 
+    // --- inline-block: an atomic box on the line, laid out as a block inside ------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 }
+  .ib { display: inline-block; width: 50px; padding: 5px; border: 1px solid black; margin: 2px 4px }
+  .bare { display: inline-block }
+  .clip { overflow: hidden; height: 10px }
+  #fl { float: left }
+  #abs { position: absolute }
+</style></head><body>
+<p>aa <span id="one" class="ib">bb</span> cc</p>
+<p>dd <span id="two" class="bare">ee<br>ff</span> gg</p>
+<p>hh <span id="three" class="ib" style="width: auto">ii jj</span> kk</p>
+<p><span id="four" class="ib"></span>ll</p>
+<div>mm <span id="five" class="bare"><span>nn</span><div id="abs">oo</div></span></div>
+<div id="fl"><span id="six" class="ib">pp</span></div>
+<p>qq <span id="seven" class="ib clip">rr<br>ss</span> tt</p>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::Fragment const* one = find_box(page.result.root, "one");
+        if (CHECK(aa && bb && cc && one)) {
+            float const g = aa->width / 2; // one glyph of the fixed-pitch face
+            CHECK_EQ(one->x, 3 * g + 4); // after "aa" and a space, past its left margin
+            CHECK_EQ(one->y, 2.0f); // its top margin
+            CHECK_EQ(one->width, 62.0f); // 50 + padding + border
+            CHECK_EQ(one->height, 32.0f); // one 20 px line + padding + border
+            CHECK_EQ(bb->x, 3 * g + 10); // inside the border and padding
+            CHECK_EQ(bb->baseline_y, aa->baseline_y); // its line's baseline is the line's
+            CHECK_EQ(cc->x, 4 * g + 70); // past the margin box and a space
+        }
+        layout::TextRun const* dd = run_of(U"dd");
+        layout::TextRun const* ee = run_of(U"ee");
+        layout::TextRun const* ff = run_of(U"ff");
+        layout::TextRun const* gg = run_of(U"gg");
+        layout::Fragment const* two = find_box(page.result.root, "two");
+        if (CHECK(aa && dd && ee && ff && gg && two)) {
+            float const g = aa->width / 2;
+            CHECK_EQ(two->y, 36.0f); // the first paragraph was 36 px tall: the box's margin box
+            CHECK_EQ(two->width, 2 * g); // shrink-to-fit: the wider of its two lines
+            CHECK_EQ(two->height, 40.0f);
+            CHECK_EQ(ff->baseline_y, dd->baseline_y); // the last line's baseline is the line's
+            CHECK_EQ(gg->baseline_y, dd->baseline_y);
+            CHECK_EQ(dd->baseline_y - ee->baseline_y, 20.0f);
+            CHECK_EQ(dd->baseline_y - aa->baseline_y, 48.0f); // 36 down, and the baseline 12 lower in a 40 px line
+        }
+        layout::TextRun const* hh = run_of(U"hh");
+        layout::TextRun const* ii = run_of(U"ii");
+        layout::TextRun const* jj = run_of(U"jj");
+        layout::TextRun const* kk = run_of(U"kk");
+        layout::Fragment const* three = find_box(page.result.root, "three");
+        if (CHECK(aa && hh && ii && jj && kk && three)) {
+            float const g = aa->width / 2;
+            CHECK_EQ(three->width, 5 * g + 12); // an auto width shrinks to its content
+            CHECK_EQ(ii->baseline_y, hh->baseline_y);
+            CHECK_EQ(jj->baseline_y, hh->baseline_y);
+            CHECK_EQ(kk->x, 9 * g + 20);
+        }
+        layout::TextRun const* ll = run_of(U"ll");
+        layout::Fragment const* four = find_box(page.result.root, "four");
+        if (CHECK(ll && four)) {
+            CHECK_EQ(four->x, 4.0f);
+            CHECK_EQ(four->width, 62.0f);
+            CHECK_EQ(four->height, 12.0f); // no lines: the edges alone
+            CHECK_EQ(four->y + four->height + 2, ll->baseline_y); // no line box: the bottom margin edge sits on the baseline
+        }
+        layout::TextRun const* nn = run_of(U"nn");
+        layout::TextRun const* oo = run_of(U"oo");
+        if (CHECK(nn && oo)) {
+            // The absolutely positioned block inside stands at its static
+            // position: the line below its sibling's, moved with the box.
+            CHECK_EQ(oo->x, nn->x);
+            CHECK_EQ(oo->baseline_y - nn->baseline_y, 20.0f);
+        }
+        layout::Fragment const* fl = find_box(page.result.root, "fl");
+        layout::Fragment const* six = find_box(page.result.root, "six");
+        if (CHECK(fl && six)) {
+            CHECK_EQ(fl->width, 70.0f); // the float shrinks to the inline-block's margin box
+            CHECK_EQ(six->x, fl->x + 4);
+        }
+        layout::TextRun const* qq = run_of(U"qq");
+        layout::TextRun const* ss = run_of(U"ss");
+        layout::TextRun const* tt = run_of(U"tt");
+        layout::Fragment const* seven = find_box(page.result.root, "seven");
+        if (CHECK(qq && ss && tt && seven)) {
+            CHECK_EQ(qq->x, 70.0f); // beside the float
+            CHECK_EQ(seven->height, 22.0f); // the written height, edges around
+            // Clipped, with its last line below its bottom margin edge: the
+            // higher of the two, the margin edge, sits on the baseline.
+            CHECK_EQ(seven->y + seven->height + 2, qq->baseline_y);
+            CHECK(ss->baseline_y > qq->baseline_y);
+            CHECK_EQ(tt->baseline_y, qq->baseline_y);
+        }
+    }
+
     return test::report("layout");
 }

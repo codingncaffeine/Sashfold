@@ -1609,6 +1609,9 @@ struct Browser::Impl {
         case css::Display::FlowRoot: return "flow-root";
         case css::Display::Flex: return "flex";
         case css::Display::Grid: return "grid";
+        case css::Display::InlineBlock: return "inline-block";
+        case css::Display::InlineFlex: return "inline-flex";
+        case css::Display::InlineGrid: return "inline-grid";
         case css::Display::TableColumn: return "table-column";
         case css::Display::None: return "none";
         }
@@ -1653,7 +1656,7 @@ struct Browser::Impl {
             + (s.font_style == css::FontStyle::Italic ? " italic" : "") + "  line-height "
             + number_text(s.line_height_px()));
         lines.push_back("color " + color_text(s.color) + "  background " + color_text(s.background_color));
-        if (s.display == css::Display::Flex) {
+        if (s.display == css::Display::Flex || s.display == css::Display::InlineFlex) {
             bool const row = s.flex_direction == css::FlexDirection::Row
                 || s.flex_direction == css::FlexDirection::RowReverse;
             lines.push_back(std::string("flex ") + (row ? "row" : "column")

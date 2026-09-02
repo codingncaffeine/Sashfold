@@ -87,6 +87,13 @@ enum class Display : std::uint8_t {
     FlowRoot, // a block whose contents form their own formatting context
     Flex, // a block-level flex container
     Grid, // a grid container: a block-level formatting context root until grid lands
+    // The inline-level counterparts: one atomic box on its line, laid out
+    // inside as the block-level kind is, sized to its contents, its
+    // baseline the line's (inline-table lays out as an inline-block until
+    // tables land).
+    InlineBlock,
+    InlineFlex,
+    InlineGrid,
     // table-column and table-column-group: a column box renders none of
     // its own margins, padding, backgrounds or content in any engine; until
     // tables land it is an inline-level box that paints nothing, and a

@@ -1484,12 +1484,26 @@ struct Resolver {
                 side->width = 0;
         }
         // CSS 2.1 §9.7: an absolutely positioned box does not float, and
-        // an inline one becomes block-level.
+        // an inline-level one becomes the block-level kind of itself; its
+        // static position stays where the inline box would have begun.
         if (style.out_of_flow()) {
             style.floating = Float::None;
-            if (style.display == Display::Inline) {
+            switch (style.display) {
+            case Display::Inline:
+            case Display::InlineBlock:
                 style.display = Display::Block;
                 style.blockified = true;
+                break;
+            case Display::InlineFlex:
+                style.display = Display::Flex;
+                style.blockified = true;
+                break;
+            case Display::InlineGrid:
+                style.display = Display::Grid;
+                style.blockified = true;
+                break;
+            default:
+                break;
             }
         }
         return style;
@@ -1658,9 +1672,37 @@ struct Resolver {
             return;
         }
         if (name == "display") {
-            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+            // One keyword, or the two-value form: an outer type (block or
+            // inline) with an inner one (flow, flow-root, flex, grid, table).
+            if (values.empty() || values.size() > 2)
                 return;
-            std::string_view const keyword = values[0]->token().value;
+            for (ComponentValue const* value : values) {
+                if (!value->is_token(Token::Type::Ident))
+                    return;
+            }
+            std::string_view keyword = values[0]->token().value;
+            if (values.size() == 2) {
+                std::string_view outer = values[0]->token().value;
+                std::string_view inner = values[1]->token().value;
+                // Either order is allowed.
+                if (ascii_ci_equals(inner, "block") || ascii_ci_equals(inner, "inline"))
+                    std::swap(outer, inner);
+                bool const inline_outer = ascii_ci_equals(outer, "inline");
+                if (!inline_outer && !ascii_ci_equals(outer, "block"))
+                    return;
+                if (ascii_ci_equals(inner, "flow"))
+                    keyword = inline_outer ? "inline" : "block";
+                else if (ascii_ci_equals(inner, "flow-root"))
+                    keyword = inline_outer ? "inline-block" : "flow-root";
+                else if (ascii_ci_equals(inner, "flex"))
+                    keyword = inline_outer ? "inline-flex" : "flex";
+                else if (ascii_ci_equals(inner, "grid"))
+                    keyword = inline_outer ? "inline-grid" : "grid";
+                else if (ascii_ci_equals(inner, "table"))
+                    keyword = inline_outer ? "inline-table" : "table";
+                else
+                    return;
+            }
             if (ascii_ci_equals(keyword, "none"))
                 style.display = Display::None;
             else if (ascii_ci_equals(keyword, "inline"))
@@ -1669,24 +1711,28 @@ struct Resolver {
                 style.display = Display::ListItem;
             else if (ascii_ci_equals(keyword, "flow-root"))
                 style.display = Display::FlowRoot;
-            else if (ascii_ci_equals(keyword, "flex") || ascii_ci_equals(keyword, "inline-flex"))
-                style.display = Display::Flex; // inline-flex is block-level until inline-block lands
+            else if (ascii_ci_equals(keyword, "flex"))
+                style.display = Display::Flex;
+            else if (ascii_ci_equals(keyword, "inline-flex"))
+                style.display = Display::InlineFlex;
             else if (ascii_ci_equals(keyword, "block"))
                 style.display = Display::Block;
-            else if (ascii_ci_equals(keyword, "grid") || ascii_ci_equals(keyword, "inline-grid"))
+            else if (ascii_ci_equals(keyword, "grid"))
                 // A grid container lays out as a block until grid lands, but
                 // as a formatting context root whose items are roots too:
                 // no margin passes through it or them, as the real thing has it.
                 style.display = Display::Grid;
+            else if (ascii_ci_equals(keyword, "inline-grid"))
+                style.display = Display::InlineGrid;
             else if (ascii_ci_equals(keyword, "table"))
                 style.display = Display::FlowRoot; // a table is a block-level root until tables land
+            else if (ascii_ci_equals(keyword, "inline-block") || ascii_ci_equals(keyword, "inline-table"))
+                style.display = Display::InlineBlock; // an inline table is an inline-level root until then
             else if (ascii_ci_equals(keyword, "table-column") || ascii_ci_equals(keyword, "table-column-group"))
                 style.display = Display::TableColumn;
             else if (ascii_ci_equals(keyword, "table-row-group") || ascii_ci_equals(keyword, "table-header-group")
                 || ascii_ci_equals(keyword, "table-footer-group") || ascii_ci_equals(keyword, "table-row"))
                 style.overflow_applies = false; // display stays as it was until tables land
-            else if (ascii_ci_equals(keyword, "inline-block"))
-                style.display = Display::Inline; // inline-block is not supported yet
             return;
         }
         if (name == "transform" || name == "translate") {

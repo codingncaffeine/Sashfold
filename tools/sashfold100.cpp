@@ -207,7 +207,6 @@ struct FeatureName {
 };
 
 constexpr FeatureName feature_names[] = {
-    { "inline-block", "inline-block" },
     { "tables", "tables" },
     { "grid", "grid" },
     { "display-contents", "display: contents" },

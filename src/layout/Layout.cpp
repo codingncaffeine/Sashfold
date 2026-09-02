@@ -44,13 +44,27 @@ bool is_floating(ComputedStyle const& style)
     return style.floating != css::Float::None;
 }
 
+// An inline-level box laid out inside as a block would be — inline-block,
+// inline-flex, inline-grid: one atomic box on its line, shrink-to-fit
+// wide, its baseline the line's.
+bool is_atomic_inline(ComputedStyle const& style)
+{
+    return style.display == Display::InlineBlock || style.display == Display::InlineFlex
+        || style.display == Display::InlineGrid;
+}
+
+bool is_flex_container(ComputedStyle const& style)
+{
+    return style.display == Display::Flex || style.display == Display::InlineFlex;
+}
+
 // Whether a box's contents form their own block formatting context: its
 // floats stay inside it, and its own box keeps clear of floats outside.
 bool establishes_bfc(ComputedStyle const& style)
 {
     return is_floating(style) || style.display == Display::FlowRoot
         || style.display == Display::Flex || style.display == Display::Grid
-        || style.overflow != css::Overflow::Visible;
+        || is_atomic_inline(style) || style.overflow != css::Overflow::Visible;
 }
 
 // CSS 2.1 §8.3.1: two adjoining vertical margins collapse into one — the
@@ -110,6 +124,7 @@ struct InlineItem {
         Control, // a form control: an atomic box sized by its kind
         SoftBreak, // ends the line when it holds anything: a block inside inline content
         Absolute, // an absolutely positioned box met here: records its static position, takes no room
+        Block, // an inline-block (or inline-flex, inline-grid): an atomic box laid out as a block inside
     };
     InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
         dom::Element const* the_element)
@@ -128,12 +143,13 @@ struct InlineItem {
     css::Clear clear = css::Clear::None; // Kind::HardBreak: the floats the next line starts below
 };
 
-// Whether an item puts something on a line: a word, a picture or a control
-// (spaces and breaks alone make no line, and a float rides with content).
+// Whether an item puts something on a line: a word, a picture, a control
+// or an inline-block (spaces and breaks alone make no line, and a float
+// rides with content).
 bool is_inline_content(InlineItem const& item)
 {
     return item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Image
-        || item.kind == InlineItem::Kind::Control;
+        || item.kind == InlineItem::Kind::Control || item.kind == InlineItem::Kind::Block;
 }
 
 // A replaced element's used size, in px.
@@ -392,9 +408,11 @@ struct Layouter {
         bool static_known = false; // where the box would have been in flow
         float static_x = 0;
         float static_y = 0;
+        unsigned serial = 0; // the record's order among all records made
     };
     mutable std::vector<std::vector<OutOfFlow>> absolute_stack;
     mutable std::vector<OutOfFlow> fixed_boxes;
+    mutable unsigned next_serial = 0;
 
     // Remembers an out-of-flow child for its containing block. A scratch
     // layout may record the same element again; the last record wins.
@@ -412,6 +430,7 @@ struct Layouter {
             entry.static_x = static_position->first;
             entry.static_y = static_position->second;
         }
+        entry.serial = next_serial++;
         for (OutOfFlow& existing : list) {
             if (existing.element == &element) {
                 existing = entry;
@@ -421,11 +440,32 @@ struct Layouter {
         list.push_back(entry);
     }
 
+    // Moves the static positions recorded in the serial range [since,
+    // until): a box laid out at a scratch origin and then moved (an
+    // inline-block, placed once its line's baseline is known) carries the
+    // static positions of the out-of-flow boxes met inside it along.
+    void shift_recorded(unsigned since, unsigned until, float dx, float dy) const
+    {
+        auto const shift = [&](std::vector<OutOfFlow>& list) {
+            for (OutOfFlow& entry : list) {
+                if (entry.serial >= since && entry.serial < until && entry.static_known) {
+                    entry.static_x += dx;
+                    entry.static_y += dy;
+                }
+            }
+        };
+        for (std::vector<OutOfFlow>& list : absolute_stack)
+            shift(list);
+        shift(fixed_boxes);
+    }
+
     // Moves a fragment and everything in it.
     static void shift_fragment(Fragment& fragment, float dx, float dy)
     {
         fragment.x += dx;
         fragment.y += dy;
+        if (fragment.last_baseline)
+            *fragment.last_baseline += dy;
         for (TextRun& run : fragment.runs) {
             run.x += dx;
             run.baseline_y += dy;
@@ -809,6 +849,11 @@ struct Layouter {
                 append_image(element, style, items);
                 continue;
             }
+            if (is_atomic_inline(*style)) {
+                // One box on the line, laid out as a block inside.
+                items.push_back(InlineItem { InlineItem::Kind::Block, {}, style, &element });
+                continue;
+            }
             collect_inline(element, style, items);
         }
         if (owner) {
@@ -1001,6 +1046,15 @@ struct Layouter {
             float image_height = 0;
             bool is_image = false; // a picture or a control: an atomic box on the baseline
             std::optional<ControlSpec> control;
+            // An inline-block: laid out at the origin, moved onto the line
+            // at flush; its margin box reaches `ascent` above the baseline
+            // and `descent` below it, and [since, until) names the
+            // out-of-flow records made during its layout, moved with it.
+            std::optional<Fragment> block;
+            float ascent = 0;
+            float descent = 0;
+            unsigned since = 0;
+            unsigned until = 0;
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -1042,13 +1096,18 @@ struct Layouter {
                 max_ascent = std::max(max_ascent, ascent_in_line(*placed.style));
             }
             // Images sit on the baseline: a tall one lifts it, keeping the
-            // text's descent below.
-            float const descent = line_height - max_ascent;
+            // text's descent below. An inline-block reaches above the
+            // baseline by its own ascent and below it by its descent.
+            float max_descent = line_height - max_ascent;
             for (Placed const& placed : line) {
-                if (placed.is_image)
+                if (placed.block) {
+                    max_ascent = std::max(max_ascent, placed.ascent);
+                    max_descent = std::max(max_descent, placed.descent);
+                } else if (placed.is_image) {
                     max_ascent = std::max(max_ascent, placed.image_height);
+                }
             }
-            line_height = std::max(line_height, max_ascent + descent);
+            line_height = std::max(line_height, max_ascent + max_descent);
             float x = line_left;
             if (block_style.text_align == css::TextAlign::Center)
                 x += (line_avail - line_width) / 2.0f;
@@ -1057,7 +1116,18 @@ struct Layouter {
             float const baseline = y + max_ascent;
             for (Placed& placed : line) {
                 float const width = placed.width;
-                if (placed.is_image) {
+                if (placed.block) {
+                    // Laid out with its margin box's left edge and its
+                    // border box's top at the origin: moved so the margin
+                    // box's top-left lands at (x, baseline − ascent), with
+                    // the static positions recorded inside it.
+                    float const dx = x;
+                    float const dy = baseline - placed.ascent + resolve(placed.style->margin_top, content_width);
+                    shift_fragment(*placed.block, dx, dy);
+                    shift_recorded(placed.since, placed.until, dx, dy);
+                    mark_positioned(*placed.block, *placed.style, content_width);
+                    out.children.push_back(std::move(*placed.block));
+                } else if (placed.is_image) {
                     Fragment box;
                     box.element = placed.element;
                     box.style = placed.style;
@@ -1076,6 +1146,7 @@ struct Layouter {
                 }
                 x += width;
             }
+            out.last_baseline = baseline;
             y += line_height;
             line.clear();
             line_width = 0;
@@ -1137,6 +1208,47 @@ struct Layouter {
                 place_float(*item.element, *item.style, content_x, content_x + content_width, y,
                     list_depth, floats, out);
                 start_line();
+                continue;
+            }
+            if (item.kind == InlineItem::Kind::Block) {
+                // An inline-block: shrink-to-fit wide like a float, laid
+                // out at the origin now and moved onto the line at flush;
+                // its margin box is what the line holds, and it sits on the
+                // baseline of its last line box (CSS 2.2 §10.8.1) — its
+                // bottom margin edge when it has no line; when it clips its
+                // overflow, the higher of the two.
+                FloatWidth const measure = float_width(*item.element, *item.style, content_width);
+                float const outer = measure.outer();
+                if (allow_wrap && !line.empty() && line_width + outer > line_avail)
+                    flush_line();
+                if (allow_wrap)
+                    widen_for(outer);
+                Placed placed({}, item.style, false, outer, item.element);
+                placed.since = next_serial;
+                BlockOptions options;
+                options.content_width = measure.shrink;
+                options.zero_auto_margins = true;
+                options.own_context = true;
+                FloatContext own_floats;
+                Fragment box = layout_block(*item.element, *item.style, 0, 0, content_width, list_depth,
+                    own_floats, options);
+                placed.until = next_serial;
+                if (std::optional<float> const lowest = own_floats.lowest_bottom())
+                    box.height = std::max(box.height, *lowest - box.y);
+                float const margin_top = resolve(item.style->margin_top, content_width);
+                float const margin_bottom = resolve(item.style->margin_bottom, content_width);
+                float const margin_height = margin_top + box.height + margin_bottom;
+                placed.ascent = margin_height;
+                if (box.last_baseline) {
+                    float const line_ascent = margin_top + (*box.last_baseline - box.y);
+                    bool const clips = item.style->overflow != css::Overflow::Visible
+                        && item.style->overflow_applies;
+                    placed.ascent = clips ? std::min(line_ascent, margin_height) : line_ascent;
+                }
+                placed.descent = margin_height - placed.ascent;
+                placed.block = std::move(box);
+                line.push_back(std::move(placed));
+                line_width += outer;
                 continue;
             }
             if (item.kind == InlineItem::Kind::Control) {
@@ -1238,7 +1350,8 @@ struct Layouter {
         if (!parent || !parent->is_element())
             return false;
         ComputedStyle const* parent_style = style_of(static_cast<dom::Element const&>(*parent));
-        return parent_style && parent_style->display == Display::Grid;
+        return parent_style
+            && (parent_style->display == Display::Grid || parent_style->display == Display::InlineGrid);
     }
 
     bool top_edge_collapses(dom::Element const& element, ComputedStyle const& style,
@@ -1478,12 +1591,34 @@ struct Layouter {
         // to itself, and its height reaches around them.
         FloatContext own_floats;
         bool const own_context = options.own_context || establishes_bfc(style);
-        float const content_height = style.display == Display::Flex
+        bool const flex = is_flex_container(style);
+        float const content_height = flex
             ? layout_flex(element, style, content_x, content_y, content_width, fragment, list_depth)
             : layout_children(element, style, content_x, content_y, content_width, fragment,
                   list_depth, own_context ? own_floats : floats,
                   top_edge_collapses(element, style, containing_width, options),
                   bottom_edge_collapses(element, style, containing_width, options));
+        // The box's baseline, for an inline-block's sake: its own lines set
+        // it; with block children it is the last in-flow child's (a flex
+        // container's the first item's).
+        if (!fragment.last_baseline) {
+            auto const in_flow = [](Fragment const& child) { return !child.floating && !child.out_of_flow; };
+            if (flex) {
+                for (Fragment const& child : fragment.children) {
+                    if (in_flow(child) && child.last_baseline) {
+                        fragment.last_baseline = child.last_baseline;
+                        break;
+                    }
+                }
+            } else {
+                for (auto it = fragment.children.rbegin(); it != fragment.children.rend(); ++it) {
+                    if (in_flow(*it) && it->last_baseline) {
+                        fragment.last_baseline = it->last_baseline;
+                        break;
+                    }
+                }
+            }
+        }
 
         float used_height = content_height;
         if (own_context) {
@@ -1839,6 +1974,10 @@ struct Layouter {
             append_image(element, &style, items);
             return;
         }
+        if (is_atomic_inline(style)) {
+            items.push_back(InlineItem { InlineItem::Kind::Block, {}, &style, &element });
+            return;
+        }
         collect_inline(element, &style, items);
     }
 
@@ -1922,7 +2061,8 @@ struct Layouter {
                 add(width);
                 break;
             }
-            case InlineItem::Kind::Float: {
+            case InlineItem::Kind::Float:
+            case InlineItem::Kind::Block: {
                 Intrinsic const box = block_intrinsic(*item.element, *item.style);
                 result.min = std::max(result.min, box.min);
                 add(box.max);
@@ -1979,7 +2119,7 @@ struct Layouter {
             float const width = control_spec(element, style, 0).size.width;
             return { width, width };
         }
-        if (style.display == Display::Flex)
+        if (is_flex_container(style))
             return flex_intrinsic_widths(element, style);
         bool has_block_child = false;
         for (dom::Node const* child : element.children()) {
@@ -2729,7 +2869,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, {}, {}, {} };
+    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0 };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;
