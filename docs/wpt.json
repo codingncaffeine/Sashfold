@@ -2,23 +2,23 @@
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-02",
   "viewport": [800, 600],
-  "passed": 4552,
+  "passed": 4728,
   "total": 13295,
   "directories": [
-    { "path": "css/CSS2", "passed": 2390, "total": 6169 },
-    { "path": "css/css-backgrounds", "passed": 210, "total": 711 },
+    { "path": "css/CSS2", "passed": 2523, "total": 6169 },
+    { "path": "css/css-backgrounds", "passed": 212, "total": 711 },
     { "path": "css/css-box", "passed": 26, "total": 69 },
-    { "path": "css/css-cascade", "passed": 11, "total": 43 },
+    { "path": "css/css-cascade", "passed": 10, "total": 43 },
     { "path": "css/css-color", "passed": 107, "total": 307 },
     { "path": "css/css-display", "passed": 55, "total": 213 },
-    { "path": "css/css-flexbox", "passed": 258, "total": 1003 },
+    { "path": "css/css-flexbox", "passed": 269, "total": 1003 },
     { "path": "css/css-fonts", "passed": 151, "total": 371 },
     { "path": "css/css-grid", "passed": 649, "total": 1643 },
-    { "path": "css/css-overflow", "passed": 143, "total": 596 },
+    { "path": "css/css-overflow", "passed": 145, "total": 596 },
     { "path": "css/css-position", "passed": 91, "total": 248 },
     { "path": "css/css-syntax", "passed": 1, "total": 1 },
-    { "path": "css/css-text", "passed": 352, "total": 1484 },
+    { "path": "css/css-text", "passed": 387, "total": 1484 },
     { "path": "css/css-values", "passed": 58, "total": 211 },
-    { "path": "css/selectors", "passed": 50, "total": 226 }
+    { "path": "css/selectors", "passed": 44, "total": 226 }
   ]
 }

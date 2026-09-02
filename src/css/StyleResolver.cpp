@@ -666,25 +666,47 @@ struct Resolver {
     RuleSet const& set;
     StyleMap map;
     float root_font_size = 16;
-    std::vector<int> rule_stamp; // per rule: the element (stamp) it last matched
-    std::vector<Specificity> rule_best; // its best matching selector for that element
+    // Rules are matched for three targets at once — the element itself, its
+    // ::before and its ::after — since one selector walk serves all three.
+    // Per target and rule: the element (stamp) it last matched and its best
+    // matching selector for that element.
+    static constexpr int target_count = 3;
+    std::array<std::vector<int>, target_count> rule_stamp;
+    std::array<std::vector<Specificity>, target_count> rule_best;
     int stamp = 0;
-    std::vector<std::uint32_t> matched_rules; // scratch, reused per element
+    std::array<std::vector<std::uint32_t>, target_count> matched_rules; // scratch, reused per element
     AncestorFilter ancestors; // the identifiers of the elements above the one being styled
+    int quote_depth = 0; // the nesting of quotation marks so far, in tree order
 
     explicit Resolver(RuleSet const& the_set)
         : set(the_set)
-        , rule_stamp(the_set.rules.size(), 0)
-        , rule_best(the_set.rules.size(), Specificity {})
     {
+        for (int target = 0; target < target_count; ++target) {
+            rule_stamp[static_cast<std::size_t>(target)].assign(the_set.rules.size(), 0);
+            rule_best[static_cast<std::size_t>(target)].assign(the_set.rules.size(), Specificity {});
+        }
     }
 
-    // The rules matching the element, in rule order, each with the
-    // specificity of its best matching selector.
-    void matching_rules(dom::Element const& element, std::vector<std::uint32_t>& out)
+    static std::size_t target_of(ComplexSelector const& selector)
+    {
+        switch (selector.pseudo_element) {
+        case ComplexSelector::PseudoElement::None:
+            return 0;
+        case ComplexSelector::PseudoElement::Before:
+            return 1;
+        case ComplexSelector::PseudoElement::After:
+            return 2;
+        }
+        return 0;
+    }
+
+    // The rules matching the element, per target, in rule order, each with
+    // the specificity of its best matching selector.
+    void matching_rules(dom::Element const& element)
     {
         ++stamp;
-        out.clear();
+        for (std::vector<std::uint32_t>& out : matched_rules)
+            out.clear();
         auto const consider = [&](std::vector<RuleSet::Candidate> const& candidates) {
             for (RuleSet::Candidate const& candidate : candidates) {
                 if (!ancestors.may_contain_all(candidate.ancestor_hashes))
@@ -693,12 +715,13 @@ struct Resolver {
                     = set.rules[candidate.rule].selectors.selectors[candidate.selector];
                 if (!matches(selector, element))
                     continue;
-                if (rule_stamp[candidate.rule] != stamp) {
-                    rule_stamp[candidate.rule] = stamp;
-                    rule_best[candidate.rule] = selector.specificity;
-                    out.push_back(candidate.rule);
-                } else if (selector.specificity > rule_best[candidate.rule]) {
-                    rule_best[candidate.rule] = selector.specificity;
+                std::size_t const target = target_of(selector);
+                if (rule_stamp[target][candidate.rule] != stamp) {
+                    rule_stamp[target][candidate.rule] = stamp;
+                    rule_best[target][candidate.rule] = selector.specificity;
+                    matched_rules[target].push_back(candidate.rule);
+                } else if (selector.specificity > rule_best[target][candidate.rule]) {
+                    rule_best[target][candidate.rule] = selector.specificity;
                 }
             }
         };
@@ -728,7 +751,8 @@ struct Resolver {
         }
         consider_bucket(set.by_type, RuleSet::lowercased(element.local_name()));
         consider(set.universal);
-        std::sort(out.begin(), out.end());
+        for (std::vector<std::uint32_t>& out : matched_rules)
+            std::sort(out.begin(), out.end());
     }
 
     // The identifiers an element offers to the selectors of its descendants.
@@ -757,16 +781,117 @@ struct Resolver {
         return hashes;
     }
 
+    // Elements whose content is not a document subtree get no generated
+    // boxes: replaced elements, form controls and line breaks.
+    static bool can_generate(dom::Element const& element)
+    {
+        if (!element.is_html())
+            return true;
+        for (std::string_view const name :
+            { "img", "br", "input", "textarea", "select", "iframe", "video", "audio", "canvas", "hr" }) {
+            if (element.is_html(name))
+                return false;
+        }
+        return true;
+    }
+
+    static bool generates_box(ComputedStyle const& pseudo)
+    {
+        return pseudo.content.kind == Content::Kind::Items && pseudo.display != Display::None
+            && pseudo.display != Display::TableColumn;
+    }
+
+    // The text a generated box shows: its content items resolved in tree
+    // order — attributes read off the element, quotation marks chosen by
+    // the nesting depth (the pair at the depth, the last pair for anything
+    // deeper; open-quote then goes one deeper, close-quote first comes one
+    // back; quotes: none inserts nothing).
+    std::string content_text(dom::Element const& element, ComputedStyle const& pseudo)
+    {
+        QuotePairs const* const pairs = pseudo.quotes.get();
+        auto const mark = [&](int depth, bool open) -> std::string {
+            if (pairs) {
+                if (pairs->empty())
+                    return {};
+                std::size_t const index = std::min(static_cast<std::size_t>(depth), pairs->size() - 1);
+                return open ? (*pairs)[index].first : (*pairs)[index].second;
+            }
+            if (depth % 2 == 0)
+                return open ? "“" : "”";
+            return open ? "‘" : "’";
+        };
+        std::string text;
+        for (ContentItem const& item : pseudo.content.items) {
+            switch (item.kind) {
+            case ContentItem::Kind::String:
+                text += item.text;
+                break;
+            case ContentItem::Kind::Attr:
+                if (dom::Attr const* attribute = element.find_attribute(item.text))
+                    text += attribute->value;
+                else
+                    text += item.fallback;
+                break;
+            case ContentItem::Kind::OpenQuote:
+                text += mark(quote_depth, true);
+                ++quote_depth;
+                break;
+            case ContentItem::Kind::CloseQuote:
+                if (quote_depth > 0)
+                    --quote_depth;
+                text += mark(quote_depth, false);
+                break;
+            case ContentItem::Kind::NoOpenQuote:
+                ++quote_depth;
+                break;
+            case ContentItem::Kind::NoCloseQuote:
+                if (quote_depth > 0)
+                    --quote_depth;
+                break;
+            }
+        }
+        return text;
+    }
+
     void resolve_tree(dom::Node const& node, ComputedStyle const& parent_style)
     {
         ComputedStyle const* style_for_children = &parent_style;
         std::vector<std::uint32_t> offered;
+        GeneratedContent* generated = nullptr;
+        dom::Element const* owner = nullptr;
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
             ComputedStyle style = compute_for(element, parent_style);
             bool const is_root = node.parent() && !node.parent()->is_element();
             if (is_root)
                 root_font_size = style.font_size; // rem resolves against this
+            // The generated boxes: each cascades from the rules matched for
+            // its target (still in the scratch lists), inheriting from the
+            // element. The ::before text is resolved here, in tree order;
+            // the ::after text once the children have had their turn at the
+            // quotation marks.
+            if (style.display != Display::None && can_generate(element)) {
+                std::optional<ComputedStyle> before;
+                std::optional<ComputedStyle> after;
+                if (!matched_rules[1].empty())
+                    before = cascade(1, element, style, false);
+                if (!matched_rules[2].empty())
+                    after = cascade(2, element, style, false);
+                bool const has_before = before && generates_box(*before);
+                bool const has_after = after && generates_box(*after);
+                if (has_before || has_after) {
+                    auto boxes = std::make_shared<GeneratedContent>();
+                    if (has_before) {
+                        std::string text = content_text(element, *before);
+                        boxes->before = GeneratedBox { std::move(*before), std::move(text) };
+                    }
+                    if (has_after)
+                        boxes->after = GeneratedBox { std::move(*after), {} };
+                    generated = boxes.get();
+                    owner = &element;
+                    style.generated = std::move(boxes);
+                }
+            }
             auto const [it, inserted] = map.emplace(&element, std::move(style));
             (void)inserted;
             style_for_children = &it->second;
@@ -778,11 +903,14 @@ struct Resolver {
             resolve_tree(*child, *style_for_children);
         for (std::uint32_t const hash : offered)
             ancestors.pop(hash);
+        if (generated && generated->after)
+            generated->after->text = content_text(*owner, generated->after->style);
     }
 
-    ComputedStyle compute_for(dom::Element const& element, ComputedStyle const& parent)
+    // Inherited properties flow in from the parent; the rest start at
+    // their initial values.
+    static ComputedStyle inherited_from(ComputedStyle const& parent)
     {
-        // Inherited properties flow in; the rest start at their initial values.
         ComputedStyle style;
         style.color = parent.color;
         style.font_size = parent.font_size;
@@ -793,12 +921,27 @@ struct Resolver {
         style.text_align = parent.text_align;
         style.white_space = parent.white_space;
         style.list_style_type = parent.list_style_type;
+        style.quotes = parent.quotes;
+        return style;
+    }
+
+    ComputedStyle compute_for(dom::Element const& element, ComputedStyle const& parent)
+    {
+        matching_rules(element);
+        return cascade(0, element, parent, true);
+    }
+
+    // The cascade over the rules matched for one target — the element's
+    // own (with its style attribute) or one of its generated boxes.
+    ComputedStyle cascade(std::size_t target, dom::Element const& element, ComputedStyle const& parent,
+        bool with_style_attribute)
+    {
+        ComputedStyle style = inherited_from(parent);
 
         std::vector<MatchedDeclaration> matched;
-        matching_rules(element, matched_rules);
-        for (std::uint32_t const index : matched_rules) {
+        for (std::uint32_t const index : matched_rules[target]) {
             CompiledRule const& rule = set.rules[index];
-            Specificity const specificity = rule_best[index];
+            Specificity const specificity = rule_best[target][index];
             for (Declaration const& declaration : rule.declarations) {
                 MatchedDeclaration entry;
                 entry.declaration = &declaration;
@@ -818,7 +961,9 @@ struct Resolver {
         }
 
         std::vector<Declaration> attribute_declarations;
-        if (dom::Attr const* style_attribute = element.find_attribute("style")) {
+        dom::Attr const* const style_attribute
+            = with_style_attribute ? element.find_attribute("style") : nullptr;
+        if (style_attribute) {
             attribute_declarations = parse_declaration_list(style_attribute->value);
             int order = 1 << 20;
             for (Declaration const& declaration : attribute_declarations) {
@@ -968,6 +1113,77 @@ struct Resolver {
             left = sides.size() > 3 ? sides[3] : right;
         };
 
+        if (name == "content") {
+            // normal | none | [ <string> | attr(<name>) | open-quote | close-quote
+            // | no-open-quote | no-close-quote ]+ — anything else in the list
+            // (url(), counters: not written yet) leaves the declaration unapplied.
+            if (values.size() == 1 && is_ident(values[0], "normal")) {
+                style.content = Content {};
+                return;
+            }
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                style.content = Content {};
+                style.content.kind = Content::Kind::None;
+                return;
+            }
+            Content content;
+            content.kind = Content::Kind::Items;
+            for (ComponentValue const* value : values) {
+                ContentItem item;
+                if (value->is_token(Token::Type::String)) {
+                    item.text = value->token().value;
+                } else if (value->is_function() && ascii_ci_equals(value->function().name, "attr")) {
+                    // attr(<name>) or attr(<name>, <fallback>): the fallback
+                    // stands in for an absent attribute — a string as
+                    // itself, anything else as the empty string.
+                    auto const arguments = significant(value->function().values);
+                    if (arguments.empty() || !arguments[0]->is_token(Token::Type::Ident))
+                        return;
+                    if (arguments.size() > 1) {
+                        if (!arguments[1]->is_token(Token::Type::Comma) || arguments.size() > 3)
+                            return;
+                        if (arguments.size() == 3 && arguments[2]->is_token(Token::Type::String))
+                            item.fallback = arguments[2]->token().value;
+                    }
+                    item.kind = ContentItem::Kind::Attr;
+                    item.text = RuleSet::lowercased(arguments[0]->token().value);
+                } else if (is_ident(value, "open-quote")) {
+                    item.kind = ContentItem::Kind::OpenQuote;
+                } else if (is_ident(value, "close-quote")) {
+                    item.kind = ContentItem::Kind::CloseQuote;
+                } else if (is_ident(value, "no-open-quote")) {
+                    item.kind = ContentItem::Kind::NoOpenQuote;
+                } else if (is_ident(value, "no-close-quote")) {
+                    item.kind = ContentItem::Kind::NoCloseQuote;
+                } else {
+                    return;
+                }
+                content.items.push_back(std::move(item));
+            }
+            style.content = std::move(content);
+            return;
+        }
+        if (name == "quotes") {
+            // none | auto | [ <open-string> <close-string> ]+
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                style.quotes = std::make_shared<QuotePairs const>();
+                return;
+            }
+            if (values.size() == 1 && is_ident(values[0], "auto")) {
+                style.quotes = nullptr;
+                return;
+            }
+            if (values.size() % 2 != 0)
+                return;
+            QuotePairs pairs;
+            for (std::size_t i = 0; i + 1 < values.size(); i += 2) {
+                if (!values[i]->is_token(Token::Type::String) || !values[i + 1]->is_token(Token::Type::String))
+                    return;
+                pairs.emplace_back(values[i]->token().value, values[i + 1]->token().value);
+            }
+            style.quotes = std::make_shared<QuotePairs const>(std::move(pairs));
+            return;
+        }
         if (name == "display") {
             if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
                 return;
@@ -991,6 +1207,8 @@ struct Resolver {
                 style.display = Display::Grid;
             else if (ascii_ci_equals(keyword, "table"))
                 style.display = Display::FlowRoot; // a table is a block-level root until tables land
+            else if (ascii_ci_equals(keyword, "table-column") || ascii_ci_equals(keyword, "table-column-group"))
+                style.display = Display::TableColumn;
             else if (ascii_ci_equals(keyword, "inline-block"))
                 style.display = Display::Inline; // inline-block is not supported yet
             return;

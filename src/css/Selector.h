@@ -13,6 +13,7 @@
 #include "css/Parser.h"
 
 #include <compare>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -114,11 +115,23 @@ enum class Combinator {
 };
 
 struct ComplexSelector {
+    // The pseudo-element the selector addresses, if any: ::before and
+    // ::after are taken out of the last compound at parse time, so that the
+    // rest of the selector matches the originating element and the cascade
+    // files the rule under that box; other pseudo-elements stay in the
+    // compound and never match.
+    enum class PseudoElement : std::uint8_t {
+        None,
+        Before,
+        After,
+    };
+
     // compounds.size() == combinators.size() + 1; combinators[i] joins
     // compounds[i] and compounds[i+1]. Matching is right-to-left.
     std::vector<CompoundSelector> compounds;
     std::vector<Combinator> combinators;
     Specificity specificity;
+    PseudoElement pseudo_element = PseudoElement::None;
 };
 
 // Parses a rule prelude as a selector list. nullopt when any selector in the

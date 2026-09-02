@@ -498,6 +498,41 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
     return !compound.simples.empty();
 }
 
+// A pseudo-element may only end a selector: one in any compound but the
+// last, or two in the last, makes the selector invalid. ::before and
+// ::after are lifted out of the last compound into the selector's
+// pseudo_element; the rest stay and never match.
+bool settle_pseudo_elements(ComplexSelector& selector)
+{
+    for (std::size_t i = 0; i + 1 < selector.compounds.size(); ++i) {
+        for (SimpleSelector const& simple : selector.compounds[i].simples) {
+            if (simple.kind == SimpleSelector::Kind::PseudoElement)
+                return false;
+        }
+    }
+    std::vector<SimpleSelector>& last = selector.compounds.back().simples;
+    std::size_t count = 0;
+    for (SimpleSelector const& simple : last) {
+        if (simple.kind == SimpleSelector::Kind::PseudoElement)
+            ++count;
+    }
+    if (count > 1)
+        return false;
+    for (std::size_t i = 0; i < last.size(); ++i) {
+        if (last[i].kind != SimpleSelector::Kind::PseudoElement)
+            continue;
+        if (last[i].name == "before")
+            selector.pseudo_element = ComplexSelector::PseudoElement::Before;
+        else if (last[i].name == "after")
+            selector.pseudo_element = ComplexSelector::PseudoElement::After;
+        else
+            break;
+        last.erase(last.begin() + static_cast<std::ptrdiff_t>(i));
+        break;
+    }
+    return true;
+}
+
 std::optional<ComplexSelector> parse_complex(Cursor& cursor)
 {
     ComplexSelector selector;
@@ -509,8 +544,11 @@ std::optional<ComplexSelector> parse_complex(Cursor& cursor)
         selector.compounds.push_back(std::move(compound));
 
         bool const whitespace = cursor.skip_whitespace();
-        if (cursor.at_end() || cursor.peek()->is_token(Token::Type::Comma))
+        if (cursor.at_end() || cursor.peek()->is_token(Token::Type::Comma)) {
+            if (!settle_pseudo_elements(selector))
+                return std::nullopt;
             return selector;
+        }
 
         Combinator combinator = Combinator::Descendant;
         ComponentValue const* next = cursor.peek();
@@ -864,6 +902,11 @@ bool matches(SelectorList const& list, dom::Element const& element, Specificity*
     bool any = false;
     Specificity best;
     for (ComplexSelector const& selector : list.selectors) {
+        // A pseudo-element selector matches no element as such: it addresses
+        // a box the element generates, which the cascade asks about per
+        // selector.
+        if (selector.pseudo_element != ComplexSelector::PseudoElement::None)
+            continue;
         if (matches(selector, element)) {
             if (!matched)
                 return true;

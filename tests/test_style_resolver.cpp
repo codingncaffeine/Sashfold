@@ -66,6 +66,15 @@ int main()
   .hidden { display: none }
   .units { margin: 1in 2.54cm 10mm 1pc; padding: 4Q 1.5pt 0 0 }
   .bounds { min-width: 5px; max-width: none; min-height: 1em; max-height: 50% }
+  #gen { quotes: "<" ">" "«" "»" }
+  #gen::before { content: "B" attr(data-x) open-quote; color: red }
+  #gen::after { content: close-quote " Z"; display: block }
+  #plainq::before { content: open-quote open-quote close-quote close-quote }
+  #nogen::before { content: none }
+  #url::before { content: url(x.png) }
+  #normal::before { color: red }
+  #legacy:before { content: "L" }
+  #legacy::before span, #legacy { color: blue }
 </style></head>
 <body id="body">
   <p id="plain">plain</p>
@@ -81,8 +90,42 @@ int main()
   <a id="link" href="/x">link</a>
   <pre id="pre">   pre   </pre>
   <ul id="ul"><li id="li">item</li></ul>
+  <div id="gen" data-x="attr">gen</div>
+  <div id="plainq">q</div>
+  <div id="nogen">n</div>
+  <div id="url">u</div>
+  <div id="normal">n</div>
+  <div id="legacy">l</div>
 </body></html>)"));
     g_styles = css::resolve_styles(*g_document);
+
+    // --- Generated content: ::before and ::after ------------------------------
+    {
+        ComputedStyle const& gen = style_of("gen");
+        if (CHECK(gen.generated && gen.generated->before && gen.generated->after)) {
+            css::GeneratedBox const& before = *gen.generated->before;
+            CHECK(before.text == "Battr<"); // the string, the attribute, the outer open quote
+            CHECK(before.style.color == Color::rgb(255, 0, 0));
+            CHECK(close(before.style.font_size, 20)); // inherited from the element
+            CHECK(before.style.display == Display::Inline);
+            css::GeneratedBox const& after = *gen.generated->after;
+            CHECK(after.text == "> Z"); // the depth came back to the outer pair
+            CHECK(after.style.display == Display::Block);
+            CHECK(after.style.color == gen.color); // the ::before rule's color is its own
+        }
+        ComputedStyle const& plainq = style_of("plainq");
+        if (CHECK(plainq.generated && plainq.generated->before))
+            CHECK(plainq.generated->before->text == "“‘’”"); // the language's marks, nested
+        CHECK(!style_of("nogen").generated); // content: none
+        CHECK(!style_of("url").generated); // url() is not written: the declaration is dropped
+        CHECK(!style_of("normal").generated); // no content: no box
+        ComputedStyle const& legacy = style_of("legacy");
+        if (CHECK(legacy.generated && legacy.generated->before))
+            CHECK(legacy.generated->before->text == "L"); // the one-colon spelling
+        // A pseudo-element anywhere but last invalidates its selector, and
+        // with it the whole list: #legacy did not turn blue.
+        CHECK(!(legacy.color == Color::rgb(0, 0, 255)));
+    }
 
     // --- UA defaults ---------------------------------------------------------
     CHECK(style_of("body").display == Display::Block);

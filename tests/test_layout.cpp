@@ -366,6 +366,47 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Generated content: ::before and ::after boxes ---------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p, div { margin: 0 }
+  #inline::before { content: "B " }
+  #inline::after { content: " A" }
+  #blk::after { content: "Z"; display: block; margin-top: 10px }
+  #fix::after { content: ""; display: block; clear: both }
+  .fl { float: left; width: 30px; height: 50px }
+</style></head><body><p id="inline">aa</p><div id="blk">bb</div><div id="fix"><div class="fl"></div>cc</div><p id="tail">dd</p></body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        layout::TextRun const* b = run_of(U"B");
+        layout::TextRun const* aa = run_of(U"aa");
+        layout::TextRun const* a = run_of(U"A");
+        layout::TextRun const* bb = run_of(U"bb");
+        layout::TextRun const* z = run_of(U"Z");
+        layout::TextRun const* cc = run_of(U"cc");
+        layout::TextRun const* dd = run_of(U"dd");
+        if (CHECK(b && aa && a && bb && z && cc && dd)) {
+            CHECK_EQ(b->baseline_y, aa->baseline_y); // inline boxes share the line
+            CHECK_EQ(aa->baseline_y, a->baseline_y);
+            CHECK_EQ(b->x, 0.0f);
+            CHECK(b->x < aa->x && aa->x < a->x);
+            CHECK_EQ(z->baseline_y - bb->baseline_y, 30.0f); // a line of its own, after its 10 px margin
+            CHECK_EQ(z->x, 0.0f);
+            // The clearfix: the empty cleared box stands below the float, so
+            // the container reaches around it and what follows starts there.
+            CHECK(dd->baseline_y - cc->baseline_y >= 50.0f);
+        }
+    }
+
     // --- Margins collapsing through parents and empty boxes (CSS 2.1 §8.3.1) ------
     {
         Page const page = lay_out(R"HTML(<!doctype html><html><head><style>

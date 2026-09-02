@@ -486,9 +486,66 @@ struct Layouter {
         flush_word();
     }
 
+    static css::GeneratedBox const* before_of(ComputedStyle const* style)
+    {
+        return style && style->generated && style->generated->before ? &*style->generated->before
+                                                                       : nullptr;
+    }
+
+    static css::GeneratedBox const* after_of(ComputedStyle const* style)
+    {
+        return style && style->generated && style->generated->after ? &*style->generated->after
+                                                                      : nullptr;
+    }
+
+    // The generated box a (element, style) pair names, when the style is
+    // one of the element's own ::before or ::after styles: the block and
+    // float machinery then lays the box out from its text rather than from
+    // the element's children.
+    css::GeneratedBox const* generated_box_of(dom::Element const& element,
+        ComputedStyle const& style) const
+    {
+        ComputedStyle const* const own = style_of(element);
+        if (!own || !own->generated)
+            return nullptr;
+        if (own->generated->before && &own->generated->before->style == &style)
+            return &*own->generated->before;
+        if (own->generated->after && &own->generated->after->style == &style)
+            return &*own->generated->after;
+        return nullptr;
+    }
+
+    // A ::before or ::after box among inline items: its text in its own
+    // style; a floated one rides as a float; a block-level one takes lines
+    // of its own, as a block inside inline content does.
+    void append_generated(css::GeneratedBox const& box, dom::Element const& element,
+        std::vector<InlineItem>& items) const
+    {
+        if (is_floating(box.style)) {
+            items.push_back(InlineItem { InlineItem::Kind::Float, {}, &box.style, &element });
+            return;
+        }
+        bool const block = is_block_level(box.style);
+        if (block)
+            items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, &box.style, &element });
+        std::u32string const text = decode_utf8(box.text);
+        if (!text.empty())
+            append_text(text, &box.style, items, &element);
+        if (block)
+            items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, &box.style, &element });
+    }
+
+    // Collects the inline items of `node`'s content: its generated boxes
+    // around its children (`inherited` is the node's own style).
     void collect_inline(dom::Node const& node, ComputedStyle const* inherited,
         std::vector<InlineItem>& items) const
     {
+        dom::Element const* const owner
+            = node.is_element() ? static_cast<dom::Element const*>(&node) : nullptr;
+        if (owner) {
+            if (css::GeneratedBox const* const before = before_of(inherited))
+                append_generated(*before, *owner, items);
+        }
         for (dom::Node const* child : node.children()) {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
@@ -535,6 +592,10 @@ struct Layouter {
                 continue;
             }
             collect_inline(element, style, items);
+        }
+        if (owner) {
+            if (css::GeneratedBox const* const after = after_of(inherited))
+                append_generated(*after, *owner, items);
         }
     }
 
@@ -977,6 +1038,9 @@ struct Layouter {
         // A cleared box stands where its clearance puts it: not collapsed through.
         if (style.clear != css::Clear::None)
             return false;
+        // A generated box is content.
+        if (before_of(&style) || after_of(&style))
+            return false;
         if (!top_edge_collapses(element, style, containing_width, {})
             || !bottom_edge_collapses(element, style, containing_width, {}))
             return false;
@@ -1067,6 +1131,11 @@ struct Layouter {
         float y, float containing_width, int list_depth, FloatContext& floats,
         BlockOptions const& options = {}) const
     {
+        // A generated box named by its style: laid out from its text.
+        if (css::GeneratedBox const* const box = generated_box_of(element, style))
+            return layout_generated_block(*box, element, x, y, containing_width, floats,
+                options.content_width, options.content_height);
+
         Fragment fragment;
         fragment.element = &element;
         fragment.style = &style;
@@ -1175,7 +1244,10 @@ struct Layouter {
         bool collapse_bottom = false) const
     {
         // Does this element establish a block or an inline formatting context?
-        bool has_block_child = false;
+        css::GeneratedBox const* const before = before_of(&style);
+        css::GeneratedBox const* const after = after_of(&style);
+        bool has_block_child = (before && is_block_level(before->style))
+            || (after && is_block_level(after->style));
         for (dom::Node const* child : element.children()) {
             if (!child->is_element())
                 continue;
@@ -1186,7 +1258,7 @@ struct Layouter {
 
         if (!has_block_child) {
             std::vector<InlineItem> items;
-            collect_inline(element, &style, items);
+            collect_inline(element, &style, items); // the generated boxes ride along
             if (items.empty())
                 return 0;
             return layout_lines(items, style, content_x, content_y, content_width, fragment,
@@ -1224,6 +1296,47 @@ struct Layouter {
             fragment.children.push_back(std::move(anonymous));
             pending_inline.clear();
         };
+
+        // A block-level generated box is a block child like any other: its
+        // margins join the running one, its clearance puts it below the
+        // floats it names (the clearfix idiom), its lines are its text.
+        auto const place_generated = [&](css::GeneratedBox const& box) {
+            flush_inline();
+            float const margin_top = resolve(box.style.margin_top, content_width);
+            float const margin_bottom = resolve(box.style.margin_bottom, content_width);
+            bool const held_by_caller = first_in_flow && collapse_top
+                && box.style.clear == css::Clear::None;
+            float y = cursor + (held_by_caller ? 0.0f : collapse_margins(previous_bottom_margin, margin_top));
+            if (box.style.clear != css::Clear::None)
+                y = floats.cleared_y(box.style.clear, y);
+            Fragment child = layout_generated_block(box, element, content_x, y, content_width, floats);
+            cursor = child.y + child.height;
+            previous_bottom_margin = margin_bottom;
+            first_in_flow = false;
+            fragment.children.push_back(std::move(child));
+        };
+        auto const place_or_append = [&](css::GeneratedBox const& box) {
+            if (is_floating(box.style)) {
+                // As a float child: with the inline content when there is
+                // some, else placed here between the blocks.
+                bool content = false;
+                for (InlineItem const& item : pending_inline) {
+                    if (is_inline_content(item))
+                        content = true;
+                }
+                if (content)
+                    pending_inline.push_back(InlineItem { InlineItem::Kind::Float, {}, &box.style, &element });
+                else
+                    place_float(element, box.style, content_x, content_x + content_width,
+                        cursor + previous_bottom_margin, list_depth, floats, fragment);
+            } else if (is_block_level(box.style)) {
+                place_generated(box);
+            } else {
+                append_generated(box, element, pending_inline);
+            }
+        };
+        if (before)
+            place_or_append(*before);
 
         for (dom::Node const* child : element.children()) {
             if (child->is_text()) {
@@ -1337,12 +1450,71 @@ struct Layouter {
             first_in_flow = false;
             fragment.children.push_back(std::move(child_fragment));
         }
+        if (after)
+            place_or_append(*after);
         flush_inline();
         if (collapse_bottom) {
             fragment.collapsed_bottom = previous_bottom_margin;
             return cursor - content_y;
         }
         return cursor - content_y + previous_bottom_margin;
+    }
+
+    // A block-level ::before or ::after box: its own edges and width from
+    // its style, its text laid out in lines inside, no children of its own.
+    // A flex line hands it settled content sizes.
+    Fragment layout_generated_block(css::GeneratedBox const& box, dom::Element const& element,
+        float x, float y, float containing_width, FloatContext& floats,
+        std::optional<float> settled_width = std::nullopt,
+        std::optional<float> settled_height = std::nullopt) const
+    {
+        ComputedStyle const& style = box.style;
+        Fragment fragment;
+        fragment.element = &element;
+        fragment.style = &style;
+        float const margin_left = resolve(style.margin_left, containing_width);
+        float const margin_right = resolve(style.margin_right, containing_width);
+        float const padding_left = resolve(style.padding_left, containing_width);
+        float const padding_right = resolve(style.padding_right, containing_width);
+        float const padding_top = resolve(style.padding_top, containing_width);
+        float const padding_bottom = resolve(style.padding_bottom, containing_width);
+        float const horizontal_edges = padding_left + padding_right + style.border_left.width
+            + style.border_right.width;
+        float border_box_width;
+        if (settled_width)
+            border_box_width = *settled_width + horizontal_edges;
+        else if (style.width.is_auto())
+            border_box_width = clamp_width(style,
+                                   containing_width - margin_left - margin_right - horizontal_edges,
+                                   containing_width)
+                + horizontal_edges;
+        else
+            border_box_width = clamp_width(style, resolve(style.width, containing_width), containing_width)
+                + horizontal_edges;
+        if (border_box_width < 0)
+            border_box_width = 0;
+        fragment.x = x + margin_left;
+        fragment.y = y;
+        fragment.width = border_box_width;
+        float const content_x = fragment.x + style.border_left.width + padding_left;
+        float const content_width = std::max(0.0f, border_box_width - horizontal_edges);
+        float const content_y = fragment.y + style.border_top.width + padding_top;
+        std::vector<InlineItem> items;
+        std::u32string const text = decode_utf8(box.text);
+        if (!text.empty())
+            append_text(text, &style, items, &element);
+        float content_height = items.empty()
+            ? 0.0f
+            : layout_lines(items, style, content_x, content_y, content_width, fragment, floats, 0);
+        if (settled_height)
+            content_height = *settled_height;
+        else if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
+            content_height = clamp_height(style, style.height.value);
+        else
+            content_height = clamp_height(style, content_height);
+        fragment.height = content_height + style.border_top.width + style.border_bottom.width
+            + padding_top + padding_bottom;
+        return fragment;
     }
 
     // A single inline ELEMENT child of a block container (helper so its own
@@ -1472,7 +1644,16 @@ struct Layouter {
     // has no base in intrinsic sizing).
     Intrinsic intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
     {
-        Intrinsic result = content_intrinsic_widths(element, style);
+        Intrinsic result;
+        if (css::GeneratedBox const* const box = generated_box_of(element, style)) {
+            std::vector<InlineItem> items;
+            std::u32string const text = decode_utf8(box->text);
+            if (!text.empty())
+                append_text(text, &style, items, &element);
+            result = inline_intrinsic(items);
+        } else {
+            result = content_intrinsic_widths(element, style);
+        }
         if (style.max_width.kind == LengthPercent::Kind::Px) {
             result.max = std::min(result.max, style.max_width.value);
             result.min = std::min(result.min, style.max_width.value);
@@ -1635,7 +1816,11 @@ struct Layouter {
     struct FlexItem {
         dom::Element const* element = nullptr; // null: an anonymous item of the container's own text
         ComputedStyle const* style = nullptr; // the element's; the container's for an anonymous item
-        std::vector<InlineItem> inline_items; // an anonymous item's content
+        std::vector<InlineItem> inline_items; // an anonymous or generated item's content
+        // A ::before or ::after box of the container (element is then the
+        // container, style the box's own): its edges and sizes are its own,
+        // its content the text.
+        css::GeneratedBox const* generated = nullptr;
         float margin_start = 0; // along the main axis
         float margin_end = 0;
         float margin_cross_start = 0;
@@ -1678,6 +1863,13 @@ struct Layouter {
                 list_depth);
         }
         ComputedStyle const& s = *item.style;
+        if (item.generated) {
+            Fragment const box = layout_generated_block(*item.generated, *item.element, 0, 0,
+                containing_width, scratch_floats, width);
+            float const vertical_edges = resolve(s.padding_top, containing_width)
+                + resolve(s.padding_bottom, containing_width) + s.border_top.width + s.border_bottom.width;
+            return std::max(0.0f, box.height - vertical_edges);
+        }
         auto const key = std::make_tuple(item.element, width, containing_width, list_depth);
         if (auto const it = measured_heights.find(key); it != measured_heights.end())
             return it->second;
@@ -1713,6 +1905,11 @@ struct Layouter {
             return;
         }
         float const margin_top = horizontal ? item.margin_cross_start : item.margin_start;
+        if (item.generated) {
+            parent.children.push_back(layout_generated_block(*item.generated, *item.element, x,
+                y + margin_top, containing_width, scratch_floats, content_w, content_h));
+            return;
+        }
         BlockOptions options;
         options.content_width = content_w;
         options.content_height = content_h;
@@ -1754,6 +1951,9 @@ struct Layouter {
             }
             pending.clear();
         };
+        // The generated boxes count as text at either end (their own edges aside).
+        if (css::GeneratedBox const* const before = before_of(&style))
+            append_generated(*before, element, pending);
         for (dom::Node const* child : element.children()) {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
@@ -1770,6 +1970,8 @@ struct Layouter {
             flush();
             take(block_intrinsic(child_element, *child_style));
         }
+        if (css::GeneratedBox const* const after = after_of(&style))
+            append_generated(*after, element, pending);
         flush();
         return result;
     }
@@ -1803,7 +2005,8 @@ struct Layouter {
         float const cross_gap = horizontal ? style.row_gap : style.column_gap;
 
         // 1. The items: element children in order, and the container's own
-        // text wrapped in anonymous items.
+        // text wrapped in anonymous items; a ::before or ::after box is an
+        // item at its end with its own style and its text as content.
         std::vector<FlexItem> items;
         std::vector<InlineItem> pending;
         auto const flush_text = [&] {
@@ -1820,6 +2023,21 @@ struct Layouter {
             }
             pending.clear();
         };
+        auto const add_generated = [&](css::GeneratedBox const& box) {
+            FlexItem item;
+            item.element = &container;
+            item.style = &box.style;
+            item.generated = &box;
+            item.order = box.style.order;
+            item.grow = box.style.flex_grow;
+            item.shrink = box.style.flex_shrink;
+            std::u32string const text = decode_utf8(box.text);
+            if (!text.empty())
+                append_text(text, &box.style, item.inline_items, &container);
+            items.push_back(std::move(item));
+        };
+        if (css::GeneratedBox const* const before = before_of(&style))
+            add_generated(*before);
         for (dom::Node const* child : container.children()) {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
@@ -1843,6 +2061,8 @@ struct Layouter {
             items.push_back(std::move(item));
         }
         flush_text();
+        if (css::GeneratedBox const* const after = after_of(&style))
+            add_generated(*after);
         if (items.empty())
             return definite_height.value_or(0.0f);
         std::stable_sort(items.begin(), items.end(),
@@ -1885,8 +2105,9 @@ struct Layouter {
                 basis = horizontal ? s.width : s.height;
             bool const definite_basis = !basis.is_auto()
                 && (basis.kind == LengthPercent::Kind::Px || main_size.has_value());
-            Intrinsic const intrinsic
-                = anonymous ? inline_intrinsic(item.inline_items) : intrinsic_widths(*item.element, s);
+            Intrinsic const intrinsic = anonymous || item.generated
+                ? inline_intrinsic(item.inline_items)
+                : intrinsic_widths(*item.element, s);
             if (horizontal) {
                 item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : intrinsic.max;
                 // The minimum: min-width as written, else the automatic one —

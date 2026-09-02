@@ -1605,6 +1605,7 @@ struct Browser::Impl {
         case css::Display::FlowRoot: return "flow-root";
         case css::Display::Flex: return "flex";
         case css::Display::Grid: return "grid";
+        case css::Display::TableColumn: return "table-column";
         case css::Display::None: return "none";
         }
         return "?";

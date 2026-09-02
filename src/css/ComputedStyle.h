@@ -8,10 +8,45 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sashfold::css {
+
+// One piece of the content property's value.
+struct ContentItem {
+    enum class Kind : std::uint8_t {
+        String, // the text itself
+        Attr, // the originating element's attribute named by text
+        OpenQuote,
+        CloseQuote,
+        NoOpenQuote, // the depth changes, nothing is inserted
+        NoCloseQuote,
+    };
+    Kind kind = Kind::String;
+    std::string text;
+    std::string fallback; // Attr: what stands in when the attribute is absent
+};
+
+// The content property: normal (a ::before or ::after generates no box),
+// none (the same), or the items a generated box shows.
+struct Content {
+    enum class Kind : std::uint8_t {
+        Normal,
+        None,
+        Items,
+    };
+    Kind kind = Kind::Normal;
+    std::vector<ContentItem> items;
+};
+
+// The pairs of quotation marks the quotes property names, outermost first;
+// null is auto (the language's marks), an empty list is none.
+using QuotePairs = std::vector<std::pair<std::string, std::string>>;
+
+struct GeneratedContent;
 
 struct LengthPercent {
     enum class Kind : std::uint8_t {
@@ -35,6 +70,11 @@ enum class Display : std::uint8_t {
     FlowRoot, // a block whose contents form their own formatting context
     Flex, // a block-level flex container
     Grid, // a grid container: a block-level formatting context root until grid lands
+    // table-column and table-column-group: a column box renders none of
+    // its own margins, padding, backgrounds or content in any engine; until
+    // tables land it is an inline-level box that paints nothing, and a
+    // generated box with this display is not generated at all.
+    TableColumn,
     None,
 };
 
@@ -214,6 +254,13 @@ struct ComputedStyle {
     ListStyleType list_style_type = ListStyleType::Disc;
     TextDecorationLine text_decoration = TextDecorationLine::None;
 
+    // Generated content: what a ::before or ::after box shows (meaningful
+    // on those boxes' styles), the quotation marks in force (inherited),
+    // and — on an element's own style — its generated boxes, when it has any.
+    Content content;
+    std::shared_ptr<QuotePairs const> quotes;
+    std::shared_ptr<GeneratedContent const> generated;
+
     bool bold() const { return font_weight >= 600; }
     float line_height_px() const
     {
@@ -224,6 +271,19 @@ struct ComputedStyle {
         }
         return font_size * 1.2f;
     }
+};
+
+// A ::before or ::after box: its computed style (inheriting from the
+// originating element) and the text it shows, resolved in tree order —
+// attributes read, quotation marks chosen by the nesting depth.
+struct GeneratedBox {
+    ComputedStyle style;
+    std::string text; // UTF-8
+};
+
+struct GeneratedContent {
+    std::optional<GeneratedBox> before;
+    std::optional<GeneratedBox> after;
 };
 
 }
