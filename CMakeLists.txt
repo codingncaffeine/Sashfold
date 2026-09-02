@@ -52,6 +52,7 @@ add_library(sashfold_core STATIC
   src/ui/Browser.cpp
   src/ui/Downloads.cpp
   src/ui/InternalPages.cpp
+  src/ui/PageImages.cpp
   src/ui/Script.cpp
   src/ui/ShellLoader.cpp
   src/ui/Theme.cpp

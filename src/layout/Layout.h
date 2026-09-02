@@ -11,7 +11,9 @@
 #include "css/StyleResolver.h"
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace sashfold::dom {
@@ -45,6 +47,17 @@ struct Fragment {
     float height = 0;
     std::vector<Fragment> children;
     std::vector<TextRun> runs; // line content held by this fragment
+
+    // A replaced element's picture, drawn scaled into this box; a null
+    // bitmap reserves the space of an image that has not arrived.
+    struct ImageBox {
+        std::shared_ptr<Bitmap const> bitmap;
+        float x = 0;
+        float y = 0;
+        float width = 0;
+        float height = 0;
+    };
+    std::optional<ImageBox> image;
 };
 
 struct LayoutResult {
@@ -53,7 +66,10 @@ struct LayoutResult {
     Color canvas_background; // html/body background propagation
 };
 
+// Decoded images by element, supplied by whoever fetched them.
+using ImageMap = std::unordered_map<dom::Element const*, std::shared_ptr<Bitmap const>>;
+
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
-    float viewport_width);
+    float viewport_width, ImageMap const* images = nullptr);
 
 }

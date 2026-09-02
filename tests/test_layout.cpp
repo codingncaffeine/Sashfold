@@ -4,10 +4,12 @@
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
 #include "layout/Layout.h"
+#include "paint/Painter.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -132,6 +134,158 @@ int main(int argc, char** argv)
                       << " px wide against " << 9 * 10 << " in the built-in face\n";
         }
         CHECK(sans->width == sans->fonts->measure(sans->text, sans->style->font_size));
+    }
+
+    // --- Images: on the baseline inline, as blocks, sized by CSS, attributes, or themselves ---
+    {
+        constexpr std::string_view image_html = R"HTML(<!doctype html>
+<html><head><style>
+  body { font-family: "Sashfold Mono"; font-size: 16px; margin: 0; width: 200px }
+  .block { display: block }
+  .half { width: 50% }
+</style></head><body>
+<p id="p1">ab<img id="i1" src="a.png">cd</p>
+<p id="p2"><img id="i2" src="a.png" width="40" height="10"></p>
+<p id="p3"><img id="i3" class="block" src="a.png"></p>
+<p id="p4"><img id="i4" class="half" src="a.png"></p>
+<p id="p5"><img id="i5" src="missing.png" alt="gone"></p>
+<p id="p6"><img id="i6" src="a.png" width="400"></p>
+<p id="p7"><img id="i7" src="missing.png" width="30" height="20" alt="late"></p>
+</body></html>)HTML";
+        manager.set_system_fonts(false);
+        Page page;
+        page.document = html::parse_document(image_html);
+        page.styles = css::resolve_styles(*page.document);
+        auto const picture = std::make_shared<Bitmap const>(Bitmap(20, 30, Color::rgb(255, 0, 0)));
+        layout::ImageMap images;
+        std::vector<dom::Element const*> imgs;
+        std::function<void(dom::Node const&)> const gather = [&](dom::Node const& node) {
+            if (node.is_element()) {
+                auto const& element = static_cast<dom::Element const&>(node);
+                if (element.is_html("img")) {
+                    imgs.push_back(&element);
+                    if (dom::Attr const* src = element.find_attribute("src"); src && src->value == "a.png")
+                        images.emplace(&element, picture);
+                }
+            }
+            for (dom::Node const* child : node.children())
+                gather(*child);
+        };
+        gather(*page.document);
+        CHECK_EQ(imgs.size(), 7u);
+        page.result = layout::layout_document(*page.document, page.styles, 200, &images);
+
+        std::vector<layout::Fragment const*> boxes;
+        std::function<void(layout::Fragment const&)> const collect_boxes = [&](layout::Fragment const& f) {
+            if (f.image)
+                boxes.push_back(&f);
+            for (layout::Fragment const& child : f.children)
+                collect_boxes(child);
+        };
+        collect_boxes(page.result.root);
+        auto const box_of = [&](std::string_view id) -> layout::Fragment const* {
+            for (layout::Fragment const* box : boxes) {
+                dom::Attr const* attribute = box->element ? box->element->find_attribute("id") : nullptr;
+                if (attribute && attribute->value == id)
+                    return box;
+            }
+            return nullptr;
+        };
+        CHECK_EQ(boxes.size(), 6u); // every img but the one with neither picture nor size
+        if (layout::Fragment const* i1 = box_of("i1"); CHECK(i1 != nullptr)) {
+            CHECK_EQ(i1->width, 20.0f);
+            CHECK_EQ(i1->height, 30.0f);
+            CHECK_EQ(i1->x, 20.0f); // after "ab"
+            CHECK(i1->image->bitmap == picture);
+            // The picture sits on the baseline, which it lifted to its height.
+            std::vector<layout::TextRun const*> runs;
+            collect(page.result.root, runs);
+            layout::TextRun const* cd = nullptr;
+            for (layout::TextRun const* run : runs) {
+                if (run->text == U"cd")
+                    cd = run;
+            }
+            if (CHECK(cd != nullptr)) {
+                CHECK_EQ(cd->x, 40.0f);
+                CHECK_EQ(cd->baseline_y, i1->y + i1->height);
+            }
+        }
+        if (layout::Fragment const* i2 = box_of("i2"); CHECK(i2 != nullptr)) {
+            CHECK_EQ(i2->width, 40.0f);
+            CHECK_EQ(i2->height, 10.0f);
+        }
+        if (layout::Fragment const* i3 = box_of("i3"); CHECK(i3 != nullptr)) {
+            CHECK_EQ(i3->x, 0.0f);
+            CHECK_EQ(i3->width, 20.0f);
+            CHECK_EQ(i3->height, 30.0f);
+        }
+        if (layout::Fragment const* i4 = box_of("i4"); CHECK(i4 != nullptr)) {
+            CHECK_EQ(i4->width, 100.0f); // 50% of 200
+            CHECK_EQ(i4->height, 150.0f); // the ratio kept
+        }
+        CHECK(box_of("i5") == nullptr);
+        if (layout::Fragment const* i6 = box_of("i6"); CHECK(i6 != nullptr)) {
+            CHECK_EQ(i6->width, 200.0f); // 400 asked, shrunk to the container
+            CHECK_EQ(i6->height, 300.0f);
+        }
+        if (layout::Fragment const* i7 = box_of("i7"); CHECK(i7 != nullptr)) {
+            CHECK_EQ(i7->width, 30.0f); // reserved for a picture that has not arrived
+            CHECK(i7->image->bitmap == nullptr);
+        }
+        // Alt text stands in only when nothing sizes the box.
+        {
+            std::vector<layout::TextRun const*> runs;
+            collect(page.result.root, runs);
+            bool gone = false;
+            bool late = false;
+            for (layout::TextRun const* run : runs) {
+                gone = gone || run->text == U"[gone]";
+                late = late || run->text == U"[late]";
+            }
+            CHECK(gone);
+            CHECK(!late);
+        }
+        // Painting: the pictures land red where their boxes are, scaled.
+        Bitmap canvas(200, static_cast<int>(page.result.page_height + 0.5f), Color::rgb(255, 255, 255));
+        paint::paint_page(canvas, page.result);
+        if (layout::Fragment const* i4 = box_of("i4")) {
+            CHECK(canvas.pixel(static_cast<int>(i4->x) + 50, static_cast<int>(i4->y) + 75) == Color::rgb(255, 0, 0));
+            CHECK(canvas.pixel(static_cast<int>(i4->x) + 99, static_cast<int>(i4->y) + 149) == Color::rgb(255, 0, 0));
+            CHECK(canvas.pixel(static_cast<int>(i4->x) + 100, static_cast<int>(i4->y) + 75) == Color::rgb(255, 255, 255));
+        }
+        if (layout::Fragment const* i1 = box_of("i1"))
+            CHECK(canvas.pixel(static_cast<int>(i1->x) + 10, static_cast<int>(i1->y) + 15) == Color::rgb(255, 0, 0));
+        if (layout::Fragment const* i7 = box_of("i7"))
+            CHECK(canvas.pixel(static_cast<int>(i7->x) + 15, static_cast<int>(i7->y) + 10) == Color::rgb(255, 255, 255));
+    }
+
+    // --- Scaling: shrinking averages, growing repeats ------------------------------------
+    {
+        Bitmap source(4, 2, Color::rgb(0, 0, 0));
+        source.set_pixel(0, 0, Color::rgb(255, 255, 255));
+        source.set_pixel(1, 0, Color::rgb(255, 255, 255));
+        source.set_pixel(0, 1, Color::rgb(255, 255, 255));
+        source.set_pixel(1, 1, Color::rgb(255, 255, 255));
+        Bitmap small(2, 1, Color::rgb(0, 128, 0));
+        small.draw_scaled(source, Rect { 0, 0, 2, 1 });
+        CHECK(small.pixel(0, 0) == Color::rgb(255, 255, 255));
+        CHECK(small.pixel(1, 0) == Color::rgb(0, 0, 0));
+        Bitmap mixed(1, 1, Color::rgb(0, 128, 0));
+        mixed.draw_scaled(source, Rect { 0, 0, 1, 1 });
+        CHECK(mixed.pixel(0, 0) == Color::rgb(127, 127, 127)); // half white, half black
+        Bitmap large(8, 4, Color::rgb(0, 128, 0));
+        large.draw_scaled(source, Rect { 0, 0, 8, 4 });
+        CHECK(large.pixel(3, 3) == Color::rgb(255, 255, 255));
+        CHECK(large.pixel(4, 0) == Color::rgb(0, 0, 0));
+        // Transparent source pixels leave the ground alone.
+        Bitmap clear(2, 2, Color::rgba(0, 0, 0, 0));
+        Bitmap ground(2, 2, Color::rgb(9, 9, 9));
+        ground.draw_scaled(clear, Rect { 0, 0, 2, 2 });
+        CHECK(ground.pixel(1, 1) == Color::rgb(9, 9, 9));
+        Bitmap clipped(3, 3, Color::rgb(9, 9, 9));
+        clipped.draw_scaled(source, Rect { -2, -1, 4, 2 }); // partly off the canvas
+        CHECK(clipped.pixel(0, 0) == Color::rgb(0, 0, 0));
+        CHECK(clipped.pixel(2, 2) == Color::rgb(9, 9, 9));
     }
 
     return test::report("layout");

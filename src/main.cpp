@@ -13,6 +13,7 @@
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 #include "ui/Browser.h"
+#include "ui/PageImages.h"
 #include "ui/Script.h"
 #include "ui/ShellLoader.h"
 #include "ui/Theme.h"
@@ -206,6 +207,17 @@ css::SheetFetcher sheet_fetcher(LoadedPage const& page)
     };
 }
 
+// The page's images, fetched through its own session.
+ui::ImageFetcher image_fetcher(LoadedPage const& page)
+{
+    return [&page](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+        net::FetchResult result = page.loader->load_subresource(url, page.url, "");
+        if (!result.response || result.response->status != 200)
+            return std::nullopt;
+        return std::move(result.response->body);
+    };
+}
+
 int render_page(std::string const& path, std::string const& output, int viewport_width,
     int viewport_height)
 {
@@ -217,8 +229,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
     auto document = html::parse_document_bytes(loaded->bytes);
     css::StyleMap const styles = css::resolve_styles(*document,
         css::collect_stylesheets(*document, &loaded->url, sheet_fetcher(*loaded), media), media);
+    layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded));
     layout::LayoutResult const page = layout::layout_document(*document, styles,
-        static_cast<float>(viewport_width));
+        static_cast<float>(viewport_width), &images);
 
     int const height = std::max(1, static_cast<int>(page.page_height + 0.5f));
     Bitmap canvas(viewport_width, height, page.canvas_background);
@@ -350,6 +363,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         auto const first = html::parse_document_bytes(loaded->bytes);
         return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
     }();
+    std::size_t image_count = 0;
     using clock = std::chrono::steady_clock;
     using ms = std::chrono::duration<double, std::milli>;
     struct Sample {
@@ -374,8 +388,13 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         auto const t2 = clock::now();
         rule_count = style_set.rule_count();
         universal_count = style_set.universal_count();
+        // Images are fetched here on every run, so the first run pays the
+        // network and the rest the session cache; neither is timed.
+        layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded));
+        image_count = images.size();
+        auto const t2b = clock::now();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
-            static_cast<float>(viewport_width));
+            static_cast<float>(viewport_width), &images);
         auto const t3 = clock::now();
         Bitmap canvas(viewport_width, 1000, page.canvas_background);
         paint::paint_page(canvas, page);
@@ -383,7 +402,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         sample.parse = ms(t1 - t0).count();
         sample.sheets = ms(t1b - t1).count();
         sample.style = ms(t2 - t1b).count();
-        sample.layout = ms(t3 - t2).count();
+        sample.layout = ms(t3 - t2b).count();
         sample.paint = ms(t4 - t3).count();
         samples.push_back(sample);
         page_height = page.page_height;
@@ -396,10 +415,10 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", name, values.front(),
             values[values.size() / 2]);
     };
-    std::printf("bench: %zu bytes, %zu sheet(s) with %zu rules (%zu universal), %d run(s), "
-                "viewport %d px wide, page %d px tall\n",
-        loaded->bytes.size(), sheets.size(), rule_count, universal_count, runs, viewport_width,
-        static_cast<int>(page_height + 0.5f));
+    std::printf("bench: %zu bytes, %zu sheet(s) with %zu rules (%zu universal), %zu image(s), "
+                "%d run(s), viewport %d px wide, page %d px tall\n",
+        loaded->bytes.size(), sheets.size(), rule_count, universal_count, image_count, runs,
+        viewport_width, static_cast<int>(page_height + 0.5f));
     report("parse", &Sample::parse);
     report("sheets", &Sample::sheets);
     report("style", &Sample::style);

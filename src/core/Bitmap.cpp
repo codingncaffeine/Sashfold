@@ -145,4 +145,54 @@ void Bitmap::blit(Bitmap const& source, int x, int y)
     }
 }
 
+void Bitmap::draw_scaled(Bitmap const& source, Rect dest)
+{
+    if (dest.is_empty() || source.width() <= 0 || source.height() <= 0)
+        return;
+    int const source_width = source.width();
+    int const source_height = source.height();
+    int const x0 = std::max(dest.x, 0);
+    int const y0 = std::max(dest.y, 0);
+    int const x1 = std::min(dest.right(), m_width);
+    int const y1 = std::min(dest.bottom(), m_height);
+    // The source span each destination row or column covers.
+    auto const span = [](int index, int source_size, int dest_size, int& from, int& to) {
+        from = static_cast<int>(static_cast<std::int64_t>(index) * source_size / dest_size);
+        to = static_cast<int>(static_cast<std::int64_t>(index + 1) * source_size / dest_size);
+        if (to <= from)
+            to = from + 1;
+        to = std::min(to, source_size);
+    };
+    for (int y = y0; y < y1; ++y) {
+        int sy0 = 0;
+        int sy1 = 0;
+        span(y - dest.y, source_height, dest.height, sy0, sy1);
+        for (int x = x0; x < x1; ++x) {
+            int sx0 = 0;
+            int sx1 = 0;
+            span(x - dest.x, source_width, dest.width, sx0, sx1);
+            std::uint32_t sum_r = 0;
+            std::uint32_t sum_g = 0;
+            std::uint32_t sum_b = 0;
+            std::uint32_t sum_a = 0;
+            std::uint32_t count = 0;
+            for (int sy = sy0; sy < sy1; ++sy) {
+                for (int sx = sx0; sx < sx1; ++sx) {
+                    Color const c = source.pixel(sx, sy);
+                    sum_r += static_cast<std::uint32_t>(c.r) * c.a;
+                    sum_g += static_cast<std::uint32_t>(c.g) * c.a;
+                    sum_b += static_cast<std::uint32_t>(c.b) * c.a;
+                    sum_a += c.a;
+                    ++count;
+                }
+            }
+            if (sum_a == 0)
+                continue;
+            blend_pixel(x, y,
+                Color::rgba(static_cast<std::uint8_t>(sum_r / sum_a), static_cast<std::uint8_t>(sum_g / sum_a),
+                    static_cast<std::uint8_t>(sum_b / sum_a), static_cast<std::uint8_t>(sum_a / count)));
+        }
+    }
+}
+
 }

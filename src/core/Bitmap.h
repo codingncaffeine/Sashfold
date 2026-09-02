@@ -72,6 +72,11 @@ public:
     // blending — the source replaces what was there.
     void blit(Bitmap const& source, int x, int y);
 
+    // Draws the source scaled into `dest` with source-over compositing:
+    // box-filtered when shrinking, nearest when growing, in integer
+    // arithmetic, averaging premultiplied so transparent edges do not fringe.
+    void draw_scaled(Bitmap const& source, Rect dest);
+
 private:
     std::size_t offset_of(int x, int y) const
     {

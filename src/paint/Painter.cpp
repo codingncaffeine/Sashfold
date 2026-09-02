@@ -97,6 +97,11 @@ void paint_fragment(Context& context, Fragment const& fragment, bool is_canvas_b
 {
     if (fragment.style)
         paint_background_and_borders(context, fragment, is_canvas_background_owner);
+    if (fragment.image && fragment.image->bitmap) {
+        Fragment::ImageBox const& box = *fragment.image;
+        context.target.draw_scaled(*box.bitmap,
+            snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
+    }
     for (Fragment const& child : fragment.children) {
         // The element whose background became the canvas skips its own.
         paint_fragment(context, child, false);

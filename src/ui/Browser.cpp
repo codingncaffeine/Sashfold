@@ -10,6 +10,7 @@
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
+#include "ui/PageImages.h"
 #include "ui/Downloads.h"
 #include "ui/InternalPages.h"
 
@@ -259,6 +260,7 @@ struct Browser::Impl {
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
         css::MediaContext style_media;
         css::StyleMap styles;
+        layout::ImageMap images; // the page's pictures, decoded
         layout::LayoutResult layout;
         int scroll_y = 0;
         std::string status;
@@ -482,7 +484,7 @@ struct Browser::Impl {
             return;
         ChromeLayout const c = layout_chrome();
         tab.layout = layout::layout_document(*tab.document, tab.styles,
-            static_cast<float>(std::max(1, c.content.width)));
+            static_cast<float>(std::max(1, c.content.width)), &tab.images);
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
     }
 
@@ -522,6 +524,13 @@ struct Browser::Impl {
         tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
         tab.style_set.reset();
         restyle(tab);
+        auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url));
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            return std::move(result.response->body);
+        };
+        tab.images = collect_images(*tab.document, &page_url, fetch_image);
         entry->title = find_title(*tab.document);
         tab.scroll_y = entry->scroll_y;
         relayout(tab);
@@ -873,6 +882,9 @@ struct Browser::Impl {
             if (dom::Element const* const hit = hit_run(child, x, y))
                 return hit;
         }
+        if (fragment.image && x >= fragment.x && x < fragment.x + fragment.width && y >= fragment.y
+            && y < fragment.y + fragment.height)
+            return fragment.element;
         for (layout::TextRun const& run : fragment.runs) {
             text::FaceMetrics const metrics = run_metrics(run);
             float const top = run.baseline_y - metrics.ascent;

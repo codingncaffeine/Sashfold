@@ -33,23 +33,133 @@ bool is_block_level(ComputedStyle const& style)
     return style.display == Display::Block || style.display == Display::ListItem;
 }
 
-// One inline item: a word, a space, or a hard break, carrying its style.
+// One inline item: a word, a space, a hard break, or an image, carrying its style.
 struct InlineItem {
     enum class Kind {
         Word,
         Space,
         HardBreak,
+        Image,
     };
+    InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
+        dom::Element const* the_element)
+        : kind(the_kind)
+        , text(std::move(the_text))
+        , style(the_style)
+        , element(the_element)
+    {
+    }
     Kind kind = Kind::Word;
     std::u32string text;
     ComputedStyle const* style = nullptr;
     dom::Element const* element = nullptr; // nearest element, for hit-testing
+    std::shared_ptr<Bitmap const> image; // Kind::Image: the picture, or null while it is missing
 };
+
+// A replaced element's used size, in px.
+struct ReplacedSize {
+    float width = 0;
+    float height = 0;
+};
+
+// width="123" / width="50%": the presentational sizes an <img> carries.
+std::optional<LengthPercent> attribute_length(dom::Element const& element, char const* name)
+{
+    dom::Attr const* attribute = element.find_attribute(name);
+    if (!attribute)
+        return std::nullopt;
+    std::string_view text = attribute->value;
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t' || text.front() == '\n'))
+        text.remove_prefix(1);
+    float value = 0;
+    std::size_t digits = 0;
+    while (digits < text.size() && text[digits] >= '0' && text[digits] <= '9') {
+        value = value * 10 + static_cast<float>(text[digits] - '0');
+        ++digits;
+    }
+    if (digits == 0)
+        return std::nullopt;
+    if (digits < text.size() && text[digits] == '%')
+        return LengthPercent::percent(value);
+    return LengthPercent::px(value);
+}
+
+// The used size of an image box from its CSS width and height, else its
+// width and height attributes, else the picture's own size; one given
+// dimension scales the other by the picture's ratio. A picture wider than
+// its container shrinks to fit, ratio kept. nullopt when nothing sizes it.
+std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
+    Bitmap const* image, float containing_width)
+{
+    LengthPercent width = style.width;
+    if (width.is_auto()) {
+        if (std::optional<LengthPercent> const attribute = attribute_length(element, "width"))
+            width = *attribute;
+    }
+    LengthPercent height = style.height;
+    if (height.is_auto()) {
+        if (std::optional<LengthPercent> const attribute = attribute_length(element, "height"))
+            height = *attribute;
+    }
+    float const intrinsic_width = image ? static_cast<float>(image->width()) : 0;
+    float const intrinsic_height = image ? static_cast<float>(image->height()) : 0;
+    std::optional<float> used_width;
+    std::optional<float> used_height;
+    if (!width.is_auto())
+        used_width = resolve(width, containing_width);
+    if (!height.is_auto() && height.kind == LengthPercent::Kind::Px)
+        used_height = height.value; // a percentage height has no definite base here
+    if (!used_width && !used_height) {
+        if (!image)
+            return std::nullopt;
+        used_width = intrinsic_width;
+        used_height = intrinsic_height;
+    } else if (!used_width) {
+        used_width = image && intrinsic_height > 0 ? *used_height * intrinsic_width / intrinsic_height
+                                                   : *used_height;
+    } else if (!used_height) {
+        used_height = image && intrinsic_width > 0 ? *used_width * intrinsic_height / intrinsic_width
+                                                   : *used_width;
+    }
+    if (containing_width > 0 && *used_width > containing_width) {
+        float const scale = containing_width / *used_width;
+        used_width = containing_width;
+        used_height = *used_height * scale;
+    }
+    return ReplacedSize { std::max(0.0f, *used_width), std::max(0.0f, *used_height) };
+}
 
 struct Layouter {
     css::StyleMap const& styles;
     // The faces each style resolved to, looked up once per style.
     mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
+    ImageMap const* images = nullptr;
+
+    std::shared_ptr<Bitmap const> image_for(dom::Element const& element) const
+    {
+        if (!images)
+            return nullptr;
+        auto const it = images->find(&element);
+        return it == images->end() ? nullptr : it->second;
+    }
+
+    // An <img> becomes an image item when a picture or a size is known;
+    // otherwise its alt text stands in.
+    void append_image(dom::Element const& element, ComputedStyle const* style,
+        std::vector<InlineItem>& items) const
+    {
+        std::shared_ptr<Bitmap const> image = image_for(element);
+        bool const sized = !style->width.is_auto() || !style->height.is_auto()
+            || attribute_length(element, "width") || attribute_length(element, "height");
+        if (image || sized) {
+            InlineItem item(InlineItem::Kind::Image, {}, style, &element);
+            item.image = std::move(image);
+            items.push_back(std::move(item));
+            return;
+        }
+        if (dom::Attr const* alt = element.find_attribute("alt"); alt && !alt->value.empty())
+            append_text(decode_utf8("[" + alt->value + "]"), style, items, &element);
+    }
 
     text::FontStack const& fonts_for(ComputedStyle const& style) const
     {
@@ -147,9 +257,7 @@ struct Layouter {
                 continue;
             }
             if (element.is_html("img")) {
-                // Images are not decoded yet; the alt text stands in.
-                if (dom::Attr const* alt = element.find_attribute("alt"); alt && !alt->value.empty())
-                    append_text(decode_utf8("[" + alt->value + "]"), style, items, &element);
+                append_image(element, style, items);
                 continue;
             }
             collect_inline(element, style, items);
@@ -171,11 +279,23 @@ struct Layouter {
         float content_x, float content_y, float content_width, Fragment& out) const
     {
         struct Placed {
+            Placed(std::u32string the_text, ComputedStyle const* the_style, bool space, float the_width,
+                dom::Element const* the_element)
+                : text(std::move(the_text))
+                , style(the_style)
+                , is_space(space)
+                , width(the_width)
+                , element(the_element)
+            {
+            }
             std::u32string text;
             ComputedStyle const* style;
             bool is_space;
             float width;
             dom::Element const* element;
+            std::shared_ptr<Bitmap const> image; // an image item's picture (may be null)
+            float image_height = 0;
+            bool is_image = false;
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -192,6 +312,14 @@ struct Layouter {
                 line_height = std::max(line_height, placed.style->line_height_px());
                 max_ascent = std::max(max_ascent, ascent_in_line(*placed.style));
             }
+            // Images sit on the baseline: a tall one lifts it, keeping the
+            // text's descent below.
+            float const descent = line_height - max_ascent;
+            for (Placed const& placed : line) {
+                if (placed.is_image)
+                    max_ascent = std::max(max_ascent, placed.image_height);
+            }
+            line_height = std::max(line_height, max_ascent + descent);
             float x = content_x;
             if (block_style.text_align == css::TextAlign::Center)
                 x += (content_width - line_width) / 2.0f;
@@ -200,9 +328,20 @@ struct Layouter {
             float const baseline = y + max_ascent;
             for (Placed& placed : line) {
                 float const width = placed.width;
-                if (!placed.text.empty())
+                if (placed.is_image) {
+                    Fragment box;
+                    box.element = placed.element;
+                    box.style = placed.style;
+                    box.x = x;
+                    box.y = baseline - placed.image_height;
+                    box.width = width;
+                    box.height = placed.image_height;
+                    box.image = Fragment::ImageBox { placed.image, box.x, box.y, box.width, box.height };
+                    out.children.push_back(std::move(box));
+                } else if (!placed.text.empty()) {
                     out.runs.push_back(TextRun { x, baseline, std::move(placed.text), placed.style,
                         placed.element, &fonts_for(*placed.style), width });
+                }
                 x += width;
             }
             y += line_height;
@@ -224,6 +363,21 @@ struct Layouter {
                 float const width = measure(*item.style, item.text);
                 line.push_back(Placed { item.text, item.style, true, width, item.element });
                 line_width += width;
+                continue;
+            }
+            if (item.kind == InlineItem::Kind::Image) {
+                std::optional<ReplacedSize> const size
+                    = replaced_size(*item.element, *item.style, item.image.get(), content_width);
+                if (!size)
+                    continue;
+                if (allow_wrap && !line.empty() && line_width + size->width > content_width)
+                    flush_line();
+                Placed placed({}, item.style, false, size->width, item.element);
+                placed.image = item.image;
+                placed.image_height = size->height;
+                placed.is_image = true;
+                line.push_back(std::move(placed));
+                line_width += size->width;
                 continue;
             }
             std::u32string word = item.text;
@@ -314,6 +468,21 @@ struct Layouter {
         float const content_width = std::max(0.0f,
             border_box_width - border_left - border_right - padding_left - padding_right);
         float const content_y = fragment.y + border_top + padding_top;
+
+        if (element.is_html("img")) {
+            // A block-level picture: its own size, shrunk to fit, no children.
+            std::shared_ptr<Bitmap const> image = image_for(element);
+            std::optional<ReplacedSize> const size
+                = replaced_size(element, style, image.get(), content_width);
+            if (size) {
+                if (style.width.is_auto())
+                    fragment.width = size->width + border_left + border_right + padding_left + padding_right;
+                fragment.height = size->height + border_top + border_bottom + padding_top + padding_bottom;
+                fragment.image = Fragment::ImageBox { std::move(image), content_x, content_y, size->width,
+                    size->height };
+                return fragment;
+            }
+        }
 
         float const content_height = layout_children(element, style, content_x, content_y,
             content_width, fragment, list_depth);
@@ -435,8 +604,7 @@ struct Layouter {
             return;
         }
         if (element.is_html("img")) {
-            if (dom::Attr const* alt = element.find_attribute("alt"); alt && !alt->value.empty())
-                append_text(decode_utf8("[" + alt->value + "]"), &style, items, &element);
+            append_image(element, &style, items);
             return;
         }
         collect_inline(element, &style, items);
@@ -480,7 +648,7 @@ struct Layouter {
 } // namespace
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
-    float viewport_width)
+    float viewport_width, ImageMap const* images)
 {
     LayoutResult result;
     result.canvas_background = Color::rgb(255, 255, 255);
@@ -493,7 +661,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {} };
+    Layouter layouter { styles, {}, images };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;
