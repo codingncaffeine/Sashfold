@@ -1223,6 +1223,277 @@ struct Resolver {
         return style;
     }
 
+    // --- The CSS-wide keywords --------------------------------------------------
+
+    // inherit takes the parent's computed value, initial the property's
+    // initial value, unset one or the other by whether the property
+    // inherits; revert, with no user sheet to revert to, reads as unset.
+    enum class Wide {
+        Inherit,
+        Initial,
+        Unset,
+    };
+
+    static std::optional<Wide> wide_keyword(std::vector<ComponentValue const*> const& values)
+    {
+        if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+            return std::nullopt;
+        std::string_view const keyword = values[0]->token().value;
+        if (ascii_ci_equals(keyword, "inherit"))
+            return Wide::Inherit;
+        if (ascii_ci_equals(keyword, "initial"))
+            return Wide::Initial;
+        if (ascii_ci_equals(keyword, "unset") || ascii_ci_equals(keyword, "revert")
+            || ascii_ci_equals(keyword, "revert-layer"))
+            return Wide::Unset;
+        return std::nullopt;
+    }
+
+    // A property the keywords can copy: its members, and whether it
+    // inherits. A shorthand copies every longhand it holds.
+    struct PropertyCopy {
+        std::string_view name;
+        bool inherited;
+        void (*copy)(ComputedStyle& to, ComputedStyle const& from);
+        // Which border sides' colors the property carries: their "set"
+        // flags follow the copy (a parent's color is a color of its own;
+        // an initial one is currentColor).
+        unsigned border_colors; // bits: 1 top, 2 right, 4 bottom, 8 left
+    };
+
+    static std::vector<PropertyCopy> const& property_copies()
+    {
+        using S = ComputedStyle;
+        static std::vector<PropertyCopy> const table = {
+            { "display", false, [](S& to, S const& from) { to.display = from.display; }, 0 },
+            { "width", false, [](S& to, S const& from) { to.width = from.width; }, 0 },
+            { "height", false, [](S& to, S const& from) { to.height = from.height; }, 0 },
+            { "min-width", false, [](S& to, S const& from) { to.min_width = from.min_width; }, 0 },
+            { "max-width", false, [](S& to, S const& from) { to.max_width = from.max_width; }, 0 },
+            { "min-height", false, [](S& to, S const& from) { to.min_height = from.min_height; }, 0 },
+            { "max-height", false, [](S& to, S const& from) { to.max_height = from.max_height; }, 0 },
+            { "margin-top", false, [](S& to, S const& from) { to.margin_top = from.margin_top; }, 0 },
+            { "margin-right", false, [](S& to, S const& from) { to.margin_right = from.margin_right; }, 0 },
+            { "margin-bottom", false, [](S& to, S const& from) { to.margin_bottom = from.margin_bottom; }, 0 },
+            { "margin-left", false, [](S& to, S const& from) { to.margin_left = from.margin_left; }, 0 },
+            { "margin", false,
+                [](S& to, S const& from) {
+                    to.margin_top = from.margin_top;
+                    to.margin_right = from.margin_right;
+                    to.margin_bottom = from.margin_bottom;
+                    to.margin_left = from.margin_left;
+                },
+                0 },
+            { "padding-top", false, [](S& to, S const& from) { to.padding_top = from.padding_top; }, 0 },
+            { "padding-right", false, [](S& to, S const& from) { to.padding_right = from.padding_right; }, 0 },
+            { "padding-bottom", false, [](S& to, S const& from) { to.padding_bottom = from.padding_bottom; }, 0 },
+            { "padding-left", false, [](S& to, S const& from) { to.padding_left = from.padding_left; }, 0 },
+            { "padding", false,
+                [](S& to, S const& from) {
+                    to.padding_top = from.padding_top;
+                    to.padding_right = from.padding_right;
+                    to.padding_bottom = from.padding_bottom;
+                    to.padding_left = from.padding_left;
+                },
+                0 },
+            { "border-top", false, [](S& to, S const& from) { to.border_top = from.border_top; }, 1 },
+            { "border-right", false, [](S& to, S const& from) { to.border_right = from.border_right; }, 2 },
+            { "border-bottom", false, [](S& to, S const& from) { to.border_bottom = from.border_bottom; }, 4 },
+            { "border-left", false, [](S& to, S const& from) { to.border_left = from.border_left; }, 8 },
+            { "border", false,
+                [](S& to, S const& from) {
+                    to.border_top = from.border_top;
+                    to.border_right = from.border_right;
+                    to.border_bottom = from.border_bottom;
+                    to.border_left = from.border_left;
+                },
+                15 },
+            { "border-top-width", false, [](S& to, S const& from) { to.border_top.width = from.border_top.width; }, 0 },
+            { "border-right-width", false, [](S& to, S const& from) { to.border_right.width = from.border_right.width; }, 0 },
+            { "border-bottom-width", false, [](S& to, S const& from) { to.border_bottom.width = from.border_bottom.width; }, 0 },
+            { "border-left-width", false, [](S& to, S const& from) { to.border_left.width = from.border_left.width; }, 0 },
+            { "border-width", false,
+                [](S& to, S const& from) {
+                    to.border_top.width = from.border_top.width;
+                    to.border_right.width = from.border_right.width;
+                    to.border_bottom.width = from.border_bottom.width;
+                    to.border_left.width = from.border_left.width;
+                },
+                0 },
+            { "border-top-style", false, [](S& to, S const& from) { to.border_top.style = from.border_top.style; }, 0 },
+            { "border-right-style", false, [](S& to, S const& from) { to.border_right.style = from.border_right.style; }, 0 },
+            { "border-bottom-style", false, [](S& to, S const& from) { to.border_bottom.style = from.border_bottom.style; }, 0 },
+            { "border-left-style", false, [](S& to, S const& from) { to.border_left.style = from.border_left.style; }, 0 },
+            { "border-style", false,
+                [](S& to, S const& from) {
+                    to.border_top.style = from.border_top.style;
+                    to.border_right.style = from.border_right.style;
+                    to.border_bottom.style = from.border_bottom.style;
+                    to.border_left.style = from.border_left.style;
+                },
+                0 },
+            { "border-top-color", false, [](S& to, S const& from) { to.border_top.color = from.border_top.color; }, 1 },
+            { "border-right-color", false, [](S& to, S const& from) { to.border_right.color = from.border_right.color; }, 2 },
+            { "border-bottom-color", false, [](S& to, S const& from) { to.border_bottom.color = from.border_bottom.color; }, 4 },
+            { "border-left-color", false, [](S& to, S const& from) { to.border_left.color = from.border_left.color; }, 8 },
+            { "border-color", false,
+                [](S& to, S const& from) {
+                    to.border_top.color = from.border_top.color;
+                    to.border_right.color = from.border_right.color;
+                    to.border_bottom.color = from.border_bottom.color;
+                    to.border_left.color = from.border_left.color;
+                },
+                15 },
+            { "float", false, [](S& to, S const& from) { to.floating = from.floating; }, 0 },
+            { "clear", false, [](S& to, S const& from) { to.clear = from.clear; }, 0 },
+            { "overflow", false, [](S& to, S const& from) { to.overflow = from.overflow; }, 0 },
+            { "overflow-x", false, [](S& to, S const& from) { to.overflow = from.overflow; }, 0 },
+            { "overflow-y", false, [](S& to, S const& from) { to.overflow = from.overflow; }, 0 },
+            { "position", false, [](S& to, S const& from) { to.position = from.position; }, 0 },
+            { "top", false, [](S& to, S const& from) { to.top = from.top; }, 0 },
+            { "right", false, [](S& to, S const& from) { to.right = from.right; }, 0 },
+            { "bottom", false, [](S& to, S const& from) { to.bottom = from.bottom; }, 0 },
+            { "left", false, [](S& to, S const& from) { to.left = from.left; }, 0 },
+            { "inset", false,
+                [](S& to, S const& from) {
+                    to.top = from.top;
+                    to.right = from.right;
+                    to.bottom = from.bottom;
+                    to.left = from.left;
+                },
+                0 },
+            { "z-index", false, [](S& to, S const& from) { to.z_index = from.z_index; }, 0 },
+            { "visibility", true, [](S& to, S const& from) { to.visibility = from.visibility; }, 0 },
+            { "opacity", false, [](S& to, S const& from) { to.opacity = from.opacity; }, 0 },
+            { "transform", false,
+                [](S& to, S const& from) {
+                    to.translate_x = from.translate_x;
+                    to.translate_y = from.translate_y;
+                    to.transformed = from.transformed;
+                },
+                0 },
+            { "translate", false,
+                [](S& to, S const& from) {
+                    to.translate_x = from.translate_x;
+                    to.translate_y = from.translate_y;
+                    to.transformed = from.transformed;
+                },
+                0 },
+            { "flex-direction", false, [](S& to, S const& from) { to.flex_direction = from.flex_direction; }, 0 },
+            { "flex-wrap", false, [](S& to, S const& from) { to.flex_wrap = from.flex_wrap; }, 0 },
+            { "flex-flow", false,
+                [](S& to, S const& from) {
+                    to.flex_direction = from.flex_direction;
+                    to.flex_wrap = from.flex_wrap;
+                },
+                0 },
+            { "justify-content", false, [](S& to, S const& from) { to.justify_content = from.justify_content; }, 0 },
+            { "align-items", false, [](S& to, S const& from) { to.align_items = from.align_items; }, 0 },
+            { "align-self", false, [](S& to, S const& from) { to.align_self = from.align_self; }, 0 },
+            { "align-content", false, [](S& to, S const& from) { to.align_content = from.align_content; }, 0 },
+            { "flex-grow", false, [](S& to, S const& from) { to.flex_grow = from.flex_grow; }, 0 },
+            { "flex-shrink", false, [](S& to, S const& from) { to.flex_shrink = from.flex_shrink; }, 0 },
+            { "flex-basis", false, [](S& to, S const& from) { to.flex_basis = from.flex_basis; }, 0 },
+            { "flex", false,
+                [](S& to, S const& from) {
+                    to.flex_grow = from.flex_grow;
+                    to.flex_shrink = from.flex_shrink;
+                    to.flex_basis = from.flex_basis;
+                },
+                0 },
+            { "row-gap", false, [](S& to, S const& from) { to.row_gap = from.row_gap; }, 0 },
+            { "column-gap", false, [](S& to, S const& from) { to.column_gap = from.column_gap; }, 0 },
+            { "gap", false,
+                [](S& to, S const& from) {
+                    to.row_gap = from.row_gap;
+                    to.column_gap = from.column_gap;
+                },
+                0 },
+            { "order", false, [](S& to, S const& from) { to.order = from.order; }, 0 },
+            { "color", true, [](S& to, S const& from) { to.color = from.color; }, 0 },
+            { "background-color", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
+            { "background", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
+            { "font-size", true, [](S& to, S const& from) { to.font_size = from.font_size; }, 0 },
+            { "font-weight", true, [](S& to, S const& from) { to.font_weight = from.font_weight; }, 0 },
+            { "font-style", true, [](S& to, S const& from) { to.font_style = from.font_style; }, 0 },
+            { "font-family", true, [](S& to, S const& from) { to.font_family = from.font_family; }, 0 },
+            { "line-height", true, [](S& to, S const& from) { to.line_height = from.line_height; }, 0 },
+            { "font", true,
+                [](S& to, S const& from) {
+                    to.font_size = from.font_size;
+                    to.font_weight = from.font_weight;
+                    to.font_style = from.font_style;
+                    to.font_family = from.font_family;
+                    to.line_height = from.line_height;
+                },
+                0 },
+            { "vertical-align", false, [](S& to, S const& from) { to.vertical_align = from.vertical_align; }, 0 },
+            { "text-align", true, [](S& to, S const& from) { to.text_align = from.text_align; }, 0 },
+            { "white-space", true, [](S& to, S const& from) { to.white_space = from.white_space; }, 0 },
+            { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
+            { "list-style", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
+            { "text-decoration", false, [](S& to, S const& from) { to.text_decoration = from.text_decoration; }, 0 },
+            { "text-decoration-line", false, [](S& to, S const& from) { to.text_decoration = from.text_decoration; }, 0 },
+            { "content", false, [](S& to, S const& from) { to.content = from.content; }, 0 },
+            { "quotes", true, [](S& to, S const& from) { to.quotes = from.quotes; }, 0 },
+        };
+        return table;
+    }
+
+    // Applies a CSS-wide keyword to one property, or with `all` to every
+    // property the table knows (custom properties aside, which cascade on
+    // their own).
+    static void apply_wide(ComputedStyle& style, ComputedStyle const& parent, std::string_view name,
+        Wide wide, bool& border_top_color_set, bool& border_right_color_set,
+        bool& border_bottom_color_set, bool& border_left_color_set)
+    {
+        static ComputedStyle const initial {};
+        // The size was settled in the font-size pass, in cascade order with
+        // every other font-size declaration; a copy here would undo a later
+        // one.
+        float const settled_font_size = style.font_size;
+        auto const apply_one = [&](PropertyCopy const& property) {
+            bool const from_parent = wide == Wide::Inherit || (wide == Wide::Unset && property.inherited);
+            ComputedStyle const& from = from_parent ? parent : initial;
+            property.copy(style, from);
+            style.font_size = settled_font_size;
+            // A parent's border color that was currentColor inherits as the
+            // keyword: this element's own color, settled at the end.
+            if (property.border_colors & 1)
+                border_top_color_set = from_parent && !from.border_top.current_color;
+            if (property.border_colors & 2)
+                border_right_color_set = from_parent && !from.border_right.current_color;
+            if (property.border_colors & 4)
+                border_bottom_color_set = from_parent && !from.border_bottom.current_color;
+            if (property.border_colors & 8)
+                border_left_color_set = from_parent && !from.border_left.current_color;
+        };
+        if (name == "all") {
+            for (PropertyCopy const& property : property_copies()) {
+                // Longhands only: a shorthand's members are covered by them.
+                if (property.name == "margin" || property.name == "padding" || property.name == "border"
+                    || property.name == "border-top" || property.name == "border-right"
+                    || property.name == "border-bottom" || property.name == "border-left"
+                    || property.name == "border-width" || property.name == "border-style"
+                    || property.name == "border-color" || property.name == "inset"
+                    || property.name == "flex-flow" || property.name == "flex" || property.name == "gap"
+                    || property.name == "background" || property.name == "font"
+                    || property.name == "list-style" || property.name == "translate"
+                    || property.name == "overflow-x" || property.name == "overflow-y"
+                    || property.name == "text-decoration-line")
+                    continue;
+                apply_one(property);
+            }
+            return;
+        }
+        for (PropertyCopy const& property : property_copies()) {
+            if (property.name == name) {
+                apply_one(property);
+                return;
+            }
+        }
+    }
+
     // --- Custom properties and var() ------------------------------------------
 
     static bool is_var(ComponentValue const& value)
@@ -1522,9 +1793,19 @@ struct Resolver {
         // other declarations resolve against it.
         for (MatchedDeclaration const& entry : matched) {
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
-                if (ascii_ci_equals(declaration.name, "font-size")) {
+                bool const is_font_size = ascii_ci_equals(declaration.name, "font-size");
+                bool const is_font = ascii_ci_equals(declaration.name, "font");
+                bool const is_all = ascii_ci_equals(declaration.name, "all");
+                if (is_font_size || is_font || is_all) {
+                    // A CSS-wide keyword: the parent's size, or medium.
+                    if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
+                        style.font_size = *wide == Wide::Initial ? 16.0f : parent.font_size;
+                        return;
+                    }
+                }
+                if (is_font_size) {
                     apply_font_size(style, parent, declaration);
-                } else if (ascii_ci_equals(declaration.name, "font")) {
+                } else if (is_font) {
                     // The shorthand's size goes first too; its other parts follow in apply().
                     if (std::optional<FontShorthand> const parts
                         = split_font_shorthand(significant(declaration.value))) {
@@ -1542,12 +1823,21 @@ struct Resolver {
         bool border_left_color_set = false;
         for (MatchedDeclaration const& entry : matched) {
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
+                if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
+                    apply_wide(style, parent, lowercase_name(declaration.name), *wide, border_top_color_set,
+                        border_right_color_set, border_bottom_color_set, border_left_color_set);
+                    return;
+                }
                 apply(style, declaration, border_top_color_set, border_right_color_set,
                     border_bottom_color_set, border_left_color_set);
             });
         }
 
         // currentColor is the border default.
+        style.border_top.current_color = !border_top_color_set;
+        style.border_right.current_color = !border_right_color_set;
+        style.border_bottom.current_color = !border_bottom_color_set;
+        style.border_left.current_color = !border_left_color_set;
         if (!border_top_color_set)
             style.border_top.color = style.color;
         if (!border_right_color_set)

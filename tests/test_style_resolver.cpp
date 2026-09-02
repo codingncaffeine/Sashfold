@@ -287,6 +287,57 @@ int main()
         CHECK(style_of("code").font_family == families);
     }
 
+    // --- The CSS-wide keywords: inherit, initial, unset, all ---------------------
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  #parent { color: red; width: 100px; margin-left: 7px; border: 2px solid blue; font-size: 20px; text-align: center }
+  #inh { width: inherit; margin: inherit; border-left: inherit; text-align: initial; font-size: inherit }
+  #ini { color: initial; font-size: initial }
+  #uns { color: unset; width: unset; text-align: unset }
+  #all { all: initial }
+  #allinh { all: inherit }
+  #bcp { color: red; border: none }
+  #bc { border-color: inherit; border-style: solid; color: green }
+  p { font: inherit }
+  #fs { font: 20px serif }
+</style></head>
+<body><div id="parent"><p id="inh">a</p><p id="ini">b</p><p id="uns">c</p><p id="all">d</p><p id="allinh">e</p></div>
+<div id="bcp"><div id="bc">f</div></div><p id="fs">g</p></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        css::ComputedStyle const& inh = style_of("inh");
+        CHECK(inh.width.kind == css::LengthPercent::Kind::Px && close(inh.width.value, 100)); // the parent's
+        CHECK(close(inh.margin_left.value, 7)); // a shorthand copies every side
+        CHECK(close(inh.margin_top.value, 0));
+        CHECK(close(inh.border_left.width, 2));
+        CHECK(inh.border_left.color == Color::rgb(0, 0, 255));
+        CHECK(close(inh.border_top.width, 0));
+        CHECK(inh.text_align == css::TextAlign::Left); // initial, though the parent centers
+        CHECK(close(inh.font_size, 20));
+        css::ComputedStyle const& ini = style_of("ini");
+        CHECK(ini.color == Color::rgb(0, 0, 0));
+        CHECK(close(ini.font_size, 16));
+        css::ComputedStyle const& uns = style_of("uns");
+        CHECK(uns.color == Color::rgb(255, 0, 0)); // unset on an inherited property inherits
+        CHECK(uns.width.is_auto()); // and resets one that does not
+        CHECK(uns.text_align == css::TextAlign::Center);
+        css::ComputedStyle const& all = style_of("all");
+        CHECK(all.color == Color::rgb(0, 0, 0)); // all: initial resets the inherited too
+        CHECK(all.display == css::Display::Inline); // the UA sheet's block gives way
+        CHECK(close(all.font_size, 16));
+        CHECK(close(all.margin_top.value, 0));
+        css::ComputedStyle const& allinh = style_of("allinh");
+        CHECK(allinh.width.kind == css::LengthPercent::Kind::Px && close(allinh.width.value, 100));
+        CHECK(allinh.color == Color::rgb(255, 0, 0));
+        CHECK(allinh.text_align == css::TextAlign::Center);
+        CHECK(allinh.display == css::Display::Block); // the parent's
+        // A parent's border color that was currentColor inherits as the
+        // keyword — this element's own green, not the parent's red.
+        CHECK(style_of("bc").border_top.color == Color::rgb(0, 128, 0));
+        // A lower-ranked font: inherit does not undo a later shorthand's size.
+        CHECK(close(style_of("fs").font_size, 20));
+    }
+
     // --- The border side longhands ---------------------------------------------
     g_document = html::parse_document(std::string_view(R"(<!doctype html>
 <html><head><style>

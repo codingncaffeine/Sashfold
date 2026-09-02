@@ -253,6 +253,9 @@ struct BorderSide {
     float width = 0; // px, already zeroed when style is None
     BorderStyle style = BorderStyle::None;
     Color color; // defaults to currentColor at application time
+    // The color was never written: it is currentColor, the element's own
+    // color — and inherits as that keyword, not as the resolved color.
+    bool current_color = true;
 };
 
 struct ComputedStyle {

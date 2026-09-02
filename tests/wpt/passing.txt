@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (5748 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (5815 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-004e.xht
@@ -78,6 +78,7 @@ css/CSS2/backgrounds/background-195.xht
 css/CSS2/backgrounds/background-198.xht
 css/CSS2/backgrounds/background-201.xht
 css/CSS2/backgrounds/background-204.xht
+css/CSS2/backgrounds/background-326.xht
 css/CSS2/backgrounds/background-applies-to-009.xht
 css/CSS2/backgrounds/background-applies-to-012.xht
 css/CSS2/backgrounds/background-applies-to-015.xht
@@ -85,6 +86,7 @@ css/CSS2/backgrounds/background-attachment-009.xht
 css/CSS2/backgrounds/background-body-001.xht
 css/CSS2/backgrounds/background-color-129.xht
 css/CSS2/backgrounds/background-color-174.xht
+css/CSS2/backgrounds/background-color-175.xht
 css/CSS2/backgrounds/background-color-applies-to-009.xht
 css/CSS2/backgrounds/background-color-applies-to-012.xht
 css/CSS2/backgrounds/background-color-applies-to-015.xht
@@ -128,6 +130,8 @@ css/CSS2/borders/border-bottom-001.xht
 css/CSS2/borders/border-bottom-005.xht
 css/CSS2/borders/border-bottom-006.xht
 css/CSS2/borders/border-bottom-008.xht
+css/CSS2/borders/border-bottom-016.xht
+css/CSS2/borders/border-bottom-018.xht
 css/CSS2/borders/border-bottom-applies-to-001.xht
 css/CSS2/borders/border-bottom-applies-to-002.xht
 css/CSS2/borders/border-bottom-applies-to-003.xht
@@ -139,6 +143,7 @@ css/CSS2/borders/border-bottom-applies-to-013.xht
 css/CSS2/borders/border-bottom-applies-to-014.xht
 css/CSS2/borders/border-bottom-applies-to-015.xht
 css/CSS2/borders/border-bottom-color-174.xht
+css/CSS2/borders/border-bottom-color-175.xht
 css/CSS2/borders/border-bottom-color-applies-to-001.xht
 css/CSS2/borders/border-bottom-color-applies-to-002.xht
 css/CSS2/borders/border-bottom-color-applies-to-003.xht
@@ -205,6 +210,7 @@ css/CSS2/borders/border-bottom-width-082.xht
 css/CSS2/borders/border-bottom-width-089.xht
 css/CSS2/borders/border-bottom-width-090.xht
 css/CSS2/borders/border-bottom-width-091.xht
+css/CSS2/borders/border-bottom-width-095.xht
 css/CSS2/borders/border-bottom-width-applies-to-001.xht
 css/CSS2/borders/border-bottom-width-applies-to-002.xht
 css/CSS2/borders/border-bottom-width-applies-to-003.xht
@@ -217,6 +223,7 @@ css/CSS2/borders/border-bottom-width-applies-to-014.xht
 css/CSS2/borders/border-bottom-width-applies-to-015.xht
 css/CSS2/borders/border-color-001.xht
 css/CSS2/borders/border-color-005.xht
+css/CSS2/borders/border-color-006.xht
 css/CSS2/borders/border-color-010.xht
 css/CSS2/borders/border-color-011.xht
 css/CSS2/borders/border-color-012.xht
@@ -235,11 +242,13 @@ css/CSS2/borders/border-left-003.xht
 css/CSS2/borders/border-left-005.xht
 css/CSS2/borders/border-left-006.xht
 css/CSS2/borders/border-left-008.xht
+css/CSS2/borders/border-left-018.xht
 css/CSS2/borders/border-left-applies-to-007.xht
 css/CSS2/borders/border-left-applies-to-009.xht
 css/CSS2/borders/border-left-applies-to-012.xht
 css/CSS2/borders/border-left-applies-to-015.xht
 css/CSS2/borders/border-left-color-174.xht
+css/CSS2/borders/border-left-color-175.xht
 css/CSS2/borders/border-left-color-applies-to-007.xht
 css/CSS2/borders/border-left-color-applies-to-009.xht
 css/CSS2/borders/border-left-color-applies-to-012.xht
@@ -300,6 +309,7 @@ css/CSS2/borders/border-left-width-082.xht
 css/CSS2/borders/border-left-width-089.xht
 css/CSS2/borders/border-left-width-090.xht
 css/CSS2/borders/border-left-width-091.xht
+css/CSS2/borders/border-left-width-095.xht
 css/CSS2/borders/border-left-width-applies-to-007.xht
 css/CSS2/borders/border-left-width-applies-to-009.xht
 css/CSS2/borders/border-left-width-applies-to-012.xht
@@ -309,9 +319,11 @@ css/CSS2/borders/border-right-003.xht
 css/CSS2/borders/border-right-005.xht
 css/CSS2/borders/border-right-006.xht
 css/CSS2/borders/border-right-008.xht
+css/CSS2/borders/border-right-018.xht
 css/CSS2/borders/border-right-applies-to-009.xht
 css/CSS2/borders/border-right-applies-to-012.xht
 css/CSS2/borders/border-right-color-174.xht
+css/CSS2/borders/border-right-color-175.xht
 css/CSS2/borders/border-right-color-applies-to-009.xht
 css/CSS2/borders/border-right-color-applies-to-012.xht
 css/CSS2/borders/border-right-style-001.xht
@@ -370,6 +382,7 @@ css/CSS2/borders/border-right-width-082.xht
 css/CSS2/borders/border-right-width-089.xht
 css/CSS2/borders/border-right-width-090.xht
 css/CSS2/borders/border-right-width-091.xht
+css/CSS2/borders/border-right-width-095.xht
 css/CSS2/borders/border-right-width-applies-to-009.xht
 css/CSS2/borders/border-right-width-applies-to-012.xht
 css/CSS2/borders/border-shorthands-001.xht
@@ -392,6 +405,7 @@ css/CSS2/borders/border-top-001.xht
 css/CSS2/borders/border-top-005.xht
 css/CSS2/borders/border-top-006.xht
 css/CSS2/borders/border-top-008.xht
+css/CSS2/borders/border-top-018.xht
 css/CSS2/borders/border-top-applies-to-001.xht
 css/CSS2/borders/border-top-applies-to-002.xht
 css/CSS2/borders/border-top-applies-to-003.xht
@@ -403,6 +417,7 @@ css/CSS2/borders/border-top-applies-to-013.xht
 css/CSS2/borders/border-top-applies-to-014.xht
 css/CSS2/borders/border-top-applies-to-015.xht
 css/CSS2/borders/border-top-color-174.xht
+css/CSS2/borders/border-top-color-175.xht
 css/CSS2/borders/border-top-color-applies-to-001.xht
 css/CSS2/borders/border-top-color-applies-to-002.xht
 css/CSS2/borders/border-top-color-applies-to-003.xht
@@ -469,6 +484,7 @@ css/CSS2/borders/border-top-width-082.xht
 css/CSS2/borders/border-top-width-089.xht
 css/CSS2/borders/border-top-width-090.xht
 css/CSS2/borders/border-top-width-091.xht
+css/CSS2/borders/border-top-width-095.xht
 css/CSS2/borders/border-top-width-applies-to-001.xht
 css/CSS2/borders/border-top-width-applies-to-002.xht
 css/CSS2/borders/border-top-width-applies-to-003.xht
@@ -483,8 +499,13 @@ css/CSS2/borders/border-width-001.xht
 css/CSS2/borders/border-width-002.xht
 css/CSS2/borders/border-width-003.xht
 css/CSS2/borders/border-width-004.xht
+css/CSS2/borders/border-width-005.xht
+css/CSS2/borders/border-width-006.xht
+css/CSS2/borders/border-width-007.xht
+css/CSS2/borders/border-width-008.xht
 css/CSS2/borders/border-width-010.xht
 css/CSS2/borders/border-width-013.xht
+css/CSS2/borders/border-width-014.xht
 css/CSS2/borders/border-width-applies-to-009.xht
 css/CSS2/borders/border-width-applies-to-012.xht
 css/CSS2/borders/border-width-applies-to-015.xht
@@ -512,6 +533,7 @@ css/CSS2/box-display/display-001.xht
 css/CSS2/box-display/display-002.xht
 css/CSS2/box-display/display-005.xht
 css/CSS2/box-display/display-016.xht
+css/CSS2/box-display/display-017.xht
 css/CSS2/box-display/display-none-001.xht
 css/CSS2/box-display/display-none-002.xht
 css/CSS2/box-display/display-none-003.xht
@@ -545,6 +567,7 @@ css/CSS2/cascade/html-attribute-009.xht
 css/CSS2/cascade/html-attribute-028.xht
 css/CSS2/cascade/html-precedence-001.xht
 css/CSS2/cascade/inherit-computed-001.html
+css/CSS2/cascade/inherit-computed-002.html
 css/CSS2/cascade/sort-by-order-001.xht
 css/CSS2/cascade/specificity-001.xht
 css/CSS2/cascade/specificity-002.xht
@@ -554,6 +577,7 @@ css/CSS2/cascade/specificity-007.xht
 css/CSS2/cascade/specificity-011.xht
 css/CSS2/cascade/specificity-013.xht
 css/CSS2/colors/color-129.xht
+css/CSS2/colors/color-174.xht
 css/CSS2/colors/color-175.xht
 css/CSS2/colors/color-176.xht
 css/CSS2/colors/color-177.xht
@@ -650,6 +674,7 @@ css/CSS2/floats-clear/adjoining-float-nested-forced-clearance-003.html
 css/CSS2/floats-clear/clear-001.xht
 css/CSS2/floats-clear/clear-003.xht
 css/CSS2/floats-clear/clear-004.xht
+css/CSS2/floats-clear/clear-005.xht
 css/CSS2/floats-clear/clear-after-top-margin.html
 css/CSS2/floats-clear/clear-applies-to-000.xht
 css/CSS2/floats-clear/clear-applies-to-008.xht
@@ -834,6 +859,8 @@ css/CSS2/fonts/font-029.xht
 css/CSS2/fonts/font-030.xht
 css/CSS2/fonts/font-031.xht
 css/CSS2/fonts/font-032.xht
+css/CSS2/fonts/font-042.xht
+css/CSS2/fonts/font-043.xht
 css/CSS2/fonts/font-051.xht
 css/CSS2/fonts/font-146.xht
 css/CSS2/fonts/font-applies-to-001.xht
@@ -940,6 +967,7 @@ css/CSS2/fonts/font-weight-rule-005.xht
 css/CSS2/fonts/font-weight-rule-006.xht
 css/CSS2/fonts/font-weight-rule-007.xht
 css/CSS2/fonts/font-weight-rule-008.xht
+css/CSS2/fonts/fonts-010.xht
 css/CSS2/fonts/fonts-011.xht
 css/CSS2/fonts/fonts-012.xht
 css/CSS2/fonts/fonts-013.xht
@@ -956,6 +984,7 @@ css/CSS2/generated-content/after-content-display-007.xht
 css/CSS2/generated-content/after-content-display-012.xht
 css/CSS2/generated-content/after-content-display-013.xht
 css/CSS2/generated-content/after-content-display-016.xht
+css/CSS2/generated-content/after-content-display-017.xht
 css/CSS2/generated-content/after-content-display-018.xht
 css/CSS2/generated-content/after-inheritable-001.xht
 css/CSS2/generated-content/after-location-001.xht
@@ -971,6 +1000,7 @@ css/CSS2/generated-content/before-content-display-007.xht
 css/CSS2/generated-content/before-content-display-012.xht
 css/CSS2/generated-content/before-content-display-013.xht
 css/CSS2/generated-content/before-content-display-016.xht
+css/CSS2/generated-content/before-content-display-017.xht
 css/CSS2/generated-content/before-content-display-018.xht
 css/CSS2/generated-content/before-inheritable-001.xht
 css/CSS2/generated-content/before-location-001.xht
@@ -1050,6 +1080,7 @@ css/CSS2/generated-content/content-173.xht
 css/CSS2/generated-content/content-attr-001.xht
 css/CSS2/generated-content/content-attr-case-001.html
 css/CSS2/generated-content/content-counter-004.xht
+css/CSS2/generated-content/content-inherit-002.xht
 css/CSS2/generated-content/content-white-space-001.xht
 css/CSS2/generated-content/content-white-space-004.xht
 css/CSS2/generated-content/multiple-content-values-001.xht
@@ -1190,6 +1221,8 @@ css/CSS2/lists/list-style-type-applies-to-016.html
 css/CSS2/margin-padding-clear/margin-003.xht
 css/CSS2/margin-padding-clear/margin-004.xht
 css/CSS2/margin-padding-clear/margin-005.xht
+css/CSS2/margin-padding-clear/margin-008.xht
+css/CSS2/margin-padding-clear/margin-009.xht
 css/CSS2/margin-padding-clear/margin-applies-to-005.xht
 css/CSS2/margin-padding-clear/margin-applies-to-006.xht
 css/CSS2/margin-padding-clear/margin-applies-to-009.xht
@@ -1246,6 +1279,7 @@ css/CSS2/margin-padding-clear/margin-bottom-109.xht
 css/CSS2/margin-padding-clear/margin-bottom-110.xht
 css/CSS2/margin-padding-clear/margin-bottom-111.xht
 css/CSS2/margin-padding-clear/margin-bottom-112.xht
+css/CSS2/margin-padding-clear/margin-bottom-113.xht
 css/CSS2/margin-padding-clear/margin-bottom-applies-to-005.xht
 css/CSS2/margin-padding-clear/margin-bottom-applies-to-006.xht
 css/CSS2/margin-padding-clear/margin-bottom-applies-to-009.xht
@@ -1438,6 +1472,7 @@ css/CSS2/margin-padding-clear/margin-top-109.xht
 css/CSS2/margin-padding-clear/margin-top-110.xht
 css/CSS2/margin-padding-clear/margin-top-111.xht
 css/CSS2/margin-padding-clear/margin-top-112.xht
+css/CSS2/margin-padding-clear/margin-top-113.xht
 css/CSS2/margin-padding-clear/margin-top-applies-to-005.xht
 css/CSS2/margin-padding-clear/margin-top-applies-to-006.xht
 css/CSS2/margin-padding-clear/margin-top-applies-to-009.xht
@@ -1447,6 +1482,10 @@ css/CSS2/margin-padding-clear/margin-top-applies-to-014.xht
 css/CSS2/margin-padding-clear/margin-top-applies-to-015.xht
 css/CSS2/margin-padding-clear/padding-003.xht
 css/CSS2/margin-padding-clear/padding-004.xht
+css/CSS2/margin-padding-clear/padding-005.xht
+css/CSS2/margin-padding-clear/padding-006.xht
+css/CSS2/margin-padding-clear/padding-007.xht
+css/CSS2/margin-padding-clear/padding-008.xht
 css/CSS2/margin-padding-clear/padding-applies-to-009.xht
 css/CSS2/margin-padding-clear/padding-applies-to-012.xht
 css/CSS2/margin-padding-clear/padding-applies-to-014.xht
@@ -1504,6 +1543,7 @@ css/CSS2/margin-padding-clear/padding-bottom-095.xht
 css/CSS2/margin-padding-clear/padding-bottom-100.xht
 css/CSS2/margin-padding-clear/padding-bottom-101.xht
 css/CSS2/margin-padding-clear/padding-bottom-102.xht
+css/CSS2/margin-padding-clear/padding-bottom-103.xht
 css/CSS2/margin-padding-clear/padding-bottom-applies-to-005.xht
 css/CSS2/margin-padding-clear/padding-bottom-applies-to-006.xht
 css/CSS2/margin-padding-clear/padding-bottom-applies-to-009.xht
@@ -1564,6 +1604,7 @@ css/CSS2/margin-padding-clear/padding-left-095.xht
 css/CSS2/margin-padding-clear/padding-left-100.xht
 css/CSS2/margin-padding-clear/padding-left-101.xht
 css/CSS2/margin-padding-clear/padding-left-102.xht
+css/CSS2/margin-padding-clear/padding-left-103.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-005.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-006.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-007.xht
@@ -1574,6 +1615,7 @@ css/CSS2/margin-padding-clear/padding-left-applies-to-012.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-013.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-014.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-015.xht
+css/CSS2/margin-padding-clear/padding-percentage-inherit-001.xht
 css/CSS2/margin-padding-clear/padding-right-002.xht
 css/CSS2/margin-padding-clear/padding-right-003.xht
 css/CSS2/margin-padding-clear/padding-right-004.xht
@@ -1624,6 +1666,7 @@ css/CSS2/margin-padding-clear/padding-right-095.xht
 css/CSS2/margin-padding-clear/padding-right-100.xht
 css/CSS2/margin-padding-clear/padding-right-101.xht
 css/CSS2/margin-padding-clear/padding-right-102.xht
+css/CSS2/margin-padding-clear/padding-right-103.xht
 css/CSS2/margin-padding-clear/padding-right-applies-to-005.xht
 css/CSS2/margin-padding-clear/padding-right-applies-to-006.xht
 css/CSS2/margin-padding-clear/padding-right-applies-to-009.xht
@@ -1682,6 +1725,7 @@ css/CSS2/margin-padding-clear/padding-top-095.xht
 css/CSS2/margin-padding-clear/padding-top-100.xht
 css/CSS2/margin-padding-clear/padding-top-101.xht
 css/CSS2/margin-padding-clear/padding-top-102.xht
+css/CSS2/margin-padding-clear/padding-top-103.xht
 css/CSS2/margin-padding-clear/padding-top-applies-to-005.xht
 css/CSS2/margin-padding-clear/padding-top-applies-to-006.xht
 css/CSS2/margin-padding-clear/padding-top-applies-to-009.xht
@@ -1812,6 +1856,7 @@ css/CSS2/normal-flow/height-100.xht
 css/CSS2/normal-flow/height-101.xht
 css/CSS2/normal-flow/height-102.xht
 css/CSS2/normal-flow/height-103.xht
+css/CSS2/normal-flow/height-104.xht
 css/CSS2/normal-flow/height-111.xht
 css/CSS2/normal-flow/height-112.xht
 css/CSS2/normal-flow/height-114.xht
@@ -1867,6 +1912,7 @@ css/CSS2/normal-flow/inline-table-width-001a.xht
 css/CSS2/normal-flow/inline-table-width-001b.xht
 css/CSS2/normal-flow/inline-table-width-002a.xht
 css/CSS2/normal-flow/inline-table-width-002b.xht
+css/CSS2/normal-flow/inlines-002.xht
 css/CSS2/normal-flow/inlines-013.xht
 css/CSS2/normal-flow/intrinsic-size-with-negative-margins.html
 css/CSS2/normal-flow/margin-collapse-min-height-003.html
@@ -1928,6 +1974,7 @@ css/CSS2/normal-flow/max-height-100.xht
 css/CSS2/normal-flow/max-height-101.xht
 css/CSS2/normal-flow/max-height-102.xht
 css/CSS2/normal-flow/max-height-103.xht
+css/CSS2/normal-flow/max-height-104.xht
 css/CSS2/normal-flow/max-height-107.xht
 css/CSS2/normal-flow/max-height-110.xht
 css/CSS2/normal-flow/max-height-applies-to-008.xht
@@ -2004,6 +2051,7 @@ css/CSS2/normal-flow/max-width-100.xht
 css/CSS2/normal-flow/max-width-101.xht
 css/CSS2/normal-flow/max-width-102.xht
 css/CSS2/normal-flow/max-width-103.xht
+css/CSS2/normal-flow/max-width-104.xht
 css/CSS2/normal-flow/max-width-105.xht
 css/CSS2/normal-flow/max-width-107.xht
 css/CSS2/normal-flow/max-width-110.xht
@@ -2077,6 +2125,7 @@ css/CSS2/normal-flow/min-height-093.xht
 css/CSS2/normal-flow/min-height-100.xht
 css/CSS2/normal-flow/min-height-101.xht
 css/CSS2/normal-flow/min-height-102.xht
+css/CSS2/normal-flow/min-height-103.xht
 css/CSS2/normal-flow/min-height-104.xht
 css/CSS2/normal-flow/min-height-105.xht
 css/CSS2/normal-flow/min-height-106.xht
@@ -2228,6 +2277,7 @@ css/CSS2/normal-flow/width-100.xht
 css/CSS2/normal-flow/width-101.xht
 css/CSS2/normal-flow/width-102.xht
 css/CSS2/normal-flow/width-103.xht
+css/CSS2/normal-flow/width-104.xht
 css/CSS2/normal-flow/width-applies-to-008.xht
 css/CSS2/normal-flow/width-applies-to-009.xht
 css/CSS2/normal-flow/width-applies-to-012.xht
@@ -2437,6 +2487,7 @@ css/CSS2/positioning/left-109.xht
 css/CSS2/positioning/left-110.xht
 css/CSS2/positioning/left-111.xht
 css/CSS2/positioning/left-112.xht
+css/CSS2/positioning/left-113.xht
 css/CSS2/positioning/left-applies-to-001.xht
 css/CSS2/positioning/left-applies-to-002.xht
 css/CSS2/positioning/left-applies-to-003.xht
@@ -2486,6 +2537,7 @@ css/CSS2/positioning/positioning-float-001.xht
 css/CSS2/positioning/positioning-float-002.xht
 css/CSS2/positioning/relpos-calcs-003.xht
 css/CSS2/positioning/relpos-calcs-004.xht
+css/CSS2/positioning/relpos-calcs-005.xht
 css/CSS2/positioning/right-004.xht
 css/CSS2/positioning/right-005.xht
 css/CSS2/positioning/right-006.xht
@@ -2685,6 +2737,7 @@ css/CSS2/selectors/pseudo-001.xht
 css/CSS2/selectors/pseudo-008.xht
 css/CSS2/selectors/pseudo-015.xht
 css/CSS2/selectors/pseudo-016.xht
+css/CSS2/selectors/selectors-001.xht
 css/CSS2/selectors/selectors-002.xht
 css/CSS2/selectors/selectors-parsing-001.xht
 css/CSS2/selectors/sibling-selector-001.xht
@@ -3247,6 +3300,9 @@ css/CSS2/visudet/content-height-002.html
 css/CSS2/visudet/content-height-003.html
 css/CSS2/visudet/content-height-004.html
 css/CSS2/visudet/height-applies-to-010a.xht
+css/CSS2/visudet/height-computed-001.xht
+css/CSS2/visudet/height-computed-002.xht
+css/CSS2/visudet/height-percentage-004.xht
 css/CSS2/visudet/inline-block-baseline-001.xht
 css/CSS2/visudet/inline-block-baseline-002.xht
 css/CSS2/visudet/inline-block-baseline-003.xht
@@ -3295,6 +3351,7 @@ css/CSS2/zindex/z-index-009.xht
 css/CSS2/zindex/z-index-010.xht
 css/CSS2/zindex/z-index-011.xht
 css/CSS2/zindex/z-index-013.xht
+css/CSS2/zindex/z-index-014.xht
 css/CSS2/zindex/z-index-015.xht
 css/CSS2/zindex/z-index-016.xht
 css/CSS2/zindex/z-index-017.xht
@@ -3549,14 +3606,19 @@ css/css-box/margin-trim/grid-inline-end.html
 css/css-box/margin-trim/grid-inline-start.html
 css/css-box/margin-trim/grid-trim-ignores-collapsed-tracks.html
 css/css-box/margin-trim/multicol-spanner-003.html
+css/css-cascade/all-prop-002.html
 css/css-cascade/all-prop-inherit-color.html
 css/css-cascade/all-prop-initial-color.html
 css/css-cascade/all-prop-revert-color.html
 css/css-cascade/all-prop-revert-visited.html
 css/css-cascade/all-prop-unset-color.html
 css/css-cascade/all-prop-unset-visited.html
+css/css-cascade/initial-background-color.html
+css/css-cascade/initial-color-background-001.html
 css/css-cascade/revert-layer-015.html
 css/css-cascade/revert-val-002.html
+css/css-cascade/unset-val-001.html
+css/css-cascade/unset-val-002.html
 css/css-color/animation/opacity-animation-ending-correctly-001.html
 css/css-color/animation/opacity-animation-ending-correctly-002.html
 css/css-color/background-color-hsl-001.html
@@ -3670,6 +3732,8 @@ css/css-display/display-contents-alignment-001.html
 css/css-display/display-contents-alignment-002.html
 css/css-display/display-contents-before-after-002.html
 css/css-display/display-contents-details-001.html
+css/css-display/display-contents-details.html
+css/css-display/display-contents-fieldset.html
 css/css-display/display-contents-first-letter-002.html
 css/css-display/display-contents-first-line-002.html
 css/css-display/display-contents-line-height.html
@@ -4322,7 +4386,6 @@ css/css-fonts/font-synthesis-weight-webfont-bold.html
 css/css-fonts/font-variant-caps-invalidation-container-sizing.html
 css/css-fonts/font-variant-caps.html
 css/css-fonts/font-variant-east-asian.html
-css/css-fonts/font-variant-emoji-005.html
 css/css-fonts/font-variant-emoji-2.html
 css/css-fonts/font-variant-ligatures-11.optional.html
 css/css-fonts/font-variant-ligatures.html
@@ -5575,6 +5638,7 @@ css/css-values/calc-offsets-relative-left-1.html
 css/css-values/calc-offsets-relative-right-1.html
 css/css-values/calc-padding-block-1.html
 css/css-values/calc-parenthesis-stack.html
+css/css-values/calc-rem-lang.html
 css/css-values/calc-rounding-001.html
 css/css-values/calc-rounding-002.html
 css/css-values/calc-rounding-003.html
@@ -5595,6 +5659,7 @@ css/css-values/ex-unit-004.html
 css/css-values/max-20-arguments.html
 css/css-values/max-unitless-zero-invalid.html
 css/css-values/negative-calc-to-non-negative-integer.html
+css/css-values/percentage-rem-low.html
 css/css-values/q-unit-case-insensitivity-001.html
 css/css-values/q-unit-case-insensitivity-002.html
 css/css-values/rem-root-font-size-restyle-1.html
@@ -5610,6 +5675,7 @@ css/css-values/urls/integrity/url-image-integrity-negative.sub.html
 css/css-values/urls/integrity/url-import-integrity-negative.sub.html
 css/css-values/vh-calc-support.html
 css/css-values/vh-em-inherit.html
+css/css-values/vh-inherit.html
 css/css-values/vh-support-margin.html
 css/css-values/vh-support-transform-origin.html
 css/css-values/vh-support-transform-translate.html
@@ -5709,6 +5775,7 @@ css/css-variables/variable-reference-40.html
 css/css-variables/variable-reference-visited.html
 css/css-variables/variable-supports-58.html
 css/css-variables/vars-font-shorthand-001.html
+css/css-variables/wide-keyword-fallback-001.html
 css/selectors/caret-color-visited-inheritance.html
 css/selectors/child-indexed-no-parent.html
 css/selectors/dir-selector-change-001.html
