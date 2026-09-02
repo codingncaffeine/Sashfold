@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace sashfold::paint {
@@ -162,6 +164,49 @@ std::vector<std::pair<float, Color>> settle_stops(css::Gradient const& gradient,
     return settled;
 }
 
+// The sine and cosine of an angle in degrees, the same to the bit on
+// every system: the angle reduced to an octant, then a fixed series in
+// double — only additions, multiplications and divisions, which IEEE
+// rounds identically everywhere (contraction is off for the build).
+std::pair<float, float> sin_cos_degrees(float degrees)
+{
+    double a = std::fmod(static_cast<double>(degrees), 360.0);
+    if (a < 0)
+        a += 360.0;
+    int const quadrant = static_cast<int>(a / 90.0) % 4;
+    double r = a - static_cast<double>(quadrant) * 90.0;
+    bool const swap = r > 45.0;
+    if (swap)
+        r = 90.0 - r;
+    double const x = r * (3.14159265358979323846 / 180.0);
+    double const x2 = x * x;
+    double s = x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0 * (1.0 - x2 / 110.0)))));
+    double c = 1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0 * (1.0 - x2 / 56.0 * (1.0 - x2 / 90.0))));
+    if (swap)
+        std::swap(s, c);
+    switch (quadrant) {
+    case 1: {
+        double const t = s;
+        s = c;
+        c = -t;
+        break;
+    }
+    case 2:
+        s = -s;
+        c = -c;
+        break;
+    case 3: {
+        double const t = s;
+        s = -c;
+        c = t;
+        break;
+    }
+    default:
+        break;
+    }
+    return { static_cast<float>(s), static_cast<float>(c) };
+}
+
 // Paints a gradient over one tile of the image, clipped to `clip`: a
 // linear gradient along its line through the tile's center, a radial one
 // out from its center to the extent named.
@@ -173,18 +218,29 @@ void paint_gradient(Bitmap& target, css::Gradient const& gradient, Area const& t
     float const w = tile.width;
     float const h = tile.height;
     if (gradient.kind == css::Gradient::Kind::Linear) {
-        float angle = gradient.angle;
-        float const corner_angle = std::atan2(w, h) * 180.0f / 3.14159265f;
-        switch (gradient.corner) {
-        case css::Gradient::Corner::TopRight: angle = corner_angle; break;
-        case css::Gradient::Corner::BottomRight: angle = 180.0f - corner_angle; break;
-        case css::Gradient::Corner::BottomLeft: angle = 180.0f + corner_angle; break;
-        case css::Gradient::Corner::TopLeft: angle = 360.0f - corner_angle; break;
-        case css::Gradient::Corner::None: break;
+        // The gradient line's direction. Toward a corner it is perpendicular
+        // to the diagonal between the two other corners (a square root,
+        // which IEEE rounds the same everywhere); at an angle it comes from
+        // a sine and cosine computed here — no libm, whose results differ
+        // from one system to the next, and the reftests must not.
+        float dir_x = 0;
+        float dir_y = 0;
+        if (gradient.corner != css::Gradient::Corner::None) {
+            float const d = std::sqrt(w * w + h * h);
+            float const ux = d > 0 ? h / d : 0.0f;
+            float const uy = d > 0 ? w / d : 0.0f;
+            switch (gradient.corner) {
+            case css::Gradient::Corner::TopRight: dir_x = ux; dir_y = -uy; break;
+            case css::Gradient::Corner::BottomRight: dir_x = ux; dir_y = uy; break;
+            case css::Gradient::Corner::BottomLeft: dir_x = -ux; dir_y = uy; break;
+            case css::Gradient::Corner::TopLeft: dir_x = -ux; dir_y = -uy; break;
+            case css::Gradient::Corner::None: break;
+            }
+        } else {
+            auto const [s, c] = sin_cos_degrees(gradient.angle);
+            dir_x = s;
+            dir_y = -c;
         }
-        float const radians = angle * 3.14159265f / 180.0f;
-        float const dir_x = std::sin(radians);
-        float const dir_y = -std::cos(radians);
         float const length = std::fabs(w * dir_x) + std::fabs(h * dir_y);
         std::vector<std::pair<float, Color>> const stops = settle_stops(gradient, length);
         float const cx = tile.x + w / 2;

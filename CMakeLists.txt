@@ -17,7 +17,7 @@ if(MSVC)
   target_compile_options(sashfold_warnings INTERFACE /W4 /WX /permissive-)
 else()
   target_compile_options(sashfold_warnings INTERFACE
-    -Wall -Wextra -Wpedantic -Werror
+    -Wall -Wextra -Wpedantic -Werror -ffp-contract=off
     -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wdouble-promotion)
 endif()
 

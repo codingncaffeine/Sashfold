@@ -115,6 +115,10 @@ struct LayoutResult {
     Fragment root; // the html element's fragment
     float page_height = 0; // content height of the whole page
     Color canvas_background; // html/body background propagation
+    // The styles of the anonymous boxes layout made (a table around loose
+    // cells, an inline-table in a line): fragments point at them, so they
+    // live as long as the result does.
+    std::vector<std::shared_ptr<css::ComputedStyle const>> owned_styles;
 };
 
 // A decoded picture and the density its source was chosen at: a 400-pixel

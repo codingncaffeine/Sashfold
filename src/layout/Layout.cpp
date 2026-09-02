@@ -535,16 +535,17 @@ struct Layouter {
     mutable std::vector<OutOfFlow> fixed_boxes;
     mutable unsigned next_serial = 0;
     // The styles of the anonymous boxes the specification generates around
-    // misplaced content (a table around loose cells): owned here, so the
-    // fragments' pointers stay good.
-    mutable std::vector<std::unique_ptr<ComputedStyle>> owned_styles;
+    // misplaced content (a table around loose cells): made here, handed to
+    // the LayoutResult at the end, so the fragments' pointers outlive this
+    // layouter.
+    mutable std::vector<std::shared_ptr<ComputedStyle const>> owned_styles;
 
     ComputedStyle const& anonymous_style(ComputedStyle const& parent, Display display) const
     {
-        auto style = std::make_unique<ComputedStyle>(css::inherited_style(parent));
+        auto style = std::make_shared<ComputedStyle>(css::inherited_style(parent));
         style->display = display;
-        owned_styles.push_back(std::move(style));
-        return *owned_styles.back();
+        owned_styles.push_back(style);
+        return *style;
     }
 
     // Remembers an out-of-flow child for its containing block. A scratch
@@ -4692,6 +4693,8 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
             }
         }
     }
+    // The anonymous boxes' styles go with the fragments that point at them.
+    result.owned_styles = std::move(layouter.owned_styles);
     return result;
 }
 
