@@ -46,7 +46,7 @@ Progressive JPEG, animated GIF, floats, flexbox, tables, and scripting are not w
 
 ## The user agent string
 
-Sashfold sends `Mozilla/5.0 (<platform>) Sashfold/0.3` — for example `Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/0.3`. The `Mozilla/5.0` prefix and the platform token are the compatibility-shaped form every engine ships because servers still key on them; the honest part is the `Sashfold/0.3` suffix, the only thing that identifies the browser. The string carries no build number, locale, or hardware detail, and it is the same for every user of a given platform.
+Sashfold sends `Mozilla/5.0 (<platform>) Sashfold/<version>` — for example `Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/0.0.3`. The `Mozilla/5.0` prefix and the platform token are the compatibility-shaped form every engine ships because servers still key on them; the honest part is the `Sashfold/<version>` suffix, the only thing that identifies the browser, and the version is the release's own. The string carries no build number, locale, or hardware detail, and it is the same for every user of a given platform.
 
 ## Building
 

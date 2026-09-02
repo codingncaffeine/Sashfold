@@ -147,11 +147,11 @@ std::string_view user_agent()
 {
     // The compat-shaped token every engine ships (documented in the README).
 #ifdef _WIN32
-    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/0.3";
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/" SASHFOLD_VERSION;
 #elif defined(__APPLE__)
-    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Sashfold/0.3";
+    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Sashfold/" SASHFOLD_VERSION;
 #else
-    return "Mozilla/5.0 (X11; Linux x86_64) Sashfold/0.3";
+    return "Mozilla/5.0 (X11; Linux x86_64) Sashfold/" SASHFOLD_VERSION;
 #endif
 }
 

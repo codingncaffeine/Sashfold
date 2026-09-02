@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(sashfold LANGUAGES CXX VERSION 0.1.0)
+project(sashfold LANGUAGES CXX VERSION 0.0.3)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -73,6 +73,8 @@ else()
     src/platform/posix/WindowPosix.cpp src/platform/posix/FontsPosix.cpp)
 endif()
 target_include_directories(sashfold_core PUBLIC src)
+# The one place the version lives: the user-agent string and the about page read it from here.
+target_compile_definitions(sashfold_core PUBLIC SASHFOLD_VERSION="${PROJECT_VERSION}")
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)
 
 add_executable(sashfold src/main.cpp)
