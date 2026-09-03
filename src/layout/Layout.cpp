@@ -954,9 +954,48 @@ struct Layouter {
     // --- Inline collection ----------------------------------------------------
 
     // Collapses whitespace per the white-space mode and appends items.
+    // css-text-3 §2.1: `text-transform` changes the text that is measured and
+    // drawn, never the document. `capitalize` titlecases the first letter of
+    // each word; a word carries on through an apostrophe, so "don't" keeps
+    // its lowercase t. ⛔ Word starts are found within one text node, so a
+    // word split across an inline box (`he<b>llo</b>`) is capitalized twice.
+    static std::u32string transformed(std::u32string_view text, css::TextTransform transform)
+    {
+        std::u32string out;
+        out.reserve(text.size());
+        bool at_word_start = true;
+        for (char32_t const c : text) {
+            switch (transform) {
+            case css::TextTransform::None:
+                out.push_back(c);
+                break;
+            case css::TextTransform::Uppercase:
+                out.push_back(to_uppercase(c));
+                break;
+            case css::TextTransform::Lowercase:
+                out.push_back(to_lowercase(c));
+                break;
+            case css::TextTransform::Capitalize: {
+                bool const cased = to_uppercase(c) != c || to_lowercase(c) != c;
+                bool const in_word = cased || (c >= U'0' && c <= U'9') || is_combining_mark(c)
+                    || c == U'\'' || c == U'’';
+                out.push_back(at_word_start && cased ? to_titlecase(c) : c);
+                at_word_start = !in_word;
+                break;
+            }
+            }
+        }
+        return out;
+    }
+
     void append_text(std::u32string_view text, ComputedStyle const* style,
         std::vector<InlineItem>& items, dom::Element const* element) const
     {
+        std::u32string const changed = style->text_transform == css::TextTransform::None
+            ? std::u32string()
+            : transformed(text, style->text_transform);
+        if (style->text_transform != css::TextTransform::None)
+            text = changed;
         WhiteSpace const mode = style->white_space;
         bool const preserve_spaces = mode == WhiteSpace::Pre || mode == WhiteSpace::PreWrap;
         bool const preserve_newlines = preserve_spaces || mode == WhiteSpace::PreLine;

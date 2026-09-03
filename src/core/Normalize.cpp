@@ -1,7 +1,9 @@
+#include "core/CaseData.h"
 #include "core/NormalizationData.h"
 #include "core/Unicode.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 
 // NFC (UAX #15): canonical decomposition (pre-expanded by tools/gen-unicode,
@@ -111,6 +113,40 @@ bool is_first_letter_punctuation(char32_t code_point)
 bool is_first_letter_skipped(char32_t code_point)
 {
     return in_ranges(first_letter_skipped_ranges, code_point);
+}
+
+namespace {
+
+// A run holds a code point when it is inside the run's bounds AND lands on
+// one of its steps: a stride of two steps over the letters between the pairs.
+template <std::size_t N>
+char32_t mapped_case(CaseRun const (&runs)[N], char32_t code_point)
+{
+    auto const it = std::upper_bound(std::begin(runs), std::end(runs), code_point,
+        [](char32_t value, CaseRun const& run) { return value < run.first; });
+    if (it == std::begin(runs))
+        return code_point;
+    CaseRun const& run = *std::prev(it);
+    if (code_point > run.last || (code_point - run.first) % run.stride != 0)
+        return code_point;
+    return static_cast<char32_t>(static_cast<std::int64_t>(code_point) + run.delta);
+}
+
+}
+
+char32_t to_uppercase(char32_t code_point)
+{
+    return mapped_case(simple_uppercase_runs, code_point);
+}
+
+char32_t to_lowercase(char32_t code_point)
+{
+    return mapped_case(simple_lowercase_runs, code_point);
+}
+
+char32_t to_titlecase(char32_t code_point)
+{
+    return mapped_case(simple_titlecase_runs, code_point);
 }
 
 std::u32string nfc(std::u32string_view input)

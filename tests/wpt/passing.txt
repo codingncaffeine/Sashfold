@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7483 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7532 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -4609,9 +4609,29 @@ css/CSS2/text/text-indent-overflow-004.xht
 css/CSS2/text/text-indent-percent-001.xht
 css/CSS2/text/text-indent-wrap-001.xht
 css/CSS2/text/text-indent-wrap-002.html
+css/CSS2/text/text-transform-001.xht
+css/CSS2/text/text-transform-002.xht
+css/CSS2/text/text-transform-003.xht
 css/CSS2/text/text-transform-004.xht
+css/CSS2/text/text-transform-005.xht
+css/CSS2/text/text-transform-applies-to-001.xht
+css/CSS2/text/text-transform-applies-to-002.xht
+css/CSS2/text/text-transform-applies-to-003.xht
+css/CSS2/text/text-transform-applies-to-005.xht
+css/CSS2/text/text-transform-applies-to-006.xht
+css/CSS2/text/text-transform-applies-to-007.xht
+css/CSS2/text/text-transform-applies-to-008.xht
+css/CSS2/text/text-transform-applies-to-009.xht
+css/CSS2/text/text-transform-applies-to-010.xht
+css/CSS2/text/text-transform-applies-to-011.xht
 css/CSS2/text/text-transform-applies-to-012.xht
 css/CSS2/text/text-transform-applies-to-013.xht
+css/CSS2/text/text-transform-applies-to-014.xht
+css/CSS2/text/text-transform-applies-to-015.xht
+css/CSS2/text/text-transform-bicameral-001.xht
+css/CSS2/text/text-transform-bicameral-002.xht
+css/CSS2/text/text-transform-bicameral-003.xht
+css/CSS2/text/text-transform-bicameral-004.xht
 css/CSS2/text/text-transform-bicameral-007.xht
 css/CSS2/text/text-transform-bicameral-008.xht
 css/CSS2/text/text-transform-bicameral-009.xht
@@ -4624,9 +4644,14 @@ css/CSS2/text/text-transform-bicameral-015.xht
 css/CSS2/text/text-transform-bicameral-016.xht
 css/CSS2/text/text-transform-bicameral-017.xht
 css/CSS2/text/text-transform-bicameral-018.xht
+css/CSS2/text/text-transform-bicameral-019.xht
+css/CSS2/text/text-transform-bicameral-020.xht
 css/CSS2/text/text-transform-bicameral-021.xht
 css/CSS2/text/text-transform-bicameral-022.xht
+css/CSS2/text/text-transform-cap-001.xht
+css/CSS2/text/text-transform-lowercase-001.xht
 css/CSS2/text/text-transform-unicase-001.xht
+css/CSS2/text/text-transform-uppercase-001.xht
 css/CSS2/text/white-space-007.xht
 css/CSS2/text/white-space-008.xht
 css/CSS2/text/white-space-applies-to-003.xht
@@ -5358,6 +5383,7 @@ css/css-display/run-in/run-in-table-cell-between-001.xht
 css/css-display/run-in/run-in-table-row-between-001.xht
 css/css-display/run-in/run-in-text-between-001.xht
 css/css-display/run-in/text-decoration-applies-to-004.xht
+css/css-display/run-in/text-transform-applies-to-004.xht
 css/css-display/run-in/width-applies-to-011.xht
 css/css-flexbox/abspos/abspos-autopos-htb-ltr.html
 css/css-flexbox/abspos/abspos-autopos-htb-rtl.html
@@ -7063,8 +7089,13 @@ css/css-text/text-spacing-trim/text-spacing-trim-start-oof-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-subset-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-trim-all-001.html
 css/css-text/text-transform/math/text-transform-math-auto-002.html
+css/css-text/text-transform/text-transform-capitalize-001.html
+css/css-text/text-transform/text-transform-capitalize-003.html
+css/css-text/text-transform/text-transform-capitalize-005.html
+css/css-text/text-transform/text-transform-capitalize-007.html
 css/css-text/text-transform/text-transform-capitalize-009.html
 css/css-text/text-transform/text-transform-capitalize-010.html
+css/css-text/text-transform/text-transform-capitalize-011.html
 css/css-text/text-transform/text-transform-capitalize-014.html
 css/css-text/text-transform/text-transform-capitalize-016.html
 css/css-text/text-transform/text-transform-capitalize-018.html
@@ -7072,7 +7103,10 @@ css/css-text/text-transform/text-transform-capitalize-020.html
 css/css-text/text-transform/text-transform-capitalize-022.html
 css/css-text/text-transform/text-transform-capitalize-024.html
 css/css-text/text-transform/text-transform-capitalize-026.html
+css/css-text/text-transform/text-transform-capitalize-028.html
 css/css-text/text-transform/text-transform-capitalize-030.html
+css/css-text/text-transform/text-transform-capitalize-031.html
+css/css-text/text-transform/text-transform-capitalize-032.xht
 css/css-text/text-transform/text-transform-full-size-kana-001.html
 css/css-text/text-transform/text-transform-full-size-kana-002.html
 css/css-text/text-transform/text-transform-full-size-kana-003.html
@@ -7086,6 +7120,7 @@ css/css-text/text-transform/text-transform-fullwidth-004.xht
 css/css-text/text-transform/text-transform-fullwidth-005.xht
 css/css-text/text-transform/text-transform-fullwidth-006.html
 css/css-text/text-transform/text-transform-fullwidth-007.html
+css/css-text/text-transform/text-transform-lowercase-101.xht
 css/css-text/text-transform/text-transform-none-001.xht
 css/css-text/text-transform/text-transform-shaping-001.html
 css/css-text/text-transform/text-transform-shaping-002.html
@@ -7095,9 +7130,20 @@ css/css-text/text-transform/text-transform-tailoring-002a.html
 css/css-text/text-transform/text-transform-tailoring-003.html
 css/css-text/text-transform/text-transform-tailoring-004.html
 css/css-text/text-transform/text-transform-tailoring-005.html
+css/css-text/text-transform/text-transform-uppercase-101.xht
 css/css-text/text-transform/text-transform-uppercase-dynamic.html
+css/css-text/text-transform/text-transform-upperlower-001.html
+css/css-text/text-transform/text-transform-upperlower-002.html
+css/css-text/text-transform/text-transform-upperlower-003.html
+css/css-text/text-transform/text-transform-upperlower-004.html
+css/css-text/text-transform/text-transform-upperlower-005.html
+css/css-text/text-transform/text-transform-upperlower-006.html
+css/css-text/text-transform/text-transform-upperlower-007.html
+css/css-text/text-transform/text-transform-upperlower-008.html
 css/css-text/text-transform/text-transform-upperlower-009.html
 css/css-text/text-transform/text-transform-upperlower-010.html
+css/css-text/text-transform/text-transform-upperlower-011.html
+css/css-text/text-transform/text-transform-upperlower-012.html
 css/css-text/text-transform/text-transform-upperlower-014.html
 css/css-text/text-transform/text-transform-upperlower-015.html
 css/css-text/text-transform/text-transform-upperlower-016.html
@@ -7112,6 +7158,8 @@ css/css-text/text-transform/text-transform-upperlower-024.html
 css/css-text/text-transform/text-transform-upperlower-025.html
 css/css-text/text-transform/text-transform-upperlower-026.html
 css/css-text/text-transform/text-transform-upperlower-027.html
+css/css-text/text-transform/text-transform-upperlower-028.html
+css/css-text/text-transform/text-transform-upperlower-029.html
 css/css-text/text-transform/text-transform-upperlower-030.html
 css/css-text/text-transform/text-transform-upperlower-031.html
 css/css-text/text-transform/text-transform-upperlower-038.html
@@ -7274,6 +7322,7 @@ css/css-text/word-space-transform/word-space-transform-029.html
 css/css-text/word-spacing/word-spacing-003.html
 css/css-text/word-spacing/word-spacing-negative-value-001.html
 css/css-text/writing-system/writing-system-font-001.html
+css/css-text/writing-system/writing-system-text-transform-001.html
 css/css-text/zwnj-renders-invisible.html
 css/css-values/angle-units-001.html
 css/css-values/angle-units-002.html

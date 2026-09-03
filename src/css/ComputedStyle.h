@@ -353,6 +353,15 @@ enum class BorderStyle : std::uint8_t {
     Solid, // every visible style draws solid for now
 };
 
+// css-text-3 §2.1: what the rendered text is turned into, without touching
+// the document. `full-width` and `full-size-kana` are not written.
+enum class TextTransform : std::uint8_t {
+    None,
+    Capitalize,
+    Uppercase,
+    Lowercase,
+};
+
 enum class TextDecorationLine : std::uint8_t {
     None,
     Underline,
@@ -765,6 +774,7 @@ struct ComputedStyle {
     VerticalAlign vertical_align; // not inherited
     TextAlign text_align = TextAlign::Left;
     WhiteSpace white_space = WhiteSpace::Normal;
+    TextTransform text_transform = TextTransform::None;
     ListStyleType list_style_type = ListStyleType::Disc;
     ListStylePosition list_style_position = ListStylePosition::Outside;
     // What this list item's marker counts to: the `list-item` counter as it

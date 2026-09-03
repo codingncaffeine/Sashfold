@@ -28,6 +28,9 @@
 //                                 keeps with its letter, and the spaces and
 //                                 formatting characters (Zs/Zl/Zp/Cc/Cf) it
 //                                 steps over on the way to one
+//   src/core/CaseData.h           the simple upper/lower/title case mappings,
+//                                 packed into runs by distance and step, for
+//                                 text-transform
 
 #include <algorithm>
 #include <cstdint>
@@ -182,7 +185,59 @@ struct UnicodeData {
     std::vector<std::pair<char32_t, char32_t>> mark_ranges; // Mn/Mc/Me, merged
     std::vector<std::pair<char32_t, char32_t>> punctuation_ranges; // Ps/Pe/Pi/Pf/Po, merged
     std::vector<std::pair<char32_t, char32_t>> skipped_ranges; // Zs/Zl/Zp/Cc/Cf, merged
+    // The simple case mappings — fields 12, 13 and 14: what one code point
+    // becomes on its own, with no context and no change of length. The full
+    // mappings (SpecialCasing.txt: ß to SS, the Turkish dotted i) are not
+    // here; text-transform's `uppercase` and `lowercase` use the simple ones.
+    std::vector<std::pair<char32_t, char32_t>> simple_uppercase;
+    std::vector<std::pair<char32_t, char32_t>> simple_lowercase;
+    std::vector<std::pair<char32_t, char32_t>> simple_titlecase;
 };
+
+// One run of code points that all move by the same distance at the same
+// step: a whole alphabet (stride 1, as ASCII and Cyrillic are) or a block of
+// alternating pairs (stride 2, as Latin Extended-A is).
+struct CaseRun {
+    char32_t first;
+    char32_t last;
+    unsigned int stride;
+    long long delta;
+};
+
+// Packs (code point, mapping) pairs into those runs, greedily: the second
+// entry settles the stride, and the run grows while both the step and the
+// distance hold.
+std::vector<CaseRun> pack_case_runs(std::vector<std::pair<char32_t, char32_t>> mappings)
+{
+    std::sort(mappings.begin(), mappings.end());
+    std::vector<CaseRun> runs;
+    for (std::size_t i = 0; i < mappings.size();) {
+        long long const delta
+            = static_cast<long long>(mappings[i].second) - static_cast<long long>(mappings[i].first);
+        std::size_t j = i + 1;
+        unsigned int stride = 1;
+        if (j < mappings.size()
+            && static_cast<long long>(mappings[j].second) - static_cast<long long>(mappings[j].first)
+                == delta) {
+            unsigned int const step = mappings[j].first - mappings[i].first;
+            if (step == 1 || step == 2) {
+                stride = step;
+                while (j < mappings.size() && mappings[j].first == mappings[j - 1].first + stride
+                    && static_cast<long long>(mappings[j].second)
+                            - static_cast<long long>(mappings[j].first)
+                        == delta)
+                    ++j;
+            } else {
+                j = i + 1;
+            }
+        } else {
+            j = i + 1;
+        }
+        runs.push_back(CaseRun { mappings[i].first, mappings[j - 1].first, stride, delta });
+        i = j;
+    }
+    return runs;
+}
 
 // Sorts and merges [first, last] pairs that touch or overlap.
 std::vector<std::pair<char32_t, char32_t>> merged(std::vector<std::pair<char32_t, char32_t>> ranges)
@@ -251,6 +306,22 @@ UnicodeData load_unicode_data(std::string const& path)
         std::string const decomposition = fields.size() > 5 ? trim(fields[5]) : "";
         if (!decomposition.empty() && decomposition[0] != '<')
             data.canonical_decomposition[code_point] = parse_hex_sequence(decomposition);
+
+        // Fields 12, 13, 14: the simple upper, lower and title mappings. A
+        // mapping to the code point itself says nothing and is left out.
+        auto const mapping = [&](std::size_t field, std::vector<std::pair<char32_t, char32_t>>& into) {
+            if (fields.size() <= field)
+                return;
+            std::string const text = trim(fields[field]);
+            if (text.empty())
+                return;
+            char32_t const target = parse_hex(text);
+            if (target != code_point)
+                into.push_back({ code_point, target });
+        };
+        mapping(12, data.simple_uppercase);
+        mapping(13, data.simple_lowercase);
+        mapping(14, data.simple_titlecase);
     }
 
     data.mark_ranges = merged(std::move(marks));
@@ -460,6 +531,40 @@ void emit_normalization(std::string const& path, UnicodeData const& data,
               << data.skipped_ranges.size() << " skipped ranges)\n";
 }
 
+// The simple case mappings, packed into runs.
+void emit_case(std::string const& path, UnicodeData const& data)
+{
+    std::ofstream out(path);
+    out << generated_banner(
+        "The simple case mappings — UnicodeData.txt fields 12, 13 and 14 —\n"
+        "// packed into runs of code points that move by one distance at one step:\n"
+        "// a whole alphabet has stride 1, a block of alternating upper/lower pairs\n"
+        "// has stride 2. These are what text-transform's `uppercase`, `lowercase`\n"
+        "// and `capitalize` are written in terms of. The FULL mappings (ß to SS,\n"
+        "// the Turkish dotted i, final sigma) are context- or length-changing and\n"
+        "// are not here.");
+    out << "namespace sashfold {\n\n";
+    out << "struct CaseRun {\n    char32_t first;\n    char32_t last;\n"
+        << "    std::uint32_t stride;\n    std::int32_t delta;\n};\n\n";
+    auto const table = [&](char const* name, std::vector<std::pair<char32_t, char32_t>> const& pairs) {
+        std::vector<CaseRun> const runs = pack_case_runs(pairs);
+        out << "inline constexpr CaseRun " << name << "[] = {\n";
+        for (CaseRun const& run : runs) {
+            out << "    { " << hex(run.first) << ", " << hex(run.last) << ", " << run.stride << ", "
+                << run.delta << " },\n";
+        }
+        out << "};\n\n";
+        return runs.size();
+    };
+    std::size_t const upper = table("simple_uppercase_runs", data.simple_uppercase);
+    std::size_t const lower = table("simple_lowercase_runs", data.simple_lowercase);
+    std::size_t const title = table("simple_titlecase_runs", data.simple_titlecase);
+    out << "}\n";
+    std::cout << "wrote " << path << " (" << data.simple_uppercase.size() << " uppercase mappings in "
+              << upper << " runs, " << data.simple_lowercase.size() << " lowercase in " << lower
+              << ", " << data.simple_titlecase.size() << " titlecase in " << title << ")\n";
+}
+
 }
 
 int main(int argc, char** argv)
@@ -478,5 +583,6 @@ int main(int argc, char** argv)
 
     emit_idna(repo + "/src/net/IdnaData.h", idna);
     emit_normalization(repo + "/src/core/NormalizationData.h", unicode_data, excluded);
+    emit_case(repo + "/src/core/CaseData.h", unicode_data);
     return 0;
 }

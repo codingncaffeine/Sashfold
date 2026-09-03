@@ -2312,6 +2312,7 @@ struct Resolver {
         style.word_spacing = parent.word_spacing;
         style.text_indent = parent.text_indent;
         style.white_space = parent.white_space;
+        style.text_transform = parent.text_transform;
         style.list_style_type = parent.list_style_type;
         style.list_style_position = parent.list_style_position;
         style.quotes = parent.quotes;
@@ -2667,6 +2668,8 @@ struct Resolver {
             { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
             { "white-space", true, [](S& to, S const& from) { to.white_space = from.white_space; }, 0 },
+            { "text-transform", true,
+                [](S& to, S const& from) { to.text_transform = from.text_transform; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
             { "list-style-position", true,
                 [](S& to, S const& from) { to.list_style_position = from.list_style_position; }, 0 },
@@ -4659,6 +4662,22 @@ struct Resolver {
                 style.white_space = WhiteSpace::PreWrap;
             else if (is_ident(values[0], "pre-line"))
                 style.white_space = WhiteSpace::PreLine;
+            return;
+        }
+        if (name == "text-transform") {
+            // none | capitalize | uppercase | lowercase. The full-width and
+            // full-size-kana keywords are not written, and a declaration
+            // naming one is dropped rather than half-applied.
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "none"))
+                style.text_transform = TextTransform::None;
+            else if (is_ident(values[0], "capitalize"))
+                style.text_transform = TextTransform::Capitalize;
+            else if (is_ident(values[0], "uppercase"))
+                style.text_transform = TextTransform::Uppercase;
+            else if (is_ident(values[0], "lowercase"))
+                style.text_transform = TextTransform::Lowercase;
             return;
         }
         if (name == "vertical-align") {

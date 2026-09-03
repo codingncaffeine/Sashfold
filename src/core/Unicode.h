@@ -51,6 +51,16 @@ bool is_first_letter_skipped(char32_t);
 // (Hangul excluded: it is algorithmic), or empty when it is its own.
 std::u32string_view canonical_decomposition(char32_t);
 
+// The simple case mappings, one code point in and one out — what
+// text-transform's `uppercase`, `lowercase` and `capitalize` are written in
+// terms of. A code point with no mapping of that kind comes back unchanged.
+// SIMPLE is the word that matters: ß stays ß rather than becoming SS, and
+// the Turkish dotted i and the Greek final sigma, which need a language or a
+// neighbour to decide, are not spelled here.
+char32_t to_uppercase(char32_t);
+char32_t to_lowercase(char32_t);
+char32_t to_titlecase(char32_t);
+
 // Default_Ignorable_Code_Point (Unicode 16): characters that render as
 // nothing — the soft hyphen, zero-width spaces and joiners, bidi marks,
 // variation selectors, tags. Layout drops them before line building.

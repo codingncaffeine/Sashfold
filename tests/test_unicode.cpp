@@ -92,5 +92,36 @@ int main()
         CHECK(!net::domain_to_ascii(to_utf8(U"ü.xn--a")).has_value());
     }
 
+    {
+        // The simple case mappings, packed into runs by distance and step.
+        // Escapes throughout, as above: a case pair is exactly the kind of
+        // thing that looks right in an editor and is not.
+        // ASCII is one run of stride 1.
+        CHECK(to_uppercase(U'a') == U'A' && to_lowercase(U'Z') == U'z');
+        CHECK(to_uppercase(U'à') == U'À'); // a-grave
+        CHECK(to_lowercase(U'Æ') == U'æ'); // AE ligature
+        // The mapping is not always to a near neighbour, or even to the same
+        // script: the micro sign becomes a Greek capital mu, and y-diaeresis
+        // jumps out of Latin-1 entirely.
+        CHECK(to_uppercase(U'µ') == U'Μ');
+        CHECK(to_uppercase(U'ÿ') == U'Ÿ');
+        // Latin Extended-A alternates upper and lower, which is what a run
+        // of stride two is for.
+        CHECK(to_uppercase(U'ĳ') == U'Ĳ'); // ij ligature
+        CHECK(to_lowercase(U'Ă') == U'ă'); // A-breve
+        CHECK(to_uppercase(U'п') == U'П'); // Cyrillic pe
+        CHECK(to_lowercase(U'Ω') == U'ω'); // Greek omega
+        CHECK(to_uppercase(U'ա') == U'Ա'); // Armenian ayb
+        // SIMPLE is the word that matters: sharp s does not become SS here.
+        CHECK(to_uppercase(U'ß') == U'ß');
+        // A code point with no mapping of that kind comes back as itself.
+        CHECK(to_uppercase(U'5') == U'5' && to_lowercase(U'-') == U'-');
+        CHECK(to_uppercase(U'漢') == U'漢'); // an uncased script is left alone
+        // Titlecase is a mapping of its own, not uppercase: the digraphs with
+        // a distinct title form are the reason field 14 is read at all.
+        CHECK(to_titlecase(U'ǆ') == U'ǅ' && to_uppercase(U'ǆ') == U'Ǆ');
+        CHECK(to_titlecase(U'a') == U'A'); // everything else titlecases as it uppercases
+    }
+
     return sashfold::test::report("unicode");
 }
