@@ -353,6 +353,19 @@ enum class Direction : std::uint8_t {
     Rtl,
 };
 
+// How a box takes part in the bidirectional algorithm (css-writing-modes-4
+// §2.2). Nothing reorders anything here yet, so the only value that changes
+// what is drawn is `plaintext`, which gives each paragraph the direction its
+// own first strongly directional character carries instead of the block's.
+enum class UnicodeBidi : std::uint8_t {
+    Normal,
+    Embed,
+    Isolate,
+    BidiOverride,
+    IsolateOverride,
+    Plaintext,
+};
+
 // `Start` and `End` keep their names all the way to layout, where the
 // block's own direction turns them into a side; `MatchParent` is settled
 // against the parent while the style is computed and never reaches layout.
@@ -831,6 +844,7 @@ struct ComputedStyle {
     LineHeight line_height;
     VerticalAlign vertical_align; // not inherited
     Direction direction = Direction::Ltr;
+    UnicodeBidi unicode_bidi = UnicodeBidi::Normal; // not inherited
     TextAlign text_align = TextAlign::Start;
     TextAlignLast text_align_last = TextAlignLast::Auto;
     TextJustify text_justify = TextJustify::Auto;

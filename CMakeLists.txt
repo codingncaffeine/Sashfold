@@ -23,6 +23,7 @@ endif()
 
 add_library(sashfold_core STATIC
   src/core/Base64.cpp
+  src/core/Bidi.cpp
   src/core/Bitmap.cpp
   src/core/Gif.cpp
   src/core/Inflate.cpp

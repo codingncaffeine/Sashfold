@@ -1,6 +1,7 @@
 #include "css/StyleResolver.h"
 
 #include "core/Ascii.h"
+#include "core/Unicode.h"
 #include "css/Grid.h"
 #include "css/Parser.h"
 #include "css/Selector.h"
@@ -231,6 +232,36 @@ std::string legacy_color(std::string_view value)
     return {};
 }
 
+// The text `dir=auto` reads to find its direction: the element's own text
+// in tree order, stopping at the first strongly directional character.
+// Skipped, as HTML says: a descendant that states a direction of its own —
+// its text answers for itself, not for this element — and `bdi`, `script`,
+// `style` and `textarea`, whose content is not the element's text.
+std::u32string auto_direction_text(dom::Element const& element)
+{
+    std::u32string text;
+    auto const opaque = [](dom::Element const& candidate) {
+        std::string const& name = candidate.local_name();
+        return name == "bdi" || name == "script" || name == "style" || name == "textarea";
+    };
+    auto const walk = [&](auto&& self, dom::Node const& node) -> void {
+        for (dom::Node const* const child : node.children()) {
+            if (child->is_text()) {
+                text += decode_utf8(static_cast<dom::Text const&>(*child).data, true);
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            dom::Element const& candidate = static_cast<dom::Element const&>(*child);
+            if (opaque(candidate) || candidate.has_attribute("dir"))
+                continue;
+            self(self, candidate);
+        }
+    };
+    walk(walk, element);
+    return text;
+}
+
 // The HTML rendering section's mappings of attributes to properties, as
 // declarations: sizes and colors of tables, cells, images and rules; the
 // alignment attributes; a table's cellspacing, cellpadding and border,
@@ -264,6 +295,15 @@ std::string presentational_hints(dom::Element const& element)
     bool const embedded = tag == "img" || tag == "iframe" || tag == "video" || tag == "canvas"
         || tag == "embed" || tag == "object";
 
+    // dir=auto: the direction is the one its own content reads as. The
+    // ltr and rtl values are user-agent rules ([dir=ltr i], [dir=rtl i]);
+    // this one cannot be written as a selector, because the answer is in
+    // the text. HTML's traversal skips a descendant that states a direction
+    // of its own, and the elements whose content is not the element's text.
+    if (std::optional<std::string_view> const dir = attribute("dir")) {
+        if (ascii_ci_equals(*dir, "auto"))
+            add("direction", first_strong_is_rtl(auto_direction_text(element)) ? "rtl" : "ltr");
+    }
     if (table || cell || column || tag == "hr" || embedded) {
         if (std::optional<std::string_view> const width = attribute("width"))
             add("width", legacy_dimension(*width));
@@ -2680,6 +2720,7 @@ struct Resolver {
                 [](S& to, S const& from) { to.text_align_last = from.text_align_last; }, 0 },
             { "text-justify", true, [](S& to, S const& from) { to.text_justify = from.text_justify; }, 0 },
             { "direction", true, [](S& to, S const& from) { to.direction = from.direction; }, 0 },
+            { "unicode-bidi", false, [](S& to, S const& from) { to.unicode_bidi = from.unicode_bidi; }, 0 },
             { "letter-spacing", true, [](S& to, S const& from) { to.letter_spacing = from.letter_spacing; }, 0 },
             { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
@@ -4754,6 +4795,23 @@ struct Resolver {
                 style.direction = Direction::Ltr;
             else if (is_ident(values[0], "rtl"))
                 style.direction = Direction::Rtl;
+            return;
+        }
+        if (name == "unicode-bidi") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "normal"))
+                style.unicode_bidi = UnicodeBidi::Normal;
+            else if (is_ident(values[0], "embed"))
+                style.unicode_bidi = UnicodeBidi::Embed;
+            else if (is_ident(values[0], "isolate"))
+                style.unicode_bidi = UnicodeBidi::Isolate;
+            else if (is_ident(values[0], "bidi-override"))
+                style.unicode_bidi = UnicodeBidi::BidiOverride;
+            else if (is_ident(values[0], "isolate-override"))
+                style.unicode_bidi = UnicodeBidi::IsolateOverride;
+            else if (is_ident(values[0], "plaintext"))
+                style.unicode_bidi = UnicodeBidi::Plaintext;
             return;
         }
         if (name == "text-justify") {

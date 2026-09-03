@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7603 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7610 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6872,6 +6872,7 @@ css/css-position/sticky/position-sticky-table-td-subpixel-zoom.html
 css/css-position/sticky/position-sticky-table-td-top.html
 css/css-position/z-index-blend-will-change-overlapping-layers.html
 css/css-syntax/missing-semicolon.html
+css/css-text/bidi/bidi-lines-001.html
 css/css-text/bidi/bidi-tab-001.html
 css/css-text/boundary-shaping/boundary-shaping-001.html
 css/css-text/boundary-shaping/boundary-shaping-002.html
@@ -7045,6 +7046,8 @@ css/css-text/text-align/text-align-end-005.html
 css/css-text/text-align/text-align-end-006.html
 css/css-text/text-align/text-align-end-007.html
 css/css-text/text-align/text-align-end-008.html
+css/css-text/text-align/text-align-end-009.html
+css/css-text/text-align/text-align-end-010.html
 css/css-text/text-align/text-align-end-014.html
 css/css-text/text-align/text-align-end-015.html
 css/css-text/text-align/text-align-end-017.html
@@ -7057,6 +7060,8 @@ css/css-text/text-align/text-align-justify-001.html
 css/css-text/text-align/text-align-justify-002.html
 css/css-text/text-align/text-align-justify-003.html
 css/css-text/text-align/text-align-justify-004.html
+css/css-text/text-align/text-align-justify-005.html
+css/css-text/text-align/text-align-justify-006.html
 css/css-text/text-align/text-align-justify-bidi-control.html
 css/css-text/text-align/text-align-justify-last-center.html
 css/css-text/text-align/text-align-justify-last-default.html
@@ -7093,6 +7098,8 @@ css/css-text/text-align/text-align-start-005.html
 css/css-text/text-align/text-align-start-006.html
 css/css-text/text-align/text-align-start-007.html
 css/css-text/text-align/text-align-start-008.html
+css/css-text/text-align/text-align-start-009.html
+css/css-text/text-align/text-align-start-010.html
 css/css-text/text-align/text-align-start-014.html
 css/css-text/text-align/text-align-start-015.html
 css/css-text/text-align/text-align-start-017.html

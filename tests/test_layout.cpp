@@ -1407,6 +1407,50 @@ int main(int argc, char** argv)
         x_of(U"ggggg", 1.0f); // left-to-right is still where it was
     }
 
+    // --- Text that says which way it reads -------------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // dir=auto takes the direction of the first strongly directional
+        // character in the element's own text. The Hebrew is written as
+        // character references: spelled out, the source would reorder itself
+        // in an editor and stop saying what it looks like it says.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 300px; border: 1px solid }
+</style></head><body>
+  <div dir="rtl"><div dir="auto">aaaaa</div></div>
+  <div dir="ltr"><div dir="auto">&#x5D0;&#x5D1; bbbbb</div></div>
+  <div dir="rtl"><div dir="auto">12.34 ccccc</div></div>
+  <div dir="ltr"><div dir="auto"><span dir="rtl">&#x5D0;</span>ddddd</div></div>
+  <div style="direction: rtl; unicode-bidi: plaintext; white-space: pre">eeeee
+&#x5D0;&#x5D1; fffff</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const x_of = [&](std::u32string_view text, float expected) {
+            for (layout::TextRun const* const run : runs) {
+                if (run->text == text) {
+                    CHECK_EQ(run->x, expected);
+                    return;
+                }
+            }
+            CHECK(false);
+        };
+        x_of(U"aaaaa", 2.0f); // Latin first: left, though its parent is rtl
+        x_of(U"bbbbb", 252.0f); // Hebrew first: right, though its parent is ltr
+        x_of(U"ccccc", 62.0f); // digits and a stop are not strong; it steps over them
+        // A descendant that states a direction of its own answers for itself,
+        // not for the element, so the first strong character here is the d.
+        x_of(U"ddddd", 12.0f);
+        // unicode-bidi: plaintext gives each paragraph its own direction: the
+        // Latin line starts at the left and the Hebrew one at the right, in
+        // the same right-to-left block. `white-space: pre` keeps the space
+        // inside the word, so the second line is one run 80 wide, flush to
+        // the right edge at 301.
+        x_of(U"eeeee", 1.0f);
+        x_of(U"\u05D0\u05D1 fffff", 221.0f);
+    }
+
     // --- A box can be sized by its own content ---------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

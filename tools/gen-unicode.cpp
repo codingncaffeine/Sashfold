@@ -14,6 +14,7 @@
 //   https://www.unicode.org/Public/idna/16.0.0/IdnaMappingTable.txt
 //   https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt
 //   https://www.unicode.org/Public/16.0.0/ucd/DerivedNormalizationProps.txt
+//   https://www.unicode.org/Public/16.0.0/ucd/extracted/DerivedBidiClass.txt
 //
 // Emits:
 //   src/net/IdnaData.h            UTS #46 statuses + mappings (UseSTD3ASCIIRules=false
@@ -531,6 +532,119 @@ void emit_normalization(std::string const& path, UnicodeData const& data,
               << data.skipped_ranges.size() << " skipped ranges)\n";
 }
 
+// --- DerivedBidiClass.txt ---------------------------------------------------
+
+// Which of UAX #9's strong types a code point carries. Everything else —
+// the digits, the punctuation, the spaces, the marks, the explicit
+// formatting characters — is neither, and the first-strong rules step over
+// it.
+enum class Strong : std::uint8_t {
+    None,
+    Ltr, // Bidi_Class L
+    Rtl, // Bidi_Class R or AL
+};
+
+// The Bidi_Class of every code point, as the derived file gives it: the
+// @missing lines are the defaults (L everywhere, then R or AL through the
+// blocks reserved for right-to-left scripts, so an UNASSIGNED code point in
+// the Hebrew block is R and not L), with the listed entries on top of them.
+// Reading the derived file rather than UnicodeData's field 4 is what makes
+// those block defaults come out right.
+std::vector<Strong> load_bidi_strength(std::string const& path)
+{
+    constexpr std::size_t code_points = 0x110000;
+    std::vector<Strong> strength(code_points, Strong::Ltr); // @missing: 0000..10FFFF; Left_To_Right
+    auto const strong_of = [](std::string const& name) {
+        if (name == "L" || name == "Left_To_Right")
+            return Strong::Ltr;
+        if (name == "R" || name == "Right_To_Left" || name == "AL" || name == "Arabic_Letter")
+            return Strong::Rtl;
+        return Strong::None;
+    };
+    std::ifstream file = open_or_die(path);
+    std::string line;
+    // Two passes: the block defaults first, then the entries that override
+    // them. The file happens to write a block's @missing line before that
+    // block's own entries, but nothing in the format promises it.
+    std::vector<std::pair<std::string, std::string>> missing;
+    std::vector<std::pair<std::string, std::string>> listed;
+    while (std::getline(file, line)) {
+        std::size_t const at = line.find("@missing:");
+        if (at != std::string::npos) {
+            std::vector<std::string> const fields = split(trim(line.substr(at + 9)), ';');
+            if (fields.size() >= 2)
+                missing.push_back({ trim(fields[0]), trim(fields[1]) });
+            continue;
+        }
+        std::size_t const hash = line.find('#');
+        std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+        if (body.empty())
+            continue;
+        std::vector<std::string> const fields = split(body, ';');
+        if (fields.size() >= 2)
+            listed.push_back({ trim(fields[0]), trim(fields[1]) });
+    }
+    auto const apply = [&](std::vector<std::pair<std::string, std::string>> const& entries) {
+        for (auto const& [range, name] : entries) {
+            char32_t first = 0;
+            char32_t last = 0;
+            parse_code_point_range(range, first, last);
+            if (last >= code_points)
+                continue;
+            Strong const value = strong_of(name);
+            for (char32_t c = first; c <= last; ++c)
+                strength[c] = value;
+        }
+    };
+    apply(missing);
+    apply(listed);
+    return strength;
+}
+
+void emit_bidi(std::string const& path, std::vector<Strong> const& strength)
+{
+    auto const ranges_of = [&](Strong wanted) {
+        std::vector<std::pair<char32_t, char32_t>> ranges;
+        for (char32_t c = 0; c < strength.size(); ++c) {
+            if (strength[c] != wanted)
+                continue;
+            if (!ranges.empty() && ranges.back().second + 1 == c)
+                ranges.back().second = c;
+            else
+                ranges.push_back({ c, c });
+        }
+        return ranges;
+    };
+    std::vector<std::pair<char32_t, char32_t>> const ltr = ranges_of(Strong::Ltr);
+    std::vector<std::pair<char32_t, char32_t>> const rtl = ranges_of(Strong::Rtl);
+
+    std::ofstream out(path);
+    out << generated_banner(
+        "The strongly directional code points of UAX #9 — Bidi_Class L on one\n"
+        "// side, R and AL on the other — read from DerivedBidiClass.txt so that\n"
+        "// the block defaults come with them: an unassigned code point in a block\n"
+        "// reserved for a right-to-left script is R or AL, not the L everything\n"
+        "// else defaults to. These are what the first-strong rules (P2 and P3)\n"
+        "// look at, which is how `dir=auto` and `unicode-bidi: plaintext` find the\n"
+        "// direction of a piece of text. A code point in neither table is not\n"
+        "// strong — the digits, the punctuation, the spaces, the marks and the\n"
+        "// explicit formatting characters — and those rules step over it. Ranges\n"
+        "// are sorted and disjoint, for binary search.");
+    out << "namespace sashfold {\n\n";
+    out << "struct BidiRange {\n    char32_t first;\n    char32_t last;\n};\n\n";
+    auto const table = [&](char const* name, std::vector<std::pair<char32_t, char32_t>> const& ranges) {
+        out << "inline constexpr BidiRange " << name << "[] = {\n";
+        for (auto const& [first, last] : ranges)
+            out << "    { " << hex(first) << ", " << hex(last) << " },\n";
+        out << "};\n\n";
+    };
+    table("strong_ltr_ranges", ltr);
+    table("strong_rtl_ranges", rtl);
+    out << "}\n";
+    std::cout << "wrote " << path << " (" << ltr.size() << " left-to-right ranges, " << rtl.size()
+              << " right-to-left)\n";
+}
+
 // The simple case mappings, packed into runs.
 void emit_case(std::string const& path, UnicodeData const& data)
 {
@@ -581,8 +695,11 @@ int main(int argc, char** argv)
     std::set<char32_t> const excluded
         = load_full_composition_exclusions(data_dir + "/DerivedNormalizationProps.txt");
 
+    std::vector<Strong> const bidi = load_bidi_strength(data_dir + "/DerivedBidiClass.txt");
+
     emit_idna(repo + "/src/net/IdnaData.h", idna);
     emit_normalization(repo + "/src/core/NormalizationData.h", unicode_data, excluded);
     emit_case(repo + "/src/core/CaseData.h", unicode_data);
+    emit_bidi(repo + "/src/core/BidiData.h", bidi);
     return 0;
 }

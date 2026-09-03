@@ -1644,6 +1644,25 @@ struct Layouter {
             start_line();
         };
 
+        // `unicode-bidi: plaintext` gives every paragraph the direction its
+        // own first strongly directional character carries (UAX #9 P2/P3)
+        // instead of the block's; a paragraph ends at a forced break. With
+        // any other value every line reads the block's own direction.
+        bool const plaintext = block_style.unicode_bidi == css::UnicodeBidi::Plaintext;
+        auto const paragraph_from = [&](std::size_t first) {
+            std::u32string text;
+            for (std::size_t i = first; i < items.size(); ++i) {
+                if (items[i].kind == InlineItem::Kind::HardBreak)
+                    break;
+                if (items[i].kind == InlineItem::Kind::Word
+                    || items[i].kind == InlineItem::Kind::Space)
+                    text += items[i].text;
+            }
+            return first_strong_is_rtl(text);
+        };
+        bool paragraph_rtl
+            = plaintext ? paragraph_from(0) : block_style.direction == css::Direction::Rtl;
+
         // `last_line` is set where the line ends the block or ends at a
         // forced break: those keep their start alignment under
         // text-align: justify (CSS 2.1 §16.2), the rest are stretched.
@@ -1779,9 +1798,10 @@ struct Layouter {
             // `text-align: justify-all` exists to ask for the other thing.
             // `start` and `end` are sides only once the block says which way
             // its content runs (css-writing-modes-4 §2.1).
-            bool const rtl = block_style.direction == css::Direction::Rtl;
-            css::TextAlign const start_side = rtl ? css::TextAlign::Right : css::TextAlign::Left;
-            css::TextAlign const end_side = rtl ? css::TextAlign::Left : css::TextAlign::Right;
+            css::TextAlign const start_side
+                = paragraph_rtl ? css::TextAlign::Right : css::TextAlign::Left;
+            css::TextAlign const end_side
+                = paragraph_rtl ? css::TextAlign::Left : css::TextAlign::Right;
             auto const sided = [&](css::TextAlign written) {
                 if (written == css::TextAlign::Start || written == css::TextAlign::MatchParent)
                     return start_side; // match-parent was settled while the style was computed
@@ -2083,6 +2103,11 @@ struct Layouter {
             }
             if (item.kind == InlineItem::Kind::HardBreak) {
                 flush_line(true);
+                // The break ends a paragraph, so the next one reads its own
+                // direction from the text that follows it.
+                if (plaintext)
+                    paragraph_rtl
+                        = paragraph_from(static_cast<std::size_t>(&item - items.data()) + 1);
                 if (item.clear != css::Clear::None) {
                     y = floats.cleared_y(item.clear, y);
                     start_line();
