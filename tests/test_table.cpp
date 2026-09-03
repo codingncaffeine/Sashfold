@@ -9,6 +9,7 @@
 #include "text/FontManager.h"
 
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -387,6 +388,52 @@ int main()
             CHECK(near(t->style->border_left.width, 2));
             CHECK(near(a->style->border_left.width, 2));
         }
+    }
+
+    // --- Columns that run from the right ---------------------------------------
+    {
+        // Three 60px columns, no spacing and no borders: the table is 180
+        // across, and its own direction settles which end column one is at.
+        Page const page = lay_out(page_with(R"(
+<table id="t1" dir="rtl" style="border-collapse: collapse; table-layout: fixed; width: 180px">
+  <colgroup><col id="g1" span="2" style="background: red"><col id="g2" style="background: blue"></colgroup>
+  <tr><td id="a1">a</td><td id="b1">b</td><td id="c1" colspan="1">c</td></tr></table>
+<table id="t2" style="border-collapse: collapse; table-layout: fixed; width: 180px">
+  <tr><td id="a2">a</td><td id="b2">b</td><td id="c2">c</td></tr></table>
+<table id="t3" dir="rtl" style="border-collapse: collapse; table-layout: fixed; width: 180px">
+  <tr><td id="a3" colspan="2">a</td><td id="b3">b</td></tr></table>)"));
+        // A column's background fragment carries no style, so find_box
+        // steps over it: this one asks for the element alone.
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> const painted
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
+            if (attribute && attribute->value == id)
+                return &f;
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* const found = painted(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const at = [&](std::string_view id, float x, float width) {
+            layout::Fragment const* const box = painted(page.result.root, id);
+            if (CHECK(box != nullptr))
+                CHECK(near(box->x, x) && near(box->width, width));
+        };
+        at("a1", 120, 60); // column one is the rightmost
+        at("b1", 60, 60);
+        at("c1", 0, 60);
+        at("a2", 0, 60); // and left to right is where it was
+        at("b2", 60, 60);
+        at("c2", 120, 60);
+        // A spanning cell keeps its columns together: a covers one and two,
+        // which are the right-hand 120 of the table.
+        at("a3", 60, 120);
+        at("b3", 0, 60);
+        // A col's background is painted per column, so the first fragment
+        // of a col spanning two is the rightmost of the two.
+        at("g1", 120, 60);
+        at("g2", 0, 60);
     }
 
     return sashfold::test::report("table");

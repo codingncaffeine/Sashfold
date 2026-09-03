@@ -4418,6 +4418,18 @@ struct Layouter {
             }
             column_x[at(n)] = cx; // past the last gutter
         }
+        // Column one of a right-to-left table is the rightmost (CSS 2.1
+        // §17.2). The widths, the spacing and the spans are settled above
+        // in column order; the run is mirrored here, so a box's distance
+        // from the left of the columns becomes the same distance from
+        // their right. It is the TABLE's own direction that orders them,
+        // not the direction of whatever contains it.
+        bool const columns_rtl = style.direction == css::Direction::Rtl;
+        float const columns_left = grid_x + hs;
+        float const columns_right = n > 0 ? column_x[at(n)] - hs : columns_left;
+        auto const across = [&](float left, float width) {
+            return columns_rtl ? columns_left + columns_right - left - width : left;
+        };
 
         // The cells, laid out at the origin at their widths.
         struct CellBox {
@@ -4436,7 +4448,8 @@ struct Layouter {
             for (int c = cell.column; c < cell.column + cell.column_span && c < n; ++c)
                 width += widths.columns[at(c)];
             out.width = width;
-            float const cell_x = n > 0 ? column_x[at(std::min(cell.column, n - 1))] : grid_x;
+            float const cell_x
+                = n > 0 ? across(column_x[at(std::min(cell.column, n - 1))], width) : grid_x;
             FloatContext scratch;
             if (cell.anonymous()) {
                 Fragment anon;
@@ -4575,8 +4588,8 @@ struct Layouter {
             f.element = group.element;
             f.background = background;
             int const last = std::min(group.first + group.count, n);
-            f.x = column_x[at(group.first)];
-            f.width = column_x[at(last)] - hs - f.x;
+            f.width = column_x[at(last)] - hs - column_x[at(group.first)];
+            f.x = across(column_x[at(group.first)], f.width);
             f.y = rows_top;
             f.height = std::max(0.0f, rows_bottom - rows_top);
             box.children.push_back(std::move(f));
@@ -4589,8 +4602,8 @@ struct Layouter {
             Fragment f;
             f.element = column.element;
             f.background = background;
-            f.x = column_x[at(c)];
             f.width = widths.columns[at(c)];
+            f.x = across(column_x[at(c)], f.width);
             f.y = rows_top;
             f.height = std::max(0.0f, rows_bottom - rows_top);
             box.children.push_back(std::move(f));

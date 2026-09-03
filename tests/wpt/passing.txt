@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7642 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7644 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -336,6 +336,8 @@ css/CSS2/bidi-text/direction-applies-to-007.xht
 css/CSS2/bidi-text/direction-applies-to-008.xht
 css/CSS2/bidi-text/direction-applies-to-009.xht
 css/CSS2/bidi-text/direction-applies-to-012.xht
+css/CSS2/bidi-text/direction-applies-to-013.xht
+css/CSS2/bidi-text/direction-applies-to-014.xht
 css/CSS2/bidi-text/direction-applies-to-015.xht
 css/CSS2/bidi-text/line-breaking-bidi-003.xht
 css/CSS2/bidi-text/unicode-bidi-001.xht
