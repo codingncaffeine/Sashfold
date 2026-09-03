@@ -1402,9 +1402,68 @@ int main(int argc, char** argv)
         x_of(U"ddddd", 1.0f); // left stays left either way
         // match-parent takes the parent's alignment resolved against the
         // PARENT's direction, so an ltr child of an rtl block ends up right.
-        x_of(U"eeeee", 252.0f);
+        // The nested div is 302 across inside a 300-wide right-to-left
+        // parent, so §10.3.3 hangs the 2 it cannot fit off the LEFT and its
+        // content box runs from 0 to 300, not 2 to 302.
+        x_of(U"eeeee", 250.0f);
         x_of(U"fffff", 2.0f);
         x_of(U"ggggg", 1.0f); // left-to-right is still where it was
+    }
+
+    // --- The room a width leaves over goes to the margins ----------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // §10.3.3. The body is 300 wide with no margin, so every box below
+        // has 300 to sit in and 100 of its own.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; width: 300px; font-family: "Sashfold Mono"; font-size: 16px }
+  div[id] { width: 100px; height: 10px }
+</style></head><body>
+  <div id="a"></div>
+  <div id="b" style="margin-left: auto"></div>
+  <div id="c" style="margin-right: auto"></div>
+  <div id="d" style="margin-left: auto; margin-right: auto"></div>
+  <div id="e" style="margin-left: 20px"></div>
+  <div dir="rtl">
+    <div id="f"></div>
+    <div id="g" style="margin-right: 20px"></div>
+    <div id="h" style="margin-right: auto"></div>
+    <div id="i" style="margin-left: auto; margin-right: auto"></div>
+    <div id="j" style="width: 400px"></div>
+    <div id="k" dir="ltr"></div>
+  </div>
+</body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> const box_of
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
+            if (attribute && attribute->value == id)
+                return &f;
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* const found = box_of(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const x_of = [&](std::string_view id, float expected) {
+            layout::Fragment const* const box = box_of(page.result.root, id);
+            if (CHECK(box != nullptr))
+                CHECK_EQ(box->x, expected);
+        };
+        x_of("a", 0.0f); // neither margin auto, left to right: it stays put
+        x_of("b", 200.0f); // one auto margin takes all the room left over
+        x_of("c", 0.0f);
+        x_of("d", 100.0f); // both share it, which centres the box
+        x_of("e", 20.0f); // a written margin is a written margin
+        // In a right-to-left containing block the ignored margin is the
+        // LEFT one, so a box that does not fill its room settles right.
+        x_of("f", 200.0f);
+        x_of("g", 180.0f); // ... after the margin that was written
+        x_of("h", 0.0f); // an auto margin is obeyed before the rule applies
+        x_of("i", 100.0f);
+        x_of("j", -100.0f); // and a box too wide to fit overflows the left
+        // It is the CONTAINING block's direction that decides this, not the
+        // box's own: an ltr box in an rtl block still settles right.
+        x_of("k", 200.0f);
     }
 
     // --- Text that says which way it reads -------------------------------------
@@ -1436,12 +1495,15 @@ int main(int argc, char** argv)
             }
             CHECK(false);
         };
-        x_of(U"aaaaa", 2.0f); // Latin first: left, though its parent is rtl
+        // Each inner div is 302 across in a 300-wide parent; where that
+        // parent reads right to left the 2 it cannot fit hangs off the left
+        // (§10.3.3), which is why these start two earlier than the ltr ones.
+        x_of(U"aaaaa", 0.0f); // Latin first: left, though its parent is rtl
         // Hebrew first, so this paragraph reads right to left: the Hebrew
         // sits at the right end and the Latin that follows it in the source
         // is drawn to its left.
         x_of(U"bbbbb", 222.0f);
-        x_of(U"ccccc", 62.0f); // digits and a stop are not strong; it steps over them
+        x_of(U"ccccc", 60.0f); // digits and a stop are not strong; it steps over them
         // A descendant that states a direction of its own answers for itself,
         // not for the element, so the first strong character here is the d.
         x_of(U"ddddd", 12.0f);

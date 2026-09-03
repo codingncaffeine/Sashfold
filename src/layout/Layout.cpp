@@ -593,6 +593,11 @@ struct BlockOptions {
     // that hangs outside, which is placed after the box is laid out.
     std::u32string inside_marker;
     bool zero_auto_margins = false; // floats and flex items: auto margins are zero, never centering
+    // The containing block reads right to left, so an over-constrained box
+    // settles against its right edge (§10.3.3). It is the CONTAINING
+    // block's direction that decides this, not the box's own, and only a
+    // box in normal flow is placed by that rule.
+    bool containing_rtl = false;
     bool own_context = false; // the box forms its own formatting context regardless of style
     // The containing block's content height when it is definite: the base
     // for percentage heights (and min/max-height) of this box.
@@ -2819,9 +2824,6 @@ struct Layouter {
                                        containing_width, horizontal_edges),
                                    intrinsic, available)
                 + horizontal_edges;
-            if (!options.zero_auto_margins && style.margin_left.is_auto()
-                && style.margin_right.is_auto())
-                extra_left = (containing_width - border_box_width) / 2.0f;
         } else if (style.width.is_auto()) {
             float const available = containing_width - margin_left - margin_right - horizontal_edges;
             border_box_width
@@ -2839,14 +2841,36 @@ struct Layouter {
                                    as_content_size(style, resolve(style.width, containing_width), horizontal_edges),
                                    containing_width, horizontal_edges)
                 + horizontal_edges;
-            // Both margins auto with a definite width: center (a float's or a
-            // flex item's auto margins are zero instead).
-            if (!options.zero_auto_margins && style.margin_left.is_auto()
-                && style.margin_right.is_auto())
-                extra_left = (containing_width - border_box_width) / 2.0f;
         }
         if (border_box_width < 0)
             border_box_width = 0;
+        // §10.3.3: the margins, edges and width of a block-level box fill
+        // its containing block exactly, so the room the width leaves over
+        // goes to the margins. Both auto share it, which centres the box;
+        // one auto takes all of it. With neither auto the equation is
+        // over-constrained and a margin is ignored and solved for instead
+        // — the one at the end the content runs towards, which the
+        // CONTAINING block's `direction` names, not the box's own. An auto
+        // width leaves nothing over, so it comes through this untouched.
+        // A float's and a flex item's auto margins are handled by their own
+        // algorithms, and a width handed down by one is already placed.
+        if (!options.content_width && !options.zero_auto_margins) {
+            float const free = containing_width - border_box_width - margin_left - margin_right;
+            bool const auto_left = style.margin_left.is_auto();
+            bool const auto_right = style.margin_right.is_auto();
+            // There is no room to give away when the box is already wider
+            // than its containing block: an auto margin is zero there, and
+            // the box overflows the end rather than being pushed off the
+            // start. A margin that is ignored and solved for is not an auto
+            // margin, and does go negative — that is the overflow.
+            float const room = std::max(0.0f, free);
+            if (auto_left && auto_right)
+                extra_left = margin_left + room / 2.0f;
+            else if (auto_left)
+                extra_left = margin_left + room;
+            else if (!auto_right && options.containing_rtl)
+                extra_left = margin_left + free;
+        }
 
         fragment.x = x + extra_left;
         fragment.y = y;
@@ -3265,6 +3289,7 @@ struct Layouter {
             }
             BlockOptions child_options;
             child_options.containing_height = containing_height;
+            child_options.containing_rtl = style.direction == css::Direction::Rtl;
             // A list item counts here, before it is laid out, because an
             // inside marker is content the item lays out around (§12.5.1);
             // an outside one is hung on the box afterwards.
@@ -4351,6 +4376,8 @@ struct Layouter {
                 wrapper_x = x + std::max(0.0f, free / 2);
             else if (auto_left)
                 wrapper_x = x + std::max(0.0f, free);
+            else if (!auto_right && options.containing_rtl)
+                wrapper_x = x + margin_left + free; // §10.3.3: the left margin gives way
         }
 
         Fragment wrapper;
@@ -6028,6 +6055,10 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     BlockOptions root_options;
     if (viewport_height > 0)
         root_options.containing_height = viewport_height;
+    // The initial containing block reads the way the root element does
+    // (css-writing-modes-4 §3.1), so a narrow <html> in an rtl document
+    // settles against the viewport's right edge.
+    root_options.containing_rtl = html_style->direction == css::Direction::Rtl;
     result.root = layouter.layout_block(*html, *html_style, 0, 0, viewport_width, 0, root_floats, root_options);
     if (std::optional<float> const bottom = root_floats.lowest_bottom())
         result.root.height = std::max(result.root.height, *bottom - result.root.y);

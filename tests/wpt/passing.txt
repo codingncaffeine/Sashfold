@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7620 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7629 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -973,6 +973,7 @@ css/CSS2/css1/c17-comments-000.xht
 css/CSS2/css1/c17-comments-001.xht
 css/CSS2/css1/c31-important-000.xht
 css/CSS2/css1/c32-cascading-000.xht
+css/CSS2/css1/c412-blockw-000.xht
 css/CSS2/css1/c412-hz-box-000.xht
 css/CSS2/css1/c414-flt-fit-000.xht
 css/CSS2/css1/c414-flt-fit-001.xht
@@ -1242,6 +1243,7 @@ css/CSS2/floats-clear/margin-collapse-123.xht
 css/CSS2/floats-clear/margin-collapse-142.xht
 css/CSS2/floats-clear/margin-collapse-157.xht
 css/CSS2/floats-clear/margin-collapse-158.xht
+css/CSS2/floats-clear/margin-collapse-165.xht
 css/CSS2/floats-clear/margin-collapse-clear-002.xht
 css/CSS2/floats-clear/margin-collapse-clear-003.xht
 css/CSS2/floats-clear/margin-collapse-clear-008.xht
@@ -1954,6 +1956,7 @@ css/CSS2/margin-padding-clear/margin-applies-to-012.xht
 css/CSS2/margin-padding-clear/margin-applies-to-013.xht
 css/CSS2/margin-padding-clear/margin-applies-to-014.xht
 css/CSS2/margin-padding-clear/margin-applies-to-015.xht
+css/CSS2/margin-padding-clear/margin-auto-on-block-box.html
 css/CSS2/margin-padding-clear/margin-backgrounds-002.xht
 css/CSS2/margin-padding-clear/margin-backgrounds-003.xht
 css/CSS2/margin-padding-clear/margin-border-padding-001.xht
@@ -2162,6 +2165,9 @@ css/CSS2/margin-padding-clear/margin-right-089.xht
 css/CSS2/margin-padding-clear/margin-right-090.xht
 css/CSS2/margin-padding-clear/margin-right-091.xht
 css/CSS2/margin-padding-clear/margin-right-092.xht
+css/CSS2/margin-padding-clear/margin-right-100.xht
+css/CSS2/margin-padding-clear/margin-right-101.xht
+css/CSS2/margin-padding-clear/margin-right-102.xht
 css/CSS2/margin-padding-clear/margin-right-103.xht
 css/CSS2/margin-padding-clear/margin-right-104.xht
 css/CSS2/margin-padding-clear/margin-right-109.xht
@@ -2442,11 +2448,14 @@ css/CSS2/margin-padding-clear/padding-right-057.xht
 css/CSS2/margin-padding-clear/padding-right-058.xht
 css/CSS2/margin-padding-clear/padding-right-059.xht
 css/CSS2/margin-padding-clear/padding-right-060.xht
+css/CSS2/margin-padding-clear/padding-right-061.xht
+css/CSS2/margin-padding-clear/padding-right-062.xht
 css/CSS2/margin-padding-clear/padding-right-068.xht
 css/CSS2/margin-padding-clear/padding-right-069.xht
 css/CSS2/margin-padding-clear/padding-right-070.xht
 css/CSS2/margin-padding-clear/padding-right-071.xht
 css/CSS2/margin-padding-clear/padding-right-072.xht
+css/CSS2/margin-padding-clear/padding-right-073.xht
 css/CSS2/margin-padding-clear/padding-right-079.xht
 css/CSS2/margin-padding-clear/padding-right-080.xht
 css/CSS2/margin-padding-clear/padding-right-081.xht
@@ -2590,6 +2599,8 @@ css/CSS2/normal-flow/block-in-inline-first-line-002.html
 css/CSS2/normal-flow/block-in-inline-float-in-layer-001.html
 css/CSS2/normal-flow/block-in-inline-margins-001a.xht
 css/CSS2/normal-flow/block-in-inline-margins-001b.xht
+css/CSS2/normal-flow/block-in-inline-margins-002a.xht
+css/CSS2/normal-flow/block-in-inline-margins-002b.xht
 css/CSS2/normal-flow/block-in-inline-margins-004.html
 css/CSS2/normal-flow/block-in-inline-margins-005.html
 css/CSS2/normal-flow/block-in-inline-nested-001.xht
@@ -3253,6 +3264,7 @@ css/CSS2/positioning/absolute-replaced-width-013.xht
 css/CSS2/positioning/absolute-replaced-width-022.xht
 css/CSS2/positioning/absolute-replaced-width-027.xht
 css/CSS2/positioning/absolute-replaced-width-029.xht
+css/CSS2/positioning/absolute-replaced-width-034.xht
 css/CSS2/positioning/absolute-replaced-width-036.xht
 css/CSS2/positioning/absolute-replaced-width-041.xht
 css/CSS2/positioning/absolute-replaced-width-043.xht
@@ -3289,8 +3301,10 @@ css/CSS2/positioning/abspos-containing-block-009.xht
 css/CSS2/positioning/abspos-containing-block-010.xht
 css/CSS2/positioning/abspos-negative-margin-001.html
 css/CSS2/positioning/abspos-overflow-004.xht
+css/CSS2/positioning/abspos-overflow-005.xht
 css/CSS2/positioning/abspos-overflow-006.xht
 css/CSS2/positioning/abspos-overflow-007.xht
+css/CSS2/positioning/abspos-overflow-008.xht
 css/CSS2/positioning/abspos-overflow-009.xht
 css/CSS2/positioning/abspos-overflow-010.xht
 css/CSS2/positioning/abspos-overflow-011.xht
@@ -3521,6 +3535,7 @@ css/CSS2/positioning/right-109.xht
 css/CSS2/positioning/right-110.xht
 css/CSS2/positioning/right-111.xht
 css/CSS2/positioning/right-112.xht
+css/CSS2/positioning/right-113.xht
 css/CSS2/positioning/right-applies-to-009.xht
 css/CSS2/positioning/right-applies-to-012.xht
 css/CSS2/positioning/right-applies-to-013.xht
@@ -4629,7 +4644,6 @@ css/CSS2/text/text-indent-overflow-002.xht
 css/CSS2/text/text-indent-overflow-003.xht
 css/CSS2/text/text-indent-overflow-004.xht
 css/CSS2/text/text-indent-percent-001.xht
-css/CSS2/text/text-indent-rtl-002.xht
 css/CSS2/text/text-indent-wrap-001.xht
 css/CSS2/text/text-indent-wrap-002.html
 css/CSS2/text/text-transform-001.xht
@@ -5433,7 +5447,6 @@ css/css-flexbox/abspos/position-absolute-008.html
 css/css-flexbox/abspos/position-absolute-009.html
 css/css-flexbox/abspos/position-absolute-010.html
 css/css-flexbox/abspos/position-absolute-011.html
-css/css-flexbox/align-baseline.html
 css/css-flexbox/align-content-001.htm
 css/css-flexbox/align-content-002.htm
 css/css-flexbox/align-content-003.htm
@@ -5912,7 +5925,6 @@ css/css-flexbox/overflow-area-001.html
 css/css-flexbox/overflow-area-002.html
 css/css-flexbox/overflow-area-003.html
 css/css-flexbox/overflow-auto-005.html
-css/css-flexbox/overflow-top-left.html
 css/css-flexbox/padding-overflow.html
 css/css-flexbox/percentage-heights-002.html
 css/css-flexbox/percentage-heights-004.html
@@ -6350,8 +6362,6 @@ css/css-grid/grid-items/grid-item-containing-block-001.html
 css/css-grid/grid-items/grid-item-containing-block-002.html
 css/css-grid/grid-items/grid-item-containing-block-003.html
 css/css-grid/grid-items/grid-item-containing-block-004.html
-css/css-grid/grid-items/grid-item-direction-rtl-001.html
-css/css-grid/grid-items/grid-item-margins-and-writing-modes-001.html
 css/css-grid/grid-items/grid-item-min-height-overrides-fixed-height-001.html
 css/css-grid/grid-items/grid-item-min-width-overrides-fixed-width-001.html
 css/css-grid/grid-items/grid-item-minmax-img-001.html
@@ -6869,7 +6879,6 @@ css/css-position/sticky/position-sticky-bottom-006.html
 css/css-position/sticky/position-sticky-column-reverse-flex.html
 css/css-position/sticky/position-sticky-fixed-ancestor-iframe.html
 css/css-position/sticky/position-sticky-margins-002.html
-css/css-position/sticky/position-sticky-margins-003.html
 css/css-position/sticky/position-sticky-on-minimum-scale.html
 css/css-position/sticky/position-sticky-overflow-clip-container.html
 css/css-position/sticky/position-sticky-scroll-reposition.html
