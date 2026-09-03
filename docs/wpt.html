@@ -42,12 +42,12 @@
 <p><a href="./">← sashfold.com</a></p>
 <h1>Web Platform Tests</h1>
 <p>Sashfold's pass rate on the CSS <em>reference tests</em> of the <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a> — the tests that need no scripting: a test page and a reference page must render to the same pixels. Every test and every reference is rendered by Sashfold itself, headless, at the suite's 800×600 viewport, with the built-in face and the fonts the tests bring along. The comparison follows the suite's own rules (pixel-identical unless a test declares a fuzziness allowance; references may chain).</p>
-<div class="stat"><span class="big">6245 / 13477</span><span class="what">CSS reference tests passing — 46.3%</span></div>
+<div class="stat"><span class="big">6249 / 13477</span><span class="what">CSS reference tests passing — 46.4%</span></div>
 <table>
 <thead><tr><th>Directory</th><th></th><th>Passing</th><th>Rate</th></tr></thead>
 <tbody>
 <tr><td><code>css/CSS2</code></td><td><div class="bar"><span style="width: 60%"></span></div></td><td class="num">3754 / 6169</td><td class="num">60.9%</td></tr>
-<tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 29%"></span></div></td><td class="num">207 / 711</td><td class="num">29.1%</td></tr>
+<tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 29%"></span></div></td><td class="num">208 / 711</td><td class="num">29.3%</td></tr>
 <tr><td><code>css/css-box</code></td><td><div class="bar"><span style="width: 47%"></span></div></td><td class="num">33 / 69</td><td class="num">47.8%</td></tr>
 <tr><td><code>css/css-cascade</code></td><td><div class="bar"><span style="width: 30%"></span></div></td><td class="num">13 / 43</td><td class="num">30.2%</td></tr>
 <tr><td><code>css/css-color</code></td><td><div class="bar"><span style="width: 40%"></span></div></td><td class="num">125 / 307</td><td class="num">40.7%</td></tr>
@@ -55,7 +55,7 @@
 <tr><td><code>css/css-flexbox</code></td><td><div class="bar"><span style="width: 54%"></span></div></td><td class="num">544 / 1003</td><td class="num">54.2%</td></tr>
 <tr><td><code>css/css-fonts</code></td><td><div class="bar"><span style="width: 42%"></span></div></td><td class="num">156 / 371</td><td class="num">42.0%</td></tr>
 <tr><td><code>css/css-grid</code></td><td><div class="bar"><span style="width: 31%"></span></div></td><td class="num">511 / 1643</td><td class="num">31.1%</td></tr>
-<tr><td><code>css/css-overflow</code></td><td><div class="bar"><span style="width: 25%"></span></div></td><td class="num">153 / 596</td><td class="num">25.7%</td></tr>
+<tr><td><code>css/css-overflow</code></td><td><div class="bar"><span style="width: 26%"></span></div></td><td class="num">156 / 596</td><td class="num">26.2%</td></tr>
 <tr><td><code>css/css-position</code></td><td><div class="bar"><span style="width: 22%"></span></div></td><td class="num">55 / 248</td><td class="num">22.2%</td></tr>
 <tr><td><code>css/css-syntax</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">1 / 1</td><td class="num">100.0%</td></tr>
 <tr><td><code>css/css-text</code></td><td><div class="bar"><span style="width: 28%"></span></div></td><td class="num">420 / 1484</td><td class="num">28.3%</td></tr>
@@ -64,7 +64,7 @@
 <tr><td><code>css/css-variables</code></td><td><div class="bar"><span style="width: 48%"></span></div></td><td class="num">88 / 182</td><td class="num">48.4%</td></tr>
 </tbody>
 </table>
-<p class="muted">Scored 2026-09-02 against WPT revision <code>b1a7025f8bc1</code>. The count is every reference test the suite's manifest rules find under these directories, including the ones that wait on scripts (Sashfold runs none yet, so those fail). XHTML test files are parsed by the HTML parser. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>
+<p class="muted">Scored 2026-09-03 against WPT revision <code>b1a7025f8bc1</code>. The count is every reference test the suite's manifest rules find under these directories, including the ones that wait on scripts (Sashfold runs none yet, so those fail). XHTML test files are parsed by the HTML parser. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>
 </main>
 </body>
 </html>

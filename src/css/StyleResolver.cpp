@@ -422,6 +422,22 @@ bool is_ident(ComponentValue const* value, std::string_view name)
         && ascii_ci_equals(value->token().value, name);
 }
 
+// CSS Overflow §3: `visible` and `clip` cannot stand beside an axis that
+// scrolls — `visible` becomes `auto` there and `clip` becomes `hidden`,
+// both of which clip. The box clips at all when either axis does.
+void settle_overflow(ComputedStyle& style)
+{
+    Overflow const across = style.overflow_x;
+    Overflow const down = style.overflow_y;
+    if (down == Overflow::Hidden)
+        style.overflow_x = Overflow::Hidden;
+    if (across == Overflow::Hidden)
+        style.overflow_y = Overflow::Hidden;
+    style.overflow = style.overflow_x == Overflow::Visible && style.overflow_y == Overflow::Visible
+        ? Overflow::Visible
+        : Overflow::Hidden;
+}
+
 // The names of a font-family value (or a font shorthand's tail):
 // comma-separated, each a string or identifiers joined by single spaces.
 // Null when any name is bad.
@@ -2009,6 +2025,22 @@ struct Resolver {
                     to.border_left.width = from.border_left.width;
                 },
                 0 },
+            { "border-top-left-radius", false,
+                [](S& to, S const& from) { to.border_top_left_radius = from.border_top_left_radius; }, 0 },
+            { "border-top-right-radius", false,
+                [](S& to, S const& from) { to.border_top_right_radius = from.border_top_right_radius; }, 0 },
+            { "border-bottom-right-radius", false,
+                [](S& to, S const& from) { to.border_bottom_right_radius = from.border_bottom_right_radius; }, 0 },
+            { "border-bottom-left-radius", false,
+                [](S& to, S const& from) { to.border_bottom_left_radius = from.border_bottom_left_radius; }, 0 },
+            { "border-radius", false,
+                [](S& to, S const& from) {
+                    to.border_top_left_radius = from.border_top_left_radius;
+                    to.border_top_right_radius = from.border_top_right_radius;
+                    to.border_bottom_right_radius = from.border_bottom_right_radius;
+                    to.border_bottom_left_radius = from.border_bottom_left_radius;
+                },
+                0 },
             { "border-top-style", false, [](S& to, S const& from) { to.border_top.style = from.border_top.style; }, 0 },
             { "border-right-style", false, [](S& to, S const& from) { to.border_right.style = from.border_right.style; }, 0 },
             { "border-bottom-style", false, [](S& to, S const& from) { to.border_bottom.style = from.border_bottom.style; }, 0 },
@@ -2035,9 +2067,17 @@ struct Resolver {
                 15 },
             { "float", false, [](S& to, S const& from) { to.floating = from.floating; }, 0 },
             { "clear", false, [](S& to, S const& from) { to.clear = from.clear; }, 0 },
-            { "overflow", false, [](S& to, S const& from) { to.overflow = from.overflow; }, 0 },
-            { "overflow-x", false, [](S& to, S const& from) { to.overflow = from.overflow; }, 0 },
-            { "overflow-y", false, [](S& to, S const& from) { to.overflow = from.overflow; }, 0 },
+            { "overflow", false,
+                [](S& to, S const& from) {
+                    to.overflow = from.overflow;
+                    to.overflow_x = from.overflow_x;
+                    to.overflow_y = from.overflow_y;
+                },
+                0 },
+            { "overflow-x", false,
+                [](S& to, S const& from) { to.overflow = from.overflow; to.overflow_x = from.overflow_x; }, 0 },
+            { "overflow-y", false,
+                [](S& to, S const& from) { to.overflow = from.overflow; to.overflow_y = from.overflow_y; }, 0 },
             { "position", false, [](S& to, S const& from) { to.position = from.position; }, 0 },
             { "top", false, [](S& to, S const& from) { to.top = from.top; }, 0 },
             { "right", false, [](S& to, S const& from) { to.right = from.right; }, 0 },
@@ -2271,7 +2311,8 @@ struct Resolver {
                     || property.name == "border-top" || property.name == "border-right"
                     || property.name == "border-bottom" || property.name == "border-left"
                     || property.name == "border-width" || property.name == "border-style"
-                    || property.name == "border-color" || property.name == "inset"
+                    || property.name == "border-color" || property.name == "border-radius"
+                    || property.name == "inset"
                     || property.name == "flex-flow" || property.name == "flex" || property.name == "gap"
                     || property.name == "grid-gap" || property.name == "grid-row-gap"
                     || property.name == "grid-column-gap" || property.name == "place-items"
@@ -3127,24 +3168,37 @@ struct Resolver {
             return;
         }
         if (name == "overflow" || name == "overflow-x" || name == "overflow-y") {
-            // One keyword, or one per axis; any axis that is not visible
-            // makes the box contain its floats (the other axis computes to
-            // auto then, as the specification says).
+            // One keyword, or one per axis. Any axis that is not visible
+            // makes the box contain its floats and clip what it paints.
             if (values.empty() || values.size() > 2)
                 return;
-            bool visible = true;
+            std::vector<Overflow> written;
             for (ComponentValue const* value : values) {
                 if (!value->is_token(Token::Type::Ident))
                     return;
                 std::string_view const keyword = value->token().value;
-                if (ascii_ci_equals(keyword, "hidden") || ascii_ci_equals(keyword, "clip")
-                    || ascii_ci_equals(keyword, "auto") || ascii_ci_equals(keyword, "scroll")
+                if (ascii_ci_equals(keyword, "visible"))
+                    written.push_back(Overflow::Visible);
+                else if (ascii_ci_equals(keyword, "clip"))
+                    written.push_back(Overflow::Clip);
+                else if (ascii_ci_equals(keyword, "hidden") || ascii_ci_equals(keyword, "auto")
+                    || ascii_ci_equals(keyword, "scroll")
                     || ascii_ci_equals(keyword, "overlay")) // the legacy spelling of auto
-                    visible = false;
-                else if (!ascii_ci_equals(keyword, "visible"))
+                    written.push_back(Overflow::Hidden);
+                else
                     return;
             }
-            style.overflow = visible ? Overflow::Visible : Overflow::Hidden;
+            if (name == "overflow") {
+                style.overflow_x = written[0];
+                style.overflow_y = written.size() > 1 ? written[1] : written[0];
+            } else if (written.size() != 1) {
+                return; // a single axis takes a single keyword
+            } else if (name == "overflow-x") {
+                style.overflow_x = written[0];
+            } else {
+                style.overflow_y = written[0];
+            }
+            settle_overflow(style);
             return;
         }
         if (name == "flex-direction") {
@@ -4233,6 +4287,85 @@ struct Resolver {
             border_bottom_color_set = border_left_color_set = true;
             return;
         }
+        // Rounded corners. A radius is never negative and never auto; the
+        // shorthand takes one to four horizontal radii, then a slash and
+        // one to four vertical ones, in the order top-left, top-right,
+        // bottom-right, bottom-left.
+        if (name == "border-radius" || (name.starts_with("border-") && name.ends_with("-radius"))) {
+            auto const radii = [&](std::vector<ComponentValue const*> const& list,
+                                   std::vector<LengthPercent>& out) {
+                for (ComponentValue const* value : list) {
+                    std::optional<LengthPercent> const length
+                        = parse_length_percent(*value, context, false, true);
+                    if (!length)
+                        return false;
+                    // A written radius is never negative; what a calc()
+                    // works out to is settled where it is used and clamped
+                    // to zero there, so it is not thrown out here.
+                    if (!value->is_function() && (length->value < 0 || length->percent < 0))
+                        return false;
+                    out.push_back(*length);
+                }
+                return !out.empty() && out.size() <= 4;
+            };
+            auto const corner = [](std::vector<LengthPercent> const& list, std::size_t at) {
+                // One value covers every corner, two the diagonals, three
+                // leave the fourth to match the second.
+                switch (list.size()) {
+                case 1: return list[0];
+                case 2: return list[at % 2];
+                case 3: return at == 3 ? list[1] : list[at];
+                default: return list[at];
+                }
+            };
+            std::vector<ComponentValue const*> horizontal;
+            std::vector<ComponentValue const*> vertical;
+            bool past_slash = false;
+            for (ComponentValue const* value : values) {
+                if (value->is_token(Token::Type::Delim) && value->token().delim == U'/') {
+                    if (past_slash)
+                        return;
+                    past_slash = true;
+                    continue;
+                }
+                (past_slash ? vertical : horizontal).push_back(value);
+            }
+            std::vector<LengthPercent> across;
+            std::vector<LengthPercent> down;
+            if (!radii(horizontal, across))
+                return;
+            if (!past_slash)
+                down = across; // no slash: the corners are quarter circles
+            else if (!radii(vertical, down))
+                return;
+            if (name == "border-radius") {
+                CornerRadius* const corners[4] = { &style.border_top_left_radius,
+                    &style.border_top_right_radius, &style.border_bottom_right_radius,
+                    &style.border_bottom_left_radius };
+                for (std::size_t at = 0; at < 4; ++at) {
+                    corners[at]->x = corner(across, at);
+                    corners[at]->y = corner(down, at);
+                }
+                return;
+            }
+            // A corner longhand: one length, or two for an ellipse.
+            if (past_slash || across.size() > 2)
+                return;
+            CornerRadius* corner_style = nullptr;
+            if (name == "border-top-left-radius")
+                corner_style = &style.border_top_left_radius;
+            else if (name == "border-top-right-radius")
+                corner_style = &style.border_top_right_radius;
+            else if (name == "border-bottom-right-radius")
+                corner_style = &style.border_bottom_right_radius;
+            else if (name == "border-bottom-left-radius")
+                corner_style = &style.border_bottom_left_radius;
+            if (!corner_style)
+                return;
+            corner_style->x = across[0];
+            corner_style->y = across.size() > 1 ? across[1] : across[0];
+            return;
+        }
         if (name.starts_with("border-") && values.size() == 1) {
             // The side longhands: border-top-width, border-left-style,
             // border-bottom-color and the rest.
@@ -4318,14 +4451,19 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
             continue;
         if (html_it->second.overflow != Overflow::Visible) {
             html_it->second.overflow = Overflow::Visible;
+            html_it->second.overflow_x = Overflow::Visible;
+            html_it->second.overflow_y = Overflow::Visible;
             break;
         }
         for (dom::Node const* grandchild : child->children()) {
             if (!grandchild->is_element() || !static_cast<dom::Element const*>(grandchild)->is_html("body"))
                 continue;
             if (auto const body_it = resolver.map.find(static_cast<dom::Element const*>(grandchild));
-                body_it != resolver.map.end())
+                body_it != resolver.map.end()) {
                 body_it->second.overflow = Overflow::Visible;
+                body_it->second.overflow_x = Overflow::Visible;
+                body_it->second.overflow_y = Overflow::Visible;
+            }
             break;
         }
         break;

@@ -1,6 +1,7 @@
 #include "core/Bitmap.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace sashfold {
 
@@ -26,15 +27,56 @@ Color Bitmap::pixel(int x, int y) const
     return Color { m_pixels[at + 0u], m_pixels[at + 1u], m_pixels[at + 2u], m_pixels[at + 3u] };
 }
 
-void Bitmap::set_pixel(int x, int y, Color color)
+namespace {
+
+// A color faded to the share of the pixel a clip leaves writable.
+Color faded(Color color, unsigned coverage)
 {
-    if (!writable(x, y))
-        return;
+    color.a = static_cast<std::uint8_t>((static_cast<unsigned>(color.a) * coverage + 127u) / 255u);
+    return color;
+}
+
+}
+
+std::uint8_t Bitmap::round_clip_coverage(int x, int y) const
+{
+    unsigned coverage = 255;
+    for (RoundedRect const& shape : m_round_clips) {
+        unsigned const own = shape.coverage(x, y);
+        if (own == 0)
+            return 0;
+        if (own == 255)
+            continue;
+        coverage = (coverage * own + 127u) / 255u;
+        if (coverage == 0)
+            return 0;
+    }
+    return static_cast<std::uint8_t>(coverage);
+}
+
+void Bitmap::write_raw(int x, int y, Color color)
+{
     std::size_t const at = offset_of(x, y);
     m_pixels[at + 0u] = color.r;
     m_pixels[at + 1u] = color.g;
     m_pixels[at + 2u] = color.b;
     m_pixels[at + 3u] = color.a;
+}
+
+void Bitmap::set_pixel(int x, int y, Color color)
+{
+    if (!writable(x, y))
+        return;
+    if (!m_round_clips.empty()) {
+        unsigned const coverage = round_clip_coverage(x, y);
+        if (coverage == 0)
+            return;
+        if (coverage < 255) {
+            blend_raw(x, y, faded(color, coverage));
+            return;
+        }
+    }
+    write_raw(x, y, color);
 }
 
 void Bitmap::blend_pixel(int x, int y, Color color)
@@ -43,8 +85,21 @@ void Bitmap::blend_pixel(int x, int y, Color color)
         return;
     if (color.a == 0)
         return;
+    if (!m_round_clips.empty()) {
+        unsigned const coverage = round_clip_coverage(x, y);
+        if (coverage == 0)
+            return;
+        color = faded(color, coverage);
+    }
+    blend_raw(x, y, color);
+}
+
+void Bitmap::blend_raw(int x, int y, Color color)
+{
+    if (color.a == 0)
+        return;
     if (color.a == 255) {
-        set_pixel(x, y, color);
+        write_raw(x, y, color);
         return;
     }
 
@@ -57,7 +112,7 @@ void Bitmap::blend_pixel(int x, int y, Color color)
     unsigned const dst_contrib = (static_cast<unsigned>(dst.a) * inverse + 127u) / 255u;
     unsigned const out_alpha = src_alpha + dst_contrib;
     if (out_alpha == 0) {
-        set_pixel(x, y, Color::rgba(0, 0, 0, 0));
+        write_raw(x, y, Color::rgba(0, 0, 0, 0));
         return;
     }
 
@@ -69,7 +124,7 @@ void Bitmap::blend_pixel(int x, int y, Color color)
         return static_cast<std::uint8_t>(std::min(value, 255u));
     };
 
-    set_pixel(x, y,
+    write_raw(x, y,
         Color { channel(color.r, dst.r),
             channel(color.g, dst.g),
             channel(color.b, dst.b),
@@ -134,8 +189,102 @@ void Bitmap::fill_round_rect(Rect rect, int radius, Color color)
     }
 }
 
+void Bitmap::fill_rounded(RoundedRect const& shape, Color color)
+{
+    if (color.a == 0 || shape.is_empty())
+        return;
+    if (shape.is_rectangular()) {
+        fill_rect(shape.bounds(), color);
+        return;
+    }
+    Rect const area = shape.bounds();
+    int x0 = std::max(area.x, 0);
+    int y0 = std::max(area.y, 0);
+    int x1 = std::min(area.right(), m_width);
+    int y1 = std::min(area.bottom(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
+    for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            unsigned const covered = shape.coverage(x, y);
+            if (covered == 0)
+                continue;
+            if (covered == 255)
+                blend_pixel(x, y, color);
+            else
+                blend_pixel(x, y, faded(color, covered));
+        }
+    }
+}
+
+void Bitmap::fill_ring(RoundedRect const& outer, RoundedRect const& inner,
+    std::function<bool(float, float, Color&)> const& color_at)
+{
+    if (outer.is_empty())
+        return;
+    Rect const area = outer.bounds();
+    int x0 = std::max(area.x, 0);
+    int y0 = std::max(area.y, 0);
+    int x1 = std::min(area.right(), m_width);
+    int y1 = std::min(area.bottom(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
+    for (int y = y0; y < y1; ++y) {
+        // The columns this row lies wholly inside the inner shape hold
+        // none of the ring: on a big box that is nearly the whole row.
+        int hollow_from = x1;
+        int hollow_to = x1;
+        float top_left = 0;
+        float top_right = 0;
+        float bottom_left = 0;
+        float bottom_right = 0;
+        if (inner.span_at(static_cast<float>(y), top_left, top_right)
+            && inner.span_at(static_cast<float>(y + 1) - 0.001f, bottom_left, bottom_right)) {
+            int const from = static_cast<int>(std::ceil(std::max(top_left, bottom_left)));
+            int const to = static_cast<int>(std::floor(std::min(top_right, bottom_right)));
+            if (to > from) {
+                hollow_from = std::max(x0, from);
+                hollow_to = std::min(x1, to);
+            }
+        }
+        for (int x = x0; x < x1; ++x) {
+            if (x >= hollow_from && x < hollow_to) {
+                x = hollow_to - 1;
+                continue;
+            }
+            unsigned const outside = outer.coverage(x, y);
+            if (outside == 0)
+                continue;
+            unsigned const inside = inner.coverage(x, y);
+            if (inside >= outside)
+                continue;
+            Color color;
+            if (!color_at(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f, color))
+                continue;
+            if (color.a == 0)
+                continue;
+            blend_pixel(x, y, faded(color, outside - inside));
+        }
+    }
+}
+
 void Bitmap::blit(Bitmap const& source, int x, int y)
 {
+    if (!m_round_clips.empty()) {
+        // Row copies cannot fade a curve: fall back to per-pixel writes.
+        for (int row = 0; row < source.height(); ++row)
+            for (int column = 0; column < source.width(); ++column)
+                set_pixel(x + column, y + row, source.pixel(column, row));
+        return;
+    }
     int x0 = std::max(x, 0);
     int y0 = std::max(y, 0);
     int x1 = std::min(x + source.width(), m_width);

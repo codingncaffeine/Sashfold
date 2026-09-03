@@ -229,9 +229,14 @@ enum class Clear : std::uint8_t {
 
 enum class Overflow : std::uint8_t {
     Visible,
-    // hidden, clip, auto and scroll: the box contains its floats, keeps
-    // clear of others, and clips what it paints to its padding box;
-    // scrolling arrives with scroll containers.
+    // clip: the box clips what it paints to its padding box and nothing
+    // scrolls. It is kept apart from the rest because it alone lets the
+    // other axis stay visible — and a box that clips only one axis does
+    // not round what it holds along its corners.
+    Clip,
+    // hidden, auto and scroll: the box contains its floats, keeps clear
+    // of others, and clips what it paints to its padding box; scrolling
+    // arrives with scroll containers.
     Hidden,
 };
 
@@ -508,6 +513,22 @@ struct BorderSide {
     bool current_color = true;
 };
 
+// One corner's two radii: the horizontal one measured along the border
+// box's width, the vertical one along its height, so a percentage in
+// each resolves against that side. Either at zero squares the corner.
+struct CornerRadius {
+    LengthPercent x = LengthPercent::px(0);
+    LengthPercent y = LengthPercent::px(0);
+
+    bool is_zero() const
+    {
+        auto const nothing = [](LengthPercent const& length) {
+            return length.value == 0 && length.percent == 0;
+        };
+        return nothing(x) || nothing(y);
+    }
+};
+
 struct ComputedStyle {
     // Box model.
     Display display = Display::Inline;
@@ -531,9 +552,18 @@ struct ComputedStyle {
     BorderSide border_right;
     BorderSide border_bottom;
     BorderSide border_left;
+    // The four corners' radii, clockwise from the top left.
+    CornerRadius border_top_left_radius;
+    CornerRadius border_top_right_radius;
+    CornerRadius border_bottom_right_radius;
+    CornerRadius border_bottom_left_radius;
     Float floating = Float::None;
     Clear clear = Clear::None;
+    // Whether the box clips at all — either axis is enough, and layout
+    // asks only this much — and what each axis was left holding.
     Overflow overflow = Overflow::Visible;
+    Overflow overflow_x = Overflow::Visible;
+    Overflow overflow_y = Overflow::Visible;
     // overflow applies to block containers, not to table rows and row
     // groups (they lay out as blocks until tables land, but never clip).
     bool overflow_applies = true;
@@ -578,6 +608,18 @@ struct ComputedStyle {
     bool positioned() const { return position != Position::Static; }
     bool out_of_flow() const { return position == Position::Absolute || position == Position::Fixed; }
     bool hidden() const { return visibility == Visibility::Hidden; }
+    // Any corner curved: the box is painted as a rounded shape. A table
+    // in the collapsing border model has square corners whatever its
+    // radii say, and so does everything inside it — the borders it
+    // shares with its neighbours have nowhere to curve to.
+    bool rounded() const
+    {
+        if (border_collapse == BorderCollapse::Collapse
+            && (is_table_display(display) || is_table_internal(display)))
+            return false;
+        return !border_top_left_radius.is_zero() || !border_top_right_radius.is_zero()
+            || !border_bottom_right_radius.is_zero() || !border_bottom_left_radius.is_zero();
+    }
 
     // Flex and grid containers and their items.
     FlexDirection flex_direction = FlexDirection::Row;

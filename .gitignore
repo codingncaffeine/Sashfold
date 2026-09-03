@@ -16,3 +16,6 @@ _plans/
 
 # The Web Platform Tests checkout tools/wpt-fetch.sh makes (never committed)
 /wpt/
+
+# The two-compiler build script's logs at the repo root
+/build-*.log

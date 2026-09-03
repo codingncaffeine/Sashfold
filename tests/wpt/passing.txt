@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (6245 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (6249 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -3836,7 +3836,7 @@ css/css-backgrounds/background-position/subpixel-position-center.tentative.html
 css/css-backgrounds/background-repeat-round-1c.html
 css/css-backgrounds/background-repeat-space-10.html
 css/css-backgrounds/background-repeat-space-9.html
-css/css-backgrounds/background-rounded-image-clip-002.html
+css/css-backgrounds/background-rounded-image-clip-001.html
 css/css-backgrounds/background-size-007.html
 css/css-backgrounds/background-size-010.html
 css/css-backgrounds/background-size-041.html
@@ -3911,6 +3911,7 @@ css/css-backgrounds/border-radius-011.xht
 css/css-backgrounds/border-radius-012.html
 css/css-backgrounds/border-radius-013.html
 css/css-backgrounds/border-radius-clip-002.htm
+css/css-backgrounds/border-radius-clipping-002.html
 css/css-backgrounds/border-radius-clipping-with-transform-001.html
 css/css-backgrounds/border-radius-horizontal-value-is-zero.html
 css/css-backgrounds/border-radius-shorthand-002.html
@@ -5401,6 +5402,10 @@ css/css-grid/table-grid-item-dynamic-004.html
 css/css-overflow/abspos-shrink-to-fit-with-scrollable-descendant.html
 css/css-overflow/button-with-scrollable-descendant.html
 css/css-overflow/clip-001.html
+css/css-overflow/clip-002.html
+css/css-overflow/clip-003.html
+css/css-overflow/clip-004.html
+css/css-overflow/clip-005.html
 css/css-overflow/clip-006.html
 css/css-overflow/clip-007.html
 css/css-overflow/clip-008.html
@@ -5479,7 +5484,6 @@ css/css-overflow/overflow-clip-margin-008.html
 css/css-overflow/overflow-clip-margin-009.html
 css/css-overflow/overflow-clip-margin-021.html
 css/css-overflow/overflow-clip-margin-022.html
-css/css-overflow/overflow-clip-margin-border-radius.html
 css/css-overflow/overflow-clip-margin-content-box-dynamic.html
 css/css-overflow/overflow-clip-margin-mul-column-padding-box.html
 css/css-overflow/overflow-clip-rounded-table.html

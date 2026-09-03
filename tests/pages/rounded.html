@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Rounded corners</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 384px; color: #123 }
+  h2 { font-size: 14px; margin: 8px 0 4px }
+  .row { margin-bottom: 8px }
+  .box { display: inline-block; vertical-align: top; width: 84px; height: 48px; margin-right: 6px }
+  #even { background: #36c; border-radius: 10px }
+  #each { background: #c36; border-radius: 4px 12px 24px 0 }
+  #ellipse { background: #693; border-radius: 40px 8px / 16px 8px }
+  #pill { background: #963; border-radius: 999px }
+  #percent { background: #369; border-radius: 50% }
+  #thick { background: #eee; border: 8px solid #275; border-radius: 18px }
+  #sides { background: #fff; border-radius: 20px;
+           border-top: 9px solid #c22; border-right: 9px solid #2a2;
+           border-bottom: 9px solid #22c; border-left: 9px solid #da0 }
+  #thin { background: #fed; border: 1px solid #a63; border-radius: 12px }
+  #squared { background: #cde; border: 6px solid #269; border-radius: 3px }
+  #wash { border-radius: 16px; background: linear-gradient(120deg, #f60, #06f) }
+  #tiled { border-radius: 16px; background: repeating-linear-gradient(90deg, #486 0, #486 6px, #dfe 6px, #dfe 12px) }
+  #inside { border-radius: 16px; background: #ddd; border: 3px solid #555; background-clip: padding-box }
+  #holds { width: 120px; height: 48px; border-radius: 16px; overflow: hidden; border: 2px solid #333 }
+  #holds p { margin: 0; height: 48px; background: #334; color: #fff; padding: 2px 6px }
+  #tiny { background: #900; border-radius: 30px; width: 20px; height: 14px }
+  #table { border-collapse: collapse; border-radius: 14px; border: 3px solid #486 }
+  #table td { border: 2px solid #486; border-radius: 8px; width: 34px; height: 20px }
+</style>
+</head>
+<body>
+<h2>One radius, four, an ellipse, a pill, a half</h2>
+<div class="row">
+  <div class="box" id="even"></div><div class="box" id="each"></div><div class="box" id="ellipse"></div>
+</div>
+<div class="row">
+  <div class="box" id="pill"></div><div class="box" id="percent"></div>
+</div>
+
+<h2>Borders: thick, four colors, hairline, radius under the border</h2>
+<div class="row">
+  <div class="box" id="thick"></div><div class="box" id="sides"></div><div class="box" id="thin"></div>
+</div>
+<div class="row">
+  <div class="box" id="squared"></div>
+</div>
+
+<h2>What the curve holds back</h2>
+<div class="row">
+  <div class="box" id="wash"></div><div class="box" id="tiled"></div><div class="box" id="inside"></div>
+</div>
+<div class="row">
+  <div class="box" id="holds"><p>clipped along the curve</p></div>
+  <div class="box" id="tiny"></div>
+</div>
+
+<h2>A collapsing table keeps its corners square</h2>
+<table id="table"><tr><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></table>
+</body>
+</html>

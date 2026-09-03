@@ -541,7 +541,7 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     else if (name == "vertical-align")
         return; // vertical-align is written
     else if (name.starts_with("border") && name.find("radius") != std::string::npos)
-        ++census["border-radius"];
+        return; // rounded corners are drawn
     else if (name == "box-shadow" || name == "text-shadow")
         ++census["shadows"];
     else if (name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")

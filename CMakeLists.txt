@@ -30,6 +30,7 @@ add_library(sashfold_core STATIC
   src/core/Json.cpp
   src/core/Normalize.cpp
   src/core/Png.cpp
+  src/core/RoundRect.cpp
   src/core/Unicode.cpp
   src/css/Grid.cpp
   src/css/Parser.cpp

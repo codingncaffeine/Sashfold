@@ -84,6 +84,72 @@ Area box_of(Context const& context, Fragment const& fragment, css::BackgroundBox
 
 Rect intersect(Rect const& a, Rect const& b);
 
+// --- Rounded corners --------------------------------------------------------------
+
+// A radius resolves against the border box: the horizontal one against
+// its width, the vertical one against its height.
+float resolve_radius(css::LengthPercent const& length, float base)
+{
+    return std::max(0.0f, resolve_length(length, base));
+}
+
+// The shape a box's border box makes, its corners curved by
+// border-radius and settled so no edge's two radii overrun it. The
+// straight edges land where `snap` puts them, so a square box paints
+// exactly the pixels the plain rectangle would.
+RoundedRect rounded_box(Context const& context, Fragment const& fragment)
+{
+    ComputedStyle const& style = *fragment.style;
+    Rect const box = snap(fragment.x + context.dx, fragment.y + context.dy, fragment.width, fragment.height);
+    RoundedRect shape = RoundedRect::of(box);
+    float const across = static_cast<float>(box.width);
+    float const down = static_cast<float>(box.height);
+    auto const corner = [&](css::CornerRadius const& radius, float& x, float& y) {
+        if (radius.is_zero())
+            return;
+        x = resolve_radius(radius.x, across);
+        y = resolve_radius(radius.y, down);
+    };
+    corner(style.border_top_left_radius, shape.top_left_x, shape.top_left_y);
+    corner(style.border_top_right_radius, shape.top_right_x, shape.top_right_y);
+    corner(style.border_bottom_right_radius, shape.bottom_right_x, shape.bottom_right_y);
+    corner(style.border_bottom_left_radius, shape.bottom_left_x, shape.bottom_left_y);
+    shape.settle();
+    return shape;
+}
+
+// The border box's shape narrowed to a background box: the padding box
+// inside the borders, or the content box inside the padding too. The
+// edges are snapped the same way `box_of` snaps them, so the curve and
+// the straight parts agree.
+RoundedRect rounded_area(Context const& context, Fragment const& fragment, css::BackgroundBox box)
+{
+    RoundedRect const outer = rounded_box(context, fragment);
+    if (box == css::BackgroundBox::BorderBox)
+        return outer;
+    ComputedStyle const& style = *fragment.style;
+    float left = style.border_left.width;
+    float top = style.border_top.width;
+    float right = style.border_right.width;
+    float bottom = style.border_bottom.width;
+    if (box == css::BackgroundBox::ContentBox) {
+        float const base = fragment.width;
+        left += resolve_length(style.padding_left, base);
+        top += resolve_length(style.padding_top, base);
+        right += resolve_length(style.padding_right, base);
+        bottom += resolve_length(style.padding_bottom, base);
+    }
+    Area const inner = box_of(context, fragment, box);
+    Rect const snapped = snap(inner.x, inner.y, inner.width, inner.height);
+    RoundedRect shape = outer.inset(left, top, right, bottom);
+    shape.x = static_cast<float>(snapped.x);
+    shape.y = static_cast<float>(snapped.y);
+    shape.width = static_cast<float>(snapped.width);
+    shape.height = static_cast<float>(snapped.height);
+    shape.settle();
+    return shape;
+}
+
 // The color at `t` along a gradient whose stops are settled at positions
 // in [0, 1] (repeating ones wrap over their span).
 Color gradient_color(std::vector<std::pair<float, Color>> const& stops, float t, bool repeating)
@@ -397,6 +463,12 @@ void paint_background_layers(Context& context, Fragment const& fragment)
             end_y = painting.y + painting.height;
         }
         context.target.set_clip(clip_rect);
+        std::size_t const rounds = context.target.round_clip_depth();
+        if (style.rounded()) {
+            RoundedRect const curve = rounded_area(context, fragment, clip);
+            if (!curve.is_rectangular())
+                context.target.push_round_clip(curve);
+        }
         int tiles = 0;
         for (float ty = start_y; ty < end_y && tiles < 100000; ty += h) {
             for (float tx = start_x; tx < end_x && tiles < 100000; tx += w) {
@@ -407,8 +479,50 @@ void paint_background_layers(Context& context, Fragment const& fragment)
                     paint_gradient(context.target, *image.gradient, Area { tx, ty, w, h }, clip_rect);
             }
         }
+        context.target.truncate_round_clips(rounds);
         context.target.set_clip(saved);
     }
+}
+
+// The four borders of a box whose corners are curved: the ring between
+// the border box's shape and the padding box's, every pixel taking the
+// color of the side whose edge is nearest measured in that side's own
+// width — which puts the seam between two colors on the corner's
+// diagonal, where CSS 2.1 §8.5.4 asks for it.
+void paint_rounded_borders(Context& context, Fragment const& fragment, RoundedRect const& outer)
+{
+    ComputedStyle const& style = *fragment.style;
+    auto const drawn = [](css::BorderSide const& side) {
+        return side.style == BorderStyle::Solid && side.width > 0 ? side.width : 0.0f;
+    };
+    float const top = drawn(style.border_top);
+    float const right = drawn(style.border_right);
+    float const bottom = drawn(style.border_bottom);
+    float const left = drawn(style.border_left);
+    if (top <= 0 && right <= 0 && bottom <= 0 && left <= 0)
+        return;
+    RoundedRect const inner = outer.inset(left, top, right, bottom);
+    float const outer_right = outer.x + outer.width;
+    float const outer_bottom = outer.y + outer.height;
+    context.target.fill_ring(outer, inner, [&](float px, float py, Color& color) {
+        float nearest = 0;
+        bool found = false;
+        auto const consider = [&](float width, Color const& candidate, float distance) {
+            if (width <= 0)
+                return;
+            float const reach = distance / width;
+            if (found && reach >= nearest)
+                return;
+            nearest = reach;
+            color = candidate;
+            found = true;
+        };
+        consider(top, style.border_top.color, py - outer.y);
+        consider(right, style.border_right.color, outer_right - px);
+        consider(bottom, style.border_bottom.color, outer_bottom - py);
+        consider(left, style.border_left.color, px - outer.x);
+        return found;
+    });
 }
 
 void paint_background_and_borders(Context& context, Fragment const& fragment,
@@ -417,16 +531,28 @@ void paint_background_and_borders(Context& context, Fragment const& fragment,
     ComputedStyle const& style = *fragment.style;
     float const x = fragment.x + context.dx;
     float const y = fragment.y + context.dy;
+    RoundedRect const shape = style.rounded() ? rounded_box(context, fragment) : RoundedRect {};
+    bool const round = !shape.is_rectangular();
     if (!skip_background && style.background_color.a != 0) {
         // The color fills the last layer's clip box.
         css::BackgroundBox clip = css::BackgroundBox::BorderBox;
         if (style.background_clips && !style.background_clips->empty())
             clip = style.background_clips->back();
-        Area const area = box_of(context, fragment, clip);
-        context.target.fill_rect(snap(area.x, area.y, area.width, area.height), style.background_color);
+        if (round) {
+            context.target.fill_rounded(rounded_area(context, fragment, clip), style.background_color);
+        } else {
+            Area const area = box_of(context, fragment, clip);
+            context.target.fill_rect(
+                snap(area.x, area.y, area.width, area.height), style.background_color);
+        }
     }
     if (!skip_background && style.background_images && !style.background_images->empty())
         paint_background_layers(context, fragment);
+
+    if (round) {
+        paint_rounded_borders(context, fragment, shape);
+        return;
+    }
 
     if (style.border_top.style == BorderStyle::Solid && style.border_top.width > 0)
         context.target.fill_rect(snap(x, y, fragment.width, style.border_top.width),
@@ -572,8 +698,18 @@ void paint_box(Context& context, Fragment const& fragment, bool skip_background)
         paint_control(context, fragment);
     if (fragment.image && fragment.image->bitmap) {
         Fragment::ImageBox const& box = *fragment.image;
+        // A replaced element's picture is trimmed to the content edge's
+        // curve, whatever its overflow says (CSS Backgrounds §5.3).
+        std::size_t const rounds = context.target.round_clip_depth();
+        if (fragment.style->rounded()) {
+            RoundedRect const curve
+                = rounded_area(context, fragment, css::BackgroundBox::ContentBox);
+            if (!curve.is_rectangular())
+                context.target.push_round_clip(curve);
+        }
         context.target.draw_scaled(*box.bitmap,
             snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
+        context.target.truncate_round_clips(rounds);
     }
 }
 
@@ -595,19 +731,45 @@ std::optional<Rect> clip_within(Context const& context, Fragment const& fragment
         || !fragment.style->overflow_applies)
         return current;
     ComputedStyle const& style = *fragment.style;
-    Rect const box = snap(fragment.x + context.dx + style.border_left.width,
+    Rect box = snap(fragment.x + context.dx + style.border_left.width,
         fragment.y + context.dy + style.border_top.width,
         fragment.width - style.border_left.width - style.border_right.width,
         fragment.height - style.border_top.width - style.border_bottom.width);
+    // An axis left visible is not clipped at all: `overflow: clip visible`
+    // holds the sides in and lets the box run off the top and bottom.
+    if (style.overflow_x == css::Overflow::Visible) {
+        box.x = 0;
+        box.width = context.target.width();
+    }
+    if (style.overflow_y == css::Overflow::Visible) {
+        box.y = 0;
+        box.height = context.target.height();
+    }
     return current ? intersect(box, *current) : box;
 }
 
+// Whether a box's corners cut what it holds. Only a box that clips both
+// ways does: with one axis left visible there is nothing to round
+// against (CSS Overflow §corner clipping).
+bool clips_corners(Fragment const& fragment)
+{
+    return fragment.style && fragment.style->overflow_applies
+        && fragment.style->overflow_x != css::Overflow::Visible
+        && fragment.style->overflow_y != css::Overflow::Visible;
+}
+
 // Narrows the clip to a box's padding box while its contents paint, when
-// its overflow is not visible; returns what to restore.
+// its overflow is not visible; returns what to restore. A box with
+// curved corners clips along the curve as well.
 std::optional<Rect> clip_for(Context& context, Fragment const& fragment)
 {
     std::optional<Rect> const previous = context.target.clip();
     context.target.set_clip(clip_within(context, fragment, previous));
+    if (clips_corners(fragment) && fragment.style->rounded()) {
+        RoundedRect const curve = rounded_area(context, fragment, css::BackgroundBox::PaddingBox);
+        if (!curve.is_rectangular())
+            context.target.push_round_clip(curve);
+    }
     return previous;
 }
 
@@ -619,6 +781,7 @@ std::optional<Rect> clip_for(Context& context, Fragment const& fragment)
 // (opacity below one) paints as one unit.
 void paint_contents(Context& context, Fragment const& fragment)
 {
+    std::size_t const rounds = context.target.round_clip_depth();
     std::optional<Rect> const restore = clip_for(context, fragment);
     for (Fragment const& child : fragment.children) {
         if (child.floating || child.positioned)
@@ -640,6 +803,7 @@ void paint_contents(Context& context, Fragment const& fragment)
         if (!run.style->hidden())
             paint_run(context, run);
     }
+    context.target.truncate_round_clips(rounds);
     context.target.set_clip(restore);
 }
 
