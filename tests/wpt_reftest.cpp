@@ -420,10 +420,15 @@ private:
         text::FontManager::instance().set_page_fonts(css::collect_page_fonts(sheets, fetch_sheet, media));
         css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
         layout::ImageMap const images = ui::collect_images(*document, &*url, fetch_image, media);
+        // The pictures the stylesheets ask for. The painter draws them from a
+        // map of its own, and without it every background-image in the suite
+        // is a blank box.
+        layout::BackgroundImages const backgrounds
+            = ui::collect_background_images(styles, fetch_image);
         layout::LayoutResult const page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
         auto canvas = std::make_shared<Bitmap>(viewport_width, viewport_height, page.canvas_background);
-        paint::paint_page(*canvas, page);
+        paint::paint_page(*canvas, page, 0, 0, &backgrounds);
         rendered->bitmap = std::move(canvas);
         return rendered;
     }
