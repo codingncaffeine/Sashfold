@@ -624,5 +624,64 @@ int main()
         }
     }
 
+    // --- Absolutely positioned children in their grid areas ------------------------------
+    {
+        // The container is the containing block, so each child's placement
+        // names the area it is laid out in: with auto offsets it stands at
+        // that area's corner, and an offset counts from the area's edge.
+        Page const page = lay_out(page_with(R"HTML(<div id="g" style="display: grid; grid-template-columns: 200px 300px; grid-template-rows: 100px 150px; position: relative; width: 500px; height: 250px; border: 10px solid #000; padding: 5px">
+<div id="a" style="position: absolute; grid-column: 1; grid-row: 1">A</div>
+<div id="b" style="position: absolute; grid-column: 2; grid-row: 1">B</div>
+<div id="c" style="position: absolute; grid-column: 1 / 2; grid-row: 2 / 3; left: 0; right: 0; top: 0; bottom: 0"></div>
+<div id="d" style="position: absolute; grid-column: 2 / 3; grid-row: 2; left: 7px; top: 9px">D</div>
+<div id="e" style="position: absolute">E</div>
+<div id="f" style="position: absolute; grid-column: 2 / 3; left: 0; right: 0"></div>
+</div>)HTML"));
+        // The content box starts at 15 (10 of border, 5 of padding); the
+        // padding box at 10.
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        layout::Fragment const* b = find_box(page.result.root, "b");
+        layout::Fragment const* c = find_box(page.result.root, "c");
+        layout::Fragment const* d = find_box(page.result.root, "d");
+        layout::Fragment const* e = find_box(page.result.root, "e");
+        layout::Fragment const* f = find_box(page.result.root, "f");
+        if (CHECK(a && b && c && d && e && f)) {
+            CHECK(near(a->x, 15) && near(a->y, 15));
+            CHECK(near(b->x, 215) && near(b->y, 15));
+            // Stretched between four offsets: the whole of its area.
+            CHECK(near(c->x, 15) && near(c->y, 115));
+            CHECK(near(c->width, 200) && near(c->height, 150));
+            // The offsets count from the area's edges, not the padding box's.
+            CHECK(near(d->x, 222) && near(d->y, 124));
+            // No placement at all: it stands where it would have, in the
+            // padding box.
+            CHECK(near(e->x, 15) && near(e->y, 15));
+            // One axis placed and the other left alone: the column is the
+            // area's, and with no row named the box keeps the static
+            // position a sole grid item would have had, at the content edge.
+            CHECK(near(f->x, 215) && near(f->width, 300));
+            CHECK(near(f->y, 15));
+        }
+    }
+    {
+        // A line the grid does not have counts as auto, so that edge stays
+        // on the padding box; a container that is not a containing block
+        // gives no areas at all.
+        Page const page = lay_out(page_with(R"HTML(<div id="g" style="display: grid; grid-template-columns: 100px 100px; grid-template-rows: 50px; position: relative; width: 200px; height: 50px">
+<div id="a" style="position: absolute; grid-column: 7 / 9; grid-row: 1; left: 0; right: 0"></div>
+</div>
+<div id="h" style="display: grid; grid-template-columns: 100px 100px; width: 200px; height: 50px">
+<div id="b" style="position: absolute; grid-column: 2; grid-row: 1">B</div>
+</div>)HTML"));
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        layout::Fragment const* b = find_box(page.result.root, "b");
+        if (CHECK(a && b)) {
+            // Lines 7 and 9 are past the grid: the whole padding box.
+            CHECK(near(a->x, 0) && near(a->width, 200));
+            // The second grid contains nothing: b answers to the page.
+            CHECK(near(b->x, 0));
+        }
+    }
+
     return sashfold::test::report("grid");
 }

@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (6370 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (6395 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5017,6 +5017,23 @@ css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-003.htm
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-004.html
 css/css-grid/abspos/grid-fixedpos-static-position-not-containing-block.html
 css/css-grid/abspos/grid-positioned-item-dynamic-change-003.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-001.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-002.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-003.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-004.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-005.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-006.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-007.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-008.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-009.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-010.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-011.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-012.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-013.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-014.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-015.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-016.html
+css/css-grid/abspos/orthogonal-positioned-grid-items-017.html
 css/css-grid/abspos/positioned-grid-descendant-containing-block-001.html
 css/css-grid/abspos/positioned-grid-descendant-containing-block-002.html
 css/css-grid/abspos/positioned-grid-descendant-containing-block-003.html
@@ -5028,13 +5045,34 @@ css/css-grid/abspos/positioned-grid-descendant-containing-block-008.html
 css/css-grid/abspos/positioned-grid-descendant-containing-block-011.html
 css/css-grid/abspos/positioned-grid-descendant-containing-block-012.html
 css/css-grid/abspos/positioned-grid-descendant-containing-block-016.html
+css/css-grid/abspos/positioned-grid-items-001.html
+css/css-grid/abspos/positioned-grid-items-002.html
+css/css-grid/abspos/positioned-grid-items-003.html
+css/css-grid/abspos/positioned-grid-items-004.html
+css/css-grid/abspos/positioned-grid-items-005.html
+css/css-grid/abspos/positioned-grid-items-006.html
+css/css-grid/abspos/positioned-grid-items-007.html
+css/css-grid/abspos/positioned-grid-items-008.html
+css/css-grid/abspos/positioned-grid-items-009.html
+css/css-grid/abspos/positioned-grid-items-010.html
+css/css-grid/abspos/positioned-grid-items-011.html
+css/css-grid/abspos/positioned-grid-items-012.html
+css/css-grid/abspos/positioned-grid-items-013.html
+css/css-grid/abspos/positioned-grid-items-014.html
+css/css-grid/abspos/positioned-grid-items-015.html
+css/css-grid/abspos/positioned-grid-items-016.html
+css/css-grid/abspos/positioned-grid-items-017.html
 css/css-grid/abspos/positioned-grid-items-018.html
 css/css-grid/abspos/positioned-grid-items-019.html
 css/css-grid/abspos/positioned-grid-items-020.html
 css/css-grid/abspos/positioned-grid-items-021.html
+css/css-grid/abspos/positioned-grid-items-022.html
 css/css-grid/abspos/positioned-grid-items-024.html
+css/css-grid/abspos/positioned-grid-items-025.html
 css/css-grid/abspos/positioned-grid-items-026.html
+css/css-grid/abspos/positioned-grid-items-negative-indices-001.html
 css/css-grid/abspos/positioned-grid-items-negative-indices-002.html
+css/css-grid/abspos/positioned-grid-items-negative-indices-003.html
 css/css-grid/alignment/grid-align-baseline-005.html
 css/css-grid/alignment/grid-align-content-end-001.html
 css/css-grid/alignment/grid-align-content-space-between-001.html
@@ -5281,19 +5319,9 @@ css/css-grid/grid-items/replaced-element-015.html
 css/css-grid/grid-items/replaced-element-016.tentative.html
 css/css-grid/grid-items/table-with-infinite-max-intrinsic-width.html
 css/css-grid/grid-lanes/abspos/column-grid-lanes-intrinsic-sizing-oof.html
-css/css-grid/grid-lanes/abspos/column-grid-lanes-out-of-flow-001.html
 css/css-grid/grid-lanes/abspos/column-grid-lanes-out-of-flow-004.html
 css/css-grid/grid-lanes/abspos/row-grid-lanes-intrinsic-sizing-oof.html
-css/css-grid/grid-lanes/abspos/row-grid-lanes-out-of-flow-001.html
-css/css-grid/grid-lanes/alignment/column-grid-lanes-alignment-positioned-items-001.html
-css/css-grid/grid-lanes/alignment/column-grid-lanes-alignment-positioned-items-002.html
-css/css-grid/grid-lanes/alignment/column-grid-lanes-alignment-positioned-items-003.html
-css/css-grid/grid-lanes/alignment/column-grid-lanes-alignment-positioned-items-004.html
 css/css-grid/grid-lanes/alignment/grid-lanes-content-distribution-001.html
-css/css-grid/grid-lanes/alignment/row-grid-lanes-alignment-positioned-items-001.html
-css/css-grid/grid-lanes/alignment/row-grid-lanes-alignment-positioned-items-002.html
-css/css-grid/grid-lanes/alignment/row-grid-lanes-alignment-positioned-items-003.html
-css/css-grid/grid-lanes/alignment/row-grid-lanes-alignment-positioned-items-004.html
 css/css-grid/grid-lanes/animation/grid-template-columns-001.html
 css/css-grid/grid-lanes/animation/grid-template-rows-001.html
 css/css-grid/grid-lanes/column-empty-grid-lanes-container-001.html
@@ -5336,7 +5364,6 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/row-subgrid-gr
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-002.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-003.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-008.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-013.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-014.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-015.html
@@ -5348,7 +5375,6 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-lin
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-004.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-005.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-006.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-008.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-009.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-010.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-011.html
@@ -5493,7 +5519,6 @@ css/css-grid/subgrid/line-names-001.html
 css/css-grid/subgrid/line-names-002.html
 css/css-grid/subgrid/line-names-003.html
 css/css-grid/subgrid/line-names-007.html
-css/css-grid/subgrid/line-names-008.html
 css/css-grid/subgrid/line-names-013.html
 css/css-grid/subgrid/line-names-014.html
 css/css-grid/subgrid/line-names-015.html

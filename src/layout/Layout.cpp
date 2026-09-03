@@ -531,6 +531,13 @@ struct Layouter {
         float static_x = 0;
         float static_y = 0;
         unsigned serial = 0; // the record's order among all records made
+        // A grid container that is this box's containing block gives it the
+        // grid area its placement names instead of the padding box; an edge
+        // the placement leaves auto keeps the padding box's (css-grid-2 §9).
+        std::optional<float> area_left;
+        std::optional<float> area_right;
+        std::optional<float> area_top;
+        std::optional<float> area_bottom;
     };
     mutable std::vector<std::vector<OutOfFlow>> absolute_stack;
     mutable std::vector<OutOfFlow> fixed_boxes;
@@ -678,13 +685,19 @@ struct Layouter {
 
     // Lays the collected out-of-flow boxes out against their containing
     // block's padding box and adds them to `parent` as positioned children.
-    void place_out_of_flow(std::vector<OutOfFlow> const& boxes, float cb_x, float cb_y, float cb_width,
-        float cb_height, Fragment& parent, int list_depth) const
+    void place_out_of_flow(std::vector<OutOfFlow> const& boxes, float outer_x, float outer_y, float outer_width,
+        float outer_height, Fragment& parent, int list_depth) const
     {
         for (OutOfFlow const& box : boxes) {
             ComputedStyle const& s = *box.style;
             if (s.display == Display::TableColumn)
                 continue; // a column box renders nothing, positioned or not
+            // The padding box of the box that contains it — or, inside a
+            // grid, the area its placement named, edge by edge.
+            float const cb_x = box.area_left.value_or(outer_x);
+            float const cb_y = box.area_top.value_or(outer_y);
+            float const cb_width = std::max(0.0f, box.area_right.value_or(outer_x + outer_width) - cb_x);
+            float const cb_height = std::max(0.0f, box.area_bottom.value_or(outer_y + outer_height) - cb_y);
             float const margin_left = resolve(s.margin_left, cb_width);
             float const margin_right = resolve(s.margin_right, cb_width);
             float const margin_top = resolve(s.margin_top, cb_width);
@@ -727,8 +740,13 @@ struct Layouter {
                     cb_height - top - bottom - margin_top - margin_bottom - resolve(s.padding_top, cb_width)
                         - resolve(s.padding_bottom, cb_width) - s.border_top.width - s.border_bottom.width);
 
-            float const static_x = box.static_known ? box.static_x : cb_x;
-            float const static_y = box.static_known ? box.static_y : cb_y;
+            // Where the box would have stood in flow — but a box laid out
+            // in a grid area starts at that area's corner, wherever its
+            // flow position would have been.
+            bool const in_area_across = box.area_left.has_value() || box.area_right.has_value();
+            bool const in_area_down = box.area_top.has_value() || box.area_bottom.has_value();
+            float const static_x = box.static_known && !in_area_across ? box.static_x : cb_x;
+            float const static_y = box.static_known && !in_area_down ? box.static_y : cb_y;
             // Laid out at x = 0 first, then moved: a right-anchored box needs its width.
             FloatContext own_floats;
             Fragment fragment = layout_block(*box.element, s, 0, 0, cb_width, list_depth, own_floats, options);
@@ -4178,6 +4196,94 @@ struct Layouter {
     // placement, the column sizes, then the row sizes from the items'
     // heights at their widths, then each item in its area. Returns the
     // content height.
+    // Where an explicit grid line falls in the axis, measured from the
+    // container's content edge: the offset of the track that starts there,
+    // or the far edge of the last track that has a size.
+    static float line_position(std::vector<float> const& sizes, grid::TrackPositions const& positions,
+        std::vector<grid::Track> const& tracks, int line)
+    {
+        auto const n = static_cast<int>(sizes.size());
+        if (n == 0)
+            return 0;
+        if (line <= 0)
+            return positions.offsets[0];
+        if (line < n)
+            return positions.offsets[static_cast<std::size_t>(line)];
+        for (int t = n - 1; t >= 0; --t) {
+            auto const i = static_cast<std::size_t>(t);
+            if (!tracks[i].collapsed)
+                return positions.offsets[i] + sizes[i];
+        }
+        return positions.offsets[0];
+    }
+
+    // css-grid-2 §9: an absolutely positioned child of a grid container is
+    // not a grid item, but when the container is also its containing block
+    // its placement still names a grid area, and that area is what it is
+    // laid out in. A property that names a line the grid does not have —
+    // outside the implicit grid the in-flow items made — counts as auto,
+    // and an auto edge stays on the container's padding edge.
+    struct AbsEdges {
+        std::optional<int> start; // an index into the implicit grid's lines
+        std::optional<int> end;
+    };
+
+    static AbsEdges abspos_edges(css::GridLine const& start, css::GridLine const& end,
+        grid::AxisLines const& lines, int offset, std::size_t track_count)
+    {
+        AbsEdges edges;
+        bool const start_auto = start.is_auto();
+        bool const end_auto = end.is_auto();
+        if (start_auto && end_auto)
+            return edges;
+        grid::AxisPlacement const placement = grid::resolve_lines(start, end, lines);
+        auto const line_in_grid = [&](std::optional<int> line) -> std::optional<int> {
+            if (!line)
+                return std::nullopt; // a lone span has nothing to span from
+            int const index = offset + *line;
+            if (index < 0 || index > static_cast<int>(track_count))
+                return std::nullopt; // no such line: the property counts as auto
+            return index;
+        };
+        if (!start_auto)
+            edges.start = line_in_grid(placement.start);
+        if (!end_auto)
+            edges.end = line_in_grid(placement.end);
+        return edges;
+    }
+
+    // Hands each absolutely positioned child of a grid container that this
+    // container contains the grid area its placement names.
+    void give_grid_areas(dom::Element const& container, float content_x, float content_y,
+        AxisTracks const& columns, std::vector<float> const& column_sizes,
+        grid::TrackPositions const& column_positions, std::vector<grid::Track> const& column_tracks,
+        int column_offset, AxisTracks const& rows, std::vector<float> const& row_sizes,
+        grid::TrackPositions const& row_positions, std::vector<grid::Track> const& row_tracks,
+        int row_offset) const
+    {
+        if (absolute_stack.empty() || absolute_stack.back().empty())
+            return;
+        for (OutOfFlow& box : absolute_stack.back()) {
+            if (!box.element || box.element->parent() != &container)
+                continue;
+            ComputedStyle const& s = *box.style;
+            AbsEdges const across = abspos_edges(s.grid_column_start, s.grid_column_end, columns.lines,
+                column_offset, column_sizes.size());
+            AbsEdges const down
+                = abspos_edges(s.grid_row_start, s.grid_row_end, rows.lines, row_offset, row_sizes.size());
+            if (across.start)
+                box.area_left = content_x
+                    + line_position(column_sizes, column_positions, column_tracks, *across.start);
+            if (across.end)
+                box.area_right
+                    = content_x + line_position(column_sizes, column_positions, column_tracks, *across.end);
+            if (down.start)
+                box.area_top = content_y + line_position(row_sizes, row_positions, row_tracks, *down.start);
+            if (down.end)
+                box.area_bottom = content_y + line_position(row_sizes, row_positions, row_tracks, *down.end);
+        }
+    }
+
     float layout_grid(dom::Element const& container, ComputedStyle const& style, float content_x,
         float content_y, float content_width, Fragment& fragment, int list_depth,
         std::optional<float> own_height) const
@@ -4272,6 +4378,13 @@ struct Layouter {
             auto const [y, height]
                 = span_extent(row_pass.sizes, row_pass.positions, row_pass.tracks, item.area.row_start, item.area.row_end);
             place_grid_item(item, content_x + x, content_y + y, width, height, style, list_depth, fragment);
+        }
+        // An absolutely positioned child this container contains is laid
+        // out in the area its placement named, not in the padding box.
+        if (style.positioned()) {
+            give_grid_areas(container, content_x, content_y, columns, column_sizes, column_positions,
+                column_tracks, placed.column_offset, rows, row_pass.sizes, row_pass.positions,
+                row_pass.tracks, placed.row_offset);
         }
         if (row_height)
             return *row_height;
