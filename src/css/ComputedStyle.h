@@ -247,6 +247,13 @@ enum class Clear : std::uint8_t {
     Both,
 };
 
+// Which box a written width or height names. Layout sizes content boxes, so
+// under border-box the padding and the borders come off the written value.
+enum class BoxSizing : std::uint8_t {
+    ContentBox,
+    BorderBox,
+};
+
 enum class Overflow : std::uint8_t {
     Visible,
     // clip: the box clips what it paints to its padding box and nothing
@@ -572,6 +579,8 @@ struct ComputedStyle {
     LengthPercent max_width = LengthPercent::auto_value();
     LengthPercent min_height = LengthPercent::auto_value();
     LengthPercent max_height = LengthPercent::auto_value();
+    // Which box the six sizes above name.
+    BoxSizing box_sizing = BoxSizing::ContentBox;
     LengthPercent margin_top = LengthPercent::px(0);
     LengthPercent margin_right = LengthPercent::px(0);
     LengthPercent margin_bottom = LengthPercent::px(0);

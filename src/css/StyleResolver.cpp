@@ -2194,6 +2194,7 @@ struct Resolver {
                 15 },
             { "float", false, [](S& to, S const& from) { to.floating = from.floating; }, 0 },
             { "clear", false, [](S& to, S const& from) { to.clear = from.clear; }, 0 },
+            { "box-sizing", false, [](S& to, S const& from) { to.box_sizing = from.box_sizing; }, 0 },
             { "overflow", false,
                 [](S& to, S const& from) {
                     to.overflow = from.overflow;
@@ -3310,6 +3311,16 @@ struct Resolver {
                 style.floating = Float::Right;
             else if (ascii_ci_equals(keyword, "none"))
                 style.floating = Float::None;
+            return;
+        }
+        if (name == "box-sizing") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "border-box"))
+                style.box_sizing = BoxSizing::BorderBox;
+            else if (ascii_ci_equals(keyword, "content-box"))
+                style.box_sizing = BoxSizing::ContentBox;
             return;
         }
         if (name == "clear") {

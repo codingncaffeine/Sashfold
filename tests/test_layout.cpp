@@ -1119,5 +1119,99 @@ int main(int argc, char** argv)
         }
     }
 
+    // box-sizing: border-box — a written width, its bounds and a flex basis
+    // name the border box, so the padding and the borders come off them; the
+    // content floors at zero when they are wider than the written size. The
+    // content-box box beside the first one is the control.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { box-sizing: border-box }
+  #w, #cb { width: 200px; padding: 0 10px; border-left: 5px solid; border-right: 5px solid }
+  #cb { box-sizing: content-box }
+  #mx { max-width: 200px; padding: 0 20px }
+  #mn { width: 50px; min-width: 200px; padding: 0 20px }
+  #pc { width: 50%; padding: 0 10px }
+  #sm { width: 10px; padding: 0 20px }
+  #h { height: 100px; padding: 20px 0; border-top: 5px solid; border-bottom: 5px solid }
+  #flex { display: flex }
+  #flex > div { flex: 0 0 100px; padding: 0 10px; border-left: 5px solid; border-right: 5px solid }
+</style></head><body>
+<div id=w><div id=wi>x</div></div>
+<div id=cb><div id=cbi>x</div></div>
+<div id=mx><div id=mxi>x</div></div>
+<div id=mn><div id=mni>x</div></div>
+<div id=pc><div id=pci>x</div></div>
+<div id=sm><div id=smi>x</div></div>
+<div id=h></div>
+<div id=flex><div id=f1>a</div><div id=f2>b</div></div>
+</body></html>)";
+        Page const page = lay_out(html, 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const box_of = [&](std::string_view id) { return find(page.result.root, id); };
+
+        // A written width is the border box: 200 across, 170 of content.
+        if (layout::Fragment const* w = box_of("w"); CHECK(w != nullptr)) {
+            CHECK_EQ(w->width, 200.0f);
+            if (layout::Fragment const* inner = box_of("wi"); CHECK(inner != nullptr))
+                CHECK_EQ(inner->width, 170.0f); // 200 - 20 padding - 10 border
+        }
+        // The control: content-box puts the edges outside the 200.
+        if (layout::Fragment const* cb = box_of("cb"); CHECK(cb != nullptr)) {
+            CHECK_EQ(cb->width, 230.0f);
+            if (layout::Fragment const* inner = box_of("cbi"); CHECK(inner != nullptr))
+                CHECK_EQ(inner->width, 200.0f);
+        }
+        // A maximum names the border box: the auto width stops at 200.
+        if (layout::Fragment const* mx = box_of("mx"); CHECK(mx != nullptr)) {
+            CHECK_EQ(mx->width, 200.0f);
+            if (layout::Fragment const* inner = box_of("mxi"); CHECK(inner != nullptr))
+                CHECK_EQ(inner->width, 160.0f);
+        }
+        // So does a minimum: it lifts the border box from 50 to 200.
+        if (layout::Fragment const* mn = box_of("mn"); CHECK(mn != nullptr)) {
+            CHECK_EQ(mn->width, 200.0f);
+            if (layout::Fragment const* inner = box_of("mni"); CHECK(inner != nullptr))
+                CHECK_EQ(inner->width, 160.0f);
+        }
+        // A percentage resolves first, then the edges come off it.
+        if (layout::Fragment const* pc = box_of("pc"); CHECK(pc != nullptr)) {
+            CHECK_EQ(pc->width, 200.0f); // 50% of 400
+            if (layout::Fragment const* inner = box_of("pci"); CHECK(inner != nullptr))
+                CHECK_EQ(inner->width, 180.0f);
+        }
+        // Edges wider than the written width: the content floors at zero and
+        // the border box is the edges themselves.
+        if (layout::Fragment const* sm = box_of("sm"); CHECK(sm != nullptr)) {
+            CHECK_EQ(sm->width, 40.0f);
+            if (layout::Fragment const* inner = box_of("smi"); CHECK(inner != nullptr))
+                CHECK_EQ(inner->width, 0.0f);
+        }
+        // A written height is the border box too.
+        if (layout::Fragment const* h = box_of("h"); CHECK(h != nullptr))
+            CHECK_EQ(h->height, 100.0f); // 50 of content, 40 padding, 10 border
+        // A flex basis names the border box: each item is 100 across, the
+        // second starting where the first ends.
+        if (layout::Fragment const* f1 = box_of("f1"); CHECK(f1 != nullptr))
+            CHECK_EQ(f1->width, 100.0f);
+        if (layout::Fragment const* f2 = box_of("f2"); CHECK(f2 != nullptr)) {
+            CHECK_EQ(f2->width, 100.0f);
+            CHECK_EQ(f2->x, 100.0f);
+        }
+    }
+
     return test::report("layout");
 }

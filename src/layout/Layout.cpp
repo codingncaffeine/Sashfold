@@ -231,48 +231,95 @@ int attribute_int(dom::Element const& element, char const* name, int fallback)
     return digits == 0 ? fallback : value;
 }
 
+// Whether a written size names the border box rather than the content box.
+bool sizes_border_box(ComputedStyle const& style)
+{
+    return style.box_sizing == css::BoxSizing::BorderBox;
+}
+
+// A written size as a content size. Under border-box the padding and the
+// borders are counted inside the written value, so they come off it, and
+// what is left is floored at zero.
+float as_content_size(ComputedStyle const& style, float written, float edges)
+{
+    return sizes_border_box(style) ? std::max(0.0f, written - edges) : written;
+}
+
+// What a box carries either side of its content, and above and below it.
+// A percentage padding is of the containing width in both axes, as CSS
+// says; without a containing width to go on it reads as zero.
+float horizontal_edges_of(ComputedStyle const& style, float containing_width)
+{
+    return resolve(style.padding_left, containing_width) + resolve(style.padding_right, containing_width)
+        + style.border_left.width + style.border_right.width;
+}
+
+float vertical_edges_of(ComputedStyle const& style, float containing_width)
+{
+    return resolve(style.padding_top, containing_width) + resolve(style.padding_bottom, containing_width)
+        + style.border_top.width + style.border_bottom.width;
+}
+
 // A width held within the style's min-width and max-width, percentages
 // against the containing width; an auto minimum is zero, an auto maximum
-// is none.
-float clamp_width(ComputedStyle const& style, float width, float containing_width)
+// is none. `horizontal_edges` is what the box carries either side, needed
+// only to read a border-box bound as a content one — left out, it is taken
+// from the style, which is right whenever the padding is not a percentage
+// of a width this call was not told.
+float clamp_width(ComputedStyle const& style, float width, float containing_width,
+    std::optional<float> horizontal_edges = std::nullopt)
 {
     // A percentage bound needs a containing width to resolve against;
     // without one (intrinsic sizing) it reads as none.
     auto const applies = [&](LengthPercent const& bound) {
         return !bound.is_auto() && (bound.kind == LengthPercent::Kind::Px || containing_width > 0);
     };
+    float const edges = horizontal_edges.value_or(horizontal_edges_of(style, containing_width));
+    auto const bound = [&](LengthPercent const& length) {
+        return as_content_size(style, resolve(length, containing_width), edges);
+    };
     if (applies(style.max_width))
-        width = std::min(width, resolve(style.max_width, containing_width));
+        width = std::min(width, bound(style.max_width));
     if (applies(style.min_width))
-        width = std::max(width, resolve(style.min_width, containing_width));
+        width = std::max(width, bound(style.min_width));
     return std::max(0.0f, width);
 }
 
 // The same for a height: a length always, a percentage only against a
 // definite containing height — without one it reads as none, as the
 // specification says.
-float clamp_height(ComputedStyle const& style, float height, std::optional<float> containing_height = std::nullopt)
+float clamp_height(ComputedStyle const& style, float height, std::optional<float> containing_height = std::nullopt,
+    std::optional<float> vertical_edges = std::nullopt)
 {
     auto const applies = [&](LengthPercent const& bound) {
         return !bound.is_auto() && (bound.kind == LengthPercent::Kind::Px || containing_height.has_value());
     };
+    // A vertical percentage padding is of the containing WIDTH, which this
+    // call does not know; a caller with padding written that way passes the
+    // edges in rather than leaving them to be read off the style here.
+    float const edges = vertical_edges.value_or(vertical_edges_of(style, 0));
+    auto const bound = [&](LengthPercent const& length) {
+        return as_content_size(style, resolve(length, containing_height.value_or(0)), edges);
+    };
     if (applies(style.max_height))
-        height = std::min(height, resolve(style.max_height, containing_height.value_or(0)));
+        height = std::min(height, bound(style.max_height));
     if (applies(style.min_height))
-        height = std::max(height, resolve(style.min_height, containing_height.value_or(0)));
+        height = std::max(height, bound(style.min_height));
     return std::max(0.0f, height);
 }
 
 // A written height: a length, or a percentage of a definite containing
 // height; nullopt when it is auto or has no base.
-std::optional<float> definite_height_of(ComputedStyle const& style, std::optional<float> containing_height)
+std::optional<float> definite_height_of(ComputedStyle const& style, std::optional<float> containing_height,
+    std::optional<float> vertical_edges = std::nullopt)
 {
+    float const edges = vertical_edges.value_or(vertical_edges_of(style, 0));
     if (style.height.is_auto())
         return std::nullopt;
     if (style.height.kind == LengthPercent::Kind::Px)
-        return style.height.value;
+        return as_content_size(style, style.height.value, edges);
     if (containing_height)
-        return resolve(style.height, *containing_height);
+        return as_content_size(style, resolve(style.height, *containing_height), edges);
     return std::nullopt;
 }
 
@@ -282,9 +329,12 @@ std::optional<float> definite_height_of(ComputedStyle const& style, std::optiona
 // without it the other stays intrinsic (a control). A box wider than its
 // container shrinks to fit, and min/max bounds hold it, the ratio kept.
 // nullopt when nothing sizes it.
+// `edges_inside` says the size returned already covers the box's border and
+// padding — true of a form control, whose own edges live inside the size it
+// reports — so a border-box width names it directly and nothing comes off.
 std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle const& style,
     std::optional<ReplacedSize> const& intrinsic, float containing_width, bool keep_ratio,
-    std::optional<float> containing_height = std::nullopt)
+    std::optional<float> containing_height = std::nullopt, bool edges_inside = false)
 {
     LengthPercent width = style.width;
     if (width.is_auto()) {
@@ -298,16 +348,21 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
     }
     float const intrinsic_width = intrinsic ? intrinsic->width : 0;
     float const intrinsic_height = intrinsic ? intrinsic->height : 0;
+    // What the box carries either side of its picture. Under border-box the
+    // written width and height hold these, so they come off the used size.
+    // Vertical padding percentages are of the containing width, as CSS says.
+    float const horizontal_edges = edges_inside ? 0.0f : horizontal_edges_of(style, containing_width);
+    float const vertical_edges = edges_inside ? 0.0f : vertical_edges_of(style, containing_width);
     std::optional<float> used_width;
     std::optional<float> used_height;
     if (!width.is_auto())
-        used_width = resolve(width, containing_width);
+        used_width = as_content_size(style, resolve(width, containing_width), horizontal_edges);
     if (!height.is_auto()) {
         // A percentage height needs a definite containing height; without one it is auto.
         if (height.kind == LengthPercent::Kind::Px)
-            used_height = height.value;
+            used_height = as_content_size(style, height.value, vertical_edges);
         else if (containing_height)
-            used_height = resolve(height, *containing_height);
+            used_height = as_content_size(style, resolve(height, *containing_height), vertical_edges);
     }
     if (!used_width && !used_height) {
         if (!intrinsic)
@@ -337,12 +392,14 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
     }
     // The bounds: a width held by its bounds scales the height with it
     // when the ratio is kept, then the height's own bounds hold that.
-    if (float const bounded = clamp_width(style, *used_width, containing_width); bounded != *used_width) {
+    if (float const bounded = clamp_width(style, *used_width, containing_width, horizontal_edges);
+        bounded != *used_width) {
         if (keep_ratio && *used_width > 0)
             used_height = *used_height * bounded / *used_width;
         used_width = bounded;
     }
-    if (float const bounded = clamp_height(style, *used_height, containing_height); bounded != *used_height) {
+    if (float const bounded = clamp_height(style, *used_height, containing_height, vertical_edges);
+        bounded != *used_height) {
         if (keep_ratio && *used_height > 0)
             used_width = *used_width * bounded / *used_height;
         used_height = bounded;
@@ -742,12 +799,15 @@ struct Layouter {
                         options.content_width = *measure.shrink;
                 }
             }
+            float const vertical_edges = resolve(s.padding_top, cb_width) + resolve(s.padding_bottom, cb_width)
+                + s.border_top.width + s.border_bottom.width;
             if (!s.height.is_auto() && s.height.kind == LengthPercent::Kind::Percent && cb_height > 0)
-                options.content_height = clamp_height(s, s.height.value / 100.0f * cb_height);
+                options.content_height = clamp_height(s,
+                    as_content_size(s, s.height.value / 100.0f * cb_height, vertical_edges), cb_height,
+                    vertical_edges);
             else if (s.height.is_auto() && has_top && has_bottom && !replaced)
-                options.content_height = std::max(0.0f,
-                    cb_height - top - bottom - margin_top - margin_bottom - resolve(s.padding_top, cb_width)
-                        - resolve(s.padding_bottom, cb_width) - s.border_top.width - s.border_bottom.width);
+                options.content_height
+                    = std::max(0.0f, cb_height - top - bottom - margin_top - margin_bottom - vertical_edges);
 
             // Where the box would have stood in flow — but a box laid out
             // in a grid area starts at that area's corner, wherever its
@@ -1304,7 +1364,10 @@ struct Layouter {
         case ControlKind::Hidden:
             break;
         }
-        spec.size = sized_box(element, style, intrinsic, containing_width, false).value_or(intrinsic);
+        // A control's own border and padding are inside the size reported
+        // here, so a written size names that whole box either way.
+        spec.size
+            = sized_box(element, style, intrinsic, containing_width, false, std::nullopt, true).value_or(intrinsic);
 
         // The text is cut to what fits: a caption loses its tail, a field
         // being edited loses its head so the caret stays in view.
@@ -2262,10 +2325,12 @@ struct Layouter {
         } else if (style.width.is_auto()) {
             border_box_width = clamp_width(style,
                                    containing_width - margin_left - margin_right - horizontal_edges,
-                                   containing_width)
+                                   containing_width, horizontal_edges)
                 + horizontal_edges;
         } else {
-            border_box_width = clamp_width(style, resolve(style.width, containing_width), containing_width)
+            border_box_width = clamp_width(style,
+                                   as_content_size(style, resolve(style.width, containing_width), horizontal_edges),
+                                   containing_width, horizontal_edges)
                 + horizontal_edges;
             // Both margins auto with a definite width: center (a float's or a
             // flex item's auto margins are zero instead).
@@ -2341,12 +2406,13 @@ struct Layouter {
         // This box's definite content height, when it has one — settled by
         // its formatting context, written as a length, or a percentage of a
         // definite containing height: the base for its children's percentages.
+        float const vertical_edges = padding_top + padding_bottom + border_top + border_bottom;
         std::optional<float> const own_height = options.content_height
             ? options.content_height
-            : definite_height_of(style, options.containing_height);
-        std::optional<float> const children_base
-            = own_height ? std::optional<float>(clamp_height(style, *own_height, options.containing_height))
-                         : std::nullopt;
+            : definite_height_of(style, options.containing_height, vertical_edges);
+        std::optional<float> const children_base = own_height
+            ? std::optional<float>(clamp_height(style, *own_height, options.containing_height, vertical_edges))
+            : std::nullopt;
         float content_height;
         if (flex) {
             content_height = layout_flex(element, style, content_x, content_y, content_width, fragment,
@@ -2400,9 +2466,10 @@ struct Layouter {
         if (options.content_height) {
             used_height = *options.content_height;
         } else {
-            if (std::optional<float> const written = definite_height_of(style, options.containing_height))
+            if (std::optional<float> const written
+                = definite_height_of(style, options.containing_height, vertical_edges))
                 used_height = *written;
-            used_height = clamp_height(style, used_height, options.containing_height);
+            used_height = clamp_height(style, used_height, options.containing_height, vertical_edges);
         }
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
         if (containing_block && !absolute_stack.empty() && !absolute_stack.back().empty()) {
@@ -2779,10 +2846,12 @@ struct Layouter {
         else if (style.width.is_auto())
             border_box_width = clamp_width(style,
                                    containing_width - margin_left - margin_right - horizontal_edges,
-                                   containing_width)
+                                   containing_width, horizontal_edges)
                 + horizontal_edges;
         else
-            border_box_width = clamp_width(style, resolve(style.width, containing_width), containing_width)
+            border_box_width = clamp_width(style,
+                                   as_content_size(style, resolve(style.width, containing_width), horizontal_edges),
+                                   containing_width, horizontal_edges)
                 + horizontal_edges;
         if (border_box_width < 0)
             border_box_width = 0;
@@ -2799,12 +2868,15 @@ struct Layouter {
         float content_height = items.empty()
             ? 0.0f
             : layout_lines(items, style, content_x, content_y, content_width, fragment, floats, 0);
+        float const vertical_edges
+            = padding_top + padding_bottom + style.border_top.width + style.border_bottom.width;
         if (settled_height)
             content_height = *settled_height;
         else if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
-            content_height = clamp_height(style, style.height.value);
+            content_height = clamp_height(style, as_content_size(style, style.height.value, vertical_edges),
+                std::nullopt, vertical_edges);
         else
-            content_height = clamp_height(style, content_height);
+            content_height = clamp_height(style, content_height, std::nullopt, vertical_edges);
         fragment.height = content_height + style.border_top.width + style.border_bottom.width
             + padding_top + padding_bottom;
         return fragment;
@@ -2977,13 +3049,18 @@ struct Layouter {
         } else {
             result = content_intrinsic_widths(element, style);
         }
+        // These are content widths, so a border-box bound gives up its edges
+        // (a percentage padding has no base here either, and reads as zero).
+        float const edges = horizontal_edges_of(style, 0);
         if (style.max_width.kind == LengthPercent::Kind::Px) {
-            result.max = std::min(result.max, style.max_width.value);
-            result.min = std::min(result.min, style.max_width.value);
+            float const bound = as_content_size(style, style.max_width.value, edges);
+            result.max = std::min(result.max, bound);
+            result.min = std::min(result.min, bound);
         }
         if (style.min_width.kind == LengthPercent::Kind::Px) {
-            result.min = std::max(result.min, style.min_width.value);
-            result.max = std::max(result.max, style.min_width.value);
+            float const bound = as_content_size(style, style.min_width.value, edges);
+            result.min = std::max(result.min, bound);
+            result.max = std::max(result.max, bound);
         }
         return result;
     }
@@ -3132,11 +3209,18 @@ struct Layouter {
     // count as zero here).
     Intrinsic block_intrinsic(dom::Element const& element, ComputedStyle const& style) const
     {
-        float const edges = resolve(style.margin_left, 0) + resolve(style.margin_right, 0)
-            + resolve(style.padding_left, 0) + resolve(style.padding_right, 0)
+        float const margins = resolve(style.margin_left, 0) + resolve(style.margin_right, 0);
+        float const inner_edges = resolve(style.padding_left, 0) + resolve(style.padding_right, 0)
             + style.border_left.width + style.border_right.width;
-        if (!style.width.is_auto() && style.width.kind == LengthPercent::Kind::Px)
-            return { style.width.value + edges, style.width.value + edges };
+        float const edges = margins + inner_edges;
+        if (!style.width.is_auto() && style.width.kind == LengthPercent::Kind::Px) {
+            // Under border-box the written width already holds the padding and
+            // the borders; only the margins go outside it.
+            float const border_box = sizes_border_box(style)
+                ? std::max(style.width.value, inner_edges)
+                : style.width.value + inner_edges;
+            return { border_box + margins, border_box + margins };
+        }
         Intrinsic const inner = intrinsic_widths(element, style);
         return { inner.min + edges, inner.max + edges };
     }
@@ -3166,10 +3250,12 @@ struct Layouter {
             float const available = std::max(0.0f,
                 containing_width - result.margin_left - result.margin_right - edges);
             result.shrink = clamp_width(style, std::min(std::max(intrinsic.min, available), intrinsic.max),
-                containing_width);
+                containing_width, edges);
             result.border_box = *result.shrink + edges;
         } else {
-            result.border_box = clamp_width(style, resolve(style.width, containing_width), containing_width)
+            result.border_box = clamp_width(style,
+                                    as_content_size(style, resolve(style.width, containing_width), edges),
+                                    containing_width, edges)
                 + edges;
         }
         return result;
@@ -3661,12 +3747,15 @@ struct Layouter {
         float const margin_left = resolve(style.margin_left, containing_width);
         float const margin_right = resolve(style.margin_right, containing_width);
         // An HTML table's width and height are its border box; another
-        // element's with display: table are its content box.
-        bool const border_box = element && element->is_html("table");
+        // element's with display: table are its content box — unless it
+        // writes box-sizing: border-box, which says the same thing.
+        bool const border_box = (element && element->is_html("table")) || sizes_border_box(style);
         if (options.content_width)
             setup.input.width = *options.content_width + setup.input.edges;
         else if (!style.width.is_auto())
-            setup.input.width = clamp_width(style, resolve(style.width, containing_width), containing_width)
+            // The width and its bounds name the same box here, so nothing
+            // comes off the bounds: zero edges, whichever box that is.
+            setup.input.width = clamp_width(style, resolve(style.width, containing_width), containing_width, 0.0f)
                 + (border_box ? 0.0f : setup.input.edges);
         setup.input.available = std::max(0.0f, containing_width - margin_left - margin_right);
         table::WidthResult const widths = table::compute_widths(setup.input);
@@ -4334,11 +4423,13 @@ struct Layouter {
             // width stands in for it), unless the box clips its overflow
             // or writes a minimum.
             ComputedStyle const& s = *item.style;
-            float const edges = resolve(s.margin_left, 0) + resolve(s.margin_right, 0)
-                + resolve(s.padding_left, 0) + resolve(s.padding_right, 0) + s.border_left.width
-                + s.border_right.width;
+            float const margins = resolve(s.margin_left, 0) + resolve(s.margin_right, 0);
+            float const inner_edges = resolve(s.padding_left, 0) + resolve(s.padding_right, 0)
+                + s.border_left.width + s.border_right.width;
+            float const edges = margins + inner_edges;
             if (s.min_width.kind == LengthPercent::Kind::Px)
-                contribution.minimum = s.min_width.value + edges;
+                contribution.minimum
+                    = as_content_size(s, s.min_width.value, inner_edges) + edges;
             else if (s.overflow != css::Overflow::Visible)
                 contribution.minimum = edges;
         }
@@ -4379,12 +4470,13 @@ struct Layouter {
         float const available = std::max(0.0f, area_width - margin_left - margin_right - edges);
         float content;
         if (!s.width.is_auto()) {
-            content = clamp_width(s, resolve(s.width, area_width), area_width);
+            content = clamp_width(s, as_content_size(s, resolve(s.width, area_width), edges), area_width, edges);
         } else if (justify == css::AlignItems::Stretch && !auto_left && !auto_right && !own_size) {
-            content = clamp_width(s, available, area_width);
+            content = clamp_width(s, available, area_width, edges);
         } else {
             Intrinsic const intrinsic = intrinsic_widths(*item.element, s);
-            content = clamp_width(s, std::min(std::max(intrinsic.min, available), intrinsic.max), area_width);
+            content
+                = clamp_width(s, std::min(std::max(intrinsic.min, available), intrinsic.max), area_width, edges);
         }
         float const free = area_width - (margin_left + edges + content + margin_right);
         float offset = 0;
@@ -4465,11 +4557,11 @@ struct Layouter {
         if (align == css::AlignItems::Baseline)
             align = css::AlignItems::FlexStart;
         std::optional<float> content_height;
-        if (std::optional<float> const written = definite_height_of(s, area_height))
-            content_height = clamp_height(s, *written, area_height);
+        if (std::optional<float> const written = definite_height_of(s, area_height, edges))
+            content_height = clamp_height(s, *written, area_height, edges);
         else if (align == css::AlignItems::Stretch && !auto_top && !auto_bottom && !own_size)
             content_height = clamp_height(s, std::max(0.0f, area_height - margin_top - margin_bottom - edges),
-                area_height);
+                area_height, edges);
         float const content = content_height.value_or(item.measured_height);
         float const free = area_height - (margin_top + edges + content + margin_bottom);
         float offset = 0;
@@ -4943,34 +5035,45 @@ struct Layouter {
                 ? inline_intrinsic(item.inline_items)
                 : intrinsic_widths(*item.element, s);
             if (horizontal) {
-                item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : intrinsic.max;
+                // A written base, minimum or maximum names the border box
+                // under border-box; the item's sizes here are content sizes.
+                auto const content = [&](float written, float edges) {
+                    return anonymous ? written : as_content_size(s, written, edges);
+                };
+                item.base = definite_basis
+                    ? content(resolve(basis, main_size.value_or(0)), item.edges_main)
+                    : intrinsic.max;
                 // The minimum: min-width as written, else the automatic one —
                 // the content's narrowest, no more than a written width or a
                 // maximum.
                 if (!anonymous && !s.min_width.is_auto()) {
-                    item.minimum = resolve(s.min_width, content_width);
+                    item.minimum = content(resolve(s.min_width, content_width), item.edges_main);
                 } else {
                     item.minimum = intrinsic.min;
                     if (!anonymous && !s.width.is_auto())
-                        item.minimum = std::min(item.minimum, resolve(s.width, content_width));
+                        item.minimum = std::min(item.minimum,
+                            content(resolve(s.width, content_width), item.edges_main));
                 }
                 if (!anonymous && !s.max_width.is_auto()) {
-                    item.maximum = resolve(s.max_width, content_width);
+                    item.maximum = content(resolve(s.max_width, content_width), item.edges_main);
                     item.minimum = std::min(item.minimum, *item.maximum);
                 }
                 std::optional<float> const written_cross
-                    = anonymous ? std::nullopt : definite_height_of(s, cross_size);
+                    = anonymous ? std::nullopt : definite_height_of(s, cross_size, item.edges_cross);
                 item.cross_is_auto = !written_cross;
                 if (written_cross)
-                    item.cross = clamp_height(s, *written_cross, cross_size);
+                    item.cross = clamp_height(s, *written_cross, cross_size, item.edges_cross);
             } else {
                 // A column's cross size is the width — stretched to the line,
                 // as written, or shrink-to-fit — and the base is the height at
                 // that width.
                 float const available = std::max(0.0f,
                     content_width - item.margin_cross_start - item.margin_cross_end - item.edges_cross);
+                auto const content = [&](float written, float edges) {
+                    return anonymous ? written : as_content_size(s, written, edges);
+                };
                 if (!anonymous && !s.width.is_auto()) {
-                    item.cross = resolve(s.width, content_width);
+                    item.cross = content(resolve(s.width, content_width), item.edges_cross);
                     item.cross_is_auto = false;
                 } else {
                     bool const stretch = item_alignment(item, style) == AlignItems::Stretch;
@@ -4979,16 +5082,18 @@ struct Layouter {
                     item.cross_is_auto = true;
                 }
                 if (!anonymous)
-                    item.cross = clamp_width(s, item.cross, content_width);
+                    item.cross = clamp_width(s, item.cross, content_width, item.edges_cross);
                 float const content_height
                     = measure_item_height(item, item.cross, content_width, list_depth);
-                item.base = definite_basis ? resolve(basis, main_size.value_or(0)) : content_height;
+                item.base = definite_basis
+                    ? content(resolve(basis, main_size.value_or(0)), item.edges_main)
+                    : content_height;
                 if (!anonymous && s.min_height.kind == LengthPercent::Kind::Px)
-                    item.minimum = s.min_height.value;
+                    item.minimum = content(s.min_height.value, item.edges_main);
                 else
                     item.minimum = std::min(content_height, item.base);
                 if (!anonymous && s.max_height.kind == LengthPercent::Kind::Px) {
-                    item.maximum = s.max_height.value;
+                    item.maximum = content(s.max_height.value, item.edges_main);
                     item.minimum = std::min(item.minimum, *item.maximum);
                 }
             }
