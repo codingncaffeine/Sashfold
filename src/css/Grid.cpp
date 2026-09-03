@@ -102,6 +102,10 @@ bool negative(LengthPercent const& length)
     case LengthPercent::Kind::Px: return length.value < 0;
     case LengthPercent::Kind::Percent: return length.value < 0;
     case LengthPercent::Kind::Calc: return false; // its sign depends on the base
+    // A track's own keywords are TrackBreadth kinds, not these.
+    case LengthPercent::Kind::MinContent:
+    case LengthPercent::Kind::MaxContent:
+    case LengthPercent::Kind::FitContent: return false;
     }
     return false;
 }

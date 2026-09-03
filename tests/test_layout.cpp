@@ -1368,5 +1368,58 @@ int main(int argc, char** argv)
             CHECK_EQ(rb->x, 230.0f);
     }
 
+    // --- A box can be sized by its own content ---------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // Fixed pitch at 16px: "one two three" is 130 across and its widest
+        // unbreakable piece is "three" at 50, inside a 400-wide container.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .wrap { width: 400px }
+  .wrap > div { border: 0 }
+</style></head><body><div class="wrap">
+  <div id="a" style="width: min-content">one two three</div>
+  <div id="b" style="width: max-content">one two three</div>
+  <div id="c" style="width: fit-content">one two three</div>
+  <div id="d" style="width: fit-content">one two three four five six seven eight nine ten</div>
+  <div id="e" style="width: fit-content; margin-left: auto; margin-right: auto">one two three</div>
+  <div id="f" style="float: left; width: min-content">one two three</div>
+  <div id="g" style="max-width: min-content">one two three</div>
+  <div id="h" style="display: flex"><div id="i" style="flex-basis: min-content">one two three</div></div>
+</div></body></html>)HTML", 400);
+        std::vector<layout::Fragment const*> boxes;
+        std::function<void(layout::Fragment const&)> walk = [&](layout::Fragment const& fragment) {
+            boxes.push_back(&fragment);
+            for (layout::Fragment const& child : fragment.children)
+                walk(child);
+        };
+        walk(page.result.root);
+        auto const box_of = [&](std::string_view id) -> layout::Fragment const* {
+            for (layout::Fragment const* const box : boxes) {
+                dom::Attr const* const attribute
+                    = box->element ? box->element->find_attribute("id") : nullptr;
+                if (attribute && attribute->value == id)
+                    return box;
+            }
+            return nullptr;
+        };
+        auto const width_of = [&](std::string_view id, float expected) {
+            layout::Fragment const* const box = box_of(id);
+            if (CHECK(box))
+                CHECK_EQ(box->width, expected);
+        };
+        width_of("a", 50.0f); // the widest word it cannot break
+        width_of("b", 130.0f); // everything on one line
+        width_of("c", 130.0f); // fits, so max-content
+        width_of("d", 400.0f); // does not fit, so the room it has
+        width_of("f", 50.0f); // a float takes the keyword too
+        width_of("g", 50.0f); // a bound written as a keyword binds
+        width_of("i", 50.0f); // and so does a flex base size
+        // A content-sized block is no longer filling its container, so auto
+        // margins centre it.
+        if (layout::Fragment const* const centred = box_of("e"))
+            CHECK_EQ(centred->x, 135.0f);
+    }
+
     return test::report("layout");
 }

@@ -3991,6 +3991,12 @@ struct Resolver {
         auto const flex_basis_of = [&](ComponentValue const& value) -> std::optional<LengthPercent> {
             if (is_ident(&value, "content"))
                 return LengthPercent::auto_value();
+            if (is_ident(&value, "min-content"))
+                return LengthPercent::content(LengthPercent::Kind::MinContent);
+            if (is_ident(&value, "max-content"))
+                return LengthPercent::content(LengthPercent::Kind::MaxContent);
+            if (is_ident(&value, "fit-content"))
+                return LengthPercent::content(LengthPercent::Kind::FitContent);
             auto length = parse_length_percent(value, context, true);
             if (!length || (!length->is_auto() && length->kind != LengthPercent::Kind::Calc && length->value < 0))
                 return std::nullopt;
@@ -4454,6 +4460,21 @@ struct Resolver {
             if (maximum && values.size() == 1 && is_ident(values[0], "none")) {
                 target = LengthPercent::auto_value();
                 return;
+            }
+            // The content-based keywords of css-sizing-3 §5.
+            if (values.size() == 1) {
+                if (is_ident(values[0], "min-content")) {
+                    target = LengthPercent::content(LengthPercent::Kind::MinContent);
+                    return;
+                }
+                if (is_ident(values[0], "max-content")) {
+                    target = LengthPercent::content(LengthPercent::Kind::MaxContent);
+                    return;
+                }
+                if (is_ident(values[0], "fit-content")) {
+                    target = LengthPercent::content(LengthPercent::Kind::FitContent);
+                    return;
+                }
             }
             LengthPercent const previous = target;
             one_length(target, !maximum);

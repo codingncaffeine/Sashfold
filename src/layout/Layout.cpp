@@ -33,6 +33,12 @@ float resolve(LengthPercent const& length, float percent_base)
     case LengthPercent::Kind::Px: return length.value;
     case LengthPercent::Kind::Percent: return percent_base * length.value / 100.0f;
     case LengthPercent::Kind::Calc: return length.value + percent_base * length.percent / 100.0f;
+    // A content keyword has no length in it: the sites that can size a box
+    // from its own content read it before they ever get here, and the rest
+    // treat it as auto (see LengthPercent::is_auto).
+    case LengthPercent::Kind::MinContent:
+    case LengthPercent::Kind::MaxContent:
+    case LengthPercent::Kind::FitContent: return 0;
     }
     return 0;
 }
@@ -243,6 +249,20 @@ bool sizes_border_box(ComputedStyle const& style)
 float as_content_size(ComputedStyle const& style, float written, float edges)
 {
     return sizes_border_box(style) ? std::max(0.0f, written - edges) : written;
+}
+
+// A size written as one of css-sizing-3 §5's content keywords, given the
+// box's own min-content and max-content sizes and the room it has to grow
+// into: its narrowest, its widest, or — for fit-content — the narrowest
+// held up to the room but never past the widest, which is the same formula
+// shrink-to-fit has always used. Callers ask `is_content_size()` first.
+float content_size_of(LengthPercent const& size, float min_content, float max_content, float available)
+{
+    if (size.kind == LengthPercent::Kind::MinContent)
+        return min_content;
+    if (size.kind == LengthPercent::Kind::MaxContent)
+        return max_content;
+    return std::min(std::max(min_content, available), max_content);
 }
 
 // What a box carries either side of its content, and above and below it.
@@ -799,7 +819,10 @@ struct Layouter {
             options.containing_height = cb_height; // definite for an absolutely positioned box
             bool const replaced = is_replaced(*box.element);
             if (s.width.is_auto() && !replaced) {
-                if (has_left && has_right) {
+                // A content keyword is a definite width, so two offsets do
+                // not stretch the box: it takes its content's size and the
+                // over-constrained side gives way (§10.3.7).
+                if (has_left && has_right && !s.width.is_content_size()) {
                     options.content_width = std::max(0.0f,
                         cb_width - left - right - margin_left - margin_right - horizontal_edges);
                 } else {
@@ -2492,11 +2515,34 @@ struct Layouter {
         if (options.content_width) {
             // Settled by a float's shrink-to-fit or a flex line.
             border_box_width = *options.content_width + horizontal_edges;
-        } else if (style.width.is_auto()) {
-            border_box_width = clamp_width(style,
-                                   containing_width - margin_left - margin_right - horizontal_edges,
-                                   containing_width, horizontal_edges)
+        } else if (style.width.is_content_size()) {
+            // A block sized from its own content: it no longer fills the
+            // room it is given, so auto margins centre it as a definite
+            // width does (css-sizing-3 §5.1).
+            Intrinsic const intrinsic = intrinsic_widths(element, style);
+            float const available = std::max(0.0f,
+                containing_width - margin_left - margin_right - horizontal_edges);
+            border_box_width = clamp_content_bounds(style,
+                                   clamp_width(style,
+                                       content_size_of(style.width, intrinsic.min, intrinsic.max, available),
+                                       containing_width, horizontal_edges),
+                                   intrinsic, available)
                 + horizontal_edges;
+            if (!options.zero_auto_margins && style.margin_left.is_auto()
+                && style.margin_right.is_auto())
+                extra_left = (containing_width - border_box_width) / 2.0f;
+        } else if (style.width.is_auto()) {
+            float const available = containing_width - margin_left - margin_right - horizontal_edges;
+            border_box_width
+                = clamp_width(style, available, containing_width, horizontal_edges) + horizontal_edges;
+            // A bound written as a content keyword needs the content
+            // measured, which is why it is only measured when one is.
+            if (has_content_bound(style)) {
+                Intrinsic const intrinsic = intrinsic_widths(element, style);
+                border_box_width = clamp_content_bounds(style, border_box_width - horizontal_edges,
+                                       intrinsic, std::max(0.0f, available))
+                    + horizontal_edges;
+            }
         } else {
             border_box_width = clamp_width(style,
                                    as_content_size(style, resolve(style.width, containing_width), horizontal_edges),
@@ -3238,6 +3284,31 @@ struct Layouter {
     // The intrinsic widths of an element's contents, inside its edges, held
     // by its min-width and max-width when those are lengths (a percentage
     // has no base in intrinsic sizing).
+    // The min-width and max-width bounds when they are written as content
+    // keywords. `clamp_width` cannot read those — it has no measure of the
+    // content — so the callers that do hold the box's intrinsics apply them
+    // afterwards, here. The keywords name a content size, so box-sizing
+    // does not come into it.
+    float clamp_content_bounds(ComputedStyle const& style, float width, Intrinsic const& intrinsic,
+        float available) const
+    {
+        if (style.max_width.is_content_size())
+            width = std::min(width,
+                content_size_of(style.max_width, intrinsic.min, intrinsic.max, available));
+        if (style.min_width.is_content_size())
+            width = std::max(width,
+                content_size_of(style.min_width, intrinsic.min, intrinsic.max, available));
+        return std::max(0.0f, width);
+    }
+
+    // Whether either width bound is written as a content keyword, which is
+    // what makes measuring the content worth its cost on a box whose own
+    // width did not already ask for it.
+    static bool has_content_bound(ComputedStyle const& style)
+    {
+        return style.min_width.is_content_size() || style.max_width.is_content_size();
+    }
+
     Intrinsic intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
     {
         Intrinsic result;
@@ -3423,6 +3494,13 @@ struct Layouter {
             return { border_box + margins, border_box + margins };
         }
         Intrinsic const inner = intrinsic_widths(element, style);
+        // A box told to be its own narrowest or widest contributes that one
+        // size both ways: it will not be any other width whatever room its
+        // parent has. fit-content contributes the pair unchanged.
+        if (style.width.kind == LengthPercent::Kind::MinContent)
+            return { inner.min + edges, inner.min + edges };
+        if (style.width.kind == LengthPercent::Kind::MaxContent)
+            return { inner.max + edges, inner.max + edges };
         return { inner.min + edges, inner.max + edges };
     }
 
@@ -3450,8 +3528,13 @@ struct Layouter {
             Intrinsic const intrinsic = intrinsic_widths(element, style);
             float const available = std::max(0.0f,
                 containing_width - result.margin_left - result.margin_right - edges);
-            result.shrink = clamp_width(style, std::min(std::max(intrinsic.min, available), intrinsic.max),
-                containing_width, edges);
+            // auto here IS fit-content, so a written keyword only changes
+            // the answer when it asks for one of the two extremes.
+            float const preferred = style.width.is_content_size()
+                ? content_size_of(style.width, intrinsic.min, intrinsic.max, available)
+                : std::min(std::max(intrinsic.min, available), intrinsic.max);
+            result.shrink = clamp_content_bounds(style,
+                clamp_width(style, preferred, containing_width, edges), intrinsic, available);
             result.border_box = *result.shrink + edges;
         } else {
             result.border_box = clamp_width(style,
@@ -5234,7 +5317,9 @@ struct Layouter {
             // The flex base size: flex-basis, else the main size property,
             // else the content's size.
             LengthPercent basis = anonymous ? LengthPercent::auto_value() : s.flex_basis;
-            if (basis.is_auto() && !anonymous)
+            // Only a basis that is really `auto` defers to the main size
+            // property: a content keyword is a basis of its own.
+            if (basis.is_auto() && !basis.is_content_size() && !anonymous)
                 basis = horizontal ? s.width : s.height;
             bool const definite_basis = !basis.is_auto()
                 && (basis.kind == LengthPercent::Kind::Px || main_size.has_value());
@@ -5247,21 +5332,41 @@ struct Layouter {
                 auto const content = [&](float written, float edges) {
                     return anonymous ? written : as_content_size(s, written, edges);
                 };
+                // The room a fit-content basis or bound would fit into: what
+                // the line offers along the main axis, less this item's own
+                // margins and edges. With no definite main size there is no
+                // room to fit into and it reads as the content's widest.
+                float const available_main = main_size
+                    ? std::max(0.0f,
+                          *main_size - item.margin_start - item.margin_end - item.edges_main)
+                    : intrinsic.max;
                 item.base = definite_basis
                     ? content(resolve(basis, main_size.value_or(0)), item.edges_main)
                     : intrinsic.max;
+                if (!definite_basis && basis.is_content_size())
+                    item.base = content_size_of(basis, intrinsic.min, intrinsic.max, available_main);
                 // The minimum: min-width as written, else the automatic one —
                 // the content's narrowest, no more than a written width or a
                 // maximum.
-                if (!anonymous && !s.min_width.is_auto()) {
+                if (!anonymous && s.min_width.is_content_size()) {
+                    item.minimum
+                        = content_size_of(s.min_width, intrinsic.min, intrinsic.max, available_main);
+                } else if (!anonymous && !s.min_width.is_auto()) {
                     item.minimum = content(resolve(s.min_width, content_width), item.edges_main);
                 } else {
                     item.minimum = intrinsic.min;
-                    if (!anonymous && !s.width.is_auto())
+                    if (!anonymous && s.width.is_content_size())
+                        item.minimum = std::min(item.minimum,
+                            content_size_of(s.width, intrinsic.min, intrinsic.max, available_main));
+                    else if (!anonymous && !s.width.is_auto())
                         item.minimum = std::min(item.minimum,
                             content(resolve(s.width, content_width), item.edges_main));
                 }
-                if (!anonymous && !s.max_width.is_auto()) {
+                if (!anonymous && s.max_width.is_content_size()) {
+                    item.maximum
+                        = content_size_of(s.max_width, intrinsic.min, intrinsic.max, available_main);
+                    item.minimum = std::min(item.minimum, *item.maximum);
+                } else if (!anonymous && !s.max_width.is_auto()) {
                     item.maximum = content(resolve(s.max_width, content_width), item.edges_main);
                     item.minimum = std::min(item.minimum, *item.maximum);
                 }
@@ -5279,7 +5384,10 @@ struct Layouter {
                 auto const content = [&](float written, float edges) {
                     return anonymous ? written : as_content_size(s, written, edges);
                 };
-                if (!anonymous && !s.width.is_auto()) {
+                if (!anonymous && s.width.is_content_size()) {
+                    item.cross = content_size_of(s.width, intrinsic.min, intrinsic.max, available);
+                    item.cross_is_auto = false;
+                } else if (!anonymous && !s.width.is_auto()) {
                     item.cross = content(resolve(s.width, content_width), item.edges_cross);
                     item.cross_is_auto = false;
                 } else {

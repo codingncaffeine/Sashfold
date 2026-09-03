@@ -51,6 +51,11 @@ float resolve_length(css::LengthPercent const& length, float base)
     case css::LengthPercent::Kind::Px: return length.value;
     case css::LengthPercent::Kind::Percent: return base * length.value / 100.0f;
     case css::LengthPercent::Kind::Calc: return length.value + base * length.percent / 100.0f;
+    // Painting is given lengths, never a size property: a content keyword
+    // can only arrive here through a value that never carries one.
+    case css::LengthPercent::Kind::MinContent:
+    case css::LengthPercent::Kind::MaxContent:
+    case css::LengthPercent::Kind::FitContent: return 0;
     }
     return 0;
 }

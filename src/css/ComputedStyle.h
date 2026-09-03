@@ -113,6 +113,13 @@ struct LengthPercent {
         Px,
         Percent, // value holds 0-100
         Calc, // value holds the pixels, percent the percentage: calc(100% - 20px)
+        // The content-based sizes of css-sizing-3 §5, written only on the
+        // size properties and flex-basis: the box at its narrowest, the box
+        // on one line however wide that is, and the larger of its narrowest
+        // and the room it has — but no wider than one line wants.
+        MinContent,
+        MaxContent,
+        FitContent,
     };
     Kind kind = Kind::Px;
     float value = 0;
@@ -121,6 +128,7 @@ struct LengthPercent {
     static constexpr LengthPercent auto_value() { return { Kind::Auto, 0, 0 }; }
     static constexpr LengthPercent px(float value) { return { Kind::Px, value, 0 }; }
     static constexpr LengthPercent percent_of(float value) { return { Kind::Percent, value, 0 }; }
+    static constexpr LengthPercent content(Kind kind) { return { kind, 0, 0 }; }
     static constexpr LengthPercent calc(float px, float percent)
     {
         if (percent == 0)
@@ -129,7 +137,15 @@ struct LengthPercent {
             return { Kind::Percent, percent, 0 };
         return { Kind::Calc, px, percent };
     }
-    bool is_auto() const { return kind == Kind::Auto; }
+    bool is_content_size() const
+    {
+        return kind == Kind::MinContent || kind == Kind::MaxContent || kind == Kind::FitContent;
+    }
+    // A content keyword sizes a box from its own content, which only the
+    // places holding those measures can do. Everywhere else it reads as
+    // auto — which is what the engine did with the whole declaration before
+    // it read the keywords at all, so a site not yet taught loses nothing.
+    bool is_auto() const { return kind == Kind::Auto || is_content_size(); }
 };
 
 enum class Display : std::uint8_t {

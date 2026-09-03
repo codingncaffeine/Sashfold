@@ -1590,6 +1590,9 @@ struct Browser::Impl {
         case css::LengthPercent::Kind::Calc:
             return "calc(" + number_text(length.percent) + "% "
                 + (length.value < 0 ? "- " + number_text(-length.value) : "+ " + number_text(length.value)) + "px)";
+        case css::LengthPercent::Kind::MinContent: return "min-content";
+        case css::LengthPercent::Kind::MaxContent: return "max-content";
+        case css::LengthPercent::Kind::FitContent: return "fit-content";
         }
         return "?";
     }
