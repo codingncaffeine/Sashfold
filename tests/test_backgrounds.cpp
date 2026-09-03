@@ -200,5 +200,51 @@ int main()
         CHECK(same(canvas.pixel(16, c_top + 16), Color::rgb(0, 0, 255)));
     }
 
+    // --- Tiling: space and round -------------------------------------------------------
+    {
+        // A 100px box with 30px tiles: `space` fits three and shares the
+        // ten left over between them, five in each of the two gaps;
+        // `round` stretches the tile to 100/3 so three fill it exactly.
+        Page const page = lay_out(page_with(R"HTML(<div id="s" style="width: 100px; height: 20px; background: linear-gradient(to right, rgb(255,0,0) 0, rgb(255,0,0) 100%) space; background-size: 30px 20px"></div>
+<div id="r" style="width: 100px; height: 20px; background: linear-gradient(to right, rgb(0,0,255) 0, rgb(0,0,255) 100%) round; background-size: 30px 20px"></div>
+<div id="o" style="width: 40px; height: 20px; background: linear-gradient(to right, rgb(0,128,0) 0, rgb(0,128,0) 100%) space; background-size: 30px 20px"></div>)HTML"));
+        Bitmap const canvas = paint_canvas(page, 200, 100);
+        Color const white = Color::rgb(255, 255, 255);
+        // Three tiles at 0..30, 35..65, 70..100, with white in the gaps.
+        CHECK(same(canvas.pixel(0, 10), Color::rgb(255, 0, 0)));
+        CHECK(same(canvas.pixel(29, 10), Color::rgb(255, 0, 0)));
+        CHECK(same(canvas.pixel(32, 10), white));
+        CHECK(same(canvas.pixel(50, 10), Color::rgb(255, 0, 0)));
+        CHECK(same(canvas.pixel(67, 10), white));
+        CHECK(same(canvas.pixel(99, 10), Color::rgb(255, 0, 0)));
+        // Rounded: no gaps anywhere along the row.
+        CHECK(same(canvas.pixel(0, 30), Color::rgb(0, 0, 255)));
+        CHECK(same(canvas.pixel(50, 30), Color::rgb(0, 0, 255)));
+        CHECK(same(canvas.pixel(99, 30), Color::rgb(0, 0, 255)));
+        // Room for one only: it stays where background-position put it.
+        CHECK(same(canvas.pixel(0, 50), Color::rgb(0, 128, 0)));
+        CHECK(same(canvas.pixel(29, 50), Color::rgb(0, 128, 0)));
+        CHECK(same(canvas.pixel(35, 50), white));
+    }
+
+    // --- The background the canvas takes -------------------------------------------------
+    {
+        // The body has the only background, so it goes on the canvas: its
+        // picture covers the whole surface, not just the body's box, and
+        // it is laid out against the root element's box.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 20px; background: linear-gradient(to right, rgb(0,0,255) 0, rgb(0,0,255) 100%) no-repeat; background-size: 10px 10px }
+</style></head><body><div style="height: 40px"></div></body></html>)HTML");
+        CHECK(page.result.canvas_background_from_body);
+        // No color was written, so the canvas keeps its white.
+        CHECK(same(page.result.canvas_background, Color::rgb(255, 255, 255)));
+        Bitmap const canvas = paint_canvas(page, 200, 100);
+        // The picture sits at the root's origin, above and left of the
+        // body's own box, which its 20px margin pushed inward.
+        CHECK(same(canvas.pixel(2, 2), Color::rgb(0, 0, 255)));
+        CHECK(same(canvas.pixel(9, 9), Color::rgb(0, 0, 255)));
+        CHECK(same(canvas.pixel(12, 12), Color::rgb(255, 255, 255)));
+    }
+
     return sashfold::test::report("backgrounds");
 }

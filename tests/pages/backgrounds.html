@@ -18,6 +18,9 @@
   #clipped { background: linear-gradient(to right, #9c6, #360); background-clip: content-box; border: 4px dashed #360; padding: 8px }
   #layers { background: linear-gradient(to right, transparent, #fff), linear-gradient(#f66, #f66); border: 1px solid #966 }
   #origin { background: linear-gradient(#69c, #036) no-repeat; background-origin: content-box; background-size: 60px 20px; border: 6px solid #cde; padding: 10px }
+  #spaced { background: linear-gradient(#f93, #c60) space; background-size: 70px 22px; border: 1px solid #c60 }
+  #rounded { background: linear-gradient(#9c6, #360) round; background-size: 70px 22px; border: 1px solid #360 }
+  #onespace { background: linear-gradient(#6cf, #069) space no-repeat; background-size: 220px 24px; border: 1px solid #069 }
 </style>
 </head>
 <body>
@@ -39,5 +42,10 @@
 <h2>Two layers, and an origin</h2>
 <div class="box" id="layers">a fade over red</div>
 <div class="box" id="origin">60 by 20 from the content box</div>
+
+<h2>Spaced and rounded tiles</h2>
+<div class="box" id="spaced">space: whole tiles, the rest shared out</div>
+<div class="box" id="rounded">round: stretched until a whole number fits</div>
+<div class="box" id="onespace">space with room for one</div>
 </body>
 </html>

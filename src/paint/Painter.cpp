@@ -1,5 +1,6 @@
 #include "paint/Painter.h"
 
+#include "dom/Dom.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
@@ -24,6 +25,9 @@ struct Context {
     float dx;
     float dy;
     layout::BackgroundImages const* backgrounds;
+    // The box whose background already went onto the canvas: it does not
+    // paint that background again over its own box.
+    Fragment const* canvas_owner = nullptr;
 };
 
 int round_px(float value)
@@ -369,9 +373,14 @@ void paint_gradient(Bitmap& target, css::Gradient const& gradient, Area const& t
 // background-size against its positioning area, placed by
 // background-position, tiled as background-repeat says, and clipped to
 // its background-clip box.
-void paint_background_layers(Context& context, Fragment const& fragment)
+// `layers_from` names the style whose image layers to draw when it is not
+// the fragment's own: a background the body handed to the canvas is laid
+// out as if it had been written on the root element (css-backgrounds-3
+// §2.11.2), so the layers come from the body and the box from the root.
+void paint_background_layers(Context& context, Fragment const& fragment, Rect const* over = nullptr,
+    ComputedStyle const* layers_from = nullptr)
 {
-    ComputedStyle const& style = *fragment.style;
+    ComputedStyle const& style = layers_from ? *layers_from : *fragment.style;
     std::vector<css::BackgroundImage> const& images = *style.background_images;
     auto const pick = [](auto const* list, std::size_t i, auto fallback) {
         if (!list || list->empty())
@@ -400,7 +409,11 @@ void paint_background_layers(Context& context, Fragment const& fragment)
         css::BackgroundBox const origin = pick(style.background_origins.get(), n, css::BackgroundBox::PaddingBox);
         css::BackgroundBox const clip = pick(style.background_clips.get(), n, css::BackgroundBox::BorderBox);
         Area const area = box_of(context, fragment, origin);
-        Area const painting = box_of(context, fragment, clip);
+        // The canvas takes the root's picture over the whole surface,
+        // laid out from where the root's own box would have started it.
+        Area const painting = over ? Area { static_cast<float>(over->x), static_cast<float>(over->y),
+                                        static_cast<float>(over->width), static_cast<float>(over->height) }
+                                   : box_of(context, fragment, clip);
         Rect clip_rect = snap(painting.x, painting.y, painting.width, painting.height);
         if (saved)
             clip_rect = intersect(clip_rect, *saved);
@@ -437,6 +450,22 @@ void paint_background_layers(Context& context, Fragment const& fragment)
                 h = w * natural_h / natural_w;
             break;
         }
+        // `round` stretches the tile in its direction until a whole
+        // number of them fills the area (css-backgrounds-3 §3.5); when
+        // the other side was left auto and does not round itself, it
+        // follows so a picture keeps its shape.
+        bool const round_x = repeat.x == css::BackgroundRepeat::Round;
+        bool const round_y = repeat.y == css::BackgroundRepeat::Round;
+        if (round_x && w > 0 && area.width > 0)
+            w = area.width / std::max(1.0f, std::floor(area.width / w + 0.5f));
+        if (round_y && h > 0 && area.height > 0)
+            h = area.height / std::max(1.0f, std::floor(area.height / h + 0.5f));
+        if (bitmap && natural_w > 0 && natural_h > 0 && size.kind == css::BackgroundSize::Kind::Auto) {
+            if (round_x && !round_y)
+                h = w * natural_h / natural_w;
+            else if (round_y && !round_x)
+                w = h * natural_w / natural_h;
+        }
         if (w < 0.5f || h < 0.5f)
             continue;
         // Its position: a percentage aligns the image's point with the area's.
@@ -449,29 +478,44 @@ void paint_background_layers(Context& context, Fragment const& fragment)
         };
         float const x0 = area.x + offset(position.x, area.width, w);
         float const y0 = area.y + offset(position.y, area.height, h);
-        // The tiles.
+        // The tiles: where the first one goes, how far apart they stand,
+        // and where to stop. `space` fits as many whole tiles as it can
+        // and shares the room left over between them, so the first and
+        // last touch the edges and background-position has no say;
+        // `round` and `repeat` tile edge to edge from the position.
+        auto const tiling = [](css::BackgroundRepeat how, float first, float extent, float from,
+                                float room, float& step, float& start) {
+            step = extent;
+            start = first;
+            if (how == css::BackgroundRepeat::NoRepeat)
+                return first + extent;
+            if (how == css::BackgroundRepeat::Space) {
+                float const count = std::floor(room / extent);
+                if (count < 2)
+                    return first + extent; // no room for two: it stays where it was put
+                step = extent + (room - count * extent) / (count - 1);
+                start = from;
+                return from + room;
+            }
+            start = first - std::ceil((first - from) / extent) * extent;
+            return from + room;
+        };
+        float step_x = w;
+        float step_y = h;
         float start_x = x0;
-        float end_x = x0 + w;
         float start_y = y0;
-        float end_y = y0 + h;
-        if (repeat.x == css::BackgroundRepeat::Repeat) {
-            start_x = x0 - std::ceil((x0 - painting.x) / w) * w;
-            end_x = painting.x + painting.width;
-        }
-        if (repeat.y == css::BackgroundRepeat::Repeat) {
-            start_y = y0 - std::ceil((y0 - painting.y) / h) * h;
-            end_y = painting.y + painting.height;
-        }
+        float const end_x = tiling(repeat.x, x0, w, painting.x, painting.width, step_x, start_x);
+        float const end_y = tiling(repeat.y, y0, h, painting.y, painting.height, step_y, start_y);
         context.target.set_clip(clip_rect);
         std::size_t const rounds = context.target.round_clip_depth();
-        if (style.rounded()) {
+        if (!over && style.rounded()) {
             RoundedRect const curve = rounded_area(context, fragment, clip);
             if (!curve.is_rectangular())
                 context.target.push_round_clip(curve);
         }
         int tiles = 0;
-        for (float ty = start_y; ty < end_y && tiles < 100000; ty += h) {
-            for (float tx = start_x; tx < end_x && tiles < 100000; tx += w) {
+        for (float ty = start_y; ty < end_y && tiles < 100000; ty += step_y) {
+            for (float tx = start_x; tx < end_x && tiles < 100000; tx += step_x) {
                 ++tiles;
                 if (bitmap)
                     context.target.draw_scaled(*bitmap, snap(tx, ty, w, h));
@@ -526,9 +570,10 @@ void paint_rounded_borders(Context& context, Fragment const& fragment, RoundedRe
 }
 
 void paint_background_and_borders(Context& context, Fragment const& fragment,
-    bool skip_background)
+    bool skip_it)
 {
     ComputedStyle const& style = *fragment.style;
+    bool const skip_background = skip_it || &fragment == context.canvas_owner;
     float const x = fragment.x + context.dx;
     float const y = fragment.y + context.dy;
     RoundedRect const shape = style.rounded() ? rounded_box(context, fragment) : RoundedRect {};
@@ -884,6 +929,19 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
 
 } // namespace
 
+// The box whose background became the canvas's: the root, or the body it
+// handed the job to when it had nothing of its own.
+Fragment const* canvas_background_owner(layout::LayoutResult const& page)
+{
+    if (!page.canvas_background_from_body)
+        return &page.root;
+    for (Fragment const& child : page.root.children) {
+        if (child.element && child.element->is_html("body"))
+            return &child;
+    }
+    return nullptr;
+}
+
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x, float offset_y,
     layout::BackgroundImages const* backgrounds)
 {
@@ -894,7 +952,16 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // itself. A promoted opaque body background repaints the same color over
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
-    Context context { target, offset_x, offset_y, backgrounds };
+    Fragment const* const owner = canvas_background_owner(page);
+    Context context { target, offset_x, offset_y, backgrounds, owner };
+    // The canvas takes the whole background of the box that owns it, its
+    // pictures included: they cover the surface, sized and placed against
+    // the root element's box whichever box they came from.
+    if (owner && owner->style && owner->style->background_images
+        && !owner->style->background_images->empty()) {
+        Rect const whole { 0, 0, target.width(), target.height() };
+        paint_background_layers(context, page.root, &whole, owner->style);
+    }
     paint_stacking_context(context, page.root, true);
 }
 

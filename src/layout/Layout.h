@@ -115,6 +115,11 @@ struct LayoutResult {
     Fragment root; // the html element's fragment
     float page_height = 0; // content height of the whole page
     Color canvas_background; // html/body background propagation
+    // The root element had nothing of its own to give, so its body child's
+    // background became the canvas's instead: the painter lays that box's
+    // image layers over the whole canvas, positioned against the box
+    // itself (css-backgrounds-3 §2.11.2).
+    bool canvas_background_from_body = false;
     // The styles of the anonymous boxes layout made (a table around loose
     // cells, an inline-table in a line): fragments point at them, so they
     // live as long as the result does.

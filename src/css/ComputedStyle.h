@@ -474,7 +474,13 @@ struct BackgroundImage {
 };
 
 enum class BackgroundRepeat : std::uint8_t {
-    Repeat, // space and round tile like this too
+    Repeat,
+    // As many whole tiles as fit, the room left over shared out between
+    // them so the first and last touch the edges.
+    Space,
+    // As many tiles as fit, the image stretched in that direction so a
+    // whole number of them fills the area exactly.
+    Round,
     NoRepeat,
 };
 

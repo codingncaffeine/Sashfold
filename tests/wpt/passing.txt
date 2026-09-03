@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (6358 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (6370 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -3882,6 +3882,7 @@ css/css-backgrounds/background-attachment-fixed-inline-scrolled.html
 css/css-backgrounds/background-attachment-fixed-inside-transform-1.html
 css/css-backgrounds/background-attachment-local-block-002.html
 css/css-backgrounds/background-attachment-local-inline-002.html
+css/css-backgrounds/background-attachment-margin-root-002.html
 css/css-backgrounds/background-clip-002.html
 css/css-backgrounds/background-clip-003.html
 css/css-backgrounds/background-clip-004.html
@@ -3941,9 +3942,20 @@ css/css-backgrounds/background-position-three-four-values.html
 css/css-backgrounds/background-position-xy-three-four-values-passthru.html
 css/css-backgrounds/background-position/background-position-bottom-right-repeat-round.html
 css/css-backgrounds/background-position/subpixel-position-center.tentative.html
+css/css-backgrounds/background-repeat-round-1a.html
+css/css-backgrounds/background-repeat-round-1b.html
 css/css-backgrounds/background-repeat-round-1c.html
+css/css-backgrounds/background-repeat-round-1d.html
+css/css-backgrounds/background-repeat-round-1e.html
+css/css-backgrounds/background-repeat-round-2.html
+css/css-backgrounds/background-repeat-round-3.html
+css/css-backgrounds/background-repeat-round-4.html
 css/css-backgrounds/background-repeat-space-10.html
+css/css-backgrounds/background-repeat-space-2.html
+css/css-backgrounds/background-repeat-space-3.html
+css/css-backgrounds/background-repeat-space-8.html
 css/css-backgrounds/background-repeat-space-9.html
+css/css-backgrounds/background-repeat/gradient-repeat-spaced-with-borders.html
 css/css-backgrounds/background-rounded-image-clip-001.html
 css/css-backgrounds/background-size-007.html
 css/css-backgrounds/background-size-010.html

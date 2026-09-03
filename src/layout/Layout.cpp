@@ -4783,17 +4783,36 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html_style || html_style->display == Display::None)
         return result;
 
-    // Background propagation: html's background paints the canvas; when html
-    // is transparent, body's does (and body then skips its own).
-    if (html_style->background_color.a != 0) {
-        result.canvas_background = html_style->background_color;
+    // Background propagation (css-backgrounds-3 §2.11.2): html's whole
+    // background paints the canvas, color and pictures alike. Only when
+    // html has none at all — transparent and no image — does body's go
+    // there instead (and body then skips its own color).
+    auto const has_background = [](ComputedStyle const& s) {
+        if (s.background_color.a != 0)
+            return true;
+        if (!s.background_images)
+            return false;
+        for (css::BackgroundImage const& image : *s.background_images) {
+            if (!image.none())
+                return true;
+        }
+        return false;
+    };
+    // A box with a picture but no color of its own leaves the canvas the
+    // white it started as, and lays its picture over that.
+    if (has_background(*html_style)) {
+        if (html_style->background_color.a != 0)
+            result.canvas_background = html_style->background_color;
     } else {
         for (dom::Node const* child : html->children()) {
             if (child->is_element() && static_cast<dom::Element const*>(child)->is_html("body")) {
                 if (ComputedStyle const* body = layouter.style_of(
                         *static_cast<dom::Element const*>(child));
-                    body && body->background_color.a != 0)
-                    result.canvas_background = body->background_color;
+                    body && has_background(*body)) {
+                    if (body->background_color.a != 0)
+                        result.canvas_background = body->background_color;
+                    result.canvas_background_from_body = true;
+                }
             }
         }
     }

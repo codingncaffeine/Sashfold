@@ -1343,8 +1343,12 @@ std::optional<BackgroundRepeatPair> parse_background_repeat(Values const& values
     if (from >= values.size())
         return std::nullopt;
     auto const one = [](ComponentValue const& value) -> std::optional<BackgroundRepeat> {
-        if (is_ident(&value, "repeat") || is_ident(&value, "space") || is_ident(&value, "round"))
+        if (is_ident(&value, "repeat"))
             return BackgroundRepeat::Repeat;
+        if (is_ident(&value, "space"))
+            return BackgroundRepeat::Space;
+        if (is_ident(&value, "round"))
+            return BackgroundRepeat::Round;
         if (is_ident(&value, "no-repeat"))
             return BackgroundRepeat::NoRepeat;
         return std::nullopt;
