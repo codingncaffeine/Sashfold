@@ -39,7 +39,7 @@ Not written yet: scripting, subgrid, shadows, outlines, WOFF fonts, windows and 
 |---|---|
 | html5lib tokenizer / tree construction | **7032 / 7032** and **1784 / 1784** (100%) |
 | WPT URL parsing | **893 / 893** (100%) |
-| WPT CSS reference tests, 13,477 tests over CSS2 and fifteen `css-*` directories | **7532 / 13477 (55.9%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT CSS reference tests, 13,477 tests over CSS2 and fifteen `css-*` directories | **7537 / 13477 (55.9%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).

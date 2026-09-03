@@ -1621,7 +1621,10 @@ struct Layouter {
             start_line();
         };
 
-        auto const flush_line = [&] {
+        // `last_line` is set where the line ends the block or ends at a
+        // forced break: those keep their start alignment under
+        // text-align: justify (CSS 2.1 §16.2), the rest are stretched.
+        auto const flush_line = [&](bool last_line = false) {
             // A space at the end of a line is dropped, and an inline box
             // closing after it does not save it: the edges are stepped over
             // on the way back, and the entries they index shift with them.
@@ -1745,6 +1748,29 @@ struct Layouter {
                 start_line();
             }
             float const baseline = y - line_top + above;
+            // text-align: justify (CSS 2.1 §16.2): the room the line did not
+            // use is shared out among the spaces between its words, so both
+            // its edges come out flush. Only the spaces stretch — the words
+            // keep the widths their font gave them — and a line with none of
+            // them (one long word, or a row of pictures) stays where it is.
+            // A space is one entry of its own here, which is what makes this
+            // a single pass; text kept whole by `white-space: pre-wrap` holds
+            // its spaces inside a word and so has nothing to stretch yet.
+            if (block_style.text_align == css::TextAlign::Justify && !last_line
+                && line_avail > line_width) {
+                std::size_t spaces = 0;
+                for (Placed const& placed : line)
+                    spaces += placed.is_space ? 1 : 0;
+                if (spaces > 0) {
+                    float const share = (line_avail - line_width) / static_cast<float>(spaces);
+                    for (Placed& placed : line) {
+                        if (!placed.is_space)
+                            continue;
+                        placed.width += share;
+                        line_width += share;
+                    }
+                }
+            }
             float x = line_left;
             if (block_style.text_align == css::TextAlign::Center)
                 x += (line_avail - line_width) / 2.0f;
@@ -1982,12 +2008,14 @@ struct Layouter {
                 continue;
             }
             if (item.kind == InlineItem::Kind::SoftBreak) {
+                // A block inside inline content: what came before it is the
+                // last line of an anonymous block of its own.
                 if (!line.empty())
-                    flush_line();
+                    flush_line(true);
                 continue;
             }
             if (item.kind == InlineItem::Kind::HardBreak) {
-                flush_line();
+                flush_line(true);
                 if (item.clear != css::Clear::None) {
                     y = floats.cleared_y(item.clear, y);
                     start_line();
@@ -2175,7 +2203,7 @@ struct Layouter {
             line_width += width;
         }
         if (!line.empty())
-            flush_line();
+            flush_line(true);
         place_pending();
         return y - content_y;
     }

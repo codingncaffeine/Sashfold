@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7532 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7537 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -4520,6 +4520,7 @@ css/CSS2/text/letter-spacing-justify-001.xht
 css/CSS2/text/painting-order-underline-001.xht
 css/CSS2/text/text-align-bidi-011.xht
 css/CSS2/text/text-align-justify-with-overflow.html
+css/CSS2/text/text-align-white-space-002.xht
 css/CSS2/text/text-align-white-space-004.xht
 css/CSS2/text/text-decoration-applies-to-001.xht
 css/CSS2/text/text-decoration-applies-to-002.xht
@@ -4752,6 +4753,7 @@ css/CSS2/text/word-spacing-applies-to-014.xht
 css/CSS2/text/word-spacing-applies-to-015.xht
 css/CSS2/text/word-spacing-characters-002.xht
 css/CSS2/text/word-spacing-characters-003.xht
+css/CSS2/text/word-spacing-justify-001.xht
 css/CSS2/text/word-spacing-remove-space-001.xht
 css/CSS2/text/word-spacing-remove-space-003.xht
 css/CSS2/text/word-spacing-remove-space-004.xht
@@ -7013,6 +7015,9 @@ css/css-text/text-align/text-align-end-008.html
 css/css-text/text-align/text-align-end-010.html
 css/css-text/text-align/text-align-end-015.html
 css/css-text/text-align/text-align-end-017.html
+css/css-text/text-align/text-align-justify-002.html
+css/css-text/text-align/text-align-justify-004.html
+css/css-text/text-align/text-align-justify-006.html
 css/css-text/text-align/text-align-justify-bidi-control.html
 css/css-text/text-align/text-align-justify-shy-001.html
 css/css-text/text-align/text-align-justify-tabs-001.html
