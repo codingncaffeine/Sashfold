@@ -2663,7 +2663,17 @@ struct Resolver {
                 },
                 0 },
             { "vertical-align", false, [](S& to, S const& from) { to.vertical_align = from.vertical_align; }, 0 },
-            { "text-align", true, [](S& to, S const& from) { to.text_align = from.text_align; }, 0 },
+            // text-align is a shorthand of text-align-all and
+            // text-align-last (css-text-3 §7.1), so it carries both.
+            { "text-align", true,
+                [](S& to, S const& from) {
+                    to.text_align = from.text_align;
+                    to.text_align_last = from.text_align_last;
+                },
+                0 },
+            { "text-align-last", true,
+                [](S& to, S const& from) { to.text_align_last = from.text_align_last; }, 0 },
+            { "text-justify", true, [](S& to, S const& from) { to.text_justify = from.text_justify; }, 0 },
             { "letter-spacing", true, [](S& to, S const& from) { to.letter_spacing = from.letter_spacing; }, 0 },
             { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
@@ -4639,6 +4649,11 @@ struct Resolver {
         if (name == "text-align") {
             if (values.size() != 1)
                 return;
+            // The shorthand sets both longhands: every value but
+            // `justify-all` leaves the last line to `text-align-last: auto`,
+            // and a `text-align-last` declared after this one still wins.
+            // `match-parent` needs a direction to resolve start and end
+            // against, so it is not read.
             if (is_ident(values[0], "left") || is_ident(values[0], "start"))
                 style.text_align = TextAlign::Left;
             else if (is_ident(values[0], "right") || is_ident(values[0], "end"))
@@ -4647,6 +4662,41 @@ struct Resolver {
                 style.text_align = TextAlign::Center;
             else if (is_ident(values[0], "justify"))
                 style.text_align = TextAlign::Justify;
+            else if (is_ident(values[0], "justify-all")) {
+                style.text_align = TextAlign::Justify;
+                style.text_align_last = TextAlignLast::Justify;
+                return;
+            } else
+                return;
+            style.text_align_last = TextAlignLast::Auto;
+            return;
+        }
+        if (name == "text-justify") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto"))
+                style.text_justify = TextJustify::Auto;
+            else if (is_ident(values[0], "none"))
+                style.text_justify = TextJustify::None;
+            else if (is_ident(values[0], "inter-word"))
+                style.text_justify = TextJustify::InterWord;
+            else if (is_ident(values[0], "inter-character") || is_ident(values[0], "distribute"))
+                style.text_justify = TextJustify::InterCharacter;
+            return;
+        }
+        if (name == "text-align-last") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto"))
+                style.text_align_last = TextAlignLast::Auto;
+            else if (is_ident(values[0], "left") || is_ident(values[0], "start"))
+                style.text_align_last = TextAlignLast::Left;
+            else if (is_ident(values[0], "right") || is_ident(values[0], "end"))
+                style.text_align_last = TextAlignLast::Right;
+            else if (is_ident(values[0], "center"))
+                style.text_align_last = TextAlignLast::Center;
+            else if (is_ident(values[0], "justify"))
+                style.text_align_last = TextAlignLast::Justify;
             return;
         }
         if (name == "white-space") {

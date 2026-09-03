@@ -1306,5 +1306,67 @@ int main(int argc, char** argv)
         CHECK(!has(U"7.")); // the item after value=20 is not 7
     }
 
+    // --- A justified line fills the width it was given -------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // Fixed pitch at 16px: a glyph is 10 wide, so a two-letter word is
+        // 20 and a space is 10. Eight words with their seven spaces come to
+        // 230 of the 250 the box gives and the ninth will not fit — so the
+        // first line has 20 to share out and the second holds the last two.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 250px }
+</style></head><body>
+  <div style="text-align: justify">aa bb cc dd ee ff gg hh ii jj</div>
+  <div style="text-align: justify; text-align-last: justify">ka kb kc kd ke kf kg kh ki kj</div>
+  <div style="text-align: justify; text-justify: none">na nb nc nd ne nf ng nh ni nj</div>
+  <div style="text-align: left; text-align-last: right">ra rb</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        auto const ends_at = [](layout::TextRun const* run, float edge) {
+            return run->x + run->width > edge - 0.01f && run->x + run->width < edge + 0.01f;
+        };
+        // The line that was broken reaches both edges: its spaces grew, its
+        // words kept the widths their font gave them.
+        layout::TextRun const* const aa = run_of(U"aa");
+        layout::TextRun const* const hh = run_of(U"hh");
+        if (CHECK(aa && hh)) {
+            CHECK_EQ(aa->x, 0.0f);
+            CHECK_EQ(aa->width, 20.0f);
+            CHECK_EQ(hh->width, 20.0f);
+            CHECK(ends_at(hh, 250.0f));
+        }
+        // The last line of the block keeps its start alignment.
+        layout::TextRun const* const ii = run_of(U"ii");
+        layout::TextRun const* const jj = run_of(U"jj");
+        if (CHECK(ii && jj)) {
+            CHECK_EQ(ii->x, 0.0f);
+            CHECK_EQ(jj->x, 30.0f);
+        }
+        // Unless text-align-last asks for that one to be stretched too.
+        layout::TextRun const* const ki = run_of(U"ki");
+        layout::TextRun const* const kj = run_of(U"kj");
+        if (CHECK(ki && kj)) {
+            CHECK_EQ(ki->x, 0.0f);
+            CHECK(ends_at(kj, 250.0f));
+        }
+        // text-justify: none turns justification off: a space stays a space.
+        layout::TextRun const* const nh = run_of(U"nh");
+        if (CHECK(nh))
+            CHECK_EQ(nh->x, 210.0f);
+        // A block's only line is its last one, so text-align-last places it.
+        layout::TextRun const* const rb = run_of(U"rb");
+        if (CHECK(rb))
+            CHECK_EQ(rb->x, 230.0f);
+    }
+
     return test::report("layout");
 }

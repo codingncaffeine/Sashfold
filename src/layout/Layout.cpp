@@ -1748,6 +1748,33 @@ struct Layouter {
                 start_line();
             }
             float const baseline = y - line_top + above;
+            // Which alignment this line takes (css-text-3 §7.2): the block's,
+            // except that the last line — and any line ended by a forced
+            // break — answers to text-align-last. Its `auto` starts a
+            // justified block's last line at the start edge and otherwise
+            // leaves the block's own alignment alone, which is why
+            // `text-align: justify-all` exists to ask for the other thing.
+            css::TextAlign align = block_style.text_align;
+            if (last_line) {
+                switch (block_style.text_align_last) {
+                case css::TextAlignLast::Auto:
+                    if (align == css::TextAlign::Justify)
+                        align = css::TextAlign::Left;
+                    break;
+                case css::TextAlignLast::Left:
+                    align = css::TextAlign::Left;
+                    break;
+                case css::TextAlignLast::Right:
+                    align = css::TextAlign::Right;
+                    break;
+                case css::TextAlignLast::Center:
+                    align = css::TextAlign::Center;
+                    break;
+                case css::TextAlignLast::Justify:
+                    align = css::TextAlign::Justify;
+                    break;
+                }
+            }
             // text-align: justify (CSS 2.1 §16.2): the room the line did not
             // use is shared out among the spaces between its words, so both
             // its edges come out flush. Only the spaces stretch — the words
@@ -1756,8 +1783,8 @@ struct Layouter {
             // A space is one entry of its own here, which is what makes this
             // a single pass; text kept whole by `white-space: pre-wrap` holds
             // its spaces inside a word and so has nothing to stretch yet.
-            if (block_style.text_align == css::TextAlign::Justify && !last_line
-                && line_avail > line_width) {
+            if (align == css::TextAlign::Justify && line_avail > line_width
+                && block_style.text_justify != css::TextJustify::None) {
                 std::size_t spaces = 0;
                 for (Placed const& placed : line)
                     spaces += placed.is_space ? 1 : 0;
@@ -1772,9 +1799,9 @@ struct Layouter {
                 }
             }
             float x = line_left;
-            if (block_style.text_align == css::TextAlign::Center)
+            if (align == css::TextAlign::Center)
                 x += (line_avail - line_width) / 2.0f;
-            else if (block_style.text_align == css::TextAlign::Right)
+            else if (align == css::TextAlign::Right)
                 x += line_avail - line_width;
             // Where each entry begins, so the inline boxes around them can be
             // drawn once the line is laid out; the last is where it ends.

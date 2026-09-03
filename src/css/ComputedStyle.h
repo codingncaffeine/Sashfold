@@ -336,6 +336,30 @@ enum class TextAlign : std::uint8_t {
     Justify,
 };
 
+// How the last line of a block, and any line right before a forced break,
+// is aligned (css-text-3 §7.2). `Auto` takes the block's own text-align,
+// except that justified text starts its last line at the start edge —
+// which is what `justify-all` exists to say otherwise about. `start` and
+// `end` are read as left and right: there is no `direction` yet.
+enum class TextAlignLast : std::uint8_t {
+    Auto,
+    Left,
+    Right,
+    Center,
+    Justify,
+};
+
+// What a justified line is allowed to stretch (css-text-3 §7.3). `none`
+// turns justification off altogether; the rest are read, but the only
+// method written is the one between words, so `inter-character` — and
+// `distribute`, its old name — stretch the spaces like the others.
+enum class TextJustify : std::uint8_t {
+    Auto,
+    None,
+    InterWord,
+    InterCharacter,
+};
+
 enum class WhiteSpace : std::uint8_t {
     Normal,
     Pre,
@@ -773,6 +797,8 @@ struct ComputedStyle {
     LineHeight line_height;
     VerticalAlign vertical_align; // not inherited
     TextAlign text_align = TextAlign::Left;
+    TextAlignLast text_align_last = TextAlignLast::Auto;
+    TextJustify text_justify = TextJustify::Auto;
     WhiteSpace white_space = WhiteSpace::Normal;
     TextTransform text_transform = TextTransform::None;
     ListStyleType list_style_type = ListStyleType::Disc;
