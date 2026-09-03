@@ -5080,6 +5080,21 @@ struct Layouter {
             justify = own_size ? css::AlignItems::FlexStart : css::AlignItems::Stretch;
         if (justify == css::AlignItems::Baseline)
             justify = css::AlignItems::FlexStart;
+        // An item with a width of its own, or one that keeps its own size,
+        // has nothing to stretch and stands at the start of its area
+        // instead — which is a side, and so has to be settled before the
+        // ends are swapped below.
+        if (justify == css::AlignItems::Stretch && (!s.width.is_auto() || own_size))
+            justify = css::AlignItems::FlexStart;
+        // The area is mirrored whole for a right-to-left grid, but where
+        // the item sits inside it is settled here, in physical offsets, so
+        // the ends have to be swapped: start is the right of its area.
+        if (container.direction == css::Direction::Rtl) {
+            if (justify == css::AlignItems::FlexStart)
+                justify = css::AlignItems::FlexEnd;
+            else if (justify == css::AlignItems::FlexEnd)
+                justify = css::AlignItems::FlexStart;
+        }
         float const available = std::max(0.0f, area_width - margin_left - margin_right - edges);
         float content;
         if (!s.width.is_auto()) {
@@ -5330,7 +5345,7 @@ struct Layouter {
     // Hands each absolutely positioned child of a grid container that this
     // container contains the grid area its placement names.
     void give_grid_areas(dom::Element const& container, float content_x, float content_y,
-        AxisTracks const& columns, std::vector<float> const& column_sizes,
+        float content_width, bool rtl, AxisTracks const& columns, std::vector<float> const& column_sizes,
         grid::TrackPositions const& column_positions, std::vector<grid::Track> const& column_tracks,
         int column_offset, AxisTracks const& rows, std::vector<float> const& row_sizes,
         grid::TrackPositions const& row_positions, std::vector<grid::Track> const& row_tracks,
@@ -5346,12 +5361,18 @@ struct Layouter {
                 column_offset, column_sizes.size());
             AbsEdges const down
                 = abspos_edges(s.grid_row_start, s.grid_row_end, rows.lines, row_offset, row_sizes.size());
-            if (across.start)
-                box.area_left = content_x
-                    + line_position(column_sizes, column_positions, column_tracks, *across.start);
-            if (across.end)
-                box.area_right
-                    = content_x + line_position(column_sizes, column_positions, column_tracks, *across.end);
+            // Mirrored with the in-flow areas: the line the placement calls
+            // its start is the box's RIGHT edge in a right-to-left grid.
+            auto const edge = [&](int line) {
+                float const at = line_position(column_sizes, column_positions, column_tracks, line);
+                return content_x + (rtl ? content_width - at : at);
+            };
+            if (across.start) {
+                (rtl ? box.area_right : box.area_left) = edge(*across.start);
+            }
+            if (across.end) {
+                (rtl ? box.area_left : box.area_right) = edge(*across.end);
+            }
             if (down.start)
                 box.area_top = content_y + line_position(row_sizes, row_positions, row_tracks, *down.start);
             if (down.end)
@@ -5364,6 +5385,7 @@ struct Layouter {
         std::optional<float> own_height) const
     {
         std::vector<GridItem> items = collect_grid_items(container, style, content_x, content_y);
+        bool const rtl = style.direction == css::Direction::Rtl;
         float const column_gap = resolve(style.column_gap, content_width);
         float const row_gap = resolve(style.row_gap, own_height.value_or(0.0f));
         css::GridAreas const* const areas = style.grid_template_areas.get();
@@ -5445,21 +5467,28 @@ struct Layouter {
             row_pass = size_rows(row_height);
         }
 
-        // Each item in its area.
+        // Each item in its area. The columns are sized and shared out from
+        // the content edge either way; a right-to-left grid then reads
+        // them from the other end, so an area's distance from the left
+        // becomes the same distance from the right and column one is the
+        // rightmost. Everything above this line — track sizing, the
+        // placement algorithm, justify-content's share-out — stays as it
+        // was, because a mirror leaves all of it true.
         for (std::size_t i = 0; i < items.size(); ++i) {
             GridItem const& item = items[i];
             auto const [x, width]
                 = span_extent(column_sizes, column_positions, column_tracks, item.area.column_start, item.area.column_end);
             auto const [y, height]
                 = span_extent(row_pass.sizes, row_pass.positions, row_pass.tracks, item.area.row_start, item.area.row_end);
-            place_grid_item(item, content_x + x, content_y + y, width, height, style, list_depth, fragment);
+            float const left = rtl ? content_width - x - width : x;
+            place_grid_item(item, content_x + left, content_y + y, width, height, style, list_depth, fragment);
         }
         // An absolutely positioned child this container contains is laid
         // out in the area its placement named, not in the padding box.
         if (style.positioned()) {
-            give_grid_areas(container, content_x, content_y, columns, column_sizes, column_positions,
-                column_tracks, placed.column_offset, rows, row_pass.sizes, row_pass.positions,
-                row_pass.tracks, placed.row_offset);
+            give_grid_areas(container, content_x, content_y, content_width, rtl, columns, column_sizes,
+                column_positions, column_tracks, placed.column_offset, rows, row_pass.sizes,
+                row_pass.positions, row_pass.tracks, placed.row_offset);
         }
         if (row_height)
             return *row_height;

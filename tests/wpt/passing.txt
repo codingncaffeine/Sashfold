@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7637 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7642 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6140,6 +6140,8 @@ css/css-grid/abspos/grid-abspos-staticpos-align-self-safe-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-safe-outer-cb-002.tentative.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-003.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-004.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-001.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-002.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-003.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-004.html
 css/css-grid/abspos/grid-fixedpos-static-position-not-containing-block.html
@@ -6366,6 +6368,8 @@ css/css-grid/grid-items/grid-item-containing-block-001.html
 css/css-grid/grid-items/grid-item-containing-block-002.html
 css/css-grid/grid-items/grid-item-containing-block-003.html
 css/css-grid/grid-items/grid-item-containing-block-004.html
+css/css-grid/grid-items/grid-item-direction-rtl-001.html
+css/css-grid/grid-items/grid-item-margins-and-writing-modes-001.html
 css/css-grid/grid-items/grid-item-min-height-overrides-fixed-height-001.html
 css/css-grid/grid-items/grid-item-min-width-overrides-fixed-width-001.html
 css/css-grid/grid-items/grid-item-minmax-img-001.html
@@ -6491,6 +6495,7 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/alignment/column-s
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/alignment/row-subgrid-alignment-in-subgridded-axis-002.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-002.html
+css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-003.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/column-subgrid-abs-pos-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/column-subgrid-grid-gap-010.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/column-subgrid-grid-gap-011.html

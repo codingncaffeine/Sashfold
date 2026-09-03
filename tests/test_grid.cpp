@@ -683,5 +683,36 @@ int main()
         }
     }
 
+    // --- Columns that run from the right ---------------------------------------
+    {
+        // 300 wide, two 100px columns and a 20px gutter: 220 used, 80 over.
+        Page const page = lay_out(page_with(R"(
+<div id="g1" dir="rtl" style="display:grid; width:300px; grid-template-columns: 100px 100px; column-gap: 20px"><div id="a1">a</div><div id="b1">b</div></div>
+<div id="g2" dir="rtl" style="display:grid; width:300px; grid-template-columns: 100px 100px; column-gap: 20px; justify-content: end"><div id="a2">a</div></div>
+<div id="g3" dir="rtl" style="display:grid; width:300px; grid-template-columns: 300px"><div id="a3" style="width: 50px; justify-self: start">a</div><div id="b3" style="width: 50px; justify-self: end">b</div></div>
+<div id="g4" dir="rtl" style="display:grid; width:300px; position: relative; grid-template-columns: 100px 200px"><div id="a4" style="position:absolute; grid-column: 2; left: 0; width: 30px">a</div><div id="b4" style="position:absolute; grid-column: 2; right: 0; width: 30px">b</div></div>)"));
+        auto const at = [&](std::string_view id, float x, float width) {
+            layout::Fragment const* const box = find_box(page.result.root, id);
+            if (CHECK(box != nullptr))
+                CHECK(near(box->x, x) && near(box->width, width));
+        };
+        // Column one is the rightmost, and the free space the tracks did
+        // not take is at the left, where the end of the axis now is.
+        at("a1", 200, 100);
+        at("b1", 80, 100);
+        // justify-content: end packs the tracks against the end of the
+        // column axis, which is now the left edge: the 80 they did not
+        // take is on the right, so column one sits at 120.
+        at("a2", 120, 100);
+        // Inside its area the ends swap too: start is the area's right.
+        at("a3", 250, 50);
+        at("b3", 0, 50);
+        // An absolutely positioned child placed in a named column is laid
+        // out in that column's mirrored area: column two runs 0 to 200,
+        // and its own offsets stay physical.
+        at("a4", 0, 30);
+        at("b4", 170, 30);
+    }
+
     return sashfold::test::report("grid");
 }
