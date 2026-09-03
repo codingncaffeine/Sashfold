@@ -504,5 +504,174 @@ int main()
         CHECK(close(wide.text_indent.value, 0)); // initial, not the parent's 40
     }
 
+    // --- Counters -------------------------------------------------------------
+    {
+        // The three properties as written: a name alone takes the property's
+        // own default (one for increment, nothing for the other two), a name
+        // and an integer take the integer, and several pairs are a list. A
+        // stray value drops the whole declaration.
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  #pairs { counter-reset: a 5 b c -3 }
+  #bare { counter-increment: a }
+  #set { counter-set: a 7 }
+  #none { counter-reset: none }
+  #bad { counter-reset: a 2.5 }
+  #reserved { counter-increment: initial }
+</style></head><body>
+  <div id="pairs"></div><div id="bare"></div><div id="set"></div>
+  <div id="none"></div><div id="bad"></div><div id="reserved"></div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        auto const op_is = [](css::CounterOps const& ops, std::size_t index,
+                               std::string_view name, int value) {
+            return index < ops.size() && ops[index].name == name && ops[index].value == value;
+        };
+        ComputedStyle const& pairs = style_of("pairs");
+        if (CHECK(pairs.counter_reset && pairs.counter_reset->size() == 3)) {
+            CHECK(op_is(*pairs.counter_reset, 0, "a", 5));
+            CHECK(op_is(*pairs.counter_reset, 1, "b", 0)); // reset's default
+            CHECK(op_is(*pairs.counter_reset, 2, "c", -3));
+        }
+        ComputedStyle const& bare = style_of("bare");
+        if (CHECK(bare.counter_increment && bare.counter_increment->size() == 1))
+            CHECK(op_is(*bare.counter_increment, 0, "a", 1)); // increment's default
+        ComputedStyle const& set = style_of("set");
+        if (CHECK(set.counter_set && set.counter_set->size() == 1))
+            CHECK(op_is(*set.counter_set, 0, "a", 7));
+        // `none` is an empty list, which is not the same as the property
+        // never having been written (a null list).
+        if (CHECK(style_of("none").counter_reset))
+            CHECK(style_of("none").counter_reset->empty());
+        CHECK(!style_of("bad").counter_reset); // a fraction is not an integer
+        CHECK(!style_of("reserved").counter_increment); // a CSS-wide keyword is not a name
+    }
+    {
+        // Scope, the way CSS 2.1 §12.4.3 draws it. The middle box resets the
+        // counter its two siblings increment, and its instance covers the
+        // sibling after it — so the three read 5, 10 and 15. The fourth asks
+        // for a counter nothing ever reset, which reads as a zero.
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  div { counter-increment: test 5 }
+  #middle { counter-reset: test 5 }
+  div::before { content: counter(test) }
+  #orphan::before { content: counter(nobody) }
+  #hidden { display: none; counter-increment: test 100 }
+  #inside { counter-increment: test 100 }
+</style></head><body>
+  <div id="first"></div>
+  <div id="middle"></div>
+  <div id="last"></div>
+  <div id="orphan"></div>
+  <div id="hidden"><div id="inside"></div></div>
+  <div id="after-hidden"></div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        auto const before_text = [](std::string_view id) -> std::string {
+            ComputedStyle const& style = style_of(id);
+            if (!style.generated || !style.generated->before)
+                return "<none>";
+            return style.generated->before->text;
+        };
+        CHECK(before_text("first") == "5"); // the implicit reset to zero, then +5
+        CHECK(before_text("middle") == "10"); // its own reset to 5, then +5
+        CHECK(before_text("last") == "15"); // the middle box's instance is still in scope
+        CHECK(before_text("orphan") == "0"); // a counter nobody reset reads zero
+        // display: none does no counter work, and neither does anything
+        // inside it — so the last box is 20 (the orphan incremented too)
+        // plus 5, and not 20 + 5 + 100 + 100.
+        CHECK(before_text("after-hidden") == "25");
+    }
+    {
+        // Self-nesting: each list resets the counter again, so counters()
+        // spells one value per level and counter() only the innermost. The
+        // separator goes between the values, never at an end.
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  ul { counter-reset: item }
+  li { counter-increment: item }
+  li::before { content: counters(item, ".") }
+  li::after { content: counter(item) }
+</style></head><body>
+  <ul><li id="one"></li><li id="two"><ul><li id="deep"></li></ul></li></ul>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        auto const text = [](std::string_view id, bool after) -> std::string {
+            ComputedStyle const& style = style_of(id);
+            if (!style.generated)
+                return "<none>";
+            auto const& box = after ? style.generated->after : style.generated->before;
+            return box ? box->text : std::string("<none>");
+        };
+        CHECK(text("one", false) == "1");
+        CHECK(text("two", false) == "2");
+        CHECK(text("deep", false) == "2.1"); // the outer list's 2, then the inner list's 1
+        CHECK(text("deep", true) == "1"); // counter() takes the innermost alone
+    }
+    {
+        // Every counter style, at the values that show what it does — and
+        // outside the range a system can spell, the decimal digits.
+        using css::format_counter;
+        using css::ListStyleType;
+        CHECK(format_counter(-12, ListStyleType::Decimal) == "-12");
+        CHECK(format_counter(5, ListStyleType::DecimalLeadingZero) == "05");
+        CHECK(format_counter(-9, ListStyleType::DecimalLeadingZero) == "-09"); // the sign is no digit
+        CHECK(format_counter(100, ListStyleType::DecimalLeadingZero) == "100");
+        CHECK(format_counter(1994, ListStyleType::LowerRoman) == "mcmxciv");
+        CHECK(format_counter(1994, ListStyleType::UpperRoman) == "MCMXCIV");
+        CHECK(format_counter(4000, ListStyleType::UpperRoman) == "4000"); // past what roman spells
+        CHECK(format_counter(0, ListStyleType::LowerRoman) == "0");
+        CHECK(format_counter(1, ListStyleType::LowerAlpha) == "a");
+        CHECK(format_counter(26, ListStyleType::LowerAlpha) == "z");
+        CHECK(format_counter(27, ListStyleType::LowerAlpha) == "aa"); // bijective: no zero digit
+        CHECK(format_counter(28, ListStyleType::UpperAlpha) == "AB");
+        CHECK(format_counter(0, ListStyleType::UpperAlpha) == "0");
+        CHECK(format_counter(1, ListStyleType::LowerGreek) == "α"); // alpha
+        CHECK(format_counter(18, ListStyleType::LowerGreek) == "σ"); // sigma, final sigma skipped
+        CHECK(format_counter(24, ListStyleType::LowerGreek) == "ω"); // omega
+        CHECK(format_counter(1, ListStyleType::Armenian) == "Ա");
+        CHECK(format_counter(1988, ListStyleType::Armenian) == "ՌՋՁԸ"); // 1000+900+80+8
+        CHECK(format_counter(10000, ListStyleType::Armenian) == "10000"); // past its largest numeral
+        CHECK(format_counter(1, ListStyleType::Georgian) == "ა");
+        CHECK(format_counter(1988, ListStyleType::Georgian) == "ჩშპჱ"); // 1000+900+80+8
+        CHECK(format_counter(20000, ListStyleType::Georgian) == "20000");
+        CHECK(format_counter(7, ListStyleType::None).empty());
+        CHECK(format_counter(7, ListStyleType::Disc) == "•"); // a glyph says nothing of the number
+    }
+    {
+        // counter()'s second argument is a counter style, counters()' third;
+        // a name the engine does not spell drops the declaration, and so
+        // does a counters() written without its separator.
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  div { counter-reset: n 4 }
+  #styled::before { content: counter(n, upper-roman) }
+  #latin::before { content: counter(n, lower-latin) }
+  #nested::before { content: counters(n, "-", decimal-leading-zero) }
+  #unknown::before { content: counter(n, cjk-ideographic) }
+  #noseparator::before { content: counters(n) }
+</style></head><body>
+  <div id="styled"></div><div id="latin"></div><div id="nested"></div>
+  <div id="unknown"></div><div id="noseparator"></div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        auto const before_text = [](std::string_view id) -> std::string {
+            ComputedStyle const& style = style_of(id);
+            if (!style.generated || !style.generated->before)
+                return "<none>";
+            return style.generated->before->text;
+        };
+        CHECK(before_text("styled") == "IV");
+        CHECK(before_text("latin") == "d"); // lower-latin is the lower-alpha list
+        CHECK(before_text("nested") == "04");
+        CHECK(before_text("unknown") == "<none>"); // a style we do not spell drops the declaration
+        CHECK(before_text("noseparator") == "<none>"); // counters() must be told its separator
+    }
+
     return sashfold::test::report("style-resolver");
 }

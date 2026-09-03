@@ -2914,25 +2914,18 @@ struct Layouter {
         dom::Element const& list_parent, int index) const
     {
         (void)list_parent;
-        std::u32string marker;
-        switch (style.list_style_type) {
-        case css::ListStyleType::None:
-            return;
-        case css::ListStyleType::Disc:
-            marker = U"•";
-            break;
-        case css::ListStyleType::Circle:
-            marker = U"◦";
-            break; // falls back to the replacement box until the glyph lands
-        case css::ListStyleType::Square:
-            marker = U"▪";
-            break;
-        case css::ListStyleType::Decimal: {
-            std::string const number = std::to_string(index) + ".";
-            marker = decode_utf8(number);
-            break;
-        }
-        }
+        // Every counter style spells a marker the same way a counter() is
+        // spelled; only the three glyphs stand for themselves, and the
+        // numbering systems take the full stop a marker wears after them.
+        std::string written = css::format_counter(index, style.list_style_type);
+        if (written.empty())
+            return; // list-style-type: none
+        bool const is_glyph = style.list_style_type == css::ListStyleType::Disc
+            || style.list_style_type == css::ListStyleType::Circle
+            || style.list_style_type == css::ListStyleType::Square;
+        if (!is_glyph)
+            written += ".";
+        std::u32string marker = decode_utf8(written);
         if (marker.empty())
             return;
         float const width = measure(style, marker);

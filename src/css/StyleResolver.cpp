@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -423,6 +424,55 @@ bool is_ident(ComponentValue const* value, std::string_view name)
 {
     return value && value->is_token(Token::Type::Ident)
         && ascii_ci_equals(value->token().value, name);
+}
+
+// The counter styles this engine spells, by the name list-style-type and
+// counter()'s second argument share. `lower-latin` and `upper-latin` are
+// the same lists as the `-alpha` pair; a name it does not know comes back
+// empty, and the declaration holding it is dropped.
+std::optional<ListStyleType> parse_list_style_type(ComponentValue const* value)
+{
+    if (!value || !value->is_token(Token::Type::Ident))
+        return std::nullopt;
+    static constexpr std::pair<std::string_view, ListStyleType> names[] = {
+        { "disc", ListStyleType::Disc },
+        { "circle", ListStyleType::Circle },
+        { "square", ListStyleType::Square },
+        { "decimal", ListStyleType::Decimal },
+        { "decimal-leading-zero", ListStyleType::DecimalLeadingZero },
+        { "lower-roman", ListStyleType::LowerRoman },
+        { "upper-roman", ListStyleType::UpperRoman },
+        { "lower-alpha", ListStyleType::LowerAlpha },
+        { "lower-latin", ListStyleType::LowerAlpha },
+        { "upper-alpha", ListStyleType::UpperAlpha },
+        { "upper-latin", ListStyleType::UpperAlpha },
+        { "lower-greek", ListStyleType::LowerGreek },
+        { "armenian", ListStyleType::Armenian },
+        { "georgian", ListStyleType::Georgian },
+        { "none", ListStyleType::None },
+    };
+    for (auto const& [name, type] : names) {
+        if (ascii_ci_equals(value->token().value, name))
+            return type;
+    }
+    return std::nullopt;
+}
+
+// An integer as the counter properties want it: no unit, no fraction, and
+// clamped to what an int holds — the suite writes both -2147483648 and
+// 2147483647 and expects them back whole.
+std::optional<int> parse_counter_integer(ComponentValue const* value)
+{
+    if (!value || !value->is_token(Token::Type::Number))
+        return std::nullopt;
+    if (value->token().numeric_type != Token::NumericType::Integer)
+        return std::nullopt; // a fraction is not an integer
+    double const number = value->token().numeric_value;
+    if (number <= static_cast<double>(std::numeric_limits<int>::min()))
+        return std::numeric_limits<int>::min();
+    if (number >= static_cast<double>(std::numeric_limits<int>::max()))
+        return std::numeric_limits<int>::max();
+    return static_cast<int>(number);
 }
 
 // CSS Overflow §3: `visible` and `clip` cannot stand beside an axis that
@@ -1698,6 +1748,95 @@ struct Resolver {
     std::array<std::vector<std::uint32_t>, target_count> matched_rules; // scratch, reused per element
     AncestorFilter ancestors; // the identifiers of the elements above the one being styled
     int quote_depth = 0; // the nesting of quotation marks so far, in tree order
+
+    // One counter instance: a value, and the depth of the box that made it.
+    struct CounterInstance {
+        std::string name;
+        int value = 0;
+        int depth = 0;
+    };
+    // The instances in scope, innermost last. CSS 2.1 §12.4.3: the instance
+    // a counter-reset makes covers that box, its descendants, and its
+    // following siblings with their descendants — so it lives until the walk
+    // leaves the box's parent, which is what the mark taken around each
+    // children loop does.
+    std::vector<CounterInstance> counter_stack;
+    int counter_depth = 0; // the depth of the box whose turn it is
+    int display_none_depth = 0; // >0 inside a subtree that generates no boxes
+
+    // A reset by a later sibling shadows an earlier one's instance of the
+    // same name — §12.4.3 says the earlier counter's scope stops there — and
+    // so does a second reset of the same name on one box. Both are an
+    // instance at this very depth, and there can be at most one, since a
+    // deeper one was dropped when its own parent's children were done.
+    void reset_counter(std::string const& name, int value)
+    {
+        for (std::size_t i = counter_stack.size(); i-- > 0;) {
+            if (counter_stack[i].depth < counter_depth)
+                break;
+            if (counter_stack[i].name == name) {
+                counter_stack.erase(counter_stack.begin() + static_cast<std::ptrdiff_t>(i));
+                break;
+            }
+        }
+        counter_stack.push_back(CounterInstance { name, value, counter_depth });
+    }
+
+    CounterInstance const* innermost_counter(std::string const& name) const
+    {
+        for (std::size_t i = counter_stack.size(); i-- > 0;) {
+            if (counter_stack[i].name == name)
+                return &counter_stack[i];
+        }
+        return nullptr;
+    }
+
+    // §12.4.3 again: a counter that no counter-reset put in scope behaves as
+    // though one had reset it to zero on the box that asks for it.
+    CounterInstance& counter_in_scope(std::string const& name)
+    {
+        for (std::size_t i = counter_stack.size(); i-- > 0;) {
+            if (counter_stack[i].name == name)
+                return counter_stack[i];
+        }
+        counter_stack.push_back(CounterInstance { name, 0, counter_depth });
+        return counter_stack.back();
+    }
+
+    // The suite writes the largest and smallest integers there are, so the
+    // step saturates rather than wrapping (which would be undefined).
+    static int add_saturating(int value, int step)
+    {
+        long long const sum = static_cast<long long>(value) + step;
+        if (sum > std::numeric_limits<int>::max())
+            return std::numeric_limits<int>::max();
+        if (sum < std::numeric_limits<int>::min())
+            return std::numeric_limits<int>::min();
+        return static_cast<int>(sum);
+    }
+
+    // A box's counter work, in the order the properties are applied: reset,
+    // then increment, then set. A box that is not generated — display: none,
+    // and everything inside it — does none of it.
+    void apply_counter_ops(ComputedStyle const& style)
+    {
+        if (display_none_depth > 0)
+            return;
+        if (style.counter_reset) {
+            for (CounterOp const& op : *style.counter_reset)
+                reset_counter(op.name, op.value);
+        }
+        if (style.counter_increment) {
+            for (CounterOp const& op : *style.counter_increment) {
+                CounterInstance& instance = counter_in_scope(op.name);
+                instance.value = add_saturating(instance.value, op.value);
+            }
+        }
+        if (style.counter_set) {
+            for (CounterOp const& op : *style.counter_set)
+                counter_in_scope(op.name).value = op.value;
+        }
+    }
     // What one `ex` and one `ch` come to for the element being cascaded and
     // for its parent: settled as soon as the font is, and read by every
     // length in those units afterwards.
@@ -1906,6 +2045,30 @@ struct Resolver {
                 if (quote_depth > 0)
                     --quote_depth;
                 break;
+            case ContentItem::Kind::Counter: {
+                // The innermost instance in scope; a counter nothing has
+                // reset reads as the zero §12.4.3 would have put there.
+                CounterInstance const* const instance = innermost_counter(item.text);
+                text += format_counter(instance ? instance->value : 0, item.style);
+                break;
+            }
+            case ContentItem::Kind::Counters: {
+                // Every instance in scope, outermost first, with the
+                // separator between them. Instances that went out of scope
+                // are off the stack already, so the stack IS the nesting.
+                bool written = false;
+                for (CounterInstance const& instance : counter_stack) {
+                    if (instance.name != item.text)
+                        continue;
+                    if (written)
+                        text += item.fallback;
+                    text += format_counter(instance.value, item.style);
+                    written = true;
+                }
+                if (!written)
+                    text += format_counter(0, item.style);
+                break;
+            }
             }
         }
         return text;
@@ -1917,17 +2080,27 @@ struct Resolver {
         std::vector<std::uint32_t> offered;
         GeneratedContent* generated = nullptr;
         dom::Element const* owner = nullptr;
+        bool hidden_subtree = false;
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
             ComputedStyle style = compute_for(element, parent_style);
             bool const is_root = node.parent() && !node.parent()->is_element();
             if (is_root)
                 root_font_size = style.font_size; // rem resolves against this
+            // A box that is never generated does no counter work, and neither
+            // does anything inside it (§12.4.3). visibility: hidden is not
+            // that — a hidden box is generated and counts.
+            if (style.display == Display::None) {
+                hidden_subtree = true;
+                ++display_none_depth;
+            }
+            apply_counter_ops(style);
             // The generated boxes: each cascades from the rules matched for
             // its target (still in the scratch lists), inheriting from the
-            // element. The ::before text is resolved here, in tree order;
-            // the ::after text once the children have had their turn at the
-            // quotation marks.
+            // element. Their own counter work and text wait until the walk
+            // has stepped into the element, since a pseudo-element is a
+            // child of it — the ::before before the children, the ::after
+            // after them, which is the order the quotation marks want too.
             if (style.display != Display::None && can_generate(element)) {
                 std::optional<ComputedStyle> before;
                 std::optional<ComputedStyle> after;
@@ -1939,10 +2112,8 @@ struct Resolver {
                 bool const has_after = after && generates_box(*after);
                 if (has_before || has_after) {
                     auto boxes = std::make_shared<GeneratedContent>();
-                    if (has_before) {
-                        std::string text = content_text(element, *before);
-                        boxes->before = GeneratedBox { std::move(*before), std::move(text) };
-                    }
+                    if (has_before)
+                        boxes->before = GeneratedBox { std::move(*before), {} };
                     if (has_after)
                         boxes->after = GeneratedBox { std::move(*after), {} };
                     generated = boxes.get();
@@ -1965,12 +2136,28 @@ struct Resolver {
             for (std::uint32_t const hash : offered)
                 ancestors.push(hash);
         }
+        // Everything from here down is inside this node: the instances the
+        // pseudo-elements and the children make go out of scope together
+        // when the walk comes back out, which is exactly §12.4.3's rule that
+        // a counter covers its box's following siblings and no further.
+        std::size_t const scope = counter_stack.size();
+        ++counter_depth;
+        if (generated && generated->before) {
+            apply_counter_ops(generated->before->style);
+            generated->before->text = content_text(*owner, generated->before->style);
+        }
         for (dom::Node const* child : node.children())
             resolve_tree(*child, *style_for_children);
+        if (generated && generated->after) {
+            apply_counter_ops(generated->after->style);
+            generated->after->text = content_text(*owner, generated->after->style);
+        }
+        --counter_depth;
+        counter_stack.resize(scope);
         for (std::uint32_t const hash : offered)
             ancestors.pop(hash);
-        if (generated && generated->after)
-            generated->after->text = content_text(*owner, generated->after->style);
+        if (hidden_subtree)
+            --display_none_depth;
     }
 
     // The block-level box that holds this element's first formatted line,
@@ -2403,6 +2590,10 @@ struct Resolver {
             { "text-decoration-line", false, [](S& to, S const& from) { to.text_decoration = from.text_decoration; }, 0 },
             { "content", false, [](S& to, S const& from) { to.content = from.content; }, 0 },
             { "quotes", true, [](S& to, S const& from) { to.quotes = from.quotes; }, 0 },
+            { "counter-reset", false, [](S& to, S const& from) { to.counter_reset = from.counter_reset; }, 0 },
+            { "counter-increment", false,
+                [](S& to, S const& from) { to.counter_increment = from.counter_increment; }, 0 },
+            { "counter-set", false, [](S& to, S const& from) { to.counter_set = from.counter_set; }, 0 },
         };
         return table;
     }
@@ -3041,6 +3232,36 @@ struct Resolver {
                     }
                     item.kind = ContentItem::Kind::Attr;
                     item.text = RuleSet::lowercased(arguments[0]->token().value);
+                } else if (value->is_function()
+                    && (ascii_ci_equals(value->function().name, "counter")
+                        || ascii_ci_equals(value->function().name, "counters"))) {
+                    // counter(<name> [, <counter-style>]?) and
+                    // counters(<name>, <string> [, <counter-style>]?): the
+                    // separator is what goes between the nested values, so
+                    // only the plural form takes one and it is not optional.
+                    bool const nested = ascii_ci_equals(value->function().name, "counters");
+                    auto const arguments = significant(value->function().values);
+                    std::size_t const wanted = nested ? 3 : 1;
+                    if (arguments.size() != wanted && arguments.size() != wanted + 2)
+                        return;
+                    if (!arguments[0]->is_token(Token::Type::Ident))
+                        return;
+                    if (nested) {
+                        if (!arguments[1]->is_token(Token::Type::Comma)
+                            || !arguments[2]->is_token(Token::Type::String))
+                            return;
+                        item.fallback = arguments[2]->token().value;
+                    }
+                    if (arguments.size() == wanted + 2) {
+                        if (!arguments[wanted]->is_token(Token::Type::Comma))
+                            return;
+                        auto const type = parse_list_style_type(arguments[wanted + 1]);
+                        if (!type)
+                            return;
+                        item.style = *type;
+                    }
+                    item.kind = nested ? ContentItem::Kind::Counters : ContentItem::Kind::Counter;
+                    item.text = arguments[0]->token().value; // counter names are case-sensitive
                 } else if (is_ident(value, "open-quote")) {
                     item.kind = ContentItem::Kind::OpenQuote;
                 } else if (is_ident(value, "close-quote")) {
@@ -3055,6 +3276,44 @@ struct Resolver {
                 content.items.push_back(std::move(item));
             }
             style.content = std::move(content);
+            return;
+        }
+        if (name == "counter-reset" || name == "counter-increment" || name == "counter-set") {
+            // none | [ <custom-ident> <integer>? ]+ — the integer left out
+            // means one for counter-increment and nothing for the other two.
+            // A name the list cannot hold (none, or a CSS-wide keyword, which
+            // never reaches here) drops the whole declaration, as does a
+            // stray value: the property is all-or-nothing.
+            auto const list = std::make_shared<CounterOps>();
+            if (!(values.size() == 1 && is_ident(values[0], "none"))) {
+                int const written = name == "counter-increment" ? 1 : 0;
+                for (std::size_t i = 0; i < values.size(); ++i) {
+                    if (!values[i]->is_token(Token::Type::Ident))
+                        return;
+                    std::string const& counter = values[i]->token().value;
+                    if (ascii_ci_equals(counter, "none") || ascii_ci_equals(counter, "inherit")
+                        || ascii_ci_equals(counter, "initial") || ascii_ci_equals(counter, "unset")
+                        || ascii_ci_equals(counter, "revert") || ascii_ci_equals(counter, "default"))
+                        return;
+                    int value = written;
+                    if (i + 1 < values.size() && values[i + 1]->is_token(Token::Type::Number)) {
+                        auto const integer = parse_counter_integer(values[i + 1]);
+                        if (!integer)
+                            return;
+                        value = *integer;
+                        ++i;
+                    }
+                    list->push_back(CounterOp { counter, value });
+                }
+                if (list->empty())
+                    return;
+            }
+            if (name == "counter-reset")
+                style.counter_reset = list;
+            else if (name == "counter-increment")
+                style.counter_increment = list;
+            else
+                style.counter_set = list;
             return;
         }
         if (name == "quotes") {
@@ -4340,20 +4599,14 @@ struct Resolver {
             return;
         }
         if (name == "list-style-type" || name == "list-style") {
+            // The shorthand carries position and image too, so the first
+            // value it holds that names a counter style is the type and the
+            // rest are somebody else's business.
             for (ComponentValue const* value : values) {
-                if (is_ident(value, "disc"))
-                    style.list_style_type = ListStyleType::Disc;
-                else if (is_ident(value, "circle"))
-                    style.list_style_type = ListStyleType::Circle;
-                else if (is_ident(value, "square"))
-                    style.list_style_type = ListStyleType::Square;
-                else if (is_ident(value, "decimal"))
-                    style.list_style_type = ListStyleType::Decimal;
-                else if (is_ident(value, "none"))
-                    style.list_style_type = ListStyleType::None;
-                else
-                    continue;
-                return;
+                if (auto const type = parse_list_style_type(value)) {
+                    style.list_style_type = *type;
+                    return;
+                }
             }
             return;
         }

@@ -42,16 +42,16 @@
 <p><a href="./">← sashfold.com</a></p>
 <h1>Web Platform Tests</h1>
 <p>Sashfold's pass rate on the CSS <em>reference tests</em> of the <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a> — the tests that need no scripting: a test page and a reference page must render to the same pixels. Every test and every reference is rendered by Sashfold itself, headless, at the suite's 800×600 viewport, with the built-in face and the fonts the tests bring along. The comparison follows the suite's own rules (pixel-identical unless a test declares a fuzziness allowance; references may chain).</p>
-<div class="stat"><span class="big">7238 / 13477</span><span class="what">CSS reference tests passing — 53.7%</span></div>
+<div class="stat"><span class="big">7385 / 13477</span><span class="what">CSS reference tests passing — 54.8%</span></div>
 <table>
 <thead><tr><th>Directory</th><th></th><th>Passing</th><th>Rate</th></tr></thead>
 <tbody>
-<tr><td><code>css/CSS2</code></td><td><div class="bar"><span style="width: 75%"></span></div></td><td class="num">4629 / 6169</td><td class="num">75.0%</td></tr>
+<tr><td><code>css/CSS2</code></td><td><div class="bar"><span style="width: 77%"></span></div></td><td class="num">4773 / 6169</td><td class="num">77.4%</td></tr>
 <tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 36%"></span></div></td><td class="num">261 / 711</td><td class="num">36.7%</td></tr>
 <tr><td><code>css/css-box</code></td><td><div class="bar"><span style="width: 47%"></span></div></td><td class="num">33 / 69</td><td class="num">47.8%</td></tr>
 <tr><td><code>css/css-cascade</code></td><td><div class="bar"><span style="width: 32%"></span></div></td><td class="num">14 / 43</td><td class="num">32.6%</td></tr>
 <tr><td><code>css/css-color</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">126 / 307</td><td class="num">41.0%</td></tr>
-<tr><td><code>css/css-display</code></td><td><div class="bar"><span style="width: 23%"></span></div></td><td class="num">51 / 213</td><td class="num">23.9%</td></tr>
+<tr><td><code>css/css-display</code></td><td><div class="bar"><span style="width: 24%"></span></div></td><td class="num">53 / 213</td><td class="num">24.9%</td></tr>
 <tr><td><code>css/css-flexbox</code></td><td><div class="bar"><span style="width: 54%"></span></div></td><td class="num">546 / 1003</td><td class="num">54.4%</td></tr>
 <tr><td><code>css/css-fonts</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">153 / 371</td><td class="num">41.2%</td></tr>
 <tr><td><code>css/css-grid</code></td><td><div class="bar"><span style="width: 33%"></span></div></td><td class="num">548 / 1643</td><td class="num">33.4%</td></tr>
@@ -61,7 +61,7 @@
 <tr><td><code>css/css-text</code></td><td><div class="bar"><span style="width: 30%"></span></div></td><td class="num">454 / 1484</td><td class="num">30.6%</td></tr>
 <tr><td><code>css/css-values</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">88 / 211</td><td class="num">41.7%</td></tr>
 <tr><td><code>css/selectors</code></td><td><div class="bar"><span style="width: 14%"></span></div></td><td class="num">32 / 226</td><td class="num">14.2%</td></tr>
-<tr><td><code>css/css-variables</code></td><td><div class="bar"><span style="width: 48%"></span></div></td><td class="num">88 / 182</td><td class="num">48.4%</td></tr>
+<tr><td><code>css/css-variables</code></td><td><div class="bar"><span style="width: 48%"></span></div></td><td class="num">89 / 182</td><td class="num">48.9%</td></tr>
 </tbody>
 </table>
 <p class="muted">Scored 2026-09-03 against WPT revision <code>b1a7025f8bc1</code>. The count is every reference test the suite's manifest rules find under these directories, including the ones that wait on scripts (Sashfold runs none yet, so those fail). XHTML test files are parsed by the HTML parser. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>

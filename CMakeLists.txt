@@ -32,6 +32,7 @@ add_library(sashfold_core STATIC
   src/core/Png.cpp
   src/core/RoundRect.cpp
   src/core/Unicode.cpp
+  src/css/CounterStyles.cpp
   src/css/Grid.cpp
   src/css/Parser.cpp
   src/css/Selector.cpp

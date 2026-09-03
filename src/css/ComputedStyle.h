@@ -22,6 +22,33 @@ struct ComponentValue;
 // written as, with any var() inside them already substituted.
 using CustomProperties = std::unordered_map<std::string, std::vector<ComponentValue>>;
 
+// How a list marker, and a counter() in the content property, writes a
+// number. The glyph kinds ignore the number; the alphabetic and additive
+// ones fall back to decimal outside the range they can spell.
+enum class ListStyleType : std::uint8_t {
+    Disc,
+    Circle,
+    Square,
+    Decimal,
+    DecimalLeadingZero,
+    LowerRoman,
+    UpperRoman,
+    LowerAlpha, // lower-latin is the same list
+    UpperAlpha,
+    LowerGreek,
+    Armenian,
+    Georgian,
+    None,
+};
+
+// A counter's value written out the way a list-style-type spells it: the
+// decimal digits, roman numerals, letters of an alphabet, or one of the
+// three marker glyphs (which say nothing about the number). Outside the
+// range a system can spell — roman past 3999, an additive system past its
+// largest numeral, anything below one where the alphabet starts — the
+// value comes back in decimal, as css-counter-styles-3 §3 asks.
+std::string format_counter(int value, ListStyleType style);
+
 // One piece of the content property's value.
 struct ContentItem {
     enum class Kind : std::uint8_t {
@@ -31,11 +58,27 @@ struct ContentItem {
         CloseQuote,
         NoOpenQuote, // the depth changes, nothing is inserted
         NoCloseQuote,
+        Counter, // counter(name, style): the innermost instance in scope
+        Counters, // counters(name, separator, style): every instance, outermost first
     };
     Kind kind = Kind::String;
-    std::string text;
-    std::string fallback; // Attr: what stands in when the attribute is absent
+    std::string text; // String: the text; Attr, Counter, Counters: the name
+    std::string fallback; // Attr: what stands in when the attribute is absent;
+                          // Counters: what goes between the values
+    ListStyleType style = ListStyleType::Decimal; // Counter, Counters: how a value is written
 };
+
+// One counter operation: the counter's name and the integer beside it.
+struct CounterOp {
+    std::string name;
+    int value = 0;
+
+    bool operator==(CounterOp const&) const = default;
+};
+
+// What counter-reset, counter-increment and counter-set name, in the order
+// they were written. An empty list is `none`.
+using CounterOps = std::vector<CounterOp>;
 
 // The content property: normal (a ::before or ::after generates no box),
 // none (the same), or the items a generated box shows.
@@ -299,14 +342,6 @@ enum class BorderStyle : std::uint8_t {
     // only way to take one away.
     Hidden,
     Solid, // every visible style draws solid for now
-};
-
-enum class ListStyleType : std::uint8_t {
-    Disc,
-    Circle,
-    Square,
-    Decimal,
-    None,
 };
 
 enum class TextDecorationLine : std::uint8_t {
@@ -737,6 +772,13 @@ struct ComputedStyle {
     Content content;
     std::shared_ptr<QuotePairs const> quotes;
     std::shared_ptr<GeneratedContent const> generated;
+    // The counter operations this box performs, in the order they were
+    // written; null is none. A reset makes an instance of its own, an
+    // increment adds to the innermost instance in scope, a set writes it.
+    // Shared, because most boxes name no counter at all.
+    std::shared_ptr<CounterOps const> counter_reset;
+    std::shared_ptr<CounterOps const> counter_increment;
+    std::shared_ptr<CounterOps const> counter_set;
     // What ::first-letter asks for, when a rule addresses it: the style the
     // first letter of this block's first line wears, cascaded from the
     // element. Null when nothing addresses it.

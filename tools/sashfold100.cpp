@@ -217,7 +217,6 @@ constexpr FeatureName feature_names[] = {
     { "sizing", "object-fit and aspect-ratio" },
     { "outline", "outlines" },
     { "direction", "writing direction" },
-    { "counters", "counters" },
     { "web-fonts", "web fonts in WOFF or WOFF2" },
     { "at-rules", "@supports, @layer, @container, @keyframes, @scope" },
 };

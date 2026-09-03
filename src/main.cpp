@@ -496,9 +496,6 @@ void census_values(std::vector<css::ComponentValue> const& values, FeatureCensus
 {
     for (css::ComponentValue const& value : values) {
         if (value.is_function()) {
-            std::string const name = lowercase_ascii(value.function().name);
-            if (name == "counter" || name == "counters")
-                ++census["counters"];
             census_values(value.function().values, census);
         } else if (value.is_block()) {
             census_values(value.block().values, census);
@@ -556,8 +553,6 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["outline"];
     else if (name == "direction" || name == "writing-mode")
         ++census["direction"];
-    else if (name == "counter-reset" || name == "counter-increment")
-        ++census["counters"];
     if (name != "src")
         census_values(declaration.value, census);
 }
