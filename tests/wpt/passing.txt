@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7577 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7603 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -320,13 +320,20 @@ css/CSS2/bidi-text/bidi-box-model-043.xht
 css/CSS2/bidi-text/bidi-box-model-044.xht
 css/CSS2/bidi-text/bidi-box-model-045.xht
 css/CSS2/bidi-text/direction-001.xht
+css/CSS2/bidi-text/direction-002.xht
+css/CSS2/bidi-text/direction-003.xht
 css/CSS2/bidi-text/direction-applies-to-001.xht
 css/CSS2/bidi-text/direction-applies-to-002.xht
 css/CSS2/bidi-text/direction-applies-to-003.xht
 css/CSS2/bidi-text/direction-applies-to-004.xht
 css/CSS2/bidi-text/direction-applies-to-005.xht
 css/CSS2/bidi-text/direction-applies-to-006.xht
+css/CSS2/bidi-text/direction-applies-to-007.xht
+css/CSS2/bidi-text/direction-applies-to-009.xht
+css/CSS2/bidi-text/direction-applies-to-012.xht
+css/CSS2/bidi-text/direction-applies-to-015.xht
 css/CSS2/bidi-text/line-breaking-bidi-003.xht
+css/CSS2/bidi-text/unicode-bidi-001.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-001.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-002.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-003.xht
@@ -2564,6 +2571,7 @@ css/CSS2/normal-flow/block-formatting-contexts-016.xht
 css/CSS2/normal-flow/block-in-inline-after-block-in-inline-with-margin-collapse.html
 css/CSS2/normal-flow/block-in-inline-align-001.html
 css/CSS2/normal-flow/block-in-inline-align-justify-001.html
+css/CSS2/normal-flow/block-in-inline-align-last-001.html
 css/CSS2/normal-flow/block-in-inline-baseline-001.html
 css/CSS2/normal-flow/block-in-inline-empty-001.xht
 css/CSS2/normal-flow/block-in-inline-empty-002.xht
@@ -3405,6 +3413,8 @@ css/CSS2/positioning/left-applies-to-013.xht
 css/CSS2/positioning/left-applies-to-014.xht
 css/CSS2/positioning/left-offset-001.xht
 css/CSS2/positioning/left-offset-002.xht
+css/CSS2/positioning/left-offset-003.xht
+css/CSS2/positioning/left-offset-percentage-001.xht
 css/CSS2/positioning/left-offset-percentage-002.xht
 css/CSS2/positioning/position-006.xht
 css/CSS2/positioning/position-absolute-001.xht
@@ -4459,6 +4469,7 @@ css/CSS2/text/bidi-flag-emoji-02.html
 css/CSS2/text/bidi-flag-emoji.html
 css/CSS2/text/bidi-span-001.html
 css/CSS2/text/bidi-span-002.html
+css/CSS2/text/bidi-span-003.html
 css/CSS2/text/letter-spacing-004.xht
 css/CSS2/text/letter-spacing-005.xht
 css/CSS2/text/letter-spacing-006.xht
@@ -4522,6 +4533,8 @@ css/CSS2/text/text-align-bidi-011.xht
 css/CSS2/text/text-align-justify-with-overflow.html
 css/CSS2/text/text-align-white-space-002.xht
 css/CSS2/text/text-align-white-space-004.xht
+css/CSS2/text/text-align-white-space-006.xht
+css/CSS2/text/text-align-white-space-008.xht
 css/CSS2/text/text-decoration-applies-to-001.xht
 css/CSS2/text/text-decoration-applies-to-002.xht
 css/CSS2/text/text-decoration-applies-to-005.xht
@@ -4608,6 +4621,7 @@ css/CSS2/text/text-indent-overflow-002.xht
 css/CSS2/text/text-indent-overflow-003.xht
 css/CSS2/text/text-indent-overflow-004.xht
 css/CSS2/text/text-indent-percent-001.xht
+css/CSS2/text/text-indent-rtl-002.xht
 css/CSS2/text/text-indent-wrap-001.xht
 css/CSS2/text/text-indent-wrap-002.html
 css/CSS2/text/text-transform-001.xht
@@ -6458,7 +6472,6 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/alignment/column-s
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/alignment/row-subgrid-alignment-in-subgridded-axis-002.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-002.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-003.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/column-subgrid-abs-pos-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/column-subgrid-grid-gap-010.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/column-subgrid-grid-gap-011.html
@@ -6610,6 +6623,7 @@ css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-002.html
 css/css-grid/stretch-grid-item-button-overflow.html
 css/css-grid/stretch-grid-item-text-input-overflow.html
 css/css-grid/subgrid/abs-pos-001.html
+css/css-grid/subgrid/abs-pos-002.html
 css/css-grid/subgrid/alignment-in-subgridded-axes-002.html
 css/css-grid/subgrid/auto-track-sizing-001.html
 css/css-grid/subgrid/auto-track-sizing-002.html
@@ -6858,8 +6872,6 @@ css/css-position/sticky/position-sticky-table-td-subpixel-zoom.html
 css/css-position/sticky/position-sticky-table-td-top.html
 css/css-position/z-index-blend-will-change-overlapping-layers.html
 css/css-syntax/missing-semicolon.html
-css/css-text/bidi/bidi-lines-001.html
-css/css-text/bidi/bidi-lines-002.html
 css/css-text/bidi/bidi-tab-001.html
 css/css-text/boundary-shaping/boundary-shaping-001.html
 css/css-text/boundary-shaping/boundary-shaping-002.html
@@ -7018,17 +7030,22 @@ css/css-text/shaping/shaping_lig-000.html
 css/css-text/tab-size/tab-min-rendered-width-1.html
 css/css-text/tab-size/tab-size-spacing-001.html
 css/css-text/text-align/text-align-006.html
+css/css-text/text-align/text-align-007.html
 css/css-text/text-align/text-align-center-last-center.html
 css/css-text/text-align/text-align-center-last-default.html
 css/css-text/text-align/text-align-center-last-end.html
 css/css-text/text-align/text-align-center-last-justify.html
 css/css-text/text-align/text-align-center-last-start.html
 css/css-text/text-align/text-align-default-last-default.html
+css/css-text/text-align/text-align-end-001.html
 css/css-text/text-align/text-align-end-002.html
+css/css-text/text-align/text-align-end-003.html
 css/css-text/text-align/text-align-end-004.html
+css/css-text/text-align/text-align-end-005.html
 css/css-text/text-align/text-align-end-006.html
+css/css-text/text-align/text-align-end-007.html
 css/css-text/text-align/text-align-end-008.html
-css/css-text/text-align/text-align-end-010.html
+css/css-text/text-align/text-align-end-014.html
 css/css-text/text-align/text-align-end-015.html
 css/css-text/text-align/text-align-end-017.html
 css/css-text/text-align/text-align-end-last-center.html
@@ -7036,9 +7053,10 @@ css/css-text/text-align/text-align-end-last-default.html
 css/css-text/text-align/text-align-end-last-end.html
 css/css-text/text-align/text-align-end-last-justify.html
 css/css-text/text-align/text-align-end-last-start.html
+css/css-text/text-align/text-align-justify-001.html
 css/css-text/text-align/text-align-justify-002.html
+css/css-text/text-align/text-align-justify-003.html
 css/css-text/text-align/text-align-justify-004.html
-css/css-text/text-align/text-align-justify-006.html
 css/css-text/text-align/text-align-justify-bidi-control.html
 css/css-text/text-align/text-align-justify-last-center.html
 css/css-text/text-align/text-align-justify-last-default.html
@@ -7053,20 +7071,29 @@ css/css-text/text-align/text-align-justifyall-003.html
 css/css-text/text-align/text-align-justifyall-004.html
 css/css-text/text-align/text-align-justifyall-005.html
 css/css-text/text-align/text-align-justifyall-006.html
+css/css-text/text-align/text-align-last-010.html
+css/css-text/text-align/text-align-last-011.html
 css/css-text/text-align/text-align-last-center.html
 css/css-text/text-align/text-align-last-end.html
 css/css-text/text-align/text-align-last-justify.html
 css/css-text/text-align/text-align-last-simple.html
 css/css-text/text-align/text-align-last-start.html
 css/css-text/text-align/text-align-last-wins-001.html
+css/css-text/text-align/text-align-match-parent-001.html
+css/css-text/text-align/text-align-match-parent-01.html
+css/css-text/text-align/text-align-match-parent-05.html
 css/css-text/text-align/text-align-match-parent-root-logical.html
 css/css-text/text-align/text-align-match-parent-root-ltr.html
 css/css-text/text-align/text-align-match-parent-root-rtl.html
+css/css-text/text-align/text-align-start-001.html
 css/css-text/text-align/text-align-start-002.html
+css/css-text/text-align/text-align-start-003.html
 css/css-text/text-align/text-align-start-004.html
+css/css-text/text-align/text-align-start-005.html
 css/css-text/text-align/text-align-start-006.html
+css/css-text/text-align/text-align-start-007.html
 css/css-text/text-align/text-align-start-008.html
-css/css-text/text-align/text-align-start-010.html
+css/css-text/text-align/text-align-start-014.html
 css/css-text/text-align/text-align-start-015.html
 css/css-text/text-align/text-align-start-017.html
 css/css-text/text-align/text-align-start-last-center.html
@@ -7306,7 +7333,6 @@ css/css-text/white-space/trailing-ideographic-space-break-spaces-002.html
 css/css-text/white-space/trailing-ideographic-space-break-spaces-004.html
 css/css-text/white-space/trailing-ideographic-space-break-spaces-005.html
 css/css-text/white-space/trailing-ideographic-space-break-spaces-006.html
-css/css-text/white-space/trailing-space-rtl-001.html
 css/css-text/white-space/white-space-applies-to-text-001.html
 css/css-text/white-space/white-space-intrinsic-size-004.html
 css/css-text/white-space/white-space-intrinsic-size-015.html

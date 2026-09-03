@@ -345,24 +345,42 @@ enum class FontStyle : std::uint8_t {
     Italic,
 };
 
+// The inline base direction of a box's content (css-writing-modes-4 §2.1):
+// which end of the line its content starts at, and what `start` and `end`
+// mean everywhere they are written.
+enum class Direction : std::uint8_t {
+    Ltr,
+    Rtl,
+};
+
+// `Start` and `End` keep their names all the way to layout, where the
+// block's own direction turns them into a side; `MatchParent` is settled
+// against the parent while the style is computed and never reaches layout.
 enum class TextAlign : std::uint8_t {
+    Start,
+    End,
     Left,
     Right,
     Center,
     Justify,
+    MatchParent,
 };
 
 // How the last line of a block, and any line right before a forced break,
 // is aligned (css-text-3 §7.2). `Auto` takes the block's own text-align,
 // except that justified text starts its last line at the start edge —
 // which is what `justify-all` exists to say otherwise about. `start` and
-// `end` are read as left and right: there is no `direction` yet.
+// `end` are settled against the block's direction at layout, `match-parent`
+// against the parent's while the style is computed.
 enum class TextAlignLast : std::uint8_t {
     Auto,
+    Start,
+    End,
     Left,
     Right,
     Center,
     Justify,
+    MatchParent,
 };
 
 // What a justified line is allowed to stretch (css-text-3 §7.3). `none`
@@ -812,7 +830,8 @@ struct ComputedStyle {
     std::shared_ptr<std::vector<std::string> const> font_family;
     LineHeight line_height;
     VerticalAlign vertical_align; // not inherited
-    TextAlign text_align = TextAlign::Left;
+    Direction direction = Direction::Ltr;
+    TextAlign text_align = TextAlign::Start;
     TextAlignLast text_align_last = TextAlignLast::Auto;
     TextJustify text_justify = TextJustify::Auto;
     WhiteSpace white_space = WhiteSpace::Normal;

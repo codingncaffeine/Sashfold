@@ -1777,12 +1777,29 @@ struct Layouter {
             // justified block's last line at the start edge and otherwise
             // leaves the block's own alignment alone, which is why
             // `text-align: justify-all` exists to ask for the other thing.
-            css::TextAlign align = block_style.text_align;
+            // `start` and `end` are sides only once the block says which way
+            // its content runs (css-writing-modes-4 §2.1).
+            bool const rtl = block_style.direction == css::Direction::Rtl;
+            css::TextAlign const start_side = rtl ? css::TextAlign::Right : css::TextAlign::Left;
+            css::TextAlign const end_side = rtl ? css::TextAlign::Left : css::TextAlign::Right;
+            auto const sided = [&](css::TextAlign written) {
+                if (written == css::TextAlign::Start || written == css::TextAlign::MatchParent)
+                    return start_side; // match-parent was settled while the style was computed
+                return written == css::TextAlign::End ? end_side : written;
+            };
+            css::TextAlign align = sided(block_style.text_align);
             if (last_line) {
                 switch (block_style.text_align_last) {
                 case css::TextAlignLast::Auto:
                     if (align == css::TextAlign::Justify)
-                        align = css::TextAlign::Left;
+                        align = start_side;
+                    break;
+                case css::TextAlignLast::Start:
+                case css::TextAlignLast::MatchParent:
+                    align = start_side;
+                    break;
+                case css::TextAlignLast::End:
+                    align = end_side;
                     break;
                 case css::TextAlignLast::Left:
                     align = css::TextAlign::Left;
@@ -3186,9 +3203,14 @@ struct Layouter {
         float const gap = style.font_size * 0.4f;
         float const baseline = item_fragment.y + style.border_top.width
             + resolve(style.padding_top, 0) + ascent_in_line(style);
+        // The marker hangs off the start edge, which is the right one in a
+        // right-to-left item (css-lists-3 §3.2).
+        float const x = style.direction == css::Direction::Rtl
+            ? item_fragment.x + item_fragment.width + gap
+            : item_fragment.x - width - gap;
         item_fragment.runs.insert(item_fragment.runs.begin(),
-            TextRun { item_fragment.x - width - gap, baseline, std::move(marker), &style,
-                item_fragment.element, &fonts_for(style), width });
+            TextRun { x, baseline, std::move(marker), &style, item_fragment.element, &fonts_for(style),
+                width });
     }
 
     // --- Floats -----------------------------------------------------------------

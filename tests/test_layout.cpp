@@ -1368,6 +1368,45 @@ int main(int argc, char** argv)
             CHECK_EQ(rb->x, 230.0f);
     }
 
+    // --- A block's content can start at the right ------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // 300 wide with a 1px border, so the content box runs from 1 to 301
+        // and a 50-wide word aligned to the right end starts at 251.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 300px; border: 1px solid }
+</style></head><body>
+  <div style="direction: rtl">aaaaa</div>
+  <div dir="RTL">bbbbb</div>
+  <div style="direction: rtl; text-align: end">ccccc</div>
+  <div style="direction: rtl; text-align: left">ddddd</div>
+  <div dir="rtl"><div style="direction: ltr; text-align: match-parent">eeeee</div></div>
+  <div dir="ltr"><div style="direction: rtl; text-align: match-parent">fffff</div></div>
+  <div>ggggg</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const x_of = [&](std::u32string_view text, float expected) {
+            for (layout::TextRun const* const run : runs) {
+                if (run->text == text) {
+                    CHECK_EQ(run->x, expected);
+                    return;
+                }
+            }
+            CHECK(false);
+        };
+        x_of(U"aaaaa", 251.0f); // direction alone moves the start edge
+        x_of(U"bbbbb", 251.0f); // and the dir attribute does it whatever its case
+        x_of(U"ccccc", 1.0f); // end is the left in a right-to-left block
+        x_of(U"ddddd", 1.0f); // left stays left either way
+        // match-parent takes the parent's alignment resolved against the
+        // PARENT's direction, so an ltr child of an rtl block ends up right.
+        x_of(U"eeeee", 252.0f);
+        x_of(U"fffff", 2.0f);
+        x_of(U"ggggg", 1.0f); // left-to-right is still where it was
+    }
+
     // --- A box can be sized by its own content ---------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

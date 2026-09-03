@@ -81,6 +81,8 @@ input, textarea, select, button { font-size: 13.333px; line-height: normal; font
 input[type=hidden] { display: none }
 input[type=checkbox], input[type=radio] { margin: 3px 3px 3px 4px }
 textarea { white-space: pre-wrap }
+[dir=ltr i] { direction: ltr }
+[dir=rtl i] { direction: rtl }
 )CSS";
 
 enum class CascadeRank : int {
@@ -2307,7 +2309,10 @@ struct Resolver {
         style.font_style = parent.font_style;
         style.font_family = parent.font_family;
         style.line_height = parent.line_height;
+        style.direction = parent.direction;
         style.text_align = parent.text_align;
+        style.text_align_last = parent.text_align_last;
+        style.text_justify = parent.text_justify;
         style.letter_spacing = parent.letter_spacing;
         style.word_spacing = parent.word_spacing;
         style.text_indent = parent.text_indent;
@@ -2674,6 +2679,7 @@ struct Resolver {
             { "text-align-last", true,
                 [](S& to, S const& from) { to.text_align_last = from.text_align_last; }, 0 },
             { "text-justify", true, [](S& to, S const& from) { to.text_justify = from.text_justify; }, 0 },
+            { "direction", true, [](S& to, S const& from) { to.direction = from.direction; }, 0 },
             { "letter-spacing", true, [](S& to, S const& from) { to.letter_spacing = from.letter_spacing; }, 0 },
             { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
@@ -3168,6 +3174,49 @@ struct Resolver {
             { &style.border_top, &style.border_right, &style.border_bottom, &style.border_left }) {
             if (side->style == BorderStyle::None || side->style == BorderStyle::Hidden)
                 side->width = 0;
+        }
+        // css-text-3 §7.1: `match-parent` computes to the parent's own
+        // alignment, with `start` and `end` resolved against the PARENT's
+        // direction — which is the whole point of it, since inheriting the
+        // keyword would resolve it against this box's direction instead.
+        // The parent's value is already settled, so it is never the keyword.
+        auto const parent_side = [&](bool ending) {
+            bool const rtl = parent.direction == Direction::Rtl;
+            return rtl == ending ? TextAlign::Left : TextAlign::Right;
+        };
+        // On the root there is no parent to match, and the keyword computes
+        // to `start` — which the root's own direction then resolves.
+        bool const root = !element.parent() || !element.parent()->is_element();
+        if (root) {
+            if (style.text_align == TextAlign::MatchParent)
+                style.text_align = TextAlign::Start;
+            if (style.text_align_last == TextAlignLast::MatchParent)
+                style.text_align_last = TextAlignLast::Start;
+        }
+        if (style.text_align == TextAlign::MatchParent) {
+            style.text_align = parent.text_align;
+            if (style.text_align == TextAlign::Start)
+                style.text_align = parent_side(false);
+            else if (style.text_align == TextAlign::End)
+                style.text_align = parent_side(true);
+        }
+        if (style.text_align_last == TextAlignLast::MatchParent) {
+            switch (parent.text_align_last) {
+            case TextAlignLast::Start:
+                style.text_align_last = parent_side(false) == TextAlign::Left ? TextAlignLast::Left
+                                                                              : TextAlignLast::Right;
+                break;
+            case TextAlignLast::End:
+                style.text_align_last = parent_side(true) == TextAlign::Left ? TextAlignLast::Left
+                                                                            : TextAlignLast::Right;
+                break;
+            case TextAlignLast::MatchParent: // settled already; cannot happen
+                style.text_align_last = TextAlignLast::Auto;
+                break;
+            default:
+                style.text_align_last = parent.text_align_last;
+                break;
+            }
         }
         // CSS 2.1 §9.7: an absolutely positioned box does not float, and
         // an inline-level one becomes the block-level kind of itself; its
@@ -4675,9 +4724,15 @@ struct Resolver {
             // and a `text-align-last` declared after this one still wins.
             // `match-parent` needs a direction to resolve start and end
             // against, so it is not read.
-            if (is_ident(values[0], "left") || is_ident(values[0], "start"))
+            if (is_ident(values[0], "start"))
+                style.text_align = TextAlign::Start;
+            else if (is_ident(values[0], "end"))
+                style.text_align = TextAlign::End;
+            else if (is_ident(values[0], "match-parent"))
+                style.text_align = TextAlign::MatchParent;
+            else if (is_ident(values[0], "left"))
                 style.text_align = TextAlign::Left;
-            else if (is_ident(values[0], "right") || is_ident(values[0], "end"))
+            else if (is_ident(values[0], "right"))
                 style.text_align = TextAlign::Right;
             else if (is_ident(values[0], "center"))
                 style.text_align = TextAlign::Center;
@@ -4690,6 +4745,15 @@ struct Resolver {
             } else
                 return;
             style.text_align_last = TextAlignLast::Auto;
+            return;
+        }
+        if (name == "direction") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "ltr"))
+                style.direction = Direction::Ltr;
+            else if (is_ident(values[0], "rtl"))
+                style.direction = Direction::Rtl;
             return;
         }
         if (name == "text-justify") {
@@ -4710,9 +4774,15 @@ struct Resolver {
                 return;
             if (is_ident(values[0], "auto"))
                 style.text_align_last = TextAlignLast::Auto;
-            else if (is_ident(values[0], "left") || is_ident(values[0], "start"))
+            else if (is_ident(values[0], "start"))
+                style.text_align_last = TextAlignLast::Start;
+            else if (is_ident(values[0], "end"))
+                style.text_align_last = TextAlignLast::End;
+            else if (is_ident(values[0], "match-parent"))
+                style.text_align_last = TextAlignLast::MatchParent;
+            else if (is_ident(values[0], "left"))
                 style.text_align_last = TextAlignLast::Left;
-            else if (is_ident(values[0], "right") || is_ident(values[0], "end"))
+            else if (is_ident(values[0], "right"))
                 style.text_align_last = TextAlignLast::Right;
             else if (is_ident(values[0], "center"))
                 style.text_align_last = TextAlignLast::Center;

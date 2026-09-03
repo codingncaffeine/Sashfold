@@ -313,7 +313,7 @@ int main()
         CHECK(close(inh.border_left.width, 2));
         CHECK(inh.border_left.color == Color::rgb(0, 0, 255));
         CHECK(close(inh.border_top.width, 0));
-        CHECK(inh.text_align == css::TextAlign::Left); // initial, though the parent centers
+        CHECK(inh.text_align == css::TextAlign::Start); // initial, though the parent centers
         CHECK(close(inh.font_size, 20));
         css::ComputedStyle const& ini = style_of("ini");
         CHECK(ini.color == Color::rgb(0, 0, 0));
