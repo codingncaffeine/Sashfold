@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (6752 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (6759 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1215,6 +1215,7 @@ css/CSS2/generated-content/after-content-display-016.xht
 css/CSS2/generated-content/after-content-display-017.xht
 css/CSS2/generated-content/after-content-display-018.xht
 css/CSS2/generated-content/after-inheritable-001.xht
+css/CSS2/generated-content/after-inheritable-002.xht
 css/CSS2/generated-content/after-location-001.xht
 css/CSS2/generated-content/before-after-001.xht
 css/CSS2/generated-content/before-after-002.xht
@@ -1230,6 +1231,7 @@ css/CSS2/generated-content/before-content-display-016.xht
 css/CSS2/generated-content/before-content-display-017.xht
 css/CSS2/generated-content/before-content-display-018.xht
 css/CSS2/generated-content/before-inheritable-001.xht
+css/CSS2/generated-content/before-inheritable-002.xht
 css/CSS2/generated-content/before-location-001.xht
 css/CSS2/generated-content/content-001.xht
 css/CSS2/generated-content/content-002.xht
@@ -1419,6 +1421,7 @@ css/CSS2/lists/list-style-applies-to-003.xht
 css/CSS2/lists/list-style-applies-to-004.xht
 css/CSS2/lists/list-style-applies-to-007.xht
 css/CSS2/lists/list-style-applies-to-008.xht
+css/CSS2/lists/list-style-applies-to-009.xht
 css/CSS2/lists/list-style-applies-to-010.xht
 css/CSS2/lists/list-style-applies-to-013.xht
 css/CSS2/lists/list-style-applies-to-015.xht
@@ -1433,6 +1436,7 @@ css/CSS2/lists/list-style-image-applies-to-005.xht
 css/CSS2/lists/list-style-image-applies-to-006.xht
 css/CSS2/lists/list-style-image-applies-to-007.xht
 css/CSS2/lists/list-style-image-applies-to-008.xht
+css/CSS2/lists/list-style-image-applies-to-009.xht
 css/CSS2/lists/list-style-image-applies-to-010.xht
 css/CSS2/lists/list-style-image-applies-to-013.xht
 css/CSS2/lists/list-style-image-applies-to-015.xht
@@ -1441,6 +1445,7 @@ css/CSS2/lists/list-style-position-018.xht
 css/CSS2/lists/list-style-position-applies-to-005.xht
 css/CSS2/lists/list-style-position-applies-to-006.xht
 css/CSS2/lists/list-style-position-applies-to-008.xht
+css/CSS2/lists/list-style-position-applies-to-009.xht
 css/CSS2/lists/list-style-position-applies-to-010.xht
 css/CSS2/lists/list-style-position-applies-to-012.xht
 css/CSS2/lists/list-style-position-applies-to-014.xht
@@ -1453,6 +1458,7 @@ css/CSS2/lists/list-style-type-applies-to-003.xht
 css/CSS2/lists/list-style-type-applies-to-004.xht
 css/CSS2/lists/list-style-type-applies-to-007.xht
 css/CSS2/lists/list-style-type-applies-to-008.xht
+css/CSS2/lists/list-style-type-applies-to-009.xht
 css/CSS2/lists/list-style-type-applies-to-010.xht
 css/CSS2/lists/list-style-type-applies-to-013.xht
 css/CSS2/lists/list-style-type-applies-to-015.xht
@@ -3430,6 +3436,7 @@ css/CSS2/selectors/first-letter-punctuation-394.xht
 css/CSS2/selectors/first-letter-quote-001.xht
 css/CSS2/selectors/first-letter-quote-002.xht
 css/CSS2/selectors/first-letter-quote-003.xht
+css/CSS2/selectors/first-letter-quote-005.xht
 css/CSS2/selectors/first-letter-quote-006.xht
 css/CSS2/selectors/first-letter-selector-001.xht
 css/CSS2/selectors/first-letter-selector-002.xht

@@ -66,7 +66,7 @@ sup { vertical-align: super; font-size: smaller }
 pre, listing, plaintext, xmp { white-space: pre }
 pre, listing, plaintext, xmp, code, kbd, samp, tt { font-family: monospace }
 nobr { white-space: nowrap }
-a { color: rgb(0, 0, 238); text-decoration: underline }
+a:link { color: rgb(0, 0, 238); text-decoration: underline }
 s, strike, del { text-decoration: line-through }
 u, ins { text-decoration: underline }
 center, caption, th { text-align: center }
