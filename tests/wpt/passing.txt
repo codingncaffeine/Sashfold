@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7626 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7637 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5521,6 +5521,7 @@ css/css-flexbox/flex-direction-column-reverse.html
 css/css-flexbox/flex-direction-column.html
 css/css-flexbox/flex-direction-modify.html
 css/css-flexbox/flex-direction-row-reverse.html
+css/css-flexbox/flex-direction-row-vertical.html
 css/css-flexbox/flex-direction.html
 css/css-flexbox/flex-flow-001.html
 css/css-flexbox/flex-flow-002.html
@@ -5680,6 +5681,7 @@ css/css-flexbox/flexbox-with-pseudo-elements-001.html
 css/css-flexbox/flexbox-with-pseudo-elements-002.html
 css/css-flexbox/flexbox-with-pseudo-elements-003.html
 css/css-flexbox/flexbox-writing-mode-001.html
+css/css-flexbox/flexbox-writing-mode-004.html
 css/css-flexbox/flexbox-writing-mode-007.html
 css/css-flexbox/flexbox-writing-mode-016.html
 css/css-flexbox/flexbox_align-content-center.html
@@ -5832,6 +5834,9 @@ css/css-flexbox/flexbox_quirks_body.html
 css/css-flexbox/flexbox_rowspan-overflow-automatic.html
 css/css-flexbox/flexbox_rowspan-overflow.html
 css/css-flexbox/flexbox_rowspan.html
+css/css-flexbox/flexbox_rtl-flow-reverse.html
+css/css-flexbox/flexbox_rtl-flow.html
+css/css-flexbox/flexbox_rtl-order.html
 css/css-flexbox/flexbox_stf-abspos.html
 css/css-flexbox/flexbox_stf-fixpos.html
 css/css-flexbox/flexbox_stf-float.html
@@ -5852,6 +5857,7 @@ css/css-flexbox/flexible-order.html
 css/css-flexbox/gap-001-lr.html
 css/css-flexbox/gap-001-ltr.html
 css/css-flexbox/gap-001-rl.html
+css/css-flexbox/gap-001-rtl.html
 css/css-flexbox/gap-002-lr.html
 css/css-flexbox/gap-002-ltr.html
 css/css-flexbox/gap-002-rl.html
@@ -5859,9 +5865,11 @@ css/css-flexbox/gap-002-rtl.html
 css/css-flexbox/gap-003-lr.html
 css/css-flexbox/gap-003-ltr.html
 css/css-flexbox/gap-003-rl.html
+css/css-flexbox/gap-003-rtl.html
 css/css-flexbox/gap-004-lr.html
 css/css-flexbox/gap-004-ltr.html
 css/css-flexbox/gap-004-rl.html
+css/css-flexbox/gap-004-rtl.html
 css/css-flexbox/gap-005-lr.html
 css/css-flexbox/gap-005-ltr.html
 css/css-flexbox/gap-005-rl.html
@@ -5869,6 +5877,8 @@ css/css-flexbox/gap-005-rtl.html
 css/css-flexbox/gap-006-lr.html
 css/css-flexbox/gap-006-ltr.html
 css/css-flexbox/gap-006-rl.html
+css/css-flexbox/gap-006-rtl.html
+css/css-flexbox/gap-007-rtl.html
 css/css-flexbox/gap-008-ltr.html
 css/css-flexbox/gap-009-ltr.html
 css/css-flexbox/gap-010-ltr.html
@@ -5915,6 +5925,7 @@ css/css-flexbox/overflow-area-001.html
 css/css-flexbox/overflow-area-002.html
 css/css-flexbox/overflow-area-003.html
 css/css-flexbox/overflow-auto-005.html
+css/css-flexbox/overflow-top-left.html
 css/css-flexbox/padding-overflow.html
 css/css-flexbox/percentage-heights-002.html
 css/css-flexbox/percentage-heights-004.html

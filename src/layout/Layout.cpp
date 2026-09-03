@@ -5519,10 +5519,22 @@ struct Layouter {
         using css::JustifyContent;
         bool const horizontal = style.flex_direction == FlexDirection::Row
             || style.flex_direction == FlexDirection::RowReverse;
-        bool const reversed = style.flex_direction == FlexDirection::RowReverse
-            || style.flex_direction == FlexDirection::ColumnReverse;
         bool const wrap = style.flex_wrap != css::FlexWrap::NoWrap;
-        bool const wrap_reversed = style.flex_wrap == css::FlexWrap::WrapReverse;
+        bool const rtl = style.direction == css::Direction::Rtl;
+        // Both axes are laid out from the low coordinate and the ends are
+        // swapped by walking backwards, so each axis needs one answer:
+        // does it run the other way? A row's main axis is the inline axis,
+        // so `direction` reverses it as `row-reverse` does — and the two
+        // together cancel. A column's main axis runs down whichever way
+        // the text reads, and it is that column's CROSS axis that is the
+        // inline one. `wrap-reverse` swaps the cross ends on top of that
+        // (css-flexbox-1 §5.3), which is what makes align-items: flex-start
+        // the far side.
+        bool const main_reversed = (style.flex_direction == FlexDirection::RowReverse
+                                       || style.flex_direction == FlexDirection::ColumnReverse)
+            != (horizontal && rtl);
+        bool const cross_reversed = (style.flex_wrap == css::FlexWrap::WrapReverse)
+            != (!horizontal && rtl);
         // The inner sizes: the width is definite here, the height when
         // written as a length, a percentage of a definite containing
         // height, or settled by the container's own formatting context.
@@ -5855,10 +5867,18 @@ struct Layouter {
             float const free = cross_size ? *cross_size - total : 0.0f;
             auto const n = static_cast<float>(lines.size());
             AlignContent align = style.align_content;
+            // The lines are laid out from the low coordinate either way, so
+            // a backwards cross axis packs them against the other end.
+            if (cross_reversed) {
+                if (align == AlignContent::FlexStart)
+                    align = AlignContent::FlexEnd;
+                else if (align == AlignContent::FlexEnd)
+                    align = AlignContent::FlexStart;
+            }
             if (free < 0
                 && (align == AlignContent::SpaceBetween || align == AlignContent::SpaceAround
                     || align == AlignContent::SpaceEvenly))
-                align = AlignContent::FlexStart;
+                align = cross_reversed ? AlignContent::FlexEnd : AlignContent::FlexStart;
             switch (align) {
             case AlignContent::Stretch:
                 if (free > 0) {
@@ -5893,7 +5913,7 @@ struct Layouter {
         // justify-content says, each item across its line as its alignment says.
         float extent_main = 0; // what the items take along an indefinite main axis
         for (std::size_t step = 0; step < lines.size(); ++step) {
-            std::size_t const l = wrap_reversed ? lines.size() - 1 - step : step;
+            std::size_t const l = cross_reversed ? lines.size() - 1 - step : step;
             std::vector<std::size_t> const& line = lines[l];
             float const height_of_line = line_cross[l];
             auto const n = static_cast<float>(line.size());
@@ -5906,7 +5926,7 @@ struct Layouter {
             // normal and stretch are flex-start on a flex line.
             if (justify == JustifyContent::Normal || justify == JustifyContent::Stretch)
                 justify = JustifyContent::FlexStart;
-            if (reversed) {
+            if (main_reversed) {
                 if (justify == JustifyContent::FlexStart)
                     justify = JustifyContent::FlexEnd;
                 else if (justify == JustifyContent::FlexEnd)
@@ -5915,7 +5935,7 @@ struct Layouter {
             if (free < 0
                 && (justify == JustifyContent::SpaceBetween || justify == JustifyContent::SpaceAround
                     || justify == JustifyContent::SpaceEvenly))
-                justify = JustifyContent::FlexStart;
+                justify = main_reversed ? JustifyContent::FlexEnd : JustifyContent::FlexStart;
             float main_cursor = 0;
             float between = main_gap;
             switch (justify) {
@@ -5943,9 +5963,26 @@ struct Layouter {
                 break;
             }
             for (std::size_t k = 0; k < line.size(); ++k) {
-                FlexItem& item = items[reversed ? line[line.size() - 1 - k] : line[k]];
+                FlexItem& item = items[main_reversed ? line[line.size() - 1 - k] : line[k]];
                 float cross_pos = 0;
-                switch (item_alignment(item, style)) {
+                AlignItems alignment = item_alignment(item, style);
+                // An item with a cross size of its own has nothing to
+                // stretch, so it stands at the cross start like any other.
+                if (alignment == AlignItems::Stretch && !item.cross_is_auto)
+                    alignment = AlignItems::FlexStart;
+                // The line is filled from its low edge, so an item asking
+                // for the cross start of a backwards axis sits at the far
+                // side of its line, and one asking for the end at the near.
+                // Baseline is not swapped: it is stood in for by flex-start
+                // here, and a stand-in is no truer at the other end — it
+                // only moves the items away from the baseline they share.
+                if (cross_reversed) {
+                    if (alignment == AlignItems::FlexStart)
+                        alignment = AlignItems::FlexEnd;
+                    else if (alignment == AlignItems::FlexEnd)
+                        alignment = AlignItems::FlexStart;
+                }
+                switch (alignment) {
                 case AlignItems::Stretch:
                     if (item.cross_is_auto)
                         item.cross = std::max(0.0f,

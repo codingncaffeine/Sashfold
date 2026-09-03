@@ -348,5 +348,44 @@ int main()
         }
     }
 
+    // --- An axis that runs the other way ---------------------------------------
+    {
+        // The container is 300 wide; 50 + 60 leaves 190 over.
+        Page const page = lay_out(page_with(R"(
+<div class="c" id="c1" dir="rtl"><div id="a1" class="w50">a</div><div id="b1" class="w60">b</div></div>
+<div class="c" id="c2" dir="rtl" style="flex-direction: row-reverse"><div id="a2" class="w50">a</div><div id="b2" class="w60">b</div></div>
+<div class="c" id="c3" dir="rtl" style="justify-content: flex-end"><div id="a3" class="w50">a</div><div id="b3" class="w60">b</div></div>
+<div class="c" id="c4" dir="rtl" style="justify-content: center"><div id="a4" class="w50">a</div><div id="b4" class="w60">b</div></div>
+<div class="c" id="c5" dir="rtl" style="flex-direction: column"><div id="a5" class="w50">a</div><div id="b5" class="w60">b</div></div>
+<div class="c" id="c6" dir="rtl" style="flex-direction: column; align-items: flex-end"><div id="a6" class="w50">a</div></div>
+<div class="c" id="c7" style="flex-direction: column; flex-wrap: wrap-reverse; align-items: flex-start"><div id="a7" class="w50">a</div></div>)"));
+        auto const x_of = [&](std::string_view id, float expected) {
+            layout::Fragment const* const box = find_box(page.result.root, id);
+            if (CHECK(box != nullptr))
+                CHECK_EQ(box->x, expected);
+        };
+        // A row's main axis is the inline axis, so it runs right to left and
+        // the first item is the rightmost.
+        x_of("a1", 250.0f);
+        x_of("b1", 190.0f);
+        // row-reverse and rtl cancel: back to source order from the left.
+        x_of("a2", 0.0f);
+        x_of("b2", 50.0f);
+        // flex-end is the far end of the main axis, which is now the left.
+        x_of("a3", 60.0f);
+        x_of("b3", 0.0f);
+        x_of("a4", 155.0f); // centring is the same either way, order aside
+        x_of("b4", 95.0f);
+        // A column's main axis runs down whichever way the text reads; it is
+        // its CROSS axis that is the inline one, so its items are laid out
+        // from the right edge.
+        x_of("a5", 250.0f);
+        x_of("b5", 240.0f);
+        x_of("a6", 0.0f); // and flex-end across that axis is the left
+        // wrap-reverse swaps the cross ends too, so in a left-to-right
+        // column flex-start becomes the right.
+        x_of("a7", 250.0f);
+    }
+
     return sashfold::test::report("flex");
 }
