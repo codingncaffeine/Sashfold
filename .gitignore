@@ -19,3 +19,4 @@ _plans/
 
 # The two-compiler build script's logs at the repo root
 /build-*.log
+reftest-actual/

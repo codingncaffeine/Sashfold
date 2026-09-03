@@ -1704,7 +1704,14 @@ struct Layouter {
             // Where each entry begins, so the inline boxes around them can be
             // drawn once the line is laid out; the last is where it ends.
             std::vector<float> starts(line.size() + 1, x);
+            // And what each entry left behind, so a relatively positioned
+            // inline box can take its content with it (§9.4.3): the runs and
+            // the fragments an entry adds all sit at or after these marks.
+            std::vector<std::size_t> run_at(line.size() + 1, out.runs.size());
+            std::vector<std::size_t> child_at(line.size() + 1, out.children.size());
             for (std::size_t i = 0; i < line.size(); ++i) {
+                run_at[i] = out.runs.size();
+                child_at[i] = out.children.size();
                 Placed& placed = line[i];
                 float const width = placed.width;
                 // Where this box's own baseline lands: the line's, raised by
@@ -1744,6 +1751,10 @@ struct Layouter {
                     else
                         box.image = Fragment::ImageBox { placed.image, box.x + e.left, box.y + e.top,
                             placed.content_width, placed.content_height };
+                    // An atomic inline box is positioned like any other: its
+                    // own offsets move it off the line it was placed on, and
+                    // a z-index or an opacity makes it a stacking context.
+                    mark_positioned(box, *placed.style, content_width);
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
                     out.runs.push_back(TextRun { x, own_baseline, std::move(placed.text), placed.style,
@@ -1752,6 +1763,8 @@ struct Layouter {
                 x += width;
                 starts[i + 1] = x;
             }
+            run_at[line.size()] = out.runs.size();
+            child_at[line.size()] = out.children.size();
             // The inline boxes that ran along this line: a box still open at
             // its end stops here and opens again on the next, as CSS 2.1
             // §8.4 breaks it. Each is drawn around the content area its own
@@ -1759,7 +1772,13 @@ struct Layouter {
             for (OpenBox const& box : open_boxes)
                 box_runs.push_back(BoxRun { box.style, box.element, box.from, line.size(),
                     box.opened_here, false });
-            for (BoxRun const& run : box_runs) {
+            // Which fragment each box run left in `out.children`, so a
+            // relatively positioned one can be shifted with its content once
+            // every run on the line has its box. Absent when the box draws
+            // nothing — it is still shifted, through its content.
+            std::vector<std::optional<std::size_t>> box_fragment(box_runs.size());
+            for (std::size_t r = 0; r < box_runs.size(); ++r) {
+                BoxRun const& run = box_runs[r];
                 ComputedStyle const& s = *run.style;
                 if (!paints_anything(s))
                     continue; // nothing to draw: no box, and no room taken by one
@@ -1791,7 +1810,49 @@ struct Layouter {
                 box.y = top;
                 box.width = std::max(0.0f, right - left);
                 box.height = std::max(0.0f, bottom - top);
+                box_fragment[r] = out.children.size();
                 out.children.push_back(std::move(box));
+            }
+            // CSS 2.1 §9.4.3: a relatively positioned inline box moves with
+            // everything inside it and leaves the line where it was — the
+            // content after it does not close the gap. The runs are walked
+            // innermost first (a box closes before the one around it), so an
+            // outer shift lands on top of an inner one; a box nested inside
+            // this one rides along, since its entries are inside this one's.
+            for (std::size_t r = 0; r < box_runs.size(); ++r) {
+                BoxRun const& run = box_runs[r];
+                ComputedStyle const& s = *run.style;
+                if (s.position != css::Position::Relative)
+                    continue;
+                float const dx = relative_dx(s, content_width);
+                float const dy = relative_dy(s);
+                if (dx == 0 && dy == 0)
+                    continue;
+                std::size_t const from = std::min(run.from, line.size());
+                std::size_t const to = std::min(run.to, line.size());
+                // ⚠ The box is NOT flagged positioned. Its own fragment is
+                // only the paint behind the line — the text is in the
+                // block's runs — so moving the fragment into the positioned
+                // layer would draw the background over the words it belongs
+                // to. Promoting an inline box properly means carrying its
+                // runs into the layer with it; until then the shift is what
+                // §9.4.3 asks for and the layer stays as it was.
+                if (std::optional<std::size_t> const own = box_fragment[r])
+                    shift_fragment(out.children[*own], dx, dy);
+                for (std::size_t i = run_at[from]; i < run_at[to]; ++i) {
+                    out.runs[i].x += dx;
+                    out.runs[i].baseline_y += dy;
+                }
+                for (std::size_t i = child_at[from]; i < child_at[to]; ++i)
+                    shift_fragment(out.children[i], dx, dy);
+                // The boxes that closed inside this one have their fragments
+                // past the line's own entries, so they are shifted by name.
+                for (std::size_t inner = 0; inner < r; ++inner) {
+                    if (box_runs[inner].from < from || box_runs[inner].to > to)
+                        continue;
+                    if (std::optional<std::size_t> const nested = box_fragment[inner])
+                        shift_fragment(out.children[*nested], dx, dy);
+                }
             }
             box_runs.clear();
             for (OpenBox& box : open_boxes) {
