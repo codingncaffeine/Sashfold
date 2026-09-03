@@ -1805,10 +1805,35 @@ struct Layouter {
         };
         std::vector<OpenBox> open_boxes;
         std::vector<BoxRun> box_runs; // finished on the line being built
+        // `unicode-bidi: plaintext` gives every paragraph the direction its
+        // own first strongly directional character carries (UAX #9 P2/P3)
+        // instead of the block's; a paragraph ends at a forced break. With
+        // any other value every line reads the block's own direction. It is
+        // settled here, before the first line is opened, because the indent
+        // comes off the end the line starts at.
+        bool const plaintext = block_style.unicode_bidi == css::UnicodeBidi::Plaintext;
+        auto const paragraph_from = [&](std::size_t first) {
+            std::u32string text;
+            for (std::size_t i = first; i < items.size(); ++i) {
+                if (items[i].kind == InlineItem::Kind::HardBreak)
+                    break;
+                if (items[i].kind == InlineItem::Kind::Word
+                    || items[i].kind == InlineItem::Kind::Space)
+                    text += items[i].text;
+            }
+            return first_strong_is_rtl(text);
+        };
+        bool paragraph_rtl
+            = plaintext ? paragraph_from(0) : block_style.direction == css::Direction::Rtl;
+
         auto const indent_now = [&] { return first_line ? indent : 0.0f; };
+        // The indent is taken off the end the line starts at, so it moves
+        // the left edge in only when the line reads left to right; a
+        // right-to-left line keeps its left edge and loses the room at its
+        // own start, which is the right.
         auto const start_line = [&] {
             FloatContext::Band const band = floats.band_at(y, content_x, content_x + content_width);
-            line_left = band.left + indent_now();
+            line_left = band.left + (paragraph_rtl ? 0.0f : indent_now());
             line_avail = std::max(0.0f, band.right - band.left - indent_now());
         };
         start_line();
@@ -1827,25 +1852,6 @@ struct Layouter {
             pending_floats.clear();
             start_line();
         };
-
-        // `unicode-bidi: plaintext` gives every paragraph the direction its
-        // own first strongly directional character carries (UAX #9 P2/P3)
-        // instead of the block's; a paragraph ends at a forced break. With
-        // any other value every line reads the block's own direction.
-        bool const plaintext = block_style.unicode_bidi == css::UnicodeBidi::Plaintext;
-        auto const paragraph_from = [&](std::size_t first) {
-            std::u32string text;
-            for (std::size_t i = first; i < items.size(); ++i) {
-                if (items[i].kind == InlineItem::Kind::HardBreak)
-                    break;
-                if (items[i].kind == InlineItem::Kind::Word
-                    || items[i].kind == InlineItem::Kind::Space)
-                    text += items[i].text;
-            }
-            return first_strong_is_rtl(text);
-        };
-        bool paragraph_rtl
-            = plaintext ? paragraph_from(0) : block_style.direction == css::Direction::Rtl;
 
         // `last_line` is set where the line ends the block or ends at a
         // forced break: those keep their start alignment under
@@ -1966,7 +1972,7 @@ struct Layouter {
                     break;
                 std::optional<float> const next = floats.next_bottom(y);
                 if (line_width <= room || line.empty() || !next || *next <= y) {
-                    line_left = over.left + indent_now();
+                    line_left = over.left + (paragraph_rtl ? 0.0f : indent_now());
                     line_avail = std::max(0.0f, room - indent_now());
                     break;
                 }

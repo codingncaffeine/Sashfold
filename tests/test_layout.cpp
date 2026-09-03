@@ -1466,6 +1466,43 @@ int main(int argc, char** argv)
         x_of("k", 200.0f);
     }
 
+    // --- The indent comes off the end the line starts at -----------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // 300 wide with a 1px border: the content box runs from 1 to 301,
+        // and a 50-wide word is 5 glyphs of the mono face at 16px.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 300px; border: 1px solid; text-indent: 30px }
+</style></head><body>
+  <div>aaaaa</div>
+  <div style="direction: rtl">bbbbb</div>
+  <div style="direction: rtl; text-align: left">ccccc</div>
+  <div style="unicode-bidi: plaintext">ddddd</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const x_of = [&](std::u32string_view text, float expected) {
+            for (layout::TextRun const* const run : runs) {
+                if (run->text == text) {
+                    CHECK_EQ(run->x, expected);
+                    return;
+                }
+            }
+            CHECK(false);
+        };
+        x_of(U"aaaaa", 31.0f); // left to right: the line starts 30 further in
+        // Right to left the line starts at its right end, so the indent
+        // comes off there and the word ends 30 short of 301.
+        x_of(U"bbbbb", 221.0f);
+        // The indent narrows the line whichever end the text is then put
+        // at, so a left-aligned line in a right-to-left block does not move.
+        x_of(U"ccccc", 1.0f);
+        // Under plaintext the paragraph's own direction settles it, and
+        // Latin reads left to right.
+        x_of(U"ddddd", 31.0f);
+    }
+
     // --- Text that says which way it reads -------------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

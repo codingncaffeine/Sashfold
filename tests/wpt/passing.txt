@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7644 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7646 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -4647,6 +4647,8 @@ css/CSS2/text/text-indent-overflow-002.xht
 css/CSS2/text/text-indent-overflow-003.xht
 css/CSS2/text/text-indent-overflow-004.xht
 css/CSS2/text/text-indent-percent-001.xht
+css/CSS2/text/text-indent-rtl-001.xht
+css/CSS2/text/text-indent-rtl-002.xht
 css/CSS2/text/text-indent-wrap-001.xht
 css/CSS2/text/text-indent-wrap-002.html
 css/CSS2/text/text-transform-001.xht
