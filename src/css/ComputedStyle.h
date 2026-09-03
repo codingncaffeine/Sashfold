@@ -41,6 +41,15 @@ enum class ListStyleType : std::uint8_t {
     None,
 };
 
+// Where a list item's marker sits (CSS 2.1 §12.5.1): outside the principal
+// box, hanging in the margin, or inside it as the first thing on the item's
+// first line, which is what a list with its padding zeroed needs if the
+// marker is to be seen at all.
+enum class ListStylePosition : std::uint8_t {
+    Outside,
+    Inside,
+};
+
 // A counter's value written out the way a list-style-type spells it: the
 // decimal digits, roman numerals, letters of an alphabet, or one of the
 // three marker glyphs (which say nothing about the number). Outside the
@@ -757,6 +766,7 @@ struct ComputedStyle {
     TextAlign text_align = TextAlign::Left;
     WhiteSpace white_space = WhiteSpace::Normal;
     ListStyleType list_style_type = ListStyleType::Disc;
+    ListStylePosition list_style_position = ListStylePosition::Outside;
     TextDecorationLine text_decoration = TextDecorationLine::None;
     // The spacing properties, all inherited: extra room after each character
     // and after each word separator (`normal` is none of either), and how far

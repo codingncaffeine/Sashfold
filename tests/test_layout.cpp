@@ -1213,5 +1213,71 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- List markers: outside in the padding, inside on the line --------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  ol, ul { margin: 0; padding: 0 }
+  #out { list-style-position: outside }
+  #in { list-style-position: inside }
+  #empty { list-style: square inside }
+</style></head><body>
+  <ol id="out"><li>a</li></ol>
+  <ol id="in"><li>b</li></ol>
+  <ul id="empty"><li></li></ul>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        std::vector<layout::Fragment const*> boxes;
+        auto const collect_boxes = [&](auto&& self, layout::Fragment const& f) -> void {
+            if (f.element)
+                boxes.push_back(&f);
+            for (layout::Fragment const& child : f.children)
+                self(self, child);
+        };
+        collect_boxes(collect_boxes, page.result.root);
+        auto const box_of = [&](std::string_view id) -> layout::Fragment const* {
+            for (layout::Fragment const* box : boxes) {
+                dom::Attr const* attribute = box->element ? box->element->find_attribute("id") : nullptr;
+                if (attribute && attribute->value == id)
+                    return box;
+            }
+            return nullptr;
+        };
+        auto const run_of = [&](std::u32string_view text, bool negative) -> layout::TextRun const* {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text && (candidate->x < 0) == negative)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        // An outside marker hangs to the left of the content box, which is
+        // why a list with its padding zeroed loses it off the page edge.
+        layout::TextRun const* out_marker = run_of(U"1.", true);
+        layout::TextRun const* a = run_of(U"a", false);
+        if (CHECK(out_marker && a)) {
+            CHECK(out_marker->x < 0);
+            CHECK_EQ(a->x, 0.0f); // the content starts at the box, marker or no marker
+        }
+        // An inside marker is the first thing on the item's own first line,
+        // so it starts at the content edge and the text follows it.
+        layout::TextRun const* in_marker = run_of(U"1.", false);
+        layout::TextRun const* b = run_of(U"b", false);
+        if (CHECK(in_marker && b)) {
+            CHECK_EQ(in_marker->x, 0.0f);
+            CHECK(b->x > in_marker->x); // a space stands between the marker and the text
+            CHECK_EQ(in_marker->baseline_y, b->baseline_y); // one line, not two
+        }
+        // An item holding nothing but an inside marker is not an empty box:
+        // it makes a line, and its list is as tall as that line.
+        layout::TextRun const* square = run_of(U"▪", false);
+        layout::Fragment const* empty_list = box_of("empty");
+        if (CHECK(square && empty_list)) {
+            CHECK_EQ(square->x, 0.0f);
+            CHECK_EQ(empty_list->height, 20.0f);
+        }
+    }
+
     return test::report("layout");
 }

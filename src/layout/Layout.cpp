@@ -566,6 +566,11 @@ struct BlockOptions {
     // content is then aligned inside it. The box is laid out to its content
     // and the caller carries the floor, so `vertical-align` has room to work.
     bool height_is_minimum = false;
+    // A list item whose marker goes INSIDE its box: the marker's text, to be
+    // put at the head of the item's own inline content so the first line
+    // begins with it and everything else moves along. Empty for a marker
+    // that hangs outside, which is placed after the box is laid out.
+    std::u32string inside_marker;
     bool zero_auto_margins = false; // floats and flex items: auto margins are zero, never centering
     bool own_context = false; // the box forms its own formatting context regardless of style
     // The containing block's content height when it is definite: the base
@@ -2190,8 +2195,13 @@ struct Layouter {
         // A cleared box stands where its clearance puts it: not collapsed through.
         if (style.clear != css::Clear::None)
             return false;
-        // A generated box is content.
+        // A generated box is content. So is a marker that goes inside: it
+        // makes a line of its own even when the item holds nothing else.
         if (before_of(&style) || after_of(&style))
+            return false;
+        if (style.display == Display::ListItem
+            && style.list_style_position == css::ListStylePosition::Inside
+            && style.list_style_type != css::ListStyleType::None)
             return false;
         if (!top_edge_collapses(element, style, containing_width, {})
             || !bottom_edge_collapses(element, style, containing_width, {}))
@@ -2490,7 +2500,8 @@ struct Layouter {
             content_height = layout_children(element, style, content_x, content_y, content_width, fragment,
                 list_depth, own_context ? own_floats : floats,
                 top_edge_collapses(element, style, containing_width, options),
-                bottom_edge_collapses(element, style, containing_width, options), children_base);
+                bottom_edge_collapses(element, style, containing_width, options), children_base, nullptr,
+                false, options.inside_marker);
         }
         // The box's baseline, for an inline-block's sake: its own lines set
         // it; with block children it is the last in-flow child's (a flex or
@@ -2570,7 +2581,8 @@ struct Layouter {
         float content_x, float content_y, float content_width, Fragment& fragment,
         int list_depth, FloatContext& floats, bool collapse_top = false,
         bool collapse_bottom = false, std::optional<float> containing_height = std::nullopt,
-        std::vector<dom::Node const*> const* nodes = nullptr, bool no_generated = false) const
+        std::vector<dom::Node const*> const* nodes = nullptr, bool no_generated = false,
+        std::u32string_view inside_marker = {}) const
     {
         std::vector<dom::Node const*> const own_children(element.children().begin(), element.children().end());
         std::vector<dom::Node const*> const& children = nodes ? *nodes : own_children;
@@ -2582,6 +2594,14 @@ struct Layouter {
 
         if (!has_block_child) {
             std::vector<InlineItem> items;
+            // An inside marker leads the item's own content: it is put on the
+            // line before anything else, so the first line begins with it and
+            // an empty item still makes a line to hold it.
+            if (!inside_marker.empty()) {
+                items.push_back(
+                    InlineItem { InlineItem::Kind::Word, std::u32string(inside_marker), &style, &element });
+                items.push_back(InlineItem { InlineItem::Kind::Space, U" ", &style, &element });
+            }
             collect_inline_nodes(children, &element, &style, items, no_generated); // the generated boxes ride along
             if (items.empty())
                 return 0;
@@ -2814,6 +2834,17 @@ struct Layouter {
             }
             BlockOptions child_options;
             child_options.containing_height = containing_height;
+            // A list item counts here, before it is laid out, because an
+            // inside marker is content the item lays out around (§12.5.1);
+            // an outside one is hung on the box afterwards.
+            bool const list_item = child_style->display == Display::ListItem;
+            bool const marker_inside
+                = list_item && child_style->list_style_position == css::ListStylePosition::Inside;
+            if (list_item) {
+                ++list_index;
+                if (marker_inside)
+                    child_options.inside_marker = marker_text(*child_style, list_index);
+            }
             Fragment child_fragment = layout_block(child_element, *child_style, child_x, child_y,
                 child_width, child_list_depth, floats, child_options);
             if (establishes_bfc(*child_style) && !floats.floats.empty()) {
@@ -2855,10 +2886,8 @@ struct Layouter {
                 fragment.children.push_back(std::move(box));
             };
 
-            if (child_style->display == Display::ListItem) {
-                ++list_index;
+            if (list_item && !marker_inside)
                 add_list_marker(child_fragment, *child_style, element, list_index);
-            }
 
             float const effective_bottom = collapse_margins(margin_bottom, child_fragment.collapsed_bottom);
             if (empty) {
@@ -2985,22 +3014,28 @@ struct Layouter {
         mark_aligned(items, first, style);
     }
 
-    void add_list_marker(Fragment& item_fragment, ComputedStyle const& style,
-        dom::Element const& list_parent, int index) const
+    // The text of a list item's marker: every counter style spells one the
+    // way a counter() is spelled, only the three glyphs stand for
+    // themselves, and the numbering systems take the full stop a marker
+    // wears after them. Empty for `list-style-type: none`.
+    static std::u32string marker_text(ComputedStyle const& style, int index)
     {
-        (void)list_parent;
-        // Every counter style spells a marker the same way a counter() is
-        // spelled; only the three glyphs stand for themselves, and the
-        // numbering systems take the full stop a marker wears after them.
         std::string written = css::format_counter(index, style.list_style_type);
         if (written.empty())
-            return; // list-style-type: none
+            return {};
         bool const is_glyph = style.list_style_type == css::ListStyleType::Disc
             || style.list_style_type == css::ListStyleType::Circle
             || style.list_style_type == css::ListStyleType::Square;
         if (!is_glyph)
             written += ".";
-        std::u32string marker = decode_utf8(written);
+        return decode_utf8(written);
+    }
+
+    void add_list_marker(Fragment& item_fragment, ComputedStyle const& style,
+        dom::Element const& list_parent, int index) const
+    {
+        (void)list_parent;
+        std::u32string marker = marker_text(style, index);
         if (marker.empty())
             return;
         float const width = measure(style, marker);

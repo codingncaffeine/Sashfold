@@ -2231,6 +2231,7 @@ struct Resolver {
         style.text_indent = parent.text_indent;
         style.white_space = parent.white_space;
         style.list_style_type = parent.list_style_type;
+        style.list_style_position = parent.list_style_position;
         style.quotes = parent.quotes;
         style.custom = parent.custom;
         style.visibility = parent.visibility;
@@ -2585,7 +2586,14 @@ struct Resolver {
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
             { "white-space", true, [](S& to, S const& from) { to.white_space = from.white_space; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
-            { "list-style", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
+            { "list-style-position", true,
+                [](S& to, S const& from) { to.list_style_position = from.list_style_position; }, 0 },
+            { "list-style", true,
+                [](S& to, S const& from) {
+                    to.list_style_type = from.list_style_type;
+                    to.list_style_position = from.list_style_position;
+                },
+                0 },
             { "text-decoration", false, [](S& to, S const& from) { to.text_decoration = from.text_decoration; }, 0 },
             { "text-decoration-line", false, [](S& to, S const& from) { to.text_decoration = from.text_decoration; }, 0 },
             { "content", false, [](S& to, S const& from) { to.content = from.content; }, 0 },
@@ -4597,6 +4605,25 @@ struct Resolver {
             if (auto length = parse_length_percent(*values[0], context, false))
                 style.vertical_align = VerticalAlign { VerticalAlign::Kind::Length, *length };
             return;
+        }
+        if (name == "list-style-position" || name == "list-style") {
+            // The shorthand carries the type and the image as well, so each
+            // longhand takes the first value it recognises and leaves the
+            // rest to the others; the shorthand resets what nothing names.
+            if (name == "list-style")
+                style.list_style_position = ListStylePosition::Outside;
+            for (ComponentValue const* value : values) {
+                if (is_ident(value, "inside")) {
+                    style.list_style_position = ListStylePosition::Inside;
+                    break;
+                }
+                if (is_ident(value, "outside")) {
+                    style.list_style_position = ListStylePosition::Outside;
+                    break;
+                }
+            }
+            if (name == "list-style-position")
+                return;
         }
         if (name == "list-style-type" || name == "list-style") {
             // The shorthand carries position and image too, so the first

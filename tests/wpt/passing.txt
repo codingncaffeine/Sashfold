@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7474 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7482 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1052,6 +1052,7 @@ css/CSS2/css1/c5525-fltmult-000.xht
 css/CSS2/css1/c5525-fltwidth-001.xht
 css/CSS2/css1/c5525-fltwidth-003.xht
 css/CSS2/css1/c5526-fltclr-000.xht
+css/CSS2/css1/c561-list-displ-000.xht
 css/CSS2/css1/c562-white-sp-000.xht
 css/CSS2/css1/c563-list-type-000.xht
 css/CSS2/css1/c61-ex-len-000.xht
@@ -1578,6 +1579,7 @@ css/CSS2/generated-content/content-auto-reset-001.xht
 css/CSS2/generated-content/content-counter-000.xht
 css/CSS2/generated-content/content-counter-002.xht
 css/CSS2/generated-content/content-counter-003.xht
+css/CSS2/generated-content/content-counter-004.xht
 css/CSS2/generated-content/content-counter-005.xht
 css/CSS2/generated-content/content-counter-006.xht
 css/CSS2/generated-content/content-counter-007.xht
@@ -1887,12 +1889,18 @@ css/CSS2/lists/list-style-image-applies-to-013.xht
 css/CSS2/lists/list-style-image-applies-to-015.xht
 css/CSS2/lists/list-style-image-applies-to-016.html
 css/CSS2/lists/list-style-position-018.xht
+css/CSS2/lists/list-style-position-applies-to-001.xht
+css/CSS2/lists/list-style-position-applies-to-002.xht
+css/CSS2/lists/list-style-position-applies-to-003.xht
+css/CSS2/lists/list-style-position-applies-to-004.xht
 css/CSS2/lists/list-style-position-applies-to-005.xht
 css/CSS2/lists/list-style-position-applies-to-006.xht
+css/CSS2/lists/list-style-position-applies-to-007.xht
 css/CSS2/lists/list-style-position-applies-to-008.xht
 css/CSS2/lists/list-style-position-applies-to-009.xht
 css/CSS2/lists/list-style-position-applies-to-010.xht
 css/CSS2/lists/list-style-position-applies-to-012.xht
+css/CSS2/lists/list-style-position-applies-to-013.xht
 css/CSS2/lists/list-style-position-applies-to-014.xht
 css/CSS2/lists/list-style-position-applies-to-015.xht
 css/CSS2/lists/list-style-position-applies-to-016.html
