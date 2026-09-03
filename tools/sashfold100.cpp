@@ -393,35 +393,12 @@ bool is_loaded(Row const& row)
     return verdict.kind == "ok";
 }
 
-std::string now_utc()
+// Arizona's date and clock for a moment given in UTC, on the twelve-hour
+// dial a reader there keeps: "2026-09-02 11:04 PM MST". Arizona holds UTC−7
+// the whole year — no daylight saving — so the offset is a constant and
+// there is no zone database to carry.
+std::string arizona_time(int year, int month, int day, int hour, int minute, int second)
 {
-    std::time_t const now = std::time(nullptr);
-    char buffer[32] = {};
-    if (std::strftime(buffer, sizeof buffer, "%Y-%m-%d %H:%M UTC", std::gmtime(&now)) == 0)
-        return "";
-    return buffer;
-}
-
-// The newest render among the rows ("2026-09-02T14:12:46Z"), as Arizona's
-// date and time — Arizona keeps UTC−7 the whole year — so a reader there
-// sees at once how fresh the pictures are. Empty when no row was rendered.
-std::string latest_render_arizona(std::vector<Row> const& rows)
-{
-    std::string latest;
-    for (Row const& row : rows) {
-        if (row.rendered.size() == 20 && row.rendered > latest)
-            latest = row.rendered;
-    }
-    if (latest.empty())
-        return {};
-    int year = 0;
-    int month = 0;
-    int day = 0;
-    int hour = 0;
-    int minute = 0;
-    int second = 0;
-    if (std::sscanf(latest.c_str(), "%4d-%2d-%2dT%2d:%2d:%2dZ", &year, &month, &day, &hour, &minute, &second) != 6)
-        return {};
     // Days since the civil epoch, then back, seven hours earlier.
     auto const days_from_civil = [](int y, int m, int d) -> long {
         y -= m <= 2;
@@ -454,10 +431,46 @@ std::string latest_render_arizona(std::vector<Row> const& rows)
     int am = 0;
     int ad = 0;
     civil_from_days(days, ay, am, ad);
+    int const h24 = static_cast<int>(rest / 3600);
+    int const h12 = h24 % 12 == 0 ? 12 : h24 % 12;
     char buffer[64];
-    std::snprintf(buffer, sizeof buffer, "%04d-%02d-%02d %02d:%02d", ay, am, ad, static_cast<int>(rest / 3600),
-        static_cast<int>(rest % 3600 / 60));
+    std::snprintf(buffer, sizeof buffer, "%04d-%02d-%02d %d:%02d %s MST", ay, am, ad, h12,
+        static_cast<int>(rest % 3600 / 60), h24 < 12 ? "AM" : "PM");
     return buffer;
+}
+
+// The clock as this run sees it, in Arizona.
+std::string now_arizona()
+{
+    std::time_t const now = std::time(nullptr);
+    std::tm const* const utc = std::gmtime(&now);
+    if (!utc)
+        return "";
+    return arizona_time(utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday, utc->tm_hour, utc->tm_min,
+        utc->tm_sec);
+}
+
+// The newest render among the rows ("2026-09-02T14:12:46Z"), on Arizona's
+// clock, so a reader there sees at once how fresh the pictures are. Empty
+// when no row was rendered.
+std::string latest_render_arizona(std::vector<Row> const& rows)
+{
+    std::string latest;
+    for (Row const& row : rows) {
+        if (row.rendered.size() == 20 && row.rendered > latest)
+            latest = row.rendered;
+    }
+    if (latest.empty())
+        return {};
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    if (std::sscanf(latest.c_str(), "%4d-%2d-%2dT%2d:%2d:%2dZ", &year, &month, &day, &hour, &minute, &second) != 6)
+        return {};
+    return arizona_time(year, month, day, hour, minute, second);
 }
 
 struct Totals {
@@ -676,7 +689,7 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
         // The freshness of the pictures, by the first heading — Arizona's
         // clock, for the reader who compares them from there.
         if (first_category && !arizona.empty())
-            out << " <span class=\"stamp\">pictures rendered " << html_escaped(arizona) << " Arizona time</span>";
+            out << " <span class=\"stamp\">pictures rendered " << html_escaped(arizona) << "</span>";
         first_category = false;
         out << "</h2>\n<p class=\"lens\">" << html_escaped(category.description) << "</p>\n<div class=\"cards\">\n";
         for (Row const& row : corpus.rows)
@@ -761,7 +774,7 @@ int main(int argc, char** argv)
     for (Row& row : corpus->rows)
         read_report(row, dir / (row.id + ".json"));
     Totals const totals = totals_of(corpus->rows);
-    std::string const stamp = now_utc();
+    std::string const stamp = now_arizona();
     write_html(html_path.empty() ? dir / "index.html" : std::filesystem::path(html_path), *corpus, totals, stamp);
     write_json(json_path.empty() ? dir / "sashfold100.json" : std::filesystem::path(json_path), *corpus, totals, stamp);
     std::cout << "sashfold100: " << totals.loaded << " / " << totals.rows << " loaded, " << totals.refused << " / "

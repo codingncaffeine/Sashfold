@@ -135,6 +135,11 @@ struct InlineItem {
         Absolute, // an absolutely positioned box met here: records its static position, takes no room
         Block, // an inline-block (or inline-flex, inline-grid, inline-table): an atomic box laid out as a block inside
         Table, // an anonymous inline-table around a run of table parts met in inline content (`nodes`)
+        // Where an inline box opens and closes. Its margin, border and
+        // padding on that side take room on the line (CSS 2.1 §9.4.2 and
+        // §8.4); everything between the two is inside it.
+        BoxStart,
+        BoxEnd,
     };
     InlineItem(Kind the_kind, std::u32string the_text, ComputedStyle const* the_style,
         dom::Element const* the_element)
@@ -916,10 +921,14 @@ struct Layouter {
             }
             if (is_space || is_newline) {
                 flush_word();
-                // A space after a space collapses, and a float between them
-                // is out of the flow: it does not keep them apart.
+                // A space after a space collapses, and neither a float
+                // between them — out of the flow — nor the edge of an inline
+                // box keeps them apart.
                 std::size_t back = items.size();
-                while (back > 0 && items[back - 1].kind == InlineItem::Kind::Float)
+                while (back > 0
+                    && (items[back - 1].kind == InlineItem::Kind::Float
+                        || items[back - 1].kind == InlineItem::Kind::BoxStart
+                        || items[back - 1].kind == InlineItem::Kind::BoxEnd))
                     --back;
                 if (back == 0 || items[back - 1].kind != InlineItem::Kind::Space)
                     items.push_back(InlineItem { InlineItem::Kind::Space, U" ", style, element });
@@ -952,6 +961,31 @@ struct Layouter {
         while (n < word.size() && is_first_letter_punctuation(word[n]))
             ++n;
         return n;
+    }
+
+    // Whether a box would draw anything of its own: a colour behind it, a
+    // picture, or a side with a visible line. An inline box that draws
+    // nothing needs no fragment — which is most of them, on most pages.
+    static bool paints_anything(ComputedStyle const& style)
+    {
+        auto const draws = [](css::BorderSide const& border) {
+            return border.width > 0 && border.style != css::BorderStyle::None
+                && border.style != css::BorderStyle::Hidden;
+        };
+        return style.background_color.a != 0 || style.background_images || draws(style.border_top)
+            || draws(style.border_right) || draws(style.border_bottom) || draws(style.border_left);
+    }
+
+    // What an inline box's edge takes on the line where it opens or closes:
+    // its margin, border and padding on that side (CSS 2.1 §8.4 — the
+    // vertical ones take no room, the horizontal ones do). A box broken over
+    // several lines has these at its two ends only.
+    float inline_edge(ComputedStyle const& style, bool opening, float containing_width) const
+    {
+        return opening ? resolve(style.margin_left, containing_width) + style.border_left.width
+                + resolve(style.padding_left, containing_width)
+                       : resolve(style.margin_right, containing_width) + style.border_right.width
+                + resolve(style.padding_right, containing_width);
     }
 
     // A word that is punctuation from end to end: it leads into the letter
@@ -1017,25 +1051,36 @@ struct Layouter {
         for (; first < items.size(); ++first) {
             InlineItem::Kind const kind = items[first].kind;
             if (kind != InlineItem::Kind::Space && kind != InlineItem::Kind::Float
-                && kind != InlineItem::Kind::Absolute)
+                && kind != InlineItem::Kind::Absolute && kind != InlineItem::Kind::BoxStart
+                && kind != InlineItem::Kind::BoxEnd)
                 break;
         }
         if (first == items.size())
             return false;
         // A word of nothing but punctuation — an opening quotation mark a
         // ::before put there, say — leads into the letter, which the next
-        // word holds: the run takes those words whole and carries on.
+        // word holds: the run takes those words whole and carries on, past
+        // the edges of any inline box written between them.
+        std::vector<std::size_t> leading;
         std::size_t last = first;
-        while (last < items.size() && items[last].kind == InlineItem::Kind::Word
-            && is_all_punctuation(items[last].text))
+        while (last < items.size()) {
+            InlineItem::Kind const kind = items[last].kind;
+            if (kind == InlineItem::Kind::BoxStart || kind == InlineItem::Kind::BoxEnd) {
+                ++last;
+                continue;
+            }
+            if (kind != InlineItem::Kind::Word || !is_all_punctuation(items[last].text))
+                break;
+            leading.push_back(last);
             ++last;
+        }
         if (last == items.size() || items[last].kind != InlineItem::Kind::Word)
             return true; // no letter to dress: nothing but punctuation, or a box
         std::size_t const cut = first_letter_length(items[last].text);
         if (cut == 0)
             return true; // a space the line kept starts it: nothing is dressed
         ComputedStyle const* const letter = first_letter_style(*asked, block, items[last].style);
-        for (std::size_t i = first; i < last; ++i)
+        for (std::size_t const i : leading)
             items[i].style = first_letter_style(*asked, block, items[i].style);
         InlineItem head = items[last];
         head.style = letter;
@@ -1092,9 +1137,15 @@ struct Layouter {
         if (block)
             items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, &box.style, &element });
         std::size_t const first = items.size();
+        // An inline generated box is an inline box like any other: its own
+        // margin, border and padding are its, not the element's.
+        if (!block)
+            items.push_back(InlineItem { InlineItem::Kind::BoxStart, {}, &box.style, &element });
         std::u32string const text = decode_utf8(box.text);
         if (!text.empty())
             append_text(text, &box.style, items, &element);
+        if (!block)
+            items.push_back(InlineItem { InlineItem::Kind::BoxEnd, {}, &box.style, &element });
         mark_aligned(items, first, box.style);
         if (block)
             items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, &box.style, &element });
@@ -1178,7 +1229,9 @@ struct Layouter {
                 // One box on the line, laid out as a block inside.
                 items.push_back(InlineItem { InlineItem::Kind::Block, {}, style, &element });
             } else {
+                items.push_back(InlineItem { InlineItem::Kind::BoxStart, {}, style, &element });
                 collect_inline(element, style, items);
+                items.push_back(InlineItem { InlineItem::Kind::BoxEnd, {}, style, &element });
             }
             mark_aligned(items, first, *style);
         }
@@ -1394,6 +1447,23 @@ struct Layouter {
             // The inline box whose vertical-align places this on the line
             // (see InlineItem::aligned); null sits on the baseline.
             ComputedStyle const* aligned = nullptr;
+            // Where an inline box opens or closes: the entry takes the room
+            // that side's margin, border and padding ask for, draws nothing
+            // itself, and does not save a space in front of it at the line's
+            // end.
+            bool box_edge = false;
+        };
+
+        // An inline box's run along one line: what to paint it as, and where
+        // it starts and stops among the line's entries. A box broken over
+        // several lines has one of these per line.
+        struct BoxRun {
+            ComputedStyle const* style;
+            dom::Element const* element;
+            std::size_t from; // the first entry inside it, or its opening edge
+            std::size_t to; // one past the last entry, its closing edge included
+            bool opened_here; // its left edge is on this line
+            bool closed_here; // its right edge is on this line
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -1405,6 +1475,17 @@ struct Layouter {
         // nothing after it. A percentage is of the block's own content width.
         float const indent = opens_block ? resolve(block_style.text_indent, content_width) : 0.0f;
         bool first_line = true;
+        // The inline boxes open where the line stands, outermost first, and
+        // where each began on this line; a box still open when the line ends
+        // starts the next one at its left edge.
+        struct OpenBox {
+            ComputedStyle const* style;
+            dom::Element const* element;
+            std::size_t from;
+            bool opened_here;
+        };
+        std::vector<OpenBox> open_boxes;
+        std::vector<BoxRun> box_runs; // finished on the line being built
         auto const indent_now = [&] { return first_line ? indent : 0.0f; };
         auto const start_line = [&] {
             FloatContext::Band const band = floats.band_at(y, content_x, content_x + content_width);
@@ -1429,9 +1510,22 @@ struct Layouter {
         };
 
         auto const flush_line = [&] {
-            while (!line.empty() && line.back().is_space) {
-                line_width -= line.back().width;
-                line.pop_back();
+            // A space at the end of a line is dropped, and an inline box
+            // closing after it does not save it: the edges are stepped over
+            // on the way back, and the entries they index shift with them.
+            for (std::size_t i = line.size(); i-- > 0;) {
+                if (line[i].box_edge)
+                    continue;
+                if (!line[i].is_space)
+                    break;
+                line_width -= line[i].width;
+                line.erase(line.begin() + static_cast<std::ptrdiff_t>(i));
+                for (BoxRun& run : box_runs) {
+                    run.from -= run.from > i ? 1 : 0;
+                    run.to -= run.to > i ? 1 : 0;
+                }
+                for (OpenBox& box : open_boxes)
+                    box.from -= box.from > i ? 1 : 0;
             }
             // The line box (CSS 2.1 §10.8): every box on the line reaches
             // some way above and below the baseline it is aligned to — the
@@ -1544,6 +1638,9 @@ struct Layouter {
                 x += (line_avail - line_width) / 2.0f;
             else if (block_style.text_align == css::TextAlign::Right)
                 x += line_avail - line_width;
+            // Where each entry begins, so the inline boxes around them can be
+            // drawn once the line is laid out; the last is where it ends.
+            std::vector<float> starts(line.size() + 1, x);
             for (std::size_t i = 0; i < line.size(); ++i) {
                 Placed& placed = line[i];
                 float const width = placed.width;
@@ -1590,6 +1687,53 @@ struct Layouter {
                         placed.element, &fonts_for(*placed.style), width });
                 }
                 x += width;
+                starts[i + 1] = x;
+            }
+            // The inline boxes that ran along this line: a box still open at
+            // its end stops here and opens again on the next, as CSS 2.1
+            // §8.4 breaks it. Each is drawn around the content area its own
+            // font gives it, its padding and border outside that.
+            for (OpenBox const& box : open_boxes)
+                box_runs.push_back(BoxRun { box.style, box.element, box.from, line.size(),
+                    box.opened_here, false });
+            for (BoxRun const& run : box_runs) {
+                ComputedStyle const& s = *run.style;
+                if (!paints_anything(s))
+                    continue; // nothing to draw: no box, and no room taken by one
+                float const left = starts[std::min(run.from, line.size())]
+                    + (run.opened_here ? resolve(s.margin_left, content_width) : 0.0f);
+                float const right = starts[std::min(run.to, line.size())]
+                    - (run.closed_here ? resolve(s.margin_right, content_width) : 0.0f);
+                text::FaceMetrics const face = fonts_for(s).primary().metrics(s.font_size);
+                float const top = baseline - face.ascent - resolve(s.padding_top, content_width)
+                    - s.border_top.width;
+                float const bottom = baseline + face.descent + resolve(s.padding_bottom, content_width)
+                    + s.border_bottom.width;
+                // Where the box was broken it has no edge: the line it
+                // carries on to draws neither the border it never reached
+                // nor the one it has not come to yet.
+                ComputedStyle const* drawn = run.style;
+                if (!run.opened_here || !run.closed_here) {
+                    std::shared_ptr<ComputedStyle> const copy = owned_copy(s);
+                    if (!run.opened_here)
+                        copy->border_left.width = 0;
+                    if (!run.closed_here)
+                        copy->border_right.width = 0;
+                    drawn = copy.get();
+                }
+                Fragment box;
+                box.element = run.element;
+                box.style = drawn;
+                box.x = left;
+                box.y = top;
+                box.width = std::max(0.0f, right - left);
+                box.height = std::max(0.0f, bottom - top);
+                out.children.push_back(std::move(box));
+            }
+            box_runs.clear();
+            for (OpenBox& box : open_boxes) {
+                box.from = 0; // it starts the next line at its left edge
+                box.opened_here = false;
             }
             out.last_baseline = baseline;
             if (!out.first_baseline)
@@ -1627,6 +1771,41 @@ struct Layouter {
                 float const static_x = inline_level ? line_left + line_width : line_left;
                 float const static_y = inline_level || line.empty() ? y : y + line_height_of(block_style);
                 record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y));
+                continue;
+            }
+            if (item.kind == InlineItem::Kind::BoxStart || item.kind == InlineItem::Kind::BoxEnd) {
+                // The box's edge — its margin, border and padding on that
+                // side — takes room on the line where it opens or closes. A
+                // side that asks for none leaves no entry behind, so a box
+                // that neither spaces nor draws is invisible to the line; the
+                // run's ends still bracket what is inside it either way.
+                bool const opening = item.kind == InlineItem::Kind::BoxStart;
+                float const edge = inline_edge(*item.style, opening, content_width);
+                if (allow_wrap && edge > 0 && !line.empty() && line_width + edge > line_avail)
+                    flush_line();
+                if (opening)
+                    open_boxes.push_back(OpenBox { item.style, item.element, line.size(), true });
+                if (edge > 0) {
+                    Placed placed({}, item.style, false, edge, item.element);
+                    placed.box_edge = true;
+                    placed.aligned = item.aligned;
+                    line.push_back(std::move(placed));
+                    line_width += edge;
+                }
+                if (!opening) {
+                    if (!open_boxes.empty()) {
+                        OpenBox const box = open_boxes.back();
+                        open_boxes.pop_back();
+                        box_runs.push_back(BoxRun { box.style, box.element, box.from, line.size(),
+                            box.opened_here, true });
+                    } else {
+                        // A box that opened before these items: CSS 2.1
+                        // §9.2.1.1 broke it around a block, and this run is
+                        // what comes after. It closes here without opening.
+                        box_runs.push_back(
+                            BoxRun { item.style, item.element, 0, line.size(), false, true });
+                    }
+                }
                 continue;
             }
             if (item.kind == InlineItem::Kind::SoftBreak) {
@@ -1735,8 +1914,15 @@ struct Layouter {
                 continue;
             }
             if (item.kind == InlineItem::Kind::Space) {
-                if (line.empty())
-                    continue; // leading space on a line collapses away
+                // A leading space on a line collapses away, and an inline box
+                // opening in front of it does not make it an inner one.
+                bool only_edges = true;
+                for (Placed const& placed : line) {
+                    if (!placed.box_edge)
+                        only_edges = false;
+                }
+                if (only_edges)
+                    continue;
                 float const width = measure(*item.style, item.text);
                 Placed placed(item.text, item.style, true, width, item.element);
                 placed.aligned = item.aligned;
@@ -2416,7 +2602,12 @@ struct Layouter {
             }
             if (!is_block_level(*child_style)) {
                 if (splits_around_blocks(child_element, *child_style)) {
+                    // The box opens before the block breaks it and closes
+                    // after: the run before the block draws no right edge,
+                    // the run after it no left one (CSS 2.1 §9.2.1.1).
                     std::size_t const first = pending_inline.size();
+                    pending_inline.push_back(
+                        InlineItem { InlineItem::Kind::BoxStart, {}, child_style, &child_element });
                     if (css::GeneratedBox const* const own_before = before_of(child_style))
                         append_generated(*own_before, child_element, pending_inline);
                     std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
@@ -2424,6 +2615,8 @@ struct Layouter {
                     walk(grandchildren, &child_element, *child_style);
                     if (css::GeneratedBox const* const own_after = after_of(child_style))
                         append_generated(*own_after, child_element, pending_inline);
+                    pending_inline.push_back(
+                        InlineItem { InlineItem::Kind::BoxEnd, {}, child_style, &child_element });
                     mark_aligned(pending_inline, first, *child_style);
                     continue;
                 }
@@ -2638,7 +2831,9 @@ struct Layouter {
         } else if (is_atomic_inline(style)) {
             items.push_back(InlineItem { InlineItem::Kind::Block, {}, &style, &element });
         } else {
+            items.push_back(InlineItem { InlineItem::Kind::BoxStart, {}, &style, &element });
             collect_inline(element, &style, items);
+            items.push_back(InlineItem { InlineItem::Kind::BoxEnd, {}, &style, &element });
         }
         mark_aligned(items, first, style);
     }
@@ -2707,6 +2902,20 @@ struct Layouter {
             case InlineItem::Kind::Space:
                 pending_space += measure(*item.style, item.text);
                 break;
+            case InlineItem::Kind::BoxStart:
+            case InlineItem::Kind::BoxEnd: {
+                // The edge sticks to what it opens or closes, so it widens
+                // the narrowest line as well as the widest. A percentage
+                // margin or padding measures nothing here, as everywhere an
+                // intrinsic width is asked for.
+                float const edge
+                    = inline_edge(*item.style, item.kind == InlineItem::Kind::BoxStart, 0);
+                if (edge != 0) {
+                    result.min = std::max(result.min, edge);
+                    add(edge);
+                }
+                break;
+            }
             case InlineItem::Kind::Absolute:
                 break; // takes no room
             case InlineItem::Kind::HardBreak:

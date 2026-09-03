@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Inline boxes</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 22px; width: 400px; color: #123 }
+  h2 { font-size: 16px; margin: 8px 0 4px }
+  p { margin: 0 0 8px }
+  .fill { background: #dfe }
+  .pad { background: #dfe; padding: 0 10px }
+  .padded-y { background: #fed; padding: 6px 4px }
+  .edged { border: 2px solid #269; padding: 0 6px }
+  .sides { border-left: 6px solid #c22; border-right: 6px solid #2a2; background: #eee }
+  .spaced { background: #cde; margin: 0 14px }
+  .thin { border: 1px solid #963 }
+  .wraps { background: #fde; padding: 0 8px; border: 2px solid #c69 }
+  .nested-out { background: #eef; padding: 0 6px }
+  .nested-in { background: #ccf; border: 1px solid #66c }
+  .tall { background: #efe; font-size: 26px }
+  .empty { background: #c93; padding: 0 9px }
+  .narrow { width: 150px; border-left: 1px solid #ccc; padding-left: 4px }
+</style>
+</head>
+<body>
+<h2>What a box draws and what it spaces</h2>
+<p>A <span class="fill">filled</span> box, and one that <span class="pad">pads</span> its text.</p>
+<p>Padding <span class="padded-y">above and below</span> reaches past the line.</p>
+<p>A box with <span class="edged">a border</span> all round it.</p>
+<p>One thick <span class="sides">on two sides</span> only.</p>
+<p>A box <span class="spaced">held apart</span> by its margins.</p>
+<p>A <span class="thin">hairline</span> box.</p>
+
+<h2>Boxes that carry on</h2>
+<p class="narrow">A <span class="wraps">box whose text runs past the end of one line</span> opens on the first and closes on the last.</p>
+<p>Nested: <span class="nested-out">outer <span class="nested-in">inner</span> outer</span> again.</p>
+<p>A <span class="tall">bigger</span> box takes the height its own font asks for.</p>
+<p>An empty one, <span class="empty"></span>, is its padding alone.</p>
+</body>
+</html>
