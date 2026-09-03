@@ -1,6 +1,7 @@
 #include "css/StyleResolver.h"
 
 #include "core/Ascii.h"
+#include "core/Bidi.h"
 #include "core/Unicode.h"
 #include "css/Grid.h"
 #include "css/Parser.h"

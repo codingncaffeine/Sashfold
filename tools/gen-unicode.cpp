@@ -15,6 +15,7 @@
 //   https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt
 //   https://www.unicode.org/Public/16.0.0/ucd/DerivedNormalizationProps.txt
 //   https://www.unicode.org/Public/16.0.0/ucd/extracted/DerivedBidiClass.txt
+//   https://www.unicode.org/Public/16.0.0/ucd/BidiBrackets.txt
 //
 // Emits:
 //   src/net/IdnaData.h            UTS #46 statuses + mappings (UseSTD3ASCIIRules=false
@@ -534,15 +535,44 @@ void emit_normalization(std::string const& path, UnicodeData const& data,
 
 // --- DerivedBidiClass.txt ---------------------------------------------------
 
-// Which of UAX #9's strong types a code point carries. Everything else —
-// the digits, the punctuation, the spaces, the marks, the explicit
-// formatting characters — is neither, and the first-strong rules step over
-// it.
-enum class Strong : std::uint8_t {
-    None,
-    Ltr, // Bidi_Class L
-    Rtl, // Bidi_Class R or AL
+// Every Bidi_Class of UAX #9, in the order the engine's own enum lists
+// them; the generator writes the names out, so the two stay in step by
+// construction rather than by a matching pair of numbers.
+constexpr char const* bidi_class_names[] = {
+    "L", "R", "AL", // strong
+    "EN", "ES", "ET", "AN", "CS", "NSM", "BN", // weak
+    "B", "S", "WS", "ON", // neutral
+    "LRE", "RLE", "LRO", "RLO", "PDF", // the explicit embeddings and overrides
+    "LRI", "RLI", "FSI", "PDI", // and the isolates
 };
+
+// The long names the @missing lines use, beside the short ones the entries
+// use. Only the classes that appear as a block default need the long form,
+// but all of them are here so a data file that writes any of them out is
+// read the same way.
+std::size_t bidi_class_index(std::string const& name)
+{
+    static std::map<std::string, std::string> const long_names = {
+        { "Left_To_Right", "L" }, { "Right_To_Left", "R" }, { "Arabic_Letter", "AL" },
+        { "European_Number", "EN" }, { "European_Separator", "ES" },
+        { "European_Terminator", "ET" }, { "Arabic_Number", "AN" },
+        { "Common_Separator", "CS" }, { "Nonspacing_Mark", "NSM" }, { "Boundary_Neutral", "BN" },
+        { "Paragraph_Separator", "B" }, { "Segment_Separator", "S" }, { "White_Space", "WS" },
+        { "Other_Neutral", "ON" }, { "Left_To_Right_Embedding", "LRE" },
+        { "Right_To_Left_Embedding", "RLE" }, { "Left_To_Right_Override", "LRO" },
+        { "Right_To_Left_Override", "RLO" }, { "Pop_Directional_Format", "PDF" },
+        { "Left_To_Right_Isolate", "LRI" }, { "Right_To_Left_Isolate", "RLI" },
+        { "First_Strong_Isolate", "FSI" }, { "Pop_Directional_Isolate", "PDI" },
+    };
+    auto const spelled = long_names.find(name);
+    std::string const& sought = spelled == long_names.end() ? name : spelled->second;
+    for (std::size_t i = 0; i < std::size(bidi_class_names); ++i) {
+        if (sought == bidi_class_names[i])
+            return i;
+    }
+    std::cerr << "gen-unicode: unknown Bidi_Class '" << name << "'\n";
+    std::exit(1);
+}
 
 // The Bidi_Class of every code point, as the derived file gives it: the
 // @missing lines are the defaults (L everywhere, then R or AL through the
@@ -550,17 +580,11 @@ enum class Strong : std::uint8_t {
 // the Hebrew block is R and not L), with the listed entries on top of them.
 // Reading the derived file rather than UnicodeData's field 4 is what makes
 // those block defaults come out right.
-std::vector<Strong> load_bidi_strength(std::string const& path)
+std::vector<std::uint8_t> load_bidi_classes(std::string const& path)
 {
     constexpr std::size_t code_points = 0x110000;
-    std::vector<Strong> strength(code_points, Strong::Ltr); // @missing: 0000..10FFFF; Left_To_Right
-    auto const strong_of = [](std::string const& name) {
-        if (name == "L" || name == "Left_To_Right")
-            return Strong::Ltr;
-        if (name == "R" || name == "Right_To_Left" || name == "AL" || name == "Arabic_Letter")
-            return Strong::Rtl;
-        return Strong::None;
-    };
+    // @missing: 0000..10FFFF; Left_To_Right
+    std::vector<std::uint8_t> classes(code_points, 0);
     std::ifstream file = open_or_die(path);
     std::string line;
     // Two passes: the block defaults first, then the entries that override
@@ -591,58 +615,104 @@ std::vector<Strong> load_bidi_strength(std::string const& path)
             parse_code_point_range(range, first, last);
             if (last >= code_points)
                 continue;
-            Strong const value = strong_of(name);
+            auto const value = static_cast<std::uint8_t>(bidi_class_index(name));
             for (char32_t c = first; c <= last; ++c)
-                strength[c] = value;
+                classes[c] = value;
         }
     };
     apply(missing);
     apply(listed);
-    return strength;
+    return classes;
 }
 
-void emit_bidi(std::string const& path, std::vector<Strong> const& strength)
+// BidiBrackets.txt: the paired brackets rule N0 matches on (BD16). One
+// entry per bracket, giving the code point it pairs with and whether it
+// opens or closes.
+struct BracketPair {
+    char32_t code_point = 0;
+    char32_t paired = 0;
+    bool opening = false;
+};
+
+std::vector<BracketPair> load_bidi_brackets(std::string const& path)
 {
-    auto const ranges_of = [&](Strong wanted) {
-        std::vector<std::pair<char32_t, char32_t>> ranges;
-        for (char32_t c = 0; c < strength.size(); ++c) {
-            if (strength[c] != wanted)
-                continue;
-            if (!ranges.empty() && ranges.back().second + 1 == c)
-                ranges.back().second = c;
-            else
-                ranges.push_back({ c, c });
-        }
-        return ranges;
+    std::vector<BracketPair> brackets;
+    std::ifstream file = open_or_die(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::size_t const hash = line.find('#');
+        std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+        if (body.empty())
+            continue;
+        std::vector<std::string> const fields = split(body, ';');
+        if (fields.size() < 3)
+            continue;
+        BracketPair entry;
+        entry.code_point = parse_hex(trim(fields[0]));
+        entry.paired = parse_hex(trim(fields[1]));
+        entry.opening = trim(fields[2]) == "o";
+        brackets.push_back(entry);
+    }
+    std::sort(brackets.begin(), brackets.end(),
+        [](BracketPair const& a, BracketPair const& b) { return a.code_point < b.code_point; });
+    return brackets;
+}
+
+void emit_bidi(std::string const& path, std::vector<std::uint8_t> const& classes,
+    std::vector<BracketPair> const& brackets)
+{
+    // One sorted, disjoint table over the whole code space: a run of code
+    // points sharing a class becomes one entry, and L — the default almost
+    // everywhere — is left out, so the table holds only what differs from it.
+    struct Run {
+        char32_t first;
+        char32_t last;
+        std::uint8_t klass;
     };
-    std::vector<std::pair<char32_t, char32_t>> const ltr = ranges_of(Strong::Ltr);
-    std::vector<std::pair<char32_t, char32_t>> const rtl = ranges_of(Strong::Rtl);
+    std::vector<Run> runs;
+    for (char32_t c = 0; c < classes.size(); ++c) {
+        if (classes[c] == 0) // L, the default
+            continue;
+        if (!runs.empty() && runs.back().last + 1 == c && runs.back().klass == classes[c])
+            runs.back().last = c;
+        else
+            runs.push_back({ c, c, classes[c] });
+    }
 
     std::ofstream out(path);
     out << generated_banner(
-        "The strongly directional code points of UAX #9 — Bidi_Class L on one\n"
-        "// side, R and AL on the other — read from DerivedBidiClass.txt so that\n"
-        "// the block defaults come with them: an unassigned code point in a block\n"
-        "// reserved for a right-to-left script is R or AL, not the L everything\n"
-        "// else defaults to. These are what the first-strong rules (P2 and P3)\n"
-        "// look at, which is how `dir=auto` and `unicode-bidi: plaintext` find the\n"
-        "// direction of a piece of text. A code point in neither table is not\n"
-        "// strong — the digits, the punctuation, the spaces, the marks and the\n"
-        "// explicit formatting characters — and those rules step over it. Ranges\n"
-        "// are sorted and disjoint, for binary search.");
+        "The Bidi_Class of every code point (UAX #9), read from\n"
+        "// DerivedBidiClass.txt so that the block defaults come with it: an\n"
+        "// unassigned code point in a block reserved for a right-to-left script\n"
+        "// is R or AL, not the L everything else falls back to, and the @missing\n"
+        "// lines are the only place that is written. L is the default and is left\n"
+        "// out of the table, so what is here is every run that differs from it;\n"
+        "// the runs are sorted and disjoint, for binary search.");
     out << "namespace sashfold {\n\n";
-    out << "struct BidiRange {\n    char32_t first;\n    char32_t last;\n};\n\n";
-    auto const table = [&](char const* name, std::vector<std::pair<char32_t, char32_t>> const& ranges) {
-        out << "inline constexpr BidiRange " << name << "[] = {\n";
-        for (auto const& [first, last] : ranges)
-            out << "    { " << hex(first) << ", " << hex(last) << " },\n";
-        out << "};\n\n";
-    };
-    table("strong_ltr_ranges", ltr);
-    table("strong_rtl_ranges", rtl);
+    out << "enum class BidiClass : std::uint8_t {\n";
+    for (char const* const name : bidi_class_names)
+        out << "    " << name << ",\n";
+    out << "};\n\n";
+    out << "struct BidiRange {\n    char32_t first;\n    char32_t last;\n    BidiClass klass;\n};\n\n";
+    out << "inline constexpr BidiRange bidi_class_ranges[] = {\n";
+    for (Run const& run : runs) {
+        out << "    { " << hex(run.first) << ", " << hex(run.last) << ", BidiClass::"
+            << bidi_class_names[run.klass] << " },\n";
+    }
+    out << "};\n\n";
+    // The paired brackets rule N0 works on (BD16). Sorted by code point, so
+    // the same binary search finds them.
+    out << "struct BidiBracket {\n    char32_t code_point;\n    char32_t paired;\n"
+        << "    bool opening;\n};\n\n";
+    out << "inline constexpr BidiBracket bidi_brackets[] = {\n";
+    for (BracketPair const& entry : brackets) {
+        out << "    { " << hex(entry.code_point) << ", " << hex(entry.paired) << ", "
+            << (entry.opening ? "true" : "false") << " },\n";
+    }
+    out << "};\n\n";
     out << "}\n";
-    std::cout << "wrote " << path << " (" << ltr.size() << " left-to-right ranges, " << rtl.size()
-              << " right-to-left)\n";
+    std::cout << "wrote " << path << " (" << runs.size() << " ranges that are not the L default, "
+              << brackets.size() << " brackets)\n";
 }
 
 // The simple case mappings, packed into runs.
@@ -695,11 +765,12 @@ int main(int argc, char** argv)
     std::set<char32_t> const excluded
         = load_full_composition_exclusions(data_dir + "/DerivedNormalizationProps.txt");
 
-    std::vector<Strong> const bidi = load_bidi_strength(data_dir + "/DerivedBidiClass.txt");
+    std::vector<std::uint8_t> const bidi = load_bidi_classes(data_dir + "/DerivedBidiClass.txt");
+    std::vector<BracketPair> const brackets = load_bidi_brackets(data_dir + "/BidiBrackets.txt");
 
     emit_idna(repo + "/src/net/IdnaData.h", idna);
     emit_normalization(repo + "/src/core/NormalizationData.h", unicode_data, excluded);
     emit_case(repo + "/src/core/CaseData.h", unicode_data);
-    emit_bidi(repo + "/src/core/BidiData.h", bidi);
+    emit_bidi(repo + "/src/core/BidiData.h", bidi, brackets);
     return 0;
 }

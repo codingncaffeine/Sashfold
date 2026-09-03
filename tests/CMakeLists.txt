@@ -34,6 +34,18 @@ sashfold_test(test_round_rect)
 sashfold_test(test_first_letter)
 sashfold_test(test_forms)
 sashfold_test(test_reader)
+# The bidirectional algorithm. Its own conformance files are 15 MB, so
+# they are downloaded rather than committed (tools/ucd-fetch.sh); with no
+# checkout at ucd/ the test runs its hand-written cases alone.
+add_executable(test_bidi test_bidi.cpp)
+target_link_libraries(test_bidi PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+if(EXISTS ${CMAKE_SOURCE_DIR}/ucd/BidiCharacterTest.txt)
+  add_test(NAME test_bidi COMMAND test_bidi
+    ${CMAKE_SOURCE_DIR}/ucd/BidiCharacterTest.txt
+    ${CMAKE_SOURCE_DIR}/ucd/BidiTest.txt)
+else()
+  add_test(NAME test_bidi COMMAND test_bidi)
+endif()
 sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)

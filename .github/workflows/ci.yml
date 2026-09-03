@@ -29,6 +29,20 @@ jobs:
       - run: cmake --build build --target wpt_reftest
       - run: ./build/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION
 
+  # The Unicode bidirectional algorithm against its own conformance files.
+  # They are 15 MB, so they are fetched at the version pinned in
+  # tests/ucd/VERSION rather than committed; the other jobs run the test's
+  # hand-written cases without them.
+  bidi-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: bash tools/ucd-fetch.sh
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --target test_bidi
+      - run: ./build/tests/test_bidi ucd/BidiCharacterTest.txt ucd/BidiTest.txt
+
   linux-clang:
     runs-on: ubuntu-latest
     steps:

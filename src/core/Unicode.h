@@ -62,21 +62,8 @@ char32_t to_uppercase(char32_t);
 char32_t to_lowercase(char32_t);
 char32_t to_titlecase(char32_t);
 
-// Which direction a code point carries on its own (UAX #9): Bidi_Class L is
-// left-to-right, R and AL are right-to-left, and everything else — digits,
-// punctuation, spaces, marks, the formatting characters — carries none.
-enum class StrongDirection : std::uint8_t {
-    None,
-    Ltr,
-    Rtl,
-};
-StrongDirection strong_direction(char32_t);
-
-// UAX #9's P2 and P3: the direction of the first strongly directional
-// character, stepping over anything inside an isolate, and left-to-right
-// when there is none. This is what `dir=auto` asks of an element's content
-// and what `unicode-bidi: plaintext` asks of a paragraph; Bidi.cpp.
-bool first_strong_is_rtl(std::u32string_view);
+// The bidirectional algorithm and the directions a code point carries live
+// in core/Bidi.h.
 
 // Default_Ignorable_Code_Point (Unicode 16): characters that render as
 // nothing — the soft hyphen, zero-width spaces and joiners, bidi marks,

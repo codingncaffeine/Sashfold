@@ -1,0 +1,5 @@
+# The Unicode version the committed tables were generated from and the bidi
+# conformance files are scored against. tools/ucd-fetch.sh downloads this
+# version; move it deliberately, then regenerate and check that the headers
+# already committed come back byte-identical.
+16.0.0

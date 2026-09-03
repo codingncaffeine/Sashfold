@@ -1,6 +1,7 @@
 #include "layout/Layout.h"
 
 #include "core/Ascii.h"
+#include "core/Bidi.h"
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "layout/GridAlgorithm.h"

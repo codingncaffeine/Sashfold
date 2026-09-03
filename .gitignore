@@ -17,6 +17,9 @@ _plans/
 # The Web Platform Tests checkout tools/wpt-fetch.sh makes (never committed)
 /wpt/
 
+# The Unicode data files tools/ucd-fetch.sh downloads (never committed)
+/ucd/
+
 # The two-compiler build script's logs at the repo root
 /build-*.log
 reftest-actual/

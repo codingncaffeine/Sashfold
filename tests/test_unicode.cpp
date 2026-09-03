@@ -123,40 +123,5 @@ int main()
         CHECK(to_titlecase(U'a') == U'A'); // everything else titlecases as it uppercases
     }
 
-    // --- The strong directions, and the first of them --------------------------
-    {
-        CHECK(strong_direction(U'a') == StrongDirection::Ltr);
-        CHECK(strong_direction(U'漢') == StrongDirection::Ltr); // Han is left-to-right
-        CHECK(strong_direction(U'א') == StrongDirection::Rtl); // Hebrew alef, class R
-        CHECK(strong_direction(U'ا') == StrongDirection::Rtl); // Arabic alef, class AL
-        // An UNASSIGNED code point inside a block reserved for a right-to-left
-        // script is R, not the L everything else defaults to — which is why
-        // the table comes from DerivedBidiClass and not UnicodeData field 4.
-        CHECK(strong_direction(U'֐') == StrongDirection::Rtl);
-        // Neither: the digits, the punctuation, the spaces, the marks.
-        CHECK(strong_direction(U'5') == StrongDirection::None);
-        CHECK(strong_direction(U'.') == StrongDirection::None);
-        CHECK(strong_direction(U' ') == StrongDirection::None);
-        CHECK(strong_direction(U'́') == StrongDirection::None); // combining acute
-
-        CHECK(!first_strong_is_rtl(U"alpha"));
-        CHECK(first_strong_is_rtl(U"אבג"));
-        CHECK(!first_strong_is_rtl(U"123 — alpha")); // it steps over what is not strong
-        CHECK(first_strong_is_rtl(U"123 — אב"));
-        CHECK(!first_strong_is_rtl(U"")); // P3: nothing strong reads left-to-right
-        CHECK(!first_strong_is_rtl(U"12.34"));
-        // P2 steps over everything inside an isolate, so the Hebrew here does
-        // not answer for the text around it. U+2066 is the left-to-right
-        // isolate, U+2067 the right-to-left one, U+2069 the terminator.
-        // Escaped, not written out: an unpaired control in a literal is a
-        // warning in its own right, and it would reorder this source too.
-        CHECK(!first_strong_is_rtl(U"\u2066א\u2069alpha"));
-        CHECK(first_strong_is_rtl(U"\u2066alpha\u2069א"));
-        // An isolate with no terminator swallows the rest of the paragraph.
-        CHECK(!first_strong_is_rtl(U"\u2067א"));
-        // An unmatched PDI ends nothing, and is itself not strong.
-        CHECK(first_strong_is_rtl(U"\u2069א"));
-    }
-
     return sashfold::test::report("unicode");
 }
