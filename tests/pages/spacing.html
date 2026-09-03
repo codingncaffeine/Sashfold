@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Spacing</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px; width: 400px; color: #123 }
+  h2 { font-size: 16px; margin: 8px 0 4px }
+  p { margin: 0 0 6px; border-left: 2px solid #ccc; padding-left: 4px }
+  #none { }
+  #letter { letter-spacing: 4px }
+  #letter-tight { letter-spacing: -2px }
+  #word { word-spacing: 12px }
+  #both { letter-spacing: 2px; word-spacing: 8px }
+  #em { letter-spacing: 0.25em; font-size: 24px }
+  #wraps { letter-spacing: 6px; width: 200px }
+  #indent { text-indent: 40px }
+  #indent-pc { text-indent: 25% }
+  #indent-neg { text-indent: -20px; padding-left: 24px }
+  #indent-centre { text-indent: 40px; text-align: center }
+  #indent-right { text-indent: 40px; text-align: right }
+  #indent-inherit p { margin: 0 }
+  #indent-inherit { text-indent: 30px }
+  #floated { overflow: hidden }
+  #floated .box { float: left; width: 40px; height: 40px; background: #69c; margin-right: 6px }
+  #floated p { text-indent: 30px; border: 0; padding: 0 }
+  #decorated { letter-spacing: 5px; text-decoration: underline; color: #269 }
+</style>
+</head>
+<body>
+<h2>Letters and words</h2>
+<p id="none">Plain text, no extra room anywhere.</p>
+<p id="letter">Four px after every letter.</p>
+<p id="letter-tight">Two px taken back from every letter.</p>
+<p id="word">Twelve px after every space.</p>
+<p id="both">Two after letters and eight after words.</p>
+<p id="em">A quarter em at 24px.</p>
+<p id="wraps">Wide letters wrap sooner in a narrow box than they would without.</p>
+<p id="decorated">The underline reaches the last gap.</p>
+
+<h2>The first line, indented</h2>
+<p id="indent">Forty px in on the first line only, and the second line starts flush at the edge again.</p>
+<p id="indent-pc">A quarter of the block, on the first line only, and the rest flush.</p>
+<p id="indent-neg">Twenty px back out of the padding, hanging the first line to the left of the rest.</p>
+<p id="indent-centre">Centred within what the indent leaves.</p>
+<p id="indent-right">Right-aligned within what the indent leaves.</p>
+<div id="indent-inherit"><p>Inherited into the block inside, whose own first line takes it.</p></div>
+<div id="floated"><div class="box"></div><p>The indent is measured from the edge the float leaves, and the lines beside it are not indented at all.</p></div>
+</body>
+</html>

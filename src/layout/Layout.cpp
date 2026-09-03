@@ -849,7 +849,25 @@ struct Layouter {
 
     float measure(ComputedStyle const& style, std::u32string_view text) const
     {
-        return fonts_for(style).measure(text, style.font_size);
+        return fonts_for(style).measure(text, style.font_size) + extra_spacing(style, text);
+    }
+
+    // What letter-spacing and word-spacing add to a run: one letter's worth
+    // after every character, including the last, and one word's worth after
+    // every word separator. The painter steps the same amounts, so a run's
+    // measured width and its drawn width stay the same number.
+    static float extra_spacing(ComputedStyle const& style, std::u32string_view text)
+    {
+        if (style.letter_spacing == 0 && style.word_spacing == 0)
+            return 0;
+        float extra = style.letter_spacing * static_cast<float>(text.size());
+        if (style.word_spacing != 0) {
+            for (char32_t const c : text) {
+                if (c == U' ')
+                    extra += style.word_spacing;
+            }
+        }
+        return extra;
     }
 
     ComputedStyle const* style_of(dom::Element const& element) const
@@ -1331,9 +1349,13 @@ struct Layouter {
     // Lays the items into lines beside the context's floats; returns the
     // total height used. Floats met among the items are placed as they
     // come, and their boxes join `out`.
+    // `opens_block` says these items start the block's own first formatted
+    // line, which is the only line text-indent moves: a block whose content
+    // is broken into several anonymous runs indents the first of them alone.
     float layout_lines(std::vector<InlineItem> const& items, ComputedStyle const& block_style,
         float content_x, float content_y, float content_width, Fragment& out,
-        FloatContext& floats, int list_depth, std::optional<float> containing_height = std::nullopt) const
+        FloatContext& floats, int list_depth, std::optional<float> containing_height = std::nullopt,
+        bool opens_block = true) const
     {
         struct Placed {
             Placed(std::u32string the_text, ComputedStyle const* the_style, bool space, float the_width,
@@ -1379,10 +1401,15 @@ struct Layouter {
         // The room the current line has between floats, found where it starts.
         float line_left = content_x;
         float line_avail = content_width;
+        // text-indent: how far the first line of this block starts in, and
+        // nothing after it. A percentage is of the block's own content width.
+        float const indent = opens_block ? resolve(block_style.text_indent, content_width) : 0.0f;
+        bool first_line = true;
+        auto const indent_now = [&] { return first_line ? indent : 0.0f; };
         auto const start_line = [&] {
             FloatContext::Band const band = floats.band_at(y, content_x, content_x + content_width);
-            line_left = band.left;
-            line_avail = std::max(0.0f, band.right - band.left);
+            line_left = band.left + indent_now();
+            line_avail = std::max(0.0f, band.right - band.left - indent_now());
         };
         start_line();
 
@@ -1504,8 +1531,8 @@ struct Layouter {
                     break;
                 std::optional<float> const next = floats.next_bottom(y);
                 if (line_width <= room || line.empty() || !next || *next <= y) {
-                    line_left = over.left;
-                    line_avail = room;
+                    line_left = over.left + indent_now();
+                    line_avail = std::max(0.0f, room - indent_now());
                     break;
                 }
                 y = *next;
@@ -1570,6 +1597,7 @@ struct Layouter {
             y += line_height;
             line.clear();
             line_width = 0;
+            first_line = false; // the indent was this line's alone
             start_line();
             place_pending();
         };
@@ -2263,7 +2291,7 @@ struct Layouter {
             anonymous.width = content_width;
             float const height = layout_lines(pending_inline, style, content_x,
                 cursor + previous_bottom_margin, content_width, anonymous, floats, list_depth,
-                containing_height);
+                containing_height, first_in_flow);
             anonymous.height = height;
             cursor += previous_bottom_margin + height;
             previous_bottom_margin = 0;

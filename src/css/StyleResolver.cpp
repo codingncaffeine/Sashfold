@@ -2039,6 +2039,9 @@ struct Resolver {
         style.font_family = parent.font_family;
         style.line_height = parent.line_height;
         style.text_align = parent.text_align;
+        style.letter_spacing = parent.letter_spacing;
+        style.word_spacing = parent.word_spacing;
+        style.text_indent = parent.text_indent;
         style.white_space = parent.white_space;
         style.list_style_type = parent.list_style_type;
         style.quotes = parent.quotes;
@@ -2389,6 +2392,9 @@ struct Resolver {
                 0 },
             { "vertical-align", false, [](S& to, S const& from) { to.vertical_align = from.vertical_align; }, 0 },
             { "text-align", true, [](S& to, S const& from) { to.text_align = from.text_align; }, 0 },
+            { "letter-spacing", true, [](S& to, S const& from) { to.letter_spacing = from.letter_spacing; }, 0 },
+            { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
+            { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
             { "white-space", true, [](S& to, S const& from) { to.white_space = from.white_space; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
             { "list-style", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
@@ -4236,6 +4242,35 @@ struct Resolver {
             auto length = parse_length_percent(value, context, false, false);
             if (length && length->kind == LengthPercent::Kind::Px)
                 style.line_height = { LineHeight::Kind::Px, length->value };
+            return;
+        }
+        // The spacing pair: `normal` asks for no extra room, anything else
+        // is a length. Neither takes a percentage or a bare number.
+        if (name == "letter-spacing" || name == "word-spacing") {
+            if (values.size() != 1)
+                return;
+            float spacing = 0;
+            if (!is_ident(values[0], "normal")) {
+                std::optional<LengthPercent> const length
+                    = parse_length_percent(*values[0], context, false, false);
+                if (!length || length->kind != LengthPercent::Kind::Px)
+                    return;
+                spacing = length->value;
+            }
+            if (name == "letter-spacing")
+                style.letter_spacing = spacing;
+            else
+                style.word_spacing = spacing;
+            return;
+        }
+        if (name == "text-indent") {
+            // css-text-3's `each-line` and `hanging` are not written, and a
+            // keyword beside the length drops the declaration.
+            if (values.size() != 1)
+                return;
+            if (std::optional<LengthPercent> const length
+                = parse_length_percent(*values[0], context, false))
+                style.text_indent = *length;
             return;
         }
         if (name == "text-align") {

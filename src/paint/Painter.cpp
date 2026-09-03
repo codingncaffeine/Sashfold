@@ -635,7 +635,11 @@ void paint_run(Context& context, TextRun const& run)
         text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
         glyph.face->draw_glyph(context.target, glyph.glyph, x, baseline, style.font_size,
             style.color, style.bold(), italic);
-        x += glyph.face->advance(glyph.glyph, style.font_size);
+        // The steps layout measured: the glyph's advance, a letter's worth of
+        // extra room after it, and a word's worth after a word separator.
+        x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
+        if (c == U' ')
+            x += style.word_spacing;
     }
 
     if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())

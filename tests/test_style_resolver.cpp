@@ -460,5 +460,49 @@ int main()
         CHECK(calc.width.kind == LengthPercent::Kind::Px && close(calc.width.value, 202));
     }
 
+    // --- The spacing properties ------------------------------------------------
+    {
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  body { font-size: 20px }
+  #spaced { letter-spacing: 3px; word-spacing: 0.5em; text-indent: 2em }
+  #normal { letter-spacing: normal; word-spacing: normal }
+  #percent { text-indent: 25% }
+  #negative { letter-spacing: -1px; text-indent: -3px }
+  #bad { letter-spacing: 10%; word-spacing: 4; text-indent: 2em hanging }
+  #wide { letter-spacing: inherit; text-indent: initial }
+</style></head><body>
+  <div id="spaced"><div id="wide">w</div></div>
+  <div id="normal">n</div>
+  <div id="percent">p</div>
+  <div id="negative">m</div>
+  <div id="bad">b</div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        ComputedStyle const& spaced = style_of("spaced");
+        CHECK(close(spaced.letter_spacing, 3));
+        CHECK(close(spaced.word_spacing, 10)); // 0.5em of 20px
+        CHECK(spaced.text_indent.kind == LengthPercent::Kind::Px && close(spaced.text_indent.value, 40));
+        ComputedStyle const& normal = style_of("normal");
+        CHECK(close(normal.letter_spacing, 0) && close(normal.word_spacing, 0));
+        ComputedStyle const& percent = style_of("percent");
+        CHECK(percent.text_indent.kind == LengthPercent::Kind::Percent
+            && close(percent.text_indent.value, 25));
+        ComputedStyle const& negative = style_of("negative");
+        CHECK(close(negative.letter_spacing, -1)); // both take a negative length
+        CHECK(close(negative.text_indent.value, -3));
+        // A percentage on letter-spacing, a bare number on word-spacing and a
+        // keyword beside the indent are all dropped, and the initial values
+        // stand: the body declares none of the three.
+        ComputedStyle const& bad = style_of("bad");
+        CHECK(close(bad.letter_spacing, 0) && close(bad.word_spacing, 0));
+        CHECK(close(bad.text_indent.value, 0));
+        // All three inherit, and the CSS-wide keywords reach them.
+        ComputedStyle const& wide = style_of("wide");
+        CHECK(close(wide.letter_spacing, 3) && close(wide.word_spacing, 10));
+        CHECK(close(wide.text_indent.value, 0)); // initial, not the parent's 40
+    }
+
     return sashfold::test::report("style-resolver");
 }

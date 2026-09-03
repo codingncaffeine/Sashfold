@@ -714,6 +714,13 @@ struct ComputedStyle {
     WhiteSpace white_space = WhiteSpace::Normal;
     ListStyleType list_style_type = ListStyleType::Disc;
     TextDecorationLine text_decoration = TextDecorationLine::None;
+    // The spacing properties, all inherited: extra room after each character
+    // and after each word separator (`normal` is none of either), and how far
+    // the first line of a block starts in — a percentage of the containing
+    // block's width, resolved at layout.
+    float letter_spacing = 0;
+    float word_spacing = 0;
+    LengthPercent text_indent = LengthPercent::px(0);
 
     // Generated content: what a ::before or ::after box shows (meaningful
     // on those boxes' styles), the quotation marks in force (inherited),

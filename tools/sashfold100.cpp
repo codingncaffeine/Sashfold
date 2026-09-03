@@ -212,7 +212,7 @@ constexpr FeatureName feature_names[] = {
     { "animations", "animations and transitions" },
     { "shadows", "shadows" },
     { "effects", "filters, clipping paths, masks" },
-    { "text-properties", "letter-spacing, text-transform, text-overflow" },
+    { "text-properties", "text-transform, text-overflow" },
     { "multi-column", "multi-column layout" },
     { "sizing", "object-fit and aspect-ratio" },
     { "outline", "outlines" },

@@ -546,7 +546,7 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["shadows"];
     else if (name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")
         ++census["effects"];
-    else if (name == "letter-spacing" || name == "word-spacing" || name == "text-transform" || name == "text-overflow")
+    else if (name == "text-transform" || name == "text-overflow")
         ++census["text-properties"];
     else if (name == "columns" || name == "column-count" || name == "column-width")
         ++census["multi-column"];
