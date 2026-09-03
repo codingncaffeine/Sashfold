@@ -767,6 +767,10 @@ struct ComputedStyle {
     WhiteSpace white_space = WhiteSpace::Normal;
     ListStyleType list_style_type = ListStyleType::Disc;
     ListStylePosition list_style_position = ListStylePosition::Outside;
+    // What this list item's marker counts to: the `list-item` counter as it
+    // stood once this box had its turn (css-lists-3 §4.2 increments it by one
+    // on every `display: list-item` box). Meaningless on anything else.
+    int list_item_value = 0;
     TextDecorationLine text_decoration = TextDecorationLine::None;
     // The spacing properties, all inherited: extra room after each character
     // and after each word separator (`normal` is none of either), and how far

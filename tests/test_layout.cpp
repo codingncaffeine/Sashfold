@@ -1279,5 +1279,32 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A marker's number is the list-item counter's ---------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  ol { margin: 0 }
+</style></head><body>
+  <ol start="5"><li>a</li><li>b</li><li value="20">c</li><li>d</li></ol>
+  <ol type="a"><li>e</li></ol>
+  <ol><li>f</li></ol>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const has = [&](std::u32string_view text) {
+            for (layout::TextRun const* const candidate : runs) {
+                if (candidate->text == text)
+                    return true;
+            }
+            return false;
+        };
+        CHECK(has(U"5.") && has(U"6.")); // start puts the counter one below the first number
+        CHECK(has(U"20.") && has(U"21.")); // value writes it, and the next item carries on
+        CHECK(has(U"a.")); // type names the counter style
+        CHECK(has(U"1.")); // a list of its own resets the counter it shares
+        CHECK(!has(U"7.")); // the item after value=20 is not 7
+    }
+
     return test::report("layout");
 }

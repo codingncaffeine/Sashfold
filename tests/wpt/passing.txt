@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7482 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7483 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1858,6 +1858,7 @@ css/CSS2/lists/counter-reset-applies-to-013.xht
 css/CSS2/lists/counter-reset-applies-to-014.xht
 css/CSS2/lists/counter-reset-applies-to-015.xht
 css/CSS2/lists/counter-reset-display-001.xht
+css/CSS2/lists/counter-reset-increment-002.xht
 css/CSS2/lists/counter-reset-not-generated-001.xht
 css/CSS2/lists/counter-reset-visibility-001.xht
 css/CSS2/lists/increment-counter-001.xht

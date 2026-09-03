@@ -51,6 +51,7 @@ li { display: list-item }
 p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-top: 1em; margin-bottom: 1em }
 blockquote, figure { margin-left: 40px; margin-right: 40px }
 ol, ul, dir, menu { padding-left: 40px }
+ol, ul, dir, menu { counter-reset: list-item }
 ol { list-style-type: decimal }
 ul ul { list-style-type: circle }
 ul ul ul { list-style-type: square }
@@ -272,6 +273,64 @@ std::string presentational_hints(dom::Element const& element)
     if (tag == "hr") {
         if (std::optional<std::string_view> const size = attribute("size"))
             add("height", legacy_dimension(*size));
+    }
+    // The list attributes, through the counter they really mean: `start` puts
+    // the counter one below the first item's number, since every item adds
+    // one of its own; `value` writes the number this item wears, and the ones
+    // after it carry on from there.
+    if (tag == "ol" || tag == "li") {
+        auto const integer = [](std::string_view text) -> std::optional<long long> {
+            std::size_t i = 0;
+            while (i < text.size() && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n'))
+                ++i;
+            bool const negative = i < text.size() && text[i] == '-';
+            if (i < text.size() && (text[i] == '-' || text[i] == '+'))
+                ++i;
+            if (i >= text.size() || text[i] < '0' || text[i] > '9')
+                return std::nullopt;
+            long long value = 0;
+            for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i) {
+                value = value * 10 + (text[i] - '0');
+                if (value > 2147483647LL)
+                    value = 2147483647LL;
+            }
+            return negative ? -value : value;
+        };
+        if (tag == "ol") {
+            if (std::optional<std::string_view> const start = attribute("start")) {
+                if (std::optional<long long> const n = integer(*start))
+                    add("counter-reset", "list-item " + std::to_string(*n - 1));
+            }
+        } else if (std::optional<std::string_view> const value = attribute("value")) {
+            if (std::optional<long long> const n = integer(*value))
+                add("counter-set", "list-item " + std::to_string(*n));
+        }
+    }
+    // `type` on a list names the marker's counter style.
+    if (tag == "ol" || tag == "ul" || tag == "li") {
+        if (std::optional<std::string_view> const type = attribute("type")) {
+            std::string_view style;
+            if (type->size() == 1) {
+                switch (type->front()) {
+                case '1': style = "decimal"; break;
+                case 'a': style = "lower-alpha"; break;
+                case 'A': style = "upper-alpha"; break;
+                case 'i': style = "lower-roman"; break;
+                case 'I': style = "upper-roman"; break;
+                default: break;
+                }
+            }
+            if (style.empty() && (tag == "ul" || tag == "li")) {
+                if (ascii_ci_equals(*type, "disc"))
+                    style = "disc";
+                else if (ascii_ci_equals(*type, "circle"))
+                    style = "circle";
+                else if (ascii_ci_equals(*type, "square"))
+                    style = "square";
+            }
+            if (!style.empty())
+                add("list-style-type", std::string(style));
+        }
     }
     if (tag == "body" || table || cell || row || row_group || column || tag == "caption") {
         if (std::optional<std::string_view> const color = attribute("bgcolor"))
@@ -1818,7 +1877,7 @@ struct Resolver {
     // A box's counter work, in the order the properties are applied: reset,
     // then increment, then set. A box that is not generated — display: none,
     // and everything inside it — does none of it.
-    void apply_counter_ops(ComputedStyle const& style)
+    void apply_counter_ops(ComputedStyle& style)
     {
         if (display_none_depth > 0)
             return;
@@ -1832,10 +1891,33 @@ struct Resolver {
                 instance.value = add_saturating(instance.value, op.value);
             }
         }
+        // css-lists-3 §4.2: a list item adds one to `list-item` of its own
+        // accord, unless its counter-increment named that counter itself.
+        if (style.display == Display::ListItem && !names_list_item(style.counter_increment.get())) {
+            CounterInstance& instance = counter_in_scope("list-item");
+            instance.value = add_saturating(instance.value, 1);
+        }
         if (style.counter_set) {
             for (CounterOp const& op : *style.counter_set)
                 counter_in_scope(op.name).value = op.value;
         }
+        // The marker's number, read once the box's own work is done, so an
+        // author's reset, increment or set on the item itself all count.
+        if (style.display == Display::ListItem) {
+            CounterInstance const* const instance = innermost_counter("list-item");
+            style.list_item_value = instance ? instance->value : 0;
+        }
+    }
+
+    static bool names_list_item(CounterOps const* ops)
+    {
+        if (!ops)
+            return false;
+        for (CounterOp const& op : *ops) {
+            if (op.name == "list-item")
+                return true;
+        }
+        return false;
     }
     // What one `ex` and one `ch` come to for the element being cascaded and
     // for its parent: settled as soon as the font is, and read by every

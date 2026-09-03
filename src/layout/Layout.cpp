@@ -2841,9 +2841,13 @@ struct Layouter {
             bool const marker_inside
                 = list_item && child_style->list_style_position == css::ListStylePosition::Inside;
             if (list_item) {
+                // The number is the `list-item` counter's, settled in the
+                // cascade, so `start`, `value` and an author's own reset all
+                // reach the marker; layout only reads it.
                 ++list_index;
                 if (marker_inside)
-                    child_options.inside_marker = marker_text(*child_style, list_index);
+                    child_options.inside_marker
+                        = marker_text(*child_style, child_style->list_item_value);
             }
             Fragment child_fragment = layout_block(child_element, *child_style, child_x, child_y,
                 child_width, child_list_depth, floats, child_options);
@@ -2887,7 +2891,7 @@ struct Layouter {
             };
 
             if (list_item && !marker_inside)
-                add_list_marker(child_fragment, *child_style, element, list_index);
+                add_list_marker(child_fragment, *child_style, element, child_style->list_item_value);
 
             float const effective_bottom = collapse_margins(margin_bottom, child_fragment.collapsed_bottom);
             if (empty) {
