@@ -673,5 +673,86 @@ int main()
         CHECK(before_text("noseparator") == "<none>"); // counters() must be told its separator
     }
 
+    // --- Flow-relative properties ---------------------------------------------
+    {
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  #a { padding-inline-start: 30px; padding-inline-end: 40px }
+  #b { padding-inline: 10px 40px }
+  #c { padding-inline: 7px }
+  #d { margin-block: 20px 30px; margin-inline-start: 25px }
+  #e { border-inline-start: 6px solid red; border-block-end: 3px solid }
+  #f { inline-size: 120px; block-size: 40px; max-inline-size: 90px; min-block-size: 5px }
+  #g { border-inline-width: 4px 8px; border-inline-style: solid; border-block-style: dashed }
+  #h { inset-inline-start: 15px; inset-block-end: 45px }
+  #i { margin-inline-start: 25px; margin-left: 5px }
+  #j { margin-left: 5px; margin-inline-start: 25px }
+  #k { padding-inline-start: 30px; direction: rtl }
+  #l { margin-inline: 1px 2px 3px }
+  #m { margin-inline-start: 12px }
+  #n { margin-inline-start: inherit }
+  #o { border-inline: 5px solid }
+  .rtl { direction: rtl }
+</style></head><body>
+  <div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div>
+  <div id="e"></div><div id="f"></div><div id="g"></div><div id="h"></div>
+  <div id="i"></div><div id="j"></div><div id="k"></div><div id="l"></div>
+  <div id="o"></div>
+  <div id="m"><div id="n"></div></div>
+  <div class="rtl">
+    <div id="p" style="padding-inline-start: 30px"></div>
+    <div id="q" style="margin-inline-end: 25px"></div>
+    <div id="r" style="border-inline-start: 6px solid red"></div>
+    <div id="s" style="inset-inline-start: 15px"></div>
+  </div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        // In a left-to-right element the inline start is the left.
+        CHECK(close(style_of("a").padding_left.value, 30));
+        CHECK(close(style_of("a").padding_right.value, 40));
+        CHECK(close(style_of("b").padding_left.value, 10)); // the pair shorthand: start then end
+        CHECK(close(style_of("b").padding_right.value, 40));
+        CHECK(close(style_of("c").padding_left.value, 7)); // one value reaches both
+        CHECK(close(style_of("c").padding_right.value, 7));
+        // The block axis is the vertical one whichever way the text reads.
+        CHECK(close(style_of("d").margin_top.value, 20));
+        CHECK(close(style_of("d").margin_bottom.value, 30));
+        CHECK(close(style_of("d").margin_left.value, 25));
+        CHECK(close(style_of("e").border_left.width, 6));
+        CHECK(style_of("e").border_left.style == css::BorderStyle::Solid);
+        CHECK(close(style_of("e").border_bottom.width, 3)); // a width needs a style to be a width
+        CHECK(close(style_of("f").width.value, 120)); // inline-size is the width here
+        CHECK(close(style_of("f").height.value, 40));
+        CHECK(close(style_of("f").max_width.value, 90));
+        CHECK(close(style_of("f").min_height.value, 5));
+        CHECK(close(style_of("g").border_left.width, 4));
+        CHECK(close(style_of("g").border_right.width, 8));
+        CHECK(style_of("g").border_top.style == css::BorderStyle::Solid); // dashed draws solid
+        CHECK(close(style_of("h").left.value, 15));
+        CHECK(close(style_of("h").bottom.value, 45));
+        CHECK(close(style_of("o").border_left.width, 5)); // one border, both inline edges
+        CHECK(close(style_of("o").border_right.width, 5));
+        // The mapping happens in cascade order, so the one written later wins
+        // whichever of the two names it was written under.
+        CHECK(close(style_of("i").margin_left.value, 5));
+        CHECK(close(style_of("j").margin_left.value, 25));
+        // The direction that decides the mapping is the element's own, even
+        // when it is set on the very element the property is on.
+        CHECK(close(style_of("k").padding_right.value, 30));
+        CHECK(close(style_of("k").padding_left.value, 0));
+        // A pair shorthand takes at most one value per edge.
+        CHECK(close(style_of("l").margin_left.value, 0));
+        CHECK(close(style_of("l").margin_right.value, 0));
+        // inherit on a flow-relative property reaches the physical one it
+        // stands for, in the parent as well as the child.
+        CHECK(close(style_of("n").margin_left.value, 12));
+        // And in a right-to-left element the inline start is the right.
+        CHECK(close(style_of("p").padding_right.value, 30));
+        CHECK(close(style_of("q").margin_left.value, 25));
+        CHECK(close(style_of("r").border_right.width, 6));
+        CHECK(close(style_of("s").right.value, 15));
+    }
+
     return sashfold::test::report("style-resolver");
 }

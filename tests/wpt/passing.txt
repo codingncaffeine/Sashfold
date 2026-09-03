@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7629 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7626 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1725,6 +1725,7 @@ css/CSS2/linebox/line-height-applies-to-016.xht
 css/CSS2/linebox/line-height-bleed-001.xht
 css/CSS2/linebox/line-height-bleed-002.xht
 css/CSS2/linebox/line-height-oof-descendants-001.html
+css/CSS2/linebox/split-inline-borders.html
 css/CSS2/linebox/vertical-align-004.xht
 css/CSS2/linebox/vertical-align-005.xht
 css/CSS2/linebox/vertical-align-006.xht
@@ -5195,39 +5196,11 @@ css/css-backgrounds/order-of-images.htm
 css/css-backgrounds/subpixel-repeat-no-repeat-mix.html
 css/css-backgrounds/table-cell-background-local.html
 css/css-backgrounds/ttwf-reftest-borderRadius.html
-css/css-box/margin-trim/block-container-block-end-collapsed-margins.html
-css/css-box/margin-trim/block-container-block-end-self-collapsing-item-has-larger-block-end.html
-css/css-box/margin-trim/block-container-block-end-self-collapsing-item-has-larger-block-start.html
 css/css-box/margin-trim/block-container-block-end-start-margin.html
 css/css-box/margin-trim/block-container-block-in-inline-001.html
 css/css-box/margin-trim/block-container-block-in-inline-003.html
 css/css-box/margin-trim/block-container-block-in-inline-004.html
-css/css-box/margin-trim/block-container-block-start-collapsed-margins.html
-css/css-box/margin-trim/block-container-block-start-self-collapsing-item-has-larger-block-end.html
-css/css-box/margin-trim/block-container-block-start-self-collapsing-item-larger-block-start.html
-css/css-box/margin-trim/flex-block-end-trimmed-only.html
-css/css-box/margin-trim/flex-block-start-trimmed-only.html
-css/css-box/margin-trim/flex-block-trimmed-only.html
-css/css-box/margin-trim/flex-column-block-multiline.html
-css/css-box/margin-trim/flex-column-grow.html
-css/css-box/margin-trim/flex-column-orthogonal-item.html
-css/css-box/margin-trim/flex-column-style-change-triggers-layout-block-end.html
-css/css-box/margin-trim/flex-column-style-change-triggers-layout-block-start.html
-css/css-box/margin-trim/flex-column-style-change-triggers-layout-block.html
-css/css-box/margin-trim/flex-row-grow.html
-css/css-box/margin-trim/flex-row-inline-multiline.html
 css/css-box/margin-trim/flex-row-orthogonal-item.html
-css/css-box/margin-trim/flex-row-shrink.html
-css/css-box/margin-trim/flex-row-style-change-triggers-layout-inline-end.html
-css/css-box/margin-trim/flex-row-style-change-triggers-layout-inline-start.html
-css/css-box/margin-trim/flex-row-style-change-triggers-layout-inline.html
-css/css-box/margin-trim/grid-block-end.html
-css/css-box/margin-trim/grid-block-start.html
-css/css-box/margin-trim/grid-block.html
-css/css-box/margin-trim/grid-inline-end.html
-css/css-box/margin-trim/grid-inline-start.html
-css/css-box/margin-trim/grid-inline.html
-css/css-box/margin-trim/grid-trim-ignores-collapsed-tracks.html
 css/css-box/margin-trim/multicol-spanner-003.html
 css/css-cascade/all-prop-002.html
 css/css-cascade/all-prop-inherit-color.html
@@ -5496,6 +5469,7 @@ css/css-flexbox/css-box-justify-content.html
 css/css-flexbox/css-flexbox-height-animation-stretch.html
 css/css-flexbox/display-flex-001.htm
 css/css-flexbox/dynamic-change-simplified-layout-002.html
+css/css-flexbox/dynamic-orthogonal-flex-item.html
 css/css-flexbox/empty-flex-box-and-margin-collapsing.html
 css/css-flexbox/fit-content-item-001.html
 css/css-flexbox/fit-content-item-002.html
@@ -5707,7 +5681,6 @@ css/css-flexbox/flexbox-with-pseudo-elements-002.html
 css/css-flexbox/flexbox-with-pseudo-elements-003.html
 css/css-flexbox/flexbox-writing-mode-001.html
 css/css-flexbox/flexbox-writing-mode-007.html
-css/css-flexbox/flexbox-writing-mode-013.html
 css/css-flexbox/flexbox-writing-mode-016.html
 css/css-flexbox/flexbox_align-content-center.html
 css/css-flexbox/flexbox_align-content-flexend.html
@@ -5879,7 +5852,24 @@ css/css-flexbox/flexible-order.html
 css/css-flexbox/gap-001-lr.html
 css/css-flexbox/gap-001-ltr.html
 css/css-flexbox/gap-001-rl.html
-css/css-flexbox/gap-001-rtl.html
+css/css-flexbox/gap-002-lr.html
+css/css-flexbox/gap-002-ltr.html
+css/css-flexbox/gap-002-rl.html
+css/css-flexbox/gap-002-rtl.html
+css/css-flexbox/gap-003-lr.html
+css/css-flexbox/gap-003-ltr.html
+css/css-flexbox/gap-003-rl.html
+css/css-flexbox/gap-004-lr.html
+css/css-flexbox/gap-004-ltr.html
+css/css-flexbox/gap-004-rl.html
+css/css-flexbox/gap-005-lr.html
+css/css-flexbox/gap-005-ltr.html
+css/css-flexbox/gap-005-rl.html
+css/css-flexbox/gap-005-rtl.html
+css/css-flexbox/gap-006-lr.html
+css/css-flexbox/gap-006-ltr.html
+css/css-flexbox/gap-006-rl.html
+css/css-flexbox/gap-008-ltr.html
 css/css-flexbox/gap-009-ltr.html
 css/css-flexbox/gap-010-ltr.html
 css/css-flexbox/gap-011.html
@@ -5933,6 +5923,7 @@ css/css-flexbox/percentage-heights-008.html
 css/css-flexbox/percentage-heights-009.html
 css/css-flexbox/percentage-heights-010.html
 css/css-flexbox/percentage-heights-017.html
+css/css-flexbox/percentage-heights-019.html
 css/css-flexbox/percentage-heights-021.html
 css/css-flexbox/percentage-max-height-001.html
 css/css-flexbox/percentage-max-height-004.html
@@ -6198,6 +6189,7 @@ css/css-grid/abspos/positioned-grid-items-026.html
 css/css-grid/abspos/positioned-grid-items-negative-indices-001.html
 css/css-grid/abspos/positioned-grid-items-negative-indices-002.html
 css/css-grid/abspos/positioned-grid-items-negative-indices-003.html
+css/css-grid/abspos/positioned-grid-items-sizing-001.html
 css/css-grid/alignment/grid-align-baseline-005.html
 css/css-grid/alignment/grid-align-content-end-001.html
 css/css-grid/alignment/grid-align-content-space-between-001.html
@@ -6298,6 +6290,7 @@ css/css-grid/anonymous-grid-items-002.html
 css/css-grid/child-border-box-and-max-content-001.html
 css/css-grid/child-border-box-and-max-content-002.html
 css/css-grid/empty-grid-within-flexbox.html
+css/css-grid/firefox-bug-1881495.html
 css/css-grid/grid-calc-margin.html
 css/css-grid/grid-child-percent-basis-resize-1.html
 css/css-grid/grid-container-as-flex-item-001.html
@@ -6448,7 +6441,6 @@ css/css-grid/grid-items/percentage-size-replaced-subitems-001.html
 css/css-grid/grid-items/percentage-size-subitems-001.html
 css/css-grid/grid-items/percentage-size-subitems-002.html
 css/css-grid/grid-items/replaced-element-015.html
-css/css-grid/grid-items/replaced-element-016.tentative.html
 css/css-grid/grid-items/table-with-infinite-max-intrinsic-width.html
 css/css-grid/grid-lanes/abspos/column-grid-lanes-intrinsic-sizing-oof.html
 css/css-grid/grid-lanes/abspos/column-grid-lanes-out-of-flow-004.html
@@ -6464,8 +6456,6 @@ css/css-grid/grid-lanes/intrinsic-sizing/grid-lanes-contain-intrinsic-size-row-0
 css/css-grid/grid-lanes/intrinsic-sizing/row-intrinsic-inline-container-size.html
 css/css-grid/grid-lanes/item-placement/dense-packing/column-dense-packing-003.html
 css/css-grid/grid-lanes/item-placement/flow-tolerance/flow-tolerance-dynamic-update.html
-css/css-grid/grid-lanes/item-placement/flow-tolerance/flow-tolerance-percentage-column-001.html
-css/css-grid/grid-lanes/item-placement/flow-tolerance/flow-tolerance-percentage-intrinsic-column-001.html
 css/css-grid/grid-lanes/items/column-flex-spanning-items.html
 css/css-grid/grid-lanes/items/column-item-minmax-img-001.html
 css/css-grid/grid-lanes/items/row-flex-spanning-items.html
@@ -6614,11 +6604,14 @@ css/css-grid/layout-algorithm/grid-as-flex-item-should-not-shrink-to-fit-006.htm
 css/css-grid/layout-algorithm/grid-as-flex-item-should-not-shrink-to-fit-007.html
 css/css-grid/layout-algorithm/grid-as-flex-item-should-not-shrink-to-fit-008.html
 css/css-grid/layout-algorithm/grid-find-fr-size-restart-algorithm.html
+css/css-grid/layout-algorithm/grid-intrinsic-track-sizes-min-size-001.html
 css/css-grid/layout-algorithm/grid-layout-free-space-unit.html
 css/css-grid/layout-algorithm/grid-percent-cols-filled-shrinkwrap-001.html
 css/css-grid/layout-algorithm/grid-percent-cols-spanned-shrinkwrap-001.html
 css/css-grid/layout-algorithm/grid-percent-rows-filled-shrinkwrap-001.html
 css/css-grid/layout-algorithm/grid-percent-rows-spanned-shrinkwrap-001.html
+css/css-grid/layout-algorithm/grid-track-ignores-max-size-001.html
+css/css-grid/layout-algorithm/grid-track-ignores-max-size-002.html
 css/css-grid/min-size-auto-overflow-clip.html
 css/css-grid/nested-grid-item-block-size-001.html
 css/css-grid/placement/grid-layout-grid-span.html
@@ -6738,6 +6731,8 @@ css/css-overflow/max-content-with-multiple-scrollable-descendants.html
 css/css-overflow/max-width-container-with-scrollable-descendant-vertical-rl.html
 css/css-overflow/max-width-container-with-scrollable-descendant.html
 css/css-overflow/min-content-textarea-with-scrollbar.html
+css/css-overflow/no-scrollable-overflow-vertical-rl-2.html
+css/css-overflow/no-scrollable-overflow-vertical-rl.html
 css/css-overflow/overflow-auto-scrollbar-gutter-intrinsic-001.html
 css/css-overflow/overflow-auto-scrollbar-gutter-intrinsic-002.html
 css/css-overflow/overflow-auto-scrollbar-gutter-intrinsic-003.html
@@ -6773,6 +6768,7 @@ css/css-overflow/overflow-img-object-position.html
 css/css-overflow/overflow-img-scroll-replaced.html
 css/css-overflow/overflow-img-svg.html
 css/css-overflow/overflow-img.html
+css/css-overflow/overflow-inline-block-with-opacity.html
 css/css-overflow/overflow-negative-margin-dynamic.html
 css/css-overflow/overflow-negative-margin.html
 css/css-overflow/overflow-no-frameset-propagation.html
@@ -7184,7 +7180,6 @@ css/css-text/text-spacing-trim/text-spacing-trim-narrow-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-quote-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-space-all-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-span-001.html
-css/css-text/text-spacing-trim/text-spacing-trim-start-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-start-oof-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-subset-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-trim-all-001.html
@@ -7348,6 +7343,7 @@ css/css-text/white-space/text-wrap-balance-before-after-001.html
 css/css-text/white-space/text-wrap-balance-before-after-002.html
 css/css-text/white-space/text-wrap-balance-float-006.html
 css/css-text/white-space/text-wrap-balance-line-clamp-001.html
+css/css-text/white-space/text-wrap-balance-overflow-001.html
 css/css-text/white-space/textarea-always-preserves-spaces-001.tentative.html
 css/css-text/white-space/trailing-ideographic-space-003.html
 css/css-text/white-space/trailing-ideographic-space-006.html
@@ -7593,6 +7589,7 @@ css/css-variables/variable-reference-37.html
 css/css-variables/variable-reference-38.html
 css/css-variables/variable-reference-39.html
 css/css-variables/variable-reference-40.html
+css/css-variables/variable-reference-visited.html
 css/css-variables/variable-reference-without-whitespace.html
 css/css-variables/variable-supports-58.html
 css/css-variables/vars-background-shorthand-001.html

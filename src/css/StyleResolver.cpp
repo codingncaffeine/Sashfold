@@ -52,12 +52,12 @@ th { font-weight: bold }
 li { display: list-item }
 p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-top: 1em; margin-bottom: 1em }
 blockquote, figure { margin-left: 40px; margin-right: 40px }
-ol, ul, dir, menu { padding-left: 40px }
+ol, ul, dir, menu { padding-inline-start: 40px }
 ol, ul, dir, menu { counter-reset: list-item }
 ol { list-style-type: decimal }
 ul ul { list-style-type: circle }
 ul ul ul { list-style-type: square }
-dd { margin-left: 40px }
+dd { margin-inline-start: 40px }
 h1 { font-size: 2em; margin-top: 0.67em; margin-bottom: 0.67em; font-weight: bold }
 h2 { font-size: 1.5em; margin-top: 0.83em; margin-bottom: 0.83em; font-weight: bold }
 h3 { font-size: 1.17em; margin-top: 1em; margin-bottom: 1em; font-weight: bold }
@@ -1334,6 +1334,97 @@ std::optional<BorderStyle> parse_border_style(ComponentValue const& value)
         if (ascii_ci_equals(name, solid_ish))
             return BorderStyle::Solid;
     }
+    return std::nullopt;
+}
+
+// --- Flow-relative properties -------------------------------------------------
+
+// The physical properties a flow-relative one stands for (css-logical-1).
+// `split` shares a shorthand's two values out, one to each edge; a
+// shorthand that does not split gives all of them to both, which is what
+// `border-inline: 1px solid` means.
+struct LogicalMap {
+    std::vector<std::string> names;
+    bool split = true;
+};
+
+// Which physical edge a flow-relative name stands for. The block axis of
+// a horizontal writing mode is the vertical one whichever way the text
+// reads, so only the inline pair turns on `direction`; when writing modes
+// land this is the one function that has to learn about them.
+std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl)
+{
+    std::string const inline_start = rtl ? "right" : "left";
+    std::string const inline_end = rtl ? "left" : "right";
+    // margin-inline-start is margin-left where the content starts left.
+    for (std::string_view const group : { "margin-", "padding-" }) {
+        if (!name.starts_with(group))
+            continue;
+        std::string const prefix(group);
+        std::string_view const rest = name.substr(group.size());
+        if (rest == "inline-start")
+            return LogicalMap { { prefix + inline_start } };
+        if (rest == "inline-end")
+            return LogicalMap { { prefix + inline_end } };
+        if (rest == "block-start")
+            return LogicalMap { { prefix + "top" } };
+        if (rest == "block-end")
+            return LogicalMap { { prefix + "bottom" } };
+        if (rest == "inline")
+            return LogicalMap { { prefix + inline_start, prefix + inline_end } };
+        if (rest == "block")
+            return LogicalMap { { prefix + "top", prefix + "bottom" } };
+        return std::nullopt;
+    }
+    // The offsets a positioned box is placed by.
+    if (name == "inset-inline-start")
+        return LogicalMap { { inline_start } };
+    if (name == "inset-inline-end")
+        return LogicalMap { { inline_end } };
+    if (name == "inset-block-start")
+        return LogicalMap { { "top" } };
+    if (name == "inset-block-end")
+        return LogicalMap { { "bottom" } };
+    if (name == "inset-inline")
+        return LogicalMap { { inline_start, inline_end } };
+    if (name == "inset-block")
+        return LogicalMap { { "top", "bottom" } };
+    // border-inline-start[-width|-style|-color] and the axis shorthands:
+    // border-inline-width takes one value per edge, border-inline one
+    // whole border for both.
+    if (name.starts_with("border-inline") || name.starts_with("border-block")) {
+        bool const inline_axis = name.starts_with("border-inline");
+        std::string_view rest = name.substr(inline_axis ? 13 : 12);
+        std::string const start = "border-" + (inline_axis ? inline_start : std::string("top"));
+        std::string const end = "border-" + (inline_axis ? inline_end : std::string("bottom"));
+        if (rest.empty())
+            return LogicalMap { { start, end }, false };
+        if (rest == "-width" || rest == "-style" || rest == "-color")
+            return LogicalMap { { start + std::string(rest), end + std::string(rest) } };
+        bool const at_start = rest.starts_with("-start");
+        if (!at_start && !rest.starts_with("-end"))
+            return std::nullopt;
+        std::string const edge = at_start ? start : end;
+        rest = rest.substr(at_start ? 6 : 4);
+        if (rest.empty())
+            return LogicalMap { { edge } };
+        if (rest == "-width" || rest == "-style" || rest == "-color")
+            return LogicalMap { { edge + std::string(rest) } };
+        return std::nullopt;
+    }
+    // The sizes: the inline size of a horizontal writing mode is its width.
+    if (name == "inline-size")
+        return LogicalMap { { "width" } };
+    if (name == "block-size")
+        return LogicalMap { { "height" } };
+    if (name == "min-inline-size")
+        return LogicalMap { { "min-width" } };
+    if (name == "min-block-size")
+        return LogicalMap { { "min-height" } };
+    if (name == "max-inline-size")
+        return LogicalMap { { "max-width" } };
+    if (name == "max-block-size")
+        return LogicalMap { { "max-height" } };
     return std::nullopt;
 }
 
@@ -3182,6 +3273,24 @@ struct Resolver {
             });
         }
         own_ratios = ratios_for(style);
+        // `direction` goes next, before anything that depends on it: a
+        // flow-relative property is the physical one this element's own
+        // direction names, so the direction has to be settled first
+        // whatever order the declarations were written in. It is applied
+        // again with the rest below, to the same value.
+        for (MatchedDeclaration const& entry : matched) {
+            with_vars(*entry.declaration, [&](Declaration const& declaration) {
+                if (!ascii_ci_equals(declaration.name, "direction"))
+                    return;
+                if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
+                    style.direction = *wide == Wide::Initial ? Direction::Ltr : parent.direction;
+                    return;
+                }
+                bool unused_border_color = false;
+                apply(style, declaration, entry.base, unused_border_color, unused_border_color,
+                    unused_border_color, unused_border_color);
+            });
+        }
         bool border_top_color_set = false;
         bool border_right_color_set = false;
         bool border_bottom_color_set = false;
@@ -3189,7 +3298,17 @@ struct Resolver {
         for (MatchedDeclaration const& entry : matched) {
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
                 if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
-                    apply_wide(style, parent, lowercase_name(declaration.name), *wide, border_top_color_set,
+                    // A flow-relative property inherits and resets the
+                    // physical ones it stands for.
+                    std::string const name = lowercase_name(declaration.name);
+                    if (std::optional<LogicalMap> const logical
+                        = logical_mapping(name, style.direction == Direction::Rtl)) {
+                        for (std::string const& physical : logical->names)
+                            apply_wide(style, parent, physical, *wide, border_top_color_set,
+                                border_right_color_set, border_bottom_color_set, border_left_color_set);
+                        return;
+                    }
+                    apply_wide(style, parent, name, *wide, border_top_color_set,
                         border_right_color_set, border_bottom_color_set, border_left_color_set);
                     return;
                 }
@@ -3358,6 +3477,32 @@ struct Resolver {
         auto const values = significant(declaration.value);
         if (values.empty())
             return;
+        // A flow-relative property is the physical one it names for this
+        // element's direction, written here on the way in so that nothing
+        // below the cascade has to know the difference. Doing it in
+        // cascade order is what lets a `margin-left` written afterwards
+        // win, and `direction` is already settled by its own pass.
+        if (std::optional<LogicalMap> const logical
+            = logical_mapping(name, style.direction == Direction::Rtl)) {
+            // A shorthand that shares its values out takes one per edge and
+            // no more; anything longer is not a value it can have.
+            if (logical->split && logical->names.size() > 1 && values.size() > logical->names.size())
+                return;
+            for (std::size_t i = 0; i < logical->names.size(); ++i) {
+                Declaration physical;
+                physical.name = logical->names[i];
+                physical.important = declaration.important;
+                if (!logical->split || logical->names.size() == 1 || values.size() < 2) {
+                    for (ComponentValue const* const value : values)
+                        physical.value.push_back(*value);
+                } else {
+                    physical.value.push_back(*values[i]);
+                }
+                apply(style, physical, base, border_top_color_set, border_right_color_set,
+                    border_bottom_color_set, border_left_color_set);
+            }
+            return;
+        }
         LengthContext const context = length_context(style, own_ratios);
 
         auto const one_length = [&](LengthPercent& out, bool allow_auto) {
