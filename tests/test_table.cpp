@@ -249,6 +249,25 @@ int main()
             CHECK(near(run_n->baseline_y - k->baseline_y, 0));
         }
     }
+    {
+        // §17.5.3: a written height is a floor for the ROW, not a size for
+        // the cell's own box — the row settles at 60 and one line of content
+        // is then aligned inside it. Sized as the box, the content would
+        // fill the cell and every alignment would look like `top`.
+        Page const page = lay_out(page_with(
+            R"(<table id="t" style="border-spacing:0"><tr><td id="p" style="height:60px; vertical-align: top">p</td><td id="q" style="height:60px; vertical-align: middle">q</td><td id="r" style="height:60px; vertical-align: bottom">r</td><td id="s" style="min-height:60px; vertical-align: bottom">s</td></tr></table>)"));
+        layout::Fragment const* p_box = find_box(page.result.root, "p");
+        layout::TextRun const* p = find_run(page.result.root, U"p");
+        layout::TextRun const* q = find_run(page.result.root, U"q");
+        layout::TextRun const* r = find_run(page.result.root, U"r");
+        layout::TextRun const* s = find_run(page.result.root, U"s");
+        if (CHECK(p_box && p && q && r && s)) {
+            CHECK(near(p_box->height, 60)); // the row still takes the written height
+            CHECK(near(q->baseline_y - p->baseline_y, 20)); // (60 − 20) / 2
+            CHECK(near(r->baseline_y - p->baseline_y, 40)); // 60 − 20
+            CHECK(near(s->baseline_y - p->baseline_y, 40)); // a written minimum is a floor too
+        }
+    }
 
     // --- Captions, and the header and footer groups in their places -------------------
     {

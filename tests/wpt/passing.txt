@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7469 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7474 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1525,6 +1525,7 @@ css/CSS2/generated-content/content-075.xht
 css/CSS2/generated-content/content-076.xht
 css/CSS2/generated-content/content-077.xht
 css/CSS2/generated-content/content-080.xht
+css/CSS2/generated-content/content-081.xht
 css/CSS2/generated-content/content-082.xht
 css/CSS2/generated-content/content-083.xht
 css/CSS2/generated-content/content-085.xht
@@ -1758,6 +1759,7 @@ css/CSS2/linebox/vertical-align-applies-to-003.xht
 css/CSS2/linebox/vertical-align-applies-to-004.xht
 css/CSS2/linebox/vertical-align-applies-to-005.xht
 css/CSS2/linebox/vertical-align-applies-to-006.xht
+css/CSS2/linebox/vertical-align-applies-to-007.xht
 css/CSS2/linebox/vertical-align-applies-to-008.xht
 css/CSS2/linebox/vertical-align-applies-to-009.xht
 css/CSS2/linebox/vertical-align-applies-to-012.xht
@@ -3143,6 +3145,7 @@ css/CSS2/normal-flow/width-applies-to-002.xht
 css/CSS2/normal-flow/width-applies-to-003.xht
 css/CSS2/normal-flow/width-applies-to-004.xht
 css/CSS2/normal-flow/width-applies-to-005.xht
+css/CSS2/normal-flow/width-applies-to-006.xht
 css/CSS2/normal-flow/width-applies-to-007.xht
 css/CSS2/normal-flow/width-applies-to-008.xht
 css/CSS2/normal-flow/width-applies-to-009.xht
@@ -4255,6 +4258,7 @@ css/CSS2/tables/border-collapse-dynamic-row-003.xht
 css/CSS2/tables/border-collapse-dynamic-rowgroup-003.xht
 css/CSS2/tables/border-collapse-dynamic-table-003.xht
 css/CSS2/tables/border-collapse-offset-001.xht
+css/CSS2/tables/border-collapse-offset-002.xht
 css/CSS2/tables/border-conflict-element-001a.xht
 css/CSS2/tables/border-conflict-element-001b.xht
 css/CSS2/tables/border-conflict-element-001c.xht
@@ -6762,6 +6766,7 @@ css/css-position/overlay/overlay-transition-dialog.html
 css/css-position/position-absolute-dynamic-overflow-001.html
 css/css-position/position-absolute-dynamic-overflow-002.html
 css/css-position/position-absolute-dynamic-relayout-003.html
+css/css-position/position-absolute-dynamic-static-position-table-cell.html
 css/css-position/position-absolute-fieldset.html
 css/css-position/position-absolute-in-inline-margin-top.html
 css/css-position/position-absolute-large-negative-inset.html

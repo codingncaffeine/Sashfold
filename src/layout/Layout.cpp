@@ -561,6 +561,11 @@ struct FloatContext {
 struct BlockOptions {
     std::optional<float> content_width; // the used content width, whatever the style says
     std::optional<float> content_height; // the used content height, likewise
+    // A table cell: CSS 2.1 §17.5.3 makes its written height a floor for the
+    // row, not a size for the box — the row settles first and the cell's
+    // content is then aligned inside it. The box is laid out to its content
+    // and the caller carries the floor, so `vertical-align` has room to work.
+    bool height_is_minimum = false;
     bool zero_auto_margins = false; // floats and flex items: auto margins are zero, never centering
     bool own_context = false; // the box forms its own formatting context regardless of style
     // The containing block's content height when it is definite: the base
@@ -2526,6 +2531,15 @@ struct Layouter {
         }
         if (options.content_height) {
             used_height = *options.content_height;
+        } else if (options.height_is_minimum) {
+            // The written height and minimum are the caller's floor, so the
+            // box keeps its content's height; only a maximum still binds.
+            if (!style.max_height.is_auto()
+                && (style.max_height.kind == LengthPercent::Kind::Px || options.containing_height))
+                used_height = std::min(used_height,
+                    as_content_size(style,
+                        resolve(style.max_height, options.containing_height.value_or(0)), vertical_edges));
+            used_height = std::max(0.0f, used_height);
         } else {
             if (std::optional<float> const written
                 = definite_height_of(style, options.containing_height, vertical_edges))
@@ -3905,11 +3919,17 @@ struct Layouter {
                 cell_options.content_width = std::max(0.0f, width - edges);
                 cell_options.own_context = true;
                 cell_options.zero_auto_margins = true;
+                cell_options.height_is_minimum = true;
                 // A cell has no margins: its box starts at its column.
                 out.fragment = layout_block(*cell.element, s, cell_x - resolve(s.margin_left, width), 0, width,
                     list_depth, scratch, cell_options);
+                // §17.5.3: a written height (and minimum) raises the row, and
+                // the content is aligned in what the row settles on.
+                float const cell_edges = cell_vertical_edges(s, width);
                 if (s.height.kind == LengthPercent::Kind::Px)
-                    out.min_height = s.height.value + cell_vertical_edges(s, width);
+                    out.min_height = s.height.value + cell_edges;
+                if (s.min_height.kind == LengthPercent::Kind::Px)
+                    out.min_height = std::max(out.min_height, s.min_height.value + cell_edges);
             }
             out.height = out.fragment.height;
             VerticalAlign::Kind const kind = cell.style->vertical_align.kind;
