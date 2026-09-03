@@ -38,6 +38,15 @@ std::u32string nfc(std::u32string_view);
 // General category Mn, Mc, or Me.
 bool is_combining_mark(char32_t);
 
+// General category Ps, Pe, Pi, Pf or Po: the punctuation a ::first-letter
+// keeps on either side of its letter (CSS 2.1 §5.12.2).
+bool is_first_letter_punctuation(char32_t);
+
+// General category Zs, Zl, Zp, Cc or Cf: a space of any width, a separator,
+// a control or a formatting character — what a ::first-letter steps over on
+// its way to the letter, and never selects.
+bool is_first_letter_skipped(char32_t);
+
 // The fully expanded canonical decomposition of a precomposed code point
 // (Hangul excluded: it is algorithmic), or empty when it is its own.
 std::u32string_view canonical_decomposition(char32_t);

@@ -39,9 +39,7 @@ float resolve(LengthPercent const& length, float percent_base)
 
 bool is_block_level(ComputedStyle const& style)
 {
-    return style.display == Display::Block || style.display == Display::ListItem
-        || style.display == Display::FlowRoot || style.display == Display::Flex
-        || style.display == Display::Grid || style.display == Display::Table;
+    return css::is_block_level_display(style.display);
 }
 
 bool is_floating(ComputedStyle const& style)
@@ -547,6 +545,12 @@ struct Layouter {
     // the LayoutResult at the end, so the fragments' pointers outlive this
     // layouter.
     mutable std::vector<std::shared_ptr<ComputedStyle const>> owned_styles;
+    // The style a first letter wears when it was written inside an inline
+    // box, from the pseudo-element's style and that box's: built once per
+    // pair. Declared last: the layouter is initialised as an aggregate.
+    mutable std::map<std::pair<ComputedStyle const*, ComputedStyle const*>,
+        std::shared_ptr<ComputedStyle const>>
+        first_letter_styles;
 
     ComputedStyle const& anonymous_style(ComputedStyle const& parent, Display display) const
     {
@@ -906,6 +910,125 @@ struct Layouter {
             word.push_back(c);
         }
         flush_word();
+    }
+
+    // How much of a word ::first-letter wears (CSS 2.1 §5.12.2): the
+    // punctuation in front of the first letter, the letter itself with the
+    // marks that hang off it, and the punctuation right behind it. Zero when
+    // there is nothing to dress — a word of punctuation with no letter after
+    // it, or one that begins with a space the line kept (a no-break space,
+    // an en or em space, a thin one), which is not selected and leaves the
+    // letter behind it unselected too.
+    static std::size_t first_letter_length(std::u32string_view word)
+    {
+        if (!word.empty() && is_first_letter_skipped(word[0]))
+            return 0;
+        std::size_t n = 0;
+        while (n < word.size() && is_first_letter_punctuation(word[n]))
+            ++n;
+        if (n == word.size())
+            return 0; // punctuation alone: the letter is not here
+        ++n; // the letter
+        while (n < word.size() && is_combining_mark(word[n]))
+            ++n;
+        while (n < word.size() && is_first_letter_punctuation(word[n]))
+            ++n;
+        return n;
+    }
+
+    // A word that is punctuation from end to end: it leads into the letter
+    // the next word holds, and comes along with it.
+    static bool is_all_punctuation(std::u32string_view word)
+    {
+        if (word.empty())
+            return false;
+        for (char32_t const c : word) {
+            if (!is_first_letter_punctuation(c))
+                return false;
+        }
+        return true;
+    }
+
+    // The style the first letter actually wears. The pseudo-element's own
+    // style cascaded from the block, but the spec's fictional start tag goes
+    // inside the inline boxes around the letter — so an inherited property
+    // the ::first-letter rules did not set comes from the box the letter was
+    // written in, not from the block. A property the rules did set differs
+    // from the block's own value, which is what the cascade started from.
+    ComputedStyle const* first_letter_style(ComputedStyle const& letter, ComputedStyle const& block,
+        ComputedStyle const* written_in) const
+    {
+        if (!written_in || written_in == &block)
+            return &letter;
+        auto const key = std::make_pair(&letter, written_in);
+        if (auto const it = first_letter_styles.find(key); it != first_letter_styles.end())
+            return it->second.get();
+        std::shared_ptr<ComputedStyle> merged = owned_copy(letter);
+        auto const take = [&](auto member) {
+            if (letter.*member == block.*member)
+                merged.get()->*member = written_in->*member;
+        };
+        take(&ComputedStyle::color);
+        take(&ComputedStyle::font_size);
+        take(&ComputedStyle::font_weight);
+        take(&ComputedStyle::font_style);
+        take(&ComputedStyle::font_family);
+        take(&ComputedStyle::line_height);
+        take(&ComputedStyle::white_space);
+        take(&ComputedStyle::visibility);
+        first_letter_styles.emplace(key, merged);
+        return merged.get();
+    }
+
+    // Dresses the first letter of a block's first line in what
+    // ::first-letter asked for: the run is cut out of the word that holds it
+    // and becomes an item of its own, carrying the pseudo-element's style so
+    // that line layout treats it as the inline box the spec's fictional tag
+    // sequence describes. Leading spaces and out-of-flow boxes are stepped
+    // over; anything else that puts something on a line — a picture, a
+    // control, an atomic box — means the block has no first letter to dress.
+    // Returns whether this run settled the question: false only when it held
+    // nothing but spaces and out-of-flow boxes, so the first line is still to
+    // come and a later run gets the offer.
+    bool apply_first_letter(std::vector<InlineItem>& items, ComputedStyle const& block) const
+    {
+        ComputedStyle const* const asked = block.first_letter.get();
+        if (!asked)
+            return true;
+        std::size_t first = 0;
+        for (; first < items.size(); ++first) {
+            InlineItem::Kind const kind = items[first].kind;
+            if (kind != InlineItem::Kind::Space && kind != InlineItem::Kind::Float
+                && kind != InlineItem::Kind::Absolute)
+                break;
+        }
+        if (first == items.size())
+            return false;
+        // A word of nothing but punctuation — an opening quotation mark a
+        // ::before put there, say — leads into the letter, which the next
+        // word holds: the run takes those words whole and carries on.
+        std::size_t last = first;
+        while (last < items.size() && items[last].kind == InlineItem::Kind::Word
+            && is_all_punctuation(items[last].text))
+            ++last;
+        if (last == items.size() || items[last].kind != InlineItem::Kind::Word)
+            return true; // no letter to dress: nothing but punctuation, or a box
+        std::size_t const cut = first_letter_length(items[last].text);
+        if (cut == 0)
+            return true; // a space the line kept starts it: nothing is dressed
+        ComputedStyle const* const letter = first_letter_style(*asked, block, items[last].style);
+        for (std::size_t i = first; i < last; ++i)
+            items[i].style = first_letter_style(*asked, block, items[i].style);
+        InlineItem head = items[last];
+        head.style = letter;
+        head.text = items[last].text.substr(0, cut);
+        if (cut == items[last].text.size()) {
+            items[last] = std::move(head);
+            return true;
+        }
+        items[last].text.erase(0, cut);
+        items.insert(items.begin() + static_cast<std::ptrdiff_t>(last), std::move(head));
+        return true;
     }
 
     static css::GeneratedBox const* before_of(ComputedStyle const* style)
@@ -2106,6 +2229,7 @@ struct Layouter {
             collect_inline_nodes(children, &element, &style, items, no_generated); // the generated boxes ride along
             if (items.empty())
                 return 0;
+            apply_first_letter(items, style);
             return layout_lines(items, style, content_x, content_y, content_width, fragment,
                 floats, list_depth, containing_height);
         }
@@ -2116,6 +2240,9 @@ struct Layouter {
         bool first_in_flow = true;
         std::vector<InlineItem> pending_inline;
         int list_index = 0;
+        // Only the first line of the block wears ::first-letter, so only the
+        // first anonymous run that puts anything on a line is offered it.
+        bool first_letter_owed = style.first_letter != nullptr;
 
         auto const flush_inline = [&] {
             // Whitespace-only runs between blocks vanish.
@@ -2128,6 +2255,8 @@ struct Layouter {
                 pending_inline.clear();
                 return;
             }
+            if (first_letter_owed && apply_first_letter(pending_inline, style))
+                first_letter_owed = false;
             Fragment anonymous;
             anonymous.x = content_x;
             anonymous.y = cursor + previous_bottom_margin;
@@ -2660,10 +2789,14 @@ struct Layouter {
         std::vector<InlineItem> pending;
         if (!contains_block_in(children)) {
             collect_inline_nodes(children, owner, &style, pending, anonymous);
+            apply_first_letter(pending, style);
             return inline_intrinsic(pending);
         }
         Intrinsic result;
+        bool first_letter_owed = style.first_letter != nullptr;
         auto const flush = [&] {
+            if (first_letter_owed && apply_first_letter(pending, style))
+                first_letter_owed = false;
             Intrinsic const run = inline_intrinsic(pending);
             result.min = std::max(result.min, run.min);
             result.max = std::max(result.max, run.max);
@@ -4891,7 +5024,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {} };
+    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {}, {} };
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style || html_style->display == Display::None)
         return result;

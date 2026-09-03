@@ -115,15 +115,16 @@ enum class Combinator {
 };
 
 struct ComplexSelector {
-    // The pseudo-element the selector addresses, if any: ::before and
-    // ::after are taken out of the last compound at parse time, so that the
-    // rest of the selector matches the originating element and the cascade
-    // files the rule under that box; other pseudo-elements stay in the
-    // compound and never match.
+    // The pseudo-element the selector addresses, if any: ::before, ::after
+    // and ::first-letter are taken out of the last compound at parse time,
+    // so that the rest of the selector matches the originating element and
+    // the cascade files the rule under that box; other pseudo-elements stay
+    // in the compound and never match.
     enum class PseudoElement : std::uint8_t {
         None,
         Before,
         After,
+        FirstLetter,
     };
 
     // compounds.size() == combinators.size() + 1; combinators[i] joins

@@ -23,7 +23,11 @@
 //   src/core/NormalizationData.h  fully-expanded canonical decompositions,
 //                                 nonzero combining classes, primary composition
 //                                 pairs (Full_Composition_Exclusion applied),
-//                                 and combining-mark (Mn/Mc/Me) ranges
+//                                 combining-mark (Mn/Mc/Me) ranges, the
+//                                 punctuation (Ps/Pe/Pi/Pf/Po) a ::first-letter
+//                                 keeps with its letter, and the spaces and
+//                                 formatting characters (Zs/Zl/Zp/Cc/Cf) it
+//                                 steps over on the way to one
 
 #include <algorithm>
 #include <cstdint>
@@ -154,11 +158,45 @@ std::vector<IdnaEntry> load_idna(std::string const& path)
 
 // --- UnicodeData.txt --------------------------------------------------------
 
+// The punctuation classes CSS 2.1 §5.12.2 names: a ::first-letter takes the
+// punctuation on either side of its letter, and these are the categories that
+// counts as.
+bool is_first_letter_punctuation_category(std::string const& category)
+{
+    return category == "Ps" || category == "Pe" || category == "Pi" || category == "Pf"
+        || category == "Po";
+}
+
+// The categories a ::first-letter steps over on its way to the letter, and
+// never selects: the spaces of every width, the line and paragraph
+// separators, the control characters and the formatting ones.
+bool is_first_letter_skipped_category(std::string const& category)
+{
+    return category == "Zs" || category == "Zl" || category == "Zp" || category == "Cc"
+        || category == "Cf";
+}
+
 struct UnicodeData {
     std::map<char32_t, std::vector<char32_t>> canonical_decomposition; // direct, not expanded
     std::vector<std::pair<char32_t, std::uint8_t>> nonzero_ccc; // per code point
     std::vector<std::pair<char32_t, char32_t>> mark_ranges; // Mn/Mc/Me, merged
+    std::vector<std::pair<char32_t, char32_t>> punctuation_ranges; // Ps/Pe/Pi/Pf/Po, merged
+    std::vector<std::pair<char32_t, char32_t>> skipped_ranges; // Zs/Zl/Zp/Cc/Cf, merged
 };
+
+// Sorts and merges [first, last] pairs that touch or overlap.
+std::vector<std::pair<char32_t, char32_t>> merged(std::vector<std::pair<char32_t, char32_t>> ranges)
+{
+    std::sort(ranges.begin(), ranges.end());
+    std::vector<std::pair<char32_t, char32_t>> out;
+    for (auto const& [first, last] : ranges) {
+        if (!out.empty() && out.back().second + 1 >= first)
+            out.back().second = std::max(out.back().second, last);
+        else
+            out.push_back({ first, last });
+    }
+    return out;
+}
 
 UnicodeData load_unicode_data(std::string const& path)
 {
@@ -166,6 +204,8 @@ UnicodeData load_unicode_data(std::string const& path)
     std::ifstream file = open_or_die(path);
     std::string line;
     std::vector<std::pair<char32_t, char32_t>> marks;
+    std::vector<std::pair<char32_t, char32_t>> punctuation;
+    std::vector<std::pair<char32_t, char32_t>> skipped;
     char32_t range_first = 0;
     bool in_range = false;
     std::string range_category;
@@ -190,12 +230,20 @@ UnicodeData load_unicode_data(std::string const& path)
             in_range = false;
             if (range_category == "Mn" || range_category == "Mc" || range_category == "Me")
                 marks.push_back({ range_first, code_point });
+            if (is_first_letter_punctuation_category(range_category))
+                punctuation.push_back({ range_first, code_point });
+            if (is_first_letter_skipped_category(range_category))
+                skipped.push_back({ range_first, code_point });
             continue;
         }
         (void)in_range;
 
         if (category == "Mn" || category == "Mc" || category == "Me")
             marks.push_back({ code_point, code_point });
+        if (is_first_letter_punctuation_category(category))
+            punctuation.push_back({ code_point, code_point });
+        if (is_first_letter_skipped_category(category))
+            skipped.push_back({ code_point, code_point });
         if (ccc != 0)
             data.nonzero_ccc.push_back({ code_point, static_cast<std::uint8_t>(ccc) });
 
@@ -205,14 +253,9 @@ UnicodeData load_unicode_data(std::string const& path)
             data.canonical_decomposition[code_point] = parse_hex_sequence(decomposition);
     }
 
-    // Merge adjacent mark ranges.
-    std::sort(marks.begin(), marks.end());
-    for (auto const& [first, last] : marks) {
-        if (!data.mark_ranges.empty() && data.mark_ranges.back().second + 1 >= first)
-            data.mark_ranges.back().second = std::max(data.mark_ranges.back().second, last);
-        else
-            data.mark_ranges.push_back({ first, last });
-    }
+    data.mark_ranges = merged(std::move(marks));
+    data.punctuation_ranges = merged(std::move(punctuation));
+    data.skipped_ranges = merged(std::move(skipped));
     return data;
 }
 
@@ -325,7 +368,10 @@ void emit_normalization(std::string const& path, UnicodeData const& data,
         "Canonical normalization data for NFC: fully-expanded canonical\n"
         "// decompositions, nonzero canonical combining classes, primary composition\n"
         "// pairs (Full_Composition_Exclusion applied), and combining-mark (Mn/Mc/Me)\n"
-        "// ranges. Hangul is algorithmic in the runtime and absent here.");
+        "// ranges. Hangul is algorithmic in the runtime and absent here. The two\n"
+        "// tables at the end serve ::first-letter: the punctuation (Ps/Pe/Pi/Pf/Po)\n"
+        "// it keeps on either side of its letter, and the spaces and formatting\n"
+        "// characters (Zs/Zl/Zp/Cc/Cf) it steps over on the way to one.");
     out << "namespace sashfold {\n\n";
 
     // Fully-expanded decompositions.
@@ -392,11 +438,26 @@ void emit_normalization(std::string const& path, UnicodeData const& data,
     out << "inline constexpr CombiningMarkRange combining_mark_ranges[] = {\n";
     for (auto const& [first, last] : data.mark_ranges)
         out << "    { " << hex(first) << ", " << hex(last) << " },\n";
+    out << "};\n\n";
+
+    // The punctuation a ::first-letter takes with its letter (Ps, Pe, Pi, Pf, Po).
+    out << "struct CodePointRange {\n    char32_t first;\n    char32_t last;\n};\n\n";
+    out << "inline constexpr CodePointRange first_letter_punctuation_ranges[] = {\n";
+    for (auto const& [first, last] : data.punctuation_ranges)
+        out << "    { " << hex(first) << ", " << hex(last) << " },\n";
+    out << "};\n\n";
+
+    // What it steps over on the way to the letter (Zs, Zl, Zp, Cc, Cf).
+    out << "inline constexpr CodePointRange first_letter_skipped_ranges[] = {\n";
+    for (auto const& [first, last] : data.skipped_ranges)
+        out << "    { " << hex(first) << ", " << hex(last) << " },\n";
     out << "};\n\n}\n";
 
     std::cout << "wrote " << path << " (" << data.canonical_decomposition.size()
               << " decompositions, " << ccc_count << " ccc ranges, " << pairs.size()
-              << " composition pairs, " << data.mark_ranges.size() << " mark ranges)\n";
+              << " composition pairs, " << data.mark_ranges.size() << " mark ranges, "
+              << data.punctuation_ranges.size() << " punctuation ranges, "
+              << data.skipped_ranges.size() << " skipped ranges)\n";
 }
 
 }

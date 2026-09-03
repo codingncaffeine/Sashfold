@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>First letter</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 384px; color: #123 }
+  h2 { font-size: 14px; margin: 8px 0 4px }
+  p { margin: 0 0 6px }
+  #plain::first-letter { color: #c22 }
+  #big::first-letter { font-size: 32px; color: #269 }
+  #punctuated::first-letter { color: #172 }
+  #quoted::first-letter { color: #172 }
+  #trailing::first-letter { color: #172 }
+  #accented::first-letter { color: #92c; font-size: 24px }
+  #spaced::first-letter { color: #c22; font-size: 24px }
+  #weight::first-letter { font-weight: bold; color: #963 }
+  #inside::first-letter { color: #c22 }
+  #inside span { color: #269 }
+  #split::first-letter { color: #c22 }
+  #split i { color: #96a }
+  #handed::first-letter { color: #c22; font-size: 24px }
+  #handed p { margin: 0 }
+  #own::first-letter { color: #c22 }
+  #own #inner::first-letter { color: #269 }
+  #own p { margin: 0 }
+  #second::first-letter { color: #c22 }
+  #grid { display: grid; grid-template-columns: 1fr 1fr }
+  #grid::first-letter { color: #c22; font-size: 32px }
+  #picture::first-letter { color: #c22; font-size: 32px }
+  #noletter::first-letter { color: #c22; font-size: 32px }
+</style>
+</head>
+<body>
+<h2>The letter, and how far it reaches</h2>
+<p id="plain">Text the first letter of which is red.</p>
+<p id="big">Bigger, and the line grew to hold it.</p>
+<p id="punctuated">)T)ext with punctuation on both sides.</p>
+<p id="quoted">"Text opened by a quotation mark.</p>
+<p id="trailing">T)ext closed by one.</p>
+<p id="accented">e&#x0301;tude keeps the mark on its letter.</p>
+<p id="spaced">&#xA0;A no-break space the line kept: no letter is dressed.</p>
+<p id="weight">Weight applies to the letter alone.</p>
+
+<h2>Where the letter lives</h2>
+<p id="inside"><span>Inside an inline box, the rest of it blue.</span></p>
+<p id="split"><i>"</i><span>Punctuation of its own leads into the letter.</span></p>
+<div id="handed"><p>Handed down to the first block inside.</p></div>
+<div id="own"><p id="inner">Its own rule beats the one above it.</p></div>
+<p id="second">Only the first line: the words<br>after a break stay plain.</p>
+
+<h2>What it passes by</h2>
+<div id="grid"><div>A grid container has no first line.</div><div>Both items plain.</div></div>
+<p id="picture"><img src="does-not-exist.png" width="24" height="18"> A picture starts the line: no letter.</p>
+<p id="noletter">"" — punctuation with no letter behind it is left alone.</p>
+</body>
+</html>

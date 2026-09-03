@@ -89,6 +89,30 @@ bool is_combining_mark(char32_t code_point)
     return code_point <= std::prev(it)->last;
 }
 
+namespace {
+
+template <std::size_t N>
+bool in_ranges(CodePointRange const (&ranges)[N], char32_t code_point)
+{
+    auto const it = std::upper_bound(std::begin(ranges), std::end(ranges), code_point,
+        [](char32_t value, CodePointRange const& range) { return value < range.first; });
+    if (it == std::begin(ranges))
+        return false;
+    return code_point <= std::prev(it)->last;
+}
+
+}
+
+bool is_first_letter_punctuation(char32_t code_point)
+{
+    return in_ranges(first_letter_punctuation_ranges, code_point);
+}
+
+bool is_first_letter_skipped(char32_t code_point)
+{
+    return in_ranges(first_letter_skipped_ranges, code_point);
+}
+
 std::u32string nfc(std::u32string_view input)
 {
     // 1. Canonical decomposition.

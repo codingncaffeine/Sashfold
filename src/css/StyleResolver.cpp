@@ -1668,11 +1668,11 @@ struct Resolver {
     RuleSet const& set;
     StyleMap map;
     float root_font_size = 16;
-    // Rules are matched for three targets at once — the element itself, its
-    // ::before and its ::after — since one selector walk serves all three.
-    // Per target and rule: the element (stamp) it last matched and its best
-    // matching selector for that element.
-    static constexpr int target_count = 3;
+    // Rules are matched for four targets at once — the element itself, its
+    // ::before, its ::after and its ::first-letter — since one selector walk
+    // serves all four. Per target and rule: the element (stamp) it last
+    // matched and its best matching selector for that element.
+    static constexpr int target_count = 4;
     std::array<std::vector<int>, target_count> rule_stamp;
     std::array<std::vector<Specificity>, target_count> rule_best;
     int stamp = 0;
@@ -1698,6 +1698,8 @@ struct Resolver {
             return 1;
         case ComplexSelector::PseudoElement::After:
             return 2;
+        case ComplexSelector::PseudoElement::FirstLetter:
+            return 3;
         }
         return 0;
     }
@@ -1894,6 +1896,14 @@ struct Resolver {
                     style.generated = std::move(boxes);
                 }
             }
+            // ::first-letter cascades the same way, from the rules matched
+            // for its own target. It addresses a block container's first
+            // line, so a flex or grid container, a table box or a row is
+            // passed by. Layout decides whether there is a first letter to
+            // dress; the style is ready either way.
+            if (is_block_container_display(style.display) && !matched_rules[3].empty())
+                style.first_letter
+                    = std::make_shared<ComputedStyle const>(cascade(3, element, style, false));
             auto const [it, inserted] = map.emplace(&element, std::move(style));
             (void)inserted;
             style_for_children = &it->second;
@@ -1907,6 +1917,60 @@ struct Resolver {
             ancestors.pop(hash);
         if (generated && generated->after)
             generated->after->text = content_text(*owner, generated->after->style);
+    }
+
+    // The block-level box that holds this element's first formatted line,
+    // when its own content is boxes rather than text: the first in-flow
+    // block-level child, and only while nothing inline comes before it.
+    dom::Element const* first_block_child(dom::Element const& element) const
+    {
+        for (dom::Node const* child : element.children()) {
+            if (child->is_text()) {
+                for (char const c : static_cast<dom::Text const*>(child)->data) {
+                    if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f')
+                        return nullptr; // the first line is this element's own
+                }
+                continue;
+            }
+            if (!child->is_element())
+                continue;
+            auto const* candidate = static_cast<dom::Element const*>(child);
+            auto const it = map.find(candidate);
+            if (it == map.end() || it->second.display == Display::None)
+                continue;
+            if (it->second.out_of_flow() || it->second.floating != Float::None)
+                continue; // out of the flow: the first line is not its business
+            if (!is_block_level_display(it->second.display))
+                return nullptr;
+            // Only a block container has a first line to hand the style on to.
+            return is_block_container_display(it->second.display) ? candidate : nullptr;
+        }
+        return nullptr;
+    }
+
+    // CSS 2.1 §5.12.2: ::first-letter dresses the first letter of the
+    // block's first formatted line, and when the block holds boxes rather
+    // than text that line lives inside the first of them. The style is
+    // handed down that chain until it reaches the box whose own content
+    // starts the line; layout then takes it from there.
+    void hand_down_first_letters(dom::Node const& node)
+    {
+        if (node.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(node);
+            auto const it = map.find(&element);
+            if (it != map.end() && it->second.first_letter) {
+                std::shared_ptr<ComputedStyle const> const letter = it->second.first_letter;
+                for (dom::Element const* target = first_block_child(element); target;) {
+                    auto const child = map.find(target);
+                    if (child == map.end() || child->second.first_letter)
+                        break;
+                    child->second.first_letter = letter;
+                    target = first_block_child(*target);
+                }
+            }
+        }
+        for (dom::Node const* child : node.children())
+            hand_down_first_letters(*child);
     }
 
     // Inherited properties flow in from the parent; the rest start at
@@ -4445,6 +4509,7 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
     Resolver resolver(*set.m_rules);
     ComputedStyle initial;
     resolver.resolve_tree(document, initial);
+    resolver.hand_down_first_letters(document);
     // CSS 2.1 §11.1.1: the root's overflow applies to the viewport, and when
     // the root's is visible, body's does instead — and the element it was
     // taken from is then visible itself, so body still lets margins through

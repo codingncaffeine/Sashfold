@@ -499,9 +499,9 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
 }
 
 // A pseudo-element may only end a selector: one in any compound but the
-// last, or two in the last, makes the selector invalid. ::before and
-// ::after are lifted out of the last compound into the selector's
-// pseudo_element; the rest stay and never match.
+// last, or two in the last, makes the selector invalid. ::before, ::after
+// and ::first-letter are lifted out of the last compound into the
+// selector's pseudo_element; the rest stay and never match.
 bool settle_pseudo_elements(ComplexSelector& selector)
 {
     for (std::size_t i = 0; i + 1 < selector.compounds.size(); ++i) {
@@ -525,6 +525,8 @@ bool settle_pseudo_elements(ComplexSelector& selector)
             selector.pseudo_element = ComplexSelector::PseudoElement::Before;
         else if (last[i].name == "after")
             selector.pseudo_element = ComplexSelector::PseudoElement::After;
+        else if (last[i].name == "first-letter")
+            selector.pseudo_element = ComplexSelector::PseudoElement::FirstLetter;
         else
             break;
         last.erase(last.begin() + static_cast<std::ptrdiff_t>(i));

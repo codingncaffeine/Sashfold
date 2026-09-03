@@ -134,6 +134,26 @@ constexpr bool is_table_display(Display display)
     return display == Display::Table || display == Display::InlineTable;
 }
 
+// Whether a display makes a block-level box: one that takes lines of its own
+// among its siblings rather than sitting on one of theirs.
+constexpr bool is_block_level_display(Display display)
+{
+    return display == Display::Block || display == Display::ListItem
+        || display == Display::FlowRoot || display == Display::Flex || display == Display::Grid
+        || display == Display::Table;
+}
+
+// Whether a display makes a block container: a box that holds either lines
+// of text or block-level boxes of its own. A flex or grid container holds
+// items instead, and a table box holds rows, so neither has a first line —
+// which is why ::first-line and ::first-letter pass them by.
+constexpr bool is_block_container_display(Display display)
+{
+    return display == Display::Block || display == Display::ListItem
+        || display == Display::FlowRoot || display == Display::InlineBlock
+        || display == Display::TableCell || display == Display::TableCaption;
+}
+
 enum class BorderCollapse : std::uint8_t {
     Separate,
     Collapse,
@@ -296,6 +316,8 @@ struct LineHeight {
     };
     Kind kind = Kind::Normal;
     float value = 0;
+
+    bool operator==(LineHeight const&) const = default;
 };
 
 // How an inline-level box sits on its line: on the baseline; raised or
@@ -699,6 +721,10 @@ struct ComputedStyle {
     Content content;
     std::shared_ptr<QuotePairs const> quotes;
     std::shared_ptr<GeneratedContent const> generated;
+    // What ::first-letter asks for, when a rule addresses it: the style the
+    // first letter of this block's first line wears, cascaded from the
+    // element. Null when nothing addresses it.
+    std::shared_ptr<ComputedStyle const> first_letter;
     // The custom properties in force (--name → its component values, as
     // written, var() references already substituted): inherited, shared
     // with the parent until an element declares one of its own.
