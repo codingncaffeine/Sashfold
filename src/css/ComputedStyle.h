@@ -267,6 +267,10 @@ enum class WhiteSpace : std::uint8_t {
 
 enum class BorderStyle : std::uint8_t {
     None,
+    // hidden: nothing is drawn, as with none — but in the collapsing
+    // border model it beats every other border at its edge, and it is the
+    // only way to take one away.
+    Hidden,
     Solid, // every visible style draws solid for now
 };
 

@@ -1154,8 +1154,10 @@ std::optional<BorderStyle> parse_border_style(ComponentValue const& value)
     if (!value.is_token(Token::Type::Ident))
         return std::nullopt;
     std::string_view const name = value.token().value;
-    if (ascii_ci_equals(name, "none") || ascii_ci_equals(name, "hidden"))
+    if (ascii_ci_equals(name, "none"))
         return BorderStyle::None;
+    if (ascii_ci_equals(name, "hidden"))
+        return BorderStyle::Hidden;
     for (std::string_view solid_ish :
         { "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset" }) {
         if (ascii_ci_equals(name, solid_ish))
@@ -2709,10 +2711,10 @@ struct Resolver {
             style.border_bottom.color = style.color;
         if (!border_left_color_set)
             style.border_left.color = style.color;
-        // A border with style none has zero used width.
+        // A border that draws nothing has zero used width.
         for (BorderSide* side :
             { &style.border_top, &style.border_right, &style.border_bottom, &style.border_left }) {
-            if (side->style == BorderStyle::None)
+            if (side->style == BorderStyle::None || side->style == BorderStyle::Hidden)
                 side->width = 0;
         }
         // CSS 2.1 §9.7: an absolutely positioned box does not float, and

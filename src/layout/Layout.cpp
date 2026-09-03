@@ -4,6 +4,7 @@
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "layout/GridAlgorithm.h"
+#include "layout/TableBorders.h"
 #include "layout/TableStructure.h"
 #include "layout/TableWidths.h"
 #include "text/Face.h"
@@ -546,6 +547,15 @@ struct Layouter {
         style->display = display;
         owned_styles.push_back(style);
         return *style;
+    }
+
+    // A copy of a settled style this layouter owns, for a box whose used
+    // values are not what the cascade wrote — a collapsed table's borders.
+    std::shared_ptr<ComputedStyle> owned_copy(ComputedStyle const& from) const
+    {
+        auto style = std::make_shared<ComputedStyle>(from);
+        owned_styles.push_back(style);
+        return style;
     }
 
     // Remembers an out-of-flow child for its containing block. A scratch
@@ -3019,6 +3029,21 @@ struct Layouter {
         float edges_right = 0;
         float edges_top = 0;
         float edges_bottom = 0;
+        // The collapsing border model: what won at every segment of every
+        // grid line, and the half of it each cell takes at each of its
+        // four edges. Both are empty in the separated model.
+        bool collapse = false;
+        table::CollapsedBorders collapsed;
+        struct CellEdges {
+            float left = 0;
+            float top = 0;
+            float right = 0;
+            float bottom = 0;
+        };
+        std::vector<CellEdges> cell_edges;
+        // The table box's own style, its outer borders halved, once the
+        // boxes have been handed what they draw.
+        ComputedStyle const* box_style = nullptr;
     };
 
     static float cell_horizontal_edges(ComputedStyle const& s, float base)
@@ -3033,6 +3058,105 @@ struct Layouter {
             + s.border_bottom.width;
     }
 
+    // The collapsing model: every box's borders at a grid line collapse
+    // into one (§17.6.2.1 picks it), the line runs down the middle of the
+    // winner, and each box on either side keeps half. A cell that spans
+    // takes the widest segment along each of its edges. The table's own
+    // edge is the outer half of the border on its outermost line, and it
+    // has no padding.
+    void collapse_table_borders(TableSetup& setup, ComputedStyle const& style) const
+    {
+        table::Structure const& structure = setup.structure;
+        setup.collapsed = table::collapse_borders(structure, style);
+        table::CollapsedBorders const& borders = setup.collapsed;
+        int const rows = borders.rows;
+        int const columns = borders.columns;
+        setup.cell_edges.assign(structure.cells.size(), TableSetup::CellEdges {});
+        for (std::size_t i = 0; i < structure.cells.size(); ++i) {
+            table::Cell const& cell = structure.cells[i];
+            if (cell.anonymous())
+                continue;
+            int const first_row = cell.row;
+            int const last_row = std::min(cell.row + cell.row_span, rows);
+            int const first_column = cell.column;
+            int const last_column = std::min(cell.column + cell.column_span, columns);
+            TableSetup::CellEdges& edges = setup.cell_edges[i];
+            edges.top = borders.widest_horizontal(first_row, first_column, last_column) / 2;
+            edges.bottom = borders.widest_horizontal(last_row, first_column, last_column) / 2;
+            edges.left = borders.widest_vertical(first_column, first_row, last_row) / 2;
+            edges.right = borders.widest_vertical(last_column, first_row, last_row) / 2;
+        }
+        setup.edges_left = borders.widest_vertical(0, 0, rows) / 2;
+        setup.edges_right = borders.widest_vertical(columns, 0, rows) / 2;
+        setup.edges_top = borders.widest_horizontal(0, 0, columns) / 2;
+        setup.edges_bottom = borders.widest_horizontal(rows, 0, columns) / 2;
+    }
+
+    static float collapsed_horizontal_edges(TableSetup const& setup, table::Cell const& cell,
+        ComputedStyle const& s)
+    {
+        auto const at = static_cast<std::size_t>(&cell - setup.structure.cells.data());
+        TableSetup::CellEdges const& edges = setup.cell_edges[at];
+        return resolve(s.padding_left, 0) + resolve(s.padding_right, 0) + edges.left + edges.right;
+    }
+
+    // Hands every box of a collapsed table the border it actually draws:
+    // each cell half of the winner at each of its edges, the table box
+    // the outer half of its outermost lines, and the rows, groups and
+    // columns nothing at all — what was theirs the cells now draw.
+    void rewrite_collapsed_styles(TableSetup& setup, ComputedStyle const& style) const
+    {
+        table::Structure& structure = setup.structure;
+        table::CollapsedBorders const& borders = setup.collapsed;
+        int const rows = borders.rows;
+        int const columns = borders.columns;
+        auto const set = [](css::BorderSide& side, float width, Color color) {
+            side.width = width;
+            side.color = color;
+            side.current_color = false;
+            side.style = width > 0 ? css::BorderStyle::Solid : css::BorderStyle::None;
+        };
+        for (std::size_t i = 0; i < structure.cells.size(); ++i) {
+            table::Cell& cell = structure.cells[i];
+            if (cell.anonymous())
+                continue;
+            int const first_row = cell.row;
+            int const last_row = std::min(cell.row + cell.row_span, rows);
+            int const first_column = cell.column;
+            int const last_column = std::min(cell.column + cell.column_span, columns);
+            TableSetup::CellEdges const& edges = setup.cell_edges[i];
+            std::shared_ptr<ComputedStyle> const copy = owned_copy(*cell.style);
+            set(copy->border_top, edges.top, borders.color_horizontal(first_row, first_column, last_column));
+            set(copy->border_bottom, edges.bottom, borders.color_horizontal(last_row, first_column, last_column));
+            set(copy->border_left, edges.left, borders.color_vertical(first_column, first_row, last_row));
+            set(copy->border_right, edges.right, borders.color_vertical(last_column, first_row, last_row));
+            cell.style = copy.get();
+        }
+        auto const strip = [&](ComputedStyle const*& target, dom::Element const* element) {
+            if (!element || !target)
+                return;
+            std::shared_ptr<ComputedStyle> const copy = owned_copy(*target);
+            for (css::BorderSide* side : { &copy->border_top, &copy->border_right, &copy->border_bottom,
+                     &copy->border_left })
+                set(*side, 0, side->color);
+            target = copy.get();
+        };
+        for (table::Row& row : structure.rows)
+            strip(row.style, row.element);
+        for (table::RowGroup& group : structure.groups)
+            strip(group.style, group.element);
+        for (table::Column& column : structure.columns)
+            strip(column.style, column.element);
+        for (table::ColumnGroup& group : structure.column_groups)
+            strip(group.style, group.element);
+        std::shared_ptr<ComputedStyle> const box = owned_copy(style);
+        set(box->border_top, setup.edges_top, borders.color_horizontal(0, 0, columns));
+        set(box->border_bottom, setup.edges_bottom, borders.color_horizontal(rows, 0, columns));
+        set(box->border_left, setup.edges_left, borders.color_vertical(0, 0, rows));
+        set(box->border_right, setup.edges_right, borders.color_vertical(columns, 0, rows));
+        setup.box_style = box.get();
+    }
+
     TableSetup table_setup(std::vector<dom::Node const*> const& children, ComputedStyle const& style,
         dom::Element const* owner, float containing_width) const
     {
@@ -3041,12 +3165,21 @@ struct Layouter {
             [this](dom::Element const& element) { return style_of(element); });
         // In the collapsing model the gutters are gone and the table has no padding.
         bool const collapse = style.border_collapse == css::BorderCollapse::Collapse;
+        setup.collapse = collapse;
         setup.spacing_h = collapse ? 0.0f : resolve(style.border_spacing_horizontal, 0);
         setup.spacing_v = collapse ? 0.0f : resolve(style.border_spacing_vertical, 0);
-        setup.edges_left = style.border_left.width + (collapse ? 0.0f : resolve(style.padding_left, containing_width));
-        setup.edges_right = style.border_right.width + (collapse ? 0.0f : resolve(style.padding_right, containing_width));
-        setup.edges_top = style.border_top.width + (collapse ? 0.0f : resolve(style.padding_top, containing_width));
-        setup.edges_bottom = style.border_bottom.width + (collapse ? 0.0f : resolve(style.padding_bottom, containing_width));
+        if (collapse) {
+            // Every box's borders at a grid line collapse into one, and
+            // each box takes half of the winner at each edge it touches:
+            // the two halves meet on the line and make the border whole
+            // (§17.6.2). The table's own edge is the outer half.
+            collapse_table_borders(setup, style);
+        } else {
+            setup.edges_left = style.border_left.width + resolve(style.padding_left, containing_width);
+            setup.edges_right = style.border_right.width + resolve(style.padding_right, containing_width);
+            setup.edges_top = style.border_top.width + resolve(style.padding_top, containing_width);
+            setup.edges_bottom = style.border_bottom.width + resolve(style.padding_bottom, containing_width);
+        }
         table::Structure const& structure = setup.structure;
         auto const n = static_cast<std::size_t>(structure.column_count);
         setup.input.columns.resize(n);
@@ -3061,7 +3194,8 @@ struct Layouter {
                 inner = nodes_intrinsic_widths(cell.nodes, *cell.style, owner, true);
             } else {
                 inner = intrinsic_widths(*cell.element, *cell.style);
-                edges = cell_horizontal_edges(*cell.style, 0);
+                edges = collapse ? collapsed_horizontal_edges(setup, cell, *cell.style)
+                                 : cell_horizontal_edges(*cell.style, 0);
                 LengthPercent const& width = cell.style->width;
                 if (width.kind == LengthPercent::Kind::Px)
                     fixed = width.value + edges;
@@ -3125,6 +3259,8 @@ struct Layouter {
         (void)floats;
         using css::VerticalAlign;
         TableSetup setup = table_setup(children, style, owner, containing_width);
+        if (setup.collapse)
+            rewrite_collapsed_styles(setup, style);
         table::Structure const& structure = setup.structure;
         int const n = structure.column_count;
         auto const m = static_cast<int>(structure.rows.size());
@@ -3183,7 +3319,7 @@ struct Layouter {
 
         Fragment box;
         box.element = element ? element : owner;
-        box.style = &style;
+        box.style = setup.box_style ? setup.box_style : &style;
         box.x = wrapper_x;
         box.y = cursor;
         box.width = table_width;

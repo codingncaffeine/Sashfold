@@ -304,5 +304,71 @@ int main()
         }
     }
 
+    // --- The collapsing border model ------------------------------------------------------
+    {
+        // Two cells with 2px borders all round, collapsing: every line is
+        // 2px and each box keeps half of it, so the table is 2 + 20 + 2 +
+        // 20 + 2 wide — the shared line is there once, not twice.
+        Page const page = lay_out(page_with(R"(<table id="t" style="border-collapse:collapse; border:2px solid #000"><tr><td id="a" style="border:2px solid #000">x</td><td id="b" style="border:2px solid #000">y</td></tr></table>)"));
+        layout::Fragment const* t = find_box(page.result.root, "t");
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        layout::Fragment const* b = find_box(page.result.root, "b");
+        if (CHECK(t && a && b)) {
+            CHECK(near(t->width, 26));
+            CHECK(near(t->height, 24));
+            // The table box keeps the outer half of its own line.
+            CHECK(near(t->style->border_left.width, 1));
+            CHECK(near(t->style->border_top.width, 1));
+            // Each cell keeps half of every line it touches, and the two
+            // cells meet with nothing between them.
+            CHECK(near(a->x, 1) && near(a->width, 12));
+            CHECK(near(b->x, 13) && near(b->width, 12));
+            CHECK(near(a->style->border_left.width, 1));
+            CHECK(near(a->style->border_right.width, 1));
+            CHECK(near(b->style->border_left.width, 1));
+        }
+    }
+    {
+        // The widest border wins the line, whoever offered it; a hidden
+        // one takes the line away whatever else is there.
+        Page const page = lay_out(page_with(R"(<table id="t" style="border-collapse:collapse; border:2px solid #000"><tr><td id="a" style="border:2px solid #000">x</td><td id="b" style="border:8px solid #000">y</td><td id="c" style="border:hidden">z</td></tr></table>)"));
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        layout::Fragment const* b = find_box(page.result.root, "b");
+        layout::Fragment const* c = find_box(page.result.root, "c");
+        if (CHECK(a && b && c)) {
+            // a's right edge is b's 8px line: four pixels each side.
+            CHECK(near(a->style->border_right.width, 4));
+            CHECK(near(b->style->border_left.width, 4));
+            CHECK(near(b->style->border_top.width, 4));
+            // b's right edge meets c's hidden border: nothing is drawn.
+            CHECK(near(b->style->border_right.width, 0));
+            CHECK(near(c->style->border_left.width, 0));
+            CHECK(near(c->style->border_top.width, 0));
+        }
+    }
+    {
+        // Equal widths go to the box that comes first in §17.6.2.1's
+        // list: the cell before the row before the table.
+        Page const page = lay_out(page_with(R"(<table id="t" style="border-collapse:collapse; border:4px solid #000"><tr style="border:4px solid #00f"><td id="a" style="border:4px solid #0f0">x</td></tr></table>)"));
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        if (CHECK(a)) {
+            CHECK(near(a->style->border_top.width, 2));
+            CHECK(a->style->border_top.color == Color::rgb(0, 255, 0));
+            CHECK(a->style->border_left.color == Color::rgb(0, 255, 0));
+        }
+    }
+    {
+        // The separated model is untouched: each box keeps its own border
+        // whole, and the table's padding and gutters stand.
+        Page const page = lay_out(page_with(R"(<table id="t" style="border-collapse:separate; border-spacing:0; border:2px solid #000"><tr><td id="a" style="border:2px solid #000">x</td><td id="b" style="border:2px solid #000">y</td></tr></table>)"));
+        layout::Fragment const* t = find_box(page.result.root, "t");
+        layout::Fragment const* a = find_box(page.result.root, "a");
+        if (CHECK(t && a)) {
+            CHECK(near(t->width, 32));
+            CHECK(near(t->style->border_left.width, 2));
+            CHECK(near(a->style->border_left.width, 2));
+        }
+    }
+
     return sashfold::test::report("table");
 }

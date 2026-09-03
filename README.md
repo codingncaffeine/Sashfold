@@ -27,11 +27,11 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 - **Browsing** the live web over HTTPS on Windows — URL parsing, HTTP/1.1 with persistent connections, SChannel TLS with revocation, third-party cookies blocked, a freshness-honoring cache, downloads never opened.
 - **Parsing** — the complete WHATWG HTML parser and encoding sniffing, at 100% on both html5lib suites.
 - **Styling** — CSS syntax, selectors, the cascade with `inherit`/`initial`/`unset`, custom properties, `calc()`, media queries, external stylesheets, `@font-face` (TrueType), generated content, every named color.
-- **Layout** — block and inline layout, margin collapsing, floats, flexbox, grid (tracks, `fr`, `repeat()`, areas, named lines, spans, alignment), tables (automatic and fixed widths, spans, captions, `vertical-align`, the presentational attributes), positioning with stacking contexts, inline-block, replaced boxes, percentage heights.
+- **Layout** — block and inline layout, margin collapsing, floats, flexbox, grid (tracks, `fr`, `repeat()`, areas, named lines, spans, alignment), tables (automatic and fixed widths, spans, captions, `vertical-align`, the presentational attributes, the collapsing border model), positioning with stacking contexts, inline-block, replaced boxes, percentage heights.
 - **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, with **Sashfold Mono** as the honest last fallback; PNG, GIF and JPEG decoders, `srcset` and `<picture>`; CSS background images and gradients (layers, position, size, repeat, clip), rounded corners.
 - **A shell** — tabs, history, forms without scripts, selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, chrome drawn from a theme file, and a `--script` mode that drives it for CI.
 
-Not written yet: scripting, collapsing table borders, subgrid, shadows, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
+Not written yet: scripting, subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
 
 ## Measured
 
@@ -39,7 +39,7 @@ Not written yet: scripting, collapsing table borders, subgrid, shadows, WOFF fon
 |---|---|
 | html5lib tokenizer / tree construction | **7032 / 7032** and **1784 / 1784** (100%) |
 | WPT URL parsing | **893 / 893** (100%) |
-| WPT CSS reference tests, 13,477 tests over CSS2 and fifteen `css-*` directories | **6249 / 13477 (46.4%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT CSS reference tests, 13,477 tests over CSS2 and fifteen `css-*` directories | **6358 / 13477 (47.2%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).

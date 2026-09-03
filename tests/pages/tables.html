@@ -24,6 +24,17 @@
   tr.hot { background: #fff0f0 }
   .inline { display: inline-table; vertical-align: middle; margin: 0 4px }
   .inline td { padding: 1px 3px }
+  .collapsed { border-collapse: collapse; display: inline-table; margin-right: 8px; vertical-align: top }
+  #plain, #plain td { border: 2px solid #40506e }
+  #outer { border: 6px solid #b23a2e }
+  #outer td { border: 2px solid #5b7fd1 }
+  #widest td { border: 2px solid #2f7d4f }
+  #widest .heavy { border: 8px solid #e07b21 }
+  #away, #away td { border: 2px solid #40506e }
+  #away .none { border: hidden }
+  #ranked { border: 4px solid #40506e }
+  #ranked tr { border: 4px solid #b23a2e }
+  #ranked td { border: 4px solid #2f7d4f }
 </style>
 </head>
 <body>
@@ -68,5 +79,12 @@
 </table>
 <div style="display: table; border-spacing: 4px"><div style="display: table-cell; background: #dbe7ff">loose</div><div style="display: table-cell; background: #ffe2b8">cells</div></div>
 <p>Text with <span class="inline"><span style="display: table-cell; border: 1px solid #9db3e6; padding: 1px 3px">in</span><span style="display: table-cell; border: 1px solid #9db3e6; padding: 1px 3px">line</span></span> a table on the line.</p>
+
+<h2>Collapsed borders: one line, the widest, hidden, the ranked winner</h2>
+<table class="collapsed" id="plain"><tr><td>one</td><td>two</td></tr><tr><td>three</td><td>four</td></tr></table>
+<table class="collapsed" id="outer"><tr><td>one</td><td>two</td></tr><tr><td>three</td><td>four</td></tr></table>
+<table class="collapsed" id="widest"><tr><td>one</td><td class="heavy">two</td></tr><tr><td>three</td><td>four</td></tr></table>
+<table class="collapsed" id="away"><tr><td>one</td><td class="none">two</td></tr><tr><td>three</td><td>four</td></tr></table>
+<table class="collapsed" id="ranked"><tr><td>one</td><td>two</td></tr></table>
 </body>
 </html>

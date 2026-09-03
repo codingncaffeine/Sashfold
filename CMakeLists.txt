@@ -42,6 +42,7 @@ add_library(sashfold_core STATIC
   src/layout/Controls.cpp
   src/layout/GridAlgorithm.cpp
   src/layout/Layout.cpp
+  src/layout/TableBorders.cpp
   src/layout/TableStructure.cpp
   src/layout/TableWidths.cpp
   src/net/Cache.cpp
