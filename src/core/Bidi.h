@@ -49,4 +49,9 @@ BidiParagraph bidi_resolve(std::u32string_view text,
 // text the paragraph was resolved from, with the removed ones left out.
 std::vector<std::size_t> bidi_visual_order(BidiParagraph const&);
 
+// Rule L4: the glyph a character is drawn with once it has resolved
+// right-to-left — a left parenthesis paints as a right one. A character
+// with no mirrored form comes back unchanged.
+char32_t bidi_mirrored(char32_t);
+
 }

@@ -48,6 +48,7 @@ fetch "$base/ucd/UnicodeData.txt" UnicodeData.txt ";"
 fetch "$base/ucd/DerivedNormalizationProps.txt" DerivedNormalizationProps.txt "# DerivedNormalizationProps"
 fetch "$base/ucd/extracted/DerivedBidiClass.txt" DerivedBidiClass.txt "# DerivedBidiClass"
 fetch "$base/ucd/BidiBrackets.txt" BidiBrackets.txt "# BidiBrackets"
+fetch "$base/ucd/BidiMirroring.txt" BidiMirroring.txt "# BidiMirroring"
 fetch "$base/ucd/BidiTest.txt" BidiTest.txt "# BidiTest"
 fetch "$base/ucd/BidiCharacterTest.txt" BidiCharacterTest.txt "# BidiCharacterTest"
 

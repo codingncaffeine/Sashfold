@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7610 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7620 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -285,6 +285,7 @@ css/CSS2/bidi-text/bidi-box-model-001.xht
 css/CSS2/bidi-text/bidi-box-model-002.xht
 css/CSS2/bidi-text/bidi-box-model-004.xht
 css/CSS2/bidi-text/bidi-box-model-005.xht
+css/CSS2/bidi-text/bidi-box-model-006.xht
 css/CSS2/bidi-text/bidi-box-model-007.xht
 css/CSS2/bidi-text/bidi-box-model-008.xht
 css/CSS2/bidi-text/bidi-box-model-010.xht
@@ -319,6 +320,9 @@ css/CSS2/bidi-text/bidi-box-model-042.xht
 css/CSS2/bidi-text/bidi-box-model-043.xht
 css/CSS2/bidi-text/bidi-box-model-044.xht
 css/CSS2/bidi-text/bidi-box-model-045.xht
+css/CSS2/bidi-text/bidi-glyph-mirroring-002.xht
+css/CSS2/bidi-text/bidi-inline-001.xht
+css/CSS2/bidi-text/bidi-inline-002.xht
 css/CSS2/bidi-text/direction-001.xht
 css/CSS2/bidi-text/direction-002.xht
 css/CSS2/bidi-text/direction-003.xht
@@ -329,17 +333,20 @@ css/CSS2/bidi-text/direction-applies-to-004.xht
 css/CSS2/bidi-text/direction-applies-to-005.xht
 css/CSS2/bidi-text/direction-applies-to-006.xht
 css/CSS2/bidi-text/direction-applies-to-007.xht
+css/CSS2/bidi-text/direction-applies-to-008.xht
 css/CSS2/bidi-text/direction-applies-to-009.xht
 css/CSS2/bidi-text/direction-applies-to-012.xht
 css/CSS2/bidi-text/direction-applies-to-015.xht
 css/CSS2/bidi-text/line-breaking-bidi-003.xht
 css/CSS2/bidi-text/unicode-bidi-001.xht
+css/CSS2/bidi-text/unicode-bidi-002.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-001.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-002.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-003.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-004.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-005.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-006.xht
+css/CSS2/bidi-text/unicode-bidi-applies-to-008.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-013.xht
 css/CSS2/bidi-text/unicode-bidi-applies-to-014.xht
 css/CSS2/border-seams-001.xht
@@ -1634,6 +1641,7 @@ css/CSS2/linebox/inline-formatting-context-009.xht
 css/CSS2/linebox/inline-formatting-context-011.xht
 css/CSS2/linebox/inline-formatting-context-013.xht
 css/CSS2/linebox/inline-formatting-context-022.xht
+css/CSS2/linebox/inline-formatting-context-023.xht
 css/CSS2/linebox/leading-001.xht
 css/CSS2/linebox/line-box-height-002.xht
 css/CSS2/linebox/line-breaking-font-size-zero-001.html
@@ -7080,6 +7088,7 @@ css/css-text/text-align/text-align-last-010.html
 css/css-text/text-align/text-align-last-011.html
 css/css-text/text-align/text-align-last-center.html
 css/css-text/text-align/text-align-last-end.html
+css/css-text/text-align/text-align-last-justify-rtl.html
 css/css-text/text-align/text-align-last-justify.html
 css/css-text/text-align/text-align-last-simple.html
 css/css-text/text-align/text-align-last-start.html
@@ -7340,6 +7349,7 @@ css/css-text/white-space/trailing-ideographic-space-break-spaces-002.html
 css/css-text/white-space/trailing-ideographic-space-break-spaces-004.html
 css/css-text/white-space/trailing-ideographic-space-break-spaces-005.html
 css/css-text/white-space/trailing-ideographic-space-break-spaces-006.html
+css/css-text/white-space/trailing-space-rtl-001.html
 css/css-text/white-space/white-space-applies-to-text-001.html
 css/css-text/white-space/white-space-intrinsic-size-004.html
 css/css-text/white-space/white-space-intrinsic-size-015.html

@@ -109,6 +109,15 @@ BidiClass direction_of_level(std::uint8_t level) { return (level & 1) ? BidiClas
 
 }
 
+char32_t bidi_mirrored(char32_t code_point)
+{
+    auto const it = std::lower_bound(std::begin(bidi_mirrors), std::end(bidi_mirrors), code_point,
+        [](BidiMirror const& entry, char32_t value) { return entry.code_point < value; });
+    if (it == std::end(bidi_mirrors) || it->code_point != code_point)
+        return code_point;
+    return it->mirrored;
+}
+
 StrongDirection strong_direction(char32_t code_point)
 {
     switch (class_of(code_point)) {

@@ -16,6 +16,7 @@
 //   https://www.unicode.org/Public/16.0.0/ucd/DerivedNormalizationProps.txt
 //   https://www.unicode.org/Public/16.0.0/ucd/extracted/DerivedBidiClass.txt
 //   https://www.unicode.org/Public/16.0.0/ucd/BidiBrackets.txt
+//   https://www.unicode.org/Public/16.0.0/ucd/BidiMirroring.txt
 //
 // Emits:
 //   src/net/IdnaData.h            UTS #46 statuses + mappings (UseSTD3ASCIIRules=false
@@ -634,6 +635,27 @@ struct BracketPair {
     bool opening = false;
 };
 
+// BidiMirroring.txt: the glyph rule L4 draws instead when a character
+// resolved right-to-left — a left parenthesis paints as a right one.
+std::vector<std::pair<char32_t, char32_t>> load_bidi_mirroring(std::string const& path)
+{
+    std::vector<std::pair<char32_t, char32_t>> pairs;
+    std::ifstream file = open_or_die(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::size_t const hash = line.find('#');
+        std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+        if (body.empty())
+            continue;
+        std::vector<std::string> const fields = split(body, ';');
+        if (fields.size() < 2)
+            continue;
+        pairs.push_back({ parse_hex(trim(fields[0])), parse_hex(trim(fields[1])) });
+    }
+    std::sort(pairs.begin(), pairs.end());
+    return pairs;
+}
+
 std::vector<BracketPair> load_bidi_brackets(std::string const& path)
 {
     std::vector<BracketPair> brackets;
@@ -659,6 +681,7 @@ std::vector<BracketPair> load_bidi_brackets(std::string const& path)
 }
 
 void emit_bidi(std::string const& path, std::vector<std::uint8_t> const& classes,
+    std::vector<std::pair<char32_t, char32_t>> const& mirrors,
     std::vector<BracketPair> const& brackets)
 {
     // One sorted, disjoint table over the whole code space: a run of code
@@ -710,9 +733,15 @@ void emit_bidi(std::string const& path, std::vector<std::uint8_t> const& classes
             << (entry.opening ? "true" : "false") << " },\n";
     }
     out << "};\n\n";
+    // Rule L4's mirrored glyphs, sorted by the character they replace.
+    out << "struct BidiMirror {\n    char32_t code_point;\n    char32_t mirrored;\n};\n\n";
+    out << "inline constexpr BidiMirror bidi_mirrors[] = {\n";
+    for (auto const& [code_point, mirrored] : mirrors)
+        out << "    { " << hex(code_point) << ", " << hex(mirrored) << " },\n";
+    out << "};\n\n";
     out << "}\n";
     std::cout << "wrote " << path << " (" << runs.size() << " ranges that are not the L default, "
-              << brackets.size() << " brackets)\n";
+              << brackets.size() << " brackets, " << mirrors.size() << " mirrored glyphs)\n";
 }
 
 // The simple case mappings, packed into runs.
@@ -767,10 +796,12 @@ int main(int argc, char** argv)
 
     std::vector<std::uint8_t> const bidi = load_bidi_classes(data_dir + "/DerivedBidiClass.txt");
     std::vector<BracketPair> const brackets = load_bidi_brackets(data_dir + "/BidiBrackets.txt");
+    std::vector<std::pair<char32_t, char32_t>> const mirrors
+        = load_bidi_mirroring(data_dir + "/BidiMirroring.txt");
 
     emit_idna(repo + "/src/net/IdnaData.h", idna);
     emit_normalization(repo + "/src/core/NormalizationData.h", unicode_data, excluded);
     emit_case(repo + "/src/core/CaseData.h", unicode_data);
-    emit_bidi(repo + "/src/core/BidiData.h", bidi, brackets);
+    emit_bidi(repo + "/src/core/BidiData.h", bidi, mirrors, brackets);
     return 0;
 }

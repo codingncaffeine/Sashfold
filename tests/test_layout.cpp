@@ -1437,7 +1437,10 @@ int main(int argc, char** argv)
             CHECK(false);
         };
         x_of(U"aaaaa", 2.0f); // Latin first: left, though its parent is rtl
-        x_of(U"bbbbb", 252.0f); // Hebrew first: right, though its parent is ltr
+        // Hebrew first, so this paragraph reads right to left: the Hebrew
+        // sits at the right end and the Latin that follows it in the source
+        // is drawn to its left.
+        x_of(U"bbbbb", 222.0f);
         x_of(U"ccccc", 62.0f); // digits and a stop are not strong; it steps over them
         // A descendant that states a direction of its own answers for itself,
         // not for the element, so the first strong character here is the d.
@@ -1445,10 +1448,13 @@ int main(int argc, char** argv)
         // unicode-bidi: plaintext gives each paragraph its own direction: the
         // Latin line starts at the left and the Hebrew one at the right, in
         // the same right-to-left block. `white-space: pre` keeps the space
-        // inside the word, so the second line is one run 80 wide, flush to
-        // the right edge at 301.
+        // inside the word, so the second line arrives as one item \u2014 and it
+        // is cut where its level changes, into the Hebrew with the space
+        // after it and the Latin, which the reordering then puts the other
+        // way round. The Hebrew run is drawn with its characters reversed.
         x_of(U"eeeee", 1.0f);
-        x_of(U"\u05D0\u05D1 fffff", 221.0f);
+        x_of(U"fffff", 221.0f);
+        x_of(U" \u05D1\u05D0", 271.0f);
     }
 
     // --- A box can be sized by its own content ---------------------------------

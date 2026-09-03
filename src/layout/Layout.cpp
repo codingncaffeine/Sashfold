@@ -1541,11 +1541,179 @@ struct Layouter {
     // `opens_block` says these items start the block's own first formatted
     // line, which is the only line text-indent moves: a block whose content
     // is broken into several anonymous runs indents the first of them alone.
-    float layout_lines(std::vector<InlineItem> const& items, ComputedStyle const& block_style,
+    // What an inline item spells out to the bidirectional algorithm. Text
+    // is itself; an atomic box — a picture, a control, an inline-block — is
+    // one object replacement character, which is neutral and so reads as
+    // the text around it; an inline box that opens a level spells the
+    // formatting character `unicode-bidi` asks for and closes it with the
+    // matching pop. The rest take no room in the text.
+    static std::u32string bidi_text_of(InlineItem const& item)
+    {
+        switch (item.kind) {
+        case InlineItem::Kind::Word:
+        case InlineItem::Kind::Space:
+            return item.text;
+        case InlineItem::Kind::Image:
+        case InlineItem::Kind::Control:
+        case InlineItem::Kind::Block:
+        case InlineItem::Kind::Table:
+            return std::u32string(1, 0xFFFC); // OBJECT REPLACEMENT CHARACTER
+        case InlineItem::Kind::BoxStart:
+        case InlineItem::Kind::BoxEnd: {
+            bool const opening = item.kind == InlineItem::Kind::BoxStart;
+            bool const rtl = item.style->direction == css::Direction::Rtl;
+            switch (item.style->unicode_bidi) {
+            case css::UnicodeBidi::Normal:
+                return {};
+            case css::UnicodeBidi::Embed:
+                return std::u32string(1, opening ? (rtl ? 0x202B : 0x202A) : 0x202C);
+            case css::UnicodeBidi::BidiOverride:
+                return std::u32string(1, opening ? (rtl ? 0x202E : 0x202D) : 0x202C);
+            case css::UnicodeBidi::Isolate:
+            case css::UnicodeBidi::IsolateOverride:
+            case css::UnicodeBidi::Plaintext:
+                // An isolate-override should hold an override inside its
+                // isolate; only the isolate is written, so an override on
+                // an inline box does not yet reverse what it holds.
+                return std::u32string(1, opening ? (rtl ? 0x2067 : 0x2066) : 0x2069);
+            }
+            return {};
+        }
+        default:
+            return {};
+        }
+    }
+
+    // The bidirectional level of every inline item. A word whose characters
+    // do not all share a level is cut where it changes, so every item that
+    // comes back has one level and one only; `split` holds the items when
+    // that happened and stays empty when it did not. Answers false when the
+    // whole run sits at one even level — every line of an ordinary
+    // left-to-right page — and then there is nothing to reorder.
+    bool resolve_bidi(std::vector<InlineItem> const& items, ComputedStyle const& block_style,
+        std::vector<InlineItem>& split, std::vector<std::uint8_t>& levels) const
+    {
+        bool const plaintext = block_style.unicode_bidi == css::UnicodeBidi::Plaintext;
+        std::uint8_t const block_level = block_style.direction == css::Direction::Rtl ? 1 : 0;
+        levels.assign(items.size(), block_level);
+        std::vector<std::vector<std::uint8_t>> per_character(items.size());
+        bool mixed = block_level != 0;
+
+        auto const resolve_paragraph = [&](std::size_t first, std::size_t last) {
+            std::u32string text;
+            std::vector<std::size_t> owner; // character index -> item index
+            for (std::size_t i = first; i < last; ++i) {
+                for (char32_t const code_point : bidi_text_of(items[i])) {
+                    text.push_back(code_point);
+                    owner.push_back(i);
+                }
+            }
+            if (text.empty())
+                return;
+            std::uint8_t const base = plaintext ? (first_strong_is_rtl(text) ? 1 : 0) : block_level;
+            BidiParagraph const resolved = bidi_resolve(text, base);
+            for (std::size_t c = 0; c < text.size(); ++c) {
+                per_character[owner[c]].push_back(resolved.levels[c]);
+                mixed = mixed || resolved.levels[c] != block_level;
+            }
+        };
+        std::size_t paragraph_first = 0;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            if (items[i].kind != InlineItem::Kind::HardBreak)
+                continue;
+            resolve_paragraph(paragraph_first, i);
+            paragraph_first = i + 1;
+        }
+        resolve_paragraph(paragraph_first, items.size());
+
+        // Every item takes the level of its first character. One that spelled
+        // nothing — an inline box under `unicode-bidi: normal`, which opens
+        // no level of its own — is invisible to the algorithm and belongs to
+        // the run beside it: where it opens, that is the run it opens onto;
+        // where it closes, the run it closes off. Giving it the paragraph's
+        // level instead would cut the run in two and reverse the halves.
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            if (!per_character[i].empty()) {
+                levels[i] = per_character[i].front();
+                continue;
+            }
+            bool const opening = items[i].kind != InlineItem::Kind::BoxEnd;
+            std::optional<std::uint8_t> beside;
+            if (opening) {
+                for (std::size_t k = i + 1; k < items.size() && !beside; ++k) {
+                    if (!per_character[k].empty())
+                        beside = per_character[k].front();
+                }
+            }
+            for (std::size_t k = i; k-- > 0 && !beside;) {
+                if (!per_character[k].empty())
+                    beside = per_character[k].back();
+            }
+            if (!beside) {
+                for (std::size_t k = i + 1; k < items.size() && !beside; ++k) {
+                    if (!per_character[k].empty())
+                        beside = per_character[k].front();
+                }
+            }
+            levels[i] = beside.value_or(block_level);
+        }
+        if (!mixed) {
+            levels.clear();
+            return false;
+        }
+
+        bool needs_split = false;
+        for (std::size_t i = 0; i < items.size() && !needs_split; ++i) {
+            for (std::uint8_t const level : per_character[i])
+                needs_split = needs_split || level != per_character[i].front();
+        }
+        if (!needs_split)
+            return true;
+
+        std::vector<std::uint8_t> split_levels;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            std::vector<std::uint8_t> const& marks = per_character[i];
+            bool const splittable = items[i].kind == InlineItem::Kind::Word
+                || items[i].kind == InlineItem::Kind::Space;
+            bool uniform = true;
+            for (std::uint8_t const level : marks)
+                uniform = uniform && level == marks.front();
+            // A run of text spells one character per character, so a mark
+            // per character is what makes the cut positions meaningful.
+            if (!splittable || uniform || marks.size() != items[i].text.size()) {
+                split.push_back(items[i]);
+                split_levels.push_back(levels[i]);
+                continue;
+            }
+            std::size_t from = 0;
+            while (from < marks.size()) {
+                std::size_t to = from;
+                while (to < marks.size() && marks[to] == marks[from])
+                    ++to;
+                InlineItem piece = items[i];
+                piece.text = items[i].text.substr(from, to - from);
+                split.push_back(std::move(piece));
+                split_levels.push_back(marks[from]);
+                from = to;
+            }
+        }
+        levels = std::move(split_levels);
+        return true;
+    }
+
+    float layout_lines(std::vector<InlineItem> const& source_items, ComputedStyle const& block_style,
         float content_x, float content_y, float content_width, Fragment& out,
         FloatContext& floats, int list_depth, std::optional<float> containing_height = std::nullopt,
         bool opens_block = true) const
     {
+        // Which way each item reads, and so what order the entries of a
+        // line are drawn in. With one even level throughout there is
+        // nothing to reorder and the items are used exactly as they came.
+        std::vector<InlineItem> split_items;
+        std::vector<std::uint8_t> item_levels;
+        bool const reorders = resolve_bidi(source_items, block_style, split_items, item_levels);
+        std::vector<InlineItem> const& items = split_items.empty() ? source_items : split_items;
+
         struct Placed {
             Placed(std::u32string the_text, ComputedStyle const* the_style, bool space, float the_width,
                 dom::Element const* the_element)
@@ -1588,6 +1756,9 @@ struct Layouter {
             // itself, and does not save a space in front of it at the line's
             // end.
             bool box_edge = false;
+            // The bidirectional level the item this came from resolved to.
+            // Rule L2 reads it to settle the order the line is drawn in.
+            std::uint8_t level = 0;
         };
 
         // An inline box's run along one line: what to paint it as, and where
@@ -1603,6 +1774,13 @@ struct Layouter {
         };
         float y = content_y;
         std::vector<Placed> line;
+        // The level of the item being read, stamped onto every entry it
+        // leaves on the line — which is what `place` is for.
+        std::uint8_t current_level = 0;
+        auto const place = [&](Placed&& placed) {
+            placed.level = current_level;
+            line.push_back(std::move(placed));
+        };
         float line_width = 0;
         // The room the current line has between floats, found where it starts.
         float line_left = content_x;
@@ -1864,17 +2042,53 @@ struct Layouter {
                 x += (line_avail - line_width) / 2.0f;
             else if (align == css::TextAlign::Right)
                 x += line_avail - line_width;
-            // Where each entry begins, so the inline boxes around them can be
-            // drawn once the line is laid out; the last is where it ends.
-            std::vector<float> starts(line.size() + 1, x);
+            // Rule L2: the order the entries are drawn in. From the deepest
+            // level down to the shallowest odd one, every stretch at or
+            // above that level is reversed — which, with one even level
+            // throughout, reverses nothing and leaves the line exactly as it
+            // was collected.
+            std::vector<std::size_t> visual(line.size());
+            for (std::size_t i = 0; i < line.size(); ++i)
+                visual[i] = i;
+            if (reorders && !line.empty()) {
+                std::uint8_t highest = 0;
+                std::uint8_t lowest_odd = 0xFF;
+                for (Placed const& placed : line) {
+                    highest = std::max(highest, placed.level);
+                    if (placed.level & 1)
+                        lowest_odd = std::min(lowest_odd, placed.level);
+                }
+                for (std::uint8_t level = highest; level >= lowest_odd && level > 0; --level) {
+                    for (std::size_t k = 0; k < visual.size(); ++k) {
+                        if (line[visual[k]].level < level)
+                            continue;
+                        std::size_t end = k;
+                        while (end < visual.size() && line[visual[end]].level >= level)
+                            ++end;
+                        std::reverse(visual.begin() + static_cast<std::ptrdiff_t>(k),
+                            visual.begin() + static_cast<std::ptrdiff_t>(end));
+                        k = end;
+                    }
+                }
+            }
+            // Where each entry begins and ends once it is placed, so the
+            // inline boxes around them can be drawn — they are no longer in
+            // the order the entries were collected, so a box takes the room
+            // between the leftmost and rightmost of the entries inside it.
+            float const line_end = x + line_width;
+            std::vector<float> entry_left(line.size() + 1, x);
+            std::vector<float> entry_right(line.size() + 1, x);
+            entry_left[line.size()] = line_end;
+            entry_right[line.size()] = line_end;
             // And what each entry left behind, so a relatively positioned
-            // inline box can take its content with it (§9.4.3): the runs and
-            // the fragments an entry adds all sit at or after these marks.
-            std::vector<std::size_t> run_at(line.size() + 1, out.runs.size());
-            std::vector<std::size_t> child_at(line.size() + 1, out.children.size());
-            for (std::size_t i = 0; i < line.size(); ++i) {
-                run_at[i] = out.runs.size();
-                child_at[i] = out.children.size();
+            // inline box can take its content with it (§9.4.3).
+            std::vector<std::size_t> run_from(line.size() + 1, out.runs.size());
+            std::vector<std::size_t> run_to(line.size() + 1, out.runs.size());
+            std::vector<std::size_t> child_from(line.size() + 1, out.children.size());
+            std::vector<std::size_t> child_to(line.size() + 1, out.children.size());
+            for (std::size_t const i : visual) {
+                run_from[i] = out.runs.size();
+                child_from[i] = out.children.size();
                 Placed& placed = line[i];
                 float const width = placed.width;
                 // Where this box's own baseline lands: the line's, raised by
@@ -1920,14 +2134,29 @@ struct Layouter {
                     mark_positioned(box, *placed.style, content_width);
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
+                    // Rule L2 again, this time inside the run: painting walks
+                    // a run from its left edge, so one that reads the other
+                    // way is drawn with its characters in the other order.
+                    // Every character of the run shares its level, which is
+                    // what makes reversing the whole of it the right thing.
+                    // Rule L4 comes with it: a bracket that resolved
+                    // right-to-left is drawn as the one facing the other way,
+                    // which is what keeps a parenthesized aside looking
+                    // parenthesized after its ends have swapped.
+                    if (placed.level & 1) {
+                        std::reverse(placed.text.begin(), placed.text.end());
+                        for (char32_t& code_point : placed.text)
+                            code_point = bidi_mirrored(code_point);
+                    }
                     out.runs.push_back(TextRun { x, own_baseline, std::move(placed.text), placed.style,
                         placed.element, &fonts_for(*placed.style), width });
                 }
+                entry_left[i] = x;
                 x += width;
-                starts[i + 1] = x;
+                entry_right[i] = x;
+                run_to[i] = out.runs.size();
+                child_to[i] = out.children.size();
             }
-            run_at[line.size()] = out.runs.size();
-            child_at[line.size()] = out.children.size();
             // The inline boxes that ran along this line: a box still open at
             // its end stops here and opens again on the next, as CSS 2.1
             // §8.4 breaks it. Each is drawn around the content area its own
@@ -1945,10 +2174,22 @@ struct Layouter {
                 ComputedStyle const& s = *run.style;
                 if (!paints_anything(s))
                     continue; // nothing to draw: no box, and no room taken by one
-                float const left = starts[std::min(run.from, line.size())]
-                    + (run.opened_here ? resolve(s.margin_left, content_width) : 0.0f);
-                float const right = starts[std::min(run.to, line.size())]
-                    - (run.closed_here ? resolve(s.margin_right, content_width) : 0.0f);
+                // The room the entries inside the box actually occupy. In
+                // one direction they are contiguous and this is where the
+                // box opened and where it closed; where the line changes
+                // direction inside it they are not, and the box is drawn
+                // around all of them rather than in the several pieces the
+                // specification asks for.
+                std::size_t const first = std::min(run.from, line.size());
+                std::size_t const last = std::min(run.to, line.size());
+                float left = entry_left[first];
+                float right = entry_left[first];
+                for (std::size_t i = first; i < last; ++i) {
+                    left = std::min(left, entry_left[i]);
+                    right = std::max(right, entry_right[i]);
+                }
+                left += run.opened_here ? resolve(s.margin_left, content_width) : 0.0f;
+                right -= run.closed_here ? resolve(s.margin_right, content_width) : 0.0f;
                 text::FaceMetrics const face = fonts_for(s).primary().metrics(s.font_size);
                 float const top = baseline - face.ascent - resolve(s.padding_top, content_width)
                     - s.border_top.width;
@@ -2002,12 +2243,16 @@ struct Layouter {
                 // §9.4.3 asks for and the layer stays as it was.
                 if (std::optional<std::size_t> const own = box_fragment[r])
                     shift_fragment(out.children[*own], dx, dy);
-                for (std::size_t i = run_at[from]; i < run_at[to]; ++i) {
-                    out.runs[i].x += dx;
-                    out.runs[i].baseline_y += dy;
+                // Entry by entry, since what each left behind is no longer
+                // one stretch of `out.runs` once the line has been reordered.
+                for (std::size_t k = from; k < to; ++k) {
+                    for (std::size_t i = run_from[k]; i < run_to[k]; ++i) {
+                        out.runs[i].x += dx;
+                        out.runs[i].baseline_y += dy;
+                    }
+                    for (std::size_t i = child_from[k]; i < child_to[k]; ++i)
+                        shift_fragment(out.children[i], dx, dy);
                 }
-                for (std::size_t i = child_at[from]; i < child_at[to]; ++i)
-                    shift_fragment(out.children[i], dx, dy);
                 // The boxes that closed inside this one have their fragments
                 // past the line's own entries, so they are shifted by name.
                 for (std::size_t inner = 0; inner < r; ++inner) {
@@ -2049,6 +2294,9 @@ struct Layouter {
             && block_style.white_space != WhiteSpace::Pre;
 
         for (InlineItem const& item : items) {
+            current_level = item_levels.empty()
+                ? 0
+                : item_levels[static_cast<std::size_t>(&item - items.data())];
             if (item.kind == InlineItem::Kind::Absolute) {
                 // Its static position: an inline-level box would have begun
                 // where the line stands; a block-level one on the line
@@ -2076,7 +2324,7 @@ struct Layouter {
                     Placed placed({}, item.style, false, edge, item.element);
                     placed.box_edge = true;
                     placed.aligned = item.aligned;
-                    line.push_back(std::move(placed));
+                    place(std::move(placed));
                     line_width += edge;
                 }
                 if (!opening) {
@@ -2180,7 +2428,7 @@ struct Layouter {
                 }
                 placed.descent = margin_height - placed.ascent;
                 placed.block = std::move(box);
-                line.push_back(std::move(placed));
+                place(std::move(placed));
                 line_width += outer;
                 continue;
             }
@@ -2203,7 +2451,7 @@ struct Layouter {
                 placed.image_height = edges.margin_top + spec.size.height + edges.margin_bottom;
                 placed.is_image = true;
                 placed.control = std::move(spec);
-                line.push_back(std::move(placed));
+                place(std::move(placed));
                 line_width += width;
                 continue;
             }
@@ -2220,7 +2468,7 @@ struct Layouter {
                 float const width = measure(*item.style, item.text);
                 Placed placed(item.text, item.style, true, width, item.element);
                 placed.aligned = item.aligned;
-                line.push_back(std::move(placed));
+                place(std::move(placed));
                 line_width += width;
                 continue;
             }
@@ -2247,7 +2495,7 @@ struct Layouter {
                 placed.image_height = edges.margin_top + edges.top + size->height + edges.bottom
                     + edges.margin_bottom;
                 placed.is_image = true;
-                line.push_back(std::move(placed));
+                place(std::move(placed));
                 line_width += width;
                 continue;
             }
@@ -2283,7 +2531,7 @@ struct Layouter {
                         break;
                     Placed slice(word.substr(0, fit), item.style, false, fit_width, item.element);
                     slice.aligned = item.aligned;
-                    line.push_back(std::move(slice));
+                    place(std::move(slice));
                     line_width += fit_width;
                     flush_line();
                     word = word.substr(fit);
@@ -2292,7 +2540,7 @@ struct Layouter {
             }
             Placed placed(std::move(word), item.style, false, width, item.element);
             placed.aligned = item.aligned;
-            line.push_back(std::move(placed));
+            place(std::move(placed));
             line_width += width;
         }
         if (!line.empty())
