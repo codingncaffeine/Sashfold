@@ -6,11 +6,14 @@
 #include "css/Selector.h"
 #include "dom/Dom.h"
 #include "net/Url.h"
+#include "text/Face.h"
+#include "text/FontManager.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -873,6 +876,18 @@ struct LengthContext {
     float root_font_size = 16;
     float viewport_width = 1024;
     float viewport_height = 768;
+    // One `ex` and one `ch` in px: the x-height of the first available face,
+    // and the advance of its "0", at this font size. Half the font size when
+    // the face does not say — the fallback the specification names.
+    float ex_size = 8;
+    float ch_size = 8;
+};
+
+// How much of a font size one `ex` and one `ch` are, for a face: ratios, not
+// pixels, because they depend on the face and not on the size it is used at.
+struct FontRatios {
+    float ex = 0.5f;
+    float ch = 0.5f;
 };
 
 std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
@@ -1119,8 +1134,12 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
         return LengthPercent::px(static_cast<float>(number * 96.0 / 101.6));
     if (ascii_ci_equals(unit, "pc"))
         return LengthPercent::px(static_cast<float>(number * 16.0));
-    if (ascii_ci_equals(unit, "ex") || ascii_ci_equals(unit, "ch"))
-        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.font_size) * 0.5));
+    // The font-relative pair: `ex` is the face's x-height, `ch` the advance
+    // of its "0".
+    if (ascii_ci_equals(unit, "ex"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ex_size)));
+    if (ascii_ci_equals(unit, "ch"))
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ch_size)));
     // The viewport units, against the viewport this resolution is for.
     if (ascii_ci_equals(unit, "vw"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_width) / 100.0));
@@ -1679,6 +1698,41 @@ struct Resolver {
     std::array<std::vector<std::uint32_t>, target_count> matched_rules; // scratch, reused per element
     AncestorFilter ancestors; // the identifiers of the elements above the one being styled
     int quote_depth = 0; // the nesting of quotation marks so far, in tree order
+    // What one `ex` and one `ch` come to for the element being cascaded and
+    // for its parent: settled as soon as the font is, and read by every
+    // length in those units afterwards.
+    FontRatios own_ratios;
+    FontRatios parent_ratios;
+
+    // The ratios for the face a style names — its x-height and the advance
+    // of its "0", as fractions of the font size, since neither depends on
+    // the size. A face that does not say its x-height, and one with no "0",
+    // keep the halves the specification falls back to.
+    static FontRatios ratios_for(ComputedStyle const& style)
+    {
+        text::FontRequest request;
+        if (style.font_family)
+            request.families = *style.font_family;
+        request.weight = style.font_weight;
+        request.italic = style.font_style == FontStyle::Italic;
+        text::Face const& face = text::FontManager::instance().resolve(request).primary();
+        // Measured at a size large enough that the division keeps its digits.
+        constexpr float probe = 1024;
+        FontRatios ratios;
+        if (float const x = face.metrics(probe).x_height; x > 0)
+            ratios.ex = x / probe;
+        if (float const zero = face.advance(face.glyph_index(U'0'), probe); zero > 0)
+            ratios.ch = zero / probe;
+        return ratios;
+    }
+
+    // A length context: this style's font size, with one `ex` and one `ch`
+    // of the face it names.
+    LengthContext length_context(ComputedStyle const& style, FontRatios const& ratios) const
+    {
+        return LengthContext { style.font_size, root_font_size, set.media.width, set.media.height,
+            style.font_size * ratios.ex, style.font_size * ratios.ch };
+    }
 
     explicit Resolver(RuleSet const& the_set)
         : set(the_set)
@@ -2722,19 +2776,38 @@ struct Resolver {
                 use(copy);
         };
 
-        // font-size first: em and font-relative units in the same element's
-        // other declarations resolve against it.
+        // The font goes first: `em` and the font-relative units in the same
+        // element's other declarations resolve against its size, and `ex` and
+        // `ch` are measurements of the face itself, which the family, the
+        // weight and the slant choose between. All four are settled here,
+        // whatever order they were written in, and applied again with the
+        // rest below, to the same values.
+        parent_ratios = ratios_for(parent);
+        bool font_pass_top = false;
+        bool font_pass_right = false;
+        bool font_pass_bottom = false;
+        bool font_pass_left = false;
         for (MatchedDeclaration const& entry : matched) {
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
                 bool const is_font_size = ascii_ci_equals(declaration.name, "font-size");
                 bool const is_font = ascii_ci_equals(declaration.name, "font");
                 bool const is_all = ascii_ci_equals(declaration.name, "all");
+                bool const is_face = ascii_ci_equals(declaration.name, "font-family")
+                    || ascii_ci_equals(declaration.name, "font-weight")
+                    || ascii_ci_equals(declaration.name, "font-style");
                 if (is_font_size || is_font || is_all) {
                     // A CSS-wide keyword: the parent's size, or medium.
                     if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
                         style.font_size = *wide == Wide::Initial ? 16.0f : parent.font_size;
                         return;
                     }
+                }
+                if (is_face) {
+                    if (wide_keyword(significant(declaration.value)))
+                        return; // the keyword pass below settles it
+                    apply(style, declaration, entry.base, font_pass_top, font_pass_right,
+                        font_pass_bottom, font_pass_left);
+                    return;
                 }
                 if (is_font_size) {
                     apply_font_size(style, parent, declaration);
@@ -2746,10 +2819,20 @@ struct Resolver {
                         size_only.name = "font-size";
                         size_only.value.push_back(*parts->size);
                         apply_font_size(style, parent, size_only);
+                        // And the family it names, for the same reason.
+                        if (!parts->family.empty()) {
+                            Declaration family_only;
+                            family_only.name = "font-family";
+                            for (ComponentValue const* value : parts->family)
+                                family_only.value.push_back(*value);
+                            apply(style, family_only, entry.base, font_pass_top, font_pass_right,
+                                font_pass_bottom, font_pass_left);
+                        }
                     }
                 }
             });
         }
+        own_ratios = ratios_for(style);
         bool border_top_color_set = false;
         bool border_right_color_set = false;
         bool border_bottom_color_set = false;
@@ -2860,7 +2943,7 @@ struct Resolver {
             return;
         }
         // em/% on font-size resolve against the parent's font-size.
-        LengthContext const context { parent.font_size, root_font_size, set.media.width, set.media.height };
+        LengthContext const context = length_context(parent, parent_ratios);
         auto length = parse_length_percent(value, context, false);
         if (!length)
             return;
@@ -2883,7 +2966,7 @@ struct Resolver {
         auto const values = significant(declaration.value);
         if (values.empty())
             return;
-        LengthContext const context { style.font_size, root_font_size, set.media.width, set.media.height };
+        LengthContext const context = length_context(style, own_ratios);
 
         auto const one_length = [&](LengthPercent& out, bool allow_auto) {
             if (values.size() != 1)

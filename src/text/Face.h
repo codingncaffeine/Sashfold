@@ -18,6 +18,10 @@ struct FaceMetrics {
     float ascent; // px above the baseline
     float descent; // px below the baseline, positive
     float line_gap; // extra leading the face asks for
+    // The height of a lower-case x, px — what a length in `ex` measures.
+    // Zero when the face does not say, and the caller falls back to the half
+    // of the font size the specification allows.
+    float x_height = 0;
 };
 
 class Face {

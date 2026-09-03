@@ -814,6 +814,18 @@ int main(int argc, char** argv)
               << static_cast<long>(std::chrono::duration<double>(discovered - started).count()) << " s to find)\n";
 
     text::FontManager::instance().set_system_fonts(false);
+    // Ahem is the suite's measuring stick: an em square filled edge to edge,
+    // an 800/200 ascent and descent per 1000 units, one em of advance for
+    // every glyph. A test that names it without declaring it is written
+    // against those numbers and expects it installed, which is how the
+    // suite's own runner provisions it.
+    std::filesystem::path const ahem = root / "fonts" / "Ahem.ttf";
+    if (std::filesystem::exists(ahem)) {
+        text::FontManager::instance().add_font_file(ahem.string());
+    } else {
+        std::cerr << "warning: " << ahem.string()
+                  << " is missing; tests written against Ahem cannot be scored\n";
+    }
     Renderer renderer(root);
     std::vector<DirectoryScore> scores;
     for (std::string const& directory : directories)

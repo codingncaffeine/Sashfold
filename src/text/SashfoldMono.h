@@ -31,6 +31,7 @@ struct FontMetrics {
     float descent; // px below the baseline
     float advance; // fixed advance per glyph, px
     float line_gap; // extra leading the font asks for (zero here)
+    float x_height; // the height of a lower-case x, px: what `ex` measures
 };
 
 class SashfoldMono {
@@ -44,6 +45,12 @@ public:
     // The leading the face asks for: a normal line is ascent + descent +
     // this, 38/32 of the size — the face's own answer to line-height: normal.
     static constexpr int design_line_gap = 6;
+    // The height of a lower-case x and of a capital, on the same grid: what
+    // `ex` measures, and what the cap-height metric says. The TrueType writer
+    // emits these very numbers, so a face read back from the file it wrote
+    // measures the same as this one.
+    static constexpr int design_x_height = design_ascent - 10;
+    static constexpr int design_cap_height = design_ascent - 3;
 
     static FontMetrics metrics(float size)
     {
@@ -51,7 +58,8 @@ public:
         // layout's numbers must not shift by a rounding between the two.
         return { design_ascent * size / static_cast<float>(units_per_em),
             design_descent * size / static_cast<float>(units_per_em), advance(size),
-            design_line_gap * size / static_cast<float>(units_per_em) };
+            design_line_gap * size / static_cast<float>(units_per_em),
+            design_x_height * size / static_cast<float>(units_per_em) };
     }
 
     static float advance(float size)

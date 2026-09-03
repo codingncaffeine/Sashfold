@@ -107,13 +107,16 @@ private:
     void scan();
     void retire_stacks();
     Face const* load(std::size_t catalogue_index);
+    Face const* best_of(std::vector<std::size_t> const& indices, int weight, bool italic);
     Face const* best_face(std::string const& family_lower, int weight, bool italic);
+    Face const* added_face(std::string const& family_lower, int weight, bool italic);
     Face const* page_face(std::string const& family_lower, int weight, bool italic) const;
 
     bool m_system_fonts = true;
     bool m_scanned = false;
     std::vector<FaceInfo> m_catalogue;
     std::unordered_map<std::string, std::vector<std::size_t>> m_by_family; // lowercased
+    std::unordered_map<std::string, std::vector<std::size_t>> m_added_by_family; // the ones handed over by name
     std::unordered_map<std::size_t, std::unique_ptr<Face>> m_loaded; // catalogue index -> face (null: unreadable)
     std::unordered_map<std::string, std::unique_ptr<FontStack>> m_stacks;
     std::vector<std::unique_ptr<FontStack>> m_retired_stacks; // superseded, kept for the layouts holding them

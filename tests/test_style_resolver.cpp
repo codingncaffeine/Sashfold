@@ -3,6 +3,7 @@
 #include "css/StyleResolver.h"
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
+#include "text/FontManager.h"
 
 #include <memory>
 #include <string>
@@ -418,6 +419,45 @@ int main()
         CHECK(close(style_of("bad").font_size, 20)); // no size and no family: not a shorthand
         CHECK_EQ(style_of("bad").font_weight, 400);
         CHECK(close(style_of("system").font_size, 20)); // the system fonts are not written
+    }
+
+    // --- ex and ch: the face's own measurements --------------------------------
+    {
+        // With the machine's fonts out of the way every family answers with
+        // the built-in face, whose x-height is 15 of its 32 units per em and
+        // whose every glyph advances 20 of them. So one ex is 15/32 of the
+        // font size and one ch is 20/32 — neither the half both units used to
+        // stand for.
+        text::FontManager::instance().set_system_fonts(false);
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  #plain { width: 10ex; height: 10ch; font-size: 32px }
+  #sized { width: 2ex; font-size: 1ex }
+  #late { width: 10ch; font-size: 32px }
+  #calc { width: calc(10ch + 2px); font-size: 32px }
+</style></head><body>
+  <div id="plain"></div>
+  <div id="sized"></div>
+  <div id="late" style="font-family: monospace"></div>
+  <div id="calc"></div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        ComputedStyle const& plain = style_of("plain");
+        CHECK(close(plain.width.value, 150)); // 10ex of 32px: 10 x 15/32 x 32
+        CHECK(close(plain.height.value, 200)); // 10ch of 32px: 10 x 20/32 x 32
+        // On font-size itself the unit resolves against the parent's font, so
+        // 1ex of the initial 16px settles the size and the width follows it.
+        ComputedStyle const& sized = style_of("sized");
+        CHECK(close(sized.font_size, 7.5)); // 15/32 of 16
+        CHECK(close(sized.width.value, 7.03125)); // 2ex of 7.5
+        // The family is settled before the lengths are, whatever order the
+        // cascade met them in: the style attribute here is applied after the
+        // rule asking for 10ch, and the length still measures the face the
+        // attribute names.
+        CHECK(close(style_of("late").width.value, 200));
+        ComputedStyle const& calc = style_of("calc");
+        CHECK(calc.width.kind == LengthPercent::Kind::Px && close(calc.width.value, 202));
     }
 
     return sashfold::test::report("style-resolver");

@@ -135,11 +135,17 @@ FontManager& FontManager::instance()
 
 void FontManager::add_font_file(std::string const& path)
 {
-    scan();
+    // Kept in a list of its own as well as the catalogue: a face handed over
+    // by name is installed as far as this manager is concerned, and answers
+    // for its family whether or not the machine's own fonts are in play. The
+    // machine is not scanned on its account — a caller that turned the
+    // system fonts off wants exactly the faces it named.
     for (FaceInfo& info : TrueTypeFont::scan_file(path)) {
         if (!info.has_outlines)
             continue;
-        m_by_family[lowercased(info.family)].push_back(m_catalogue.size());
+        std::string const family = lowercased(info.family);
+        m_added_by_family[family].push_back(m_catalogue.size());
+        m_by_family[family].push_back(m_catalogue.size());
         m_catalogue.push_back(std::move(info));
     }
     retire_stacks();
@@ -279,14 +285,13 @@ Face const* FontManager::load(std::size_t index)
 // CSS font matching, kept to weight and slant: a face of the requested
 // slant beats one of the other, then the nearest weight — below the
 // request for normal text, above it for bold.
-Face const* FontManager::best_face(std::string const& family_lower, int weight, bool italic)
+Face const* FontManager::best_of(std::vector<std::size_t> const& indices, int weight, bool italic)
 {
-    auto const it = m_by_family.find(family_lower);
-    if (it == m_by_family.end())
+    if (indices.empty())
         return nullptr;
     std::size_t best = 0;
     long best_score = -1;
-    for (std::size_t const index : it->second) {
+    for (std::size_t const index : indices) {
         FaceInfo const& info = m_catalogue[index];
         long score = info.italic != italic ? 100000 : 0;
         int const distance = std::abs(static_cast<int>(info.weight_class) - weight);
@@ -298,6 +303,20 @@ Face const* FontManager::best_face(std::string const& family_lower, int weight, 
         }
     }
     return load(best);
+}
+
+Face const* FontManager::best_face(std::string const& family_lower, int weight, bool italic)
+{
+    auto const it = m_by_family.find(family_lower);
+    return it == m_by_family.end() ? nullptr : best_of(it->second, weight, italic);
+}
+
+// The same, over the faces handed to the manager by name rather than found
+// on the machine.
+Face const* FontManager::added_face(std::string const& family_lower, int weight, bool italic)
+{
+    auto const it = m_added_by_family.find(family_lower);
+    return it == m_added_by_family.end() ? nullptr : best_of(it->second, weight, italic);
 }
 
 FontStack const& FontManager::resolve(FontRequest const& request)
@@ -321,6 +340,12 @@ FontStack const& FontManager::resolve(FontRequest const& request)
         std::string const lower = lowercased(name);
         // A page's own font shadows an installed one of the same name.
         if (Face const* face = page_face(lower, request.weight, request.italic)) {
+            add(face);
+            return;
+        }
+        // A face handed over by name answers next, with the machine's fonts
+        // on or off: a test suite brings its own measuring sticks.
+        if (Face const* face = added_face(lower, request.weight, request.italic)) {
             add(face);
             return;
         }

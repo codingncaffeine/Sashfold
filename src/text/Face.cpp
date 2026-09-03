@@ -29,7 +29,7 @@ public:
     FaceMetrics metrics(float size) const override
     {
         FontMetrics const mono = SashfoldMono::metrics(size);
-        return FaceMetrics { mono.ascent, mono.descent, mono.line_gap };
+        return FaceMetrics { mono.ascent, mono.descent, mono.line_gap, mono.x_height };
     }
 
     float advance(std::uint32_t, float size) const override { return SashfoldMono::advance(size); }
@@ -91,7 +91,7 @@ public:
     {
         float const scale = size / static_cast<float>(m_font.units_per_em());
         return FaceMetrics { m_font.ascender() * scale, -m_font.descender() * scale,
-            m_font.line_gap() * scale };
+            m_font.line_gap() * scale, m_font.x_height() * scale };
     }
 
     float advance(std::uint32_t glyph, float size) const override
