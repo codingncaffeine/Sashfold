@@ -36,6 +36,17 @@ struct TextRun {
     dom::Element const* element = nullptr; // nearest element: hit-testing walks up from here
     text::FontStack const* fonts = nullptr; // the faces the style resolved to; paint draws through them
     float width = 0; // the run's advance, measured glyph by glyph
+    // Which way the run reads on the page. A horizontal run advances along
+    // +x with its glyphs upright; a vertical one advances down the page —
+    // up, in `sideways-lr` — with every glyph turned a quarter circle, and
+    // then `x` is the page y its text starts at and `baseline_y` the page x
+    // its baseline stands at.
+    css::WritingMode mode = css::WritingMode::HorizontalTb;
+    // Whether `x` and `baseline_y` have been turned into the page's axes
+    // yet. Layout writes them in the frame the run was made in and turns
+    // them a quarter circle at a time, so whoever moves a run afterwards
+    // has to know which of the two fields is currently the page's x.
+    bool swapped = false;
 };
 
 struct Fragment {

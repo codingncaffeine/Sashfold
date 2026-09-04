@@ -149,6 +149,44 @@ private:
 
 } // namespace
 
+void Face::draw_glyph_turned(Bitmap& target, std::uint32_t glyph, float baseline_x, float y,
+    float size, Color color, bool bold, bool italic, bool clockwise) const
+{
+    // The glyph is drawn upright into a scratch of its own and read back a
+    // quarter turn over. Two ems each way from the pen holds anything a
+    // face draws at this size, overhangs and a synthesized slant included.
+    int const reach = static_cast<int>(size * 2.0f) + 4;
+    int const side = reach * 2;
+    if (side <= 0 || side > 4096)
+        return;
+    // ⛔ The scratch is cleared by the read below, one written pixel at a
+    // time, and not with a fill: filling with a fully transparent colour
+    // composites nothing and leaves every glyph's ink behind for the next
+    // one — which drew a blank space as whatever came before it.
+    static thread_local Bitmap scratch(1, 1, Color::rgba(0, 0, 0, 0));
+    if (scratch.width() != side || scratch.height() != side)
+        scratch = Bitmap(side, side, Color::rgba(0, 0, 0, 0));
+    float const pen = static_cast<float>(reach);
+    draw_glyph(scratch, glyph, pen, pen, size, color, bold, italic);
+    int const pen_page_x = static_cast<int>(baseline_x + 0.5f);
+    int const pen_page_y = static_cast<int>(y + 0.5f);
+    for (int row = 0; row < side; ++row) {
+        int const above = row - reach; // how far below the baseline it sits
+        for (int column = 0; column < side; ++column) {
+            Color const pixel = scratch.pixel(column, row);
+            if (pixel.a == 0)
+                continue;
+            scratch.set_pixel(column, row, Color::rgba(0, 0, 0, 0));
+            int const along = column - reach; // how far along the advance
+            // The quarter turn: what ran across the glyph runs down the
+            // page, and what stood above its baseline stands beside the line.
+            int const page_x = clockwise ? pen_page_x - above - 1 : pen_page_x + above;
+            int const page_y = clockwise ? pen_page_y + along : pen_page_y - along - 1;
+            target.blend_pixel(page_x, page_y, pixel);
+        }
+    }
+}
+
 Face const& builtin_face()
 {
     static BuiltinFace const face;

@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px }
+  h2 { font-size: 14px; margin: 10px 0 4px; background: #eee; padding: 2px 4px }
+  p { margin: 0 0 6px }
+
+  /* Each panel is a box of its own, laid out sideways inside an upright
+     page: an orthogonal flow. */
+  .panel { height: 150px; width: 210px; border: 2px solid #557; background: #f6f6fb;
+           display: inline-block; margin-right: 6px; vertical-align: top }
+  .vrl { writing-mode: vertical-rl }
+  .vlr { writing-mode: vertical-lr }
+  .slr { writing-mode: sideways-lr }
+  .panel div { background: #cde; border-inline-start: 4px solid #a44;
+               padding-inline-start: 4px; margin-block-end: 6px }
+  .panel .second { background: #edc }
+
+  /* An out-of-flow box inside a sideways block: no offsets at all, so it
+     stands where the flow would have put it, and one anchored by the
+     flow-relative insets. */
+  .stage { position: relative; height: 150px; width: 300px; border: 2px solid #444;
+           background: #f4f4f4; writing-mode: vertical-rl; font-size: 12px; line-height: 16px }
+  .stage .flowed { background: #9c9 }
+  .static-box { position: absolute; width: 40px; height: 60px; background: #c93; color: #fff }
+  .anchored { position: absolute; inset-inline-start: 8px; inset-block-start: 8px;
+              width: 40px; height: 50px; background: #69c; color: #fff }
+  .stretched { position: absolute; top: 20px; bottom: 20px; inset-block-end: 6px;
+               width: 24px; background: #96c }
+
+  /* A right-to-left inline direction inside a vertical mode: the lines
+     still stack leftwards, and the text reads up each of them. */
+  .rtl { direction: rtl }
+</style>
+</head>
+<body>
+
+<h2>Three ways for a block to stack its lines</h2>
+<div class="panel vrl"><div>vertical-rl one</div><div class="second">two</div></div>
+<div class="panel vlr"><div>vertical-lr one</div><div class="second">two</div></div>
+<div class="panel slr"><div>sideways-lr one</div><div class="second">two</div></div>
+
+<h2>Right to left inside a vertical mode</h2>
+<div class="panel vrl rtl"><div>rtl one</div><div class="second">two</div></div>
+<div class="panel vlr rtl"><div>rtl one</div><div class="second">two</div></div>
+
+<h2>Boxes out of the flow in a sideways block</h2>
+<div class="stage">
+  <div class="flowed">a line of words first</div>
+  <div class="static-box">no offsets</div>
+  <div class="anchored">insets</div>
+  <div class="stretched">both</div>
+</div>
+
+<h2>The page itself stays upright</h2>
+<p>This paragraph reads across, under everything that reads down.</p>
+
+</body>
+</html>

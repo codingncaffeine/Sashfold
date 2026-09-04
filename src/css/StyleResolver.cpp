@@ -2455,6 +2455,8 @@ struct Resolver {
         style.font_family = parent.font_family;
         style.line_height = parent.line_height;
         style.direction = parent.direction;
+        style.writing_mode = parent.writing_mode;
+        style.text_orientation = parent.text_orientation;
         style.text_align = parent.text_align;
         style.text_align_last = parent.text_align_last;
         style.text_justify = parent.text_justify;

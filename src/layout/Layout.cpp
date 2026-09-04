@@ -655,6 +655,18 @@ struct Layouter {
     mutable std::map<std::pair<ComputedStyle const*, ComputedStyle const*>,
         std::shared_ptr<ComputedStyle const>>
         first_letter_styles;
+    // The mode the frame being laid out reads in, and the styles turned
+    // into it — one per style and mode, with the way back for the painter.
+    // Declared after the aggregate's initialisers, like the map above.
+    mutable css::WritingMode frame_mode = css::WritingMode::HorizontalTb;
+    // The viewport, as the fallback an orthogonal flow with no settled
+    // size of its own measures itself against (§7.3).
+    float viewport_inline = 0;
+    float viewport_block = 0;
+    mutable std::map<std::pair<ComputedStyle const*, css::WritingMode>,
+        std::shared_ptr<ComputedStyle>>
+        turned_styles;
+    mutable std::map<ComputedStyle const*, ComputedStyle const*> physical_styles;
 
     ComputedStyle const& anonymous_style(ComputedStyle const& parent, Display display) const
     {
@@ -729,8 +741,11 @@ struct Layouter {
         if (fragment.first_baseline)
             *fragment.first_baseline += dy;
         for (TextRun& run : fragment.runs) {
-            run.x += dx;
-            run.baseline_y += dy;
+            // A run that has already been turned holds the page's y in `x`
+            // and the page's x in `baseline_y`, so it takes the two steps
+            // the other way round.
+            run.x += run.swapped ? dy : dx;
+            run.baseline_y += run.swapped ? dx : dy;
         }
         if (fragment.image) {
             fragment.image->x += dx;
@@ -1020,7 +1035,231 @@ struct Layouter {
     ComputedStyle const* style_of(dom::Element const& element) const
     {
         auto const it = styles.find(&element);
-        return it == styles.end() ? nullptr : &it->second;
+        return it == styles.end() ? nullptr : &turned(it->second);
+    }
+
+    // Everything below reads a box's inline axis as its x and its block
+    // axis as its y, which is what a horizontal writing mode means. A
+    // vertical one is laid out through styles whose physical edges have
+    // been permuted into that frame — the inline-start edge answering to
+    // `left`, the block-start edge to `top` — and its fragments are turned
+    // back into page coordinates when the frame is done. The properties
+    // already written in flow-relative terms (the flex and grid axes, the
+    // gutters) and the line-relative ones (float, clear, text-align,
+    // vertical-align) are in the frame already and are left alone.
+    ComputedStyle const& turned(ComputedStyle const& style) const
+    {
+        if (frame_mode == css::WritingMode::HorizontalTb)
+            return style;
+        auto const key = std::make_pair(&style, frame_mode);
+        if (auto const it = turned_styles.find(key); it != turned_styles.end())
+            return *it->second;
+        auto copy = std::make_shared<ComputedStyle>(style);
+        turn_style(*copy, style, frame_mode);
+        ComputedStyle const* const made = copy.get();
+        turned_styles.emplace(key, copy);
+        physical_styles.emplace(made, &style);
+        owned_styles.push_back(std::move(copy));
+        return *made;
+    }
+
+    // The physical style a turned one stands for: what the painter reads,
+    // since it draws a `border-top` at the box's top edge whichever way the
+    // content inside it runs.
+    ComputedStyle const* physical(ComputedStyle const* style) const
+    {
+        if (!style)
+            return nullptr;
+        auto const it = physical_styles.find(style);
+        return it == physical_styles.end() ? style : it->second;
+    }
+
+    static LengthPercent negated(LengthPercent length)
+    {
+        length.value = -length.value;
+        length.percent = -length.percent;
+        return length;
+    }
+
+    void turn_style(ComputedStyle& to, ComputedStyle const& from, css::WritingMode mode) const
+    {
+        bool const up = css::inline_runs_up(mode);
+        bool const left = css::blocks_run_left(mode);
+        auto const across = [&](auto const& top, auto const& bottom, bool at_start) {
+            return at_start == !up ? top : bottom;
+        };
+        auto const along = [&](auto const& page_left, auto const& page_right, bool at_start) {
+            return at_start == left ? page_right : page_left;
+        };
+        to.margin_left = across(from.margin_top, from.margin_bottom, true);
+        to.margin_right = across(from.margin_top, from.margin_bottom, false);
+        to.margin_top = along(from.margin_left, from.margin_right, true);
+        to.margin_bottom = along(from.margin_left, from.margin_right, false);
+        to.padding_left = across(from.padding_top, from.padding_bottom, true);
+        to.padding_right = across(from.padding_top, from.padding_bottom, false);
+        to.padding_top = along(from.padding_left, from.padding_right, true);
+        to.padding_bottom = along(from.padding_left, from.padding_right, false);
+        to.border_left = across(from.border_top, from.border_bottom, true);
+        to.border_right = across(from.border_top, from.border_bottom, false);
+        to.border_top = along(from.border_left, from.border_right, true);
+        to.border_bottom = along(from.border_left, from.border_right, false);
+        to.left = across(from.top, from.bottom, true);
+        to.right = across(from.top, from.bottom, false);
+        to.top = along(from.left, from.right, true);
+        to.bottom = along(from.left, from.right, false);
+        to.width = from.height;
+        to.height = from.width;
+        to.min_width = from.min_height;
+        to.max_width = from.max_height;
+        to.min_height = from.min_width;
+        to.max_height = from.max_width;
+        to.overflow_x = from.overflow_y;
+        to.overflow_y = from.overflow_x;
+        to.border_spacing_horizontal = from.border_spacing_vertical;
+        to.border_spacing_vertical = from.border_spacing_horizontal;
+        // A corner is named by the two edges that meet at it, so it moves
+        // with them, and its two radii swap with the axes.
+        auto const corner = [&](bool block_start, bool inline_start) {
+            bool const page_top = inline_start == !up;
+            bool const page_left = block_start != left;
+            css::CornerRadius radius = page_top
+                ? (page_left ? from.border_top_left_radius : from.border_top_right_radius)
+                : (page_left ? from.border_bottom_left_radius : from.border_bottom_right_radius);
+            std::swap(radius.x, radius.y);
+            return radius;
+        };
+        to.border_top_left_radius = corner(true, true);
+        to.border_top_right_radius = corner(true, false);
+        to.border_bottom_right_radius = corner(false, false);
+        to.border_bottom_left_radius = corner(false, true);
+        // A translation is a page offset, so it turns with the page: its
+        // block part runs backwards when the lines stack towards the left.
+        to.translate_x = up ? negated(from.translate_y) : from.translate_y;
+        to.translate_y = left ? negated(from.translate_x) : from.translate_x;
+        if (from.first_letter) {
+            auto letter = std::make_shared<ComputedStyle>(*from.first_letter);
+            turn_style(*letter, *from.first_letter, mode);
+            to.first_letter = letter;
+        }
+        if (from.generated) {
+            auto made = std::make_shared<css::GeneratedContent>(*from.generated);
+            if (made->before)
+                turn_style(made->before->style, from.generated->before->style, mode);
+            if (made->after)
+                turn_style(made->after->style, from.generated->after->style, mode);
+            to.generated = std::move(made);
+        }
+    }
+
+    // A style turned into a named frame rather than the current one: what
+    // a finished frame's fragments are restyled with on their way out into
+    // the frame around them.
+    ComputedStyle const* style_in(css::WritingMode mode, ComputedStyle const* style) const
+    {
+        if (!style)
+            return nullptr;
+        css::WritingMode const saved = frame_mode;
+        frame_mode = mode;
+        ComputedStyle const* const in = &turned(*physical(style));
+        frame_mode = saved;
+        return in;
+    }
+
+    // Which way a mode's two axes point on the page, as unit steps: the
+    // inline axis is where the text advances, the block axis where the
+    // lines stack. Two modes at right angles to each other are turned into
+    // one another by reading each axis off in the other's terms.
+    struct Axes {
+        int inline_x = 1;
+        int inline_y = 0;
+        int block_x = 0;
+        int block_y = 1;
+    };
+
+    static Axes axes_of(css::WritingMode mode)
+    {
+        switch (mode) {
+        case css::WritingMode::HorizontalTb: return Axes { 1, 0, 0, 1 };
+        case css::WritingMode::VerticalRl:
+        case css::WritingMode::SidewaysRl: return Axes { 0, 1, -1, 0 };
+        case css::WritingMode::VerticalLr: return Axes { 0, 1, 1, 0 };
+        case css::WritingMode::SidewaysLr: return Axes { 0, -1, 1, 0 };
+        }
+        return Axes {};
+    }
+
+    // Whether a line's over side — the one its ascenders point at — is the
+    // block-start edge. It is in every mode but `vertical-lr`, whose text
+    // is turned the same way `vertical-rl`'s is while its lines stack the
+    // other way, so its ascenders face the block END. A line laid out in
+    // that frame is mirrored inside its own box, which is the one place the
+    // two axes have to be told apart.
+    static bool line_over_at_block_start(css::WritingMode mode)
+    {
+        return mode != css::WritingMode::VerticalLr;
+    }
+
+    // Turns a subtree laid out in a vertical frame back into page
+    // coordinates: what the frame called x is the page's y, and what it
+    // called y is the page's x, running left from `block_edge` where the
+    // lines stack leftwards and right from it where they do not.
+    struct ToPage {
+        // The frame the fragments end up in: the page itself at the root,
+        // an outer box.s own frame when one writing mode sits inside
+        // another. Styles are turned into it on the way through.
+        css::WritingMode destination = css::WritingMode::HorizontalTb;
+        bool flip_inline = false; // the inline axis runs up the page
+        bool flip_block = false; // the lines stack towards the left
+        float inline_edge = 0; // the page y of the frame's own origin, or of its far end
+        float block_edge = 0;
+    };
+
+    float page_x(ToPage const& t, float block, float extent) const
+    {
+        return t.flip_block ? t.block_edge - block - extent : t.block_edge + block;
+    }
+
+    float page_y(ToPage const& t, float inline_at, float extent) const
+    {
+        return t.flip_inline ? t.inline_edge - inline_at - extent : t.inline_edge + inline_at;
+    }
+
+    void to_page(Fragment& fragment, ToPage const& t) const
+    {
+        for (Fragment& child : fragment.children)
+            to_page(child, t);
+        for (TextRun& run : fragment.runs) {
+            float const y = page_y(t, run.x, run.width);
+            float const x = page_x(t, run.baseline_y, 0);
+            run.x = y;
+            run.baseline_y = x;
+            run.swapped = !run.swapped;
+            run.style = style_in(t.destination, run.style);
+        }
+        auto const turn_box = [&](auto& box) {
+            float const x = page_x(t, box.y, box.height);
+            float const y = page_y(t, box.x, box.width);
+            float const width = box.height;
+            float const height = box.width;
+            box.x = x;
+            box.y = y;
+            box.width = width;
+            box.height = height;
+        };
+        if (fragment.image)
+            turn_box(*fragment.image);
+        if (fragment.control) {
+            if (fragment.control->caret_x)
+                *fragment.control->caret_x = page_y(t, *fragment.control->caret_x, 0);
+            turn_box(*fragment.control);
+        }
+        // A baseline is a coordinate on the block axis, and the two frames'
+        // block axes are at right angles: what is a baseline in here is not
+        // one out there, so it does not survive the turn.
+        fragment.first_baseline.reset();
+        fragment.last_baseline.reset();
+        turn_box(fragment);
+        fragment.style = style_in(t.destination, fragment.style);
     }
 
     // --- Inline collection ----------------------------------------------------
@@ -1904,6 +2143,10 @@ struct Layouter {
         // forced break: those keep their start alignment under
         // text-align: justify (CSS 2.1 §16.2), the rest are stretched.
         auto const flush_line = [&](bool last_line = false) {
+            // What this line adds, so that a frame whose ascenders face its
+            // block end can turn the finished line over inside its own box.
+            std::size_t const runs_before = out.runs.size();
+            std::size_t const children_before = out.children.size();
             // A space at the end of a line is dropped, and an inline box
             // closing after it does not save it: the edges are stepped over
             // on the way back, and the entries they index shift with them.
@@ -2207,7 +2450,7 @@ struct Layouter {
                             code_point = bidi_mirrored(code_point);
                     }
                     out.runs.push_back(TextRun { x, own_baseline, std::move(placed.text), placed.style,
-                        placed.element, &fonts_for(*placed.style), width });
+                        placed.element, &fonts_for(*placed.style), width, frame_mode });
                 }
                 entry_left[i] = x;
                 x += width;
@@ -2325,9 +2568,25 @@ struct Layouter {
                 box.from = 0; // it starts the next line at its left edge
                 box.opened_here = false;
             }
-            out.last_baseline = baseline;
+            // The line is finished. In a frame whose ascenders point at the
+            // block end, everything on it is turned over within the line's
+            // own box — the baselines and, rigidly, the boxes that sat on
+            // it — so that the quarter turn the glyphs take on the page
+            // lands their ink back inside the line.
+            float line_baseline = baseline;
+            if (!line_over_at_block_start(frame_mode)) {
+                float const across = 2 * y + line_height;
+                for (std::size_t r = runs_before; r < out.runs.size(); ++r)
+                    out.runs[r].baseline_y = across - out.runs[r].baseline_y;
+                for (std::size_t c = children_before; c < out.children.size(); ++c) {
+                    Fragment& box = out.children[c];
+                    shift_fragment(box, 0, across - 2 * box.y - box.height);
+                }
+                line_baseline = across - baseline;
+            }
+            out.last_baseline = line_baseline;
             if (!out.first_baseline)
-                out.first_baseline = baseline;
+                out.first_baseline = line_baseline;
             y += line_height;
             line.clear();
             line_width = 0;
@@ -2820,6 +3079,87 @@ struct Layouter {
     // `floats` is the formatting context the box sits in; a box that forms
     // its own gives its children a fresh one. `options` carry what a float
     // or a flex item has settled already (see BlockOptions).
+    // The content of a box that reads at right angles to the flow around
+    // it. What its lines have room for is this box's own extent along the
+    // outer block axis — its content height, where the outer flow is
+    // horizontal — and where that is not settled the specification names a
+    // fallback rather than leaving it circular: the initial containing
+    // block's size in the inner inline axis, which the content shrinks to
+    // fit within (§7.3). The box's extent along the outer inline axis is
+    // whatever the content's own lines stack up to, and overflows the box
+    // when the two disagree, as it does in every engine.
+    float layout_orthogonal(dom::Element const& element, css::WritingMode inner_mode,
+        float content_x, float content_y, float content_width,
+        std::optional<float> const& own_height, Fragment& fragment, int list_depth,
+        bool is_containing_block) const
+    {
+        css::WritingMode const outer_mode = frame_mode;
+        frame_mode = inner_mode;
+        ComputedStyle const* const inner_style = style_of(element);
+        float inner_inline = 0;
+        if (own_height) {
+            inner_inline = *own_height;
+        } else {
+            float const fallback = css::is_vertical(inner_mode) ? viewport_block : viewport_inline;
+            Intrinsic const measure = intrinsic_widths(element, *inner_style);
+            inner_inline = std::min(std::max(measure.min, fallback), measure.max);
+        }
+        Fragment inner;
+        inner.element = fragment.element;
+        inner.style = inner_style;
+        FloatContext inner_floats;
+        float inner_block;
+        if (is_flex_container(*inner_style)) {
+            inner_block = layout_flex(element, *inner_style, 0, 0, inner_inline, inner, list_depth,
+                std::nullopt);
+        } else if (is_grid_container(*inner_style)) {
+            inner_block = layout_grid(element, *inner_style, 0, 0, inner_inline, inner, list_depth,
+                std::nullopt);
+        } else {
+            inner_block = layout_children(element, *inner_style, 0, 0, inner_inline, inner, list_depth,
+                inner_floats, false, false, std::nullopt);
+        }
+        if (std::optional<float> const lowest = inner_floats.lowest_bottom())
+            inner.height = std::max(inner_block, *lowest);
+        else
+            inner.height = inner_block;
+        inner.width = inner_inline;
+        // A box out of the flow inside this one is placed against this
+        // box's padding box and by the rules of THIS box's writing mode, so
+        // it is placed here, while the frame still holds, and not outside
+        // where its static position would name the other axis.
+        if (is_containing_block && !absolute_stack.empty() && !absolute_stack.back().empty()) {
+            std::vector<OutOfFlow> const boxes = std::move(absolute_stack.back());
+            absolute_stack.back().clear();
+            // The padding box, so the padding counts and the border does not.
+            float const start = resolve(inner_style->padding_left, inner_inline);
+            float const end = resolve(inner_style->padding_right, inner_inline);
+            float const before = resolve(inner_style->padding_top, inner_inline);
+            float const after = resolve(inner_style->padding_bottom, inner_inline);
+            place_out_of_flow(boxes, -start, -before, inner_inline + start + end,
+                content_width + before + after, inner, list_depth,
+                inner_style->direction == css::Direction::Rtl);
+        }
+        frame_mode = outer_mode;
+        // Out into the frame around it: the inner block axis is read off
+        // the outer inline axis and the inner inline axis off the outer
+        // block one, each with the sign the two modes' axes give it.
+        Axes const in = axes_of(inner_mode);
+        Axes const out = axes_of(outer_mode);
+        ToPage turn;
+        turn.destination = outer_mode;
+        turn.flip_block = in.block_x * out.inline_x + in.block_y * out.inline_y < 0;
+        turn.flip_inline = in.inline_x * out.block_x + in.inline_y * out.block_y < 0;
+        turn.block_edge = turn.flip_block ? content_x + content_width : content_x;
+        turn.inline_edge = turn.flip_inline ? content_y + inner_inline : content_y;
+        to_page(inner, turn);
+        for (Fragment& child : inner.children)
+            fragment.children.push_back(std::move(child));
+        for (TextRun& run : inner.runs)
+            fragment.runs.push_back(std::move(run));
+        return inner_inline;
+    }
+
     Fragment layout_block(dom::Element const& element, ComputedStyle const& style, float x,
         float y, float containing_width, int list_depth, FloatContext& floats,
         BlockOptions const& options = {}) const
@@ -3009,7 +3349,15 @@ struct Layouter {
             ? std::optional<float>(clamp_height(style, *own_height, options.containing_height, vertical_edges))
             : std::nullopt;
         float content_height;
-        if (flex) {
+        // A box whose writing mode is not the one around it starts an
+        // orthogonal flow (css-writing-modes-4 §7.3). Its own box — the
+        // margins, borders, padding and the width and height the flow
+        // reads — belongs to the formatting context it sits in, and has
+        // been settled above; only what is inside it turns.
+        if (physical(&style)->writing_mode != frame_mode) {
+            content_height = layout_orthogonal(element, physical(&style)->writing_mode, content_x,
+                content_y, content_width, own_height, fragment, list_depth, containing_block);
+        } else if (flex) {
             content_height = layout_flex(element, style, content_x, content_y, content_width, fragment,
                 list_depth, children_base);
         } else if (grid) {
@@ -6170,9 +6518,34 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {}, {} };
+    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {}, {},
+        css::WritingMode::HorizontalTb, 0, 0, {}, {} };
+    // The whole page is laid out in the root's own writing mode — which the
+    // resolver has already taken from body where there is one — so the
+    // frame is settled before a single style is read: everything after this
+    // sees a box's inline axis as its width and its block axis as its
+    // height, and the fragments are turned back at the end.
+    ComputedStyle const* physical_root = nullptr;
+    if (auto const it = styles.find(html); it != styles.end())
+        physical_root = &it->second;
+    if (!physical_root || physical_root->display == Display::None)
+        return result;
+    css::WritingMode const page_mode = physical_root->writing_mode;
+    layouter.frame_mode = page_mode;
+    // The viewport, for an orthogonal flow with nothing definite of its
+    // own to measure against: a vertical one reads down the page, so what
+    // it has room for is the viewport.s height.
+    layouter.viewport_inline = viewport_width;
+    layouter.viewport_block = viewport_height > 0 ? viewport_height : viewport_width;
+    bool const vertical = css::is_vertical(page_mode);
+    // A vertical page reads down what a horizontal one reads across, so the
+    // room it has for a line is the viewport's height; with no viewport
+    // height known there is nothing better than its width.
+    float const frame_width
+        = vertical ? (viewport_height > 0 ? viewport_height : viewport_width) : viewport_width;
+    float const frame_height = vertical ? viewport_width : viewport_height;
     ComputedStyle const* html_style = layouter.style_of(*html);
-    if (!html_style || html_style->display == Display::None)
+    if (!html_style)
         return result;
 
     // Background propagation (css-backgrounds-3 §2.11.2): html's whole
@@ -6219,31 +6592,46 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // The initial containing block has the viewport's height: the root's
     // percentage height resolves against it.
     BlockOptions root_options;
-    if (viewport_height > 0)
-        root_options.containing_height = viewport_height;
+    if (frame_height > 0)
+        root_options.containing_height = frame_height;
     // The initial containing block reads the way the root element does
     // (css-writing-modes-4 §3.1), so a narrow <html> in an rtl document
     // settles against the viewport's right edge.
     root_options.containing_rtl = html_style->direction == css::Direction::Rtl;
-    result.root = layouter.layout_block(*html, *html_style, 0, 0, viewport_width, 0, root_floats, root_options);
+    result.root = layouter.layout_block(*html, *html_style, 0, 0, frame_width, 0, root_floats, root_options);
     if (std::optional<float> const bottom = root_floats.lowest_bottom())
         result.root.height = std::max(result.root.height, *bottom - result.root.y);
-    result.page_height = result.root.y + result.root.height
-        + resolve(html_style->margin_bottom, viewport_width);
+    float frame_block_extent = result.root.y + result.root.height
+        + resolve(html_style->margin_bottom, frame_width);
     {
         std::vector<Layouter::OutOfFlow> boxes = std::move(layouter.absolute_stack.back());
         layouter.absolute_stack.pop_back();
         boxes.insert(boxes.end(), layouter.fixed_boxes.begin(), layouter.fixed_boxes.end());
         layouter.fixed_boxes.clear();
         if (!boxes.empty()) {
-            float const icb_height = viewport_height > 0 ? viewport_height : result.page_height;
-            layouter.place_out_of_flow(boxes, 0, 0, viewport_width, icb_height, result.root, 0,
+            float const icb_height = frame_height > 0 ? frame_height : frame_block_extent;
+            layouter.place_out_of_flow(boxes, 0, 0, frame_width, icb_height, result.root, 0,
                 html_style->direction == css::Direction::Rtl);
             for (Fragment const& child : result.root.children) {
                 if (child.positioned)
-                    result.page_height = std::max(result.page_height, child.y + child.height);
+                    frame_block_extent = std::max(frame_block_extent, child.y + child.height);
             }
         }
+    }
+    result.page_height = frame_block_extent;
+    if (vertical) {
+        // Back to the page. The lines stack from the viewport's right edge
+        // in the -rl modes, which is where a reader of one of them starts,
+        // and a page too wide for the viewport runs off to the left as it
+        // does in a browser opened at the top of the document.
+        Layouter::ToPage turn;
+        turn.flip_inline = css::inline_runs_up(page_mode);
+        turn.flip_block = css::blocks_run_left(page_mode);
+        turn.inline_edge = turn.flip_inline ? frame_width : 0.0f;
+        turn.block_edge = turn.flip_block ? viewport_width : 0.0f;
+        layouter.to_page(result.root, turn);
+        result.page_height = result.root.y + result.root.height
+            + resolve(physical_root->margin_bottom, viewport_width);
     }
     // The anonymous boxes' styles go with the fragments that point at them.
     result.owned_styles = std::move(layouter.owned_styles);

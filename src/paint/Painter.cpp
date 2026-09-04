@@ -620,8 +620,52 @@ void paint_background_and_borders(Context& context, Fragment const& fragment,
             style.border_right.color);
 }
 
+// A run on a vertical line: the text advances down the page — up, in
+// `sideways-lr` — and every glyph is turned a quarter circle, clockwise
+// unless the line reads upwards. `x` is where the run's text begins along
+// the line and `baseline_y` is the page x its baseline stands at.
+void paint_vertical_run(Context& context, TextRun const& run)
+{
+    ComputedStyle const& style = *run.style;
+    float const baseline_x = run.baseline_y + context.dx;
+    if (baseline_x + style.font_size < 0
+        || baseline_x - style.font_size > static_cast<float>(context.target.width()))
+        return;
+    bool const clockwise = !css::inline_runs_up(run.mode);
+    bool const italic = style.font_style == css::FontStyle::Italic;
+    float const start = run.x + context.dy + (clockwise ? 0.0f : run.width);
+    float y = start;
+    for (char32_t const c : run.text) {
+        text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
+        float const advance = glyph.face->advance(glyph.glyph, style.font_size);
+        float const pen = clockwise ? y : y - advance;
+        glyph.face->draw_glyph_turned(context.target, glyph.glyph, baseline_x, pen, style.font_size,
+            style.color, style.bold(), italic, clockwise);
+        float step = advance + style.letter_spacing;
+        if (c == U' ')
+            step += style.word_spacing;
+        y += clockwise ? step : -step;
+    }
+    if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())
+        return;
+    float const thickness = std::max(1.0f, style.font_size / 14.0f);
+    // The line sits on the side the ascenders do not point at.
+    float const offset = style.text_decoration == css::TextDecorationLine::Underline
+        ? -(style.font_size * 2.0f / 32.0f + 1.0f)
+        : style.font_size * 8.0f / 32.0f;
+    float const line_x = clockwise ? baseline_x + offset : baseline_x - offset;
+    context.target.fill_rect(
+        snap(line_x, std::min(start, y), thickness, std::abs(y - start)), style.color);
+}
+
 void paint_run(Context& context, TextRun const& run)
 {
+    if (!run.style || !run.fonts)
+        return;
+    if (css::is_vertical(run.mode)) {
+        paint_vertical_run(context, run);
+        return;
+    }
     ComputedStyle const& style = *run.style;
     float const baseline = run.baseline_y + context.dy;
     // A run entirely above or below the target draws nothing: skip it before

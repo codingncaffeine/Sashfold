@@ -41,6 +41,15 @@ public:
     // the face was not designed with is synthesized.
     virtual void draw_glyph(Bitmap& target, std::uint32_t glyph, float x, float baseline_y,
         float size, Color color, bool bold, bool italic) const = 0;
+
+    // The same glyph turned a quarter circle for a vertical line, its pen
+    // at (baseline_x, y). Clockwise — the way every vertical writing mode
+    // but `sideways-lr` turns a horizontal script — puts the advance down
+    // the page and the ascenders to the right. Drawn through a scratch
+    // bitmap, so every face gets it from the upright glyph it can already
+    // draw.
+    void draw_glyph_turned(Bitmap& target, std::uint32_t glyph, float baseline_x, float y,
+        float size, Color color, bool bold, bool italic, bool clockwise) const;
 };
 
 // Sashfold Mono as a Face: glyph ids are code points. Its glyph_index is
