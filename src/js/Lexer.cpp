@@ -121,7 +121,7 @@ public:
     }
     bool eat(char16_t c)
     {
-        if (peek() != c)
+        if (peek() != static_cast<char32_t>(c))
             return false;
         advance();
         return true;
