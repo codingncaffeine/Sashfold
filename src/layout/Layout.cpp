@@ -1052,6 +1052,91 @@ struct Layouter {
         }
     }
 
+
+    // A rectangle in page coordinates, for the sticky pass below.
+    struct Edges {
+        float left = 0;
+        float top = 0;
+        float right = 0;
+        float bottom = 0;
+        float width() const { return right - left; }
+        float height() const { return bottom - top; }
+    };
+
+    // css-position-3 §6.3: a box that sticks stays inside what its offsets
+    // leave of the scrollport it is in, and never leaves the block that
+    // contains it. Nothing is scrolled here, so what this settles is what a
+    // reader sees on opening the page: a box whose offset holds it clear of
+    // an edge it already sits past is moved to meet that edge, as far as
+    // its containing block allows and no further. An offset that is already
+    // satisfied moves nothing, which is why zero stays inside every clamp.
+    void stick(Fragment& box, Edges const& cb, Edges const& port) const
+    {
+        ComputedStyle const& s = *box.style;
+        float const cb_width = cb.width();
+        float const margin_left = resolve(s.margin_left, cb_width);
+        float const margin_right = resolve(s.margin_right, cb_width);
+        float const margin_top = resolve(s.margin_top, cb_width);
+        float const margin_bottom = resolve(s.margin_bottom, cb_width);
+        // A sticky offset is measured from the scrollport's edge, and a
+        // percentage of it is of the scrollport's own size.
+        float dx = 0;
+        if (!s.left.is_auto()) {
+            float const limit = port.left + resolve(s.left, port.width());
+            if (box.x < limit)
+                dx = limit - box.x;
+        }
+        if (!s.right.is_auto()) {
+            float const limit = port.right - resolve(s.right, port.width());
+            if (box.x + box.width + dx > limit)
+                dx -= box.x + box.width + dx - limit;
+        }
+        dx = std::clamp(dx, std::min(0.0f, cb.left + margin_left - box.x),
+            std::max(0.0f, cb.right - margin_right - box.x - box.width));
+        float dy = 0;
+        if (!s.top.is_auto()) {
+            float const limit = port.top + resolve(s.top, port.height());
+            if (box.y < limit)
+                dy = limit - box.y;
+        }
+        if (!s.bottom.is_auto()) {
+            float const limit = port.bottom - resolve(s.bottom, port.height());
+            if (box.y + box.height + dy > limit)
+                dy -= box.y + box.height + dy - limit;
+        }
+        dy = std::clamp(dy, std::min(0.0f, cb.top + margin_top - box.y),
+            std::max(0.0f, cb.bottom - margin_bottom - box.y - box.height));
+        if (dx != 0 || dy != 0)
+            shift_fragment(box, dx, dy);
+    }
+
+    // Walks the finished tree carrying two rectangles: the content box of
+    // the block a child is in, and the scrollport around it — the padding
+    // box of the nearest box that scrolls or clips, the viewport where
+    // there is none. A box is settled before its own boxes are, so what is
+    // inside it travels with it.
+    void settle_sticky(Fragment& box, Edges const& cb, Edges port) const
+    {
+        if (box.style && box.style->position == css::Position::Sticky)
+            stick(box, cb, port);
+        Edges inner { box.x, box.y, box.x + box.width, box.y + box.height };
+        if (box.style) {
+            ComputedStyle const& s = *box.style;
+            inner.left += s.border_left.width;
+            inner.top += s.border_top.width;
+            inner.right -= s.border_right.width;
+            inner.bottom -= s.border_bottom.width;
+            if (s.overflow_x != css::Overflow::Visible || s.overflow_y != css::Overflow::Visible)
+                port = inner;
+            float const width = cb.width();
+            inner.left += resolve(s.padding_left, width);
+            inner.top += resolve(s.padding_top, width);
+            inner.right -= resolve(s.padding_right, width);
+            inner.bottom -= resolve(s.padding_bottom, width);
+        }
+        for (Fragment& child : box.children)
+            settle_sticky(child, inner, port);
+    }
     PageImage image_for(dom::Element const& element) const
     {
         if (!images)
@@ -6894,6 +6979,13 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
                     frame_block_extent = std::max(frame_block_extent, child.y + child.height);
             }
         }
+    }
+    // What sticks, sticks — against the viewport, or against whatever box
+    // between it and the sticky one scrolls or clips.
+    {
+        float const port_block = frame_height > 0 ? frame_height : frame_block_extent;
+        Layouter::Edges const viewport { 0, 0, frame_width, port_block };
+        layouter.settle_sticky(result.root, viewport, viewport);
     }
     result.page_height = frame_block_extent;
     if (vertical) {

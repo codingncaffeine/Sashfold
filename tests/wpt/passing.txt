@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8334 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8339 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6950,11 +6950,16 @@ css/css-position/static-position/inline-level-absolute-in-block-level-context-01
 css/css-position/sticky/position-sticky-bottom-004.html
 css/css-position/sticky/position-sticky-bottom-005.html
 css/css-position/sticky/position-sticky-bottom-006.html
+css/css-position/sticky/position-sticky-bottom-007.html
 css/css-position/sticky/position-sticky-column-reverse-flex.html
+css/css-position/sticky/position-sticky-fixed-ancestor-002.html
+css/css-position/sticky/position-sticky-fixed-ancestor-003.html
 css/css-position/sticky/position-sticky-fixed-ancestor-iframe.html
-css/css-position/sticky/position-sticky-on-minimum-scale.html
+css/css-position/sticky/position-sticky-in-fixed-container.html
+css/css-position/sticky/position-sticky-margins-002.html
+css/css-position/sticky/position-sticky-margins-003.html
 css/css-position/sticky/position-sticky-overflow-clip-container.html
-css/css-position/sticky/position-sticky-scroll-reposition.html
+css/css-position/sticky/position-sticky-rtl.html
 css/css-position/sticky/position-sticky-scroll-with-clip-and-abspos.html
 css/css-position/sticky/position-sticky-stacking-context.html
 css/css-position/sticky/position-sticky-table-pixel-rounding.html
