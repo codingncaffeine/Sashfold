@@ -2309,12 +2309,18 @@ struct Layouter {
                 ? 0
                 : item_levels[static_cast<std::size_t>(&item - items.data())];
             if (item.kind == InlineItem::Kind::Absolute) {
-                // Its static position: an inline-level box would have begun
-                // where the line stands; a block-level one on the line
-                // below (taken as one line tall when this line holds
-                // anything).
+                // Its static position. The two are different rectangles
+                // (css-position-3 §3.5.2): an inline-level box would have
+                // begun where the line stands, so it takes the line's own
+                // origin; a block-level one would have been a block in this
+                // block, so it spans the content box and takes neither the
+                // first line's indent nor the room a float leaves — an
+                // intruding float shortens line boxes, not a block's border
+                // box, and an indent moves one line, not the block. It goes
+                // on the line below (taken as one line tall when this line
+                // holds anything).
                 bool const inline_level = item.style->blockified;
-                float const static_x = inline_level ? line_left + line_width : line_left;
+                float const static_x = inline_level ? line_left + line_width : content_x;
                 float const static_y = inline_level || line.empty() ? y : y + line_height_of(block_style);
                 record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y));
                 continue;

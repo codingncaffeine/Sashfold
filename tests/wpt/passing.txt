@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7646 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7650 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1160,6 +1160,8 @@ css/CSS2/floats-clear/float-non-replaced-width-005.xht
 css/CSS2/floats-clear/float-replaced-height-001.xht
 css/CSS2/floats-clear/float-replaced-height-002.xht
 css/CSS2/floats-clear/float-replaced-height-003.xht
+css/CSS2/floats-clear/float-replaced-height-004.xht
+css/CSS2/floats-clear/float-replaced-height-007.xht
 css/CSS2/floats-clear/float-replaced-width-001.xht
 css/CSS2/floats-clear/float-replaced-width-002.xht
 css/CSS2/floats-clear/float-replaced-width-003.xht
@@ -3291,6 +3293,7 @@ css/CSS2/positioning/abspos-018.xht
 css/CSS2/positioning/abspos-025.xht
 css/CSS2/positioning/abspos-026.xht
 css/CSS2/positioning/abspos-027.xht
+css/CSS2/positioning/abspos-028.xht
 css/CSS2/positioning/abspos-029.html
 css/CSS2/positioning/abspos-containing-block-001.xht
 css/CSS2/positioning/abspos-containing-block-002.xht
@@ -6654,7 +6657,6 @@ css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-002.html
 css/css-grid/stretch-grid-item-button-overflow.html
 css/css-grid/stretch-grid-item-text-input-overflow.html
 css/css-grid/subgrid/abs-pos-001.html
-css/css-grid/subgrid/abs-pos-002.html
 css/css-grid/subgrid/alignment-in-subgridded-axes-002.html
 css/css-grid/subgrid/auto-track-sizing-001.html
 css/css-grid/subgrid/auto-track-sizing-002.html
@@ -7173,6 +7175,8 @@ css/css-text/text-group-align/text-group-align-start-vlr.html
 css/css-text/text-group-align/text-group-align-start.html
 css/css-text/text-indent/anonymous-flex-item-001.html
 css/css-text/text-indent/anonymous-grid-item-001.html
+css/css-text/text-indent/below-float.html
+css/css-text/text-indent/below-float2.html
 css/css-text/text-indent/text-indent-caret-001.html
 css/css-text/text-indent/text-indent-caret-hanging-001.html
 css/css-text/text-indent/text-indent-dynamic-each-line-001.html
