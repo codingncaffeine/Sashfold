@@ -4712,9 +4712,11 @@ struct Layouter {
     };
 
     // The items in order-modified document order. Out-of-flow children are
-    // recorded against the container.
+    // recorded against the container — but only by a caller that is laying
+    // the grid out. One that is merely measuring its intrinsic widths has no
+    // content box to record against and answers no width here.
     std::vector<GridItem> collect_grid_items(dom::Element const& container, ComputedStyle const& style,
-        float content_x, float content_y) const
+        float content_x, float content_y, std::optional<float> content_width) const
     {
         std::vector<GridItem> items;
         std::vector<InlineItem> pending;
@@ -4757,7 +4759,15 @@ struct Layouter {
             if (!child_style || child_style->display == Display::None)
                 continue;
             if (child_style->out_of_flow()) {
-                record_out_of_flow(element, *child_style, std::make_pair(content_x, content_y));
+                // Measuring a container's intrinsic widths is not laying it
+                // out. The measurement runs under whatever absolute_stack
+                // frame the ancestor asking for the width is in, which is a
+                // different list from the one the real pass records into,
+                // and record_out_of_flow dedupes within one list only — so a
+                // record made here is never replaced by the real one. It is a
+                // second registration, and the box is placed twice.
+                if (content_width)
+                    record_out_of_flow(element, *child_style, std::make_pair(content_x, content_y));
                 continue;
             }
             flush_text();
@@ -5403,7 +5413,7 @@ struct Layouter {
         float content_y, float content_width, Fragment& fragment, int list_depth,
         std::optional<float> own_height) const
     {
-        std::vector<GridItem> items = collect_grid_items(container, style, content_x, content_y);
+        std::vector<GridItem> items = collect_grid_items(container, style, content_x, content_y, content_width);
         bool const rtl = style.direction == css::Direction::Rtl;
         float const column_gap = resolve(style.column_gap, content_width);
         float const row_gap = resolve(style.row_gap, own_height.value_or(0.0f));
@@ -5518,7 +5528,7 @@ struct Layouter {
     // min-content, then a max-content constraint, gaps included.
     Intrinsic grid_intrinsic_widths(dom::Element const& container, ComputedStyle const& style) const
     {
-        std::vector<GridItem> items = collect_grid_items(container, style, 0, 0);
+        std::vector<GridItem> items = collect_grid_items(container, style, 0, 0, std::nullopt);
         float const column_gap = resolve(style.column_gap, 0);
         css::GridAreas const* const areas = style.grid_template_areas.get();
         AxisTracks const columns = explicit_tracks(style.grid_template_columns.get(), areas, true, std::nullopt,

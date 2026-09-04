@@ -8,6 +8,7 @@
 #include "text/FontManager.h"
 
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -712,6 +713,47 @@ int main()
         // and its own offsets stay physical.
         at("a4", 0, 30);
         at("b4", 170, 30);
+    }
+
+    // --- A measured grid registers its out-of-flow child once -----------------
+    {
+        // A grid whose intrinsic widths are measured before it is laid out
+        // collected its children twice: once for the measurement, under the
+        // absolute_stack frame of whichever ancestor asked for the width,
+        // and once for real. The records land in different lists, and the
+        // dedupe only looks inside one, so the box was placed twice — and
+        // both placements land at the same spot, so no picture can see it.
+        // Count the fragments, not their coordinates.
+        Page const page = lay_out(R"(<!doctype html><html><body>
+          <div style="position: relative; width: 500px">bare
+            <div style="display: grid; grid-template-columns: 60px 60px; position: relative">
+              <div id="k" style="position: absolute; width: 40px; height: 12px"></div><i>x</i></div></div>
+          <div style="position: relative; width: 500px">float
+            <div style="display: grid; grid-template-columns: 60px 60px; position: relative; float: left">
+              <div id="k" style="position: absolute; width: 40px; height: 12px"></div><i>x</i></div></div>
+          <div style="position: relative; width: 500px">inline-block
+            <div style="display: inline-block">
+              <div style="display: grid; grid-template-columns: 60px 60px; position: relative">
+                <div id="k" style="position: absolute; width: 40px; height: 12px"></div><i>x</i></div></div></div>
+          <div style="position: relative; width: 500px">flex item
+            <div style="display: flex">
+              <div style="display: grid; grid-template-columns: 60px 60px; position: relative">
+                <div id="k" style="position: absolute; width: 40px; height: 12px"></div><i>x</i></div></div></div>
+          </body></html>)");
+        std::function<int(layout::Fragment const&)> count = [&](layout::Fragment const& fragment) {
+            int found = 0;
+            if (fragment.element) {
+                if (dom::Attr const* const attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == "k")
+                    ++found;
+            }
+            for (layout::Fragment const& child : fragment.children)
+                found += count(child);
+            return found;
+        };
+        // Four grids, four boxes. It was seven before: the bare grid is the
+        // only one nothing measures.
+        CHECK_EQ(count(page.result.root), 4);
     }
 
     return sashfold::test::report("grid");
