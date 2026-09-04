@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px;
+         direction: rtl }
+  h2 { font-size: 16px; margin: 12px 0 4px; background: #eee; padding: 2px 4px }
+  p { margin: 0 0 8px }
+
+  /* The room a width leaves over (CSS 2.1 10.3.3) in a right-to-left block. */
+  .band { height: 22px; background: #cde; margin-bottom: 4px }
+  .narrow { width: 200px }
+  .start-auto { width: 200px; margin-inline-start: auto }
+  .end-auto { width: 200px; margin-inline-end: auto }
+  .both-auto { width: 200px; margin-left: auto; margin-right: auto }
+  .wide { width: 900px; background: #dfd }
+
+  /* Stages for out-of-flow boxes. */
+  .stage { position: relative; height: 96px; border: 2px solid #444;
+           background: #f4f4f4; margin-bottom: 6px }
+  .abs { position: absolute; background: #6c9; color: #fff; width: 120px; height: 24px }
+  .anchored-start { inset-inline-start: 10px; top: 4px; background: #69c }
+  .anchored-end { inset-inline-end: 10px; top: 32px; background: #96c }
+  .over { left: 40px; right: 40px; width: 120px; top: 60px; background: #c66 }
+
+  /* No offsets at all: the box stands where it would have been in flow. */
+  .static-block { position: absolute; width: 140px; height: 22px; font-size: 12px;
+                  line-height: 22px; background: #c93; color: #fff }
+  .static-inline { position: absolute; width: 100px; height: 18px;
+                   background: #393; color: #fff; font-size: 12px; line-height: 18px }
+  .indented { text-indent: 40px }
+  .padded { padding-inline-start: 30px; border-inline-start: 4px solid #a44 }
+
+  /* 9.4.3: a relatively positioned box with both offsets written is
+     over-constrained, and the one that gives way depends on direction. */
+  .rel-both { position: relative; left: 30px; right: 60px; background: #fd9 }
+
+  /* Already-mirrored layers, kept here as regression guards. */
+  .row { display: flex; background: #eee; margin-bottom: 4px }
+  .row div { background: #9ac; color: #fff; padding: 0 6px }
+  .row .grow { flex: 1 0 auto; background: #ca9 }
+  .grid { display: grid; grid-template-columns: 60px 1fr 40px; background: #eee }
+  .grid div { background: #ac9; color: #fff }
+  table { border-collapse: collapse; background: #fff }
+  td { border: 1px solid #888; padding: 0 6px }
+  .ltr-island { direction: ltr; background: #eef }
+</style>
+</head>
+<body>
+
+<h2>A block whose text runs from the right</h2>
+<p>This paragraph is laid out right to left, so it starts at the right edge and
+wraps on to a second line that also starts at the right.</p>
+<p style="text-align: start">start</p>
+<p style="text-align: end">end</p>
+<p style="text-align: left">left</p>
+<p style="text-align: right">right</p>
+<p class="indented">An indent comes off the end this line starts at.</p>
+<p class="padded">Padding and a border on the inline start edge.</p>
+
+<h2>The room a width leaves over</h2>
+<div class="band narrow"></div>
+<div class="band start-auto"></div>
+<div class="band end-auto"></div>
+<div class="band both-auto"></div>
+<div class="band wide"></div>
+
+<h2>Boxes out of the flow, anchored</h2>
+<div class="stage">
+  <div class="abs anchored-start">inline start</div>
+  <div class="abs anchored-end">inline end</div>
+  <div class="abs over">left 40 right 40</div>
+</div>
+
+<h2>Boxes out of the flow with no offsets at all</h2>
+<div class="stage">
+  <div class="static-block">block level</div>
+</div>
+<div class="stage">
+  <p>A line of words, and then <span class="static-inline">inline level</span>
+  the rest of the line.</p>
+</div>
+<div class="stage indented">
+  <div class="static-block">after an indent</div>
+</div>
+<div class="stage padded">
+  <div class="static-block">inside padding</div>
+</div>
+
+<h2>A box whose two containing blocks disagree</h2>
+<div class="stage" style="direction: ltr">
+  <div style="direction: rtl">
+    <div class="abs over" style="top: 4px">left 40 right 40</div>
+    <div class="static-block" style="top: 40px">no offsets</div>
+  </div>
+</div>
+
+<h2>Relative, with both offsets written</h2>
+<p class="rel-both">Shifted by the offset the direction does not ignore.</p>
+
+<h2>Layers that already mirror</h2>
+<div class="row"><div>one</div><div>two</div><div class="grow">grow</div></div>
+<div class="grid"><div>a</div><div>b</div><div>c</div></div>
+<table><tr><td>first</td><td>second</td><td>third</td></tr></table>
+<p class="ltr-island">An island that reads the other way.</p>
+<p>A mixed line: &#x5D0;&#x5D1;&#x5D2; between &#x5D3;&#x5D4;&#x5D5; the words
+(and a bracket).</p>
+
+</body>
+</html>
