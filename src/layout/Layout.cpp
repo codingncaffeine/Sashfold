@@ -4707,6 +4707,29 @@ struct Layouter {
         return height;
     }
 
+
+    // Where an item's first baseline falls below the top of its border box,
+    // laid out at the width it is going to have. Nothing answers when the
+    // item makes no line at all — an empty box has no baseline of its own,
+    // and css-align-3 §9.3 aligns it by its start edge instead.
+    std::optional<float> measure_item_baseline(dom::Element const* element, ComputedStyle const& s,
+        std::vector<InlineItem> const& inline_items, float width, float containing_width,
+        int list_depth) const
+    {
+        FloatContext scratch_floats;
+        if (!element) {
+            Fragment scratch;
+            layout_lines(inline_items, s, 0, 0, width, scratch, scratch_floats, list_depth);
+            return scratch.first_baseline;
+        }
+        BlockOptions options;
+        options.content_width = width;
+        options.zero_auto_margins = true;
+        options.own_context = true;
+        Fragment const box = layout_block(*element, s, 0, 0, containing_width, list_depth, scratch_floats,
+            options);
+        return box.first_baseline;
+    }
     float measure_item_height(FlexItem const& item, float width, float containing_width,
         int list_depth) const
     {
@@ -5435,6 +5458,9 @@ struct Layouter {
         float content_width = 0;
         float x_offset = 0;
         float measured_height = 0;
+        // How far this item is pushed down its area so that its first
+        // baseline meets the one its row shares.
+        float baseline_shift = 0;
     };
 
     // The items in order-modified document order. Out-of-flow children are
@@ -5892,7 +5918,10 @@ struct Layouter {
         grid::Contribution contribution;
         contribution.start = item.area.row_start;
         contribution.end = item.area.row_end;
-        float outer = item.measured_height;
+        // A baseline-aligned item pushed down its area asks the row for that
+        // room too: the row then measures the furthest baseline plus the
+        // deepest descent below one, which is what a shared baseline needs.
+        float outer = item.measured_height + item.baseline_shift;
         float minimum = outer;
         if (item.element) {
             ComputedStyle const& s = *item.style;
@@ -5915,6 +5944,14 @@ struct Layouter {
     // Lays an item out in its area: across it as the column pass settled,
     // down it by align-self — stretched to the area's height, sized as
     // written, or its own height placed (auto margins first).
+    // How a grid item sits down its area: its own align-self, else the
+    // container's align-items. Asked in two places — once to gather the
+    // baselines a row shares, once to place the item — so it is one answer.
+    static css::AlignItems grid_block_alignment(ComputedStyle const& item, ComputedStyle const& container)
+    {
+        return item.align_self == css::AlignItems::Auto ? container.align_items : item.align_self;
+    }
+
     void place_grid_item(GridItem const& item, float area_x, float area_y, float area_width,
         float area_height, ComputedStyle const& container, int list_depth, Fragment& parent) const
     {
@@ -5937,7 +5974,7 @@ struct Layouter {
         float const margin_bottom = resolve(s.margin_bottom, area_width);
         float const edges = resolve(s.padding_top, area_width) + resolve(s.padding_bottom, area_width)
             + s.border_top.width + s.border_bottom.width;
-        css::AlignItems align = s.align_self == css::AlignItems::Auto ? container.align_items : s.align_self;
+        css::AlignItems align = grid_block_alignment(s, container);
         bool const own_size = keeps_own_size(item);
         if (align == css::AlignItems::Normal || align == css::AlignItems::Auto)
             align = own_size ? css::AlignItems::FlexStart : css::AlignItems::Stretch;
@@ -5960,7 +5997,7 @@ struct Layouter {
             offset = free;
         else if (!auto_bottom && align == css::AlignItems::Center)
             offset = free / 2;
-        float const y = area_y + offset + margin_top;
+        float const y = area_y + offset + margin_top + item.baseline_shift;
         if (item.generated) {
             parent.children.push_back(layout_generated_block(*item.generated, *item.element, x, y, area_width,
                 scratch_floats, item.content_width, content_height));
@@ -6184,6 +6221,43 @@ struct Layouter {
             size_grid_item_width(item, width, style);
             item.measured_height = grid_item_height(item, width, list_depth);
             widths[i] = width;
+        }
+        // css-align-3 §9: the items of a row that are aligned by baseline
+        // share one. Each is measured at the width it is about to have, the
+        // furthest first baseline from the row's start edge wins, and the
+        // others are pushed down to meet it. An item whose content makes no
+        // line has no baseline to share and keeps the start edge, which is
+        // what the fallback alignment says. A group of one has nothing to
+        // meet and is left alone.
+        {
+            std::map<int, std::vector<std::size_t>> sharing;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (grid_block_alignment(*items[i].style, style) == css::AlignItems::Baseline)
+                    sharing[items[i].area.row_start].push_back(i);
+            }
+            for (auto const& [row, group] : sharing) {
+                if (group.size() < 2)
+                    continue;
+                std::vector<std::optional<float>> ascents(group.size());
+                float furthest = 0;
+                bool any = false;
+                for (std::size_t k = 0; k < group.size(); ++k) {
+                    GridItem const& item = items[group[k]];
+                    std::optional<float> const baseline = measure_item_baseline(item.element, *item.style,
+                        item.inline_items, item.content_width, content_width, list_depth);
+                    if (!baseline)
+                        continue;
+                    ascents[k] = resolve(item.style->margin_top, content_width) + *baseline;
+                    furthest = any ? std::max(furthest, *ascents[k]) : *ascents[k];
+                    any = true;
+                }
+                if (!any)
+                    continue;
+                for (std::size_t k = 0; k < group.size(); ++k) {
+                    if (ascents[k])
+                        items[group[k]].baseline_shift = furthest - *ascents[k];
+                }
+            }
         }
 
         // Rows: sized within the container's definite height, else to their

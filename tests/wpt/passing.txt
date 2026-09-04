@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8339 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8346 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6252,6 +6252,7 @@ css/css-grid/abspos/positioned-grid-items-negative-indices-002.html
 css/css-grid/abspos/positioned-grid-items-negative-indices-003.html
 css/css-grid/abspos/positioned-grid-items-sizing-001.html
 css/css-grid/alignment/grid-align-baseline-005.html
+css/css-grid/alignment/grid-align-baseline-explicit-placement.html
 css/css-grid/alignment/grid-align-content-end-001.html
 css/css-grid/alignment/grid-align-content-space-between-001.html
 css/css-grid/alignment/grid-baseline-002.html
@@ -6346,7 +6347,13 @@ css/css-grid/alignment/grid-justify-content-space-between-001.html
 css/css-grid/alignment/grid-self-alignment-baseline-gfc-001.html
 css/css-grid/alignment/grid-self-alignment-baseline-with-grid-001.html
 css/css-grid/alignment/grid-self-alignment-baseline-with-grid-002.html
+css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-001.html
+css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-002.html
+css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-004.html
+css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-005.html
+css/css-grid/alignment/self-baseline/grid-self-baseline-horiz-001.html
 css/css-grid/alignment/self-baseline/grid-self-baseline-vertical-lr-003.html
+css/css-grid/alignment/self-baseline/grid-self-baseline-vertical-rl-001.html
 css/css-grid/anonymous-grid-items-001.html
 css/css-grid/anonymous-grid-items-002.html
 css/css-grid/child-border-box-and-max-content-001.html
