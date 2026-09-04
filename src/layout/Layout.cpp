@@ -750,7 +750,8 @@ struct Layouter {
     // in the positioned layer, is a stacking context with a z-index or an
     // opacity below one, and a relative one is shifted by its offsets. Called
     // once the flow has read the box's bottom, since the shift is not flow.
-    static void mark_positioned(Fragment& box, ComputedStyle const& style, float containing_width)
+    static void mark_positioned(Fragment& box, ComputedStyle const& style, float containing_width,
+        bool cb_rtl = false)
     {
         if (style.transformed) {
             // A translation moves the box after layout, percentages of its
@@ -764,18 +765,23 @@ struct Layouter {
         box.z_index = style.z_index.value_or(0);
         box.stacking_context = box.stacking_context || style.z_index.has_value() || style.opacity < 1;
         if (style.position == css::Position::Relative)
-            shift_fragment(box, relative_dx(style, containing_width), relative_dy(style));
+            shift_fragment(box, relative_dx(style, containing_width, cb_rtl), relative_dy(style));
     }
 
     // A relatively positioned box's shift: left, else the negative of
     // right; top, else the negative of bottom (percentages of the
     // containing block's width horizontally; vertical percentages wait for
-    // a definite height and count as zero).
-    static float relative_dx(ComputedStyle const& style, float containing_width)
+    // a definite height and count as zero). With both offsets written the
+    // pair is over-constrained and one is ignored — the right when the
+    // containing block reads left to right, the left when it reads the
+    // other way (§9.4.3).
+    static float relative_dx(ComputedStyle const& style, float containing_width, bool cb_rtl = false)
     {
-        if (!style.left.is_auto())
+        bool const has_left = !style.left.is_auto();
+        bool const has_right = !style.right.is_auto();
+        if (has_left && (!has_right || !cb_rtl))
             return resolve(style.left, containing_width);
-        if (!style.right.is_auto())
+        if (has_right)
             return -resolve(style.right, containing_width);
         return 0;
     }
@@ -1824,6 +1830,10 @@ struct Layouter {
             line.push_back(std::move(placed));
         };
         float line_width = 0;
+        // The block is the containing block for everything on its lines, so
+        // its own direction — not the paragraph's, which the content can
+        // settle for itself — is the one the relative offsets ask about.
+        bool const block_rtl = block_style.direction == css::Direction::Rtl;
         // The room the current line has between floats, found where it starts.
         float line_left = content_x;
         float line_avail = content_width;
@@ -1884,7 +1894,7 @@ struct Layouter {
                 return;
             for (InlineItem const* pending : pending_floats) {
                 place_float(*pending->element, *pending->style, content_x, content_x + content_width, y,
-                    list_depth, floats, out);
+                    list_depth, floats, out, block_rtl);
             }
             pending_floats.clear();
             start_line();
@@ -2158,7 +2168,7 @@ struct Layouter {
                         + resolve(placed.style->margin_top, content_width);
                     shift_fragment(*placed.block, dx, dy);
                     shift_recorded(placed.since, placed.until, dx, dy);
-                    mark_positioned(*placed.block, *placed.style, content_width);
+                    mark_positioned(*placed.block, *placed.style, content_width, block_rtl);
                     out.children.push_back(std::move(*placed.block));
                 } else if (placed.is_image) {
                     // The border box inside the margin box, the content
@@ -2179,7 +2189,7 @@ struct Layouter {
                     // An atomic inline box is positioned like any other: its
                     // own offsets move it off the line it was placed on, and
                     // a z-index or an opacity makes it a stacking context.
-                    mark_positioned(box, *placed.style, content_width);
+                    mark_positioned(box, *placed.style, content_width, block_rtl);
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
                     // Rule L2 again, this time inside the run: painting walks
@@ -2276,7 +2286,7 @@ struct Layouter {
                 ComputedStyle const& s = *run.style;
                 if (s.position != css::Position::Relative)
                     continue;
-                float const dx = relative_dx(s, content_width);
+                float const dx = relative_dx(s, content_width, block_rtl);
                 float const dy = relative_dy(s);
                 if (dx == 0 && dy == 0)
                     continue;
@@ -2434,7 +2444,7 @@ struct Layouter {
                     continue;
                 }
                 place_float(*item.element, *item.style, content_x, content_x + content_width, y,
-                    list_depth, floats, out);
+                    list_depth, floats, out, block_rtl);
                 start_line();
                 continue;
             }
@@ -3189,7 +3199,8 @@ struct Layouter {
                     pending_inline.push_back(InlineItem { InlineItem::Kind::Float, {}, &box.style, &element });
                 else
                     place_float(element, box.style, content_x, content_x + content_width,
-                        cursor + previous_bottom_margin, list_depth, floats, fragment);
+                        cursor + previous_bottom_margin, list_depth, floats, fragment,
+                        style.direction == css::Direction::Rtl);
             } else if (is_block_level(box.style)) {
                 place_generated(box);
             } else {
@@ -3271,7 +3282,8 @@ struct Layouter {
                         InlineItem { InlineItem::Kind::Float, {}, child_style, &child_element });
                 else
                     place_float(child_element, *child_style, content_x, content_x + content_width,
-                        cursor + previous_bottom_margin, list_depth, floats, fragment);
+                        cursor + previous_bottom_margin, list_depth, floats, fragment,
+                        style.direction == css::Direction::Rtl);
                 continue;
             }
             if (!is_block_level(*child_style)) {
@@ -3399,7 +3411,7 @@ struct Layouter {
             // its bottom; sticky stays put until scroll containers land.
             // Either paints in the positioned layer.
             auto const hand_over = [&](Fragment& box) {
-                mark_positioned(box, *child_style, content_width);
+                mark_positioned(box, *child_style, content_width, style.direction == css::Direction::Rtl);
                 fragment.children.push_back(std::move(box));
             };
 
@@ -3927,7 +3939,7 @@ struct Layouter {
     // containing block's content edges [x0, x1] and beside the floats already
     // there; its box joins `parent`.
     void place_float(dom::Element const& element, ComputedStyle const& style, float x0, float x1,
-        float y, int list_depth, FloatContext& floats, Fragment& parent) const
+        float y, int list_depth, FloatContext& floats, Fragment& parent, bool cb_rtl) const
     {
         float const containing_width = x1 - x0;
         FloatWidth const width = float_width(element, style, containing_width);
@@ -3957,7 +3969,7 @@ struct Layouter {
         floats.floats.push_back(FloatBox { outer_left, outer_left + width.outer(), y,
             box.y + box.height + margin_bottom, is_left });
         box.floating = true;
-        mark_positioned(box, style, containing_width); // a relative float paints in the positioned layer
+        mark_positioned(box, style, containing_width, cb_rtl); // a relative float paints in the positioned layer
         parent.children.push_back(std::move(box));
     }
 
@@ -4059,7 +4071,7 @@ struct Layouter {
 
     // Lays an item out at its settled sizes, its margin box at (x, y).
     void place_flex_item(FlexItem const& item, bool horizontal, float x, float y,
-        float containing_width, int list_depth, Fragment& parent) const
+        float containing_width, int list_depth, Fragment& parent, bool cb_rtl) const
     {
         float const content_w = horizontal ? item.main : item.cross;
         float const content_h = horizontal ? item.cross : item.main;
@@ -4088,7 +4100,7 @@ struct Layouter {
         options.own_context = true;
         Fragment box = layout_block(*item.element, *item.style, x, y + margin_top,
             containing_width, list_depth, scratch_floats, options);
-        mark_positioned(box, *item.style, containing_width);
+        mark_positioned(box, *item.style, containing_width, cb_rtl);
         mark_item_layer(box, *item.style);
         parent.children.push_back(std::move(box));
     }
@@ -4450,7 +4462,7 @@ struct Layouter {
             Fragment box = layout_block(*caption.element, *caption.style, wrapper_x, cursor + top, table_width,
                 list_depth, scratch, BlockOptions {});
             cursor = box.y + box.height + bottom;
-            mark_positioned(box, *caption.style, table_width);
+            mark_positioned(box, *caption.style, table_width, style.direction == css::Direction::Rtl);
             wrapper.children.push_back(std::move(box));
         };
         for (table::Caption const& caption : structure.captions) {
@@ -4718,7 +4730,7 @@ struct Layouter {
                     cb.fragment.y = row_y[at(cell.row)];
                     cb.fragment.height = cell_height;
                     if (!cell.anonymous())
-                        mark_positioned(cb.fragment, *cell.style, cb.width);
+                        mark_positioned(cb.fragment, *cell.style, cb.width, style.direction == css::Direction::Rtl);
                     if (!table_baseline && cell.row == 0 && cb.fragment.first_baseline)
                         table_baseline = cb.fragment.first_baseline;
                     rf.children.push_back(std::move(cb.fragment));
@@ -5298,7 +5310,7 @@ struct Layouter {
         options.own_context = true;
         options.containing_height = area_height;
         Fragment box = layout_block(*item.element, s, x, y, area_width, list_depth, scratch_floats, options);
-        mark_positioned(box, s, area_width);
+        mark_positioned(box, s, area_width, container.direction == css::Direction::Rtl);
         mark_item_layer(box, s);
         parent.children.push_back(std::move(box));
     }
@@ -6121,7 +6133,8 @@ struct Layouter {
                                            : content_x + cross_cursor + cross_pos;
                 float const y = horizontal ? content_y + cross_cursor + cross_pos
                                            : content_y + main_cursor;
-                place_flex_item(item, horizontal, x, y, content_width, list_depth, fragment);
+                place_flex_item(item, horizontal, x, y, content_width, list_depth, fragment,
+                    style.direction == css::Direction::Rtl);
                 main_cursor += item.outer_main() + between;
             }
             cross_cursor += height_of_line + line_gap;

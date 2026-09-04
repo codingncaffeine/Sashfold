@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7661 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7664 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -3484,6 +3484,7 @@ css/CSS2/positioning/position-relative-005.xht
 css/CSS2/positioning/position-relative-006.xht
 css/CSS2/positioning/position-relative-007.xht
 css/CSS2/positioning/position-relative-009.xht
+css/CSS2/positioning/position-relative-010.xht
 css/CSS2/positioning/position-relative-013.xht
 css/CSS2/positioning/position-relative-014.xht
 css/CSS2/positioning/position-relative-015.xht
@@ -3498,12 +3499,14 @@ css/CSS2/positioning/position-relative-032.xht
 css/CSS2/positioning/position-relative-033.xht
 css/CSS2/positioning/position-relative-035.xht
 css/CSS2/positioning/position-relative-037.xht
+css/CSS2/positioning/position-relative-038.xht
 css/CSS2/positioning/position-static-001.xht
 css/CSS2/positioning/positioning-float-001.xht
 css/CSS2/positioning/positioning-float-002.xht
 css/CSS2/positioning/relpos-calcs-003.xht
 css/CSS2/positioning/relpos-calcs-004.xht
 css/CSS2/positioning/relpos-calcs-005.xht
+css/CSS2/positioning/relpos-calcs-006.xht
 css/CSS2/positioning/right-004.xht
 css/CSS2/positioning/right-005.xht
 css/CSS2/positioning/right-006.xht
