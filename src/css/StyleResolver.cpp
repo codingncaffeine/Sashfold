@@ -50,20 +50,20 @@ colgroup { display: table-column-group }
 td, th { display: table-cell; vertical-align: inherit; padding: 1px }
 th { font-weight: bold }
 li { display: list-item }
-p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-top: 1em; margin-bottom: 1em }
-blockquote, figure { margin-left: 40px; margin-right: 40px }
+p, blockquote, figure, dl, ol, ul, pre, listing, plaintext, xmp { margin-block-start: 1em; margin-block-end: 1em }
+blockquote, figure { margin-inline-start: 40px; margin-inline-end: 40px }
 ol, ul, dir, menu { padding-inline-start: 40px }
 ol, ul, dir, menu { counter-reset: list-item }
 ol { list-style-type: decimal }
 ul ul { list-style-type: circle }
 ul ul ul { list-style-type: square }
 dd { margin-inline-start: 40px }
-h1 { font-size: 2em; margin-top: 0.67em; margin-bottom: 0.67em; font-weight: bold }
-h2 { font-size: 1.5em; margin-top: 0.83em; margin-bottom: 0.83em; font-weight: bold }
-h3 { font-size: 1.17em; margin-top: 1em; margin-bottom: 1em; font-weight: bold }
-h4 { margin-top: 1.33em; margin-bottom: 1.33em; font-weight: bold }
-h5 { font-size: 0.83em; margin-top: 1.67em; margin-bottom: 1.67em; font-weight: bold }
-h6 { font-size: 0.67em; margin-top: 2.33em; margin-bottom: 2.33em; font-weight: bold }
+h1 { font-size: 2em; margin-block-start: 0.67em; margin-block-end: 0.67em; font-weight: bold }
+h2 { font-size: 1.5em; margin-block-start: 0.83em; margin-block-end: 0.83em; font-weight: bold }
+h3 { font-size: 1.17em; margin-block-start: 1em; margin-block-end: 1em; font-weight: bold }
+h4 { margin-block-start: 1.33em; margin-block-end: 1.33em; font-weight: bold }
+h5 { font-size: 0.83em; margin-block-start: 1.67em; margin-block-end: 1.67em; font-weight: bold }
+h6 { font-size: 0.67em; margin-block-start: 2.33em; margin-block-end: 2.33em; font-weight: bold }
 b, strong { font-weight: bolder }
 i, em, cite, dfn, var, address { font-style: italic }
 small { font-size: 0.83em }
@@ -77,7 +77,7 @@ a:link { color: rgb(0, 0, 238); text-decoration: underline }
 s, strike, del { text-decoration: line-through }
 u, ins { text-decoration: underline }
 center, caption, th { text-align: center }
-hr { margin-top: 0.5em; margin-bottom: 0.5em; border-top: 1px solid; color: gray }
+hr { margin-block-start: 0.5em; margin-block-end: 0.5em; border-block-start: 1px solid; color: gray }
 mark { background-color: yellow }
 input, textarea, select, button { font-size: 13.333px; line-height: normal; font-family: sans-serif }
 input[type=hidden] { display: none }

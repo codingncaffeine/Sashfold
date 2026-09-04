@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8171 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8186 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -7872,10 +7872,12 @@ css/css-writing-modes/bidi-unset-009.html
 css/css-writing-modes/block-embed-002.html
 css/css-writing-modes/block-flow-direction-004.xht
 css/css-writing-modes/block-flow-direction-htb-001.xht
+css/css-writing-modes/block-flow-direction-slr-066.xht
 css/css-writing-modes/block-flow-direction-srl-042.xht
 css/css-writing-modes/block-flow-direction-srl-059.xht
 css/css-writing-modes/block-flow-direction-srl-061.xht
 css/css-writing-modes/block-flow-direction-srl-064.xht
+css/css-writing-modes/block-flow-direction-srl-065.xht
 css/css-writing-modes/block-flow-direction-vlr-003.xht
 css/css-writing-modes/block-flow-direction-vlr-010.xht
 css/css-writing-modes/block-flow-direction-vlr-018.xht
@@ -7886,6 +7888,7 @@ css/css-writing-modes/block-flow-direction-vrl-002.xht
 css/css-writing-modes/block-flow-direction-vrl-019.xht
 css/css-writing-modes/block-flow-direction-vrl-021.xht
 css/css-writing-modes/block-flow-direction-vrl-024.xht
+css/css-writing-modes/block-flow-direction-vrl-025.xht
 css/css-writing-modes/block-override-002.html
 css/css-writing-modes/block-override-003.html
 css/css-writing-modes/block-override-isolate-002.html
@@ -8132,9 +8135,21 @@ css/css-writing-modes/vertical-alignment-srl-032.xht
 css/css-writing-modes/vlr-text-orientation-sideways-alongside-vlr-floats.html
 css/css-writing-modes/vrl-text-orientation-sideways-alongside-vrl-floats.html
 css/css-writing-modes/wm-propagation-002.html
+css/css-writing-modes/wm-propagation-body-032.html
+css/css-writing-modes/wm-propagation-body-034.html
+css/css-writing-modes/wm-propagation-body-035.html
+css/css-writing-modes/wm-propagation-body-036.html
+css/css-writing-modes/wm-propagation-body-038.html
+css/css-writing-modes/wm-propagation-body-039.html
 css/css-writing-modes/wm-propagation-body-040.html
+css/css-writing-modes/wm-propagation-body-043.html
+css/css-writing-modes/wm-propagation-body-045.html
+css/css-writing-modes/wm-propagation-body-046.html
 css/css-writing-modes/wm-propagation-body-048.html
+css/css-writing-modes/wm-propagation-body-051.html
 css/css-writing-modes/wm-propagation-body-052.html
+css/css-writing-modes/wm-propagation-body-053.html
+css/css-writing-modes/wm-propagation-body-055.html
 css/css-writing-modes/writing-mode-horizontal-001l.html
 css/css-writing-modes/writing-mode-horizontal-001r.html
 css/css-writing-modes/writing-mode-vertical-lr-002.xht
