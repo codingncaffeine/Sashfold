@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 0 8px }
+  .plain { background: #ffd }
+  .lifted { position: relative; z-index: 1; background: #9c6; color: #030 }
+  .sunk { position: relative; z-index: -1; background: #c99 }
+  .cover { position: relative; width: 300px; height: 24px; background: #69c; margin-top: -20px }
+  .inner { position: relative; z-index: 2; background: #f9c }
+  .moved { transform: translate(24px, 0); background: #fc9 }
+  .faint { opacity: 0; background: #ccc }
+  .stuck { position: sticky; top: 40px; background: #cef }
+  .port { overflow: hidden; height: 90px; border: 2px solid #666; background: #f6f6f6 }
+  .tall { height: 80px; margin: 0 }
+  .box { border: 2px solid #666; padding: 4px; background: #f6f6f6 }
+</style>
+</head>
+<body>
+<p>A <span class="plain">box behind a line</span> paints where it always did.</p>
+<div class="box">
+  <p>An inline box <span class="lifted">lifted by a z-index</span> keeps its words.</p>
+  <div class="cover">a cover drawn after it</div>
+</div>
+<div class="box">
+  <p>An inline box <span class="sunk">sunk under the flow</span> keeps its words.</p>
+  <div class="cover">a cover drawn after it</div>
+</div>
+<p>Nested: <span class="lifted">outer <span class="inner">inner</span> outer</span> and after.</p>
+<p>Turned: <span class="moved">shifted right</span> and the line keeps its room.</p>
+<p>Gone: <span class="faint">invisible</span> and the line keeps its room.</p>
+<div class="port">
+  <p class="tall">Stuck: <span class="stuck">40 down the scrollport</span> and no further.</p>
+</div>
+<p>The end of the page.</p>
+</body>
+</html>

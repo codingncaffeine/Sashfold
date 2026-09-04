@@ -796,6 +796,25 @@ struct Layouter {
             shift_fragment(child, dx, dy);
     }
 
+    // Takes out of a list the entries marked from `first` on, keeping the
+    // rest in the order they were in. `taken` is one flag per entry from
+    // `first` to the end. A list is compacted once, after everything that
+    // reads it by index has finished, because every removal moves the
+    // entries after it.
+    template <typename T>
+    static void compact(std::vector<T>& list, std::size_t first, std::vector<bool> const& taken)
+    {
+        std::size_t keep = first;
+        for (std::size_t i = first; i < list.size(); ++i) {
+            if (taken[i - first])
+                continue;
+            if (keep != i)
+                list[keep] = std::move(list[i]);
+            ++keep;
+        }
+        list.resize(keep);
+    }
+
     // Marks a laid-out box as positioned when its style says so — it paints
     // in the positioned layer, is a stacking context with a z-index or an
     // opacity below one, and a relative one is shifted by its offsets. Called
@@ -1568,6 +1587,21 @@ struct Layouter {
             || draws(style.border_right) || draws(style.border_bottom) || draws(style.border_left);
     }
 
+    // Whether an inline box has to be painted as a unit of its own rather
+    // than as the paint behind its line: a z-index puts it at a level of
+    // its own, a transparency and a transform apply to everything inside
+    // it at once, and a box that sticks is moved after layout by a pass
+    // that shifts a fragment and whatever it holds. Each of those needs
+    // the box's words to travel with the box, which is what packing does.
+    // A relative offset alone does not: §9.4.3 already moves the line's
+    // content in place, and leaving such a box in the flow keeps the paint
+    // order every page depends on today.
+    static bool inline_box_makes_layer(ComputedStyle const& style)
+    {
+        return (style.positioned() && style.z_index.has_value()) || style.opacity < 1
+            || style.transformed || style.position == css::Position::Sticky;
+    }
+
     // What an inline box's edge takes on the line where it opens or closes:
     // its margin, border and padding on that side (CSS 2.1 §8.4 — the
     // vertical ones take no room, the horizontal ones do). A box broken over
@@ -2230,6 +2264,11 @@ struct Layouter {
             std::size_t to; // one past the last entry, its closing edge included
             bool opened_here; // its left edge is on this line
             bool closed_here; // its right edge is on this line
+            // How many inline boxes stood open around this one. A box that
+            // makes a paint layer takes what is inside it along, and the
+            // deeper of two has to be packed first so that it travels
+            // inside the shallower rather than being left on the line.
+            std::size_t depth;
         };
         float y = content_y;
         std::vector<Placed> line;
@@ -2676,9 +2715,11 @@ struct Layouter {
             // its end stops here and opens again on the next, as CSS 2.1
             // §8.4 breaks it. Each is drawn around the content area its own
             // font gives it, its padding and border outside that.
-            for (OpenBox const& box : open_boxes)
+            for (std::size_t d = 0; d < open_boxes.size(); ++d) {
+                OpenBox const& box = open_boxes[d];
                 box_runs.push_back(BoxRun { box.style, box.element, box.from, line.size(),
-                    box.opened_here, false });
+                    box.opened_here, false, d });
+            }
             // Which fragment each box run left in `out.children`, so a
             // relatively positioned one can be shifted with its content once
             // every run on the line has its box. Absent when the box draws
@@ -2687,8 +2728,8 @@ struct Layouter {
             for (std::size_t r = 0; r < box_runs.size(); ++r) {
                 BoxRun const& run = box_runs[r];
                 ComputedStyle const& s = *run.style;
-                if (!paints_anything(s))
-                    continue; // nothing to draw: no box, and no room taken by one
+                if (!paints_anything(s) && !inline_box_makes_layer(s))
+                    continue; // nothing to draw, and nothing to hold: no box at all
                 // The room the entries inside the box actually occupy. In
                 // one direction they are contiguous and this is where the
                 // box opened and where it closed; where the line changes
@@ -2768,19 +2809,20 @@ struct Layouter {
                     for (std::size_t i = child_from[k]; i < child_to[k]; ++i)
                         shift_fragment(out.children[i], dx, dy);
                 }
-                // The boxes that closed inside this one have their fragments
-                // past the line's own entries, so they are shifted by name.
-                for (std::size_t inner = 0; inner < r; ++inner) {
+                // The boxes inside this one have their fragments past the
+                // line's own entries, so they are shifted by name. A box is
+                // inside this one when it stood deeper and its entries are
+                // within its ends: closing order alone would miss a nested
+                // box that is still open where the line runs out, since
+                // those are recorded outermost first.
+                for (std::size_t inner = 0; inner < box_runs.size(); ++inner) {
+                    if (inner == r || box_runs[inner].depth <= run.depth)
+                        continue;
                     if (box_runs[inner].from < from || box_runs[inner].to > to)
                         continue;
                     if (std::optional<std::size_t> const nested = box_fragment[inner])
                         shift_fragment(out.children[*nested], dx, dy);
                 }
-            }
-            box_runs.clear();
-            for (OpenBox& box : open_boxes) {
-                box.from = 0; // it starts the next line at its left edge
-                box.opened_here = false;
             }
             // The line is finished. In a frame whose ascenders point at the
             // block end, everything on it is turned over within the line's
@@ -2797,6 +2839,99 @@ struct Layouter {
                     shift_fragment(box, 0, across - 2 * box.y - box.height);
                 }
                 line_baseline = across - baseline;
+            }
+            // An inline box that makes a paint layer takes its words with
+            // it. Its fragment is otherwise only the paint behind the
+            // line — the content is in the block's own lists — so flagging
+            // it and leaving them there would draw its background over the
+            // words it belongs to. Every run and every box this line left
+            // behind is claimed by the innermost inline box that both holds
+            // it and makes a layer; the boxes are walked innermost first so
+            // that a nested one is packed before the box around it and
+            // travels inside it. Everything is already in page
+            // coordinates, so nothing is measured again.
+            //
+            // ⛔ This runs after the turn-over above, which mirrors exactly
+            // the runs and children it moves away — and each of those needs
+            // its own mirror about the line, not the rigid one its box
+            // would carry it through.
+            if (!box_runs.empty()) {
+                std::vector<std::size_t> innermost_first;
+                for (std::size_t r = 0; r < box_runs.size(); ++r) {
+                    if (inline_box_makes_layer(*box_runs[r].style) && box_fragment[r])
+                        innermost_first.push_back(r);
+                }
+                std::stable_sort(innermost_first.begin(), innermost_first.end(),
+                    [&](std::size_t a, std::size_t b) { return box_runs[a].depth > box_runs[b].depth; });
+                // Claimed once and once only: a run already inside a nested
+                // box is not on the line any more, and the compaction at the
+                // end is what actually takes the claimed entries out of the
+                // block's lists — splicing as each box was packed would move
+                // every index still to be read.
+                std::vector<bool> claimed_run(out.runs.size() - runs_before, false);
+                std::vector<bool> claimed_child(out.children.size() - children_before, false);
+                for (std::size_t const r : innermost_first) {
+                    BoxRun const& run = box_runs[r];
+                    std::size_t const own = *box_fragment[r];
+                    std::size_t const from = std::min(run.from, line.size());
+                    std::size_t const to = std::min(run.to, line.size());
+                    std::vector<std::size_t> runs;
+                    std::vector<std::size_t> children;
+                    for (std::size_t k = from; k < to; ++k) {
+                        for (std::size_t i = run_from[k]; i < run_to[k]; ++i) {
+                            if (!claimed_run[i - runs_before])
+                                runs.push_back(i);
+                        }
+                        for (std::size_t i = child_from[k]; i < child_to[k]; ++i) {
+                            if (!claimed_child[i - children_before])
+                                children.push_back(i);
+                        }
+                    }
+                    // The boxes inside this one are past the line's entries,
+                    // so they join by name — with whatever they have already
+                    // packed inside them.
+                    for (std::size_t inner = 0; inner < box_runs.size(); ++inner) {
+                        if (inner == r || box_runs[inner].depth <= run.depth)
+                            continue;
+                        if (box_runs[inner].from < from || box_runs[inner].to > to)
+                            continue;
+                        std::optional<std::size_t> const nested = box_fragment[inner];
+                        if (nested && !claimed_child[*nested - children_before])
+                            children.push_back(*nested);
+                    }
+                    // In the order the block recorded them, which is the
+                    // order they are painted in.
+                    std::sort(children.begin(), children.end());
+                    Fragment& box = out.children[own];
+                    for (std::size_t const i : runs) {
+                        claimed_run[i - runs_before] = true;
+                        box.runs.push_back(std::move(out.runs[i]));
+                    }
+                    for (std::size_t const i : children) {
+                        claimed_child[i - children_before] = true;
+                        box.children.push_back(std::move(out.children[i]));
+                    }
+                    ComputedStyle const& s = *run.style;
+                    box.positioned = s.positioned();
+                    box.z_index = s.z_index.value_or(0);
+                    box.stacking_context
+                        = (s.positioned() && s.z_index.has_value()) || s.opacity < 1 || s.transformed;
+                    // The relative shift was applied above, to the fragment
+                    // and to its content separately, while they were still
+                    // apart; a translation is applied here, once, because
+                    // the content now travels with the box.
+                    if (s.transformed) {
+                        shift_fragment(box, resolve(s.translate_x, box.width),
+                            resolve(s.translate_y, box.height));
+                    }
+                }
+                compact(out.runs, runs_before, claimed_run);
+                compact(out.children, children_before, claimed_child);
+            }
+            box_runs.clear();
+            for (OpenBox& box : open_boxes) {
+                box.from = 0; // it starts the next line at its left edge
+                box.opened_here = false;
             }
             out.last_baseline = line_baseline;
             if (!out.first_baseline)
@@ -2877,13 +3012,13 @@ struct Layouter {
                         OpenBox const box = open_boxes.back();
                         open_boxes.pop_back();
                         box_runs.push_back(BoxRun { box.style, box.element, box.from, line.size(),
-                            box.opened_here, true });
+                            box.opened_here, true, open_boxes.size() });
                     } else {
                         // A box that opened before these items: CSS 2.1
                         // §9.2.1.1 broke it around a block, and this run is
                         // what comes after. It closes here without opening.
-                        box_runs.push_back(
-                            BoxRun { item.style, item.element, 0, line.size(), false, true });
+                        box_runs.push_back(BoxRun { item.style, item.element, 0, line.size(), false,
+                            true, open_boxes.size() });
                     }
                 }
                 continue;
