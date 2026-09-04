@@ -58,6 +58,7 @@ int usage(char const* program)
               << "       " << program << " --font-info <file.ttf|file.ttc>\n"
               << "       " << program << " --font-list\n"
               << "       any mode: --fonts system|builtin   (system, except --script)\n"
+              << "       any mode: --add-font <file.ttf>    (repeatable)\n"
               << "       " << program << " --smoke [-o output.png]\n"
               << "\n"
               << "  With a URL or nothing, opens the browser window.\n"
@@ -75,6 +76,8 @@ int usage(char const* program)
               << "  --bench times parse, style, layout and paint of a page, several runs.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
+              << "  --add-font installs a font file for the page as if the machine had it,\n"
+              << "          which is how a render is taken in the font a test is scored in.\n"
               << "  --font-sampler draws the Sashfold Mono QA sheet.\n"
               << "  --smoke renders the paint smoke scene.\n";
     return 2;
@@ -1066,6 +1069,9 @@ int main(int argc, char** argv)
     std::string theme_path = default_theme_path(argv[0]);
     std::optional<std::string> downloads;
     std::string font_path;
+    // Files named on the command line, installed as if the machine had them:
+    // what lets a render be taken in the same font world a test scores in.
+    std::vector<std::string> added_fonts;
     std::string fonts_mode; // "system" or "builtin"; empty picks per mode
     int width = 0;
     int height = 0;
@@ -1099,6 +1105,11 @@ int main(int argc, char** argv)
         } else if (arg == "--font") {
             if (!value_after(i, font_path))
                 return usage(argv[0]);
+        } else if (arg == "--add-font") {
+            std::string file;
+            if (!value_after(i, file))
+                return usage(argv[0]);
+            added_fonts.push_back(file);
         } else if (arg == "--fonts") {
             if (!value_after(i, fonts_mode))
                 return usage(argv[0]);
@@ -1153,6 +1164,23 @@ int main(int argc, char** argv)
     // goldens must match on every OS.
     bool const system_fonts = fonts_mode.empty() ? mode != "--script" : fonts_mode == "system";
     text::FontManager::instance().set_system_fonts(system_fonts);
+
+    // A font file named here joins the catalogue as an installed face would,
+    // after the system fonts are settled so that --fonts builtin --add-font
+    // reaches exactly the faces asked for. A file that holds no outlined
+    // face is an error rather than a silent nothing: a mistyped path would
+    // otherwise lay the page out in a different font than the one intended,
+    // which is the whole reason this flag exists.
+    for (std::string const& file : added_fonts) {
+        std::size_t outlined = 0;
+        for (text::FaceInfo const& info : text::TrueTypeFont::scan_file(file))
+            outlined += info.has_outlines ? 1 : 0;
+        if (outlined == 0) {
+            std::cerr << "error: --add-font " << file << ": no outlined face to install\n";
+            return 1;
+        }
+        text::FontManager::instance().add_font_file(file);
+    }
 
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
