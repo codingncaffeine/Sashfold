@@ -1,0 +1,4 @@
+# The test262 commit the scores and the baseline refer to.
+# tools/test262-fetch.sh checks this revision out; move it deliberately,
+# then re-bless the baseline.
+419d3e0a2273ba01a3bfcbec423f2801425b8e93

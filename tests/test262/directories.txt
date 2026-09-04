@@ -1,0 +1,73 @@
+# The test262 directories the script-engine conformance runner scores,
+# relative to the checkout. A line starting with - excludes a path prefix
+# from the directories above it. tools/test262-fetch.sh checks out exactly
+# these (plus the harness).
+#
+# The language, in its own chapters.
+test/language/arguments-object
+test/language/asi
+test/language/block-scope
+test/language/comments
+test/language/computed-property-names
+test/language/destructuring
+test/language/directive-prologue
+test/language/eval-code
+test/language/export
+test/language/expressions
+test/language/function-code
+test/language/future-reserved-words
+test/language/global-code
+test/language/identifier-resolution
+test/language/identifiers
+test/language/import
+test/language/keywords
+test/language/line-terminators
+test/language/literals
+test/language/module-code
+test/language/punctuators
+test/language/reserved-words
+test/language/rest-parameters
+test/language/source-text
+test/language/statementList
+test/language/statements
+test/language/types
+test/language/white-space
+# The built-in library.
+test/built-ins/Array
+test/built-ins/Boolean
+test/built-ins/Date
+test/built-ins/Error
+test/built-ins/NativeErrors
+test/built-ins/Function
+test/built-ins/global
+test/built-ins/Infinity
+test/built-ins/isFinite
+test/built-ins/isNaN
+test/built-ins/JSON
+test/built-ins/Math
+test/built-ins/NaN
+test/built-ins/Number
+test/built-ins/Object
+test/built-ins/parseFloat
+test/built-ins/parseInt
+test/built-ins/RegExp
+test/built-ins/String
+test/built-ins/Symbol
+test/built-ins/undefined
+test/built-ins/eval
+test/built-ins/decodeURI
+test/built-ins/decodeURIComponent
+test/built-ins/encodeURI
+test/built-ins/encodeURIComponent
+# Annex B: the web's legacy grammar and library.
+test/annexB/language
+test/annexB/built-ins/RegExp
+test/annexB/built-ins/String
+test/annexB/built-ins/Date
+test/annexB/built-ins/escape
+test/annexB/built-ins/unescape
+test/annexB/built-ins/Object
+test/annexB/built-ins/Function
+# Excluded on size, not on standard: the generated Unicode property-escape
+# tests are hundreds of files each building strings of every code point.
+-test/built-ins/RegExp/property-escapes

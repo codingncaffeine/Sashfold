@@ -77,6 +77,20 @@ add_library(sashfold_core STATIC
   src/html/Tokenizer.cpp
   src/html/TreeBuilder.cpp
   src/html/TreeDump.cpp
+  src/js/Conversions.cpp
+  src/js/Heap.cpp
+  src/js/Interpreter.cpp
+  src/js/Lexer.cpp
+  src/js/Objects.cpp
+  src/js/Parser.cpp
+  src/js/Regex.cpp
+  src/js/RuntimeArray.cpp
+  src/js/RuntimeDate.cpp
+  src/js/RuntimeJson.cpp
+  src/js/RuntimeNumber.cpp
+  src/js/RuntimeObject.cpp
+  src/js/RuntimeString.cpp
+  src/js/Strings.cpp
 )
 if(WIN32)
   target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp

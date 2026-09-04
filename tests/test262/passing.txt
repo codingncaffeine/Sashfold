@@ -1,0 +1,3 @@
+# test262 tests passing (0 of 0) at test262 revision (unrecorded).
+# One test per line; a listed test that fails is a regression.
+# Re-bless with: test262_runner <checkout> <directories> <this file> --update
