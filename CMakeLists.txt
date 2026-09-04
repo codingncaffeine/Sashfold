@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(sashfold LANGUAGES CXX VERSION 0.0.6)
+project(sashfold LANGUAGES CXX VERSION 0.0.7)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
