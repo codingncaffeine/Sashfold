@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7657 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7661 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1086,6 +1086,7 @@ css/CSS2/css21-errata/s-11-1-1b-006.html
 css/CSS2/css21-errata/s-11-1-1b-007.html
 css/CSS2/css21-errata/s-11-1-1b-008.html
 css/CSS2/css21-errata/s-11-1-1b-009.html
+css/CSS2/csswg-issues/submitted/css2.1/abspos-non-replaced-width-margin-000.xht
 css/CSS2/floats-clear/adjacent-floats-001.xht
 css/CSS2/floats-clear/adjoining-float-nested-forced-clearance-002.html
 css/CSS2/floats-clear/adjoining-float-nested-forced-clearance-003.html
@@ -3229,6 +3230,7 @@ css/CSS2/positioning/absolute-non-replaced-width-001.xht
 css/CSS2/positioning/absolute-non-replaced-width-002.xht
 css/CSS2/positioning/absolute-non-replaced-width-003.xht
 css/CSS2/positioning/absolute-non-replaced-width-004.xht
+css/CSS2/positioning/absolute-non-replaced-width-005.xht
 css/CSS2/positioning/absolute-non-replaced-width-006.xht
 css/CSS2/positioning/absolute-non-replaced-width-007.xht
 css/CSS2/positioning/absolute-non-replaced-width-008.xht
@@ -3287,6 +3289,8 @@ css/CSS2/positioning/absolute-replaced-width-057.xht
 css/CSS2/positioning/absolute-replaced-width-062.xht
 css/CSS2/positioning/absolute-replaced-width-064.xht
 css/CSS2/positioning/absolute-replaced-width-069.xht
+css/CSS2/positioning/absolute-replaced-width-071.xht
+css/CSS2/positioning/absolute-replaced-width-076.xht
 css/CSS2/positioning/abspos-002.xht
 css/CSS2/positioning/abspos-007.xht
 css/CSS2/positioning/abspos-008.xht

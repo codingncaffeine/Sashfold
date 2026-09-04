@@ -794,8 +794,12 @@ struct Layouter {
 
     // Lays the collected out-of-flow boxes out against their containing
     // block's padding box and adds them to `parent` as positioned children.
+    // `cb_rtl` is the direction of the containing block itself. That is a
+    // different box from the one a static position was recorded against —
+    // the box was written inside one block and is placed against another —
+    // which is why the two cannot share a flag.
     void place_out_of_flow(std::vector<OutOfFlow> const& boxes, float outer_x, float outer_y, float outer_width,
-        float outer_height, Fragment& parent, int list_depth) const
+        float outer_height, Fragment& parent, int list_depth, bool cb_rtl) const
     {
         for (OutOfFlow const& box : boxes) {
             ComputedStyle const& s = *box.style;
@@ -884,16 +888,21 @@ struct Layouter {
                 // three cannot all hold, and the one that gives way is the
                 // offset the content runs towards — the right in a
                 // left-to-right containing block, the left in a
-                // right-to-left one. A negative split goes the same way.
+                // right-to-left one. A split that would go negative gives
+                // its room to the same end.
                 float const free = cb_width - left - right - fragment.width;
                 bool const auto_left = s.margin_left.is_auto();
                 bool const auto_right = s.margin_right.is_auto();
                 float left_margin = margin_left;
+                bool ignore_left = false;
                 if (auto_left && auto_right)
-                    left_margin = free >= 0 ? free / 2.0f : 0.0f;
+                    left_margin = free >= 0 ? free / 2.0f : (cb_rtl ? free : 0.0f);
                 else if (auto_left)
                     left_margin = free - margin_right;
-                x = cb_x + left + left_margin;
+                else if (!auto_right)
+                    ignore_left = cb_rtl;
+                x = ignore_left ? cb_x + cb_width - right - margin_right - fragment.width
+                                : cb_x + left + left_margin;
             } else if (has_left) {
                 x = cb_x + left + margin_left;
             } else if (has_right) {
@@ -3064,7 +3073,8 @@ struct Layouter {
             absolute_stack.back().clear();
             place_out_of_flow(boxes, fragment.x + border_left, fragment.y + border_top,
                 std::max(0.0f, fragment.width - border_left - border_right),
-                std::max(0.0f, fragment.height - border_top - border_bottom), fragment, list_depth);
+                std::max(0.0f, fragment.height - border_top - border_bottom), fragment, list_depth,
+                style.direction == css::Direction::Rtl);
         }
         return fragment;
     }
@@ -6214,7 +6224,8 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         layouter.fixed_boxes.clear();
         if (!boxes.empty()) {
             float const icb_height = viewport_height > 0 ? viewport_height : result.page_height;
-            layouter.place_out_of_flow(boxes, 0, 0, viewport_width, icb_height, result.root, 0);
+            layouter.place_out_of_flow(boxes, 0, 0, viewport_width, icb_height, result.root, 0,
+                html_style->direction == css::Direction::Rtl);
             for (Fragment const& child : result.root.children) {
                 if (child.positioned)
                     result.page_height = std::max(result.page_height, child.y + child.height);
