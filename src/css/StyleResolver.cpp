@@ -4251,8 +4251,11 @@ struct Resolver {
             return static_cast<float>(number);
         };
         auto const flex_basis_of = [&](ComponentValue const& value) -> std::optional<LengthPercent> {
+            // `content` sizes from what is inside the item and ignores the
+            // main size property, which is what `auto` falls back to: with
+            // no ratio and no cross size binding, that is max-content.
             if (is_ident(&value, "content"))
-                return LengthPercent::auto_value();
+                return LengthPercent::content(LengthPercent::Kind::MaxContent);
             if (is_ident(&value, "min-content"))
                 return LengthPercent::content(LengthPercent::Kind::MinContent);
             if (is_ident(&value, "max-content"))
@@ -4291,7 +4294,9 @@ struct Resolver {
                 } else if (ascii_ci_equals(keyword, "auto") || ascii_ci_equals(keyword, "content")) {
                     style.flex_grow = 1;
                     style.flex_shrink = 1;
-                    style.flex_basis = LengthPercent::auto_value();
+                    style.flex_basis = ascii_ci_equals(keyword, "content")
+                        ? LengthPercent::content(LengthPercent::Kind::MaxContent)
+                        : LengthPercent::auto_value();
                 } else if (ascii_ci_equals(keyword, "initial")) {
                     style.flex_grow = 0;
                     style.flex_shrink = 1;

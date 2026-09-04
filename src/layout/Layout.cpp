@@ -4400,6 +4400,13 @@ struct Layouter {
         float margin_end = 0;
         float margin_cross_start = 0;
         float margin_cross_end = 0;
+        // An auto margin takes the room a line has left over before
+        // justify-content or the item's own alignment gets a say
+        // (css-flexbox-1 §8.1): it is what pushes one item to the far end.
+        bool auto_start = false;
+        bool auto_end = false;
+        bool auto_cross_start = false;
+        bool auto_cross_end = false;
         float edges_main = 0; // padding and border along the main axis
         float edges_cross = 0;
         float grow = 0;
@@ -4501,9 +4508,16 @@ struct Layouter {
             return;
         }
         float const margin_top = horizontal ? item.margin_cross_start : item.margin_start;
+        // The leading margin down the page is added here; the one across
+        // it is added by the block below, out of the item's own style â€” so
+        // only what an auto margin took beyond what was written has to be
+        // carried in.
+        float const lead_left = horizontal ? item.margin_start : item.margin_cross_start;
+        float const lead_extra = lead_left - resolve(item.style->margin_left, containing_width);
         if (item.generated) {
-            parent.children.push_back(layout_generated_block(*item.generated, *item.element, x,
-                y + margin_top, containing_width, scratch_floats, content_w, content_h));
+            parent.children.push_back(layout_generated_block(*item.generated, *item.element,
+                x + lead_extra, y + margin_top, containing_width, scratch_floats, content_w,
+                content_h));
             return;
         }
         BlockOptions options;
@@ -4511,7 +4525,7 @@ struct Layouter {
         options.content_height = content_h;
         options.zero_auto_margins = true;
         options.own_context = true;
-        Fragment box = layout_block(*item.element, *item.style, x, y + margin_top,
+        Fragment box = layout_block(*item.element, *item.style, x + lead_extra, y + margin_top,
             containing_width, list_depth, scratch_floats, options);
         mark_positioned(box, *item.style, containing_width, cb_rtl);
         mark_item_layer(box, *item.style);
@@ -6174,11 +6188,19 @@ struct Layouter {
             float const vertical_edges = anonymous ? 0
                 : resolve(s.padding_top, content_width) + resolve(s.padding_bottom, content_width)
                     + s.border_top.width + s.border_bottom.width;
+            bool const auto_left = !anonymous && s.margin_left.is_auto();
+            bool const auto_right = !anonymous && s.margin_right.is_auto();
+            bool const auto_top = !anonymous && s.margin_top.is_auto();
+            bool const auto_bottom = !anonymous && s.margin_bottom.is_auto();
             if (horizontal) {
                 item.margin_start = margin_left;
                 item.margin_end = margin_right;
                 item.margin_cross_start = margin_top;
                 item.margin_cross_end = margin_bottom;
+                item.auto_start = auto_left;
+                item.auto_end = auto_right;
+                item.auto_cross_start = auto_top;
+                item.auto_cross_end = auto_bottom;
                 item.edges_main = horizontal_edges;
                 item.edges_cross = vertical_edges;
             } else {
@@ -6186,6 +6208,10 @@ struct Layouter {
                 item.margin_end = margin_bottom;
                 item.margin_cross_start = margin_left;
                 item.margin_cross_end = margin_right;
+                item.auto_start = auto_top;
+                item.auto_end = auto_bottom;
+                item.auto_cross_start = auto_left;
+                item.auto_cross_end = auto_right;
                 item.edges_main = vertical_edges;
                 item.edges_cross = horizontal_edges;
             }
@@ -6462,7 +6488,25 @@ struct Layouter {
             for (std::size_t const i : line)
                 used += items[i].outer_main();
             extent_main = std::max(extent_main, used);
-            float const free = main_size ? *main_size - used : 0.0f;
+            float free = main_size ? *main_size - used : 0.0f;
+            // An auto margin along the main axis takes the room the line
+            // has left over, shared equally among however many say auto,
+            // and justify-content then has nothing left to share out.
+            if (free > 0) {
+                int autos = 0;
+                for (std::size_t const i : line)
+                    autos += (items[i].auto_start ? 1 : 0) + (items[i].auto_end ? 1 : 0);
+                if (autos > 0) {
+                    float const share = free / static_cast<float>(autos);
+                    for (std::size_t const i : line) {
+                        if (items[i].auto_start)
+                            items[i].margin_start += share;
+                        if (items[i].auto_end)
+                            items[i].margin_end += share;
+                    }
+                    free = 0;
+                }
+            }
             JustifyContent justify = style.justify_content;
             // normal and stretch are flex-start on a flex line.
             if (justify == JustifyContent::Normal || justify == JustifyContent::Stretch)
@@ -6506,6 +6550,23 @@ struct Layouter {
             for (std::size_t k = 0; k < line.size(); ++k) {
                 FlexItem& item = items[main_reversed ? line[line.size() - 1 - k] : line[k]];
                 float cross_pos = 0;
+                // Across the line an auto margin takes the leftover too,
+                // and the item's alignment is not consulted at all.
+                if (item.auto_cross_start || item.auto_cross_end) {
+                    float const spare = std::max(0.0f, height_of_line - item.outer_cross());
+                    if (item.auto_cross_start && item.auto_cross_end)
+                        cross_pos = spare / 2;
+                    else if (item.auto_cross_start)
+                        cross_pos = spare;
+                    float const x_at = horizontal ? content_x + main_cursor
+                                                  : content_x + cross_cursor + cross_pos;
+                    float const y_at = horizontal ? content_y + cross_cursor + cross_pos
+                                                  : content_y + main_cursor;
+                    place_flex_item(item, horizontal, x_at, y_at, content_width, list_depth,
+                        fragment, style.direction == css::Direction::Rtl);
+                    main_cursor += item.outer_main() + between;
+                    continue;
+                }
                 AlignItems alignment = item_alignment(item, style);
                 // An item with a cross size of its own has nothing to
                 // stretch, so it stands at the cross start like any other.

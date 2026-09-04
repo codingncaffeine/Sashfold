@@ -16,6 +16,9 @@
   .wrap { flex-wrap: wrap }
   .w { width: 120px }
   .end { align-self: flex-end }
+  .push { margin-left: auto }
+  .sink { margin-top: auto }
+  .middle { margin: auto }
 </style>
 </head>
 <body>
@@ -26,5 +29,8 @@
 <div class="col"><div class="box">column one</div><div class="box end">at the end</div><div class="grow">a column item that wraps its longer text inside the column</div></div>
 <div class="row">Text as an item<div class="box">then a box</div></div>
 <div class="row" style="flex-direction: row-reverse"><div class="box">first</div><div class="box">second</div></div>
+<div class="row"><div class="box">left</div><div class="box push">pushed to the end</div></div>
+<div class="row" style="height: 60px"><div class="box middle">margin auto all round</div></div>
+<div class="col" style="height: 90px"><div class="box">at the top</div><div class="box sink">sunk to the bottom</div></div>
 </body>
 </html>

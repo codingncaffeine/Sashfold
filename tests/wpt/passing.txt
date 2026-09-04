@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8148 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8151 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5480,6 +5480,7 @@ css/css-flexbox/anonymous-flex-item-005.html
 css/css-flexbox/anonymous-flex-item-006.html
 css/css-flexbox/aspect-ratio-intrinsic-size-007.html
 css/css-flexbox/auto-height-column-with-border-and-padding.html
+css/css-flexbox/auto-margins-002.html
 css/css-flexbox/balance/balance-004.html
 css/css-flexbox/balance/balance-min-line-count-007.html
 css/css-flexbox/balance/balance-min-line-count-008.html
@@ -5631,6 +5632,7 @@ css/css-flexbox/flex-wrap-004.html
 css/css-flexbox/flex-wrap-005.html
 css/css-flexbox/flexbox-align-items-center-nested-001.html
 css/css-flexbox/flexbox-align-self-baseline-compatability.html
+css/css-flexbox/flexbox-align-self-baseline-horiz-002.xhtml
 css/css-flexbox/flexbox-align-self-baseline-horiz-004.xhtml
 css/css-flexbox/flexbox-align-self-baseline-horiz-005.xhtml
 css/css-flexbox/flexbox-align-self-stretch-vert-001.html
@@ -5855,6 +5857,7 @@ css/css-flexbox/flexbox_item-top-float.html
 css/css-flexbox/flexbox_item-vertical-align.html
 css/css-flexbox/flexbox_justifycontent-center.html
 css/css-flexbox/flexbox_justifycontent-flex-end.html
+css/css-flexbox/flexbox_justifycontent-flex-start.html
 css/css-flexbox/flexbox_justifycontent-spacearound-negative.html
 css/css-flexbox/flexbox_justifycontent-spacearound-only.html
 css/css-flexbox/flexbox_justifycontent-spacearound.html
@@ -5862,6 +5865,7 @@ css/css-flexbox/flexbox_justifycontent-spacebetween-negative.html
 css/css-flexbox/flexbox_justifycontent-spacebetween-only.html
 css/css-flexbox/flexbox_justifycontent-spacebetween.html
 css/css-flexbox/flexbox_justifycontent-stretch.html
+css/css-flexbox/flexbox_margin-left-ex.html
 css/css-flexbox/flexbox_margin.html
 css/css-flexbox/flexbox_nested-flex.html
 css/css-flexbox/flexbox_order-box.html
@@ -6928,7 +6932,6 @@ css/css-position/sticky/position-sticky-bottom-005.html
 css/css-position/sticky/position-sticky-bottom-006.html
 css/css-position/sticky/position-sticky-column-reverse-flex.html
 css/css-position/sticky/position-sticky-fixed-ancestor-iframe.html
-css/css-position/sticky/position-sticky-margins-002.html
 css/css-position/sticky/position-sticky-on-minimum-scale.html
 css/css-position/sticky/position-sticky-overflow-clip-container.html
 css/css-position/sticky/position-sticky-scroll-reposition.html
