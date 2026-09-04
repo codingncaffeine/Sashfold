@@ -3088,6 +3088,59 @@ struct Layouter {
     // fit within (§7.3). The box's extent along the outer inline axis is
     // whatever the content's own lines stack up to, and overflows the box
     // when the two disagree, as it does in every engine.
+    // How much room the lines of an orthogonal box have. Its own extent
+    // along the outer block axis settles it where that is written; where it
+    // is not, the room is indefinite and the specification names a fallback
+    // rather than leaving it circular — the initial containing block's size
+    // in this box's inline axis — which the content then shrinks to fit
+    // within. Read with the inner frame already in force.
+    float orthogonal_inline_size(dom::Element const& element, ComputedStyle const& inner_style,
+        css::WritingMode inner_mode, std::optional<float> const& own_height) const
+    {
+        if (own_height)
+            return *own_height;
+        float const fallback = css::is_vertical(inner_mode) ? viewport_block : viewport_inline;
+        float const edges = resolve(inner_style.margin_left, fallback)
+            + resolve(inner_style.margin_right, fallback) + resolve(inner_style.padding_left, fallback)
+            + resolve(inner_style.padding_right, fallback) + inner_style.border_left.width
+            + inner_style.border_right.width;
+        float const available = std::max(0.0f, fallback - edges);
+        Intrinsic const measure = intrinsic_widths(element, inner_style);
+        return std::min(std::max(measure.min, available), measure.max);
+    }
+
+    // What such a box's content stacks up to along the outer inline axis:
+    // its own block size, which an auto value takes from the content and
+    // not from the room its container has. Measured by laying the content
+    // out, which the real pass does over again — the boxes are rare enough
+    // that a second pass costs less than threading the answer out.
+    float orthogonal_block_extent(dom::Element const& element, css::WritingMode inner_mode,
+        std::optional<float> const& own_height, int list_depth) const
+    {
+        css::WritingMode const outer_mode = frame_mode;
+        frame_mode = inner_mode;
+        ComputedStyle const* const inner_style = style_of(element);
+        float const inline_size
+            = orthogonal_inline_size(element, *inner_style, inner_mode, own_height);
+        Fragment scratch;
+        FloatContext scratch_floats;
+        float extent;
+        if (is_flex_container(*inner_style)) {
+            extent = layout_flex(element, *inner_style, 0, 0, inline_size, scratch, list_depth,
+                std::nullopt);
+        } else if (is_grid_container(*inner_style)) {
+            extent = layout_grid(element, *inner_style, 0, 0, inline_size, scratch, list_depth,
+                std::nullopt);
+        } else {
+            extent = layout_children(element, *inner_style, 0, 0, inline_size, scratch, list_depth,
+                scratch_floats, false, false, std::nullopt);
+        }
+        if (std::optional<float> const lowest = scratch_floats.lowest_bottom())
+            extent = std::max(extent, *lowest);
+        frame_mode = outer_mode;
+        return extent;
+    }
+
     float layout_orthogonal(dom::Element const& element, css::WritingMode inner_mode,
         float content_x, float content_y, float content_width,
         std::optional<float> const& own_height, Fragment& fragment, int list_depth,
@@ -3096,14 +3149,8 @@ struct Layouter {
         css::WritingMode const outer_mode = frame_mode;
         frame_mode = inner_mode;
         ComputedStyle const* const inner_style = style_of(element);
-        float inner_inline = 0;
-        if (own_height) {
-            inner_inline = *own_height;
-        } else {
-            float const fallback = css::is_vertical(inner_mode) ? viewport_block : viewport_inline;
-            Intrinsic const measure = intrinsic_widths(element, *inner_style);
-            inner_inline = std::min(std::max(measure.min, fallback), measure.max);
-        }
+        float const inner_inline
+            = orthogonal_inline_size(element, *inner_style, inner_mode, own_height);
         Fragment inner;
         inner.element = fragment.element;
         inner.style = inner_style;
@@ -3210,6 +3257,20 @@ struct Layouter {
         float const border_bottom = style.border_bottom.width;
 
         float const horizontal_edges = padding_left + padding_right + border_left + border_right;
+        // A box that reads at right angles to the flow around it meets that
+        // flow with its own BLOCK size, and an auto block size is the size
+        // of the content — never the room the container has, which is what
+        // an auto inline size would take.
+        std::optional<float> orthogonal_width;
+        css::WritingMode const own_writing_mode = physical(&style)->writing_mode;
+        if (own_writing_mode != frame_mode && !options.content_width && style.width.is_auto()
+            && !style.width.is_content_size() && !is_replaced(element)) {
+            float const down_edges = padding_top + padding_bottom + border_top + border_bottom;
+            orthogonal_width = orthogonal_block_extent(element, own_writing_mode,
+                options.content_height ? options.content_height
+                                       : definite_height_of(style, options.containing_height, down_edges),
+                list_depth);
+        }
         float border_box_width;
         float extra_left = margin_left;
         if (options.content_width) {
@@ -3227,6 +3288,10 @@ struct Layouter {
                                        content_size_of(style.width, intrinsic.min, intrinsic.max, available),
                                        containing_width, horizontal_edges),
                                    intrinsic, available)
+                + horizontal_edges;
+        } else if (orthogonal_width) {
+            border_box_width
+                = clamp_width(style, *orthogonal_width, containing_width, horizontal_edges)
                 + horizontal_edges;
         } else if (style.width.is_auto()) {
             float const available = containing_width - margin_left - margin_right - horizontal_edges;
