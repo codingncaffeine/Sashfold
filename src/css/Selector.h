@@ -5,7 +5,9 @@
 //
 // Supported: type, universal, class, id; attribute selectors with every
 // matcher and the i/s flags; descendant/child/sibling combinators; selector
-// lists; :not/:is/:where (forgiving inside :is/:where); the structural
+// lists; :not/:is/:where (forgiving inside :is/:where); :has with relative
+// selectors, and :scope for what it is relative to; :nth-child and
+// :nth-last-child with `of S`; the structural
 // pseudo-classes incl. an+b; pseudo-elements parse (::before et al) but
 // never match until generated content lands. An unknown pseudo makes the
 // selector invalid, which invalidates its whole list — the spec's behavior.
@@ -87,6 +89,8 @@ struct SimpleSelector {
         AnyLink,
         Link,
         // logical
+        Scope,
+        Has,
         Not,
         Is,
         Where,
@@ -98,7 +102,9 @@ struct SimpleSelector {
     PseudoKind pseudo = PseudoKind::None;
     std::string name; // type/class/id/attribute-less display name, pseudo name lowercased
     AttributeSelector attribute; // Kind::Attribute
-    std::unique_ptr<SelectorList> argument; // :not/:is/:where
+    // :not/:is/:where and :has take a selector list; :nth-child and
+    // :nth-last-child take the `of S` one, which counts their siblings.
+    std::unique_ptr<SelectorList> argument;
     int nth_a = 0; // :nth-*(an+b)
     int nth_b = 0;
 };

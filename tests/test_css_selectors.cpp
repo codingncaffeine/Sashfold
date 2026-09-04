@@ -77,11 +77,11 @@ int main()
     <p id="p2">second <a id="link" href="/x">go</a> <a id="anchor">no href</a></p>
     <p id="p3" class="intro outro">third</p>
     <ul id="list">
-      <li id="li1">one</li>
+      <li id="li1" class="odd">one</li>
       <li id="li2">two</li>
-      <li id="li3">three</li>
+      <li id="li3" class="odd">three</li>
       <li id="li4">four</li>
-      <li id="li5">five</li>
+      <li id="li5" class="odd">five</li>
     </ul>
     <span id="empty"></span>
   </div>
@@ -166,9 +166,44 @@ int main()
     CHECK(hits(":is(bogus:pseudo, p)", "p1")); // forgiving: bad arm dropped
     CHECK(!valid(":not(bogus:pseudo)")); // :not is strict
     CHECK(!valid("p:unknown-pseudo"));
-    CHECK(!valid("p:has(a)")); // unsupported functional pseudo drops the list
     CHECK(!valid("p,, q")); // empty selector in a list
     CHECK(!valid("p >")); // dangling combinator
+
+    // --- :has(), a relative selector list ------------------------------------
+    CHECK(hits("p:has(a)", "p2")); // a descendant, however deep
+    CHECK(!hits("p:has(a)", "p1"));
+    CHECK(hits("ul:has(> li)", "list")); // a child
+    CHECK(!hits("ul:has(> a)", "list"));
+    CHECK(hits("p:has(+ p)", "p1")); // the very next sibling
+    CHECK(!hits("p:has(+ ul)", "p1"));
+    CHECK(hits("p:has(~ ul)", "p1")); // any later sibling
+    CHECK(hits("p:has(+ ul li)", "p3")); // a li inside the very next sibling
+    CHECK(!hits("p:has(+ ul li)", "p1")); // p1 has p2 next, which holds no li
+    CHECK(!hits("li:has(li)", "li1"));
+    CHECK(hits("p:has(.missing, a)", "p2")); // a list: any arm answers
+    CHECK(hits("div:has(ul li)", "wrap")); // a complex selector inside
+    CHECK(!hits("div:has(ol li)", "wrap"));
+    CHECK(hits("p:not(:has(a))", "p1")); // and it composes
+    CHECK(!hits("p:not(:has(a))", "p2"));
+    CHECK(!valid("p:has(a")); // unclosed
+    CHECK(!valid("p:has()"));
+    CHECK(!valid("p:has(>)")); // a combinator with nothing after it
+    CHECK(!valid("p:has(a, )"));
+
+    // --- :nth-child(An+B of S) -----------------------------------------------
+    CHECK(hits("li:nth-child(1 of .odd)", "li1"));
+    CHECK(hits("li:nth-child(2 of .odd)", "li3"));
+    CHECK(hits("li:nth-child(3 of .odd)", "li5"));
+    CHECK(!hits("li:nth-child(2 of .odd)", "li2")); // not in the list at all
+    CHECK(!hits("li:nth-child(2 of .odd)", "li4"));
+    CHECK(hits("li:nth-last-child(1 of .odd)", "li5"));
+    CHECK(hits("li:nth-child(2n of .odd)", "li3")); // second of the three
+    CHECK(!hits("li:nth-child(2n of .odd)", "li2")); // an+b cannot name a nothing
+    CHECK(valid("li:nth-last-child(even of even)")); // a type selector, matching none
+    CHECK(!hits("li:nth-last-child(even of even)", "li2"));
+    CHECK(!valid("li:nth-child(1 of)")); // `of` with no selector
+    CHECK(!valid("li:nth-child(of .odd)")); // no an+b
+    CHECK(!valid("li:nth-of-type(2 of .odd)")); // the of-type forms take no list
 
     // --- Pseudo-elements parse, never match ----------------------------------
     CHECK(valid("p::before"));

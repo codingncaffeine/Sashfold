@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8292 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8334 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -8268,17 +8268,59 @@ css/selectors/dir-selector-ltr-003.html
 css/selectors/floating-first-letter-05d0.html
 css/selectors/floating-first-letter-feff.html
 css/selectors/focus-within-013.html
+css/selectors/has-style-sharing-001.html
+css/selectors/has-style-sharing-002.html
+css/selectors/has-style-sharing-003.html
+css/selectors/has-style-sharing-004.html
+css/selectors/has-style-sharing-005.html
+css/selectors/has-style-sharing-006.html
+css/selectors/has-style-sharing-007.html
+css/selectors/has-style-sharing-pseudo-001.html
+css/selectors/has-style-sharing-pseudo-002.html
+css/selectors/has-style-sharing-pseudo-003.html
+css/selectors/has-style-sharing-pseudo-004.html
+css/selectors/has-style-sharing-pseudo-005.html
+css/selectors/has-style-sharing-pseudo-006.html
 css/selectors/has-style-sharing-pseudo-007.html
 css/selectors/has-style-sharing-pseudo-008.html
+css/selectors/has-visited.html
 css/selectors/historical-xmlid.xht
-css/selectors/invalidation/negated-has-in-nonsubject-position.html
 css/selectors/invalidation/negated-is-always-matches-negated-first-of-type-when-ancestor-changes.html
 css/selectors/invalidation/negated-is-always-matches-negated-last-of-type-when-ancestor-changes.html
+css/selectors/invalidation/nth-child-of-attr-largedom.html
 css/selectors/is-default-ns-001.html
 css/selectors/is-where-pseudo-elements.html
 css/selectors/not-default-ns-001.html
+css/selectors/nth-child-and-nth-last-child.html
+css/selectors/nth-child-of-attribute.html
+css/selectors/nth-child-of-classname-002.html
+css/selectors/nth-child-of-classname.html
 css/selectors/nth-child-of-complex-selector-many-children-2.html
+css/selectors/nth-child-of-compound-selector.html
+css/selectors/nth-child-of-has.html
+css/selectors/nth-child-of-nesting.html
+css/selectors/nth-child-of-no-space-after-of.html
+css/selectors/nth-child-of-not.html
+css/selectors/nth-child-of-nth-child.html
+css/selectors/nth-child-of-pseudo.html
+css/selectors/nth-child-of-tagname.html
+css/selectors/nth-child-specificity-1.html
+css/selectors/nth-child-specificity-2.html
+css/selectors/nth-child-specificity-3.html
+css/selectors/nth-child-specificity-4.html
+css/selectors/nth-last-child-of-classname.html
+css/selectors/nth-last-child-of-compound-selector.html
+css/selectors/nth-last-child-of-nesting.html
+css/selectors/nth-last-child-of-no-space-after-of.html
+css/selectors/nth-last-child-of-style-sharing-1.html
+css/selectors/nth-last-child-of-style-sharing-2.html
+css/selectors/nth-last-child-of-tagname.html
+css/selectors/nth-last-child-specificity-1.html
+css/selectors/nth-last-child-specificity-2.html
+css/selectors/nth-last-child-specificity-3.html
+css/selectors/nth-last-child-specificity-4.html
 css/selectors/nth-of-invalid.html
+css/selectors/nth-of-selector-before.html
 css/selectors/root-siblings.html
 css/selectors/selector-structural-pseudo-root.html
 css/selectors/selectors-4/lang-005.html

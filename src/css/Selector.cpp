@@ -282,6 +282,8 @@ constexpr std::string_view pseudo_elements[] = {
 std::optional<SelectorList> parse_selector_list_internal(
     std::vector<ComponentValue> const& values, bool forgiving);
 
+std::optional<SelectorList> parse_relative_list(std::vector<ComponentValue> const& values);
+
 // One compound selector; cursor sits at its first simple selector.
 bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& specificity)
 {
@@ -472,19 +474,62 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     compound.simples.push_back(std::move(simple));
                     continue;
                 }
+                if (name == "has") {
+                    // A relative selector list: each selector may open with
+                    // a combinator, and what it is relative to is the
+                    // element being tested. Written here as an ordinary
+                    // selector with :scope in front, so that the
+                    // right-to-left walk ends on that element and nowhere
+                    // else — and the leading combinator says where to look
+                    // for candidates.
+                    std::optional<SelectorList> relative = parse_relative_list(function.values);
+                    if (!relative)
+                        return false;
+                    simple.pseudo = SimpleSelector::PseudoKind::Has;
+                    Specificity best;
+                    for (ComplexSelector const& inner : relative->selectors)
+                        best = std::max(best, inner.specificity);
+                    specificity = specificity + best;
+                    simple.argument = std::make_unique<SelectorList>(std::move(*relative));
+                    compound.simples.push_back(std::move(simple));
+                    continue;
+                }
                 if (name == "nth-child" || name == "nth-last-child" || name == "nth-of-type"
                     || name == "nth-last-of-type") {
                     Cursor argument { function.values, 0 };
                     if (!parse_an_plus_b(argument, simple.nth_a, simple.nth_b))
                         return false;
                     argument.skip_whitespace();
-                    if (!argument.at_end())
-                        return false; // ("of S" not supported yet)
+                    specificity.b += 1;
+                    bool const of_type
+                        = name == "nth-of-type" || name == "nth-last-of-type";
+                    if (!argument.at_end()) {
+                        // :nth-child(An+B of S) counts only the siblings
+                        // that match S, and the element has to be one of
+                        // them. The two of-type forms take no such list.
+                        ComponentValue const* const word = argument.consume();
+                        if (of_type || !word || !word->is_token(Token::Type::Ident)
+                            || lowercased(word->token().value) != "of")
+                            return false;
+                        argument.skip_whitespace();
+                        if (argument.at_end())
+                            return false; // `of` with no selector after it
+                        std::vector<ComponentValue> const rest(
+                            function.values.begin() + static_cast<std::ptrdiff_t>(argument.index),
+                            function.values.end());
+                        std::optional<SelectorList> list = parse_selector_list_internal(rest, false);
+                        if (!list)
+                            return false;
+                        Specificity best;
+                        for (ComplexSelector const& inner : list->selectors)
+                            best = std::max(best, inner.specificity);
+                        specificity = specificity + best;
+                        simple.argument = std::make_unique<SelectorList>(std::move(*list));
+                    }
                     simple.pseudo = name == "nth-child" ? SimpleSelector::PseudoKind::NthChild
                         : name == "nth-last-child"      ? SimpleSelector::PseudoKind::NthLastChild
                         : name == "nth-of-type"         ? SimpleSelector::PseudoKind::NthOfType
                                                         : SimpleSelector::PseudoKind::NthLastOfType;
-                    specificity.b += 1;
                     compound.simples.push_back(std::move(simple));
                     continue;
                 }
@@ -604,6 +649,62 @@ std::optional<SelectorList> parse_selector_list_internal(
     }
 }
 
+// The relative selector list :has() takes (selectors-4 §4.2). Each selector
+// in it may open with a combinator, and what it is relative to is the
+// element being tested. Each is turned into an ordinary selector with a
+// :scope compound in front, so the right-to-left walk has somewhere to end
+// and ends on that element alone; a selector written with no combinator
+// takes the descendant one, as `:has(p)` means a p somewhere inside.
+std::optional<SelectorList> parse_relative_list(std::vector<ComponentValue> const& values)
+{
+    SelectorList list;
+    std::size_t start = 0;
+    auto const one = [&](std::size_t from, std::size_t to) {
+        Cursor cursor { values, from };
+        while (cursor.index < to && cursor.peek()->is_token(Token::Type::Whitespace))
+            ++cursor.index;
+        Combinator lead = Combinator::Descendant;
+        ComponentValue const* const first = cursor.index < to ? cursor.peek() : nullptr;
+        if (is_delim(first, U'>'))
+            lead = Combinator::Child;
+        else if (is_delim(first, U'+'))
+            lead = Combinator::NextSibling;
+        else if (is_delim(first, U'~'))
+            lead = Combinator::SubsequentSibling;
+        if (lead != Combinator::Descendant)
+            ++cursor.index;
+        std::vector<ComponentValue> const rest(values.begin() + static_cast<std::ptrdiff_t>(cursor.index),
+            values.begin() + static_cast<std::ptrdiff_t>(to));
+        std::optional<SelectorList> parsed = parse_selector_list_internal(rest, false);
+        if (!parsed || parsed->selectors.size() != 1)
+            return false;
+        ComplexSelector selector = std::move(parsed->selectors.front());
+        if (selector.pseudo_element != ComplexSelector::PseudoElement::None)
+            return false; // a pseudo-element has nothing to be relative to
+        SimpleSelector scope;
+        scope.kind = SimpleSelector::Kind::PseudoClass;
+        scope.pseudo = SimpleSelector::PseudoKind::Scope;
+        scope.name = "scope";
+        CompoundSelector anchor;
+        anchor.simples.push_back(std::move(scope));
+        selector.compounds.insert(selector.compounds.begin(), std::move(anchor));
+        selector.combinators.insert(selector.combinators.begin(), lead);
+        list.selectors.push_back(std::move(selector));
+        return true;
+    };
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (!values[i].is_token(Token::Type::Comma))
+            continue;
+        if (!one(start, i))
+            return std::nullopt;
+        start = i + 1;
+    }
+    if (!one(start, values.size()))
+        return std::nullopt;
+    return list;
+}
+
+
 // --- Matching -----------------------------------------------------------------
 
 dom::Element const* parent_element(dom::Element const& element)
@@ -623,25 +724,72 @@ dom::Element const* previous_element_sibling(dom::Element const& element)
     return nullptr;
 }
 
+// What a relative selector inside :has() is relative to, while that :has()
+// is being tested. A nested one saves and restores it, so the inner list is
+// relative to the inner element and the outer list gets its own back.
+thread_local dom::Element const* relative_to = nullptr;
+
+// Every element inside this one, and whether any of them answers.
+template <typename Test> bool any_inside(dom::Element const& element, Test const& test)
+{
+    for (dom::Node const* child : element.children()) {
+        if (!child->is_element())
+            continue;
+        auto const& candidate = static_cast<dom::Element const&>(*child);
+        if (test(candidate) || any_inside(candidate, test))
+            return true;
+    }
+    return false;
+}
+
+// Every element after this one among its siblings, each with everything
+// inside it: `:has(+ div p)` is answered by a p inside the next sibling.
+template <typename Test> bool any_after(dom::Element const& element, Test const& test)
+{
+    dom::Node const* const parent = element.parent();
+    if (!parent)
+        return false;
+    bool past = false;
+    for (dom::Node const* node : parent->children()) {
+        if (node == &element) {
+            past = true;
+            continue;
+        }
+        if (!past || !node->is_element())
+            continue;
+        auto const& candidate = static_cast<dom::Element const&>(*node);
+        if (test(candidate) || any_inside(candidate, test))
+            return true;
+    }
+    return false;
+}
 bool same_type(dom::Element const& a, dom::Element const& b)
 {
     return a.namespace_uri() == b.namespace_uri() && a.local_name() == b.local_name();
 }
 
-// 1-based position among element siblings; of_type restricts to same-type.
-int sibling_index(dom::Element const& element, bool from_end, bool of_type)
+// 1-based position among element siblings; of_type restricts to same-type,
+// and `of` (from :nth-child(An+B of S)) counts only the siblings matching a
+// selector list. Whether the element is one of them is the caller's question:
+// a position of zero is not an answer, since an+b can name it.
+int sibling_index(dom::Element const& element, bool from_end, bool of_type, SelectorList const* of)
 {
     dom::Node const* parent = element.parent();
     if (!parent)
         return 1;
     int index = 0;
     auto const& siblings = parent->children();
+    auto const counts = [&](dom::Element const& sibling) {
+        if (of_type && !same_type(sibling, element))
+            return false;
+        return !of || matches(*of, sibling);
+    };
     if (!from_end) {
         for (dom::Node const* node : siblings) {
             if (!node->is_element())
                 continue;
             auto const* sibling = static_cast<dom::Element const*>(node);
-            if (of_type && !same_type(*sibling, element))
+            if (!counts(*sibling))
                 continue;
             ++index;
             if (sibling == &element)
@@ -652,7 +800,7 @@ int sibling_index(dom::Element const& element, bool from_end, bool of_type)
             if (!siblings[i]->is_element())
                 continue;
             auto const* sibling = static_cast<dom::Element const*>(siblings[i]);
-            if (of_type && !same_type(*sibling, element))
+            if (!counts(*sibling))
                 continue;
             ++index;
             if (sibling == &element)
@@ -794,25 +942,31 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
         }
         return true;
     case SimpleSelector::PseudoKind::FirstChild:
-        return sibling_index(element, false, false) == 1;
+        return sibling_index(element, false, false, nullptr) == 1;
     case SimpleSelector::PseudoKind::LastChild:
-        return sibling_index(element, true, false) == 1;
+        return sibling_index(element, true, false, nullptr) == 1;
     case SimpleSelector::PseudoKind::OnlyChild:
-        return sibling_index(element, false, false) == 1 && sibling_index(element, true, false) == 1;
+        return sibling_index(element, false, false, nullptr) == 1 && sibling_index(element, true, false, nullptr) == 1;
     case SimpleSelector::PseudoKind::FirstOfType:
-        return sibling_index(element, false, true) == 1;
+        return sibling_index(element, false, true, nullptr) == 1;
     case SimpleSelector::PseudoKind::LastOfType:
-        return sibling_index(element, true, true) == 1;
+        return sibling_index(element, true, true, nullptr) == 1;
     case SimpleSelector::PseudoKind::OnlyOfType:
-        return sibling_index(element, false, true) == 1 && sibling_index(element, true, true) == 1;
+        return sibling_index(element, false, true, nullptr) == 1 && sibling_index(element, true, true, nullptr) == 1;
     case SimpleSelector::PseudoKind::NthChild:
-        return an_plus_b_matches(simple.nth_a, simple.nth_b, sibling_index(element, false, false));
-    case SimpleSelector::PseudoKind::NthLastChild:
-        return an_plus_b_matches(simple.nth_a, simple.nth_b, sibling_index(element, true, false));
+    case SimpleSelector::PseudoKind::NthLastChild: {
+        // With `of S`, only the siblings matching S are counted, and an
+        // element that does not match one of them is nowhere in that count.
+        if (simple.argument && !matches(*simple.argument, element))
+            return false;
+        bool const from_end = simple.pseudo == SimpleSelector::PseudoKind::NthLastChild;
+        return an_plus_b_matches(simple.nth_a, simple.nth_b,
+            sibling_index(element, from_end, false, simple.argument.get()));
+    }
     case SimpleSelector::PseudoKind::NthOfType:
-        return an_plus_b_matches(simple.nth_a, simple.nth_b, sibling_index(element, false, true));
+        return an_plus_b_matches(simple.nth_a, simple.nth_b, sibling_index(element, false, true, nullptr));
     case SimpleSelector::PseudoKind::NthLastOfType:
-        return an_plus_b_matches(simple.nth_a, simple.nth_b, sibling_index(element, true, true));
+        return an_plus_b_matches(simple.nth_a, simple.nth_b, sibling_index(element, true, true, nullptr));
     case SimpleSelector::PseudoKind::AnyLink:
     case SimpleSelector::PseudoKind::Link:
         return element.is_html() && (element.local_name() == "a" || element.local_name() == "area")
@@ -834,6 +988,31 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
                 return true;
         }
         return false;
+    case SimpleSelector::PseudoKind::Scope:
+        return relative_to == &element;
+    case SimpleSelector::PseudoKind::Has: {
+        if (!simple.argument)
+            return false;
+        // Each selector in the list already carries the :scope compound and
+        // the leading combinator, so a candidate answers it only by walking
+        // back to this element. The combinator says where to look: inside
+        // for a descendant or a child, after it for a sibling.
+        dom::Element const* const outer = relative_to;
+        relative_to = &element;
+        bool found = false;
+        for (ComplexSelector const& inner : simple.argument->selectors) {
+            if (inner.combinators.empty())
+                continue;
+            auto const test = [&](dom::Element const& candidate) { return matches(inner, candidate); };
+            bool const sideways = inner.combinators.front() == Combinator::NextSibling
+                || inner.combinators.front() == Combinator::SubsequentSibling;
+            found = sideways ? any_after(element, test) : any_inside(element, test);
+            if (found)
+                break;
+        }
+        relative_to = outer;
+        return found;
+    }
     }
     return false;
 }
