@@ -676,6 +676,65 @@ struct Browser::Impl {
         return clips ? &box : nullptr;
     }
 
+    // The boxes that scroll between a rectangle of the page and the root,
+    // outermost first: what has to move for that rectangle to be in sight.
+    // `found` is set when the walk reached the fragment asked for.
+    static bool scroll_chain(layout::Fragment const& box, layout::Fragment const* target,
+        layout::TextRun const* run, std::vector<layout::Fragment const*>& chain)
+    {
+        if (&box == target)
+            return true;
+        for (layout::TextRun const& own : box.runs) {
+            if (&own == run)
+                return true;
+        }
+        bool const clips = layout::is_scroll_container(box);
+        if (clips)
+            chain.push_back(&box);
+        for (layout::Fragment const& child : box.children) {
+            if (scroll_chain(child, target, run, chain))
+                return true;
+        }
+        if (clips)
+            chain.pop_back();
+        return false;
+    }
+
+    // Moves every box that scrolls around a rectangle of the page until the
+    // rectangle is inside each of their scrollports, outermost first — an
+    // inner box travels with the outer one, so its own numbers are only
+    // settled once the outer one has stopped. What the page itself has to
+    // do is left to the caller: the rectangle's coordinates are live and
+    // have moved by the time this returns.
+    void reveal_within_boxes(Tab& tab, std::vector<layout::Fragment const*> const& chain,
+        std::function<Rect()> const& where)
+    {
+        for (layout::Fragment const* box : chain) {
+            css::ComputedStyle const& s = *box->style;
+            Rect const target = where();
+            float const port_left = box->x + s.border_left.width;
+            float const port_top = box->y + s.border_top.width;
+            float const port_right = box->x + box->width - s.border_right.width;
+            float const port_bottom = box->y + box->height - s.border_bottom.width;
+            // A target too big for the scrollport is shown from its start
+            // edge: seeing its end and nothing else is no use to a reader.
+            float dx = 0;
+            if (static_cast<float>(target.x) < port_left
+                || static_cast<float>(target.width) > port_right - port_left)
+                dx = static_cast<float>(target.x) - port_left;
+            else if (static_cast<float>(target.right()) > port_right)
+                dx = static_cast<float>(target.right()) - port_right;
+            float dy = 0;
+            if (static_cast<float>(target.y) < port_top
+                || static_cast<float>(target.height) > port_bottom - port_top)
+                dy = static_cast<float>(target.y) - port_top;
+            else if (static_cast<float>(target.bottom()) > port_bottom)
+                dy = static_cast<float>(target.bottom()) - port_bottom;
+            if (dx != 0 || dy != 0)
+                scroll_box_by(tab, *box, dx, dy);
+        }
+    }
+
     // A scrollbar under a page point: which box's, which axis, and whether
     // the pointer took hold of the thumb or of the track beside it.
     struct BarHit {
@@ -813,6 +872,9 @@ struct Browser::Impl {
         HistoryEntry* const entry = tab.current();
         if (!entry) {
             tab.document.reset();
+            tab.scrolls.clear();
+            tab.applied.clear();
+            tab.scroller = nullptr;
             return;
         }
         std::string const& type = entry->content_type;
@@ -830,6 +892,13 @@ struct Browser::Impl {
         }
         tab.document = html::parse_document_bytes(source);
         tab.controls = {}; // a new document: nothing typed into it yet
+        // ⛔ And nothing scrolled in it. These are keyed by element, and the
+        // elements of the document being replaced are about to be freed: a
+        // new document that happens to put an element at the same address
+        // would inherit a scroll offset belonging to a page that is gone.
+        tab.scrolls.clear();
+        tab.applied.clear();
+        tab.scroller = nullptr;
         tab.inspected = nullptr;
         tab.tree_scroll = 0;
         // The page's stylesheets come through the loader with the page as
@@ -889,6 +958,19 @@ struct Browser::Impl {
         dom::Element const* const target = find_anchor_target(*tab.document, fragment);
         if (!target)
             return;
+        // A target inside a box that scrolls needs that box moved as well;
+        // its box is read again after each one, having travelled with it. A
+        // target with no box of its own — an anchor that is only a name —
+        // still moves the page below.
+        if (layout::Fragment const* const box = fragment_for(tab.layout.root, target)) {
+            auto const box_of_target = [box] {
+                return Rect { static_cast<int>(box->x), static_cast<int>(box->y),
+                    static_cast<int>(box->width) + 1, static_cast<int>(box->height) + 1 };
+            };
+            std::vector<layout::Fragment const*> chain;
+            if (scroll_chain(tab.layout.root, box, nullptr, chain) && !chain.empty())
+                reveal_within_boxes(tab, chain, box_of_target);
+        }
         if (std::optional<float> const top = fragment_top(tab.layout.root, target))
             set_scroll(tab, static_cast<int>(*top));
     }
@@ -2273,12 +2355,23 @@ struct Browser::Impl {
             return;
         layout::TextRun const& run = *tab.runs[match.start.run];
         text::FaceMetrics const metrics = run_metrics(run);
-        int const top = static_cast<int>(run.baseline_y - metrics.ascent);
-        int const bottom = static_cast<int>(run.baseline_y + metrics.descent + 1);
+        // A match inside a box that scrolls is out of sight until that box
+        // is moved, and moving the page alone would never show it. The
+        // rectangle is read again after each box moves, since the ones
+        // inside it travelled along.
+        auto const box_of_run = [&] {
+            return Rect { static_cast<int>(run.x),
+                static_cast<int>(run.baseline_y - metrics.ascent), static_cast<int>(run.width) + 1,
+                static_cast<int>(metrics.ascent + metrics.descent) + 1 };
+        };
+        std::vector<layout::Fragment const*> chain;
+        if (scroll_chain(tab.layout.root, nullptr, &run, chain) && !chain.empty())
+            reveal_within_boxes(tab, chain, box_of_run);
+        Rect const at = box_of_run();
         ChromeLayout const c = layout_chrome();
-        if (top >= tab.scroll_y && bottom <= tab.scroll_y + c.content.height)
+        if (at.y >= tab.scroll_y && at.bottom() <= tab.scroll_y + c.content.height)
             return;
-        set_scroll(tab, top - c.content.height / 3);
+        set_scroll(tab, at.y - c.content.height / 3);
     }
 
     void focus_find(bool select_everything)

@@ -79,3 +79,28 @@ assert-scroll 0
 wheel-at 200 101 -10
 assert-box-scroll 200 101 600 0
 assert-golden goldens/scroll-across.png
+
+# Find in page reaches into a box that scrolls: the word sits 300 px down a
+# 100 px pane, so moving the page alone could never bring it into sight.
+# The pane is 302x102 at the body's margin — window (200, 160) is page
+# (200, 84), inside it — and it has 288 to reach.
+open data:text/html,<title>Reach</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.pane{width:300px;height:100px;overflow:auto;border:1px solid gray}.gap{height:300px}</style><div class="pane"><p>top of the pane</p><div class="gap"></div><p id="deep">buried</p></div><div style="height:900px">below</div>
+assert-title Reach
+assert-box-scroll 200 160 0 0
+key ctrl+f
+type buried
+assert-find 1 of 1
+key Escape
+# The pane moved until the word met its bottom edge; the page had no need
+# to move at all, which is the point.
+assert-box-scroll 200 160 0 287
+assert-scroll 0
+
+# A fragment link into the same pane moves it too, and the page after it —
+# the target's own box, so it reaches the pane's far edge. With the page at
+# 89 the pane is read at window 90.
+wheel-at 200 160 20
+assert-box-scroll 200 160 0 0
+navigate data:text/html,<title>Reach</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.pane{width:300px;height:100px;overflow:auto;border:1px solid gray}.gap{height:300px}</style><div class="pane"><p>top of the pane</p><div class="gap"></div><p id="deep">buried</p></div><div style="height:900px">below</div>#deep
+assert-scroll 89
+assert-box-scroll 200 90 0 288
