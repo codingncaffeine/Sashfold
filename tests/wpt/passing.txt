@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7655 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7657 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -3263,6 +3263,7 @@ css/CSS2/positioning/absolute-replaced-height-024.xht
 css/CSS2/positioning/absolute-replaced-height-029.xht
 css/CSS2/positioning/absolute-replaced-height-030.xht
 css/CSS2/positioning/absolute-replaced-height-031.xht
+css/CSS2/positioning/absolute-replaced-height-036.xht
 css/CSS2/positioning/absolute-replaced-width-001.xht
 css/CSS2/positioning/absolute-replaced-width-003a.xht
 css/CSS2/positioning/absolute-replaced-width-003b.xht
@@ -6873,6 +6874,7 @@ css/css-position/position-absolute-in-inline-margin-top.html
 css/css-position/position-absolute-large-negative-inset.html
 css/css-position/position-absolute-multicol-001.html
 css/css-position/position-absolute-replaced-intrinsic-size.tentative.html
+css/css-position/position-absolute-replaced-no-intrinsic-size.tentative.html
 css/css-position/position-absolute-replaced-with-display-table.html
 css/css-position/position-absolute-root-element-flex.html
 css/css-position/position-absolute-root-element-grid.html

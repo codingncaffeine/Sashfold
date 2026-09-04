@@ -831,11 +831,17 @@ struct Layouter {
             options.zero_auto_margins = true;
             options.containing_height = cb_height; // definite for an absolutely positioned box
             bool const replaced = is_replaced(*box.element);
+            // Whether the two offsets settle the size between them. When
+            // they do not — a written width, a content keyword, or a
+            // replaced box that keeps its own — the three values cannot all
+            // hold and §10.3.7's over-constrained rule decides instead.
+            bool const stretched_across
+                = has_left && has_right && s.width.is_auto() && !replaced && !s.width.is_content_size();
             if (s.width.is_auto() && !replaced) {
                 // A content keyword is a definite width, so two offsets do
                 // not stretch the box: it takes its content's size and the
                 // over-constrained side gives way (§10.3.7).
-                if (has_left && has_right && !s.width.is_content_size()) {
+                if (stretched_across) {
                     options.content_width = std::max(0.0f,
                         cb_width - left - right - margin_left - margin_right - horizontal_edges);
                 } else {
@@ -851,7 +857,8 @@ struct Layouter {
                 options.content_height = clamp_height(s,
                     as_content_size(s, s.height.value / 100.0f * cb_height, vertical_edges), cb_height,
                     vertical_edges);
-            else if (s.height.is_auto() && has_top && has_bottom && !replaced)
+            bool const stretched_down = s.height.is_auto() && has_top && has_bottom && !replaced;
+            if (stretched_down)
                 options.content_height
                     = std::max(0.0f, cb_height - top - bottom - margin_top - margin_bottom - vertical_edges);
 
@@ -870,15 +877,21 @@ struct Layouter {
             if (std::optional<float> const lowest = own_floats.lowest_bottom())
                 fragment.height = std::max(fragment.height, *lowest - fragment.y);
             float x;
-            if (has_left && has_right && !s.width.is_auto()) {
-                // Over-constrained (§10.3.7): auto margins take what is
-                // left, split when both are auto; with neither auto, right
-                // gives way.
+            if (has_left && has_right && !stretched_across) {
+                // Both offsets written, and a width the offsets did not
+                // settle (§10.3.7): auto margins take the room that is
+                // left, split when both are auto. With neither auto the
+                // three cannot all hold, and the one that gives way is the
+                // offset the content runs towards — the right in a
+                // left-to-right containing block, the left in a
+                // right-to-left one. A negative split goes the same way.
                 float const free = cb_width - left - right - fragment.width;
+                bool const auto_left = s.margin_left.is_auto();
+                bool const auto_right = s.margin_right.is_auto();
                 float left_margin = margin_left;
-                if (s.margin_left.is_auto() && s.margin_right.is_auto())
+                if (auto_left && auto_right)
                     left_margin = free >= 0 ? free / 2.0f : 0.0f;
-                else if (s.margin_left.is_auto())
+                else if (auto_left)
                     left_margin = free - margin_right;
                 x = cb_x + left + left_margin;
             } else if (has_left) {
@@ -894,9 +907,10 @@ struct Layouter {
                                : static_start + margin_left;
             }
             float y;
-            if (has_top && has_bottom && !s.height.is_auto()) {
-                // Over-constrained vertically (§10.6.4): auto margins take
-                // what is left, split when both are auto; else bottom gives way.
+            if (has_top && has_bottom && !stretched_down) {
+                // Over-constrained down the page (§10.6.4): auto margins
+                // take what is left, split when both are auto; else the
+                // bottom gives way.
                 float const free = cb_height - top - bottom - fragment.height;
                 float top_margin = margin_top;
                 if (s.margin_top.is_auto() && s.margin_bottom.is_auto())
