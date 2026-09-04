@@ -551,7 +551,9 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         ++census["shadows"];
     else if (name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")
         ++census["effects"];
-    else if (name == "text-transform" || name == "text-overflow")
+    else if (name == "text-transform")
+        return; // text-transform is written
+    else if (name == "text-overflow")
         ++census["text-properties"];
     else if (name == "columns" || name == "column-count" || name == "column-width")
         ++census["multi-column"];
@@ -560,7 +562,7 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     else if (name == "outline" || name.starts_with("outline-"))
         ++census["outline"];
     else if (name == "direction" || name == "writing-mode")
-        ++census["direction"];
+        return; // both are written, and the bidirectional algorithm under them
     if (name != "src")
         census_values(declaration.value, census);
 }
