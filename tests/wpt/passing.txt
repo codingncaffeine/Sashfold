@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7650 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7655 of 13477) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -876,7 +876,9 @@ css/CSS2/box-display/containing-block-008.xht
 css/CSS2/box-display/containing-block-009.xht
 css/CSS2/box-display/containing-block-010.xht
 css/CSS2/box-display/containing-block-019.xht
+css/CSS2/box-display/containing-block-020.xht
 css/CSS2/box-display/containing-block-021.xht
+css/CSS2/box-display/containing-block-022.xht
 css/CSS2/box-display/containing-block-023.xht
 css/CSS2/box-display/containing-block-026.xht
 css/CSS2/box-display/containing-block-027.xht
@@ -3224,6 +3226,7 @@ css/CSS2/positioning/absolute-non-replaced-max-height-012.xht
 css/CSS2/positioning/absolute-non-replaced-min-001.html
 css/CSS2/positioning/absolute-non-replaced-min-max-001.html
 css/CSS2/positioning/absolute-non-replaced-width-001.xht
+css/CSS2/positioning/absolute-non-replaced-width-002.xht
 css/CSS2/positioning/absolute-non-replaced-width-003.xht
 css/CSS2/positioning/absolute-non-replaced-width-004.xht
 css/CSS2/positioning/absolute-non-replaced-width-006.xht
@@ -3231,6 +3234,7 @@ css/CSS2/positioning/absolute-non-replaced-width-007.xht
 css/CSS2/positioning/absolute-non-replaced-width-008.xht
 css/CSS2/positioning/absolute-non-replaced-width-010.xht
 css/CSS2/positioning/absolute-non-replaced-width-011.xht
+css/CSS2/positioning/absolute-non-replaced-width-012.xht
 css/CSS2/positioning/absolute-non-replaced-width-013.xht
 css/CSS2/positioning/absolute-non-replaced-width-014.xht
 css/CSS2/positioning/absolute-non-replaced-width-015.xht
@@ -3266,6 +3270,8 @@ css/CSS2/positioning/absolute-replaced-width-003c.xht
 css/CSS2/positioning/absolute-replaced-width-006.xht
 css/CSS2/positioning/absolute-replaced-width-008.xht
 css/CSS2/positioning/absolute-replaced-width-013.xht
+css/CSS2/positioning/absolute-replaced-width-015.xht
+css/CSS2/positioning/absolute-replaced-width-020.xht
 css/CSS2/positioning/absolute-replaced-width-022.xht
 css/CSS2/positioning/absolute-replaced-width-027.xht
 css/CSS2/positioning/absolute-replaced-width-029.xht
@@ -3290,6 +3296,7 @@ css/CSS2/positioning/abspos-015.xht
 css/CSS2/positioning/abspos-016.xht
 css/CSS2/positioning/abspos-017.xht
 css/CSS2/positioning/abspos-018.xht
+css/CSS2/positioning/abspos-024.xht
 css/CSS2/positioning/abspos-025.xht
 css/CSS2/positioning/abspos-026.xht
 css/CSS2/positioning/abspos-027.xht
@@ -6149,8 +6156,6 @@ css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-003.ht
 css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-004.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-002.html
-css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-003.html
-css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-004.html
 css/css-grid/abspos/grid-fixedpos-static-position-not-containing-block.html
 css/css-grid/abspos/grid-positioned-item-dynamic-change-003.html
 css/css-grid/abspos/orthogonal-positioned-grid-items-001.html
@@ -6887,8 +6892,7 @@ css/css-position/position-relative-009.html
 css/css-position/position-relative-010.html
 css/css-position/position-static-001.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-004.html
-css/css-position/static-position/inline-level-absolute-in-block-level-context-009.html
-css/css-position/static-position/inline-level-absolute-in-block-level-context-010.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-007.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-013.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-014.html
 css/css-position/sticky/position-sticky-bottom-004.html
@@ -7189,6 +7193,7 @@ css/css-text/text-indent/text-indent-percentage-002.html
 css/css-text/text-indent/text-indent-percentage-003.html
 css/css-text/text-indent/text-indent-percentage-004.html
 css/css-text/text-indent/text-indent-text-align-end.html
+css/css-text/text-indent/text-indent-with-absolute-pos-child.html
 css/css-text/text-justify/text-justify-inter-character-cursive.html
 css/css-text/text-justify/text-justify-inter-word-001.html
 css/css-text/text-justify/text-justify-none-001.html

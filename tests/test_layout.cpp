@@ -464,6 +464,56 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- The static position in a block that reads from the right ---------------
+    // A box with no offsets stands where it would have been, so its start
+    // edge — its right, here — meets the static position. The direction
+    // that decides is the one of the block the box was written in, not the
+    // one of the block that ends up containing it.
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { margin: 0 }
+  #cb { position: relative; direction: rtl; width: 300px; height: 100px; padding: 10px;
+        border: 2px solid black }
+  #back { position: absolute; width: 50px; height: 20px }
+  #ltr { direction: ltr }
+  #forward { position: absolute; width: 40px; height: 20px }
+  #flex { display: flex; direction: rtl; width: 200px; height: 30px; margin-top: 10px }
+  #initem { position: absolute; width: 30px; height: 10px }
+</style></head><body><div id="cb"><div id="back"></div><div id="ltr"><div id="forward"></div></div>
+<div id="flex"><div id="initem"></div></div></div></body></html>)HTML",
+            400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id && f.style)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* back = find_box(page.result.root, "back");
+        layout::Fragment const* forward = find_box(page.result.root, "forward");
+        layout::Fragment const* in_item = find_box(page.result.root, "initem");
+        if (CHECK(back && forward && in_item)) {
+            // The content box runs from 12 to 312: the right-to-left box
+            // reaches back from 312, the left-to-right one starts at 12.
+            CHECK_EQ(back->x, 262.0f);
+            CHECK_EQ(back->y, 12.0f);
+            CHECK_EQ(forward->x, 12.0f);
+            CHECK_EQ(forward->y, 12.0f);
+            // A flex container records its own, and a 200-wide box in a
+            // right-to-left block settles at its right: content ending at
+            // 312, so the item reaches back from there.
+            CHECK_EQ(in_item->x, 282.0f);
+        }
+    }
+
     // --- Translate transforms: moved after layout, the flow untouched ------------
     {
         text::FontManager::instance().set_system_fonts(false);

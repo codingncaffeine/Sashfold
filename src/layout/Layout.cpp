@@ -624,7 +624,13 @@ struct Layouter {
         dom::Element const* element = nullptr;
         ComputedStyle const* style = nullptr;
         bool static_known = false; // where the box would have been in flow
-        float static_x = 0;
+        // The edge its content would have started at: the left in a
+        // left-to-right static-position containing block, the right in a
+        // right-to-left one. One coordinate rather than two, so a scratch
+        // layout that moves afterwards shifts it without having to know
+        // which edge it is holding.
+        float static_start = 0;
+        bool static_rtl = false;
         float static_y = 0;
         unsigned serial = 0; // the record's order among all records made
         // A grid container that is this box's containing block gives it the
@@ -670,7 +676,7 @@ struct Layouter {
     // Remembers an out-of-flow child for its containing block. A scratch
     // layout may record the same element again; the last record wins.
     void record_out_of_flow(dom::Element const& element, ComputedStyle const& style,
-        std::optional<std::pair<float, float>> static_position) const
+        std::optional<std::pair<float, float>> static_position, bool static_rtl = false) const
     {
         std::vector<OutOfFlow>& list = style.position == css::Position::Fixed || absolute_stack.empty()
             ? fixed_boxes
@@ -680,7 +686,8 @@ struct Layouter {
         entry.style = &style;
         if (static_position) {
             entry.static_known = true;
-            entry.static_x = static_position->first;
+            entry.static_start = static_position->first;
+            entry.static_rtl = static_rtl;
             entry.static_y = static_position->second;
         }
         entry.serial = next_serial++;
@@ -702,7 +709,7 @@ struct Layouter {
         auto const shift = [&](std::vector<OutOfFlow>& list) {
             for (OutOfFlow& entry : list) {
                 if (entry.serial >= since && entry.serial < until && entry.static_known) {
-                    entry.static_x += dx;
+                    entry.static_start += dx;
                     entry.static_y += dy;
                 }
             }
@@ -853,7 +860,9 @@ struct Layouter {
             // flow position would have been.
             bool const in_area_across = box.area_left.has_value() || box.area_right.has_value();
             bool const in_area_down = box.area_top.has_value() || box.area_bottom.has_value();
-            float const static_x = box.static_known && !in_area_across ? box.static_x : cb_x;
+            bool const static_across = box.static_known && !in_area_across;
+            float const static_start = static_across ? box.static_start : cb_x;
+            bool const static_rtl = static_across && box.static_rtl;
             float const static_y = box.static_known && !in_area_down ? box.static_y : cb_y;
             // Laid out at x = 0 first, then moved: a right-anchored box needs its width.
             FloatContext own_floats;
@@ -877,7 +886,12 @@ struct Layouter {
             } else if (has_right) {
                 x = cb_x + cb_width - right - margin_right - fragment.width;
             } else {
-                x = static_x + margin_left;
+                // Neither offset written: the box stands where it would
+                // have been, which means its start edge meets the static
+                // position — and in a right-to-left block that edge is its
+                // right, so the box reaches back from there.
+                x = static_rtl ? static_start - margin_right - fragment.width
+                               : static_start + margin_left;
             }
             float y;
             if (has_top && has_bottom && !s.height.is_auto()) {
@@ -2320,9 +2334,14 @@ struct Layouter {
                 // on the line below (taken as one line tall when this line
                 // holds anything).
                 bool const inline_level = item.style->blockified;
-                float const static_x = inline_level ? line_left + line_width : content_x;
+                bool const static_rtl = inline_level
+                    ? paragraph_rtl
+                    : block_style.direction == css::Direction::Rtl;
+                float const static_x = inline_level
+                    ? (paragraph_rtl ? line_left + line_avail - line_width : line_left + line_width)
+                    : (static_rtl ? content_x + content_width : content_x);
                 float const static_y = inline_level || line.empty() ? y : y + line_height_of(block_style);
-                record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y));
+                record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y), static_rtl);
                 continue;
             }
             if (item.kind == InlineItem::Kind::BoxStart || item.kind == InlineItem::Kind::BoxEnd) {
@@ -3207,9 +3226,11 @@ struct Layouter {
                     if (is_inline_content(item))
                         pending_content = true;
                 }
+                bool const static_rtl = style.direction == css::Direction::Rtl;
                 record_out_of_flow(child_element, *child_style,
-                    std::make_pair(content_x,
-                        cursor + previous_bottom_margin + (pending_content ? line_height_of(style) : 0.0f)));
+                    std::make_pair(static_rtl ? content_x + content_width : content_x,
+                        cursor + previous_bottom_margin + (pending_content ? line_height_of(style) : 0.0f)),
+                    static_rtl);
                 continue;
             }
             if (is_floating(*child_style)) {
@@ -4772,8 +4793,12 @@ struct Layouter {
                 // and record_out_of_flow dedupes within one list only — so a
                 // record made here is never replaced by the real one. It is a
                 // second registration, and the box is placed twice.
-                if (content_width)
-                    record_out_of_flow(element, *child_style, std::make_pair(content_x, content_y));
+                if (content_width) {
+                    bool const static_rtl = style.direction == css::Direction::Rtl;
+                    record_out_of_flow(element, *child_style,
+                        std::make_pair(static_rtl ? content_x + *content_width : content_x, content_y),
+                        static_rtl);
+                }
                 continue;
             }
             flush_text();
@@ -5663,7 +5688,10 @@ struct Layouter {
                 continue;
             if (child_style->out_of_flow()) {
                 // Not an item: placed against the container once it is done.
-                record_out_of_flow(element, *child_style, std::make_pair(content_x, content_y));
+                bool const static_rtl = style.direction == css::Direction::Rtl;
+                record_out_of_flow(element, *child_style,
+                    std::make_pair(static_rtl ? content_x + content_width : content_x, content_y),
+                    static_rtl);
                 continue;
             }
             flush_text();
