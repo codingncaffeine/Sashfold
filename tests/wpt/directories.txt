@@ -18,3 +18,4 @@ css/css-text
 css/css-values
 css/selectors
 css/css-variables
+css/css-writing-modes
