@@ -4402,7 +4402,7 @@ struct Layouter {
         float margin_cross_end = 0;
         // An auto margin takes the room a line has left over before
         // justify-content or the item's own alignment gets a say
-        // (css-flexbox-1 ง8.1): it is what pushes one item to the far end.
+        // (css-flexbox-1 ยง8.1): it is what pushes one item to the far end.
         bool auto_start = false;
         bool auto_end = false;
         bool auto_cross_start = false;
