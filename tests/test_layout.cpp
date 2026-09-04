@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -1657,6 +1658,41 @@ int main(int argc, char** argv)
         // margins centre it.
         if (layout::Fragment const* const centred = box_of("e"))
             CHECK_EQ(centred->x, 135.0f);
+    }
+
+    // --- The fragment-tree check --------------------------------------------
+    // A check that never fires is not a check. These build the three faults
+    // by hand and see each one named, and then a sound tree and see nothing.
+    {
+        auto document = html::parse_document(std::string_view(
+            R"(<!doctype html><html><body><div id="one">x</div><div id="two">y</div></body></html>)"));
+        css::StyleMap const styles = css::resolve_styles(*document);
+        layout::LayoutResult const sound = layout::layout_document(*document, styles, 400);
+        CHECK(layout::check_fragments(sound).empty());
+
+        // The same element twice, at the same coordinates, which is what no
+        // reference picture can ever show.
+        layout::LayoutResult twice = layout::layout_document(*document, styles, 400);
+        layout::Fragment const* found = nullptr;
+        std::function<void(layout::Fragment const&)> first_div = [&](layout::Fragment const& box) {
+            if (!found && box.element && box.element->local_name() == "div")
+                found = &box;
+            for (layout::Fragment const& child : box.children)
+                first_div(child);
+        };
+        first_div(twice.root);
+        if (CHECK(found)) {
+            twice.root.children.push_back(*found);
+            CHECK_EQ(layout::check_fragments(twice).size(), std::size_t { 1 });
+        }
+
+        layout::LayoutResult nan_box = layout::layout_document(*document, styles, 400);
+        nan_box.root.children.front().x = std::numeric_limits<float>::quiet_NaN();
+        CHECK(!layout::check_fragments(nan_box).empty());
+
+        layout::LayoutResult negative = layout::layout_document(*document, styles, 400);
+        negative.root.children.front().width = -1;
+        CHECK(!layout::check_fragments(negative).empty());
     }
 
     return test::report("layout");

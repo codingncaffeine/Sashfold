@@ -161,4 +161,15 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     float viewport_width, ImageMap const* images = nullptr,
     ControlStates const* controls = nullptr, float viewport_height = 0);
 
+
+// Faults in a finished fragment tree that no reference picture can show:
+// a box placed twice at the same coordinates draws the same ink twice, a
+// coordinate that is not a number paints nothing anywhere, and a size
+// below zero is a subtraction that went the wrong way. Only faults that
+// are wrong on any page belong here: one that fires on correct layout is
+// noise, and noise is how an instrument comes to be ignored. Each is returned as
+// one line naming the element and what is wrong with it; an empty answer
+// is a tree with none of them. Cheap enough to run on every page a test
+// renders, which is where it earns its keep — the picture cannot tell.
+std::vector<std::string> check_fragments(LayoutResult const& result);
 }

@@ -51,6 +51,18 @@ if [ -n "$only" ]; then
     grep -c "^FAIL " "$logs/new.log" | sed 's/^/failures in this subset: /'
     exit 0
 fi
+# The denominator is an instrument too: it only moves when a directory is
+# added to the list or the checkout changes, so a silent change means
+# something is being scored that should not be — a scratch file left in the
+# tree scores like a test and shows up as a loss with a strange name.
+counted=$(grep -oE "TOTAL +[0-9]+ / +[0-9]+" "$logs/new.log" | grep -oE "[0-9]+$" | tail -1)
+if [ -f "$logs/base.log" ] && [ -n "$counted" ]; then
+    was=$(grep -oE "TOTAL +[0-9]+ / +[0-9]+" "$logs/base.log" | grep -oE "[0-9]+$" | tail -1)
+    if [ -n "$was" ] && [ "$was" != "$counted" ]; then
+        printf '\n!! the number of tests scored changed: %s -> %s\n' "$was" "$counted"
+        printf '   nothing but a directory list or a checkout change should do that.\n'
+    fi
+fi
 if [ -f "$logs/base.log" ]; then
     tools/wpt-diff.sh "$logs/base.log" "$logs/new.log"
 else

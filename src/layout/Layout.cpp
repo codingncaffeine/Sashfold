@@ -11,6 +11,7 @@
 #include "text/Face.h"
 #include "text/FontManager.h"
 
+#include <cmath>
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -7079,6 +7080,79 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // The anonymous boxes' styles go with the fragments that point at them.
     result.owned_styles = std::move(layouter.owned_styles);
     return result;
+}
+
+
+namespace {
+
+// A name for a box in a complaint: its tag, its id where it has one, so a
+// line of output points at something a person can find in the source.
+std::string name_of(Fragment const& fragment)
+{
+    if (!fragment.element)
+        return "(anonymous box)";
+    std::string name(fragment.element->local_name());
+    if (dom::Attr const* id = fragment.element->find_attribute("id"))
+        name += "#" + id->value;
+    return name;
+}
+
+bool sane(float value)
+{
+    return std::isfinite(value);
+}
+
+// An inline box is laid out once per line it runs across, so meeting the
+// same element again is ordinary there. Everything else is placed once, and
+// a second fragment for it means two boxes drawing the same content — at
+// the same coordinates, no picture will ever differ.
+bool placed_once(ComputedStyle const* style)
+{
+    if (!style)
+        return false;
+    return style->display != css::Display::Inline && style->display != css::Display::None;
+}
+
+void check_box(Fragment const& fragment, std::vector<std::string>& faults,
+    std::unordered_map<dom::Element const*, int>& seen)
+{
+    std::string const name = name_of(fragment);
+    if (!sane(fragment.x) || !sane(fragment.y) || !sane(fragment.width) || !sane(fragment.height)) {
+        faults.push_back(name + ": box at a coordinate that is not a number");
+    } else if (fragment.width < 0 || fragment.height < 0) {
+        faults.push_back(name + ": box sized below zero (" + std::to_string(fragment.width) + " by "
+            + std::to_string(fragment.height) + ")");
+    }
+    if (fragment.element && placed_once(fragment.style)) {
+        int& count = seen[fragment.element];
+        ++count;
+        if (count == 2)
+            faults.push_back(name + ": placed more than once");
+    }
+    for (TextRun const& run : fragment.runs) {
+        if (!sane(run.x) || !sane(run.baseline_y) || !sane(run.width)) {
+            faults.push_back(name + ": a run at a coordinate that is not a number");
+            break;
+        }
+        if (run.width < 0) {
+            faults.push_back(name + ": a run of width below zero");
+            break;
+        }
+    }
+    for (Fragment const& child : fragment.children)
+        check_box(child, faults, seen);
+}
+
+} // namespace
+
+std::vector<std::string> check_fragments(LayoutResult const& result)
+{
+    std::vector<std::string> faults;
+    std::unordered_map<dom::Element const*, int> seen;
+    check_box(result.root, faults, seen);
+    if (!sane(result.page_height) || result.page_height < 0)
+        faults.push_back("the page: a height that is not a number at or above zero");
+    return faults;
 }
 
 }

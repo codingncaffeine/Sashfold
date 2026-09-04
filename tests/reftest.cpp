@@ -37,7 +37,8 @@ std::optional<std::vector<std::uint8_t>> read_file(std::filesystem::path const& 
     return data;
 }
 
-std::vector<std::uint8_t> render_page_bytes(std::filesystem::path const& path, int width)
+std::vector<std::uint8_t> render_page_bytes(std::filesystem::path const& path, int width,
+    std::vector<std::string>& faults)
 {
     std::ifstream file(path, std::ios::binary);
     std::ostringstream stream;
@@ -46,6 +47,9 @@ std::vector<std::uint8_t> render_page_bytes(std::filesystem::path const& path, i
     css::StyleMap const styles = css::resolve_styles(*document);
     layout::LayoutResult const page = layout::layout_document(*document, styles,
         static_cast<float>(width));
+    // What the picture cannot show: a box placed twice at one spot, a
+    // coordinate that is not a number, a size below zero.
+    faults = layout::check_fragments(page);
     int const height = std::max(1, static_cast<int>(page.page_height + 0.5f));
     Bitmap canvas(width, height, page.canvas_background);
     paint::paint_page(canvas, page);
@@ -79,7 +83,12 @@ int main(int argc, char** argv)
 
     int failures = 0;
     for (std::filesystem::path const& page : pages) {
-        std::vector<std::uint8_t> const actual = render_page_bytes(page, 800);
+        std::vector<std::string> faults;
+        std::vector<std::uint8_t> const actual = render_page_bytes(page, 800, faults);
+        for (std::string const& fault : faults) {
+            std::cerr << "FAULT " << page.filename().string() << ": " << fault << std::endl;
+            ++failures;
+        }
         std::filesystem::path golden_path = goldens_dir / page.filename();
         golden_path.replace_extension(".png");
 
