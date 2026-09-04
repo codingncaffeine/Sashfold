@@ -306,6 +306,39 @@ void Bitmap::blit(Bitmap const& source, int x, int y)
     }
 }
 
+void Bitmap::blend_over(Bitmap const& source, int x, int y, float alpha)
+{
+    if (alpha <= 0)
+        return;
+    // Whole 255ths, so the same bytes come out on every machine: the
+    // reference pictures are compared byte for byte on three of them.
+    int const weight = std::clamp(static_cast<int>(alpha * 255.0f + 0.5f), 0, 255);
+    if (weight == 0)
+        return;
+    int const x0 = std::max(x, 0);
+    int const y0 = std::max(y, 0);
+    int const x1 = std::min(x + source.width(), m_width);
+    int const y1 = std::min(y + source.height(), m_height);
+    auto const towards = [weight](std::uint8_t from, std::uint8_t to) {
+        int const moved
+            = static_cast<int>(from) * (255 - weight) + static_cast<int>(to) * weight;
+        return static_cast<std::uint8_t>((moved + 127) / 255);
+    };
+    for (int row = y0; row < y1; ++row) {
+        for (int column = x0; column < x1; ++column) {
+            if (!writable(column, row))
+                continue;
+            Color const under = pixel(column, row);
+            Color const over = source.pixel(column - x, row - y);
+            if (under.r == over.r && under.g == over.g && under.b == over.b && under.a == over.a)
+                continue; // the group never touched this pixel
+            write_raw(column, row,
+                Color { towards(under.r, over.r), towards(under.g, over.g),
+                    towards(under.b, over.b), towards(under.a, over.a) });
+        }
+    }
+}
+
 void Bitmap::draw_scaled(Bitmap const& source, Rect dest)
 {
     if (dest.is_empty() || source.width() <= 0 || source.height() <= 0)

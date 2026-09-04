@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 0 8px }
+  .row { position: relative; height: 50px; margin: 0 0 8px }
+  .a { position: absolute; left: 0; top: 0; width: 140px; height: 50px; background: #c33 }
+  .b { position: absolute; left: 70px; top: 0; width: 140px; height: 50px; background: #36c }
+  .half { opacity: 0.5 }
+  .quarter { opacity: 0.25 }
+  .lettering { background: #393; color: #fff; opacity: 0.5; padding: 2px }
+  .span { background: #099; color: #fff; opacity: 0.5 }
+  .nested { opacity: 0.5 }
+  .inner { opacity: 0.5; background: #930; color: #fff; padding: 2px }
+  .zero { opacity: 0; background: #000 }
+  .broken { opacity: 0.5 }
+  .tile { width: 120px; height: 40px; background: #063 }
+</style>
+</head>
+<body>
+<p>Two boxes overlapping at full strength:</p>
+<div class="row"><div class="a"></div><div class="b"></div></div>
+<p>The same two as one group at 0.5 — the near one does not show the far one through it:</p>
+<div class="row half"><div class="a"></div><div class="b"></div></div>
+<p>And at 0.25:</p>
+<div class="row quarter"><div class="a"></div><div class="b"></div></div>
+<p class="lettering">A block at 0.5 fades with the words inside it.</p>
+<p>An <span class="span">inline box at 0.5</span> fades with its own words.</p>
+<div class="nested"><p class="inner">A group at 0.5 inside a group at 0.5 is a quarter.</p></div>
+<p><span class="zero">gone</span>and the line keeps its room.</p>
+<p>A block broken out of a faded inline box fades with it:</p>
+<span class="broken"><div class="tile"></div></span>
+<p>The end of the page.</p>
+</body>
+</html>

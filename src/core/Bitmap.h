@@ -131,6 +131,17 @@ public:
     // blending — the source replaces what was there.
     void blit(Bitmap const& source, int x, int y);
 
+    // Moves every pixel of this bitmap `alpha` of the way towards the
+    // source's, the source placed at (x, y) and clipped as any other write
+    // is. It is how a group is composited at its own opacity: the group is
+    // painted onto a copy of the backdrop it stands on, and each pixel is
+    // then moved that far from the backdrop towards the result. For
+    // content that composites only source-over — all of ours — that is
+    // exactly the group's colour at that alpha, and it needs no
+    // premultiplied surface to reach it: a pixel the group never touched
+    // moves between two equal values and does not change at all.
+    void blend_over(Bitmap const& source, int x, int y, float alpha);
+
     // Draws the source scaled into `dest` with source-over compositing:
     // box-filtered when shrinking, nearest when growing, in integer
     // arithmetic, averaging premultiplied so transparent edges do not fringe.

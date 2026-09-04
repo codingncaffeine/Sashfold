@@ -1066,11 +1066,8 @@ void collect_positioned(Context const& context, Fragment const& fragment, std::o
 // flow — in tree order within a level; a descendant that is itself a
 // stacking context paints as one unit, one with z-index auto as its flow
 // alone (its positioned descendants are already in this list).
-void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
+void paint_opaque_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
 {
-    // A context at opacity zero paints nothing, positioned descendants included.
-    if (root.style && root.style->opacity <= 0)
-        return;
     // The root's overflow clips everything inside it that it contains: its
     // flow, and the positioned descendants whose containing block it is.
     std::optional<Rect> const outer = context.target.clip();
@@ -1111,6 +1108,77 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
         paint_scrollbars(context, *bar.box);
     }
     context.target.set_clip(outer);
+}
+
+// Where a subtree could put ink, in page coordinates: the union of every
+// box in it with every run's line, generously. It is only used to size the
+// buffer a group at less than full opacity is painted into, so being too
+// large costs memory and being too small would lose ink — the run's box is
+// therefore taken as a whole em above and below its baseline, which covers
+// its decorations and the way a synthesized italic leans.
+void ink_bounds(Fragment const& box, float& left, float& top, float& right, float& bottom)
+{
+    left = std::min(left, box.x);
+    top = std::min(top, box.y);
+    right = std::max(right, box.x + box.width);
+    bottom = std::max(bottom, box.y + box.height);
+    for (TextRun const& run : box.runs) {
+        float const em = run.style ? run.style->font_size : 0.0f;
+        float const x0 = css::is_vertical(run.mode) ? run.baseline_y - em : run.x;
+        float const y0 = css::is_vertical(run.mode) ? run.x : run.baseline_y - em;
+        float const x1 = css::is_vertical(run.mode) ? run.baseline_y + em : run.x + run.width;
+        float const y1 = css::is_vertical(run.mode) ? run.x + run.width : run.baseline_y + em;
+        left = std::min(left, x0);
+        top = std::min(top, y0);
+        right = std::max(right, x1);
+        bottom = std::max(bottom, y1);
+    }
+    for (Fragment const& child : box.children)
+        ink_bounds(child, left, top, right, bottom);
+}
+
+// css-color-4 §12: a box whose opacity is below one is composited as a
+// group — everything inside it paints at full strength against each other
+// first, and the whole is then laid over the page at that alpha. Painting
+// it straight onto the page would fade each piece separately, so where two
+// of them overlap the one underneath would show through the one above.
+//
+// The group is painted onto a copy of the backdrop it stands on and moved
+// back over it by its alpha, which for content that composites only
+// source-over is exactly the group's colour there — the arithmetic is in
+// `Bitmap::blend_over`. It costs one buffer the size of the group's ink,
+// held to whatever clip is already in force.
+void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
+{
+    float const alpha = root.style ? root.style->opacity : 1.0f;
+    if (alpha <= 0)
+        return; // nothing of it paints, its positioned descendants included
+    if (alpha >= 1) {
+        paint_opaque_context(context, root, is_canvas_background_owner);
+        return;
+    }
+    float left = std::numeric_limits<float>::max();
+    float top = left;
+    float right = std::numeric_limits<float>::lowest();
+    float bottom = right;
+    ink_bounds(root, left, top, right, bottom);
+    Rect const whole { 0, 0, context.target.width(), context.target.height() };
+    Rect area = intersect(
+        snap(left + context.dx, top + context.dy, right - left, bottom - top), whole);
+    if (std::optional<Rect> const held = context.target.clip())
+        area = intersect(area, *held);
+    if (area.is_empty())
+        return;
+    Bitmap group(area.width, area.height);
+    group.blit(context.target, -area.x, -area.y);
+    Context inside { group, context.dx - static_cast<float>(area.x),
+        context.dy - static_cast<float>(area.y), context.backgrounds, context.canvas_owner,
+        context.scrolls };
+    if (std::optional<Rect> const held = context.target.clip()) {
+        group.set_clip(Rect { held->x - area.x, held->y - area.y, held->width, held->height });
+    }
+    paint_opaque_context(inside, root, is_canvas_background_owner);
+    context.target.blend_over(group, area.x, area.y, alpha);
 }
 
 } // namespace

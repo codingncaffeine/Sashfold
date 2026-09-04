@@ -4077,6 +4077,11 @@ struct Layouter {
         // block child — at any depth through inline boxes, which CSS 2.1
         // §9.2.1.1 breaks around it, their content before and after it
         // staying inline (their generated boxes at either end).
+        // The inline boxes standing open around whatever the walk is
+        // reading, outermost first. §9.2.1.1 splits them around a block
+        // child, but a box is still one box to paint: a transparency on it
+        // covers what came out of it as much as what stayed on its lines.
+        std::vector<ComputedStyle const*> open_inline_boxes;
         std::function<void(std::vector<dom::Node const*> const&, dom::Element const*, ComputedStyle const&)> walk;
         walk = [&](std::vector<dom::Node const*> const& siblings, dom::Element const* parent_element,
                    ComputedStyle const& parent_style) {
@@ -4171,7 +4176,9 @@ struct Layouter {
                         append_generated(*own_before, child_element, pending_inline);
                     std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
                         child_element.children().end());
+                    open_inline_boxes.push_back(child_style);
                     walk(grandchildren, &child_element, *child_style);
+                    open_inline_boxes.pop_back();
                     if (css::GeneratedBox const* const own_after = after_of(child_style))
                         append_generated(*own_after, child_element, pending_inline);
                     pending_inline.push_back(
@@ -4278,6 +4285,24 @@ struct Layouter {
                     }
                     child_fragment = layout_block(child_element, *child_style, child_x, child_y,
                         child_width, child_list_depth, floats, child_options);
+                }
+            }
+            // An inline box the flow broke around this block still paints as
+            // one box, so a transparency on it fades the block too. The
+            // painter reads a box's alpha off its style, so the block is
+            // given a style of its own with the open boxes' alphas joined
+            // into its own. ⚠ Each block that came out of the same inline
+            // box is then its own group rather than all of them and the
+            // lines being one, which shows only where two of them overlap.
+            {
+                float fade = 1;
+                for (ComputedStyle const* open : open_inline_boxes)
+                    fade *= open->opacity;
+                if (fade < 1) {
+                    std::shared_ptr<ComputedStyle> const faded = owned_copy(*child_style);
+                    faded->opacity *= fade;
+                    child_fragment.style = faded.get();
+                    child_fragment.stacking_context = true;
                 }
             }
             // Relative: laid out in flow, then shifted once the flow has read

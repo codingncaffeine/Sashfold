@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8346 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8345 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5237,8 +5237,6 @@ css/css-cascade/revert-layer-015.html
 css/css-cascade/revert-val-002.html
 css/css-cascade/unset-val-001.html
 css/css-cascade/unset-val-002.html
-css/css-color/animation/opacity-animation-ending-correctly-001.html
-css/css-color/animation/opacity-animation-ending-correctly-002.html
 css/css-color/background-color-hsl-001.html
 css/css-color/background-color-hsl-002.html
 css/css-color/background-color-hsl-003.html
@@ -5318,6 +5316,8 @@ css/css-color/t32-opacity-basic-0.6-a.xht
 css/css-color/t32-opacity-basic-1.0-a.xht
 css/css-color/t32-opacity-clamping-0.0-b.xht
 css/css-color/t32-opacity-clamping-1.0-b.xht
+css/css-color/t32-opacity-offscreen-b.xht
+css/css-color/t32-opacity-offscreen-with-alpha-c.xht
 css/css-color/t41-html4-keywords-a.xht
 css/css-color/t421-rgb-clip-outside-gamut-b.xht
 css/css-color/t421-rgb-func-int-a.xht
@@ -6908,7 +6908,6 @@ css/css-overflow/text-overflow-ellipsis-vertical-001.html
 css/css-position/backdrop-inherit-rendered.html
 css/css-position/containing-block-change-button.html
 css/css-position/fixed-z-index-blend.html
-css/css-position/invalidate-opacity-negative-z-index.html
 css/css-position/overlay/author-overlay-top-layer-removal.html
 css/css-position/overlay/overlay-transition-backdrop-entry.html
 css/css-position/overlay/overlay-transition-dialog.html
