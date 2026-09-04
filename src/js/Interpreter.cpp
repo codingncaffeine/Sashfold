@@ -50,3 +50,26 @@ std::optional<Value> ScriptFunction::construct(Interpreter& interpreter, std::sp
 }
 
 }
+
+// The class's virtual table needs a home too: the destructor is its key
+// function. A realm cannot be made until the evaluator lands.
+namespace sashfold::js {
+
+struct Interpreter::Impl { };
+
+Interpreter::Interpreter()
+    : m_heap(std::make_unique<Heap>())
+    , m_impl(std::make_unique<Impl>())
+{
+}
+
+Interpreter::~Interpreter() = default;
+
+void Interpreter::trace_roots(Tracer& tracer)
+{
+    for (Value const& value : m_roots)
+        tracer.visit(value);
+    tracer.visit(m_exception);
+}
+
+}
