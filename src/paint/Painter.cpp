@@ -28,6 +28,10 @@ struct Context {
     // The box whose background already went onto the canvas: it does not
     // paint that background again over its own box.
     Fragment const* canvas_owner = nullptr;
+    // How far each box that scrolls has moved its content. Null leaves
+    // every scrollport at its origin, which is what a single render of a
+    // page shows.
+    layout::ScrollOffsets const* scrolls = nullptr;
 };
 
 int round_px(float value)
@@ -912,6 +916,116 @@ void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_backg
     paint_contents(context, fragment);
 }
 
+// --- Scrollbars -------------------------------------------------------------------
+
+// The scrollport: the padding box of a box that scrolls, where its content
+// is shown and where its bars are drawn.
+Rect scrollport(Fragment const& box)
+{
+    ComputedStyle const& s = *box.style;
+    return snap(box.x + s.border_left.width, box.y + s.border_top.width,
+        box.width - s.border_left.width - s.border_right.width,
+        box.height - s.border_top.width - s.border_bottom.width);
+}
+
+// A bar along one axis: the track fills the scrollport's edge, and the
+// thumb is as long a part of it as the scrollport is of the whole content,
+// placed as far along as the content has been scrolled. It never falls
+// below a size a reader can catch hold of.
+ScrollbarGeometry bar_along(Rect track, float visible, float range, float at, bool vertical)
+{
+    int const length = vertical ? track.height : track.width;
+    float const whole = visible + range;
+    int const minimum = std::min(length, 20);
+    int thumb = whole > 0 ? round_px(static_cast<float>(length) * visible / whole) : length;
+    thumb = std::clamp(thumb, minimum, length);
+    float const fraction = range > 0 ? std::clamp(at / range, 0.0f, 1.0f) : 0.0f;
+    int const travel = length - thumb;
+    int const start = round_px(fraction * static_cast<float>(travel));
+    Rect thumb_rect = track;
+    if (vertical) {
+        thumb_rect.y += start;
+        thumb_rect.height = thumb;
+    } else {
+        thumb_rect.x += start;
+        thumb_rect.width = thumb;
+    }
+    return ScrollbarGeometry { track, thumb_rect };
+}
+
+// A box shows a bar on an axis when the style asks for one always, or asks
+// for one when there is something out of sight and there is. The bars sit
+// inside the scrollport over the content rather than taking room from it:
+// reserving room would have to happen while the box is being laid out, and
+// what the box holds is what decides whether a bar is needed at all.
+std::optional<ScrollbarGeometry> vertical_bar(Fragment const& box, layout::ScrollOffset offset)
+{
+    if (!box.style || !box.style->overflow_applies)
+        return std::nullopt;
+    if (!css::shows_scrollbar(box.style->overflow_y, box.scroll_range_y > 0))
+        return std::nullopt;
+    Rect const port = scrollport(box);
+    int const width = round_px(scrollbar_width);
+    if (port.width <= width || port.height <= 0)
+        return std::nullopt;
+    bool const across = css::shows_scrollbar(box.style->overflow_x, box.scroll_range_x > 0);
+    Rect track { port.x + port.width - width, port.y, width,
+        port.height - (across ? width : 0) };
+    if (track.height <= 0)
+        return std::nullopt;
+    return bar_along(track, static_cast<float>(track.height), box.scroll_range_y, offset.y, true);
+}
+
+std::optional<ScrollbarGeometry> horizontal_bar(Fragment const& box, layout::ScrollOffset offset)
+{
+    if (!box.style || !box.style->overflow_applies)
+        return std::nullopt;
+    if (!css::shows_scrollbar(box.style->overflow_x, box.scroll_range_x > 0))
+        return std::nullopt;
+    Rect const port = scrollport(box);
+    int const width = round_px(scrollbar_width);
+    if (port.height <= width || port.width <= 0)
+        return std::nullopt;
+    bool const down = css::shows_scrollbar(box.style->overflow_y, box.scroll_range_y > 0);
+    Rect track { port.x, port.y + port.height - width, port.width - (down ? width : 0), width };
+    if (track.width <= 0)
+        return std::nullopt;
+    return bar_along(track, static_cast<float>(track.width), box.scroll_range_x, offset.x, false);
+}
+
+// Drawn in the greys a bar keeps when the page asks for no colour of its
+// own: a track that barely marks the edge and a thumb dark enough to find
+// on any background, both translucent so the content stays legible under
+// them.
+void paint_bar(Context& context, ScrollbarGeometry const& bar)
+{
+    Rect track = bar.track;
+    Rect thumb = bar.thumb;
+    int const dx = round_px(context.dx);
+    int const dy = round_px(context.dy);
+    track.x += dx;
+    track.y += dy;
+    thumb.x += dx;
+    thumb.y += dy;
+    context.target.fill_rect(track, Color::rgba(0, 0, 0, 20));
+    int const radius = std::min(4, std::min(thumb.width, thumb.height) / 2);
+    context.target.fill_round_rect(thumb, radius, Color::rgba(0, 0, 0, 120));
+}
+
+void paint_scrollbars(Context& context, Fragment const& box)
+{
+    // No offsets means no shell behind this render: nothing has been
+    // scrolled and nothing can be, so there is no bar to draw. A single
+    // picture of a page shows the page, not the chrome around it.
+    if (!context.scrolls)
+        return;
+    layout::ScrollOffset const offset = layout::scroll_of(box, context.scrolls);
+    if (std::optional<ScrollbarGeometry> const bar = vertical_bar(box, offset))
+        paint_bar(context, *bar);
+    if (std::optional<ScrollbarGeometry> const bar = horizontal_bar(box, offset))
+        paint_bar(context, *bar);
+}
+
 // A positioned box a stacking context paints, with the clip the ancestors
 // that contain it impose: every overflow-clipping ancestor for a box in
 // flow (relative, sticky); only the positioned ones — its containing
@@ -926,7 +1040,7 @@ struct Layer {
 // positioned box with z-index auto is walked through — its positioned
 // descendants are the parent context's, per CSS 2.1 Appendix E).
 void collect_positioned(Context const& context, Fragment const& fragment, std::optional<Rect> const& clip_in_flow,
-    std::optional<Rect> const& clip_out_of_flow, std::vector<Layer>& out)
+    std::optional<Rect> const& clip_out_of_flow, std::vector<Layer>& out, std::vector<Layer>& bars)
 {
     for (Fragment const& child : fragment.children) {
         if (child.positioned)
@@ -934,8 +1048,16 @@ void collect_positioned(Context const& context, Fragment const& fragment, std::o
         if (child.stacking_context)
             continue;
         std::optional<Rect> const inner = clip_within(context, child, clip_in_flow);
+        // A scroll container's bars are drawn over everything it holds,
+        // and a positioned descendant of it paints at this context's level
+        // rather than inside it, so the bars are gathered here and drawn
+        // after the whole context.
+        if (context.scrolls && child.style && child.style->overflow_applies
+            && css::scrolls(child.style->overflow_x))
+            bars.push_back(Layer { &child, clip_in_flow });
         collect_positioned(context, child, inner,
-            child.positioned ? clip_within(context, child, clip_out_of_flow) : clip_out_of_flow, out);
+            child.positioned ? clip_within(context, child, clip_out_of_flow) : clip_out_of_flow, out,
+            bars);
     }
 }
 
@@ -954,7 +1076,11 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
     std::optional<Rect> const outer = context.target.clip();
     std::optional<Rect> const inner = clip_within(context, root, outer);
     std::vector<Layer> positioned;
-    collect_positioned(context, root, inner, root.positioned ? inner : outer, positioned);
+    std::vector<Layer> bars;
+    if (context.scrolls && root.style && root.style->overflow_applies
+        && css::scrolls(root.style->overflow_x))
+        bars.push_back(Layer { &root, inner });
+    collect_positioned(context, root, inner, root.positioned ? inner : outer, positioned, bars);
     std::stable_sort(positioned.begin(), positioned.end(),
         [](Layer const& a, Layer const& b) { return a.box->z_index < b.box->z_index; });
     auto const paint_one = [&](Layer const& layer) {
@@ -977,6 +1103,13 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
         if (layer.box->z_index >= 0)
             paint_one(layer);
     }
+    // A scroll container's bars are drawn over everything it holds, and a
+    // positioned descendant of it paints at this level, so they come after
+    // the whole context (css-overflow-3 §3.2).
+    for (Layer const& bar : bars) {
+        context.target.set_clip(bar.clip);
+        paint_scrollbars(context, *bar.box);
+    }
     context.target.set_clip(outer);
 }
 
@@ -995,8 +1128,20 @@ Fragment const* canvas_background_owner(layout::LayoutResult const& page)
     return nullptr;
 }
 
+std::optional<ScrollbarGeometry> vertical_scrollbar(
+    layout::Fragment const& box, layout::ScrollOffset offset)
+{
+    return vertical_bar(box, offset);
+}
+
+std::optional<ScrollbarGeometry> horizontal_scrollbar(
+    layout::Fragment const& box, layout::ScrollOffset offset)
+{
+    return horizontal_bar(box, offset);
+}
+
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x, float offset_y,
-    layout::BackgroundImages const* backgrounds)
+    layout::BackgroundImages const* backgrounds, layout::ScrollOffsets const* scrolls)
 {
     target.fill_rect(Rect { 0, 0, target.width(), target.height() }, page.canvas_background);
     if (!page.root.style)
@@ -1006,7 +1151,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
     Fragment const* const owner = canvas_background_owner(page);
-    Context context { target, offset_x, offset_y, backgrounds, owner };
+    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls };
     // The canvas takes the whole background of the box that owns it, its
     // pictures included: they cover the surface, sized and placed against
     // the root element's box whichever box they came from.

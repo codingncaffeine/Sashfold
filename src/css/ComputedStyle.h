@@ -329,11 +329,31 @@ enum class Overflow : std::uint8_t {
     // other axis stay visible — and a box that clips only one axis does
     // not round what it holds along its corners.
     Clip,
-    // hidden, auto and scroll: the box contains its floats, keeps clear
-    // of others, and clips what it paints to its padding box; scrolling
-    // arrives with scroll containers.
+    // hidden, auto and scroll all make the box a scroll container: it
+    // contains its floats, keeps clear of others, clips what it paints to
+    // its padding box, and holds a scrollport its content can be moved
+    // within. They differ only in how a reader reaches what is out of
+    // sight — `hidden` gives no way at all, `auto` a scrollbar once there
+    // is something to reach, `scroll` a scrollbar whether or not there is.
     Hidden,
+    Auto,
+    Scroll,
 };
+
+// Whether a box with this value clips its content and scrolls within it:
+// everything but `visible` and `clip`.
+constexpr bool scrolls(Overflow overflow)
+{
+    return overflow == Overflow::Hidden || overflow == Overflow::Auto
+        || overflow == Overflow::Scroll;
+}
+
+// Whether the axis shows a scrollbar: `scroll` always, `auto` only when
+// there is something out of sight to reach.
+constexpr bool shows_scrollbar(Overflow overflow, bool overflowing)
+{
+    return overflow == Overflow::Scroll || (overflow == Overflow::Auto && overflowing);
+}
 
 enum class Visibility : std::uint8_t {
     Visible,

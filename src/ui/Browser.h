@@ -142,6 +142,9 @@ public:
     std::string page_title() const;
     std::string page_text() const; // the laid-out text, runs joined by spaces
     int scroll_y() const;
+    // How far the innermost box that scrolls under a window point has had
+    // its content moved, in CSS px; zero when the point is in no such box.
+    std::pair<int, int> box_scroll_at(int x, int y) const;
     std::optional<net::Url> link_at(int x, int y) const;
     // The window-coordinate center of the first text run containing `text`.
     std::optional<std::pair<int, int>> find_text(std::string const& text) const;

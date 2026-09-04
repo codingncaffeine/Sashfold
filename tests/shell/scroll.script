@@ -1,0 +1,81 @@
+# Boxes that scroll: the wheel over a pane moves the pane and not the page,
+# a pane with nothing left passes the notch on, the keyboard follows
+# whatever the reader last moved, a scrollbar thumb can be dragged, and a
+# box that only clips gives a reader no way in.
+#
+# The content area starts 76 px down (tab strip + toolbar) and 0 px in. The
+# page below puts a 302x102 pane at the body's 8 px margin, so window
+# (200, 160) is page (200, 84) and inside it; the clip box below it spans
+# page y 110 to 172. No colour may be written as #rgb here: a # in a data
+# URL starts its fragment and the rest of the page is lost.
+resize 800 500
+open data:text/html,<title>Panes</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.pane{width:300px;height:100px;overflow:auto;border:1px solid gray}.clip{width:300px;height:60px;overflow:hidden;border:1px solid gray}.tall{height:400px;background:lavender}.spacer{height:900px}</style><div class="pane"><div class="tall">pane one</div></div><div class="clip"><div class="tall">clipped</div></div><div class="spacer">below</div>
+assert-title Panes
+assert-scroll 0
+assert-box-scroll 200 160 0 0
+
+# A notch over the pane moves the pane, and leaves the page where it was.
+wheel-at 200 160 -1
+assert-box-scroll 200 160 0 60
+assert-scroll 0
+assert-golden goldens/scroll-pane.png
+
+# The keyboard follows the pane the wheel last moved.
+key Down
+assert-box-scroll 200 160 0 120
+assert-scroll 0
+
+# End takes the pane to its far edge and no further: 400 tall inside a
+# 100 px scrollport leaves 300 to reach.
+key End
+assert-box-scroll 200 160 0 300
+assert-scroll 0
+
+# With nothing left, a further notch over the pane passes to the page. The
+# page moves 60 under the window, so the pane is now read at window 116.
+wheel-at 200 160 -1
+assert-box-scroll 200 116 0 300
+assert-scrolled
+
+# A box that only clips gives a reader no way in, so a notch over it is the
+# page's own. The clip box spans page y 110 to 172, which is window 186
+# to 248 while the page stands at zero.
+key Home
+wheel-at 200 200 -1
+assert-box-scroll 200 200 0 0
+assert-scrolled
+
+# The pane's own bar: 12 px wide down the scrollport's right edge, which
+# ends at page x 309, so 303 is on it. The pane shows a quarter of its
+# content, so the thumb is a quarter of the 100 px track — page y 9 to 34,
+# window 85 to 110. Taking hold of it and dragging past the track's foot
+# puts the pane at its far edge.
+key Home
+wheel-at 200 160 5
+assert-box-scroll 200 160 0 0
+drag 303 95 303 400
+assert-box-scroll 200 160 0 300
+assert-golden goldens/scroll-thumb.png
+
+# A click on the track below the thumb moves a scrollport at a time,
+# towards the pointer.
+key Home
+assert-box-scroll 200 160 0 0
+click 303 126
+assert-box-scroll 200 160 0 100
+
+# A pane that can only move across takes a plain wheel that way — the wide
+# table in a narrow column, which is what the whole of this is for. The
+# pane is 302x42 at the body's margin, so window (200, 101) is page
+# (200, 25) and inside it; 900 px of content inside a 300 px scrollport
+# leaves 600 to reach.
+open data:text/html,<title>Across</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.across{width:300px;height:40px;overflow:auto;border:1px solid gray}.long{width:900px;height:20px;background:lavender}</style><div class="across"><div class="long">a long strip</div></div>
+assert-title Across
+assert-box-scroll 200 101 0 0
+wheel-at 200 101 -1
+assert-box-scroll 200 101 60 0
+assert-scroll 0
+# Ten more notches would be 660; the pane stops at the 600 it has.
+wheel-at 200 101 -10
+assert-box-scroll 200 101 600 0
+assert-golden goldens/scroll-across.png

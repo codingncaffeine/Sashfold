@@ -304,6 +304,14 @@ struct Browser::Impl {
         dom::Node const* inspected = nullptr; // devtools: the node under inspection
         int tree_scroll = 0; // devtools: the first tree line shown
         int scroll_y = 0;
+        // How far the reader has moved each box that scrolls, and how much
+        // of that the fragment tree already carries: a fresh layout carries
+        // none of it, so the two are brought together after every one.
+        layout::ScrollOffsets scrolls;
+        layout::ScrollOffsets applied;
+        // The box the keyboard moves — the one the reader last took a wheel
+        // or a scrollbar to. Null means the page itself.
+        dom::Element const* scroller = nullptr;
         std::string status;
 
         HistoryEntry const* current() const
@@ -358,6 +366,13 @@ struct Browser::Impl {
     std::size_t hover_index = 0;
     std::optional<net::Url> hover_link;
     bool selecting = false; // the left button went down on page text and is still held
+    // The scrollbar thumb the left button took hold of, and where along it.
+    struct BarDrag {
+        dom::Element const* box = nullptr;
+        bool vertical = true;
+        float grab = 0;
+    };
+    std::optional<BarDrag> bar_drag;
 
     // The find bar: shared by the tabs, its matches kept per tab.
     bool find_open = false;
@@ -553,6 +568,191 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // --- Boxes that scroll ---------------------------------------------------------
+
+    // The scrollport of a box that scrolls: its padding box, where its
+    // content shows and where its bars are drawn.
+    static bool in_scrollport(layout::Fragment const& box, float px, float py)
+    {
+        css::ComputedStyle const& s = *box.style;
+        float const left = box.x + s.border_left.width;
+        float const top = box.y + s.border_top.width;
+        float const right = box.x + box.width - s.border_right.width;
+        float const bottom = box.y + box.height - s.border_bottom.width;
+        return px >= left && px < right && py >= top && py < bottom;
+    }
+
+    // A box a reader can move by hand: `hidden` clips and can be scrolled
+    // by a script, but gives a reader no way in at all.
+    static bool reader_can_scroll(layout::Fragment const& box)
+    {
+        if (!layout::is_scroll_container(box) || !box.element)
+            return false;
+        css::ComputedStyle const& s = *box.style;
+        return s.overflow_x != css::Overflow::Hidden || s.overflow_y != css::Overflow::Hidden;
+    }
+
+    // How a box takes one push of the wheel: down the page when it has room
+    // there, across it when that is the only way it can move — a wide table
+    // or a strip of cards under a plain wheel, which is what a reader gets
+    // everywhere else. Absent when the box has no room either way, and the
+    // push then belongs to the box around it.
+    static std::optional<layout::ScrollOffset> wheel_delta(
+        layout::Fragment const& box, float delta, layout::ScrollOffsets const& at)
+    {
+        layout::ScrollOffset const now = layout::scroll_of(box, &at);
+        if ((delta > 0 && now.y < box.scroll_range_y) || (delta < 0 && now.y > 0))
+            return layout::ScrollOffset { 0, delta };
+        if ((delta > 0 && now.x < box.scroll_range_x) || (delta < 0 && now.x > 0))
+            return layout::ScrollOffset { delta, 0 };
+        return std::nullopt;
+    }
+
+    // The box a wheel over this page point should move: the innermost one
+    // whose scrollport holds the point and that has room left to take it. A
+    // box with none passes the notch on to the box around it, and the page
+    // answers when none of them can — the chaining every browser does.
+    static layout::Fragment const* scroller_at(
+        layout::Fragment const& box, float px, float py, float delta, layout::ScrollOffsets const& at)
+    {
+        bool const clips = layout::is_scroll_container(box);
+        if (clips && !in_scrollport(box, px, py))
+            return nullptr; // what is inside it is out of sight here
+        for (layout::Fragment const& child : box.children) {
+            if (layout::Fragment const* const found = scroller_at(child, px, py, delta, at))
+                return found;
+        }
+        if (!clips || !reader_can_scroll(box))
+            return nullptr;
+        return wheel_delta(box, delta, at) ? &box : nullptr;
+    }
+
+    // Moves one box's content, and the fragments with it. False when the
+    // box had no room to move that way, so the reader's push passes on.
+    bool scroll_box_to(Tab& tab, layout::Fragment const& box, layout::ScrollOffset want)
+    {
+        if (!box.element)
+            return false;
+        want.x = std::clamp(want.x, 0.0f, box.scroll_range_x);
+        want.y = std::clamp(want.y, 0.0f, box.scroll_range_y);
+        layout::ScrollOffset& at = tab.scrolls[box.element];
+        if (want.x == at.x && want.y == at.y)
+            return false;
+        at = want;
+        layout::apply_scroll(tab.layout.root, tab.scrolls, tab.applied);
+        dirty = true;
+        return true;
+    }
+
+    bool scroll_box_by(Tab& tab, layout::Fragment const& box, float dx, float dy)
+    {
+        layout::ScrollOffset const at = layout::scroll_of(box, &tab.scrolls);
+        return scroll_box_to(tab, box, layout::ScrollOffset { at.x + dx, at.y + dy });
+    }
+
+    // The box the keyboard moves, when it is still on the page and still
+    // has somewhere to go.
+    layout::Fragment const* keyboard_scroller(Tab const& tab) const
+    {
+        if (!tab.scroller)
+            return nullptr;
+        layout::Fragment const* const box = fragment_for(tab.layout.root, tab.scroller);
+        if (!box || (box->scroll_range_x <= 0 && box->scroll_range_y <= 0))
+            return nullptr;
+        return box;
+    }
+
+    // The innermost box that scrolls whose scrollport holds a page point,
+    // whether or not it has room left to move.
+    static layout::Fragment const* scrollport_at(layout::Fragment const& box, float px, float py)
+    {
+        bool const clips = layout::is_scroll_container(box);
+        if (clips && !in_scrollport(box, px, py))
+            return nullptr;
+        for (layout::Fragment const& child : box.children) {
+            if (layout::Fragment const* const found = scrollport_at(child, px, py))
+                return found;
+        }
+        return clips ? &box : nullptr;
+    }
+
+    // A scrollbar under a page point: which box's, which axis, and whether
+    // the pointer took hold of the thumb or of the track beside it.
+    struct BarHit {
+        layout::Fragment const* box = nullptr;
+        bool vertical = true;
+        bool on_thumb = false;
+        float grab = 0; // how far into the thumb the pointer took hold
+    };
+
+    static std::optional<BarHit> bar_at(layout::Fragment const& box, float px, float py,
+        layout::ScrollOffsets const& at)
+    {
+        bool const clips = layout::is_scroll_container(box);
+        if (clips && !in_scrollport(box, px, py))
+            return std::nullopt;
+        for (layout::Fragment const& child : box.children) {
+            if (std::optional<BarHit> const found = bar_at(child, px, py, at))
+                return found;
+        }
+        if (!clips || !reader_can_scroll(box))
+            return std::nullopt;
+        layout::ScrollOffset const offset = layout::scroll_of(box, &at);
+        int const x = static_cast<int>(px);
+        int const y = static_cast<int>(py);
+        if (std::optional<paint::ScrollbarGeometry> const bar
+            = paint::vertical_scrollbar(box, offset)) {
+            if (bar->track.contains(x, y)) {
+                return BarHit { &box, true, bar->thumb.contains(x, y),
+                    py - static_cast<float>(bar->thumb.y) };
+            }
+        }
+        if (std::optional<paint::ScrollbarGeometry> const bar
+            = paint::horizontal_scrollbar(box, offset)) {
+            if (bar->track.contains(x, y)) {
+                return BarHit { &box, false, bar->thumb.contains(x, y),
+                    px - static_cast<float>(bar->thumb.x) };
+            }
+        }
+        return std::nullopt;
+    }
+
+    // The pointer has the thumb: where along the track it now stands is
+    // where the content stands along its own range.
+    void drag_bar_to(Tab& tab, layout::Fragment const& box, bool vertical, float grab, float px,
+        float py)
+    {
+        layout::ScrollOffset const at = layout::scroll_of(box, &tab.scrolls);
+        std::optional<paint::ScrollbarGeometry> const bar
+            = vertical ? paint::vertical_scrollbar(box, at) : paint::horizontal_scrollbar(box, at);
+        if (!bar)
+            return;
+        float const track_start
+            = static_cast<float>(vertical ? bar->track.y : bar->track.x);
+        float const travel = static_cast<float>(vertical ? bar->track.height - bar->thumb.height
+                                                         : bar->track.width - bar->thumb.width);
+        if (travel <= 0)
+            return;
+        float const range = vertical ? box.scroll_range_y : box.scroll_range_x;
+        float const along = std::clamp(((vertical ? py : px) - grab - track_start) / travel, 0.0f, 1.0f);
+        layout::ScrollOffset want = at;
+        (vertical ? want.y : want.x) = along * range;
+        scroll_box_to(tab, box, want);
+    }
+
+    // A click beside the thumb moves by a scrollport at a time, the way it
+    // does everywhere: towards the pointer.
+    void page_bar(Tab& tab, BarHit const& hit)
+    {
+        layout::Fragment const& box = *hit.box;
+        css::ComputedStyle const& s = *box.style;
+        float const port = hit.vertical
+            ? box.height - s.border_top.width - s.border_bottom.width
+            : box.width - s.border_left.width - s.border_right.width;
+        float const step = hit.grab < 0 ? -port : port;
+        scroll_box_by(tab, box, hit.vertical ? 0.0f : step, hit.vertical ? step : 0.0f);
+    }
+
     // --- Rendering a history entry ------------------------------------------------
 
     // What media queries see: the content area.
@@ -593,6 +793,12 @@ struct Browser::Impl {
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
             static_cast<float>(std::max(1, c.content.height)));
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
+        // A page laid out again is at every scrollport's origin: what the
+        // reader had moved is put back on, held inside whatever the new
+        // shape can reach. Before the runs are gathered, so the selection
+        // and find-in-page read the coordinates the content is drawn at.
+        tab.applied.clear();
+        layout::apply_scroll(tab.layout.root, tab.scrolls, tab.applied);
         // The selection pointed into the old layout's runs.
         tab.runs.clear();
         gather_runs(tab.layout.root, tab.runs);
@@ -1016,8 +1222,30 @@ struct Browser::Impl {
 
     // --- Hit testing --------------------------------------------------------------
 
+    // What a box that clips holds cannot be reached outside its padding
+    // box, on the axes it clips: `overflow: clip visible` holds the sides
+    // in and lets the content run off the top and bottom. Since a box that
+    // scrolls moves its content within that box, a link that has been
+    // scrolled out of sight is out of reach as well — which is the whole
+    // point of the clip.
+    static bool reachable_within(layout::Fragment const& box, float px, float py)
+    {
+        if (!box.style || !box.style->overflow_applies)
+            return true;
+        css::ComputedStyle const& s = *box.style;
+        if (s.overflow_x != css::Overflow::Visible
+            && (px < box.x + s.border_left.width || px >= box.x + box.width - s.border_right.width))
+            return false;
+        if (s.overflow_y != css::Overflow::Visible
+            && (py < box.y + s.border_top.width || py >= box.y + box.height - s.border_bottom.width))
+            return false;
+        return true;
+    }
+
     static dom::Element const* hit_run(layout::Fragment const& fragment, float x, float y)
     {
+        if (!reachable_within(fragment, x, y))
+            return nullptr;
         for (layout::Fragment const& child : fragment.children) {
             if (dom::Element const* const hit = hit_run(child, x, y))
                 return hit;
@@ -1039,6 +1267,8 @@ struct Browser::Impl {
     // The control whose box holds page point (px, py).
     static dom::Element const* hit_control(layout::Fragment const& fragment, float px, float py)
     {
+        if (!reachable_within(fragment, px, py))
+            return nullptr;
         if (fragment.control && fragment.element) {
             layout::Fragment::ControlBox const& box = *fragment.control;
             if (px >= box.x && px < box.x + box.width && py >= box.y && py < box.y + box.height)
@@ -1388,6 +1618,20 @@ struct Browser::Impl {
     void mouse_move(int x, int y)
     {
         update_hover(x, y);
+        if (bar_drag) {
+            Tab* const tab = active_tab();
+            ChromeLayout const c = layout_chrome();
+            layout::Fragment const* const box
+                = tab ? fragment_for(tab->layout.root, bar_drag->box) : nullptr;
+            if (box) {
+                // The pointer may leave the bar; the thumb follows it along
+                // its own axis all the same, which is what a drag means.
+                drag_bar_to(*tab, *box, bar_drag->vertical, bar_drag->grab,
+                    static_cast<float>(x - c.content.x),
+                    static_cast<float>(y - c.content.y + tab->scroll_y));
+            }
+            return;
+        }
         if (!selecting)
             return;
         Tab* const tab = active_tab();
@@ -1408,8 +1652,10 @@ struct Browser::Impl {
 
     void mouse_up(int button)
     {
-        if (button == 1)
+        if (button == 1) {
             selecting = false;
+            bar_drag.reset();
+        }
     }
 
     void select_all_text(Tab& tab)
@@ -1560,6 +1806,8 @@ struct Browser::Impl {
     static dom::Element const* element_at_point(layout::Fragment const& fragment, float px, float py)
     {
         for (layout::Fragment const& child : fragment.children) {
+            if (!reachable_within(child, px, py))
+                continue; // scrolled or clipped out of sight, and out of reach with it
             if (dom::Element const* const hit = element_at_point(child, px, py))
                 return hit;
         }
@@ -1605,6 +1853,18 @@ struct Browser::Impl {
         else
             std::snprintf(buffer, sizeof buffer, "#%02x%02x%02x%02x", color.r, color.g, color.b, color.a);
         return buffer;
+    }
+
+    static char const* overflow_text(css::Overflow overflow)
+    {
+        switch (overflow) {
+        case css::Overflow::Visible: return "visible";
+        case css::Overflow::Clip: return "clip";
+        case css::Overflow::Hidden: return "hidden";
+        case css::Overflow::Auto: return "auto";
+        case css::Overflow::Scroll: return "scroll";
+        }
+        return "visible";
     }
 
     static char const* display_text(css::Display display)
@@ -1656,8 +1916,11 @@ struct Browser::Impl {
         std::string display = std::string("display ") + display_text(s.display);
         if (s.floating != css::Float::None)
             display += std::string("  float ") + (s.floating == css::Float::Left ? "left" : "right");
-        if (s.overflow != css::Overflow::Visible)
-            display += "  overflow hidden";
+        if (s.overflow != css::Overflow::Visible) {
+            display += std::string("  overflow ") + overflow_text(s.overflow_x);
+            if (s.overflow_y != s.overflow_x)
+                display += std::string(" ") + overflow_text(s.overflow_y);
+        }
         lines.push_back(display);
         lines.push_back("width " + length_text(s.width) + "  height " + length_text(s.height));
         lines.push_back("margin " + length_text(s.margin_top) + " " + length_text(s.margin_right) + " "
@@ -2396,6 +2659,23 @@ struct Browser::Impl {
             case Hover::Content:
                 blur_address();
                 blur_find();
+                // A bar is drawn over the content, so it answers first: a
+                // thumb is taken hold of, the track beside it moves a
+                // scrollport at a time.
+                if (Tab* const tab = active_tab()) {
+                    std::optional<std::pair<float, float>> const point = page_point(x, y);
+                    std::optional<BarHit> const hit
+                        = point ? bar_at(tab->layout.root, point->first, point->second, tab->scrolls)
+                                : std::nullopt;
+                    if (hit) {
+                        tab->scroller = hit->box->element;
+                        if (hit->on_thumb)
+                            bar_drag = BarDrag { hit->box->element, hit->vertical, hit->grab };
+                        else
+                            page_bar(*tab, *hit);
+                        break;
+                    }
+                }
                 if (devtools_open) {
                     // With the panel open a click inspects instead of navigating.
                     if (Tab* const tab = active_tab())
@@ -2431,10 +2711,56 @@ struct Browser::Impl {
         queue(active, url, Mode::Push);
     }
 
+    // The keyboard moves whatever the reader last moved by hand, and the
+    // page when that box has run out or there is none.
     void scroll_by(int delta)
     {
-        if (Tab* const tab = active_tab())
-            set_scroll(*tab, tab->scroll_y + delta);
+        Tab* const tab = active_tab();
+        if (!tab)
+            return;
+        if (layout::Fragment const* const box = keyboard_scroller(*tab)) {
+            if (scroll_box_by(*tab, *box, 0, static_cast<float>(delta)))
+                return;
+        }
+        set_scroll(*tab, tab->scroll_y + delta);
+    }
+
+    // Home and End: the far end of whatever the keyboard is moving.
+    void scroll_to_end(bool far_end)
+    {
+        Tab* const tab = active_tab();
+        if (!tab)
+            return;
+        if (layout::Fragment const* const box = keyboard_scroller(*tab)) {
+            layout::ScrollOffset const at = layout::scroll_of(*box, &tab->scrolls);
+            if (scroll_box_to(*tab, *box,
+                    layout::ScrollOffset { at.x, far_end ? box->scroll_range_y : 0.0f }))
+                return;
+        }
+        set_scroll(*tab, far_end ? max_scroll(*tab) : 0);
+    }
+
+    // A wheel over the content: the innermost box under the pointer that
+    // can take it, else the page. Whatever took it is what the keyboard
+    // moves from here.
+    void wheel_at(int x, int y, int notches)
+    {
+        int const delta = -notches * theme.scroll_step;
+        Tab* const tab = active_tab();
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (tab && point) {
+            layout::Fragment const* const box = scroller_at(
+                tab->layout.root, point->first, point->second, static_cast<float>(delta), tab->scrolls);
+            std::optional<layout::ScrollOffset> const step
+                = box ? wheel_delta(*box, static_cast<float>(delta), tab->scrolls) : std::nullopt;
+            if (box && step) {
+                tab->scroller = box->element;
+                scroll_box_by(*tab, *box, step->x, step->y);
+                return;
+            }
+            tab->scroller = nullptr;
+        }
+        scroll_by(delta);
     }
 
     void key_down(KeyEvent const& key)
@@ -2524,8 +2850,8 @@ struct Browser::Impl {
         case Key::PageDown: scroll_by(page); break;
         case Key::Space: scroll_by(key.shift ? -page : page); break;
         case Key::PageUp: scroll_by(-page); break;
-        case Key::Home: set_scroll(*tab, 0); break;
-        case Key::End: set_scroll(*tab, max_scroll(*tab)); break;
+        case Key::Home: scroll_to_end(false); break;
+        case Key::End: scroll_to_end(true); break;
         case Key::Backspace: go(key.shift ? +1 : -1); break;
         default: break;
         }
@@ -2756,7 +3082,8 @@ struct Browser::Impl {
         frame.fill_rect(c.content, t.content_background);
         if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
-            paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y), &tab->backgrounds);
+            paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y),
+                &tab->backgrounds, &tab->scrolls);
             // The find bar's matches, the current one stronger; then the
             // selection over them, all as translucent bands.
             if (find_open) {
@@ -2967,7 +3294,7 @@ void Browser::wheel(int x, int y, int notches)
 {
     m_impl->update_hover(x, y);
     if (m_impl->layout_chrome().content.contains(x, y))
-        m_impl->scroll_by(-notches * m_impl->theme.scroll_step);
+        m_impl->wheel_at(x, y, notches);
     m_impl->refresh_hover();
 }
 
@@ -3065,6 +3392,20 @@ int Browser::scroll_y() const
 {
     Impl::Tab const* const tab = m_impl->active_tab();
     return tab ? tab->scroll_y : 0;
+}
+
+std::pair<int, int> Browser::box_scroll_at(int x, int y) const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    std::optional<std::pair<float, float>> const point = m_impl->page_point(x, y);
+    if (!tab || !point)
+        return { 0, 0 };
+    layout::Fragment const* const box
+        = Impl::scrollport_at(tab->layout.root, point->first, point->second);
+    if (!box)
+        return { 0, 0 };
+    layout::ScrollOffset const at = layout::scroll_of(*box, &tab->scrolls);
+    return { static_cast<int>(at.x + 0.5f), static_cast<int>(at.y + 0.5f) };
 }
 
 std::optional<net::Url> Browser::link_at(int x, int y) const { return m_impl->link_at(x, y); }

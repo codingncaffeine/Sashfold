@@ -584,10 +584,10 @@ void settle_overflow(ComputedStyle& style)
 {
     Overflow const across = style.overflow_x;
     Overflow const down = style.overflow_y;
-    if (down == Overflow::Hidden)
-        style.overflow_x = Overflow::Hidden;
-    if (across == Overflow::Hidden)
-        style.overflow_y = Overflow::Hidden;
+    if (scrolls(down) && !scrolls(across))
+        style.overflow_x = across == Overflow::Clip ? Overflow::Hidden : Overflow::Auto;
+    if (scrolls(across) && !scrolls(down))
+        style.overflow_y = down == Overflow::Clip ? Overflow::Hidden : Overflow::Auto;
     style.overflow = style.overflow_x == Overflow::Visible && style.overflow_y == Overflow::Visible
         ? Overflow::Visible
         : Overflow::Hidden;
@@ -3975,10 +3975,13 @@ struct Resolver {
                     written.push_back(Overflow::Visible);
                 else if (ascii_ci_equals(keyword, "clip"))
                     written.push_back(Overflow::Clip);
-                else if (ascii_ci_equals(keyword, "hidden") || ascii_ci_equals(keyword, "auto")
-                    || ascii_ci_equals(keyword, "scroll")
-                    || ascii_ci_equals(keyword, "overlay")) // the legacy spelling of auto
+                else if (ascii_ci_equals(keyword, "hidden"))
                     written.push_back(Overflow::Hidden);
+                else if (ascii_ci_equals(keyword, "auto")
+                    || ascii_ci_equals(keyword, "overlay")) // the legacy spelling of auto
+                    written.push_back(Overflow::Auto);
+                else if (ascii_ci_equals(keyword, "scroll"))
+                    written.push_back(Overflow::Scroll);
                 else
                     return;
             }

@@ -16,6 +16,9 @@
 //   click-text <text>    click the center of the first run containing text
 //   move <x> <y>         hover
 //   wheel <notches>      scroll the content (positive rolls up)
+//   wheel-at <x> <y> <notches>   the same, over one window point
+//   assert-box-scroll <x> <y> <dx> <dy>   how far the box that scrolls
+//                        under that point has moved its content
 //   type <text>          type into whatever has focus
 //   key <chord>          e.g. Enter, Escape, ctrl+l, alt+left, ctrl+shift+tab
 //   back | forward | reload | new-tab | close-tab [n] | select-tab <n>

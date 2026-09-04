@@ -217,6 +217,23 @@ struct Runner {
                 return fail("wheel: needs a notch count");
             Rect const content = browser.chrome_layout().content;
             browser.wheel(content.x + content.width / 2, content.y + content.height / 2, *notches);
+        } else if (command == "wheel-at") {
+            auto const x = int_arg(0);
+            auto const y = int_arg(1);
+            auto const notches = int_arg(2);
+            if (!x || !y || !notches)
+                return fail("wheel-at: needs x y notches");
+            browser.wheel(*x, *y, *notches);
+        } else if (command == "assert-box-scroll") {
+            auto const x = int_arg(0);
+            auto const y = int_arg(1);
+            auto const dx = int_arg(2);
+            auto const dy = int_arg(3);
+            if (!x || !y || !dx || !dy)
+                return fail("assert-box-scroll: needs x y dx dy");
+            auto const [at_x, at_y] = browser.box_scroll_at(*x, *y);
+            expect_equal("assert-box-scroll", std::to_string(at_x) + " " + std::to_string(at_y),
+                std::to_string(*dx) + " " + std::to_string(*dy));
         } else if (command == "type") {
             for (char32_t const c : decode_utf8(argument))
                 browser.text_input(c);

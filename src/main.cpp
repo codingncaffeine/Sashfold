@@ -411,6 +411,11 @@ void dump_fragments(layout::Fragment const& fragment, int depth)
         flags += " image";
     if (fragment.control)
         flags += " control";
+    if (fragment.scroll_range_x > 0 || fragment.scroll_range_y > 0) {
+        std::ostringstream range;
+        range << " scrolls " << fragment.scroll_range_x << "x" << fragment.scroll_range_y;
+        flags += range.str();
+    }
     std::cout << indent << name << " @ " << fragment.x << "," << fragment.y << " " << fragment.width << "x"
               << fragment.height;
     if (fragment.last_baseline)

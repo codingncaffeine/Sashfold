@@ -112,6 +112,16 @@ struct Fragment {
     // cells. Null paints nothing.
     std::optional<Color> background;
 
+    // How far a reader can move this box's content to reach what is out
+    // of sight (css-overflow-3 §3): the scrollable overflow region beyond
+    // the scrollport's end edges, on each axis. Zero on a box that does
+    // not scroll and on one whose content fits inside it. The scrollport
+    // is the padding box, and a box that scrolls holds its own content —
+    // what is inside a scroll container is not the reach of the one
+    // around it.
+    float scroll_range_x = 0;
+    float scroll_range_y = 0;
+
     // The baseline of the first line box in flow inside this box (absolute
     // page y), when it has one: a table cell aligns on its row by it.
     std::optional<float> first_baseline;
@@ -147,6 +157,37 @@ struct PageImage {
 
 // Decoded images by element, supplied by whoever fetched them.
 using ImageMap = std::unordered_map<dom::Element const*, PageImage>;
+
+// How far a box that scrolls has had its content moved, and by which
+// element: the shell's live state, as the form controls' values are. A box
+// not named here sits at its origin, which is where every box starts. The
+// numbers are read back against the fragment's own `scroll_range_*`, so an
+// offset left over from a page that has since changed shape can never move
+// content further than there is content to reach.
+struct ScrollOffset {
+    float x = 0;
+    float y = 0;
+};
+using ScrollOffsets = std::unordered_map<dom::Element const*, ScrollOffset>;
+
+// What a fragment's content is actually moved by: the offset it was given,
+// held inside what the box can reach.
+ScrollOffset scroll_of(Fragment const& fragment, ScrollOffsets const* offsets);
+
+// Whether a box holds a scrollport its content can be moved within.
+bool is_scroll_container(Fragment const& fragment);
+
+// Moves the content of every box named in `offsets` to the offset asked
+// for, from wherever it currently stands — `applied` is what was last put
+// on this tree and is brought up to date with it. Scrolling is applied to
+// the fragments rather than at painting time so that everything reading
+// the tree — the painter, hit-testing, the selection, find-in-page, the
+// devtools overlay — sees the coordinates the content is actually drawn
+// at, with no second convention to keep in step. A box left where it was
+// is not touched, so a wheel notch moves one subtree and nothing else.
+// The tree from a fresh layout has nothing applied to it: start `applied`
+// empty each time it is laid out again.
+void apply_scroll(Fragment& root, ScrollOffsets const& offsets, ScrollOffsets& applied);
 
 // The pictures the stylesheets name as backgrounds, by the URL a style's
 // background image carries (resolved, fragment dropped), decoded; the

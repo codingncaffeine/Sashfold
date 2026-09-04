@@ -1695,5 +1695,76 @@ int main(int argc, char** argv)
         CHECK(!layout::check_fragments(negative).empty());
     }
 
+    // Boxes that scroll: how far each can be moved, and what moving one
+    // does to what is inside it. A box whose content fits can be moved
+    // nowhere, `clip` scrolls not at all, and the end padding is part of
+    // what a reader can reach.
+    {
+        Page page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 100px; height: 50px; border: 5px solid black; padding: 10px }
+  #auto { overflow: auto } #fits { overflow: auto } #clip { overflow: clip }
+  #across { overflow: auto } #none { }
+  .tall, .fits, .wide { border: 0; padding: 0 }
+  .tall { width: 40px; height: 200px } .fits { width: 20px; height: 10px }
+  .wide { width: 400px; height: 10px }
+</style></head><body>
+  <div id="auto"><div class="tall"></div></div>
+  <div id="fits"><div class="fits"></div></div>
+  <div id="clip"><div class="tall"></div></div>
+  <div id="across"><div class="wide"></div></div>
+  <div id="none"><div class="tall"></div></div>
+</body></html>)HTML", 400);
+        std::function<layout::Fragment*(layout::Fragment&, std::string_view)> find_box
+            = [&](layout::Fragment& f, std::string_view id) -> layout::Fragment* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id && f.style)
+                    return &f;
+            }
+            for (layout::Fragment& child : f.children) {
+                if (layout::Fragment* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment* automatic = find_box(page.result.root, "auto");
+        layout::Fragment* fits = find_box(page.result.root, "fits");
+        layout::Fragment* clip = find_box(page.result.root, "clip");
+        layout::Fragment* across = find_box(page.result.root, "across");
+        layout::Fragment* none = find_box(page.result.root, "none");
+        if (CHECK(automatic && fits && clip && across && none)) {
+            // The scrollport is the 120x70 padding box. 200 tall from the
+            // content's top edge reaches 215 past the box's own top, the
+            // port ends at 75, and 10 px of end padding comes after the
+            // content: 150 to reach, and nothing across.
+            CHECK_EQ(automatic->scroll_range_y, 150.0f);
+            CHECK_EQ(automatic->scroll_range_x, 0.0f);
+            CHECK_EQ(fits->scroll_range_y, 0.0f);
+            CHECK_EQ(clip->scroll_range_y, 0.0f); // clip holds content in, and nothing moves
+            CHECK_EQ(across->scroll_range_x, 300.0f); // 400 wide from 15, the port ends at 125
+            CHECK_EQ(none->scroll_range_y, 0.0f); // it does not clip, so it reaches nothing
+
+            // Moving one takes what is inside it and leaves the box where
+            // it stands, and moving it back puts everything as it was.
+            float const box_y = automatic->y;
+            float const inside_y = automatic->children.front().y;
+            layout::ScrollOffsets want;
+            layout::ScrollOffsets applied;
+            want[automatic->element] = layout::ScrollOffset { 0, 60 };
+            layout::apply_scroll(page.result.root, want, applied);
+            CHECK_EQ(automatic->y, box_y);
+            CHECK_EQ(automatic->children.front().y, inside_y - 60.0f);
+            // An offset past what there is to reach is held at the edge.
+            want[automatic->element] = layout::ScrollOffset { 0, 9999 };
+            layout::apply_scroll(page.result.root, want, applied);
+            CHECK_EQ(automatic->children.front().y, inside_y - 150.0f);
+            want[automatic->element] = layout::ScrollOffset { 0, 0 };
+            layout::apply_scroll(page.result.root, want, applied);
+            CHECK_EQ(automatic->children.front().y, inside_y);
+            CHECK(layout::check_fragments(page.result).empty());
+        }
+    }
+
     return test::report("layout");
 }

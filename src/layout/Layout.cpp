@@ -1157,6 +1157,94 @@ struct Layouter {
         for (Fragment& child : box.children)
             settle_sticky(child, inner, port);
     }
+
+    // How far a subtree reaches on the page: the far corner of the
+    // rectangle everything in it needs, in page coordinates.
+    struct Reach {
+        float right = 0;
+        float bottom = 0;
+        void take(Reach const& other)
+        {
+            right = std::max(right, other.right);
+            bottom = std::max(bottom, other.bottom);
+        }
+    };
+
+    // Where a run of text ends on the page. A run written down the page
+    // carries the page's y in `x` and the page's x in `baseline_y`, and it
+    // takes `width` along its own inline axis whichever way it reads, so
+    // its far corner is the same either way. Across the baseline the face
+    // says how far the glyphs reach — a turned run's ascenders face one
+    // way in `vertical-rl` and the other in `sideways-lr`, so the further
+    // of the two answers for both.
+    static Reach run_reach(TextRun const& run)
+    {
+        if (!run.style || !run.fonts)
+            return {};
+        text::FaceMetrics const face = run.fonts->primary().metrics(run.style->font_size);
+        if (css::is_vertical(run.mode))
+            return Reach { run.baseline_y + std::max(face.ascent, face.descent), run.x + run.width };
+        return Reach { run.x + run.width, run.baseline_y + face.descent };
+    }
+
+    // css-overflow-3 §3: what a box that scrolls can be moved to reveal.
+    // The scrollable overflow region is the union of the box's own padding
+    // box with everything inside it, and only its end edges matter — a
+    // reader cannot scroll back past the point the content starts at, so
+    // anything reaching off the start edge stays out of reach here, as it
+    // does in every engine. The end padding is part of the region.
+    //
+    // The walk stops at a box that scrolls: that box holds its own content
+    // and clips it, so what is inside it is not the reach of the box
+    // around it, only its own border box is. A fixed box does not move
+    // with the content and so adds nothing to what scrolling can reveal.
+    // Returns this subtree's reach, having settled every scroll container
+    // within it. `cb_width` is the width the box's own percentages were
+    // resolved against, which is what its padding is a percentage of.
+    Reach settle_scroll(Fragment& box, float cb_width) const
+    {
+        Reach const own { box.x + box.width, box.y + box.height };
+        // What is inside the box, kept apart from the box's own border box:
+        // the box itself is the scrollport, not something to scroll to.
+        Reach inside {};
+        float inner_width = box.width;
+        if (box.style) {
+            ComputedStyle const& s = *box.style;
+            inner_width = std::max(0.0f,
+                box.width - s.border_left.width - s.border_right.width
+                    - resolve(s.padding_left, cb_width) - resolve(s.padding_right, cb_width));
+        }
+        for (Fragment& child : box.children) {
+            Reach const child_reach = settle_scroll(child, inner_width);
+            if (child.style && child.style->position == css::Position::Fixed)
+                continue;
+            inside.take(child_reach);
+        }
+        for (TextRun const& run : box.runs)
+            inside.take(run_reach(run));
+        Reach subtree = own;
+        subtree.take(inside);
+        if (!box.style || !box.style->overflow_applies)
+            return subtree;
+        ComputedStyle const& s = *box.style;
+        if (!css::scrolls(s.overflow_x) && !css::scrolls(s.overflow_y))
+            return subtree;
+        // The region is the scrollport itself joined with what is inside
+        // it, and the scroll container's end padding comes after that
+        // content — a list scrolled to its end shows the padding below the
+        // last item, as it does in every engine.
+        float const port_right = box.x + box.width - s.border_right.width;
+        float const port_bottom = box.y + box.height - s.border_bottom.width;
+        if (css::scrolls(s.overflow_x)) {
+            box.scroll_range_x = std::max(
+                0.0f, inside.right + resolve(s.padding_right, cb_width) - port_right);
+        }
+        if (css::scrolls(s.overflow_y)) {
+            box.scroll_range_y = std::max(
+                0.0f, inside.bottom + resolve(s.padding_bottom, cb_width) - port_bottom);
+        }
+        return own;
+    }
     PageImage image_for(dom::Element const& element) const
     {
         if (!images)
@@ -7190,6 +7278,11 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
             }
         }
     }
+    // How far each box that scrolls can be moved to show the rest of what
+    // is inside it. Before the sticky pass, because a box that sticks does
+    // not add to what scrolling can reveal: it is held inside the
+    // scrollport by definition.
+    layouter.settle_scroll(result.root, frame_width);
     // What sticks, sticks — against the viewport, or against whatever box
     // between it and the sticky one scrolls or clips.
     {
@@ -7279,6 +7372,63 @@ void check_box(Fragment const& fragment, std::vector<std::string>& faults,
 }
 
 } // namespace
+
+bool is_scroll_container(Fragment const& fragment)
+{
+    return fragment.style && fragment.style->overflow_applies
+        && css::scrolls(fragment.style->overflow_x);
+}
+
+namespace {
+
+// Moves what a box holds without moving the box: its own lines, and
+// everything inside it that travels with them. A fixed box is anchored to
+// the viewport and stays where it is; the box's own picture or control
+// belongs to the box, not to what it holds.
+void shift_contents(Fragment& box, float dx, float dy)
+{
+    if (dx == 0 && dy == 0)
+        return;
+    for (TextRun& run : box.runs) {
+        run.x += run.swapped ? dy : dx;
+        run.baseline_y += run.swapped ? dx : dy;
+    }
+    for (Fragment& child : box.children) {
+        if (child.style && child.style->position == css::Position::Fixed)
+            continue;
+        Layouter::shift_fragment(child, dx, dy);
+    }
+}
+
+} // namespace
+
+void apply_scroll(Fragment& root, ScrollOffsets const& offsets, ScrollOffsets& applied)
+{
+    if (is_scroll_container(root) && root.element) {
+        ScrollOffset const want = scroll_of(root, &offsets);
+        auto const it = applied.find(root.element);
+        ScrollOffset const have = it == applied.end() ? ScrollOffset {} : it->second;
+        // Content moves the other way from the offset: scrolling down by
+        // twenty shows what was twenty below, so it comes up by twenty.
+        shift_contents(root, have.x - want.x, have.y - want.y);
+        applied[root.element] = want;
+    }
+    for (Fragment& child : root.children)
+        apply_scroll(child, offsets, applied);
+}
+
+ScrollOffset scroll_of(Fragment const& fragment, ScrollOffsets const* offsets)
+{
+    if (!offsets || !fragment.element)
+        return {};
+    auto const it = offsets->find(fragment.element);
+    if (it == offsets->end())
+        return {};
+    // Held inside what there is to reach: a page that has changed shape
+    // since the offset was taken may have less of it, or none.
+    return ScrollOffset { std::clamp(it->second.x, 0.0f, fragment.scroll_range_x),
+        std::clamp(it->second.y, 0.0f, fragment.scroll_range_y) };
+}
 
 std::vector<std::string> check_fragments(LayoutResult const& result)
 {
