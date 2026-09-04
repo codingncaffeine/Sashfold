@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8161 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8171 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6933,8 +6933,18 @@ css/css-position/position-relative-008.html
 css/css-position/position-relative-009.html
 css/css-position/position-relative-010.html
 css/css-position/position-static-001.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-001.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-002.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-003.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-004.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-005.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-006.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-007.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-008.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-009.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-010.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-011.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-012.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-013.html
 css/css-position/static-position/inline-level-absolute-in-block-level-context-014.html
 css/css-position/sticky/position-sticky-bottom-004.html

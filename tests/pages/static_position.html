@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 12px; line-height: 16px }
+  p { margin: 0 0 6px }
+  .box {
+    position: relative;
+    width: 200px;
+    height: 64px;
+    background: #f4f4f4;
+    border: 1px solid #999;
+    margin: 0 10px 8px 0;
+    float: left;
+    overflow: hidden;
+  }
+  /* Inline-level: blockified out of the flow, so it begins where the
+     inline box would have — on the line, after the words. */
+  .mark { position: absolute; display: inline; width: 24px; height: 10px; background: #c33 }
+  /* Block-level: it spans the block's content box and takes neither the
+     first line's indent nor the room a float leaves. */
+  .band { position: absolute; display: block; height: 6px; width: 40px; background: #39c }
+  .floater { float: left; width: 40px; height: 32px; background: #fc6 }
+  .right .floater { float: right }
+  .rtl { direction: rtl }
+  br { clear: both }
+</style>
+</head>
+<body>
+<p>An inline-level box out of the flow begins where its line has reached; a
+block-level one begins at the block's own content edge.</p>
+
+<div class="box"><span class="mark"></span>left</div>
+<div class="box" style="text-align: center">centre<span class="mark"></span></div>
+<div class="box" style="text-align: right">right<span class="mark"></span></div>
+<br>
+
+<div class="box rtl">rtl start<span class="mark"></span></div>
+<div class="box rtl" style="text-align: center">rtl centre<span class="mark"></span></div>
+<div class="box rtl" style="text-align: left">rtl left<span class="mark"></span></div>
+<br>
+
+<!-- Beside a float: an inline-level box is in the band, a block-level one
+     is not, and neither takes the other's rectangle. -->
+<div class="box"><div class="floater"></div><span class="mark"></span></div>
+<div class="box right"><div class="floater"></div><span class="mark"></span></div>
+<div class="box"><div class="floater"></div><span class="band"></span></div>
+<br>
+
+<!-- text-indent moves the line an inline-level box starts on, and leaves a
+     block-level box where it was. -->
+<div class="box" style="text-indent: 30px"><span class="mark"></span>indent</div>
+<div class="box" style="text-indent: 30px"><span class="band"></span>indent</div>
+<div class="box">words before<span class="mark"></span> and after</div>
+<br>
+</body>
+</html>

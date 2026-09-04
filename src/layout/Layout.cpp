@@ -685,9 +685,11 @@ struct Layouter {
         return style;
     }
 
-    // Remembers an out-of-flow child for its containing block. A scratch
-    // layout may record the same element again; the last record wins.
-    void record_out_of_flow(dom::Element const& element, ComputedStyle const& style,
+    // Remembers an out-of-flow child for its containing block, and answers
+    // with the serial of the record so a caller that is not finished with
+    // the position can move it later. A scratch layout may record the same
+    // element again; the last record wins.
+    unsigned record_out_of_flow(dom::Element const& element, ComputedStyle const& style,
         std::optional<std::pair<float, float>> static_position, bool static_rtl = false) const
     {
         std::vector<OutOfFlow>& list = style.position == css::Position::Fixed || absolute_stack.empty()
@@ -706,10 +708,42 @@ struct Layouter {
         for (OutOfFlow& existing : list) {
             if (existing.element == &element) {
                 existing = entry;
-                return;
+                return entry.serial;
             }
         }
         list.push_back(entry);
+        return entry.serial;
+    }
+
+    // Where an inline-level box out of the flow stands when the content
+    // around it made no line at all (css-position-3 §3.5.2): at the start
+    // of an empty line — the room the floats leave at that height, moved
+    // by text-align, and indented when it would have been the block's
+    // first line. An empty line takes no room, so the whole of the band is
+    // free and the line's content stands wholly at one end of it or in the
+    // middle. In a right-to-left block that start is the line's right-hand
+    // end, and the box reaches back from it.
+    void record_line_start(dom::Element const& element, ComputedStyle const& style,
+        ComputedStyle const& block_style, float y, float content_x, float content_width,
+        FloatContext const& floats, bool first_line) const
+    {
+        FloatContext::Band const band = floats.band_at(y, content_x, content_x + content_width);
+        bool const rtl = block_style.direction == css::Direction::Rtl;
+        float const indent = first_line ? resolve(block_style.text_indent, content_width) : 0.0f;
+        float const left = band.left + (rtl ? 0.0f : indent);
+        float const room = std::max(0.0f, band.right - band.left - indent);
+        css::TextAlign align = block_style.text_align;
+        if (align == css::TextAlign::Start || align == css::TextAlign::MatchParent
+            || align == css::TextAlign::Justify)
+            align = rtl ? css::TextAlign::Right : css::TextAlign::Left; // an empty line is a last line
+        else if (align == css::TextAlign::End)
+            align = rtl ? css::TextAlign::Left : css::TextAlign::Right;
+        float at = left;
+        if (align == css::TextAlign::Center)
+            at = left + room / 2.0f;
+        else if (align == css::TextAlign::Right)
+            at = left + room;
+        record_out_of_flow(element, style, std::make_pair(at, y), rtl);
     }
 
     // Moves the static positions recorded in the serial range [since,
@@ -2121,6 +2155,20 @@ struct Layouter {
             line.push_back(std::move(placed));
         };
         float line_width = 0;
+        // The inline-level out-of-flow boxes met while this line was being
+        // filled. Each stands at a zero-width insertion point among the
+        // line's entries, so where it ends up is only known once the line
+        // is flushed: text-align places the content in the float band, and
+        // justification stretches the spaces before the box along with the
+        // rest. Each entry keeps the record's serial, how many entries
+        // stand before the box, and the position the box was given when it
+        // was recorded.
+        struct LineAbsolute {
+            unsigned serial = 0;
+            std::size_t index = 0;
+            float placed_at = 0;
+        };
+        std::vector<LineAbsolute> line_absolutes;
         // The block is the containing block for everything on its lines, so
         // its own direction — not the paragraph's, which the content can
         // settle for itself — is the one the relative offsets ask about.
@@ -2215,6 +2263,8 @@ struct Layouter {
                 }
                 for (OpenBox& box : open_boxes)
                     box.from -= box.from > i ? 1 : 0;
+                for (LineAbsolute& absolute : line_absolutes)
+                    absolute.index -= absolute.index > i ? 1 : 0;
             }
             // The line box (CSS 2.1 §10.8): every box on the line reaches
             // some way above and below the baseline it is aligned to — the
@@ -2395,6 +2445,22 @@ struct Layouter {
                 x += (line_avail - line_width) / 2.0f;
             else if (align == css::TextAlign::Right)
                 x += line_avail - line_width;
+            // Where each inline-level box out of the flow would have begun,
+            // now that the line's content has been placed (css-position-3
+            // §3.5.2). Its hypothetical box takes no room, so its
+            // inline-start edge meets the point the entries before it reach
+            // — measured from the line's start, which is its right-hand end
+            // in a right-to-left paragraph. Recorded before text-align
+            // moved the line and before justification stretched it, so the
+            // difference is applied to the record now.
+            for (LineAbsolute const& absolute : line_absolutes) {
+                float before = 0;
+                for (std::size_t i = 0; i < absolute.index && i < line.size(); ++i)
+                    before += line[i].width;
+                float const at = paragraph_rtl ? x + line_width - before : x + before;
+                shift_recorded(absolute.serial, absolute.serial + 1, at - absolute.placed_at, 0);
+            }
+            line_absolutes.clear();
             // Rule L2: the order the entries are drawn in. From the deepest
             // level down to the shallowest odd one, every stretch at or
             // above that level is reversed — which, with one even level
@@ -2685,7 +2751,10 @@ struct Layouter {
                     ? (paragraph_rtl ? line_left + line_avail - line_width : line_left + line_width)
                     : (static_rtl ? content_x + content_width : content_x);
                 float const static_y = inline_level || line.empty() ? y : y + line_height_of(block_style);
-                record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y), static_rtl);
+                unsigned const serial
+                    = record_out_of_flow(*item.element, *item.style, std::make_pair(static_x, static_y), static_rtl);
+                if (inline_level)
+                    line_absolutes.push_back({ serial, line.size(), static_x });
                 continue;
             }
             if (item.kind == InlineItem::Kind::BoxStart || item.kind == InlineItem::Kind::BoxEnd) {
@@ -3613,6 +3682,15 @@ struct Layouter {
                     significant = true;
             }
             if (!significant) {
+                // No line comes of this content, so an inline-level box
+                // out of the flow among it is placed against the line that
+                // would have started here.
+                for (InlineItem const& item : pending_inline) {
+                    if (item.kind == InlineItem::Kind::Absolute && item.element && item.style)
+                        record_line_start(*item.element, *item.style, style,
+                            cursor + previous_bottom_margin, content_x, content_width, floats,
+                            first_in_flow);
+                }
                 pending_inline.clear();
                 return;
             }
@@ -3717,6 +3795,17 @@ struct Layouter {
                 continue;
             }
             if (child_style->out_of_flow()) {
+                if (child_style->blockified) {
+                    // It was inline-level before the flow let it go (CSS 2.1
+                    // §9.7), so it stands where the inline box would have
+                    // begun — on the line, not below it. The line layout
+                    // knows where that is, so it goes into the line's own
+                    // content; a run that never makes a line is caught
+                    // where the content is given up.
+                    pending_inline.push_back(
+                        InlineItem { InlineItem::Kind::Absolute, {}, child_style, &child_element });
+                    continue;
+                }
                 // Out of the flow; it remembers where it would have been:
                 // below the inline content gathered so far, taken as one
                 // line (the common menu-under-a-link case; a longer run
