@@ -837,6 +837,14 @@ struct ComputedStyle {
     // grid item sits across its area's width.
     AlignItems justify_items = AlignItems::Normal;
     AlignItems justify_self = AlignItems::Auto;
+    // The word in front of a self-alignment: `safe` gives the start edge
+    // back when the box does not fit, and `last` picks the far edge when a
+    // baseline cannot be found. Both are dropped for the container-wide
+    // properties, which have nowhere to overflow from.
+    bool align_self_safe = false;
+    bool align_self_last = false;
+    bool justify_self_safe = false;
+    bool justify_self_last = false;
     float flex_grow = 0;
     float flex_shrink = 1;
     LengthPercent flex_basis = LengthPercent::auto_value();

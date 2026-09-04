@@ -4053,9 +4053,17 @@ struct Resolver {
             return;
         }
         // The alignment keywords, with an optional safe/unsafe or
-        // first/last word in front (a position keyword's overflow safety,
-        // a baseline's choice — neither changes where a box goes yet).
-        auto const alignment_words = [&](std::size_t first, std::size_t count) -> std::optional<std::string_view> {
+        // first/last word in front. `safe` hands a box that does not fit
+        // its start edge back; `last` sends a baseline that cannot be
+        // found to the far end instead of the near one. The other two
+        // words say what happens anyway.
+        struct AlignmentWords {
+            std::string_view keyword;
+            bool safe = false;
+            bool last = false;
+        };
+        auto const alignment_words
+            = [&](std::size_t first, std::size_t count) -> std::optional<AlignmentWords> {
             if (count == 0 || count > 2)
                 return std::nullopt;
             for (std::size_t i = first; i < first + count; ++i) {
@@ -4064,12 +4072,16 @@ struct Resolver {
             }
             if (count == 2) {
                 std::string_view const prefix = values[first]->token().value;
-                if (!ascii_ci_equals(prefix, "safe") && !ascii_ci_equals(prefix, "unsafe")
-                    && !ascii_ci_equals(prefix, "first") && !ascii_ci_equals(prefix, "last"))
+                AlignmentWords words { values[first + 1]->token().value, false, false };
+                if (ascii_ci_equals(prefix, "safe"))
+                    words.safe = true;
+                else if (ascii_ci_equals(prefix, "last"))
+                    words.last = true;
+                else if (!ascii_ci_equals(prefix, "unsafe") && !ascii_ci_equals(prefix, "first"))
                     return std::nullopt;
-                return values[first + 1]->token().value;
+                return words;
             }
-            return values[first]->token().value;
+            return AlignmentWords { values[first]->token().value, false, false };
         };
         auto const justify_content_of = [](std::string_view keyword) -> std::optional<JustifyContent> {
             if (ascii_ci_equals(keyword, "normal"))
@@ -4110,10 +4122,10 @@ struct Resolver {
             return std::nullopt;
         };
         if (name == "justify-content") {
-            std::optional<std::string_view> const keyword = alignment_words(0, values.size());
+            auto const keyword = alignment_words(0, values.size());
             if (!keyword)
                 return;
-            if (std::optional<JustifyContent> const justify = justify_content_of(*keyword))
+            if (std::optional<JustifyContent> const justify = justify_content_of(keyword->keyword))
                 style.justify_content = *justify;
             return;
         }
@@ -4147,29 +4159,34 @@ struct Resolver {
         };
         if (name == "align-items" || name == "justify-items" || name == "align-self"
             || name == "justify-self") {
-            std::optional<std::string_view> const keyword = alignment_words(0, values.size());
+            auto const keyword = alignment_words(0, values.size());
             if (!keyword)
                 return;
             bool const self = name == "align-self" || name == "justify-self";
-            std::optional<AlignItems> const alignment = self ? self_of(*keyword) : items_of(*keyword);
+            std::optional<AlignItems> const alignment = self ? self_of(keyword->keyword) : items_of(keyword->keyword);
             if (!alignment)
                 return;
             if (name == "align-items")
                 style.align_items = *alignment;
             else if (name == "justify-items")
                 style.justify_items = *alignment;
-            else if (name == "align-self")
+            else if (name == "align-self") {
                 style.align_self = *alignment;
-            else
+                style.align_self_safe = keyword->safe;
+                style.align_self_last = keyword->last;
+            } else {
                 style.justify_self = *alignment;
+                style.justify_self_safe = keyword->safe;
+                style.justify_self_last = keyword->last;
+            }
             return;
         }
         if (name == "place-items" || name == "place-self") {
             // The block-axis value, then the inline-axis one; one value
             // stands for both. Each may carry a prefix word.
             bool const self = name == "place-self";
-            std::optional<std::string_view> first;
-            std::optional<std::string_view> second;
+            std::optional<AlignmentWords> first;
+            std::optional<AlignmentWords> second;
             if (values.size() <= 2)
                 first = alignment_words(0, values.size());
             if (first) {
@@ -4184,13 +4201,17 @@ struct Resolver {
             }
             if (!first || !second)
                 return;
-            std::optional<AlignItems> const block = self ? self_of(*first) : items_of(*first);
-            std::optional<AlignItems> const inline_axis = self ? self_of(*second) : items_of(*second);
+            std::optional<AlignItems> const block = self ? self_of(first->keyword) : items_of(first->keyword);
+            std::optional<AlignItems> const inline_axis = self ? self_of(second->keyword) : items_of(second->keyword);
             if (!block || !inline_axis)
                 return;
             if (self) {
                 style.align_self = *block;
+                style.align_self_safe = first->safe;
+                style.align_self_last = first->last;
                 style.justify_self = *inline_axis;
+                style.justify_self_safe = second->safe;
+                style.justify_self_last = second->last;
             } else {
                 style.align_items = *block;
                 style.justify_items = *inline_axis;
@@ -4198,8 +4219,8 @@ struct Resolver {
             return;
         }
         if (name == "place-content") {
-            std::optional<std::string_view> first;
-            std::optional<std::string_view> second;
+            std::optional<AlignmentWords> first;
+            std::optional<AlignmentWords> second;
             if (values.size() <= 2)
                 first = alignment_words(0, values.size());
             if (first) {
@@ -4214,8 +4235,8 @@ struct Resolver {
             }
             if (!first || !second)
                 return;
-            std::optional<AlignContent> const align = align_content_of(*first);
-            std::optional<JustifyContent> const justify = justify_content_of(*second);
+            std::optional<AlignContent> const align = align_content_of(first->keyword);
+            std::optional<JustifyContent> const justify = justify_content_of(second->keyword);
             if (!align || !justify)
                 return;
             style.align_content = *align;

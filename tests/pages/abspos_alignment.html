@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p { margin: 0 0 6px }
+  .grid {
+    display: grid;
+    grid-template-columns: 40px 160px 40px;
+    grid-template-rows: 20px 90px 20px;
+    width: 240px;
+    height: 130px;
+    border: 2px solid #444;
+    background: #f4f4f4;
+    position: relative;
+    margin: 0 12px 10px 0;
+    float: left;
+  }
+  .grid > * {
+    position: absolute;
+    grid-area: 2 / 2 / 3 / 3;
+    width: 70px;
+    height: 30px;
+    background: #69c;
+    color: #fff;
+  }
+  .area { background: #fc6; grid-area: 2 / 2 / 3 / 3; left: 0; right: 0; top: 0; bottom: 0; width: auto; height: auto }
+  .centred { justify-items: center; align-items: center }
+  .ended { justify-items: end; align-items: end }
+  .over { width: 200px; background: #c66 }
+  br { clear: both }
+</style>
+</head>
+<body>
+<p>An out-of-flow box sits where its self-alignment says inside the grid area
+its placement named, and keeps the area's start corner without one.</p>
+
+<!-- normal keeps the area's start corner; the two axes align apart. -->
+<div class="grid">
+  <div class="area"></div>
+  <div style="justify-self: normal; align-self: normal">normal</div>
+</div>
+<div class="grid">
+  <div class="area"></div>
+  <div style="justify-self: center; align-self: center">centre</div>
+</div>
+<div class="grid">
+  <div class="area"></div>
+  <div style="justify-self: end; align-self: end">end</div>
+</div>
+<br>
+
+<!-- auto reads the container's justify-items and align-items. -->
+<div class="grid centred">
+  <div class="area"></div>
+  <div style="justify-self: auto; align-self: auto">auto</div>
+</div>
+<div class="grid ended">
+  <div class="area"></div>
+  <div>items</div>
+</div>
+<div class="grid">
+  <div class="area"></div>
+  <div style="justify-self: center; align-self: last baseline">last</div>
+</div>
+<br>
+
+<!-- A box wider than its area: safe hands the start edge back, unsafe does
+     not, and an offset moves the edge the alignment measures from. -->
+<div class="grid">
+  <div class="area"></div>
+  <div class="over" style="justify-self: safe center">safe</div>
+</div>
+<div class="grid">
+  <div class="area"></div>
+  <div class="over" style="justify-self: unsafe center">unsafe</div>
+</div>
+<div class="grid">
+  <div class="area"></div>
+  <div style="justify-self: end; left: 30px">inset</div>
+</div>
+<br>
+</body>
+</html>

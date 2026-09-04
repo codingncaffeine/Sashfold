@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8151 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8161 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6177,10 +6177,20 @@ css/css-fonts/variations/variable-avar2-warp.html
 css/css-fonts/variations/variable-gpos-avar2.html
 css/css-fonts/variations/variable-gpos-m2b.html
 css/css-fonts/variations/variable-opsz.html
+css/css-grid/abspos/grid-abspos-staticpos-align-self-001.html
+css/css-grid/abspos/grid-abspos-staticpos-align-self-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-safe-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-safe-outer-cb-002.tentative.html
+css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-001.html
+css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-002.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-001.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-002.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-vertWM-001.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-vertWM-002.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-vertWM-last-baseline-001.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-vertWM-last-baseline-002.html
 css/css-grid/abspos/grid-fixedpos-static-position-not-containing-block.html
 css/css-grid/abspos/grid-positioned-children-writing-modes-001.html
 css/css-grid/abspos/grid-positioned-item-dynamic-change-003.html

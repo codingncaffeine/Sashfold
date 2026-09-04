@@ -955,6 +955,58 @@ struct Layouter {
             } else {
                 y = static_y + margin_top;
             }
+
+            // Self-alignment (css-align-3 §5.2, §6.2). A box out of the
+            // flow that was given a grid area is aligned inside it, in
+            // what the offsets leave of it. `normal` and `stretch` leave
+            // the box where the offsets and the static position put it,
+            // and an auto margin takes the room before an alignment can,
+            // so it wins.
+            dom::Node const* const parent_node = box.element ? box.element->parent() : nullptr;
+            ComputedStyle const* const parent_style
+                = parent_node && parent_node->is_element()
+                ? style_of(static_cast<dom::Element const&>(*parent_node))
+                : nullptr;
+            // Where the margin box's start edge goes, or nothing when the
+            // box is to keep the position it already has. A baseline that
+            // cannot be found falls back to the near end, or the far one
+            // when the `last` word was written; `safe` gives the start
+            // edge back to a box that does not fit.
+            auto const aligned_at = [](css::AlignItems how, bool safe, bool last, bool rtl,
+                                        float container_start, float free) -> std::optional<float> {
+                if (how == css::AlignItems::Baseline)
+                    how = last ? css::AlignItems::FlexEnd : css::AlignItems::FlexStart;
+                if (safe && free < 0)
+                    how = css::AlignItems::FlexStart;
+                if (how == css::AlignItems::Center)
+                    return container_start + free / 2.0f;
+                if (how != css::AlignItems::FlexStart && how != css::AlignItems::FlexEnd)
+                    return std::nullopt; // normal, stretch, auto: stay put
+                bool const to_end = (how == css::AlignItems::FlexEnd) != rtl;
+                return container_start + (to_end ? free : 0.0f);
+            };
+            if (in_area_across && !s.margin_left.is_auto() && !s.margin_right.is_auto()) {
+                css::AlignItems const how = s.justify_self != css::AlignItems::Auto ? s.justify_self
+                    : parent_style                                                  ? parent_style->justify_items
+                                                                                    : css::AlignItems::Normal;
+                float const start = cb_x + (has_left ? left : 0.0f);
+                float const room = cb_width - (has_left ? left : 0.0f) - (has_right ? right : 0.0f);
+                float const free = room - margin_left - fragment.width - margin_right;
+                if (std::optional<float> const at
+                    = aligned_at(how, s.justify_self_safe, s.justify_self_last, cb_rtl, start, free))
+                    x = *at + margin_left;
+            }
+            if (in_area_down && !s.margin_top.is_auto() && !s.margin_bottom.is_auto()) {
+                css::AlignItems const how = s.align_self != css::AlignItems::Auto ? s.align_self
+                    : parent_style                                                ? parent_style->align_items
+                                                                                  : css::AlignItems::Normal;
+                float const start = cb_y + (has_top ? top : 0.0f);
+                float const room = cb_height - (has_top ? top : 0.0f) - (has_bottom ? bottom : 0.0f);
+                float const free = room - margin_top - fragment.height - margin_bottom;
+                if (std::optional<float> const at
+                    = aligned_at(how, s.align_self_safe, s.align_self_last, false, start, free))
+                    y = *at + margin_top;
+            }
             shift_fragment(fragment, x - fragment.x, y - fragment.y);
             fragment.positioned = true;
             fragment.out_of_flow = true;
