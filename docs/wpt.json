@@ -2,7 +2,7 @@
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-04",
   "viewport": [800, 600],
-  "passed": 8186,
+  "passed": 8292,
   "total": 14616,
   "directories": [
     { "path": "css/CSS2", "passed": 4955, "total": 6169 },
@@ -21,6 +21,6 @@
     { "path": "css/css-values", "passed": 87, "total": 211 },
     { "path": "css/selectors", "passed": 32, "total": 226 },
     { "path": "css/css-variables", "passed": 90, "total": 182 },
-    { "path": "css/css-writing-modes", "passed": 480, "total": 1139 }
+    { "path": "css/css-writing-modes", "passed": 586, "total": 1139 }
   ]
 }

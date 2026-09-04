@@ -2280,11 +2280,21 @@ struct Layouter {
                 float above;
                 float below;
             };
+            // How far a picture reaches above the baseline it is set on: it
+            // stands on that baseline across the page, its whole height
+            // above it; down the page there is no such edge to stand on, so
+            // it is set astride the line by its middle (css-writing-modes
+            // §4.4) and a line holding one picture measures it and no more.
+            auto const image_above = [&](float height) {
+                return css::is_vertical(frame_mode) ? height / 2.0f : height;
+            };
             auto const extent_of = [&](Placed const& placed) -> Extent {
                 if (placed.block)
                     return { placed.ascent, placed.descent };
-                if (placed.is_image)
-                    return { placed.image_height, 0 };
+                if (placed.is_image) {
+                    float const above = image_above(placed.image_height);
+                    return { above, placed.image_height - above };
+                }
                 float const ascent = ascent_in_line(*placed.style);
                 return { ascent, line_height_of(*placed.style) - ascent };
             };
@@ -2539,7 +2549,7 @@ struct Layouter {
                     box.element = placed.element;
                     box.style = placed.style;
                     box.x = x + e.margin_left;
-                    box.y = own_baseline - placed.image_height + e.margin_top;
+                    box.y = own_baseline - image_above(placed.image_height) + e.margin_top;
                     box.width = e.left + placed.content_width + e.right;
                     box.height = e.top + placed.content_height + e.bottom;
                     if (placed.control)
