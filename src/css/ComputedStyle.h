@@ -353,6 +353,46 @@ enum class Direction : std::uint8_t {
     Rtl,
 };
 
+// Which way a box stacks its lines, and so which physical axis its inline
+// axis runs along (css-writing-modes-4 §3.1). In a horizontal mode lines
+// stack downwards and the text runs across; in a vertical one lines stack
+// sideways and the text runs down the page.
+enum class WritingMode : std::uint8_t {
+    HorizontalTb,
+    VerticalRl,
+    VerticalLr,
+    SidewaysRl,
+    SidewaysLr,
+};
+
+constexpr bool is_vertical(WritingMode mode)
+{
+    return mode != WritingMode::HorizontalTb;
+}
+
+// Whether the lines stack towards the left — the block axis starting at
+// the right edge, which is what `vertical-rl` means.
+constexpr bool blocks_run_left(WritingMode mode)
+{
+    return mode == WritingMode::VerticalRl || mode == WritingMode::SidewaysRl;
+}
+
+// `sideways-lr` is the one mode whose inline axis runs upwards: its text
+// reads from the bottom, so its start edge is the bottom, not the top.
+constexpr bool inline_runs_up(WritingMode mode)
+{
+    return mode == WritingMode::SidewaysLr;
+}
+
+// How the glyphs of a horizontal script sit on a vertical line
+// (css-writing-modes-4 §5.1). `mixed` turns them a quarter turn clockwise
+// and leaves upright scripts standing; `upright` stands them all up.
+enum class TextOrientation : std::uint8_t {
+    Mixed,
+    Upright,
+    Sideways,
+};
+
 // How a box takes part in the bidirectional algorithm (css-writing-modes-4
 // §2.2). Nothing reorders anything here yet, so the only value that changes
 // what is drawn is `plaintext`, which gives each paragraph the direction its
@@ -844,6 +884,8 @@ struct ComputedStyle {
     LineHeight line_height;
     VerticalAlign vertical_align; // not inherited
     Direction direction = Direction::Ltr;
+    WritingMode writing_mode = WritingMode::HorizontalTb;
+    TextOrientation text_orientation = TextOrientation::Mixed;
     UnicodeBidi unicode_bidi = UnicodeBidi::Normal; // not inherited
     TextAlign text_align = TextAlign::Start;
     TextAlignLast text_align_last = TextAlignLast::Auto;

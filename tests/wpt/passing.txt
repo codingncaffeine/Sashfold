@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (7928 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (7932 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5222,7 +5222,6 @@ css/css-box/margin-trim/block-container-block-end-start-margin.html
 css/css-box/margin-trim/block-container-block-in-inline-001.html
 css/css-box/margin-trim/block-container-block-in-inline-003.html
 css/css-box/margin-trim/block-container-block-in-inline-004.html
-css/css-box/margin-trim/flex-row-orthogonal-item.html
 css/css-box/margin-trim/multicol-spanner-003.html
 css/css-cascade/all-prop-002.html
 css/css-cascade/all-prop-inherit-color.html
@@ -5705,6 +5704,7 @@ css/css-flexbox/flexbox-with-pseudo-elements-003.html
 css/css-flexbox/flexbox-writing-mode-001.html
 css/css-flexbox/flexbox-writing-mode-004.html
 css/css-flexbox/flexbox-writing-mode-007.html
+css/css-flexbox/flexbox-writing-mode-013.html
 css/css-flexbox/flexbox-writing-mode-016.html
 css/css-flexbox/flexbox_align-content-center.html
 css/css-flexbox/flexbox_align-content-flexend.html
@@ -6323,7 +6323,6 @@ css/css-grid/anonymous-grid-items-002.html
 css/css-grid/child-border-box-and-max-content-001.html
 css/css-grid/child-border-box-and-max-content-002.html
 css/css-grid/empty-grid-within-flexbox.html
-css/css-grid/firefox-bug-1881495.html
 css/css-grid/grid-calc-margin.html
 css/css-grid/grid-child-percent-basis-resize-1.html
 css/css-grid/grid-container-as-flex-item-001.html
@@ -6770,7 +6769,6 @@ css/css-overflow/no-scrollable-overflow-vertical-rl-2.html
 css/css-overflow/no-scrollable-overflow-vertical-rl.html
 css/css-overflow/overflow-auto-scrollbar-gutter-intrinsic-001.html
 css/css-overflow/overflow-auto-scrollbar-gutter-intrinsic-002.html
-css/css-overflow/overflow-auto-scrollbar-gutter-intrinsic-003.html
 css/css-overflow/overflow-body-propagation-001.html
 css/css-overflow/overflow-body-propagation-002.html
 css/css-overflow/overflow-body-propagation-003.html
@@ -7825,6 +7823,11 @@ css/css-writing-modes/inline-box-orthogonal-child-with-margins.html
 css/css-writing-modes/inline-replaced-vlr-003.xht
 css/css-writing-modes/inline-replaced-vrl-002.xht
 css/css-writing-modes/line-box-direction-htb-001.xht
+css/css-writing-modes/logical-physical-mapping-001.html
+css/css-writing-modes/logical-props-001.html
+css/css-writing-modes/logical-props-002.html
+css/css-writing-modes/logical-props-003.html
+css/css-writing-modes/logical-props-004.html
 css/css-writing-modes/margin-collapse-vlr-017.xht
 css/css-writing-modes/margin-collapse-vrl-034.xht
 css/css-writing-modes/margin-vlr-003.xht
@@ -7888,6 +7891,7 @@ css/css-writing-modes/text-shadow-orientation-upright-001.html
 css/css-writing-modes/two-levels-of-orthogonal-flows-fixed.html
 css/css-writing-modes/vlr-text-orientation-sideways-alongside-vlr-floats.html
 css/css-writing-modes/vrl-text-orientation-sideways-alongside-vrl-floats.html
+css/css-writing-modes/wm-propagation-002.html
 css/css-writing-modes/wm-propagation-body-040.html
 css/css-writing-modes/wm-propagation-body-044.html
 css/css-writing-modes/wm-propagation-body-048.html

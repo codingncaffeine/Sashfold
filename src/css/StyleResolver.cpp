@@ -1348,14 +1348,24 @@ struct LogicalMap {
     bool split = true;
 };
 
-// Which physical edge a flow-relative name stands for. The block axis of
-// a horizontal writing mode is the vertical one whichever way the text
-// reads, so only the inline pair turns on `direction`; when writing modes
-// land this is the one function that has to learn about them.
-std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl)
+// Which physical edge a flow-relative name stands for: a question about
+// the writing mode and the direction together. A horizontal mode runs its
+// inline axis across the page and stacks lines down it; a vertical one
+// runs the inline axis down and stacks lines sideways, from the right in
+// `vertical-rl` and from the left in `vertical-lr`. `sideways-lr` is the
+// one mode whose text reads upwards, so its start edge is the bottom.
+std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl, WritingMode mode)
 {
-    std::string const inline_start = rtl ? "right" : "left";
-    std::string const inline_end = rtl ? "left" : "right";
+    bool const vertical = is_vertical(mode);
+    bool const up = inline_runs_up(mode) != rtl;
+    std::string const inline_start
+        = vertical ? (up ? "bottom" : "top") : (rtl ? "right" : "left");
+    std::string const inline_end
+        = vertical ? (up ? "top" : "bottom") : (rtl ? "left" : "right");
+    std::string const block_start
+        = vertical ? (blocks_run_left(mode) ? "right" : "left") : "top";
+    std::string const block_end
+        = vertical ? (blocks_run_left(mode) ? "left" : "right") : "bottom";
     // margin-inline-start is margin-left where the content starts left.
     for (std::string_view const group : { "margin-", "padding-" }) {
         if (!name.starts_with(group))
@@ -1367,13 +1377,13 @@ std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl)
         if (rest == "inline-end")
             return LogicalMap { { prefix + inline_end } };
         if (rest == "block-start")
-            return LogicalMap { { prefix + "top" } };
+            return LogicalMap { { prefix + block_start } };
         if (rest == "block-end")
-            return LogicalMap { { prefix + "bottom" } };
+            return LogicalMap { { prefix + block_end } };
         if (rest == "inline")
             return LogicalMap { { prefix + inline_start, prefix + inline_end } };
         if (rest == "block")
-            return LogicalMap { { prefix + "top", prefix + "bottom" } };
+            return LogicalMap { { prefix + block_start, prefix + block_end } };
         return std::nullopt;
     }
     // The offsets a positioned box is placed by.
@@ -1382,21 +1392,21 @@ std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl)
     if (name == "inset-inline-end")
         return LogicalMap { { inline_end } };
     if (name == "inset-block-start")
-        return LogicalMap { { "top" } };
+        return LogicalMap { { block_start } };
     if (name == "inset-block-end")
-        return LogicalMap { { "bottom" } };
+        return LogicalMap { { block_end } };
     if (name == "inset-inline")
         return LogicalMap { { inline_start, inline_end } };
     if (name == "inset-block")
-        return LogicalMap { { "top", "bottom" } };
+        return LogicalMap { { block_start, block_end } };
     // border-inline-start[-width|-style|-color] and the axis shorthands:
     // border-inline-width takes one value per edge, border-inline one
     // whole border for both.
     if (name.starts_with("border-inline") || name.starts_with("border-block")) {
         bool const inline_axis = name.starts_with("border-inline");
         std::string_view rest = name.substr(inline_axis ? 13 : 12);
-        std::string const start = "border-" + (inline_axis ? inline_start : std::string("top"));
-        std::string const end = "border-" + (inline_axis ? inline_end : std::string("bottom"));
+        std::string const start = "border-" + (inline_axis ? inline_start : block_start);
+        std::string const end = "border-" + (inline_axis ? inline_end : block_end);
         if (rest.empty())
             return LogicalMap { { start, end }, false };
         if (rest == "-width" || rest == "-style" || rest == "-color")
@@ -1412,19 +1422,22 @@ std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl)
             return LogicalMap { { edge + std::string(rest) } };
         return std::nullopt;
     }
-    // The sizes: the inline size of a horizontal writing mode is its width.
+    // The sizes: the inline size of a horizontal writing mode is its
+    // width, of a vertical one its height.
+    std::string const across = is_vertical(mode) ? "height" : "width";
+    std::string const along = is_vertical(mode) ? "width" : "height";
     if (name == "inline-size")
-        return LogicalMap { { "width" } };
+        return LogicalMap { { across } };
     if (name == "block-size")
-        return LogicalMap { { "height" } };
+        return LogicalMap { { along } };
     if (name == "min-inline-size")
-        return LogicalMap { { "min-width" } };
+        return LogicalMap { { "min-" + across } };
     if (name == "min-block-size")
-        return LogicalMap { { "min-height" } };
+        return LogicalMap { { "min-" + along } };
     if (name == "max-inline-size")
-        return LogicalMap { { "max-width" } };
+        return LogicalMap { { "max-" + across } };
     if (name == "max-block-size")
-        return LogicalMap { { "max-height" } };
+        return LogicalMap { { "max-" + along } };
     return std::nullopt;
 }
 
@@ -2812,6 +2825,9 @@ struct Resolver {
                 [](S& to, S const& from) { to.text_align_last = from.text_align_last; }, 0 },
             { "text-justify", true, [](S& to, S const& from) { to.text_justify = from.text_justify; }, 0 },
             { "direction", true, [](S& to, S const& from) { to.direction = from.direction; }, 0 },
+            { "writing-mode", true, [](S& to, S const& from) { to.writing_mode = from.writing_mode; }, 0 },
+            { "text-orientation", true,
+                [](S& to, S const& from) { to.text_orientation = from.text_orientation; }, 0 },
             { "unicode-bidi", false, [](S& to, S const& from) { to.unicode_bidi = from.unicode_bidi; }, 0 },
             { "letter-spacing", true, [](S& to, S const& from) { to.letter_spacing = from.letter_spacing; }, 0 },
             { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
@@ -3280,10 +3296,18 @@ struct Resolver {
         // again with the rest below, to the same value.
         for (MatchedDeclaration const& entry : matched) {
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
-                if (!ascii_ci_equals(declaration.name, "direction"))
+                bool const is_direction = ascii_ci_equals(declaration.name, "direction");
+                // `writing-mode` settles with it, and for the same reason:
+                // which physical edge a flow-relative name stands for is a
+                // question about both.
+                if (!is_direction && !ascii_ci_equals(declaration.name, "writing-mode"))
                     return;
                 if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
-                    style.direction = *wide == Wide::Initial ? Direction::Ltr : parent.direction;
+                    if (is_direction)
+                        style.direction = *wide == Wide::Initial ? Direction::Ltr : parent.direction;
+                    else
+                        style.writing_mode
+                            = *wide == Wide::Initial ? WritingMode::HorizontalTb : parent.writing_mode;
                     return;
                 }
                 bool unused_border_color = false;
@@ -3302,7 +3326,7 @@ struct Resolver {
                     // physical ones it stands for.
                     std::string const name = lowercase_name(declaration.name);
                     if (std::optional<LogicalMap> const logical
-                        = logical_mapping(name, style.direction == Direction::Rtl)) {
+                        = logical_mapping(name, style.direction == Direction::Rtl, style.writing_mode)) {
                         for (std::string const& physical : logical->names)
                             apply_wide(style, parent, physical, *wide, border_top_color_set,
                                 border_right_color_set, border_bottom_color_set, border_left_color_set);
@@ -3483,7 +3507,7 @@ struct Resolver {
         // cascade order is what lets a `margin-left` written afterwards
         // win, and `direction` is already settled by its own pass.
         if (std::optional<LogicalMap> const logical
-            = logical_mapping(name, style.direction == Direction::Rtl)) {
+            = logical_mapping(name, style.direction == Direction::Rtl, style.writing_mode)) {
             // A shorthand that shares its values out takes one per edge and
             // no more; anything longer is not a value it can have.
             if (logical->split && logical->names.size() > 1 && values.size() > logical->names.size())
@@ -4943,6 +4967,38 @@ struct Resolver {
                 style.direction = Direction::Rtl;
             return;
         }
+        if (name == "writing-mode") {
+            if (values.size() != 1)
+                return;
+            // The SVG 1.1 names are aliases the specification keeps
+            // (css-writing-modes-4 §3.1): `tb` and `tb-rl` are vertical-rl,
+            // and the others all name the horizontal mode.
+            if (is_ident(values[0], "horizontal-tb") || is_ident(values[0], "lr")
+                || is_ident(values[0], "lr-tb") || is_ident(values[0], "rl")
+                || is_ident(values[0], "rl-tb"))
+                style.writing_mode = WritingMode::HorizontalTb;
+            else if (is_ident(values[0], "vertical-rl") || is_ident(values[0], "tb")
+                || is_ident(values[0], "tb-rl"))
+                style.writing_mode = WritingMode::VerticalRl;
+            else if (is_ident(values[0], "vertical-lr"))
+                style.writing_mode = WritingMode::VerticalLr;
+            else if (is_ident(values[0], "sideways-rl"))
+                style.writing_mode = WritingMode::SidewaysRl;
+            else if (is_ident(values[0], "sideways-lr"))
+                style.writing_mode = WritingMode::SidewaysLr;
+            return;
+        }
+        if (name == "text-orientation") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "mixed"))
+                style.text_orientation = TextOrientation::Mixed;
+            else if (is_ident(values[0], "upright"))
+                style.text_orientation = TextOrientation::Upright;
+            else if (is_ident(values[0], "sideways") || is_ident(values[0], "sideways-right"))
+                style.text_orientation = TextOrientation::Sideways;
+            return;
+        }
         if (name == "unicode-bidi") {
             if (values.size() != 1)
                 return;
@@ -5389,6 +5445,31 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
                 body_it->second.overflow = Overflow::Visible;
                 body_it->second.overflow_x = Overflow::Visible;
                 body_it->second.overflow_y = Overflow::Visible;
+            }
+            break;
+        }
+        break;
+    }
+    // css-writing-modes-4 §3.1: the document's principal writing mode is
+    // the root's, except that an HTML root with a body child takes its used
+    // writing-mode and direction from that body instead. The computed
+    // values are left alone — everything has already inherited from them —
+    // so this settles only the mode the page is laid out in, and it is what
+    // keeps a `body { writing-mode: vertical-rl }` from standing sideways
+    // inside an upright root.
+    for (dom::Node const* child : document.children()) {
+        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("html"))
+            continue;
+        auto const html_it = resolver.map.find(static_cast<dom::Element const*>(child));
+        if (html_it == resolver.map.end())
+            break;
+        for (dom::Node const* grandchild : child->children()) {
+            if (!grandchild->is_element() || !static_cast<dom::Element const*>(grandchild)->is_html("body"))
+                continue;
+            if (auto const body_it = resolver.map.find(static_cast<dom::Element const*>(grandchild));
+                body_it != resolver.map.end()) {
+                html_it->second.writing_mode = body_it->second.writing_mode;
+                html_it->second.direction = body_it->second.direction;
             }
             break;
         }
