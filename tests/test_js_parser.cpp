@@ -888,7 +888,7 @@ void test_new_and_calls()
     CHECK_EQ(parse("new (f())"), expression_of("(new (call (id f)))"));
     CHECK_EQ(parse("new f()(1).g"), expression_of("(member (call (new (id f)) (number 1)) g)"));
     CHECK_EQ(parse("new a?.b()"), "Invalid optional chain from new expression");
-    CHECK_EQ(parse("new.target"), "new.target are not supported yet");
+    CHECK_EQ(parse("new.target"), "new.target expression is not allowed here");
     CHECK_EQ(parse("f()()"), expression_of("(call (call (id f)))"));
     CHECK_EQ(parse("f(a)(b, c)"), expression_of("(call (call (id f) (id a)) (id b) (id c))"));
     CHECK_EQ(parse("f(a,)"), expression_of("(call (id f) (id a))"));
@@ -1089,10 +1089,53 @@ void test_patterns()
     CHECK_EQ(parse("for ([a], b in c) ;"), "Invalid left-hand side in for-in loop");
 }
 
+// Classes, super and new.target.
+void test_classes()
+{
+    CHECK_EQ(parse("class A {}"), program_of("(class A)"));
+    CHECK_EQ(parse("x = class {}"), expression_of("(assign = (id x) (class))"));
+    CHECK_EQ(parse("class A extends B { constructor(x) { super(x); } m() { return super.m(); } static s() {} get g() {} set g(v) {} }"),
+        program_of("(class A (extends (id B)) (constructor (function A (x) (expr (super-call (id x))))) (method \"m\" (function m () (return (call (super-member m))))) (static method \"s\" (function s ())) (get \"g\" (function g ())) (set \"g\" (function g (v))))"));
+    CHECK_EQ(parse("class A { x = 1; y; static z = 2; static { z; } [k] = 3; 'q'() {} static static() {} }"),
+        program_of("(class A (field \"x\" (function x () (number 1))) (field \"y\") (static field \"z\" (function z () (number 2))) (static block (function () (expr (id z)))) (field (computed (id k)) (function () (number 3))) (method \"q\" (function q ())) (static method \"static\" (function static ())))"));
+    CHECK_EQ(parse("class A { m() { new.target; super['x']; } }"), program_of("(class A (method \"m\" (function m () (expr new.target) (expr (super-index (string \"x\"))))))"));
+    CHECK_EQ(parse("class A { if() {} }"), program_of("(class A (method \"if\" (function if ())))"));
+    CHECK_EQ(parse("class A extends (B, C) {}"), program_of("(class A (extends (seq (id B) (id C))))"));
+    CHECK_EQ(parse("class {}"), "Unexpected token '{'");
+    CHECK_EQ(parse("class A { constructor() {} constructor() {} }"), "A class may only have one constructor");
+    CHECK_EQ(parse("class A { get constructor() {} }"), "Class constructor may not be an accessor");
+    CHECK_EQ(parse("class A { constructor = 1 }"), "Classes may not have a field named 'constructor'");
+    CHECK_EQ(parse("class A { static prototype() {} }"), "Classes may not have a static property named 'prototype'");
+    CHECK_EQ(parse("class A { static prototype = 1 }"), "Classes may not have a static property named 'prototype'");
+    CHECK_EQ(parse("class A { m() { super(); } }"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("class A { constructor() { super(); } }"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("class A extends B { constructor() { function f() { super(); } } }"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("class A extends B { constructor() { var f = () => super(); } }"), program_of("(class A (extends (id B)) (constructor (function A () (var (f (arrow () (super-call)))))))"));
+    CHECK_EQ(parse("function f() { super.x; }"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("({ m() { super.x; } })"), expression_of("(object (init \"m\" (function m () (expr (super-member x)))))"));
+    CHECK_EQ(parse("({ m: function () { super.x; } })"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("super.x"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("class A { m() { super; } }"), "'super' keyword unexpected here");
+    CHECK_EQ(parse("new.target"), "new.target expression is not allowed here");
+    CHECK_EQ(parse("function f() { return new.target; }"), program_of("(function f () (return new.target))"));
+    CHECK_EQ(parse("function f() { return () => new.target; }"), program_of("(function f () (return (arrow () new.target)))"));
+    CHECK_EQ(parse("new.other"), "Unexpected identifier 'other'");
+    CHECK_EQ(parse("class A { x = arguments; }"), "'arguments' is not allowed in class field initializer or static initialization block");
+    CHECK_EQ(parse("class A { static { return; } }"), "Illegal return statement");
+    CHECK_EQ(parse("class A { static { function f() { return 1; } } }"), program_of("(class A (static block (function () (function f () (return (number 1))))))"));
+    CHECK_EQ(parse("class A { m() { with (x) {} } }"), "Strict mode code may not include a with statement");
+    CHECK_EQ(parse("class A extends function () { with (x) {} } {}"), "Strict mode code may not include a with statement");
+    CHECK_EQ(parse("class A {} with (x) {}"), program_of("(class A) (with (id x) (block))"));
+    CHECK_EQ(parse("class yield {}"), "Unexpected strict mode reserved word");
+    CHECK_EQ(parse("class A { #p = 1; }"), "private class members are not supported yet");
+    CHECK_EQ(parse("if (x) class A {}"), "Lexical declaration cannot appear in a single-statement context");
+    CHECK_EQ(parse("class A {} let A;"), "Identifier 'A' has already been declared");
+    CHECK_EQ(parse("class A { *g() {} }"), "generators are not supported yet");
+    CHECK_EQ(parse("class A { async m() {} }"), "async functions are not supported yet");
+}
+
 void test_unsupported_features()
 {
-    CHECK_EQ(parse("class A {}"), "class declarations are not supported yet");
-    CHECK_EQ(parse("x = class {}"), "class expressions are not supported yet");
     CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
     CHECK_EQ(parse("async function f() {}"), "async functions are not supported yet");
     CHECK_EQ(parse("await x"), "async functions are not supported yet");
@@ -1102,7 +1145,6 @@ void test_unsupported_features()
     CHECK_EQ(parse("yield x"), "generators are not supported yet");
     CHECK_EQ(parse("import x from 'y'"), "modules are not supported yet");
     CHECK_EQ(parse("export var x"), "modules are not supported yet");
-    CHECK_EQ(parse("super.x"), "super references are not supported yet");
     CHECK_EQ(parse("x = 10n"), "BigInt literals are not supported");
     CHECK_EQ(parse("({a: 1}) = b"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("async (a = 1) => 1"), "async functions are not supported yet");
@@ -1169,6 +1211,7 @@ int main()
     test_nesting_cap();
     test_unsupported_features();
     test_patterns();
+    test_classes();
     test_function_constructor();
     return sashfold::test::report("js_parser");
 }

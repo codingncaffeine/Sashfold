@@ -589,7 +589,7 @@ void test_describe_and_errors()
     CHECK_EQ(test::eval_throws(in, "var e = new RangeError('r'); e.name = 'Custom'; throw e"), std::string("Custom: r"));
     CHECK_EQ(test::eval_throws(in, "throw Symbol('s')"), std::string("Symbol(s)"));
     CHECK(test::eval_throws(in, "(").starts_with("SyntaxError"));
-    CHECK(test::eval_throws(in, "class A {}").find("not supported") != std::string::npos);
+    CHECK(test::eval_throws(in, "async function f() {}").find("not supported") != std::string::npos);
     CHECK_EQ(test::eval_throws(in, "[].x.y"), std::string("TypeError: Cannot read properties of undefined (reading 'y')"));
     CHECK_EQ(test::eval_throws(in, "var u; u.p = 1"), std::string("TypeError: Cannot set properties of undefined (setting 'p')"));
     CHECK_EQ(test::eval_throws(in, "(function () { let z; z(); })()"), std::string("TypeError: z is not a function"));

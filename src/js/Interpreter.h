@@ -123,6 +123,8 @@ public:
     // Calling into script from C++ (bindings, the event loop).
     std::optional<Value> call(Value const& callee, Value const& this_value, std::span<Value const> arguments);
     std::optional<Value> construct(Value const& callee, std::span<Value const> arguments);
+    // Construct with a new.target other than the callee (`super()`).
+    std::optional<Value> construct(Value const& callee, std::span<Value const> arguments, Object* new_target);
     // Wraps call(): the thrown value becomes an Outcome instead of a
     // pending exception.
     Outcome call_outcome(Value const& callee, Value const& this_value, std::span<Value const> arguments);

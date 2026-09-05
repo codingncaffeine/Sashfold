@@ -87,13 +87,16 @@ struct Context {
 // value, an unresolvable name, or no reference at all — a plain value,
 // which `delete` and `typeof` accept.
 struct Reference {
-    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Value };
+    // Super: a property of the home object's prototype (the base), read
+    // and written with `this` (this_value) as the receiver (§13.3.7.3).
+    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Super, Value };
     Kind kind = Kind::Value;
     Environment* environment = nullptr;
     JsString* name = nullptr;
-    Value base; // Property: the base; Value: the value itself
-    PropertyKey key; // Property (once ready) and ObjectEnvironment
-    Value key_value; // Property: the key before ToPropertyKey, when not yet converted
+    Value base; // Property, Super: the base; Value: the value itself
+    PropertyKey key; // Property, Super (once ready) and ObjectEnvironment
+    Value key_value; // Property, Super: the key before ToPropertyKey, when not yet converted
+    Value this_value; // Super: the receiver
     bool key_ready = false;
 };
 
@@ -206,11 +209,14 @@ char const* stack_position()
 bool is_anonymous_function_definition(Expression const* expression)
 {
     // IsAnonymousFunctionDefinition (§8.4.3) for the forms this grammar
-    // has: an arrow, or a function expression without a name.
+    // has: an arrow, a function expression or a class expression without
+    // a name.
     if (expression->type == NodeType::ArrowFunction)
         return true;
     if (expression->type == NodeType::FunctionExpression)
         return static_cast<FunctionExpression const*>(expression)->function->name == nullptr;
+    if (expression->type == NodeType::ClassExpression)
+        return static_cast<ClassExpression const*>(expression)->node->name == nullptr;
     return false;
 }
 
@@ -309,13 +315,28 @@ struct Interpreter::Impl {
     }
 
     // The nearest environment with a `this`; the global object's has one.
-    Value resolve_this(Environment* environment)
+    // A derived constructor's is a ReferenceError until super() has run.
+    std::optional<Value> resolve_this(Environment* environment)
+    {
+        for (Environment* e = environment; e != nullptr; e = e->outer()) {
+            if (e->has_this()) {
+                if (!e->this_initialized())
+                    return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+                return e->this_value();
+            }
+        }
+        return Value::object(self.global());
+    }
+
+    // GetThisEnvironment (§9.4.3): the record that owns `this`, or null
+    // when none does (global code).
+    Environment* this_environment(Environment* environment)
     {
         for (Environment* e = environment; e != nullptr; e = e->outer()) {
             if (e->has_this())
-                return e->this_value();
+                return e;
         }
-        return Value::object(self.global());
+        return nullptr;
     }
 
     // ResolveBinding (§9.4.2): outward through the chain. A `with`
@@ -395,6 +416,14 @@ struct Interpreter::Impl {
                 return std::nullopt;
             return self.get(reference.base, reference.key);
         }
+        case Reference::Kind::Super: {
+            // §13.3.7.3: the home object's prototype, `this` receiving.
+            if (reference.base.is_nullish())
+                return self.throw_type_error("Cannot read properties of null (reading '" + reference_key_text(reference) + "')");
+            if (!ensure_key(reference))
+                return std::nullopt;
+            return reference.base.as_object()->get(self, reference.key, reference.this_value);
+        }
         }
         return Value::undefined();
     }
@@ -457,6 +486,22 @@ struct Interpreter::Impl {
                 return false;
             return self.set(reference.base, reference.key, value, cx.strict).has_value();
         }
+        case Reference::Kind::Super: {
+            if (reference.base.is_nullish()) {
+                self.throw_type_error("Cannot set properties of null (setting '" + reference_key_text(reference) + "')");
+                return false;
+            }
+            if (!ensure_key(reference))
+                return false;
+            std::optional<bool> const stored = reference.base.as_object()->set(self, reference.key, value, reference.this_value);
+            if (!stored)
+                return false;
+            if (!*stored && cx.strict) {
+                self.throw_type_error("Cannot assign to read only property '" + key_description(reference.key) + "' of object");
+                return false;
+            }
+            return true;
+        }
         }
         return false;
     }
@@ -464,6 +509,8 @@ struct Interpreter::Impl {
     // The `this` a call through this reference gets (§13.3.6.2).
     Value this_for_call(Reference const& reference)
     {
+        if (reference.kind == Reference::Kind::Super)
+            return reference.this_value;
         if (reference.kind == Reference::Kind::Property)
             return reference.base;
         if (reference.kind == Reference::Kind::ObjectEnvironment && reference.environment->is_with_environment())
@@ -519,6 +566,8 @@ struct Interpreter::Impl {
             return make_closure(*static_cast<ArrowFunction const*>(expression)->function, cx, &name_key);
         if (expression->type == NodeType::FunctionExpression)
             return make_closure(*static_cast<FunctionExpression const*>(expression)->function, cx, &name_key);
+        if (expression->type == NodeType::ClassExpression)
+            return evaluate_class(*static_cast<ClassExpression const*>(expression)->node, cx, &name_key);
         return evaluate(expression, cx);
     }
 
@@ -556,7 +605,7 @@ struct Interpreter::Impl {
     // FunctionDeclarationInstantiation (§10.2.1, §10.2.1.2, §10.2.11), then
     // the body.
     std::optional<Value> call_script_function(ScriptFunction& function, Value const& this_argument,
-        std::span<Value const> arguments, Object* new_target)
+        std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key = nullptr)
     {
         FunctionNode const& node = function.node();
         Roots const roots(self);
@@ -571,21 +620,32 @@ struct Interpreter::Impl {
         Context& cx = scope.context();
 
         if (!node.is_arrow) {
-            // OrdinaryCallBindThis: sloppy code sees the global object for
-            // a nullish `this` and a wrapper for a primitive one.
-            Value this_value = this_argument;
-            if (!node.is_strict) {
-                if (this_value.is_nullish()) {
-                    this_value = Value::object(self.global());
-                } else if (!this_value.is_object()) {
-                    std::optional<Object*> const boxed = self.to_object(this_value);
-                    if (!boxed)
-                        return std::nullopt;
-                    this_value = Value::object(*boxed);
+            if (node.is_derived_constructor) {
+                // A derived constructor's `this` waits for super() (§10.2.1.1).
+                variable->set_this_uninitialized();
+            } else {
+                // OrdinaryCallBindThis: sloppy code sees the global object for
+                // a nullish `this` and a wrapper for a primitive one.
+                Value this_value = this_argument;
+                if (!node.is_strict) {
+                    if (this_value.is_nullish()) {
+                        this_value = Value::object(self.global());
+                    } else if (!this_value.is_object()) {
+                        std::optional<Object*> const boxed = self.to_object(this_value);
+                        if (!boxed)
+                            return std::nullopt;
+                        this_value = Value::object(*boxed);
+                    }
                 }
+                variable->set_this(this_value);
             }
-            variable->set_this(this_value);
             variable->set_new_target(new_target);
+            // A base class constructor defines its fields on the fresh
+            // instance before anything else runs (§10.2.2 step 6.b).
+            if (node.is_class_constructor && !node.is_derived_constructor && new_target != nullptr && this_argument.is_object()) {
+                if (!initialize_instance_elements(*this_argument.as_object(), function))
+                    return std::nullopt;
+            }
         }
 
         // Parameters (steps 21–26). A simple list binds each name to its
@@ -668,14 +728,393 @@ struct Interpreter::Impl {
         for (auto const& [name, is_const] : node.declarations.lexicals)
             lexical->declare(name, Value::undefined(), !is_const, false);
 
-        if (node.expression_body)
-            return evaluate(node.expression_body, cx);
-        Completion const completion = execute_list(node.body, cx);
-        if (completion.type == Completion::Type::Throw)
+        // The body. A field initializer is its expression, named after
+        // the field when it is an anonymous function; a default derived
+        // constructor hands its arguments to the parent class.
+        std::optional<Value> value;
+        if (node.is_default_constructor) {
+            if (node.is_derived_constructor) {
+                Object* parent = function.prototype();
+                Value const parent_value = parent ? Value::object(parent) : Value::undefined();
+                if (!Interpreter::is_constructor(parent_value))
+                    return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
+                std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
+                if (!result)
+                    return std::nullopt;
+                variable->set_this(*result);
+                if (!initialize_instance_elements(*result->as_object(), function))
+                    return std::nullopt;
+            }
+            value = Value::undefined();
+        } else if (node.expression_body) {
+            if (node.is_field_initializer && field_key && is_anonymous_function_definition(node.expression_body))
+                value = evaluate_named(node.expression_body, cx, *field_key);
+            else
+                value = evaluate(node.expression_body, cx);
+            if (!value)
+                return std::nullopt;
+        } else {
+            Completion const completion = execute_list(node.body, cx);
+            if (completion.type == Completion::Type::Throw)
+                return std::nullopt;
+            if (completion.type == Completion::Type::Return)
+                value = completion.value.is_empty() ? Value::undefined() : completion.value;
+            else
+                value = Value::undefined();
+        }
+        // [[Construct]] of a derived class (§10.2.2 steps 10–12): an object
+        // returned is the result, anything else but undefined a TypeError,
+        // and undefined yields the `this` that super() bound.
+        if (new_target != nullptr && node.is_derived_constructor) {
+            if (value->is_object())
+                return *value;
+            if (!value->is_undefined())
+                return self.throw_type_error("Derived constructors may only return object or undefined");
+            if (!variable->this_initialized())
+                return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            return variable->this_value();
+        }
+        return *value;
+    }
+
+    // ---- classes
+
+    // The [[HomeObject]] of the running method: the nearest non-arrow
+    // function's, arrows looking outward for theirs (§9.4.3).
+    Object* home_object_of(Context const& cx)
+    {
+        for (Environment* e = cx.lexical; e != nullptr; e = e->outer()) {
+            Function* function = e->function();
+            if (function == nullptr)
+                continue;
+            auto* script = static_cast<ScriptFunction*>(function);
+            if (script->node().is_arrow)
+                continue;
+            return script->home_object();
+        }
+        return nullptr;
+    }
+
+    // MakeSuperPropertyReference (§13.3.7.3): `this` first, then the
+    // key, against the home object's prototype.
+    std::optional<Reference> evaluate_super_member(SuperMember const& member, Context& cx)
+    {
+        std::optional<Value> const this_value = resolve_this(cx.lexical);
+        if (!this_value)
             return std::nullopt;
-        if (completion.type == Completion::Type::Return)
-            return completion.value.is_empty() ? Value::undefined() : completion.value;
-        return Value::undefined();
+        Roots const roots(self);
+        self.root(*this_value);
+        Object* home = home_object_of(cx);
+        if (home == nullptr)
+            return self.throw_syntax_error("'super' keyword unexpected here");
+        Reference reference;
+        reference.kind = Reference::Kind::Super;
+        reference.this_value = *this_value;
+        Object* base = home->prototype();
+        reference.base = base ? Value::object(base) : Value::null();
+        if (member.property) {
+            std::optional<Value> const key_value = evaluate(member.property, cx);
+            if (!key_value)
+                return std::nullopt;
+            reference.key_value = *key_value;
+            if (!key_value->is_object()) {
+                std::optional<PropertyKey> const key = self.to_property_key(*key_value);
+                if (!key)
+                    return std::nullopt;
+                reference.key = *key;
+                reference.key_ready = true;
+            }
+        } else {
+            reference.key = heap().key(member.name);
+            reference.key_ready = true;
+        }
+        return reference;
+    }
+
+    // SuperCall (§13.3.7.1): the parent class constructed with this
+    // call's new.target, the result bound as `this` — once — and the
+    // class's fields defined on it.
+    std::optional<Value> evaluate_super_call(SuperCall const& call, Context& cx)
+    {
+        Environment* this_env = this_environment(cx.lexical);
+        if (this_env == nullptr || this_env->function() == nullptr)
+            return self.throw_syntax_error("'super' keyword unexpected here");
+        auto* active = static_cast<ScriptFunction*>(this_env->function());
+        Object* new_target = this_env->new_target();
+        Roots const roots(self);
+        Object* parent = active->prototype();
+        Value const parent_value = parent ? Value::object(parent) : Value::undefined();
+        self.root(parent_value);
+        std::vector<Value> arguments;
+        if (!evaluate_arguments(call.arguments, cx, arguments))
+            return std::nullopt;
+        if (!Interpreter::is_constructor(parent_value))
+            return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
+        if (new_target == nullptr)
+            return self.throw_syntax_error("'super' keyword unexpected here");
+        std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
+        if (!result)
+            return std::nullopt;
+        self.root(*result);
+        if (this_env->this_initialized())
+            return self.throw_reference_error("Super constructor may only be called once");
+        this_env->set_this(*result);
+        if (!initialize_instance_elements(*result->as_object(), *active))
+            return std::nullopt;
+        return *result;
+    }
+
+    // NewTarget (§13.3.12.1): the running function's, undefined when it
+    // was called rather than constructed, and in global code.
+    Value evaluate_new_target(Context& cx)
+    {
+        Environment* this_env = this_environment(cx.lexical);
+        if (this_env == nullptr || this_env->new_target() == nullptr)
+            return Value::undefined();
+        return Value::object(this_env->new_target());
+    }
+
+    // A field initializer runs as a call with the instance as `this`, the
+    // field's key naming an anonymous function it evaluates to.
+    std::optional<Value> call_field_initializer(ScriptFunction& initializer, Value const& this_value, PropertyKey const& key)
+    {
+        if (self.m_call_depth >= self.m_call_depth_limit)
+            return self.throw_range_error("Maximum call stack size exceeded");
+        if (!step() || !stack_ok())
+            return std::nullopt;
+        ++self.m_call_depth;
+        std::optional<Value> const result = call_script_function(initializer, this_value, {}, nullptr, &key);
+        --self.m_call_depth;
+        return result;
+    }
+
+    // DefineField (§7.3.33).
+    bool define_field(Object& receiver, ClassField const& field)
+    {
+        Roots const roots(self);
+        self.root(Value::object(&receiver));
+        self.root(field.key.is_symbol() ? Value::symbol(field.key.as_symbol()) : Value::undefined());
+        Value value = Value::undefined();
+        if (field.initializer) {
+            self.root(Value::object(field.initializer));
+            std::optional<Value> const result = call_field_initializer(*field.initializer, Value::object(&receiver), field.key);
+            if (!result)
+                return false;
+            value = *result;
+        }
+        self.root(value);
+        return self.create_data_property(receiver, field.key, value).has_value();
+    }
+
+    // InitializeInstanceElements (§7.3.34): the constructor's fields, in order.
+    bool initialize_instance_elements(Object& instance, ScriptFunction& constructor)
+    {
+        Roots const roots(self);
+        self.root(Value::object(&constructor));
+        std::vector<ClassField> const fields = constructor.fields();
+        for (ClassField const& field : fields) {
+            if (!define_field(instance, field))
+                return false;
+        }
+        return true;
+    }
+
+    // The constructor function of a class (§15.7.14 steps 14–17): its
+    // [[Prototype]] is the parent class, its `prototype` the class's
+    // prototype object, immutable, and the two point at each other.
+    ScriptFunction* new_class_constructor(FunctionNode const& node, Environment* scope, Object* proto, Object* constructor_parent)
+    {
+        Heap::NoCollect const guard(heap());
+        auto* function = heap().allocate<ScriptFunction>(constructor_parent, node, scope, true);
+        function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
+        function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
+        function->put(PropertyKey::atom(atoms().prototype), Value::object(proto), frozen_attributes);
+        proto->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
+        function->set_home_object(proto);
+        return function;
+    }
+
+    // ClassDefinitionEvaluation (§15.7.14): the heritage, the prototype
+    // object and the constructor, then every element in order — methods
+    // and accessors defined at once, instance fields recorded on the
+    // constructor, static fields and blocks run last with the class as
+    // `this` — the class's own name bound throughout its body.
+    std::optional<Value> evaluate_class(ClassNode const& node, Context& cx, PropertyKey const* name_key)
+    {
+        Roots const roots(self);
+        Environment* const saved = cx.lexical;
+        bool const saved_strict = cx.strict;
+        Environment* class_env = new_environment(saved);
+        if (node.name)
+            class_env->declare(node.name, Value::undefined(), false, false);
+        cx.lexical = class_env;
+        cx.strict = true;
+        auto leave = [&]() {
+            cx.lexical = saved;
+            cx.strict = saved_strict;
+        };
+        Object* proto_parent = self.intrinsics().object_prototype;
+        Object* constructor_parent = self.intrinsics().function_prototype;
+        if (node.has_heritage) {
+            std::optional<Value> const superclass = evaluate(node.heritage, cx);
+            if (!superclass) {
+                leave();
+                return std::nullopt;
+            }
+            self.root(*superclass);
+            if (superclass->is_null()) {
+                proto_parent = nullptr;
+            } else if (!Interpreter::is_constructor(*superclass)) {
+                leave();
+                return self.throw_type_error("Class extends value " + self.describe(*superclass) + " is not a constructor or null");
+            } else {
+                std::optional<Value> const parent_proto = self.get(*superclass, PropertyKey::atom(atoms().prototype));
+                if (!parent_proto) {
+                    leave();
+                    return std::nullopt;
+                }
+                if (parent_proto->is_object()) {
+                    proto_parent = parent_proto->as_object();
+                } else if (parent_proto->is_null()) {
+                    proto_parent = nullptr;
+                } else {
+                    leave();
+                    return self.throw_type_error("Class extends value does not have valid prototype property " + self.describe(*parent_proto));
+                }
+                constructor_parent = superclass->as_object();
+            }
+        }
+        Object* proto = self.new_object();
+        proto->set_prototype(proto_parent);
+        self.root(Value::object(proto));
+        ScriptFunction* constructor = new_class_constructor(*node.constructor, class_env, proto, constructor_parent);
+        self.root(Value::object(constructor));
+        if (!node.name && name_key)
+            set_function_name(*constructor, *name_key);
+
+        struct StaticElement {
+            ClassElement const* element;
+            PropertyKey key;
+        };
+        std::vector<StaticElement> statics;
+        for (ClassElement const& element : node.elements) {
+            Object* target = element.is_static ? static_cast<Object*>(constructor) : proto;
+            PropertyKey key;
+            if (element.kind != ClassElement::Kind::StaticBlock) {
+                if (element.computed_key) {
+                    std::optional<Value> const key_value = evaluate(element.computed_key, cx);
+                    if (!key_value) {
+                        leave();
+                        return std::nullopt;
+                    }
+                    self.root(*key_value);
+                    std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
+                    if (!converted) {
+                        leave();
+                        return std::nullopt;
+                    }
+                    key = *converted;
+                    if (key.is_symbol())
+                        self.root(Value::symbol(key.as_symbol()));
+                } else {
+                    key = heap().key(element.key);
+                }
+            }
+            switch (element.kind) {
+            case ClassElement::Kind::Method: {
+                // DefineMethodProperty: writable, configurable, not enumerable.
+                Heap::NoCollect const guard(heap());
+                ScriptFunction* closure = self.new_script_function(*element.function, class_env);
+                closure->set_home_object(target);
+                set_function_name(*closure, key);
+                target->put(key, Value::object(closure), builtin_attributes);
+                break;
+            }
+            case ClassElement::Kind::Getter:
+            case ClassElement::Kind::Setter: {
+                Heap::NoCollect const guard(heap());
+                ScriptFunction* accessor = self.new_script_function(*element.function, class_env);
+                accessor->set_home_object(target);
+                set_function_name(*accessor, key, element.kind == ClassElement::Kind::Getter ? "get" : "set");
+                Object* getter = nullptr;
+                Object* setter = nullptr;
+                if (Property const* existing = target->find_own(key); existing && existing->accessor) {
+                    getter = existing->getter;
+                    setter = existing->setter;
+                }
+                if (element.kind == ClassElement::Kind::Getter)
+                    getter = accessor;
+                else
+                    setter = accessor;
+                target->put_accessor(key, getter, setter, Configurable);
+                break;
+            }
+            case ClassElement::Kind::Field: {
+                if (element.is_static) {
+                    statics.push_back({ &element, key });
+                    break;
+                }
+                Heap::NoCollect const guard(heap());
+                ClassField field;
+                field.key = key;
+                if (element.function) {
+                    field.initializer = self.new_script_function(*element.function, class_env);
+                    field.initializer->set_home_object(proto);
+                }
+                constructor->fields().push_back(field);
+                break;
+            }
+            case ClassElement::Kind::StaticBlock:
+                statics.push_back({ &element, PropertyKey() });
+                break;
+            }
+        }
+        if (node.name) {
+            Environment::Binding* binding = class_env->find(node.name);
+            binding->value = Value::object(constructor);
+            binding->initialized = true;
+        }
+        // Static fields and blocks, in order, with the class as `this`.
+        for (StaticElement const& item : statics) {
+            ScriptFunction* closure = nullptr;
+            if (item.element->function) {
+                Heap::NoCollect const guard(heap());
+                closure = self.new_script_function(*item.element->function, class_env);
+                closure->set_home_object(constructor);
+            }
+            if (closure)
+                self.root(Value::object(closure));
+            if (item.element->kind == ClassElement::Kind::StaticBlock) {
+                if (!self.call(Value::object(closure), Value::object(constructor), {})) {
+                    leave();
+                    return std::nullopt;
+                }
+                continue;
+            }
+            ClassField field;
+            field.key = item.key;
+            field.initializer = closure;
+            if (!define_field(*constructor, field)) {
+                leave();
+                return std::nullopt;
+            }
+        }
+        leave();
+        return Value::object(constructor);
+    }
+
+    Completion execute_class_declaration(ClassDeclaration const& declaration, Context& cx)
+    {
+        // BindingClassDeclarationEvaluation (§15.7.15): the outer binding,
+        // declared at the scope's entry, takes the class.
+        std::optional<Value> const value = evaluate_class(*declaration.node, cx, nullptr);
+        if (!value)
+            return Completion::thrown();
+        Roots const roots(self);
+        self.root(*value);
+        if (!initialize_binding(declaration.node->name, *value, cx.lexical))
+            return Completion::thrown();
+        return Completion::normal();
     }
 
     // ---- patterns
@@ -1209,7 +1648,20 @@ struct Interpreter::Impl {
         ParseOptions options;
         options.strict = direct && strict_caller;
         Environment* variable = direct ? variable_environment_of(scope) : self.intrinsics().global_environment;
-        options.in_function = direct && variable->function() != nullptr;
+        if (direct) {
+            // §19.2.1.1 steps 8–10: what `new.target`, `super` and
+            // `arguments` may do in the eval code follows from the function
+            // whose `this` it sees — an arrow's eval at the top level is
+            // not in function code at all.
+            Environment* this_env = this_environment(scope);
+            if (this_env && this_env->function()) {
+                FunctionNode const& fn = static_cast<ScriptFunction*>(this_env->function())->node();
+                options.in_function = true;
+                options.allow_super_property = fn.is_method;
+                options.allow_super_call = fn.is_derived_constructor;
+                options.in_field_initializer = fn.is_field_initializer || fn.is_static_block;
+            }
+        }
         Parser parser(heap(), std::u16string(source), options);
         std::unique_ptr<Program> program = parser.parse_program("eval");
         if (!program) {
@@ -1271,6 +1723,21 @@ struct Interpreter::Impl {
             return make_closure(*static_cast<FunctionExpression const*>(expression)->function, cx, nullptr);
         case NodeType::ArrowFunction:
             return make_closure(*static_cast<ArrowFunction const*>(expression)->function, cx, nullptr);
+        case NodeType::ClassExpression:
+            return evaluate_class(*static_cast<ClassExpression const*>(expression)->node, cx, nullptr);
+        case NodeType::SuperMember: {
+            std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(expression), cx);
+            if (!reference)
+                return std::nullopt;
+            Roots const roots(self);
+            self.root(reference->base);
+            self.root(reference->key_value);
+            return get_value(*reference, cx);
+        }
+        case NodeType::SuperCall:
+            return evaluate_super_call(*static_cast<SuperCall const*>(expression), cx);
+        case NodeType::NewTargetExpression:
+            return evaluate_new_target(cx);
         case NodeType::UnaryExpression:
             return evaluate_unary(*static_cast<UnaryExpression const*>(expression), cx);
         case NodeType::UpdateExpression:
@@ -1421,13 +1888,19 @@ struct Interpreter::Impl {
             }
             if (property.kind == PropertyDefinition::Kind::Init) {
                 std::optional<Value> value;
-                if (property.value->type == NodeType::FunctionExpression || property.value->type == NodeType::ArrowFunction)
+                if (property.value->type == NodeType::FunctionExpression || property.value->type == NodeType::ArrowFunction
+                    || property.value->type == NodeType::ClassExpression)
                     value = evaluate_named(property.value, cx, key);
                 else
                     value = evaluate(property.value, cx);
                 if (!value)
                     return std::nullopt;
                 self.root(*value);
+                // A method shorthand's function has the object as its home
+                // (§15.4.5), for `super.x` inside it.
+                if (property.value->type == NodeType::FunctionExpression
+                    && static_cast<FunctionExpression const*>(property.value)->function->is_method && value->is_object())
+                    static_cast<ScriptFunction*>(value->as_object())->set_home_object(object);
                 if (!self.create_data_property(*object, key, *value))
                     return std::nullopt;
                 continue;
@@ -1436,6 +1909,7 @@ struct Interpreter::Impl {
             FunctionNode const& node = *static_cast<FunctionExpression const*>(property.value)->function;
             Heap::NoCollect const guard(heap());
             ScriptFunction* accessor = self.new_script_function(node, cx.lexical);
+            accessor->set_home_object(object);
             set_function_name(*accessor, key, property.kind == PropertyDefinition::Kind::Get ? "get" : "set");
             Object* getter = nullptr;
             Object* setter = nullptr;
@@ -1598,6 +2072,18 @@ struct Interpreter::Impl {
                 return std::nullopt;
             callee_value = *value;
             this_value = this_for_call(reference);
+        } else if (callee->type == NodeType::SuperMember) {
+            // `super.m()`: the method from the parent, this staying this.
+            std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(callee), cx);
+            if (!reference)
+                return std::nullopt;
+            self.root(reference->base);
+            self.root(reference->key_value);
+            std::optional<Value> const value = get_value(*reference, cx);
+            if (!value)
+                return std::nullopt;
+            callee_value = *value;
+            this_value = this_for_call(*reference);
         } else {
             std::optional<Value> const value = evaluate(callee, cx);
             if (!value)
@@ -1656,6 +2142,8 @@ struct Interpreter::Impl {
             bool short_circuit = false;
             return evaluate_member_reference(*static_cast<MemberExpression const*>(expression), cx, short_circuit);
         }
+        if (expression->type == NodeType::SuperMember)
+            return evaluate_super_member(*static_cast<SuperMember const*>(expression), cx);
         std::optional<Value> const value = evaluate(expression, cx);
         if (!value)
             return std::nullopt;
@@ -1736,6 +2224,9 @@ struct Interpreter::Impl {
         case Reference::Kind::Value:
         case Reference::Kind::Unresolvable:
             return Value::boolean(true);
+        case Reference::Kind::Super:
+            // §13.5.1.2 step 5.a: a super reference cannot be deleted.
+            return self.throw_reference_error("Unsupported reference to 'super'");
         case Reference::Kind::Binding:
             return Value::boolean(reference->environment->remove(reference->name));
         case Reference::Kind::ObjectEnvironment:
@@ -2121,6 +2612,8 @@ struct Interpreter::Impl {
             return execute_declaration(*static_cast<VariableDeclaration const*>(statement), cx);
         case NodeType::FunctionDeclaration:
             return execute_function_declaration(*static_cast<FunctionDeclaration const*>(statement), cx);
+        case NodeType::ClassDeclaration:
+            return execute_class_declaration(*static_cast<ClassDeclaration const*>(statement), cx);
         case NodeType::ExpressionStatement: {
             std::optional<Value> const value = evaluate(static_cast<ExpressionStatement const*>(statement)->expression, cx);
             if (!value)
@@ -2886,6 +3379,11 @@ std::optional<Value> Interpreter::call(Value const& callee, Value const& this_va
 
 std::optional<Value> Interpreter::construct(Value const& callee, std::span<Value const> arguments)
 {
+    return construct(callee, arguments, nullptr);
+}
+
+std::optional<Value> Interpreter::construct(Value const& callee, std::span<Value const> arguments, Object* new_target)
+{
     if (!is_constructor(callee))
         return throw_type_error(describe(callee) + " is not a constructor");
     if (m_call_depth == 0)
@@ -2894,13 +3392,15 @@ std::optional<Value> Interpreter::construct(Value const& callee, std::span<Value
         return throw_range_error("Maximum call stack size exceeded");
     Roots const roots(*this);
     root(callee);
+    if (new_target)
+        root(Value::object(new_target));
     for (Value const& argument : arguments)
         root(argument);
     if (!m_impl->step() || !m_impl->stack_ok())
         return std::nullopt;
     ++m_call_depth;
     Object* constructor = callee.as_object();
-    std::optional<Value> const result = static_cast<Function*>(constructor)->construct(*this, arguments, constructor);
+    std::optional<Value> const result = static_cast<Function*>(constructor)->construct(*this, arguments, new_target ? new_target : constructor);
     --m_call_depth;
     return result;
 }
@@ -2968,20 +3468,26 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
 
 std::optional<Value> ScriptFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
+    // §10.2.1 step 2: a class constructor is only for `new`.
+    if (m_node->is_class_constructor)
+        return interpreter.throw_type_error("Class constructor " + (m_node->name ? m_node->name->to_utf8() : std::string()) + " cannot be invoked without 'new'");
     return interpreter.m_impl->call_script_function(*this, this_value, arguments, nullptr);
 }
 
 std::optional<Value> ScriptFunction::construct(Interpreter& interpreter, std::span<Value const> arguments, Object* new_target)
 {
-    // [[Construct]] (§10.2.2): a fresh object from new.target's
-    // prototype is `this`, and stays the result unless the body returns
-    // an object of its own.
+    // [[Construct]] (§10.2.2): for a base constructor a fresh object from
+    // new.target's prototype is `this`, and stays the result unless the
+    // body returns an object of its own; a derived one gets its `this`
+    // from super(), and the evaluator settles its result.
     if (!m_constructable)
         return interpreter.throw_type_error("not a constructor");
     Interpreter::Roots const roots(interpreter);
     interpreter.root(Value::object(this));
     if (new_target)
         interpreter.root(Value::object(new_target));
+    if (m_node->is_derived_constructor)
+        return interpreter.m_impl->call_script_function(*this, Value::undefined(), arguments, new_target);
     std::optional<Object*> const prototype = interpreter.get_prototype_from_constructor(new_target, interpreter.intrinsics().object_prototype);
     if (!prototype)
         return std::nullopt;

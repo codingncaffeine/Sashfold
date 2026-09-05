@@ -60,7 +60,11 @@
 //     (binary op l r) (logical op l r) (assign op target v) (cond t c a)
 //     (call callee args…) (call? callee args…) (new callee args…)
 //     (member obj name) (member? obj name) (index obj e) (index? obj e)
-//     (seq e…) (spread e)
+//     (seq e…) (spread e) (super-member name) (super-index e)
+//     (super-call args…) new.target
+//     (class name? (extends h)? (constructor f)? (method "k" f)…
+//            (static method "k" f) (get "k" f) (set "k" f) (field "k" f?)
+//            (static block f))                  a computed key prints (computed k)
 //   patterns (a target is (id x), a member/index, or a nested pattern)
 //     (array-pattern hole|target|(= target init)… (... target)?)
 //     (object-pattern ("key" target|(= target init))…
@@ -359,6 +363,13 @@ struct FunctionContext {
     bool is_strict = false;
     bool is_arrow = false;
     bool use_strict_directive = false; // the body's own "use strict" (§15.2.1: not with a non-simple parameter list)
+    // What `super` and `new.target` may do here (§15.7.1, §13.3.7.1); an
+    // arrow inherits its enclosing function's answers.
+    bool allow_super_property = false;
+    bool allow_super_call = false;
+    bool allow_new_target = false;
+    bool in_field_initializer = false; // `arguments` is an early error (§15.7.1)
+    bool in_static_block = false;
 };
 
 // An error the cover grammar defers (§13.2.5.1): `{ a = 1 }` and a
@@ -410,7 +421,7 @@ struct Parser::Impl {
     bool declare_function(FunctionDeclaration*, SourcePosition);
     std::unordered_set<JsString*> const* lexicals_of(int scope_id) const;
     void note_this();
-    void note_arguments();
+    bool note_arguments();
     void note_direct_eval();
     bool check_binding_identifier(Token const&, bool strict);
     bool check_simple_target(Expression const*, SourcePosition, std::string_view what);
@@ -455,6 +466,14 @@ struct Parser::Impl {
     bool looks_like_arrow_head();
     bool balanced_parens_then_arrow();
     Expression* parse_arrow(bool allow_in);
+    Expression* parse_super();
+
+    // Classes (§15.7).
+    ClassNode* parse_class(bool is_expression);
+    Expression* parse_class_expression();
+    Statement* parse_class_declaration();
+    bool parse_class_element(ClassNode&);
+    bool parse_static_block(ClassNode&, SourcePosition start);
 
     // Patterns (§14.3.3, §13.15.5). A binding pattern is parsed where a
     // declaration, a parameter or a catch clause says one stands, and the
@@ -639,6 +658,25 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
     context->is_strict = m_functions.empty() ? m_options.strict : function().is_strict;
     if (node)
         node->is_strict = context->is_strict;
+    if (m_functions.empty()) {
+        context->allow_new_target = m_options.in_function;
+        context->allow_super_property = m_options.allow_super_property;
+        context->allow_super_call = m_options.allow_super_call;
+        context->in_field_initializer = m_options.in_field_initializer;
+    } else if (is_arrow) {
+        FunctionContext const& outer = function();
+        context->allow_new_target = outer.allow_new_target;
+        context->allow_super_property = outer.allow_super_property;
+        context->allow_super_call = outer.allow_super_call;
+        context->in_field_initializer = outer.in_field_initializer;
+        context->in_static_block = outer.in_static_block;
+    } else {
+        context->allow_new_target = true;
+        context->allow_super_property = node && node->is_method;
+        context->allow_super_call = node && node->is_derived_constructor;
+        context->in_field_initializer = node && node->is_field_initializer;
+        context->in_static_block = node && node->is_static_block;
+    }
     m_functions.push_back(std::move(context));
     Scope& top = push_scope(declarations);
     top.is_function_top = true;
@@ -793,16 +831,24 @@ void Parser::Impl::note_this()
     }
 }
 
-void Parser::Impl::note_arguments()
+// `arguments` in a class field initializer or static block — directly or
+// through arrows — is an early error (§15.7.1); a nested function of
+// its own is fine.
+bool Parser::Impl::note_arguments()
 {
     for (auto it = m_functions.rbegin(); it != m_functions.rend(); ++it) {
         FunctionContext& fn = **it;
+        // Eval code inside an initializer inherits the rule (its program
+        // context carries the flag).
+        if (!fn.is_arrow && (fn.in_field_initializer || fn.in_static_block))
+            return fail(m_current.position, "'arguments' is not allowed in class field initializer or static initialization block");
         if (!fn.node)
-            return;
+            return true;
         fn.node->uses_arguments = true;
         if (!fn.is_arrow)
-            return;
+            return true;
     }
+    return true;
 }
 
 // A direct eval can reach every enclosing scope, so none of them may be
@@ -838,6 +884,8 @@ bool Parser::Impl::check_binding_identifier(Token const& token, bool strict)
 // part of an optional chain.
 bool Parser::Impl::check_simple_target(Expression const* target, SourcePosition position, std::string_view what)
 {
+    if (target->type == NodeType::SuperMember)
+        return true;
     if (target->type == NodeType::Identifier) {
         if (is_strict() && is_eval_or_arguments(static_cast<Identifier const*>(target)->name->view()))
             return fail(position, "Unexpected eval or arguments in strict mode");
@@ -1174,9 +1222,22 @@ Expression* Parser::Impl::parse_new()
         return nullptr;
     advance(); // new
     if (m_current.is(Punctuator::Dot)) {
+        // NewTarget (§13.3.12): only inside a function, arrows looking
+        // outward for theirs.
+        advance();
+        if (!m_current.is_identifier(u"target") || m_current.has_escape) {
+            leave();
+            fail_unexpected();
+            return nullptr;
+        }
+        if (!function().allow_new_target) {
+            leave();
+            fail(start, "new.target expression is not allowed here");
+            return nullptr;
+        }
+        advance();
         leave();
-        fail_unsupported("new.target");
-        return nullptr;
+        return finish(make<NewTargetExpression>(start));
     }
     Expression* callee = m_current.is(Keyword::New) ? parse_new() : parse_primary();
     if (callee)
@@ -1358,11 +1419,9 @@ Expression* Parser::Impl::parse_primary()
         case Keyword::Function:
             return parse_function_expression();
         case Keyword::Class:
-            fail_unsupported("class expressions");
-            return nullptr;
+            return parse_class_expression();
         case Keyword::Super:
-            fail_unsupported("super references");
-            return nullptr;
+            return parse_super();
         case Keyword::Import:
             fail_unsupported("modules");
             return nullptr;
@@ -1444,8 +1503,8 @@ Expression* Parser::Impl::parse_identifier_reference()
     }
     auto* identifier = make<Identifier>(start);
     identifier->name = atom(m_current.value);
-    if (identifier->name == m_heap.atoms().arguments)
-        note_arguments();
+    if (identifier->name == m_heap.atoms().arguments && !note_arguments())
+        return nullptr;
     advance();
     return finish(identifier);
 }
@@ -1683,6 +1742,7 @@ Expression* Parser::Impl::parse_object_literal()
             fn->source_start = property_start.offset;
             fn->name = property.computed_key ? nullptr : property.key;
             fn->is_constructable = false; // §15.4: methods and accessors have no [[Construct]]
+            fn->is_method = true; // the object is its home: `super.x` resolves against it
             fn->is_getter = property.kind == PropertyDefinition::Kind::Get;
             fn->is_setter = property.kind == PropertyDefinition::Kind::Set;
             FunctionKind const kind = fn->is_getter ? FunctionKind::Getter : fn->is_setter ? FunctionKind::Setter : FunctionKind::Method;
@@ -1734,8 +1794,10 @@ Expression* Parser::Impl::parse_object_literal()
             auto* identifier = make<Identifier>(key_token.position);
             identifier->name = property.key;
             identifier->end_offset = key_token.end_offset;
-            if (identifier->name == m_heap.atoms().arguments)
-                note_arguments();
+            if (identifier->name == m_heap.atoms().arguments && !note_arguments()) {
+                leave();
+                return nullptr;
+            }
             property.value = identifier;
             if (m_current.is(Punctuator::Assign)) {
                 m_cover_errors.push_back({ m_current.position, "Invalid shorthand property initializer" });
@@ -1979,6 +2041,302 @@ Expression* Parser::Impl::parse_arrow(bool allow_in)
     auto* expression = make<ArrowFunction>(start);
     expression->function = fn;
     return finish(expression);
+}
+
+// SuperProperty and SuperCall (§13.3.7), each only where a method or a
+// derived constructor makes it meaningful (§15.7.1 early errors).
+Expression* Parser::Impl::parse_super()
+{
+    SourcePosition const start = m_current.position;
+    advance(); // super
+    if (m_current.is(Punctuator::LeftParen)) {
+        if (!function().allow_super_call) {
+            fail(start, "'super' keyword unexpected here");
+            return nullptr;
+        }
+        auto* call = make<SuperCall>(start);
+        if (!parse_arguments(call->arguments))
+            return nullptr;
+        return finish(call);
+    }
+    if (!function().allow_super_property || !(m_current.is(Punctuator::Dot) || m_current.is(Punctuator::LeftBracket))) {
+        fail(start, "'super' keyword unexpected here");
+        return nullptr;
+    }
+    auto* member = make<SuperMember>(start);
+    if (m_current.is(Punctuator::Dot)) {
+        advance();
+        if (m_current.type != TokenType::Identifier && m_current.type != TokenType::Keyword) {
+            fail_unexpected();
+            return nullptr;
+        }
+        member->name = atom(m_current.value);
+        advance();
+    } else {
+        advance(); // [
+        if (!enter())
+            return nullptr;
+        member->property = parse_expression(true);
+        leave();
+        if (!member->property || !expect(Punctuator::RightBracket))
+            return nullptr;
+    }
+    return finish(member);
+}
+
+// ---- classes ----------------------------------------------------------------
+
+// ClassDeclaration / ClassExpression (§15.7): the name, the heritage, and
+// the body's elements — every part strict code (§15.7.1). The constructor
+// keeps the class's own source span for Function.prototype.toString; a
+// class that writes none gets the default one synthesized.
+ClassNode* Parser::Impl::parse_class(bool is_expression)
+{
+    SourcePosition const start = m_current.position;
+    advance(); // class
+    FunctionContext& context = function();
+    bool const was_strict = context.is_strict;
+    context.is_strict = true;
+    auto abandon = [&]() -> ClassNode* {
+        context.is_strict = was_strict;
+        return nullptr;
+    };
+    ClassNode* node = m_program->make_class();
+    node->position = start;
+    node->source_start = start.offset;
+    if (m_current.type == TokenType::Identifier) {
+        if (!check_binding_identifier(m_current, true))
+            return abandon();
+        node->name = atom(m_current.value);
+        advance();
+    } else if (!is_expression) {
+        fail_unexpected();
+        return abandon();
+    }
+    if (m_current.is(Keyword::Extends)) {
+        advance();
+        node->has_heritage = true;
+        if (!enter())
+            return abandon();
+        node->heritage = parse_left_hand_side();
+        leave();
+        if (!node->heritage)
+            return abandon();
+    }
+    if (!m_current.is(Punctuator::LeftBrace)) {
+        fail_unexpected();
+        return abandon();
+    }
+    if (!enter())
+        return abandon();
+    advance(); // {
+    while (!m_current.is(Punctuator::RightBrace)) {
+        if (m_current.is(Punctuator::Semicolon)) {
+            advance();
+            continue;
+        }
+        if (!parse_class_element(*node)) {
+            leave();
+            return abandon();
+        }
+    }
+    advance(); // }
+    leave();
+    node->source_end = m_previous_end;
+    if (!node->constructor) {
+        // The default constructor (§15.7.14 step 14): a base class's does
+        // nothing, a derived class's hands its arguments to the parent.
+        FunctionNode* fn = m_program->make_function();
+        fn->position = start;
+        fn->is_strict = true;
+        fn->is_class_constructor = true;
+        fn->is_derived_constructor = node->has_heritage;
+        fn->is_default_constructor = true;
+        fn->is_method = true;
+        fn->class_node = node;
+        node->constructor = fn;
+    }
+    node->constructor->source_start = node->source_start;
+    node->constructor->source_end = node->source_end;
+    node->constructor->name = node->name;
+    context.is_strict = was_strict;
+    return node;
+}
+
+Expression* Parser::Impl::parse_class_expression()
+{
+    SourcePosition const start = m_current.position;
+    ClassNode* node = parse_class(true);
+    if (!node)
+        return nullptr;
+    auto* expression = make<ClassExpression>(start);
+    expression->node = node;
+    return finish(expression);
+}
+
+// A class declaration binds its name like `let` in the enclosing scope
+// (§14.2.1, §15.7.16).
+Statement* Parser::Impl::parse_class_declaration()
+{
+    SourcePosition const start = m_current.position;
+    ClassNode* node = parse_class(false);
+    if (!node)
+        return nullptr;
+    auto* declaration = make<ClassDeclaration>(start);
+    declaration->node = node;
+    if (!declare_lexical(node->name, false, node->position))
+        return nullptr;
+    return finish(declaration);
+}
+
+// ClassElement (§15.7): `static`, then a method, an accessor, a field or
+// a static block; the constructor is recognised by its name.
+bool Parser::Impl::parse_class_element(ClassNode& node)
+{
+    SourcePosition const element_start = m_current.position;
+    ClassElement element;
+    // `static` is the modifier unless it is the member's own name.
+    if (m_current.is_identifier(u"static") && !m_current.has_escape) {
+        Token const next = peek();
+        bool const is_name = next.is(Punctuator::LeftParen) || next.is(Punctuator::Assign) || next.is(Punctuator::Semicolon)
+            || next.is(Punctuator::RightBrace);
+        if (!is_name) {
+            element.is_static = true;
+            advance();
+            if (m_current.is(Punctuator::LeftBrace))
+                return parse_static_block(node, element_start);
+        }
+    }
+    if (m_current.is(Punctuator::Star))
+        return fail_unsupported("generators");
+    std::u16string const& source = m_program->source;
+    if (m_current.type == TokenType::Invalid && m_current.position.offset < source.size() && source[m_current.position.offset] == u'#')
+        return fail_unsupported("private class members");
+    // `get`/`set`/`async` are prefixes only when a key follows.
+    bool accessor = false;
+    if (m_current.type == TokenType::Identifier && !m_current.has_escape
+        && (m_current.value == u"get" || m_current.value == u"set" || m_current.value == u"async")) {
+        Token const next = peek();
+        bool const key_follows = next.type == TokenType::Identifier || next.type == TokenType::Keyword
+            || next.type == TokenType::String || next.type == TokenType::Number
+            || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star) || next.type == TokenType::Invalid;
+        if (key_follows) {
+            if (m_current.value == u"async")
+                return fail_unsupported("async functions");
+            accessor = true;
+            element.kind = m_current.value == u"get" ? ClassElement::Kind::Getter : ClassElement::Kind::Setter;
+            advance();
+        }
+    }
+    PropertyDefinition definition;
+    Token key_token;
+    if (!parse_property_key(definition, &key_token))
+        return false;
+    element.key = definition.key;
+    element.computed_key = definition.computed_key;
+    bool const plain_key = !element.computed_key
+        && (key_token.type == TokenType::Identifier || key_token.type == TokenType::Keyword || key_token.type == TokenType::String);
+    bool const constructor_name = plain_key && element.key->equals(u"constructor");
+    if (plain_key && element.is_static && element.key->equals(u"prototype"))
+        return fail(key_token.position, "Classes may not have a static property named 'prototype'");
+    if (accessor || m_current.is(Punctuator::LeftParen)) {
+        if (!m_current.is(Punctuator::LeftParen))
+            return fail_unexpected();
+        bool const is_constructor = constructor_name && !element.is_static;
+        if (is_constructor && accessor)
+            return fail(key_token.position, "Class constructor may not be an accessor");
+        FunctionNode* fn = m_program->make_function();
+        fn->position = element_start;
+        fn->source_start = element_start.offset;
+        fn->name = element.computed_key ? nullptr : element.key;
+        fn->is_method = true;
+        fn->is_getter = element.kind == ClassElement::Kind::Getter;
+        fn->is_setter = element.kind == ClassElement::Kind::Setter;
+        if (is_constructor) {
+            if (node.constructor)
+                return fail(key_token.position, "A class may only have one constructor");
+            fn->is_class_constructor = true;
+            fn->is_derived_constructor = node.has_heritage;
+            fn->class_node = &node;
+        } else {
+            fn->is_constructable = false;
+        }
+        FunctionKind const kind = fn->is_getter ? FunctionKind::Getter : fn->is_setter ? FunctionKind::Setter : FunctionKind::Method;
+        if (!parse_function_rest(fn, kind, std::nullopt))
+            return false;
+        if (is_constructor) {
+            node.constructor = fn;
+            return true;
+        }
+        if (!accessor)
+            element.kind = ClassElement::Kind::Method;
+        element.function = fn;
+        node.elements.push_back(element);
+        return true;
+    }
+    // A field: `key`, or `key = initializer`, ended by a semicolon or ASI.
+    // The initializer is a function of its own, called with the instance
+    // as `this` (§15.7.10).
+    if (constructor_name)
+        return fail(key_token.position, "Classes may not have a field named 'constructor'");
+    element.kind = ClassElement::Kind::Field;
+    if (m_current.is(Punctuator::Assign)) {
+        advance();
+        FunctionNode* fn = m_program->make_function();
+        fn->position = m_current.position;
+        fn->source_start = m_current.position.offset;
+        fn->name = element.computed_key ? nullptr : element.key;
+        fn->is_method = true;
+        fn->is_field_initializer = true;
+        fn->is_constructable = false;
+        if (!enter())
+            return false;
+        push_function(fn, &fn->declarations, false);
+        Expression* initializer = parse_assignment(true);
+        if (!initializer)
+            return false;
+        fn->expression_body = initializer;
+        fn->source_end = m_previous_end;
+        leave();
+        if (!pop_function())
+            return false;
+        element.function = fn;
+    }
+    if (!consume_semicolon())
+        return false;
+    node.elements.push_back(element);
+    return true;
+}
+
+// `static { … }` (§15.7): a body run once with the class as `this` when
+// the class is defined; `return` and `arguments` are early errors.
+bool Parser::Impl::parse_static_block(ClassNode& node, SourcePosition start)
+{
+    FunctionNode* fn = m_program->make_function();
+    fn->position = start;
+    fn->source_start = start.offset;
+    fn->is_method = true;
+    fn->is_static_block = true;
+    fn->is_constructable = false;
+    if (!enter())
+        return false;
+    push_function(fn, &fn->declarations, false);
+    advance(); // {
+    if (!parse_statement_list(fn->body, false))
+        return false;
+    if (!m_current.is(Punctuator::RightBrace))
+        return fail_unexpected();
+    advance();
+    fn->source_end = m_previous_end;
+    leave();
+    if (!pop_function())
+        return false;
+    ClassElement element;
+    element.kind = ClassElement::Kind::StaticBlock;
+    element.is_static = true;
+    element.function = fn;
+    node.elements.push_back(element);
+    return true;
 }
 
 // ---- patterns ---------------------------------------------------------------
@@ -2246,6 +2604,8 @@ Expression* Parser::Impl::to_assignment_target(Expression* target, bool allow_pa
 {
     if (target->type == NodeType::ArrayPattern || target->type == NodeType::ObjectPattern)
         return target; // converted already, by the `=` inside the literal
+    if (target->type == NodeType::SuperMember)
+        return target;
     if ((target->type == NodeType::ArrayLiteral || target->type == NodeType::ObjectLiteral) && !target->parenthesized) {
         if (!allow_pattern) {
             fail(target->position, "`...` must be followed by an assignable reference in assignment contexts");
@@ -2529,10 +2889,8 @@ Statement* Parser::Impl::parse_statement_list_item()
 {
     if (m_current.is(Keyword::Function))
         return parse_function_declaration();
-    if (m_current.is(Keyword::Class)) {
-        fail_unsupported("class declarations");
-        return nullptr;
-    }
+    if (m_current.is(Keyword::Class))
+        return parse_class_declaration();
     if (m_current.is(Keyword::Const) || is_let_declaration_start()) {
         VariableDeclaration::Kind const kind = m_current.is(Keyword::Const) ? VariableDeclaration::Kind::Const : VariableDeclaration::Kind::Let;
         VariableDeclaration* declaration = parse_declaration_list(kind, true, false);
@@ -2604,8 +2962,6 @@ Statement* Parser::Impl::parse_statement_inner(bool is_body)
                     : "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement");
             return nullptr;
         case Keyword::Class:
-            fail_unsupported("class declarations");
-            return nullptr;
         case Keyword::Const:
             fail(start, "Lexical declaration cannot appear in a single-statement context");
             return nullptr;
@@ -3031,7 +3387,8 @@ Statement* Parser::Impl::parse_break()
 Statement* Parser::Impl::parse_return()
 {
     SourcePosition const start = m_current.position;
-    if (!function().node && !m_options.allow_return) {
+    bool const in_function = function().node && !function().node->is_static_block;
+    if (!in_function && !(function().node == nullptr && m_options.allow_return)) {
         fail(start, "Illegal return statement");
         return nullptr;
     }
@@ -3518,6 +3875,56 @@ struct Dumper {
             out += ')';
     }
 
+    // (class name? (extends h)? (constructor f)? elements…) where an
+    // element is (method|get|set "key"|(computed k) f), (field "key" f?)
+    // or (static-block f), each with `static` before its kind when static.
+    void class_node(ClassNode const& node)
+    {
+        out += "(class";
+        if (node.name) {
+            out += ' ';
+            name(node.name);
+        }
+        if (node.has_heritage) {
+            out += " (extends ";
+            expression(node.heritage);
+            out += ')';
+        }
+        if (!node.constructor->is_default_constructor) {
+            out += " (constructor ";
+            function(*node.constructor);
+            out += ')';
+        }
+        for (ClassElement const& element : node.elements) {
+            out += " (";
+            if (element.is_static)
+                out += "static ";
+            switch (element.kind) {
+            case ClassElement::Kind::Method: out += "method"; break;
+            case ClassElement::Kind::Getter: out += "get"; break;
+            case ClassElement::Kind::Setter: out += "set"; break;
+            case ClassElement::Kind::Field: out += "field"; break;
+            case ClassElement::Kind::StaticBlock: out += "block"; break;
+            }
+            if (element.kind != ClassElement::Kind::StaticBlock) {
+                out += ' ';
+                if (element.computed_key) {
+                    out += "(computed ";
+                    expression(element.computed_key);
+                    out += ')';
+                } else {
+                    quoted(element.key->view());
+                }
+            }
+            if (element.function) {
+                out += ' ';
+                function(*element.function);
+            }
+            out += ')';
+        }
+        out += ')';
+    }
+
     // A pattern element's target with its default: target | (= target init).
     void target(Expression const* t, Expression const* initializer)
     {
@@ -3751,6 +4158,32 @@ struct Dumper {
             expression(static_cast<SpreadElement const*>(e)->argument);
             out += ')';
             break;
+        case NodeType::ClassExpression:
+            class_node(*static_cast<ClassExpression const*>(e)->node);
+            break;
+        case NodeType::SuperMember: {
+            auto const* member = static_cast<SuperMember const*>(e);
+            if (member->property) {
+                out += "(super-index ";
+                expression(member->property);
+            } else {
+                out += "(super-member ";
+                name(member->name);
+            }
+            out += ')';
+            break;
+        }
+        case NodeType::SuperCall:
+            out += "(super-call";
+            for (Expression const* argument : static_cast<SuperCall const*>(e)->arguments) {
+                out += ' ';
+                expression(argument);
+            }
+            out += ')';
+            break;
+        case NodeType::NewTargetExpression:
+            out += "new.target";
+            break;
         case NodeType::ArrayPattern: {
             auto const* pattern = static_cast<ArrayPattern const*>(e);
             out += "(array-pattern";
@@ -3818,6 +4251,9 @@ struct Dumper {
             break;
         case NodeType::FunctionDeclaration:
             function(*static_cast<FunctionDeclaration const*>(s)->function);
+            break;
+        case NodeType::ClassDeclaration:
+            class_node(*static_cast<ClassDeclaration const*>(s)->node);
             break;
         case NodeType::ExpressionStatement:
             out += "(expr ";

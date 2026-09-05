@@ -933,9 +933,15 @@ bool ScriptFunction::is_strict() const
 void ScriptFunction::trace(Tracer& tracer)
 {
     // The node is the program's, which the realm keeps for as long as it
-    // lives; only the closed-over scope is a cell.
+    // lives; the closed-over scope, the home object and the fields' keys
+    // and initializers are cells.
     Object::trace(tracer);
     tracer.visit(m_scope);
+    tracer.visit(m_home_object);
+    for (ClassField const& field : m_fields) {
+        tracer.visit(field.key);
+        tracer.visit(field.initializer);
+    }
 }
 
 std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)

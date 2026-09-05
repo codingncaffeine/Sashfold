@@ -26,6 +26,9 @@ struct ParseOptions {
     bool strict = false; // the caller's strictness (a direct eval inherits it)
     bool in_function = false; // a direct eval inside a function: `new.target` and `arguments` are in scope
     bool allow_return = false; // for `new Function` bodies
+    bool allow_super_property = false; // a direct eval inside a method: `super.x` is in scope
+    bool allow_super_call = false; // … inside a derived constructor: `super()` too
+    bool in_field_initializer = false; // … inside a class field initializer: `arguments` is an error
 };
 
 class Parser {

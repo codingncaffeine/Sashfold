@@ -234,9 +234,20 @@ public:
     virtual std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target);
 };
 
+class ScriptFunction;
+
+// A class field a constructor defines on each instance (§15.7.10
+// ClassFieldDefinition): the key, and the initializer as a function
+// called with the instance as `this`, or none.
+struct ClassField {
+    PropertyKey key;
+    ScriptFunction* initializer = nullptr;
+};
+
 // A function written in script: the AST plus the scope it closed over.
 // Its `call` and `construct` are defined beside the evaluator
-// (Interpreter.cpp).
+// (Interpreter.cpp). A method carries its home object for `super`; a
+// class constructor carries the fields its instances get.
 class ScriptFunction : public Function {
 public:
     ScriptFunction(Object* prototype, FunctionNode const& node, Environment* scope, bool constructable);
@@ -246,6 +257,10 @@ public:
     bool is_arrow() const;
     bool is_strict() const;
     bool is_constructor() const override { return m_constructable; }
+    Object* home_object() const { return m_home_object; }
+    void set_home_object(Object* home) { m_home_object = home; }
+    std::vector<ClassField>& fields() { return m_fields; }
+    std::vector<ClassField> const& fields() const { return m_fields; }
 
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
@@ -255,6 +270,8 @@ public:
 private:
     FunctionNode const* m_node;
     Environment* m_scope;
+    Object* m_home_object = nullptr;
+    std::vector<ClassField> m_fields;
     bool m_constructable;
 };
 
@@ -489,13 +506,21 @@ public:
     std::vector<Binding> const& bindings() const { return m_bindings; }
 
     // A function environment binds `this`; an arrow's does not, and a
-    // lookup walks outward past it.
+    // lookup walks outward past it. A derived class constructor's binds
+    // it only once `super()` has run (§9.1.1.3).
     bool has_this() const { return m_has_this; }
+    bool this_initialized() const { return m_this_initialized; }
     Value this_value() const { return m_this; }
     void set_this(Value this_value)
     {
         m_this = this_value;
         m_has_this = true;
+        m_this_initialized = true;
+    }
+    void set_this_uninitialized()
+    {
+        m_has_this = true;
+        m_this_initialized = false;
     }
     Function* function() const { return m_function; }
     void set_function(Function* function) { m_function = function; }
@@ -513,6 +538,7 @@ private:
     Function* m_function = nullptr;
     Object* m_new_target = nullptr;
     bool m_has_this = false;
+    bool m_this_initialized = true;
     bool m_with = false;
 };
 

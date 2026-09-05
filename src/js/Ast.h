@@ -60,9 +60,14 @@ enum class NodeType : std::uint8_t {
     SpreadElement,
     ArrayPattern,
     ObjectPattern,
+    ClassExpression,
+    SuperMember,
+    SuperCall,
+    NewTargetExpression,
     // statements
     VariableDeclaration,
     FunctionDeclaration,
+    ClassDeclaration,
     ExpressionStatement,
     BlockStatement,
     EmptyStatement,
@@ -276,9 +281,23 @@ struct Parameter {
     bool is_rest = false;
 };
 
+struct ClassNode;
+
 struct FunctionNode {
     JsString* name = nullptr; // null when anonymous
     std::vector<Parameter> parameters;
+    // Class machinery (§15.7). A class constructor cannot be called
+    // without `new`; a derived one has no `this` until `super()` has
+    // run; a default one is synthesized when the class writes none.
+    // Methods, accessors, field initializers and static blocks carry a
+    // home object, which is what `super.x` resolves against.
+    bool is_class_constructor = false;
+    bool is_derived_constructor = false;
+    bool is_default_constructor = false;
+    bool is_method = false;
+    bool is_field_initializer = false; // the initializer is expression_body; `arguments` is an early error
+    bool is_static_block = false; // `static { … }`: a body, no `return`
+    ClassNode const* class_node = nullptr; // for a class constructor, the class whose fields it initialises
     // IsSimpleParameterList: names only — no default, rest or pattern.
     // Anything else means an unmapped arguments object, no duplicate
     // names, and no "use strict" directive of the function's own.
@@ -323,6 +342,68 @@ struct ArrowFunction : Expression {
     {
     }
     FunctionNode* function = nullptr;
+};
+
+// A class body's member (§15.7): a method or accessor (its function), a
+// field (its initializer as a body-less function, or none), or a static
+// block (its body as a function). The constructor is not among them.
+struct ClassElement {
+    enum class Kind : std::uint8_t { Method, Getter, Setter, Field, StaticBlock };
+    Kind kind = Kind::Method;
+    bool is_static = false;
+    JsString* key = nullptr; // a numeric key is stored as its canonical string
+    Expression* computed_key = nullptr; // `[expr]`; key is null then
+    FunctionNode* function = nullptr; // null for a field without an initializer
+};
+
+// A class (§15.7): its name binding, its heritage, its constructor —
+// written or synthesized — and its elements in source order. The class
+// spans source_start … source_end for Function.prototype.toString.
+struct ClassNode {
+    JsString* name = nullptr; // null for an anonymous class expression
+    Expression* heritage = nullptr; // `extends heritage`
+    bool has_heritage = false;
+    FunctionNode* constructor = nullptr;
+    std::vector<ClassElement> elements;
+    SourcePosition position;
+    std::uint32_t source_start = 0;
+    std::uint32_t source_end = 0;
+};
+
+struct ClassExpression : Expression {
+    ClassExpression()
+        : Expression(NodeType::ClassExpression)
+    {
+    }
+    ClassNode* node = nullptr;
+};
+
+// `super.name` / `super[property]` (§13.3.7): a property of the home
+// object's prototype, read and written with `this` as the receiver.
+struct SuperMember : Expression {
+    SuperMember()
+        : Expression(NodeType::SuperMember)
+    {
+    }
+    JsString* name = nullptr;
+    Expression* property = nullptr; // `super[expr]`; name is null then
+};
+
+// `super(arguments)` in a derived constructor: constructs the parent
+// class with the same new.target and binds the result as `this`.
+struct SuperCall : Expression {
+    SuperCall()
+        : Expression(NodeType::SuperCall)
+    {
+    }
+    std::vector<Expression*> arguments;
+};
+
+struct NewTargetExpression : Expression {
+    NewTargetExpression()
+        : Expression(NodeType::NewTargetExpression)
+    {
+    }
 };
 
 enum class UnaryOp : std::uint8_t { Minus, Plus, Not, BitwiseNot, Typeof, Void, Delete };
@@ -506,6 +587,14 @@ struct FunctionDeclaration : Statement {
     // B.3.2.1: a block-level declaration in sloppy code that the parser
     // also hoisted as a var; evaluating it copies the block binding out.
     bool annex_b_hoisted = false;
+};
+
+struct ClassDeclaration : Statement {
+    ClassDeclaration()
+        : Statement(NodeType::ClassDeclaration)
+    {
+    }
+    ClassNode* node = nullptr; // its name is a lexical binding of the enclosing scope
 };
 
 struct ExpressionStatement : Statement {
@@ -702,11 +791,19 @@ public:
         m_functions.push_back(std::move(node));
         return raw;
     }
+    ClassNode* make_class()
+    {
+        auto node = std::make_unique<ClassNode>();
+        ClassNode* raw = node.get();
+        m_classes.push_back(std::move(node));
+        return raw;
+    }
     std::size_t node_count() const { return m_nodes.size(); }
 
 private:
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<std::unique_ptr<FunctionNode>> m_functions;
+    std::vector<std::unique_ptr<ClassNode>> m_classes;
 };
 
 }
