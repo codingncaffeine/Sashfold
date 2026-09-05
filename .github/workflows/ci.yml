@@ -29,6 +29,18 @@ jobs:
       - run: cmake --build build --target wpt_reftest
       - run: ./build/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION
 
+  # test262, the ECMAScript conformance suite: the checkout is fetched at
+  # the pinned revision, and every test the baseline names must still pass.
+  test262:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: bash tools/test262-fetch.sh
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --target test262_runner
+      - run: ./build/tests/test262_runner test262 tests/test262/directories.txt tests/test262/passing.txt --revision tests/test262/REVISION
+
   # The Unicode bidirectional algorithm against its own conformance files.
   # They are 15 MB, so they are fetched at the version pinned in
   # tests/ucd/VERSION rather than committed; the other jobs run the test's

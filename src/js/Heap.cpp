@@ -84,6 +84,7 @@ Heap::~Heap()
 
 void Heap::adopt(std::unique_ptr<Cell> cell)
 {
+    cell->m_heap = this;
     m_bytes += cell->size_in_bytes();
     m_cells.push_back(std::move(cell));
 }
@@ -119,6 +120,14 @@ void Heap::collect()
     tracer.visit(m_well_known.symbol_iterator);
     tracer.visit(m_well_known.symbol_has_instance);
     tracer.visit(m_well_known.symbol_is_concat_spreadable);
+    tracer.visit(m_well_known.symbol_match);
+    tracer.visit(m_well_known.symbol_match_all);
+    tracer.visit(m_well_known.symbol_replace);
+    tracer.visit(m_well_known.symbol_search);
+    tracer.visit(m_well_known.symbol_split);
+    tracer.visit(m_well_known.symbol_species);
+    tracer.visit(m_well_known.symbol_unscopables);
+    tracer.visit(m_well_known.symbol_async_iterator);
     for (RootProvider* provider : m_root_providers)
         provider->trace_roots(tracer);
     for (Persistent const* persistent : m_persistents)
@@ -330,6 +339,14 @@ void Heap::intern_well_known()
     a.symbol_iterator = symbol(atom(std::string_view("Symbol.iterator")));
     a.symbol_has_instance = symbol(atom(std::string_view("Symbol.hasInstance")));
     a.symbol_is_concat_spreadable = symbol(atom(std::string_view("Symbol.isConcatSpreadable")));
+    a.symbol_match = symbol(atom(std::string_view("Symbol.match")));
+    a.symbol_match_all = symbol(atom(std::string_view("Symbol.matchAll")));
+    a.symbol_replace = symbol(atom(std::string_view("Symbol.replace")));
+    a.symbol_search = symbol(atom(std::string_view("Symbol.search")));
+    a.symbol_split = symbol(atom(std::string_view("Symbol.split")));
+    a.symbol_species = symbol(atom(std::string_view("Symbol.species")));
+    a.symbol_unscopables = symbol(atom(std::string_view("Symbol.unscopables")));
+    a.symbol_async_iterator = symbol(atom(std::string_view("Symbol.asyncIterator")));
 }
 
 // ------------------------------------------------------------ Persistent

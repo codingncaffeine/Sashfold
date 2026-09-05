@@ -1308,10 +1308,18 @@ Expression* Parser::Impl::parse_primary()
     case TokenType::Template:
         return parse_template();
     case TokenType::RegExp: {
-        // §13.2.7.1: the flags must be a valid combination. The pattern is
-        // compiled when the literal is evaluated.
-        if (!RegexFlags::parse(m_current.raw)) {
+        // §13.2.7.1: the flags must be a valid combination and the pattern
+        // must parse — both are early errors, so the pattern is compiled
+        // here once for its verdict and again, for its program, when the
+        // literal is evaluated.
+        std::optional<RegexFlags> const flags = RegexFlags::parse(m_current.raw);
+        if (!flags) {
             fail(start, "Invalid regular expression flags");
+            return nullptr;
+        }
+        Regex::CompileError compile_error;
+        if (!Regex::compile(m_current.value, *flags, &compile_error)) {
+            fail(start, "Invalid regular expression: /" + utf8_from_utf16(m_current.value) + "/" + utf8_from_utf16(m_current.raw) + ": " + compile_error.message);
             return nullptr;
         }
         auto* literal = make<RegExpLiteral>(start);
@@ -1367,6 +1375,7 @@ Expression* Parser::Impl::parse_parenthesised()
 {
     if (!enter())
         return nullptr;
+    SourcePosition const open = m_current.position;
     advance(); // (
     if (m_current.is(Punctuator::RightParen)) {
         leave();
@@ -1409,6 +1418,11 @@ Expression* Parser::Impl::parse_parenthesised()
         return nullptr;
     }
     m_parenthesised.insert(inner);
+    inner->parenthesized = true;
+    // The expression's span takes in its parentheses, so a message that
+    // quotes it quotes what was written.
+    inner->position = open;
+    inner->end_offset = m_previous_end;
     // An arrow head the lookahead rejected: say which unsupported form
     // it was rather than "unexpected =>".
     if (arrow_follows) {
@@ -2759,6 +2773,28 @@ std::unique_ptr<Program> Parser::parse_program(std::string name)
 std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16string_view parameters,
     std::u16string_view body, ParseError* error)
 {
+    // The parameter text must be FormalParameters on its own (step 17 of
+    // §20.2.1.1.1): parsed first with an empty body, so that a comment or
+    // bracket left open in it cannot borrow its closing from the body.
+    {
+        std::u16string head = u"(function anonymous(";
+        head += parameters;
+        head += u"\n) {\n})";
+        std::size_t const head_end = head.size();
+        Parser head_parser(heap, std::move(head));
+        std::unique_ptr<Program> const head_program = head_parser.parse_program("<Function>");
+        bool head_well_formed = head_program && head_program->body.size() == 1 && head_program->body[0]->type == NodeType::ExpressionStatement;
+        if (head_well_formed) {
+            Expression const* expression = static_cast<ExpressionStatement const*>(head_program->body[0])->expression;
+            head_well_formed = expression->type == NodeType::FunctionExpression
+                && static_cast<FunctionExpression const*>(expression)->function->source_end + 1 == head_end;
+        }
+        if (!head_well_formed) {
+            if (error)
+                *error = head_parser.error() ? *head_parser.error() : ParseError { SourcePosition {}, "Unexpected token in function parameters" };
+            return nullptr;
+        }
+    }
     std::u16string source = u"(function anonymous(";
     source += parameters;
     source += u"\n) {\n";

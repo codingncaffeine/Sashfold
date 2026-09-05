@@ -169,11 +169,11 @@ void test_length_key_through_realm(Fixture& fx)
     CHECK_EQ(keys.size(), 3u);
     CHECK(keys.size() == 3 && keys[2] == fx.length_key());
 
-    // With no realm in sight and nothing witnessed yet there is no atom
-    // to name, and own_keys says so rather than guessing. Delete this
-    // check when Cell::heap() lands and length is always listed.
+    // With no realm in sight the atom still comes from the cell's own
+    // heap (Cell::heap), so length is always listed.
     js::ArrayObject* bare = fx.array();
-    CHECK(bare->own_keys().empty());
+    keys = bare->own_keys();
+    CHECK(keys.size() == 1 && keys[0] == fx.length_key());
 }
 
 // ---------------------------------------------------------------------------

@@ -206,4 +206,9 @@ std::u32string nfc(std::u32string_view input)
     return output;
 }
 
+std::uint8_t canonical_combining_class(char32_t code_point)
+{
+    return combining_class(code_point);
+}
+
 }

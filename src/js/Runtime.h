@@ -9,6 +9,7 @@
 #include "js/Interpreter.h"
 
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace sashfold::js {
@@ -44,6 +45,15 @@ inline Value argument(std::span<Value const> arguments, std::size_t index)
 {
     return index < arguments.size() ? arguments[index] : Value::undefined();
 }
+// Number::exponentiate (§6.1.6.1.3): `**` and Math.pow, with the cases
+// where the language and the C library disagree spelled out.
+double number_exponentiate(double base, double exponent);
+// A key's text for a message: the name, the index in decimal, or
+// Symbol(description). Never runs script.
+std::string key_description(PropertyKey const&);
+// A value's spelling for a message, computed without running script
+// (Interpreter::describe).
+std::string value_description(Interpreter&, Value const&);
 // `this` coerced for a String.prototype method: RequireObjectCoercible
 // then ToString.
 std::optional<JsString*> this_string_value(Interpreter&, Value const& this_value, std::string_view method);

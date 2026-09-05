@@ -31,7 +31,7 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 - **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, with **Sashfold Mono** as the honest last fallback; PNG, GIF and JPEG decoders, `srcset` and `<picture>`; CSS background images and gradients (layers, position, size, repeat, clip), rounded corners.
 - **A shell** — tabs, history, forms without scripts, selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, boxes that scroll under the wheel, the keyboard and their own scrollbars, chrome drawn from a theme file, and a `--script` mode that drives it for CI.
 
-Not written yet: scripting (a JavaScript engine of our own is being written: its tokenizer, parser, garbage collector, object model and regular-expression matcher exist and are tested, and nothing runs a script yet), subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
+Not written yet: scripting on pages — a JavaScript engine of our own now runs scripts (ES5 plus `let`/`const`, arrows, template literals, `?.`, `??`, the standard library from Object to Date, a precise garbage collector, scored on test262 below), but classes, generators, async functions, destructuring, modules and Proxy are not written, and no page runs it yet: no DOM bindings, no `<script>`, no event loop; also subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
 
 ## Measured
 
@@ -41,6 +41,7 @@ Not written yet: scripting (a JavaScript engine of our own is being written: its
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **8345 / 14616 (57.1%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| test262, the ECMAScript conformance suite, 36,434 tests over 62 directories | **16962 / 36434 (46.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).

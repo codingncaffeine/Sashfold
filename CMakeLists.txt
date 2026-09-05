@@ -21,6 +21,13 @@ else()
     -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wdouble-promotion)
 endif()
 
+# MinGW reserves 2 MB of stack by default, against 8 MB on Linux and
+# macOS; the script engine's tree-walker budgets 1 MB of it for a script,
+# so the Windows binaries are given the same room as the others.
+if(MINGW)
+  add_link_options(-Wl,--stack,8388608)
+endif()
+
 add_library(sashfold_core STATIC
   src/core/Base64.cpp
   src/core/Bidi.cpp

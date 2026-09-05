@@ -52,6 +52,9 @@ bool is_first_letter_skipped(char32_t);
 // (Hangul excluded: it is algorithmic), or empty when it is its own.
 std::u32string_view canonical_decomposition(char32_t);
 
+// The Canonical_Combining_Class property (UAX #15 canonical ordering).
+std::uint8_t canonical_combining_class(char32_t);
+
 // The simple case mappings, one code point in and one out — what
 // text-transform's `uppercase`, `lowercase` and `capitalize` are written in
 // terms of. A code point with no mapping of that kind comes back unchanged.

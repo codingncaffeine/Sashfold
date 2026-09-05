@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -74,6 +75,9 @@ struct Intrinsics {
     Function* throw_type_error = nullptr; // %ThrowTypeError% (§10.2.4.1)
     Object* math = nullptr;
     Object* json = nullptr;
+    // The registry behind Symbol.for and Symbol.keyFor (§20.4.2.2): an
+    // ordinary object no script can reach, mapping each key to its symbol.
+    Object* symbol_registry = nullptr;
 };
 
 // The outcome of running a script or calling into it from the outside.
@@ -231,6 +235,10 @@ public:
     // Limits and instrumentation.
     void set_call_depth_limit(int depth) { m_call_depth_limit = depth; }
     int call_depth() const { return m_call_depth; }
+    // How much of the C++ stack a script may use before a RangeError. A
+    // depth count alone cannot know a frame's size; the evaluator also
+    // measures the stack against where it was entered.
+    void set_stack_budget(std::size_t bytes) { m_stack_budget = bytes; }
     // Stopping a runaway script. The evaluator counts steps (a statement,
     // a loop iteration, a call) and every `interval` of them asks
     // should_stop; a yes ends the script with an uncatchable termination
@@ -259,12 +267,16 @@ private:
     std::unique_ptr<Heap> m_heap;
     std::unique_ptr<Impl> m_impl;
     Intrinsics m_intrinsics;
-    std::vector<Value> m_roots;
+    // A deque, so that the reference root() hands out survives every later
+    // push: a vector would move its elements when it grows.
+    std::deque<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
     Value m_exception;
     bool m_has_exception = false;
     int m_call_depth = 0;
-    int m_call_depth_limit = 400;
+    int m_call_depth_limit = 1000;
+    char const* m_stack_base = nullptr; // recorded whenever script is entered from outside
+    std::size_t m_stack_budget = 4u * 1024u * 1024u; // about 1,400 script calls; 8 MB stacks on every lane
     std::function<bool()> m_should_stop;
     std::uint32_t m_interrupt_interval = 10000;
     std::uint64_t m_steps = 0;

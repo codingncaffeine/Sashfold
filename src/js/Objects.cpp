@@ -29,7 +29,6 @@ constexpr std::size_t index_threshold = 8;
 constexpr std::uint32_t dense_growth_limit = 1024;
 
 constexpr std::u16string_view length_name = u"length";
-constexpr std::u16string_view constructor_name = u"constructor";
 
 // SameValue (§7.2.10) without the interpreter: NaN equals NaN, +0 and −0
 // differ, strings compare by contents, the rest by identity. It is what
@@ -63,74 +62,30 @@ bool atom_is(JsString const* atom, std::u16string_view name)
     return atom->view() == name;
 }
 
-// WORKAROUND(Object.h): an Array or String exotic object answers `length`
-// from a member and never stores it, yet [[OwnPropertyKeys]] must list it
-// — and listing it needs the heap's interned "length" atom, which no
-// object can reach: a Cell has no way back to its Heap. Until the header
-// provides one (proposed: Cell::heap(), set by Heap::adopt), the atom is
-// recovered from what the object can see. Every atom key that names
-// "length" and passes through an exotic object's methods is the atom of
-// its heap (atoms are interned: one cell per contents per heap), so it is
-// remembered here; a second heap on the same thread makes the memory
-// ambiguous, and own_keys then relies on finding the atom in the
-// object's own realm, through the `constructor` its prototype carries.
-thread_local JsString* t_length_atom = nullptr;
-thread_local bool t_length_atom_ambiguous = false;
-
-void witness_length_atom(JsString* atom)
-{
-    if (t_length_atom == nullptr)
-        t_length_atom = atom;
-    else if (t_length_atom != atom)
-        t_length_atom_ambiguous = true;
-}
-
-// Is this key the "length" atom? The exotic objects compare by contents
-// rather than against Heap::atoms().length, which they cannot reach.
+// Is this key the "length" atom? Compared by contents: an atom key that
+// spells "length" is that atom in every heap.
 bool is_length_key(PropertyKey const& key)
 {
-    if (!key.is_atom() || !atom_is(key.as_atom(), length_name))
-        return false;
-    witness_length_atom(key.as_atom());
-    return true;
+    return key.is_atom() && atom_is(key.as_atom(), length_name);
 }
 
-JsString* length_atom_stored_on(Object const& object)
-{
-    for (Property const& property : object.properties()) {
-        if (property.key.is_atom() && atom_is(property.key.as_atom(), length_name))
-            return property.key.as_atom();
-    }
-    return nullptr;
-}
-
-// The "length" atom of the realm `object` belongs to, or null when it
-// cannot be told. A standard chain carries it two hops away: the
-// prototype's `constructor` is a function, and functions store `length`.
+// The "length" atom of the realm `object` belongs to. An Array or String
+// exotic object answers `length` from a member and never stores it, yet
+// [[OwnPropertyKeys]] must list it, which takes the interned atom of the
+// object's own heap.
 JsString* length_atom_for(Object const& object)
 {
-    for (Object const* link = &object; link != nullptr; link = link->prototype()) {
-        if (JsString* atom = length_atom_stored_on(*link))
-            return atom;
-        for (Property const& property : link->properties()) {
-            if (property.accessor || !property.key.is_atom() || !property.value.is_object())
-                continue;
-            if (!atom_is(property.key.as_atom(), constructor_name))
-                continue;
-            if (JsString* atom = length_atom_stored_on(*property.value.as_object()))
-                return atom;
-        }
-    }
-    return t_length_atom_ambiguous ? nullptr : t_length_atom;
+    Heap const* heap = object.heap();
+    return heap ? heap->atoms().length : nullptr;
 }
 
-// WORKAROUND(Object.h): StringGetOwnProperty (§10.4.3.5) answers each
-// code unit with a one-unit string, and get_own_property has no Heap to
-// allocate one from. The units are served from a table of cells that
-// belong to no heap: immutable, never swept (a collector frees only what
-// it adopted, and Tracer::visit marks a foreign cell and moves on), so
-// the value stays correct wherever a script carries it. Proposed fix: the
-// same Cell::heap() as above, with the units interned as atoms.
+// StringGetOwnProperty (§10.4.3.5) answers each code unit with a one-unit
+// string, and get_own_property has no way to allocate one without the
+// risk of a collection under its caller. The units are served from a
+// table of cells that belong to no heap: immutable, never swept (a
+// collector frees only what it adopted, and Tracer::visit marks a foreign
+// cell and moves on), so the value stays correct wherever a script
+// carries it.
 JsString* code_unit_string(char16_t unit)
 {
     thread_local std::deque<JsString> cells;

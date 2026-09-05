@@ -44,8 +44,13 @@ public:
 
     bool marked() const { return m_marked; }
     void set_marked(bool marked) { m_marked = marked; } // the collector's
+    // The heap that adopted this cell; null for a cell that belongs to no
+    // heap. How an exotic object reaches its realm's atoms.
+    Heap* heap() const { return m_heap; }
 
 private:
+    friend class Heap;
+    Heap* m_heap = nullptr;
     bool m_marked = false;
 };
 
@@ -188,6 +193,14 @@ struct WellKnownAtoms {
     Symbol* symbol_iterator = nullptr;
     Symbol* symbol_has_instance = nullptr;
     Symbol* symbol_is_concat_spreadable = nullptr;
+    Symbol* symbol_match = nullptr;
+    Symbol* symbol_match_all = nullptr;
+    Symbol* symbol_replace = nullptr;
+    Symbol* symbol_search = nullptr;
+    Symbol* symbol_split = nullptr;
+    Symbol* symbol_species = nullptr;
+    Symbol* symbol_unscopables = nullptr;
+    Symbol* symbol_async_iterator = nullptr;
 };
 
 class Persistent;

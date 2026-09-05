@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sashfold — test262</title>
+<meta name="description" content="Sashfold's pass rate on test262, the ECMAScript conformance suite, by directory.">
+<link rel="icon" type="image/png" href="icon-160.png">
+<link rel="canonical" href="https://sashfold.com/test262.html">
+<style>
+  :root { --bg: #f7f9fc; --panel: #ffffff; --ink: #16233c; --muted: #4e5d78; --navy: #16305e;
+          --blue: #1e63c4; --sky: #37b6e8; --accent: #f49c3c; --line: #d8e1ee; --code-bg: #eef3fa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1524; --panel: #131e33; --ink: #e6edf7; --muted: #9fb0c9; --navy: #a8c4ef;
+            --blue: #5b9bea; --sky: #4cc3ef; --accent: #f5aa55; --line: #24334f; --code-bg: #1a2740; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 17px/1.65 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 0 20px 64px; }
+  a { color: var(--blue); }
+  a:hover { color: var(--sky); }
+  h1, h2 { color: var(--navy); line-height: 1.2; }
+  h1 { margin-top: 48px; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--code-bg);
+         padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
+  .stat { display: inline-block; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 10px; padding: 14px 20px; margin: 8px 0 20px; }
+  .stat .big { font-size: 1.8rem; font-weight: 700; color: var(--blue); display: block; }
+  .stat .what { color: var(--muted); font-size: 0.92rem; }
+  table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.92rem; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar { background: var(--code-bg); border-radius: 4px; height: 10px; width: 100%; min-width: 120px; }
+  .bar span { display: block; height: 10px; border-radius: 4px; background: var(--blue); }
+  p.muted { color: var(--muted); font-size: 0.95rem; }
+</style>
+</head>
+<body>
+<main>
+<p><a href="./">← sashfold.com</a></p>
+<h1>test262</h1>
+<p>Sashfold's pass rate on <a href="https://github.com/tc39/test262">test262</a>, the ECMAScript conformance suite, run the way the suite's own instructions say: the harness first, then the test, once as sloppy code and once as strict unless the test says otherwise. Every test under each listed directory counts, including the ones that need modules, async functions or features not written yet. A test that expects a syntax error scores only when the engine raised a real one, never when it merely declined a feature it does not have.</p>
+<div class="stat"><span class="big">16962 / 36434</span><span class="what">test262 tests passing — 46.6%</span></div>
+<table>
+<thead><tr><th>Directory</th><th></th><th>Passing</th><th>Rate</th></tr></thead>
+<tbody>
+<tr><td><code>test/language/arguments-object</code></td><td><div class="bar"><span style="width: 37%"></span></div></td><td class="num">98 / 263</td><td class="num">37.3%</td></tr>
+<tr><td><code>test/language/asi</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">102 / 102</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/block-scope</code></td><td><div class="bar"><span style="width: 55%"></span></div></td><td class="num">81 / 145</td><td class="num">55.9%</td></tr>
+<tr><td><code>test/language/comments</code></td><td><div class="bar"><span style="width: 96%"></span></div></td><td class="num">50 / 52</td><td class="num">96.2%</td></tr>
+<tr><td><code>test/language/computed-property-names</code></td><td><div class="bar"><span style="width: 27%"></span></div></td><td class="num">13 / 48</td><td class="num">27.1%</td></tr>
+<tr><td><code>test/language/destructuring</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 19</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/language/directive-prologue</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">62 / 62</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/eval-code</code></td><td><div class="bar"><span style="width: 40%"></span></div></td><td class="num">142 / 347</td><td class="num">40.9%</td></tr>
+<tr><td><code>test/language/export</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 3</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/language/expressions</code></td><td><div class="bar"><span style="width: 23%"></span></div></td><td class="num">2614 / 11102</td><td class="num">23.5%</td></tr>
+<tr><td><code>test/language/function-code</code></td><td><div class="bar"><span style="width: 99%"></span></div></td><td class="num">215 / 217</td><td class="num">99.1%</td></tr>
+<tr><td><code>test/language/future-reserved-words</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">55 / 55</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/global-code</code></td><td><div class="bar"><span style="width: 64%"></span></div></td><td class="num">27 / 42</td><td class="num">64.3%</td></tr>
+<tr><td><code>test/language/identifier-resolution</code></td><td><div class="bar"><span style="width: 92%"></span></div></td><td class="num">13 / 14</td><td class="num">92.9%</td></tr>
+<tr><td><code>test/language/identifiers</code></td><td><div class="bar"><span style="width: 75%"></span></div></td><td class="num">202 / 268</td><td class="num">75.4%</td></tr>
+<tr><td><code>test/language/import</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 129</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/language/keywords</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">25 / 25</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/line-terminators</code></td><td><div class="bar"><span style="width: 82%"></span></div></td><td class="num">34 / 41</td><td class="num">82.9%</td></tr>
+<tr><td><code>test/language/literals</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">500 / 536</td><td class="num">93.3%</td></tr>
+<tr><td><code>test/language/module-code</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 599</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/language/punctuators</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">11 / 11</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/reserved-words</code></td><td><div class="bar"><span style="width: 96%"></span></div></td><td class="num">26 / 27</td><td class="num">96.3%</td></tr>
+<tr><td><code>test/language/rest-parameters</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 11</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/language/source-text</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">1 / 1</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/statementList</code></td><td><div class="bar"><span style="width: 75%"></span></div></td><td class="num">60 / 80</td><td class="num">75.0%</td></tr>
+<tr><td><code>test/language/statements</code></td><td><div class="bar"><span style="width: 12%"></span></div></td><td class="num">1159 / 9347</td><td class="num">12.4%</td></tr>
+<tr><td><code>test/language/types</code></td><td><div class="bar"><span style="width: 97%"></span></div></td><td class="num">110 / 113</td><td class="num">97.3%</td></tr>
+<tr><td><code>test/language/white-space</code></td><td><div class="bar"><span style="width: 97%"></span></div></td><td class="num">65 / 67</td><td class="num">97.0%</td></tr>
+<tr><td><code>test/built-ins/Array</code></td><td><div class="bar"><span style="width: 90%"></span></div></td><td class="num">2784 / 3082</td><td class="num">90.3%</td></tr>
+<tr><td><code>test/built-ins/Boolean</code></td><td><div class="bar"><span style="width: 98%"></span></div></td><td class="num">50 / 51</td><td class="num">98.0%</td></tr>
+<tr><td><code>test/built-ins/Date</code></td><td><div class="bar"><span style="width: 95%"></span></div></td><td class="num">569 / 594</td><td class="num">95.8%</td></tr>
+<tr><td><code>test/built-ins/Error</code></td><td><div class="bar"><span style="width: 47%"></span></div></td><td class="num">44 / 93</td><td class="num">47.3%</td></tr>
+<tr><td><code>test/built-ins/NativeErrors</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">88 / 94</td><td class="num">93.6%</td></tr>
+<tr><td><code>test/built-ins/Function</code></td><td><div class="bar"><span style="width: 80%"></span></div></td><td class="num">409 / 509</td><td class="num">80.4%</td></tr>
+<tr><td><code>test/built-ins/global</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">29 / 29</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/Infinity</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">6 / 6</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/isFinite</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">15 / 15</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/isNaN</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">15 / 15</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/JSON</code></td><td><div class="bar"><span style="width: 71%"></span></div></td><td class="num">118 / 165</td><td class="num">71.5%</td></tr>
+<tr><td><code>test/built-ins/Math</code></td><td><div class="bar"><span style="width: 95%"></span></div></td><td class="num">312 / 327</td><td class="num">95.4%</td></tr>
+<tr><td><code>test/built-ins/NaN</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">6 / 6</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/Number</code></td><td><div class="bar"><span style="width: 99%"></span></div></td><td class="num">337 / 340</td><td class="num">99.1%</td></tr>
+<tr><td><code>test/built-ins/Object</code></td><td><div class="bar"><span style="width: 94%"></span></div></td><td class="num">3225 / 3411</td><td class="num">94.5%</td></tr>
+<tr><td><code>test/built-ins/parseFloat</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">54 / 54</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/parseInt</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">55 / 55</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/RegExp</code></td><td><div class="bar"><span style="width: 74%"></span></div></td><td class="num">938 / 1266</td><td class="num">74.1%</td></tr>
+<tr><td><code>test/built-ins/String</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">1144 / 1223</td><td class="num">93.5%</td></tr>
+<tr><td><code>test/built-ins/Symbol</code></td><td><div class="bar"><span style="width: 75%"></span></div></td><td class="num">74 / 98</td><td class="num">75.5%</td></tr>
+<tr><td><code>test/built-ins/undefined</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">8 / 8</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/eval</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">10 / 10</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/decodeURI</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">55 / 55</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/decodeURIComponent</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">56 / 56</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/encodeURI</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">31 / 31</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/built-ins/encodeURIComponent</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">31 / 31</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/annexB/language</code></td><td><div class="bar"><span style="width: 75%"></span></div></td><td class="num">634 / 845</td><td class="num">75.0%</td></tr>
+<tr><td><code>test/annexB/built-ins/RegExp</code></td><td><div class="bar"><span style="width: 53%"></span></div></td><td class="num">33 / 62</td><td class="num">53.2%</td></tr>
+<tr><td><code>test/annexB/built-ins/String</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">104 / 111</td><td class="num">93.7%</td></tr>
+<tr><td><code>test/annexB/built-ins/Date</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">24 / 24</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/annexB/built-ins/escape</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">15 / 16</td><td class="num">93.8%</td></tr>
+<tr><td><code>test/annexB/built-ins/unescape</code></td><td><div class="bar"><span style="width: 94%"></span></div></td><td class="num">18 / 19</td><td class="num">94.7%</td></tr>
+<tr><td><code>test/annexB/built-ins/Object</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 1</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/annexB/built-ins/Function</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">6 / 6</td><td class="num">100.0%</td></tr>
+</tbody>
+</table>
+<p class="muted">Scored 2026-09-05 against test262 revision <code>419d3e0a2273</code>. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>
+</main>
+</body>
+</html>

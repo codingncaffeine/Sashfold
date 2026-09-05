@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace sashfold::js {
@@ -366,6 +367,13 @@ public:
     Regex const& regex() const { return m_regex; }
     JsString* source() const { return m_source; }
     JsString* flags() const { return m_flags; }
+    // RegExpInitialize over an existing object (B.2.4.1 compile).
+    void reset(Regex regex, JsString* source, JsString* flags)
+    {
+        m_regex = std::move(regex);
+        m_source = source;
+        m_flags = flags;
+    }
     void trace(Tracer&) override;
 
 private:
@@ -385,6 +393,10 @@ public:
         bool mutable_ = true; // false for const and for a function's own name binding
         bool initialized = true; // false in the temporal dead zone of let/const
         bool deletable = false; // true for a sloppy eval's var
+        // An immutable binding that throws on every write (a const), as
+        // against one that throws only from strict code: a sloppy function
+        // expression's own name (§9.1.1.1.5 step 4, CreateImmutableBinding's S).
+        bool strict = true;
     };
 
     explicit Environment(Environment* outer, Object* object = nullptr)

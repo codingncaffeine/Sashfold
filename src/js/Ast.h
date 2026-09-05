@@ -24,6 +24,7 @@
 namespace sashfold::js {
 
 class JsString;
+class Program;
 
 struct SourcePosition {
     std::uint32_t offset = 0; // code units from the start
@@ -92,6 +93,11 @@ protected:
 };
 
 struct Expression : Node {
+    // Written inside parentheses. The tree keeps no node for them, but an
+    // optional chain ends at a parenthesised expression (§13.3.9), and a
+    // few early errors in the parser look through them.
+    bool parenthesized = false;
+
 protected:
     using Node::Node;
 };
@@ -214,7 +220,8 @@ struct FunctionNode {
     Expression* expression_body = nullptr; // an arrow's concise body
     Declarations declarations; // the function's own var scope
     SourcePosition position;
-    std::uint32_t source_start = 0; // for Function.prototype.toString
+    Program const* program = nullptr; // the tree this node belongs to; its source holds the text
+    std::uint32_t source_start = 0; // for Function.prototype.toString, into program->source
     std::uint32_t source_end = 0;
     bool is_arrow = false;
     bool is_strict = false;
@@ -590,6 +597,7 @@ public:
     {
         auto node = std::make_unique<FunctionNode>();
         FunctionNode* raw = node.get();
+        raw->program = this;
         m_functions.push_back(std::move(node));
         return raw;
     }

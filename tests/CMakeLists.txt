@@ -171,3 +171,17 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/css)
       --revision ${CMAKE_CURRENT_SOURCE_DIR}/wpt/REVISION)
   set_tests_properties(wpt_reftest PROPERTIES TIMEOUT 1800)
 endif()
+
+# test262, the ECMAScript conformance suite, scored against the checkout
+# tools/test262-fetch.sh makes at test262/ (a fresh clone has none). The
+# baseline names every passing test and only grows.
+add_executable(test262_runner test262_runner.cpp)
+target_link_libraries(test262_runner PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+if(EXISTS ${CMAKE_SOURCE_DIR}/test262/harness)
+  add_test(NAME test262
+    COMMAND test262_runner ${CMAKE_SOURCE_DIR}/test262
+      ${CMAKE_CURRENT_SOURCE_DIR}/test262/directories.txt
+      ${CMAKE_CURRENT_SOURCE_DIR}/test262/passing.txt
+      --revision ${CMAKE_CURRENT_SOURCE_DIR}/test262/REVISION)
+  set_tests_properties(test262 PROPERTIES TIMEOUT 3600)
+endif()
