@@ -532,9 +532,10 @@ struct Interpreter::Impl {
         FunctionNode const& node = function.node();
         Object* object = nullptr;
         if (mapped) {
+            // Only a simple list is mapped, so every parameter is a name.
             std::vector<JsString*> names(std::min(node.parameters.size(), arguments.size()), nullptr);
             for (std::size_t i = 0; i < names.size(); ++i)
-                names[i] = node.parameters[i];
+                names[i] = node.parameters[i].name;
             object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(names));
         } else {
             object = heap().allocate<Object>(self.intrinsics().object_prototype, Object::Class::Arguments);
@@ -587,19 +588,30 @@ struct Interpreter::Impl {
             variable->set_new_target(new_target);
         }
 
-        // Parameters: for a duplicated name the last occurrence wins.
-        for (std::size_t i = 0; i < node.parameters.size(); ++i) {
-            Value const value = i < arguments.size() ? arguments[i] : Value::undefined();
-            if (Environment::Binding* existing = variable->find(node.parameters[i]))
-                existing->value = value;
-            else
-                variable->declare(node.parameters[i], value);
+        // Parameters (steps 21–26). A simple list binds each name to its
+        // argument, the last occurrence of a duplicated name winning; any
+        // other list declares every name uninitialised first, so that a
+        // default reading a later parameter finds its dead zone, and
+        // binds them in order once the arguments object exists.
+        std::vector<JsString*> parameter_names;
+        collect_parameter_names(node, parameter_names);
+        if (node.has_simple_parameter_list) {
+            for (std::size_t i = 0; i < node.parameters.size(); ++i) {
+                Value const value = i < arguments.size() ? arguments[i] : Value::undefined();
+                if (Environment::Binding* existing = variable->find(node.parameters[i].name))
+                    existing->value = value;
+                else
+                    variable->declare(node.parameters[i].name, value);
+            }
+        } else {
+            for (JsString* name : parameter_names)
+                variable->declare(name, Value::undefined(), true, false);
         }
 
         // The arguments object, when the body can reach it and nothing of
-        // its own shadows it.
+        // its own shadows it; mapped only for a sloppy simple list.
         if (!node.is_arrow && (node.uses_arguments || node.has_direct_eval)) {
-            bool shadowed = contains(node.parameters, atoms().arguments);
+            bool shadowed = contains(parameter_names, atoms().arguments);
             for (FunctionDeclaration const* declaration : node.declarations.functions) {
                 if (declaration->function->name == atoms().arguments)
                     shadowed = true;
@@ -609,33 +621,49 @@ struct Interpreter::Impl {
                     shadowed = true;
             }
             if (!shadowed) {
-                bool const mapped = !node.is_strict && !node.has_duplicate_parameters;
+                bool const mapped = !node.is_strict && node.has_simple_parameter_list && !node.has_duplicate_parameters;
                 Object* arguments_object = make_arguments_object(function, variable, arguments, mapped);
                 variable->declare(atoms().arguments, Value::object(arguments_object), !node.is_strict, true);
             }
         }
 
-        // Vars: undefined unless a parameter or the arguments object
-        // already holds the name.
-        for (JsString* name : node.declarations.vars) {
-            if (!variable->find(name))
-                variable->declare(name, Value::undefined());
+        if (!node.has_simple_parameter_list && !bind_parameters(node, variable, arguments, cx))
+            return std::nullopt;
+
+        // Vars (steps 27–28): in the parameters' record unless a default
+        // or a computed key could have made a closure there, in which case
+        // they get a record of their own that such a closure cannot see;
+        // a var named like a parameter starts with the parameter's value.
+        Environment* var_env = variable;
+        if (node.has_parameter_expressions) {
+            var_env = new_environment(variable);
+            cx.variable = var_env;
+            for (JsString* name : node.declarations.vars) {
+                if (var_env->find(name))
+                    continue;
+                Environment::Binding const* parameter = variable->find(name);
+                var_env->declare(name, parameter ? parameter->value : Value::undefined());
+            }
+        } else {
+            for (JsString* name : node.declarations.vars) {
+                if (!variable->find(name))
+                    variable->declare(name, Value::undefined());
+            }
         }
 
         // Top-level lexicals live in their own record when there are any,
         // so a direct eval's `var` can tell them apart from the vars.
-        Environment* lexical = variable;
-        if (!node.declarations.lexicals.empty()) {
-            lexical = new_environment(variable);
-            cx.lexical = lexical;
-        }
+        Environment* lexical = var_env;
+        if (!node.declarations.lexicals.empty())
+            lexical = new_environment(var_env);
+        cx.lexical = lexical;
         for (FunctionDeclaration const* declaration : node.declarations.functions) {
             ScriptFunction* closure = self.new_script_function(*declaration->function, lexical);
             JsString* name = declaration->function->name;
-            if (Environment::Binding* existing = variable->find(name))
+            if (Environment::Binding* existing = var_env->find(name))
                 existing->value = Value::object(closure);
             else
-                variable->declare(name, Value::object(closure));
+                var_env->declare(name, Value::object(closure));
         }
         for (auto const& [name, is_const] : node.declarations.lexicals)
             lexical->declare(name, Value::undefined(), !is_const, false);
@@ -648,6 +676,324 @@ struct Interpreter::Impl {
         if (completion.type == Completion::Type::Return)
             return completion.value.is_empty() ? Value::undefined() : completion.value;
         return Value::undefined();
+    }
+
+    // ---- patterns
+
+    // How a pattern's leaves take their values: InitializeReferencedBinding
+    // of a name declared in `env` (let/const, parameters, catch, a for
+    // head's binding); PutValue through a resolved name (`var`); or
+    // PutValue through any reference an assignment pattern names.
+    enum class BindMode : std::uint8_t { Initialize, VarAssign, Assign };
+
+    // BoundNames (§8.2.1) of a target.
+    static void collect_bound_names(Expression const* target, std::vector<JsString*>& out)
+    {
+        if (target->type == NodeType::Identifier) {
+            out.push_back(static_cast<Identifier const*>(target)->name);
+        } else if (target->type == NodeType::ArrayPattern) {
+            auto const& pattern = *static_cast<ArrayPattern const*>(target);
+            for (PatternElement const& element : pattern.elements) {
+                if (element.target)
+                    collect_bound_names(element.target, out);
+            }
+            if (pattern.rest)
+                collect_bound_names(pattern.rest, out);
+        } else if (target->type == NodeType::ObjectPattern) {
+            auto const& pattern = *static_cast<ObjectPattern const*>(target);
+            for (PatternProperty const& property : pattern.properties)
+                collect_bound_names(property.target, out);
+            if (pattern.rest)
+                collect_bound_names(pattern.rest, out);
+        }
+        // A member expression binds nothing.
+    }
+
+    static void collect_bound_names(JsString* name, Expression const* pattern, std::vector<JsString*>& out)
+    {
+        if (name)
+            out.push_back(name);
+        else if (pattern)
+            collect_bound_names(pattern, out);
+    }
+
+    static void collect_parameter_names(FunctionNode const& node, std::vector<JsString*>& out)
+    {
+        for (Parameter const& parameter : node.parameters)
+            collect_bound_names(parameter.name, parameter.pattern, out);
+    }
+
+    // InitializeReferencedBinding for a name declared, uninitialised, in
+    // `env` or one of its outers.
+    bool initialize_binding(JsString* name, Value const& value, Environment* env)
+    {
+        Environment::Binding* binding = nullptr;
+        for (Environment* e = env; e != nullptr && binding == nullptr; e = e->outer())
+            binding = e->find(name);
+        if (binding == nullptr) {
+            self.throw_reference_error(name->to_utf8() + " is not defined");
+            return false;
+        }
+        binding->value = value;
+        binding->initialized = true;
+        return true;
+    }
+
+    // The reference a non-pattern target names, taken before its value is
+    // read, as §13.15.5.5 and §8.6.3 order it. Rooted in the caller's scope.
+    bool prepare_target(Expression const* target, BindMode mode, Context& cx, std::optional<Reference>& reference)
+    {
+        if (target == nullptr || is_pattern(target) || mode == BindMode::Initialize)
+            return true;
+        reference = evaluate_reference(target, cx);
+        if (!reference)
+            return false;
+        self.root(reference->base);
+        self.root(reference->key_value);
+        return true;
+    }
+
+    // One element's target takes `value`, or its default when that is
+    // undefined — an anonymous function default named after a plain
+    // target (NamedEvaluation) — then stores it by mode.
+    bool bind_element(Expression const* target, Expression const* initializer, Value value,
+        std::optional<Reference>& reference, BindMode mode, Environment* env, Context& cx)
+    {
+        Roots const roots(self);
+        self.root(value);
+        if (initializer && value.is_undefined()) {
+            std::optional<Value> replacement;
+            if (target->type == NodeType::Identifier && is_anonymous_function_definition(initializer))
+                replacement = evaluate_named(initializer, cx, PropertyKey::atom(static_cast<Identifier const*>(target)->name));
+            else
+                replacement = evaluate(initializer, cx);
+            if (!replacement)
+                return false;
+            value = *replacement;
+            self.root(value);
+        }
+        if (is_pattern(target))
+            return bind_pattern(target, value, mode, env, cx);
+        if (mode == BindMode::Initialize)
+            return initialize_binding(static_cast<Identifier const*>(target)->name, value, env);
+        return put_value(*reference, value, cx);
+    }
+
+    // A declared target — a parameter, a declarator, a catch parameter or
+    // a for head's binding: a name or a pattern with an optional default.
+    bool bind_declared(JsString* name, Expression const* pattern, Expression const* initializer, Value const& value,
+        BindMode mode, Environment* env, Context& cx)
+    {
+        Roots const roots(self);
+        std::optional<Reference> reference;
+        if (name && mode != BindMode::Initialize)
+            reference = resolve(name, cx.lexical);
+        if (pattern)
+            return bind_element(pattern, initializer, value, reference, mode, env, cx);
+        // A name is bound through a transient Identifier-shaped path: the
+        // default's NamedEvaluation and the store only need the name.
+        self.root(value);
+        Value stored = value;
+        if (initializer && value.is_undefined()) {
+            std::optional<Value> replacement = is_anonymous_function_definition(initializer)
+                ? evaluate_named(initializer, cx, PropertyKey::atom(name))
+                : evaluate(initializer, cx);
+            if (!replacement)
+                return false;
+            stored = *replacement;
+            self.root(stored);
+        }
+        if (mode == BindMode::Initialize)
+            return initialize_binding(name, stored, env);
+        return put_value(*reference, stored, cx);
+    }
+
+    // BindingInitialization / DestructuringAssignmentEvaluation of a
+    // pattern over a value (§8.6.2, §13.15.5.2).
+    bool bind_pattern(Expression const* pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
+    {
+        Roots const roots(self);
+        self.root(value);
+        if (pattern->type == NodeType::ArrayPattern)
+            return bind_array_pattern(*static_cast<ArrayPattern const*>(pattern), value, mode, env, cx);
+        return bind_object_pattern(*static_cast<ObjectPattern const*>(pattern), value, mode, env, cx);
+    }
+
+    // IteratorBindingInitialization / IteratorDestructuringAssignmentEvaluation
+    // (§8.6.3, §13.15.5.5): the value's iterator is stepped once per
+    // element, an elision discarding its step, the rest element taking
+    // everything left; the iterator is closed when the pattern ends before
+    // it does, and on any throw that is not the iterator's own.
+    bool bind_array_pattern(ArrayPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
+    {
+        std::optional<IteratorRecord> record = self.get_iterator(value);
+        if (!record)
+            return false;
+        self.root(record->iterator);
+        self.root(record->next_method);
+        auto finish = [&](bool ok) {
+            if (record->done)
+                return ok;
+            if (ok)
+                return self.iterator_close(*record, false);
+            if (!self.m_terminated)
+                self.iterator_close(*record, true);
+            return false;
+        };
+        auto next = [&](Value& out) -> bool {
+            out = Value::undefined();
+            if (record->done)
+                return true;
+            std::optional<bool> const stepped = self.iterator_step(*record, out);
+            if (!stepped)
+                return false;
+            if (!*stepped)
+                out = Value::undefined();
+            return true;
+        };
+        for (PatternElement const& element : pattern.elements) {
+            Roots const element_roots(self);
+            std::optional<Reference> reference;
+            if (!prepare_target(element.target, mode, cx, reference))
+                return finish(false);
+            Value element_value;
+            if (!next(element_value))
+                return false; // the iterator's own throw: done, and not closed
+            if (element.target == nullptr)
+                continue;
+            if (!bind_element(element.target, element.initializer, element_value, reference, mode, env, cx))
+                return finish(false);
+        }
+        if (pattern.rest) {
+            Roots const rest_roots(self);
+            std::optional<Reference> reference;
+            if (!prepare_target(pattern.rest, mode, cx, reference))
+                return finish(false);
+            ArrayObject* rest = self.new_array();
+            self.root(Value::object(rest));
+            std::uint32_t count = 0;
+            while (!record->done) {
+                Value element_value;
+                std::optional<bool> const stepped = self.iterator_step(*record, element_value);
+                if (!stepped)
+                    return false;
+                if (!*stepped)
+                    break;
+                rest->set_element(count++, element_value);
+            }
+            rest->set_length(count);
+            if (!bind_element(pattern.rest, nullptr, Value::object(rest), reference, mode, env, cx))
+                return finish(false);
+        }
+        return finish(true);
+    }
+
+    // The object forms (§8.6.2, §13.15.5.3): RequireObjectCoercible, then
+    // one Get per property — the key evaluated first, then the target's
+    // reference, then the read — and a rest property as CopyDataProperties
+    // with the keys already taken left out.
+    bool bind_object_pattern(ObjectPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
+    {
+        if (value.is_nullish()) {
+            self.throw_type_error("Cannot destructure '" + self.describe(value) + "' as it is " + (value.is_null() ? "null" : "undefined") + ".");
+            return false;
+        }
+        std::vector<PropertyKey> taken;
+        for (PatternProperty const& property : pattern.properties) {
+            PropertyKey key;
+            if (property.computed_key) {
+                std::optional<Value> const key_value = evaluate(property.computed_key, cx);
+                if (!key_value)
+                    return false;
+                self.root(*key_value);
+                std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
+                if (!converted)
+                    return false;
+                key = *converted;
+                if (key.is_symbol())
+                    self.root(Value::symbol(key.as_symbol()));
+            } else {
+                key = heap().key(property.key);
+            }
+            std::optional<Reference> reference;
+            if (!prepare_target(property.target, mode, cx, reference))
+                return false;
+            std::optional<Value> const property_value = self.get(value, key);
+            if (!property_value)
+                return false;
+            if (!bind_element(property.target, property.initializer, *property_value, reference, mode, env, cx))
+                return false;
+            if (pattern.rest)
+                taken.push_back(key);
+        }
+        if (pattern.rest) {
+            std::optional<Reference> reference;
+            if (!prepare_target(pattern.rest, mode, cx, reference))
+                return false;
+            Object* rest = self.new_object();
+            self.root(Value::object(rest));
+            if (!copy_data_properties(*rest, value, taken))
+                return false;
+            if (!bind_element(pattern.rest, nullptr, Value::object(rest), reference, mode, env, cx))
+                return false;
+        }
+        return true;
+    }
+
+    // IteratorBindingInitialization of a function's formals (§10.2.11
+    // steps 24–26) over its argument list, for a non-simple list: each
+    // parameter in order, the rest parameter taking what is left.
+    bool bind_parameters(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context& cx)
+    {
+        Roots const roots(self);
+        std::size_t index = 0;
+        for (Parameter const& parameter : node.parameters) {
+            Value value = Value::undefined();
+            if (parameter.is_rest) {
+                ArrayObject* rest = self.new_array(index < arguments.size() ? arguments.subspan(index) : std::span<Value const>());
+                value = Value::object(rest);
+                index = arguments.size();
+            } else if (index < arguments.size()) {
+                value = arguments[index++];
+            } else {
+                ++index;
+            }
+            self.root(value);
+            if (!bind_declared(parameter.name, parameter.pattern, parameter.initializer, value, BindMode::Initialize, env, cx))
+                return false;
+        }
+        return true;
+    }
+
+    // CopyDataProperties (§7.3.25): the source's own enumerable properties,
+    // read one by one into data properties of the target; null and
+    // undefined copy nothing; the excluded keys are skipped.
+    bool copy_data_properties(Object& target, Value const& source, std::span<PropertyKey const> excluded)
+    {
+        if (source.is_nullish())
+            return true;
+        Roots const roots(self);
+        self.root(source);
+        std::optional<Object*> const from = self.to_object(source);
+        if (!from)
+            return false;
+        self.root(Value::object(*from));
+        for (PropertyKey const& key : (*from)->own_keys()) {
+            if (std::find(excluded.begin(), excluded.end(), key) != excluded.end())
+                continue;
+            if (key.is_symbol())
+                self.root(Value::symbol(key.as_symbol()));
+            std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
+            if (!desc || !desc->enumerable.value_or(false))
+                continue;
+            std::optional<Value> const value = self.get(**from, key);
+            if (!value)
+                return false;
+            self.root(*value);
+            if (!self.create_data_property(target, key, *value))
+                return false;
+        }
+        return true;
     }
 
     // ---- declaration instantiation
@@ -1050,32 +1396,12 @@ struct Interpreter::Impl {
                 continue;
             }
             if (property.kind == PropertyDefinition::Kind::Spread) {
-                // CopyDataProperties (§7.3.25): the source's own enumerable
-                // properties, read one by one; null and undefined copy nothing.
+                // `...source` is CopyDataProperties into the new object.
                 std::optional<Value> const source = evaluate(property.value, cx);
                 if (!source)
                     return std::nullopt;
-                if (source->is_nullish())
-                    continue;
-                Roots const copy_roots(self);
-                self.root(*source);
-                std::optional<Object*> const from = self.to_object(*source);
-                if (!from)
+                if (!copy_data_properties(*object, *source, {}))
                     return std::nullopt;
-                self.root(Value::object(*from));
-                for (PropertyKey const& key : (*from)->own_keys()) {
-                    if (key.is_symbol())
-                        self.root(Value::symbol(key.as_symbol()));
-                    std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
-                    if (!desc || !desc->enumerable.value_or(false))
-                        continue;
-                    std::optional<Value> const value = self.get(**from, key);
-                    if (!value)
-                        return std::nullopt;
-                    self.root(*value);
-                    if (!self.create_data_property(*object, key, *value))
-                        return std::nullopt;
-                }
                 continue;
             }
             PropertyKey key;
@@ -1670,7 +1996,19 @@ struct Interpreter::Impl {
     {
         // §13.15.2: the target reference first, then the right-hand side,
         // then the store. A compound operator reads the target once, and
-        // a logical one may not evaluate the right-hand side at all.
+        // a logical one may not evaluate the right-hand side at all. A
+        // pattern takes the right-hand side's value first and names its
+        // targets as it goes (§13.15.2 step 1.a–1.d).
+        if (is_pattern(assignment.target)) {
+            std::optional<Value> const value = evaluate(assignment.value, cx);
+            if (!value)
+                return std::nullopt;
+            Roots const roots(self);
+            self.root(*value);
+            if (!bind_pattern(assignment.target, *value, BindMode::Assign, nullptr, cx))
+                return std::nullopt;
+            return *value;
+        }
         std::optional<Reference> reference = evaluate_reference(assignment.target, cx);
         if (!reference)
             return std::nullopt;
@@ -1877,6 +2215,24 @@ struct Interpreter::Impl {
     Completion execute_declaration(VariableDeclaration const& declaration, Context& cx)
     {
         for (VariableDeclarator const& declarator : declaration.declarations) {
+            if (declarator.pattern) {
+                // §14.3.2.1 / §14.3.1.2 with a pattern: the initializer's
+                // value, then the pattern over it — into the let/const
+                // bindings declared at the scope's entry, or through
+                // resolved references for a var.
+                std::optional<Value> value = Value::undefined();
+                if (declarator.init) {
+                    value = evaluate(declarator.init, cx);
+                    if (!value)
+                        return Completion::thrown();
+                }
+                Roots const roots(self);
+                self.root(*value);
+                bool const is_var = declaration.kind == VariableDeclaration::Kind::Var;
+                if (!bind_pattern(declarator.pattern, *value, is_var ? BindMode::VarAssign : BindMode::Initialize, cx.lexical, cx))
+                    return Completion::thrown();
+                continue;
+            }
             if (declaration.kind == VariableDeclaration::Kind::Var) {
                 // §14.3.2.1: a var with an initializer assigns through a
                 // reference resolved now, so a `with` in scope can catch it.
@@ -2103,12 +2459,45 @@ struct Interpreter::Impl {
         return nullptr;
     }
 
+    // The binding a for-in/of head makes on each iteration (§14.7.5.7
+    // steps 6.g–6.i): a fresh record with the declaration's names for a
+    // let/const, declared in their dead zone and then initialised — a
+    // pattern's names all at once; a var or an expression assigns through
+    // references; a pattern target destructures.
+    bool bind_loop_head(VariableDeclaration const* declaration, Expression const* target, std::vector<JsString*> const& names,
+        Value const& value, Environment* saved, Context& cx)
+    {
+        if (declaration && declaration->kind != VariableDeclaration::Kind::Var) {
+            cx.lexical = new_environment(saved);
+            bool const mutable_ = declaration->kind != VariableDeclaration::Kind::Const;
+            for (JsString* name : names)
+                cx.lexical->declare(name, Value::undefined(), mutable_, false);
+            VariableDeclarator const& declarator = declaration->declarations[0];
+            return bind_declared(declarator.name, declarator.pattern, nullptr, value, BindMode::Initialize, cx.lexical, cx);
+        }
+        if (declaration) {
+            VariableDeclarator const& declarator = declaration->declarations[0];
+            return bind_declared(declarator.name, declarator.pattern, nullptr, value, BindMode::VarAssign, nullptr, cx);
+        }
+        if (is_pattern(target))
+            return bind_pattern(target, value, BindMode::Assign, nullptr, cx);
+        std::optional<Reference> reference = evaluate_reference(target, cx);
+        if (!reference)
+            return false;
+        Roots const roots(self);
+        self.root(reference->base);
+        self.root(reference->key_value);
+        return put_value(*reference, value, cx);
+    }
+
     Completion execute_for_in(ForInStatement const& loop, Context& cx, std::span<JsString* const> labels)
     {
         // §14.7.5.6 ForIn/OfHeadEvaluation and §14.7.5.7 ForIn/OfBodyEvaluation.
         Environment* const saved = cx.lexical;
         bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
-        JsString* const bound_name = loop.declaration ? loop.declaration->declarations[0].name : nullptr;
+        std::vector<JsString*> bound_names;
+        if (loop.declaration)
+            collect_bound_names(loop.declaration->declarations[0].name, loop.declaration->declarations[0].pattern, bound_names);
         auto restore = [&](Completion completion) {
             cx.lexical = saved;
             return completion;
@@ -2120,9 +2509,10 @@ struct Interpreter::Impl {
                 return init;
         }
         if (lexical) {
-            // The head's expression sees the name in its dead zone.
+            // The head's expression sees the names in their dead zone.
             cx.lexical = new_environment(saved);
-            cx.lexical->declare(bound_name, Value::undefined(), true, false);
+            for (JsString* name : bound_names)
+                cx.lexical->declare(name, Value::undefined(), true, false);
         }
         std::optional<Value> const subject = evaluate(loop.object, cx);
         cx.lexical = saved;
@@ -2145,22 +2535,8 @@ struct Interpreter::Impl {
             if (key == nullptr)
                 return restore(Completion::normal(last));
             Value const key_value = Value::string(key);
-            if (lexical) {
-                cx.lexical = new_environment(saved);
-                cx.lexical->declare(bound_name, key_value, loop.declaration->kind != VariableDeclaration::Kind::Const, true);
-            } else if (loop.declaration) {
-                Reference reference = resolve(bound_name, cx.lexical);
-                if (!put_value(reference, key_value, cx))
-                    return restore(Completion::thrown());
-            } else {
-                std::optional<Reference> reference = evaluate_reference(loop.target, cx);
-                if (!reference)
-                    return restore(Completion::thrown());
-                self.root(reference->base);
-                self.root(reference->key_value);
-                if (!put_value(*reference, key_value, cx))
-                    return restore(Completion::thrown());
-            }
+            if (!bind_loop_head(loop.declaration, loop.target, bound_names, key_value, saved, cx))
+                return restore(Completion::thrown());
             Completion const body = execute(loop.body, cx, {});
             cx.lexical = saved;
             if (!loop_continues(body, labels))
@@ -2180,15 +2556,18 @@ struct Interpreter::Impl {
         // the body's own throw still the outcome when there is one.
         Environment* const saved = cx.lexical;
         bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
-        JsString* const bound_name = loop.declaration ? loop.declaration->declarations[0].name : nullptr;
+        std::vector<JsString*> bound_names;
+        if (loop.declaration)
+            collect_bound_names(loop.declaration->declarations[0].name, loop.declaration->declarations[0].pattern, bound_names);
         auto restore = [&](Completion completion) {
             cx.lexical = saved;
             return completion;
         };
         if (lexical) {
-            // The head's expression sees the name in its dead zone.
+            // The head's expression sees the names in their dead zone.
             cx.lexical = new_environment(saved);
-            cx.lexical->declare(bound_name, Value::undefined(), true, false);
+            for (JsString* name : bound_names)
+                cx.lexical->declare(name, Value::undefined(), true, false);
         }
         std::optional<Value> const subject = evaluate(loop.iterable, cx);
         cx.lexical = saved;
@@ -2223,22 +2602,8 @@ struct Interpreter::Impl {
             if (!*stepped)
                 return restore(Completion::normal(last));
             self.root(value);
-            if (lexical) {
-                cx.lexical = new_environment(saved);
-                cx.lexical->declare(bound_name, value, loop.declaration->kind != VariableDeclaration::Kind::Const, true);
-            } else if (loop.declaration) {
-                Reference reference = resolve(bound_name, cx.lexical);
-                if (!put_value(reference, value, cx))
-                    return leave(Completion::thrown());
-            } else {
-                std::optional<Reference> reference = evaluate_reference(loop.target, cx);
-                if (!reference)
-                    return leave(Completion::thrown());
-                self.root(reference->base);
-                self.root(reference->key_value);
-                if (!put_value(*reference, value, cx))
-                    return leave(Completion::thrown());
-            }
+            if (!bind_loop_head(loop.declaration, loop.target, bound_names, value, saved, cx))
+                return leave(Completion::thrown());
             Completion const body = execute(loop.body, cx, {});
             cx.lexical = saved;
             if (!loop_continues(body, labels))
@@ -2260,11 +2625,22 @@ struct Interpreter::Impl {
             Value const thrown = self.take_exception();
             self.root(thrown);
             Environment* const saved = cx.lexical;
-            if (statement.catch_parameter) {
+            bool bound = true;
+            if (statement.catch_pattern) {
+                // §14.15.2: the pattern's names in a record of their own,
+                // the thrown value destructured into them; a throw from
+                // that is the catch clause's outcome.
+                cx.lexical = new_environment(saved);
+                std::vector<JsString*> names;
+                collect_bound_names(statement.catch_pattern, names);
+                for (JsString* name : names)
+                    cx.lexical->declare(name, Value::undefined(), true, false);
+                bound = bind_pattern(statement.catch_pattern, thrown, BindMode::Initialize, cx.lexical, cx);
+            } else if (statement.catch_parameter) {
                 cx.lexical = new_environment(saved);
                 cx.lexical->declare(statement.catch_parameter, thrown);
             }
-            result = execute_block(*statement.handler, cx);
+            result = bound ? execute_block(*statement.handler, cx) : Completion::thrown();
             cx.lexical = saved;
         }
         if (statement.finalizer && !self.m_terminated) {
@@ -2570,7 +2946,7 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     // the lexical-this parameter has nothing to record.
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<ScriptFunction>(m_intrinsics.function_prototype, node, scope, node.is_constructable);
-    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.parameters.size())), Configurable);
+    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
     if (!node.is_strict && !node.is_arrow && node.is_constructable) {
         // A sloppy plain function carries its own null `caller` and

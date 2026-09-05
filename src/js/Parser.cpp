@@ -38,7 +38,10 @@
 //   (program [strict] stmt…)
 //   statements
 //     (var (name init?)…) (let (name init?)…) (const (name init?)…)
+//                                             name may be a pattern
 //     (function name (params…) body…)        name omitted when anonymous
+//                                             a param is name | pattern |
+//                                             (= param init) | (... param)
 //     (expr e) (block s…) (if c then else?) (empty) (debugger)
 //     (for init test update body)             an absent part prints as -
 //     (for-in decl|target obj body)           decl is (var (x)) / (let (x)) / (const (x))
@@ -57,7 +60,11 @@
 //     (binary op l r) (logical op l r) (assign op target v) (cond t c a)
 //     (call callee args…) (call? callee args…) (new callee args…)
 //     (member obj name) (member? obj name) (index obj e) (index? obj e)
-//     (seq e…)
+//     (seq e…) (spread e)
+//   patterns (a target is (id x), a member/index, or a nested pattern)
+//     (array-pattern hole|target|(= target init)… (... target)?)
+//     (object-pattern ("key" target|(= target init))…
+//                     ((computed k) target|(= target init))… (... target)?)
 //   Numbers print through number_to_utf8; strings through utf8_from_utf16
 //   with " and \ escaped; nothing else is escaped.
 
@@ -351,6 +358,15 @@ struct FunctionContext {
     int breakable_depth = 0;
     bool is_strict = false;
     bool is_arrow = false;
+    bool use_strict_directive = false; // the body's own "use strict" (§15.2.1: not with a non-simple parameter list)
+};
+
+// An error the cover grammar defers (§13.2.5.1): `{ a = 1 }` and a
+// duplicate `__proto__` are fine in an object literal that turns out to
+// be an assignment pattern, and errors in one that stays a literal.
+struct CoverError {
+    SourcePosition position;
+    std::string message;
 };
 
 } // namespace
@@ -415,9 +431,12 @@ struct Parser::Impl {
     }
     JsString* atom(std::u16string_view text) { return m_heap.atom(text); }
 
-    // Expressions.
-    Expression* parse_expression(bool allow_in);
-    Expression* parse_assignment(bool allow_in);
+    // Expressions. `cover` means the caller may still turn the result
+    // into an assignment pattern, so the cover grammar's deferred errors
+    // wait for its decision.
+    Expression* parse_expression(bool allow_in, bool cover = false);
+    Expression* parse_assignment(bool allow_in, bool cover = false);
+    bool check_cover(std::size_t mark);
     Expression* parse_conditional(bool allow_in);
     Expression* parse_binary(int min_precedence, bool allow_in);
     Expression* parse_unary();
@@ -433,13 +452,24 @@ struct Parser::Impl {
     bool parse_property_key(PropertyDefinition&, Token* key_token);
     Expression* parse_template();
     Expression* parse_function_expression();
-    bool looks_like_arrow_parameters();
+    bool looks_like_arrow_head();
     bool balanced_parens_then_arrow();
     Expression* parse_arrow(bool allow_in);
+
+    // Patterns (§14.3.3, §13.15.5). A binding pattern is parsed where a
+    // declaration, a parameter or a catch clause says one stands, and the
+    // tokens of the names it binds go to `bound` for the caller's
+    // declarations and early errors; an assignment pattern is converted
+    // from the literal that covered it.
+    Expression* parse_binding_pattern(std::vector<Token>& bound);
+    Expression* parse_binding_target(std::vector<Token>& bound);
+    Expression* to_assignment_pattern(Expression* literal);
+    Expression* to_assignment_target(Expression*, bool allow_pattern);
 
     // Functions.
     enum class FunctionKind { Declaration, Expression, Method, Getter, Setter, Arrow };
     bool parse_function_rest(FunctionNode*, FunctionKind, std::optional<Token> name_token);
+    bool parse_formal_parameters(FunctionNode*, std::vector<Token>& bound);
     bool parse_function_body(FunctionNode*);
     bool parse_directive_prologue(std::vector<Statement*>& body);
     bool finish_parameters(FunctionNode*, FunctionKind, std::vector<Token> const& parameter_tokens,
@@ -485,6 +515,13 @@ struct Parser::Impl {
     // Expressions that were wrapped in parentheses; the tree has no node
     // for that, and a few early errors depend on it.
     std::unordered_set<Expression const*> m_parenthesised;
+    // The cover grammar's deferred errors, in source order: a literal
+    // that becomes a pattern drops the ones inside it, one that stays a
+    // literal reports the first (check_cover).
+    std::vector<CoverError> m_cover_errors;
+    // Set by parse_binding_pattern when the pattern holds an initializer
+    // or a computed key (ContainsExpression), for the parameter list.
+    bool m_pattern_has_expression = false;
 };
 
 Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
@@ -672,8 +709,9 @@ bool Parser::Impl::declare_var(JsString* name, SourcePosition position)
             return fail(position, "Identifier '" + utf8_from_utf16(name->view()) + "' has already been declared");
         s.var_names.insert(name);
     }
-    if (fn.parameter_names.contains(name))
-        return true; // parameters are not in the vars list (Ast.h)
+    // A var of a parameter's name is listed too: it is the parameter's
+    // binding unless the parameters have a scope of their own (§10.2.11
+    // step 28), where it starts as a copy.
     if (fn.var_set.insert(name).second)
         fn.declarations->vars.push_back(name);
     return true;
@@ -840,14 +878,19 @@ void Parser::Impl::relex_as_division()
 }
 
 // Expression (§13.16): a comma-separated sequence.
-Expression* Parser::Impl::parse_expression(bool allow_in)
+Expression* Parser::Impl::parse_expression(bool allow_in, bool cover)
 {
     SourcePosition const start = m_current.position;
-    Expression* first = parse_assignment(allow_in);
+    std::size_t const cover_mark = m_cover_errors.size();
+    Expression* first = parse_assignment(allow_in, cover);
     if (!first)
         return nullptr;
     if (!m_current.is(Punctuator::Comma))
         return first;
+    // A sequence is never a pattern: whatever the first item deferred is
+    // an error now.
+    if (!check_cover(cover_mark))
+        return nullptr;
     auto* sequence = make<SequenceExpression>(start);
     sequence->expressions.push_back(first);
     while (m_current.is(Punctuator::Comma)) {
@@ -860,12 +903,26 @@ Expression* Parser::Impl::parse_expression(bool allow_in)
     return finish(sequence);
 }
 
+// Reports the first cover-grammar error deferred since `mark`, if any.
+bool Parser::Impl::check_cover(std::size_t mark)
+{
+    if (m_cover_errors.size() <= mark)
+        return true;
+    CoverError const error = m_cover_errors[mark];
+    m_cover_errors.resize(mark);
+    return fail(error.position, error.message);
+}
+
 // AssignmentExpression (§13.15), which is also where an arrow function
 // starts (§15.3): `x =>` and `( … ) =>` are recognised by looking ahead.
-Expression* Parser::Impl::parse_assignment(bool allow_in)
+// An array or object literal followed by `=` was an assignment pattern
+// all along (§13.15.5) and is converted; the cover grammar's deferred
+// errors are dropped with it, or reported when no `=` comes.
+Expression* Parser::Impl::parse_assignment(bool allow_in, bool cover)
 {
     if (!enter())
         return nullptr;
+    std::size_t const cover_mark = m_cover_errors.size();
     Expression* result = nullptr;
     bool arrow = false;
     if (m_current.type == TokenType::Identifier && !m_current.has_escape) {
@@ -885,7 +942,7 @@ Expression* Parser::Impl::parse_assignment(bool allow_in)
         Token const next = peek();
         arrow = next.is(Punctuator::Arrow) && !next.newline_before;
     } else if (m_current.is(Punctuator::LeftParen)) {
-        arrow = looks_like_arrow_parameters();
+        arrow = looks_like_arrow_head();
     }
     if (arrow) {
         result = parse_arrow(allow_in);
@@ -903,16 +960,25 @@ Expression* Parser::Impl::parse_assignment(bool allow_in)
     std::optional<AssignmentOp> const op = assignment_operator_for(m_current);
     if (!op) {
         leave();
+        if (!cover && !check_cover(cover_mark))
+            return nullptr;
         return left;
     }
-    // An array or object literal as the target is a destructuring
-    // pattern (§13.15.5), which this grammar leaves out: say so.
-    if ((left->type == NodeType::ArrayLiteral || left->type == NodeType::ObjectLiteral) && !m_parenthesised.contains(left)) {
-        leave();
-        fail_unsupported("destructuring patterns");
-        return nullptr;
-    }
-    if (!check_simple_target(left, start, "in assignment")) {
+    if ((left->type == NodeType::ArrayLiteral || left->type == NodeType::ObjectLiteral) && !left->parenthesized) {
+        // The literal was the cover of an assignment pattern (§13.15.5);
+        // only a plain `=` may follow one.
+        if (*op != AssignmentOp::Assign) {
+            leave();
+            fail(start, "Invalid left-hand side in assignment");
+            return nullptr;
+        }
+        left = to_assignment_pattern(left);
+        if (!left) {
+            leave();
+            return nullptr;
+        }
+        m_cover_errors.resize(cover_mark);
+    } else if (!check_simple_target(left, start, "in assignment")) {
         leave();
         return nullptr;
     }
@@ -926,6 +992,8 @@ Expression* Parser::Impl::parse_assignment(bool allow_in)
         result = finish(assignment);
     }
     leave();
+    if (result && !cover && !check_cover(cover_mark))
+        return nullptr;
     return result;
 }
 
@@ -1352,12 +1420,6 @@ Expression* Parser::Impl::parse_primary()
             return parse_array_literal();
         if (m_current.is(Punctuator::LeftBrace))
             return parse_object_literal();
-        if (m_current.is(Punctuator::Ellipsis)) {
-            // `...` outside an array literal, an argument list or an object
-            // literal can only begin an arrow function's rest parameter.
-            fail_unsupported("rest parameters");
-            return nullptr;
-        }
         fail_unexpected();
         return nullptr;
     case TokenType::Invalid:
@@ -1442,35 +1504,18 @@ Expression* Parser::Impl::parse_parenthesised()
     // quotes it quotes what was written.
     inner->position = open;
     inner->end_offset = m_previous_end;
-    // An arrow head the lookahead rejected: say which unsupported form
-    // it was rather than "unexpected =>".
+    // An arrow head the lookahead did not recognise (a template inside
+    // it can mislead the scan): it cannot be parsed as one from here.
     if (arrow_follows) {
-        bool defaults = false;
-        bool patterns = false;
-        auto classify = [&](Expression const* e) {
-            if (e->type == NodeType::AssignmentExpression)
-                defaults = true;
-            if (e->type == NodeType::ArrayLiteral || e->type == NodeType::ObjectLiteral)
-                patterns = true;
-        };
-        if (inner->type == NodeType::SequenceExpression) {
-            for (Expression const* e : static_cast<SequenceExpression const*>(inner)->expressions)
-                classify(e);
-        } else {
-            classify(inner);
-        }
-        if (patterns)
-            fail_unsupported("destructuring patterns");
-        else if (defaults)
-            fail_unsupported("default parameters");
-        else
-            fail_unexpected();
+        fail(m_current.position, "Malformed arrow function parameter list");
         return nullptr;
     }
     return inner;
 }
 
 // ArrayLiteral (§13.2.4): an elision is a hole; a trailing comma is not.
+// Elements are parsed as possible pattern elements, since the literal
+// may turn out to be an assignment pattern.
 Expression* Parser::Impl::parse_array_literal()
 {
     SourcePosition const start = m_current.position;
@@ -1479,6 +1524,7 @@ Expression* Parser::Impl::parse_array_literal()
     advance(); // [
     auto* array = make<ArrayLiteral>(start);
     while (!m_current.is(Punctuator::RightBracket)) {
+        array->trailing_comma = false;
         if (m_current.is(Punctuator::Comma)) {
             advance();
             array->elements.push_back(nullptr);
@@ -1489,7 +1535,7 @@ Expression* Parser::Impl::parse_array_literal()
             // §13.2.4.1: `...iterable` contributes the values it yields.
             SourcePosition const spread_start = m_current.position;
             advance();
-            Expression* iterable = parse_assignment(true);
+            Expression* iterable = parse_assignment(true, true);
             if (!iterable) {
                 leave();
                 return nullptr;
@@ -1498,7 +1544,7 @@ Expression* Parser::Impl::parse_array_literal()
             spread->argument = iterable;
             element = finish(spread);
         } else {
-            element = parse_assignment(true);
+            element = parse_assignment(true, true);
         }
         if (!element) {
             leave();
@@ -1507,6 +1553,7 @@ Expression* Parser::Impl::parse_array_literal()
         array->elements.push_back(element);
         if (m_current.is(Punctuator::Comma)) {
             advance();
+            array->trailing_comma = true;
             continue;
         }
         if (!m_current.is(Punctuator::RightBracket)) {
@@ -1572,6 +1619,7 @@ Expression* Parser::Impl::parse_object_literal()
     while (!m_current.is(Punctuator::RightBrace)) {
         PropertyDefinition property;
         SourcePosition const property_start = m_current.position;
+        object->trailing_comma = false;
         if (m_current.is(Punctuator::Ellipsis)) {
             // §13.2.5.5: `...source` copies the source's own enumerable
             // properties in — a definition with no key of its own.
@@ -1585,6 +1633,7 @@ Expression* Parser::Impl::parse_object_literal()
             object->properties.push_back(property);
             if (m_current.is(Punctuator::Comma)) {
                 advance();
+                object->trailing_comma = true;
                 continue;
             }
             if (!m_current.is(Punctuator::RightBrace)) {
@@ -1646,7 +1695,9 @@ Expression* Parser::Impl::parse_object_literal()
             property.value = finish(expression);
         } else if (m_current.is(Punctuator::Colon)) {
             advance();
-            Expression* value = parse_assignment(true);
+            // The value may be an element of the pattern this literal
+            // turns out to be.
+            Expression* value = parse_assignment(true, true);
             if (!value) {
                 leave();
                 return nullptr;
@@ -1655,11 +1706,10 @@ Expression* Parser::Impl::parse_object_literal()
             bool const proto_key = !property.computed_key && property.key == m_heap.atoms().proto
                 && (key_token.type == TokenType::Identifier || key_token.type == TokenType::String);
             if (proto_key) {
-                if (has_proto) {
-                    leave();
-                    fail(property_start, "Duplicate __proto__ fields are not allowed in object literals");
-                    return nullptr;
-                }
+                // §13.2.5.1: a duplicate is an error in a literal and
+                // nothing in a pattern, where both are ordinary keys.
+                if (has_proto)
+                    m_cover_errors.push_back({ property_start, "Duplicate __proto__ fields are not allowed in object literals" });
                 has_proto = true;
                 property.is_proto = true;
             } else if (value->type == NodeType::ArrowFunction
@@ -1667,13 +1717,10 @@ Expression* Parser::Impl::parse_object_literal()
                 property.is_anonymous_function = true; // §13.2.5.5: the value takes the key as its name
             }
         } else if (key_token.type == TokenType::Identifier && !property.computed_key) {
-            // Shorthand `{ x }` is the reference `x`; `{ x = 1 }` is only
-            // valid as a pattern, which is not supported.
-            if (m_current.is(Punctuator::Assign)) {
-                leave();
-                fail_unsupported("destructuring patterns");
-                return nullptr;
-            }
+            // Shorthand `{ x }` is the reference `x`; `{ x = 1 }` is a
+            // CoverInitializedName (§13.2.5.1), valid only once the
+            // literal is known to be a pattern: kept as the assignment
+            // `x = 1`, with the error deferred.
             if (key_token.has_escape && Lexer::keyword_for(key_token.value)) {
                 leave();
                 fail(key_token.position, "Keyword must not contain escaped characters");
@@ -1690,6 +1737,20 @@ Expression* Parser::Impl::parse_object_literal()
             if (identifier->name == m_heap.atoms().arguments)
                 note_arguments();
             property.value = identifier;
+            if (m_current.is(Punctuator::Assign)) {
+                m_cover_errors.push_back({ m_current.position, "Invalid shorthand property initializer" });
+                advance();
+                Expression* initializer = parse_assignment(true);
+                if (!initializer) {
+                    leave();
+                    return nullptr;
+                }
+                auto* assignment = make<AssignmentExpression>(key_token.position);
+                assignment->op = AssignmentOp::Assign;
+                assignment->target = identifier;
+                assignment->value = initializer;
+                property.value = finish(assignment);
+            }
         } else {
             leave();
             fail_unexpected();
@@ -1698,6 +1759,7 @@ Expression* Parser::Impl::parse_object_literal()
         object->properties.push_back(property);
         if (m_current.is(Punctuator::Comma)) {
             advance();
+            object->trailing_comma = true;
             continue;
         }
         if (!m_current.is(Punctuator::RightBrace)) {
@@ -1785,32 +1847,54 @@ Expression* Parser::Impl::parse_function_expression()
     return finish(expression);
 }
 
-// Is the `(` at the current token the head of an arrow function? Scans
-// `( [Identifier (, Identifier)*] ) =>` on a saved lexer state and puts
-// everything back (§15.3: ArrowParameters, with the =>
-// [no LineTerminator here] restriction).
-bool Parser::Impl::looks_like_arrow_parameters()
+// Is the `(` at the current token the head of an arrow function? The
+// group is scanned to its matching `)` on a saved lexer state — a
+// template substitution's closing `}` is lexed as the template's
+// continuation, as the parser would — and `=>` must follow on the same
+// line (§15.3, =>[no LineTerminator here]). The scan gives up at once on
+// a first token no parameter list can start with, which is most groups.
+bool Parser::Impl::looks_like_arrow_head()
 {
     Snapshot const saved = snapshot();
     advance(); // (
-    bool matches = true;
-    while (!m_current.is(Punctuator::RightParen)) {
-        if (m_current.type != TokenType::Identifier) {
-            matches = false;
-            break;
-        }
-        advance();
-        if (m_current.is(Punctuator::Comma)) {
+    bool matches = false;
+    bool const can_start = m_current.type == TokenType::Identifier || m_current.is(Punctuator::LeftBracket)
+        || m_current.is(Punctuator::LeftBrace) || m_current.is(Punctuator::Ellipsis) || m_current.is(Punctuator::RightParen);
+    if (can_start) {
+        int depth = 1;
+        int braces = 0;
+        std::vector<int> template_braces; // the brace depth at each open substitution
+        while (true) {
+            if (m_current.type == TokenType::EndOfInput || m_current.type == TokenType::Invalid)
+                break;
+            if (m_current.type == TokenType::Template && !m_current.template_tail) {
+                template_braces.push_back(braces);
+                advance();
+                continue;
+            }
+            if (m_current.is(Punctuator::RightBrace) && !template_braces.empty() && template_braces.back() == braces) {
+                template_braces.pop_back();
+                m_previous_end = m_current.end_offset;
+                m_current_start = m_lexer.save();
+                m_current_regex_allowed = false;
+                m_current = m_lexer.next_template_continuation();
+                continue;
+            }
+            if (m_current.is(Punctuator::LeftBrace)) {
+                ++braces;
+            } else if (m_current.is(Punctuator::RightBrace)) {
+                --braces;
+            } else if (m_current.is(Punctuator::LeftParen)) {
+                ++depth;
+            } else if (m_current.is(Punctuator::RightParen)) {
+                if (--depth == 0) {
+                    advance();
+                    matches = m_current.is(Punctuator::Arrow) && !m_current.newline_before;
+                    break;
+                }
+            }
             advance();
-            continue;
         }
-        if (!m_current.is(Punctuator::RightParen))
-            matches = false;
-        break;
-    }
-    if (matches) {
-        advance(); // )
-        matches = m_current.is(Punctuator::Arrow) && !m_current.newline_before;
     }
     rewind(saved);
     return matches;
@@ -1840,7 +1924,10 @@ bool Parser::Impl::balanced_parens_then_arrow()
     return matches;
 }
 
-// ArrowFunction (§15.3), the lookahead having confirmed the shape.
+// ArrowFunction (§15.3), the lookahead having confirmed the shape. The
+// head is parsed as a formal parameter list in the arrow's own context,
+// so a default sees the parameters before it; `this` and `arguments`
+// in it belong to the enclosing function, as note_this arranges.
 Expression* Parser::Impl::parse_arrow(bool allow_in)
 {
     SourcePosition const start = m_current.position;
@@ -1849,34 +1936,35 @@ Expression* Parser::Impl::parse_arrow(bool allow_in)
     fn->source_start = start.offset;
     fn->is_arrow = true;
     fn->is_constructable = false;
-    std::vector<Token> parameter_tokens;
-    if (m_current.type == TokenType::Identifier) {
-        parameter_tokens.push_back(m_current);
-        advance();
-    } else {
-        advance(); // (
-        while (!m_current.is(Punctuator::RightParen)) {
-            parameter_tokens.push_back(m_current);
-            advance();
-            if (m_current.is(Punctuator::Comma))
-                advance();
-        }
-        advance(); // )
-    }
-    advance(); // =>
     if (!enter())
         return nullptr;
     push_function(fn, &fn->declarations, true);
-    FunctionContext& context = function();
-    for (Token const& token : parameter_tokens) {
-        JsString* name = atom(token.value);
-        fn->parameters.push_back(name);
-        if (!context.parameter_names.insert(name).second)
-            fn->has_duplicate_parameters = true;
+    std::vector<Token> parameter_tokens;
+    if (m_current.type == TokenType::Identifier) {
+        parameter_tokens.push_back(m_current);
+        Parameter parameter;
+        parameter.name = atom(m_current.value);
+        fn->parameters.push_back(parameter);
+        fn->expected_argument_count = 1;
+        function().parameter_names.insert(parameter.name);
+        advance();
+    } else {
+        advance(); // (
+        if (!parse_formal_parameters(fn, parameter_tokens))
+            return nullptr;
     }
+    if (!m_current.is(Punctuator::Arrow) || m_current.newline_before) {
+        fail_unexpected();
+        return nullptr;
+    }
+    advance(); // =>
     if (m_current.is(Punctuator::LeftBrace)) {
         if (!parse_function_body(fn))
             return nullptr;
+        if (function().use_strict_directive && !fn->has_simple_parameter_list) {
+            fail(fn->position, "Illegal 'use strict' directive in function with non-simple parameter list");
+            return nullptr;
+        }
     } else {
         Expression* body = parse_assignment(allow_in);
         if (!body)
@@ -1891,6 +1979,302 @@ Expression* Parser::Impl::parse_arrow(bool allow_in)
     auto* expression = make<ArrowFunction>(start);
     expression->function = fn;
     return finish(expression);
+}
+
+// ---- patterns ---------------------------------------------------------------
+
+// BindingPattern (§14.3.3): `[ elements ]` or `{ properties }`, each leaf
+// a BindingIdentifier or a nested pattern, each element with an optional
+// default. Names are only collected here; the caller declares them, and
+// the strict-mode checks on them wait for the function's final
+// strictness where that is not settled yet.
+Expression* Parser::Impl::parse_binding_pattern(std::vector<Token>& bound)
+{
+    SourcePosition const start = m_current.position;
+    if (!enter())
+        return nullptr;
+    if (m_current.is(Punctuator::LeftBracket)) {
+        advance(); // [
+        auto* pattern = make<ArrayPattern>(start);
+        while (!m_current.is(Punctuator::RightBracket)) {
+            if (m_current.is(Punctuator::Comma)) {
+                advance();
+                pattern->elements.push_back({});
+                continue;
+            }
+            if (m_current.is(Punctuator::Ellipsis)) {
+                // BindingRestElement: a target, no default, nothing after it.
+                advance();
+                pattern->rest = parse_binding_target(bound);
+                if (!pattern->rest) {
+                    leave();
+                    return nullptr;
+                }
+                if (m_current.is(Punctuator::Assign)) {
+                    leave();
+                    fail(m_current.position, "Rest element may not have a default initializer");
+                    return nullptr;
+                }
+                if (!m_current.is(Punctuator::RightBracket)) {
+                    leave();
+                    fail(m_current.position, "Rest element must be last element");
+                    return nullptr;
+                }
+                break;
+            }
+            PatternElement element;
+            element.target = parse_binding_target(bound);
+            if (!element.target) {
+                leave();
+                return nullptr;
+            }
+            if (m_current.is(Punctuator::Assign)) {
+                advance();
+                element.initializer = parse_assignment(true);
+                if (!element.initializer) {
+                    leave();
+                    return nullptr;
+                }
+                m_pattern_has_expression = true;
+            }
+            pattern->elements.push_back(element);
+            if (m_current.is(Punctuator::Comma)) {
+                advance();
+                continue;
+            }
+            if (!m_current.is(Punctuator::RightBracket)) {
+                leave();
+                fail_unexpected();
+                return nullptr;
+            }
+        }
+        advance(); // ]
+        leave();
+        return finish(pattern);
+    }
+    advance(); // {
+    auto* pattern = make<ObjectPattern>(start);
+    while (!m_current.is(Punctuator::RightBrace)) {
+        if (m_current.is(Punctuator::Ellipsis)) {
+            // BindingRestProperty is a BindingIdentifier, and the last thing.
+            advance();
+            if (m_current.type != TokenType::Identifier) {
+                leave();
+                fail_unexpected();
+                return nullptr;
+            }
+            bound.push_back(m_current);
+            auto* identifier = make<Identifier>(m_current.position);
+            identifier->name = atom(m_current.value);
+            advance();
+            pattern->rest = finish(identifier);
+            if (!m_current.is(Punctuator::RightBrace)) {
+                leave();
+                fail(m_current.position, "Rest element must be last element");
+                return nullptr;
+            }
+            break;
+        }
+        PropertyDefinition definition;
+        Token key_token;
+        if (!parse_property_key(definition, &key_token)) {
+            leave();
+            return nullptr;
+        }
+        PatternProperty property;
+        property.key = definition.key;
+        property.computed_key = definition.computed_key;
+        if (property.computed_key)
+            m_pattern_has_expression = true;
+        if (m_current.is(Punctuator::Colon)) {
+            advance();
+            property.target = parse_binding_target(bound);
+            if (!property.target) {
+                leave();
+                return nullptr;
+            }
+        } else {
+            // SingleNameBinding: the key is the name, and must be one.
+            if (key_token.type != TokenType::Identifier || property.computed_key) {
+                leave();
+                fail(key_token.position, describe_token(key_token));
+                return nullptr;
+            }
+            bound.push_back(key_token);
+            auto* identifier = make<Identifier>(key_token.position);
+            identifier->name = property.key;
+            identifier->end_offset = key_token.end_offset;
+            property.target = identifier;
+        }
+        if (m_current.is(Punctuator::Assign)) {
+            advance();
+            property.initializer = parse_assignment(true);
+            if (!property.initializer) {
+                leave();
+                return nullptr;
+            }
+            m_pattern_has_expression = true;
+        }
+        pattern->properties.push_back(property);
+        if (m_current.is(Punctuator::Comma)) {
+            advance();
+            continue;
+        }
+        if (!m_current.is(Punctuator::RightBrace)) {
+            leave();
+            fail_unexpected();
+            return nullptr;
+        }
+    }
+    advance(); // }
+    leave();
+    return finish(pattern);
+}
+
+// A BindingIdentifier or a BindingPattern.
+Expression* Parser::Impl::parse_binding_target(std::vector<Token>& bound)
+{
+    if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace))
+        return parse_binding_pattern(bound);
+    if (m_current.type != TokenType::Identifier) {
+        fail_unexpected();
+        return nullptr;
+    }
+    bound.push_back(m_current);
+    auto* identifier = make<Identifier>(m_current.position);
+    identifier->name = atom(m_current.value);
+    advance();
+    return finish(identifier);
+}
+
+// The cover grammar's other half (§13.15.5): an array or object literal
+// that an `=` or a for-in/of head has just revealed to be an assignment
+// pattern. Every element must be a target — a name, a member expression,
+// a nested literal — or one with a `= default`; a rest element must be
+// last with nothing after it, and a rest property's target must be simple.
+Expression* Parser::Impl::to_assignment_pattern(Expression* literal)
+{
+    if (literal->type == NodeType::ArrayLiteral) {
+        auto const* array = static_cast<ArrayLiteral const*>(literal);
+        auto* pattern = make<ArrayPattern>(literal->position);
+        pattern->end_offset = literal->end_offset;
+        for (std::size_t i = 0; i < array->elements.size(); ++i) {
+            Expression* element = array->elements[i];
+            if (element == nullptr) {
+                pattern->elements.push_back({});
+                continue;
+            }
+            if (element->type == NodeType::SpreadElement) {
+                if (i + 1 != array->elements.size() || array->trailing_comma) {
+                    fail(element->position, "Rest element must be last element");
+                    return nullptr;
+                }
+                Expression* target = static_cast<SpreadElement const*>(element)->argument;
+                if (target->type == NodeType::AssignmentExpression && !target->parenthesized) {
+                    fail(target->position, "Rest element may not have a default initializer");
+                    return nullptr;
+                }
+                pattern->rest = to_assignment_target(target, true);
+                if (!pattern->rest)
+                    return nullptr;
+                continue;
+            }
+            PatternElement converted;
+            if (element->type == NodeType::AssignmentExpression && !element->parenthesized) {
+                auto const* assignment = static_cast<AssignmentExpression const*>(element);
+                if (assignment->op != AssignmentOp::Assign) {
+                    fail(element->position, "Invalid destructuring assignment target");
+                    return nullptr;
+                }
+                converted.target = to_assignment_target(assignment->target, true);
+                converted.initializer = assignment->value;
+            } else {
+                converted.target = to_assignment_target(element, true);
+            }
+            if (!converted.target)
+                return nullptr;
+            pattern->elements.push_back(converted);
+        }
+        return pattern;
+    }
+    auto const* object = static_cast<ObjectLiteral const*>(literal);
+    auto* pattern = make<ObjectPattern>(literal->position);
+    pattern->end_offset = literal->end_offset;
+    for (std::size_t i = 0; i < object->properties.size(); ++i) {
+        PropertyDefinition const& property = object->properties[i];
+        if (property.kind == PropertyDefinition::Kind::Spread) {
+            if (i + 1 != object->properties.size() || object->trailing_comma) {
+                fail(property.value->position, "Rest element must be last element");
+                return nullptr;
+            }
+            // §13.15.5.1: the rest property's target is never a pattern.
+            pattern->rest = to_assignment_target(property.value, false);
+            if (!pattern->rest)
+                return nullptr;
+            continue;
+        }
+        if (property.kind != PropertyDefinition::Kind::Init) {
+            fail(property.value->position, "Invalid destructuring assignment target");
+            return nullptr;
+        }
+        PatternProperty converted;
+        converted.key = property.key;
+        converted.computed_key = property.computed_key;
+        Expression* value = property.value;
+        if (value->type == NodeType::AssignmentExpression && !value->parenthesized) {
+            auto const* assignment = static_cast<AssignmentExpression const*>(value);
+            if (assignment->op != AssignmentOp::Assign) {
+                fail(value->position, "Invalid destructuring assignment target");
+                return nullptr;
+            }
+            converted.target = to_assignment_target(assignment->target, true);
+            converted.initializer = assignment->value;
+        } else {
+            converted.target = to_assignment_target(value, true);
+        }
+        if (!converted.target)
+            return nullptr;
+        pattern->properties.push_back(converted);
+    }
+    return pattern;
+}
+
+// DestructuringAssignmentTarget: a nested literal becomes a pattern (not
+// in parentheses, and not where `allow_pattern` says a name or member is
+// wanted); otherwise a simple assignment target.
+Expression* Parser::Impl::to_assignment_target(Expression* target, bool allow_pattern)
+{
+    if (target->type == NodeType::ArrayPattern || target->type == NodeType::ObjectPattern)
+        return target; // converted already, by the `=` inside the literal
+    if ((target->type == NodeType::ArrayLiteral || target->type == NodeType::ObjectLiteral) && !target->parenthesized) {
+        if (!allow_pattern) {
+            fail(target->position, "`...` must be followed by an assignable reference in assignment contexts");
+            return nullptr;
+        }
+        return to_assignment_pattern(target);
+    }
+    if (target->type == NodeType::Identifier) {
+        if (is_strict() && is_eval_or_arguments(static_cast<Identifier const*>(target)->name->view())) {
+            fail(target->position, "Unexpected eval or arguments in strict mode");
+            return nullptr;
+        }
+        return target;
+    }
+    if (target->type == NodeType::MemberExpression) {
+        // A literal inside the member expression stays a literal, so an
+        // error deferred inside it is an error after all.
+        for (CoverError const& error : m_cover_errors) {
+            if (error.position.offset >= target->position.offset && error.position.offset < target->end_offset) {
+                fail(error.position, error.message);
+                return nullptr;
+            }
+        }
+        if (!check_simple_target(target, target->position, "in assignment"))
+            return nullptr;
+        return target;
+    }
+    fail(target->position, "Invalid destructuring assignment target");
+    return nullptr;
 }
 
 // ---- functions --------------------------------------------------------------
@@ -1908,17 +2292,75 @@ bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std:
     if (!expect(Punctuator::LeftParen))
         return false;
     std::vector<Token> parameter_tokens;
+    if (!parse_formal_parameters(fn, parameter_tokens))
+        return false;
+    if (!parse_function_body(fn))
+        return false;
+    // §15.2.1: a function with defaults, a rest or a pattern cannot make
+    // itself strict — its parameters would have been parsed sloppily.
+    if (function().use_strict_directive && !fn->has_simple_parameter_list)
+        return fail(fn->position, "Illegal 'use strict' directive in function with non-simple parameter list");
+    if (!finish_parameters(fn, kind, parameter_tokens, name_token))
+        return false;
+    leave();
+    return pop_function();
+}
+
+// FormalParameters (§15.1), from after the `(` through the `)`: names,
+// patterns, defaults and a rest parameter, each name recorded on the
+// function context so the body's declarations see it.
+bool Parser::Impl::parse_formal_parameters(FunctionNode* fn, std::vector<Token>& bound)
+{
+    FunctionContext& context = function();
+    bool counting = true; // still before the first default or the rest
     while (!m_current.is(Punctuator::RightParen)) {
-        if (m_current.is(Punctuator::Ellipsis))
-            return fail_unsupported("rest parameters");
-        if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace))
-            return fail_unsupported("destructuring patterns");
-        if (m_current.type != TokenType::Identifier)
-            return fail_unexpected();
-        parameter_tokens.push_back(m_current);
-        advance();
-        if (m_current.is(Punctuator::Assign))
-            return fail_unsupported("default parameters");
+        Parameter parameter;
+        std::vector<Token> names;
+        if (m_current.is(Punctuator::Ellipsis)) {
+            advance();
+            parameter.is_rest = true;
+            fn->has_simple_parameter_list = false;
+            counting = false;
+        }
+        if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace)) {
+            m_pattern_has_expression = false;
+            parameter.pattern = parse_binding_pattern(names);
+            if (!parameter.pattern)
+                return false;
+            fn->has_simple_parameter_list = false;
+            if (m_pattern_has_expression)
+                fn->has_parameter_expressions = true;
+        } else {
+            if (m_current.type != TokenType::Identifier)
+                return fail_unexpected();
+            names.push_back(m_current);
+            parameter.name = atom(m_current.value);
+            advance();
+        }
+        if (m_current.is(Punctuator::Assign)) {
+            if (parameter.is_rest)
+                return fail(m_current.position, "Rest parameter may not have a default initializer");
+            advance();
+            parameter.initializer = parse_assignment(true);
+            if (!parameter.initializer)
+                return false;
+            fn->has_simple_parameter_list = false;
+            fn->has_parameter_expressions = true;
+            counting = false;
+        }
+        if (counting)
+            ++fn->expected_argument_count;
+        for (Token const& token : names) {
+            if (!context.parameter_names.insert(atom(token.value)).second)
+                fn->has_duplicate_parameters = true;
+            bound.push_back(token);
+        }
+        fn->parameters.push_back(parameter);
+        if (parameter.is_rest) {
+            if (!m_current.is(Punctuator::RightParen))
+                return fail(m_current.position, m_current.is(Punctuator::Comma) ? "Rest parameter must be last formal parameter" : describe_token(m_current));
+            break;
+        }
         if (m_current.is(Punctuator::Comma)) {
             advance();
             continue;
@@ -1927,19 +2369,7 @@ bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std:
             return fail_unexpected();
     }
     advance(); // )
-    FunctionContext& context = function();
-    for (Token const& token : parameter_tokens) {
-        JsString* name = atom(token.value);
-        fn->parameters.push_back(name);
-        if (!context.parameter_names.insert(name).second)
-            fn->has_duplicate_parameters = true;
-    }
-    if (!parse_function_body(fn))
-        return false;
-    if (!finish_parameters(fn, kind, parameter_tokens, name_token))
-        return false;
-    leave();
-    return pop_function();
+    return true;
 }
 
 bool Parser::Impl::parse_function_body(FunctionNode* fn)
@@ -1979,6 +2409,7 @@ bool Parser::Impl::parse_directive_prologue(std::vector<Statement*>& body)
             break;
         if (directive.value == use_strict_directive && !directive.has_escape) {
             fn.is_strict = true;
+            fn.use_strict_directive = true;
             if (fn.node)
                 fn.node->is_strict = true;
             else
@@ -2002,10 +2433,11 @@ bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::v
         if (!check_binding_identifier(token, strict))
             return false;
     }
-    // Duplicates are allowed only in a sloppy plain function (§15.2.1);
-    // arrows, methods and accessors use UniqueFormalParameters.
+    // Duplicates are allowed only in a sloppy plain function with a simple
+    // list (§15.2.1); arrows, methods and accessors use
+    // UniqueFormalParameters, and a default, rest or pattern forbids them.
     bool const plain = kind == FunctionKind::Declaration || kind == FunctionKind::Expression;
-    if (fn->has_duplicate_parameters && (strict || !plain)) {
+    if (fn->has_duplicate_parameters && (strict || !plain || !fn->has_simple_parameter_list)) {
         std::unordered_set<JsString*> seen;
         for (Token const& token : parameter_tokens) {
             if (!seen.insert(atom(token.value)).second)
@@ -2015,8 +2447,8 @@ bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::v
     if (name_token && !check_binding_identifier(*name_token, strict))
         return false;
     if (kind == FunctionKind::Getter && !fn->parameters.empty())
-        return fail(parameter_tokens.front().position, "Getter must not have any formal parameters");
-    if (kind == FunctionKind::Setter && fn->parameters.size() != 1)
+        return fail(fn->position, "Getter must not have any formal parameters");
+    if (kind == FunctionKind::Setter && (fn->parameters.size() != 1 || fn->parameters[0].is_rest))
         return fail(fn->position, "Setter must have exactly one formal parameter");
     return true;
 }
@@ -2268,16 +2700,19 @@ VariableDeclaration* Parser::Impl::parse_declaration_list(VariableDeclaration::K
     auto* declaration = make<VariableDeclaration>(start);
     declaration->kind = kind;
     while (true) {
-        if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace)) {
-            fail_unsupported("destructuring patterns");
-            return nullptr;
-        }
-        if (!check_binding_identifier(m_current, is_strict()))
-            return nullptr;
         VariableDeclarator declarator;
-        declarator.name = atom(m_current.value);
-        SourcePosition const name_position = m_current.position;
-        advance();
+        std::vector<Token> bound;
+        if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace)) {
+            declarator.pattern = parse_binding_pattern(bound);
+            if (!declarator.pattern)
+                return nullptr;
+        } else {
+            if (!check_binding_identifier(m_current, is_strict()))
+                return nullptr;
+            bound.push_back(m_current);
+            declarator.name = atom(m_current.value);
+            advance();
+        }
         if (m_current.is(Punctuator::Assign)) {
             advance();
             declarator.init = parse_assignment(allow_in);
@@ -2286,12 +2721,20 @@ VariableDeclaration* Parser::Impl::parse_declaration_list(VariableDeclaration::K
         } else if (kind == VariableDeclaration::Kind::Const && !in_for_head) {
             fail(m_current.position, "Missing initializer in const declaration");
             return nullptr;
-        }
-        bool const declared = kind == VariableDeclaration::Kind::Var
-            ? declare_var(declarator.name, name_position)
-            : declare_lexical(declarator.name, kind == VariableDeclaration::Kind::Const, name_position);
-        if (!declared)
+        } else if (declarator.pattern && !in_for_head) {
+            fail(m_current.position, "Missing initializer in destructuring declaration");
             return nullptr;
+        }
+        for (Token const& token : bound) {
+            if (declarator.pattern && !check_binding_identifier(token, is_strict()))
+                return nullptr;
+            JsString* name = atom(token.value);
+            bool const declared = kind == VariableDeclaration::Kind::Var
+                ? declare_var(name, token.position)
+                : declare_lexical(name, kind == VariableDeclaration::Kind::Const, token.position);
+            if (!declared)
+                return nullptr;
+        }
         declaration->declarations.push_back(declarator);
         if (!m_current.is(Punctuator::Comma))
             break;
@@ -2370,9 +2813,21 @@ Statement* Parser::Impl::parse_for()
         if (!declaration)
             return nullptr;
     } else if (!m_current.is(Punctuator::Semicolon)) {
-        target = parse_expression(false);
+        // The head may be the cover of an assignment pattern: `for ([a, b]
+        // of pairs)`, decided by what follows it.
+        std::size_t const cover_mark = m_cover_errors.size();
+        target = parse_expression(false, true);
         if (!target)
             return nullptr;
+        bool const loop_head = m_current.is(Keyword::In) || (m_current.is_identifier(u"of") && !m_current.has_escape);
+        if (loop_head && (target->type == NodeType::ArrayLiteral || target->type == NodeType::ObjectLiteral) && !target->parenthesized) {
+            target = to_assignment_pattern(target);
+            if (!target)
+                return nullptr;
+            m_cover_errors.resize(cover_mark);
+        } else if (!check_cover(cover_mark)) {
+            return nullptr;
+        }
     }
 
     if (m_current.is(Keyword::In) || (m_current.is_identifier(u"of") && !m_current.has_escape)) {
@@ -2383,18 +2838,16 @@ Statement* Parser::Impl::parse_for()
                 fail(head_start, "Invalid left-hand side " + std::string(loop_name) + ": Must have a single binding");
                 return nullptr;
             }
-            // B.3.5: `for (var x = 1 in o)` survives in sloppy code only; a
-            // for-of head never takes an initializer.
+            // B.3.5: `for (var x = 1 in o)` survives in sloppy code only, and
+            // only for a plain name; a for-of head never takes an initializer.
             if (declaration->declarations[0].init
-                && (is_of || declaration->kind != VariableDeclaration::Kind::Var || is_strict())) {
+                && (is_of || declaration->kind != VariableDeclaration::Kind::Var || is_strict() || declaration->declarations[0].pattern)) {
                 fail(head_start, std::string(is_of ? "for-of" : "for-in") + " loop variable declaration may not have an initializer");
                 return nullptr;
             }
             finish(declaration);
-        } else if ((target->type == NodeType::ArrayLiteral || target->type == NodeType::ObjectLiteral)
-            && !m_parenthesised.contains(target)) {
-            fail_unsupported("destructuring patterns");
-            return nullptr;
+        } else if (is_pattern(target)) {
+            // Converted above.
         } else if (is_of && target->type == NodeType::Identifier && !m_parenthesised.contains(target)
             && static_cast<Identifier const*>(target)->name->equals(u"async")) {
             // §14.7.5.1: `for (async of …)` is kept apart from an async
@@ -2691,21 +3144,33 @@ Statement* Parser::Impl::parse_try()
         advance();
         if (m_current.is(Punctuator::LeftParen)) {
             advance();
+            std::vector<Token> bound;
             if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace)) {
-                fail_unsupported("destructuring patterns");
-                return nullptr;
+                statement->catch_pattern = parse_binding_pattern(bound);
+                if (!statement->catch_pattern)
+                    return nullptr;
+            } else {
+                if (!check_binding_identifier(m_current, is_strict()))
+                    return nullptr;
+                bound.push_back(m_current);
+                statement->catch_parameter = atom(m_current.value);
+                advance();
             }
-            if (!check_binding_identifier(m_current, is_strict()))
-                return nullptr;
-            statement->catch_parameter = atom(m_current.value);
-            advance();
             if (!expect(Punctuator::RightParen))
                 return nullptr;
             // The parameter's own scope (§14.15.1): the body's lexicals
-            // may not redeclare it; a `var` may (B.3.4).
+            // may not redeclare its names, nor may they repeat; a `var`
+            // may redeclare a plain name (B.3.4), never a pattern's.
             Scope& parameter_scope = push_scope(nullptr);
-            parameter_scope.is_catch_parameter = true;
-            parameter_scope.lexical_names.insert(statement->catch_parameter);
+            parameter_scope.is_catch_parameter = statement->catch_parameter != nullptr;
+            for (Token const& token : bound) {
+                if (statement->catch_pattern && !check_binding_identifier(token, is_strict()))
+                    return nullptr;
+                if (!parameter_scope.lexical_names.insert(atom(token.value)).second) {
+                    fail(token.position, "Identifier '" + utf8_from_utf16(token.value) + "' has already been declared");
+                    return nullptr;
+                }
+            }
             if (!m_current.is(Punctuator::LeftBrace)) {
                 fail_unexpected();
                 return nullptr;
@@ -3018,7 +3483,7 @@ struct Dumper {
         for (std::size_t i = 0; i < fn.parameters.size(); ++i) {
             if (i > 0)
                 out += ' ';
-            name(fn.parameters[i]);
+            parameter(fn.parameters[i]);
         }
         out += ')';
         if (fn.expression_body) {
@@ -3033,6 +3498,39 @@ struct Dumper {
         out += ')';
     }
 
+    // A parameter: name | pattern | (= param init) | (... param).
+    void parameter(Parameter const& p)
+    {
+        if (p.is_rest)
+            out += "(... ";
+        if (p.initializer)
+            out += "(= ";
+        if (p.pattern)
+            expression(p.pattern);
+        else
+            name(p.name);
+        if (p.initializer) {
+            out += ' ';
+            expression(p.initializer);
+            out += ')';
+        }
+        if (p.is_rest)
+            out += ')';
+    }
+
+    // A pattern element's target with its default: target | (= target init).
+    void target(Expression const* t, Expression const* initializer)
+    {
+        if (initializer)
+            out += "(= ";
+        expression(t);
+        if (initializer) {
+            out += ' ';
+            expression(initializer);
+            out += ')';
+        }
+    }
+
     void declarators(VariableDeclaration const& declaration)
     {
         switch (declaration.kind) {
@@ -3042,7 +3540,10 @@ struct Dumper {
         }
         for (VariableDeclarator const& declarator : declaration.declarations) {
             out += " (";
-            name(declarator.name);
+            if (declarator.pattern)
+                expression(declarator.pattern);
+            else
+                name(declarator.name);
             if (declarator.init) {
                 out += ' ';
                 expression(declarator.init);
@@ -3250,6 +3751,48 @@ struct Dumper {
             expression(static_cast<SpreadElement const*>(e)->argument);
             out += ')';
             break;
+        case NodeType::ArrayPattern: {
+            auto const* pattern = static_cast<ArrayPattern const*>(e);
+            out += "(array-pattern";
+            for (PatternElement const& element : pattern->elements) {
+                out += ' ';
+                if (element.target)
+                    target(element.target, element.initializer);
+                else
+                    out += "hole";
+            }
+            if (pattern->rest) {
+                out += " (... ";
+                expression(pattern->rest);
+                out += ')';
+            }
+            out += ')';
+            break;
+        }
+        case NodeType::ObjectPattern: {
+            auto const* pattern = static_cast<ObjectPattern const*>(e);
+            out += "(object-pattern";
+            for (PatternProperty const& property : pattern->properties) {
+                out += " (";
+                if (property.computed_key) {
+                    out += "(computed ";
+                    expression(property.computed_key);
+                    out += ')';
+                } else {
+                    quoted(property.key->view());
+                }
+                out += ' ';
+                target(property.target, property.initializer);
+                out += ')';
+            }
+            if (pattern->rest) {
+                out += " (... ";
+                expression(pattern->rest);
+                out += ')';
+            }
+            out += ')';
+            break;
+        }
         default:
             out += "(?)";
             break;
@@ -3409,7 +3952,10 @@ struct Dumper {
             statement(guard->block);
             if (guard->handler) {
                 out += " (catch ";
-                if (guard->catch_parameter) {
+                if (guard->catch_pattern) {
+                    expression(guard->catch_pattern);
+                    out += ' ';
+                } else if (guard->catch_parameter) {
                     name(guard->catch_parameter);
                     out += ' ';
                 }

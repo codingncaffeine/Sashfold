@@ -80,6 +80,18 @@ std::string names(std::vector<js::JsString*> const& list)
     return out;
 }
 
+// The plain names of a parameter list ("a b"); a pattern prints as [].
+std::string parameter_names(js::FunctionNode const& fn)
+{
+    std::string out;
+    for (js::Parameter const& parameter : fn.parameters) {
+        if (!out.empty())
+            out += ' ';
+        out += parameter.name ? parameter.name->to_utf8() : std::string("[]");
+    }
+    return out;
+}
+
 // "a const:b" for let a, const b.
 std::string lexical_names(std::vector<std::pair<js::JsString*, bool>> const& list)
 {
@@ -292,8 +304,17 @@ void test_arrows()
     CHECK_EQ(parse("x = y => y * 2"), expression_of("(assign = (id x) (arrow (y) (binary * (id y) (number 2))))"));
     CHECK_EQ(parse("f(x => x, 1)"), expression_of("(call (id f) (arrow (x) (id x)) (number 1))"));
     CHECK_EQ(parse("x => x ? 1 : 2"), expression_of("(arrow (x) (cond (id x) (number 1) (number 2)))"));
-    CHECK_EQ(parse("(a = 1) => 1"), "default parameters are not supported yet");
-    CHECK_EQ(parse("([a]) => 1"), "destructuring patterns are not supported yet");
+    CHECK_EQ(parse("(a = 1) => 1"), expression_of("(arrow ((= a (number 1))) (number 1))"));
+    CHECK_EQ(parse("([a]) => 1"), expression_of("(arrow ((array-pattern (id a))) (number 1))"));
+    CHECK_EQ(parse("(a, ...b) => b"), expression_of("(arrow (a (... b)) (id b))"));
+    CHECK_EQ(parse("({a, b: [c] = []}, d = a) => d"), expression_of("(arrow ((object-pattern (\"a\" (id a)) (\"b\" (= (array-pattern (id c)) (array)))) (= d (id a))) (id d))"));
+    // A template inside the head does not confuse the lookahead.
+    CHECK_EQ(parse("(a = `${(1)}`) => a"), expression_of("(arrow ((= a (template (\"\" \"\") ((number 1))))) (id a))"));
+    CHECK_EQ(parse("(a = `${1}`) => a"), expression_of("(arrow ((= a (template (\"\" \"\") ((number 1))))) (id a))"));
+    CHECK_EQ(parse("(...a, b) => 1"), "Rest parameter must be last formal parameter");
+    CHECK_EQ(parse("(...a = []) => 1"), "Rest parameter may not have a default initializer");
+    CHECK_EQ(parse("(a = 1) => { 'use strict'; }"), "Illegal 'use strict' directive in function with non-simple parameter list");
+    CHECK_EQ(parse("([a, a]) => 1"), "Duplicate parameter name not allowed in this context");
     CHECK_EQ(parse("(a, b)\n=> 1"), "Unexpected token '=>'");
     CHECK_EQ(parse("x\n=> 1"), "Unexpected token '=>'");
     CHECK_EQ(parse("()"), "Unexpected token ')'");
@@ -370,7 +391,13 @@ void test_object_literals()
     CHECK_EQ(parse("({get a(x) {}})"), "Getter must not have any formal parameters");
     CHECK_EQ(parse("({set a() {}})"), "Setter must have exactly one formal parameter");
     CHECK_EQ(parse("({set a(x, y) {}})"), "Setter must have exactly one formal parameter");
-    CHECK_EQ(parse("({a = 1})"), "destructuring patterns are not supported yet");
+    CHECK_EQ(parse("({a = 1})"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("f({a = 1})"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("[{a = 1}]"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("({a = 1}.b = 2)"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("x = {a = 1}"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("({__proto__: 1, __proto__: 2})"), "Duplicate __proto__ fields are not allowed in object literals");
+    CHECK_EQ(parse("({__proto__: a, __proto__: b} = o)"), expression_of("(assign = (object-pattern (\"__proto__\" (id a)) (\"__proto__\" (id b))) (id o))"));
     CHECK_EQ(parse("({if: 1, class: 2, this: 3})"), expression_of("(object (init \"if\" (number 1)) (init \"class\" (number 2)) (init \"this\" (number 3)))"));
     CHECK_EQ(parse("({if})"), "Unexpected token '}'");
     CHECK_EQ(parse("({1.5: x, 0x10: y, 1e3: z, .5: w})"), expression_of("(object (init \"1.5\" (id x)) (init \"16\" (id y)) (init \"1000\" (id z)) (init \"0.5\" (id w)))"));
@@ -415,7 +442,7 @@ void test_array_literals()
     CHECK_EQ(parse("[...a]"), program_of("(expr (array (spread (id a))))"));
     CHECK_EQ(parse("[1, ...a, , ...b]"), program_of("(expr (array (number 1) (spread (id a)) hole (spread (id b))))"));
     CHECK_EQ(parse("new F(...a, 2)"), program_of("(expr (new (id F) (spread (id a)) (number 2)))"));
-    CHECK_EQ(parse("...a"), "rest parameters are not supported yet");
+    CHECK_EQ(parse("...a"), "Unexpected token '...'");
     CHECK_EQ(parse("[...a, ]"), program_of("(expr (array (spread (id a))))"));
     CHECK_EQ(parse("[... a]"), program_of("(expr (array (spread (id a))))"));
     CHECK_EQ(parse("[a b]"), "Unexpected identifier 'b'");
@@ -474,7 +501,12 @@ void test_statements()
     CHECK_EQ(parse("try { a } catch { b }"), program_of("(try (block (expr (id a))) (catch (block (expr (id b)))))"));
     CHECK_EQ(parse("try { a } finally { c }"), program_of("(try (block (expr (id a))) (finally (block (expr (id c)))))"));
     CHECK_EQ(parse("try { a }"), "Missing catch or finally after try");
-    CHECK_EQ(parse("try { } catch ([e]) { }"), "destructuring patterns are not supported yet");
+    CHECK_EQ(parse("try { } catch ([e]) { }"), program_of("(try (block) (catch (array-pattern (id e)) (block)))"));
+    CHECK_EQ(parse("try { } catch ({message: m, code = 0}) { }"), program_of("(try (block) (catch (object-pattern (\"message\" (id m)) (\"code\" (= (id code) (number 0)))) (block)))"));
+    CHECK_EQ(parse("try { } catch ([e, e]) { }"), "Identifier 'e' has already been declared");
+    CHECK_EQ(parse("try { } catch ([e]) { var e; }"), "Identifier 'e' has already been declared");
+    CHECK_EQ(parse("try { } catch ([e]) { let e; }"), "Identifier 'e' has already been declared");
+    CHECK_EQ(parse("try { } catch (e) { var e; }"), program_of("(try (block) (catch e (block (var (e)))))"));
     CHECK_EQ(parse("switch (x) { case 1: a; b; case 2: default: c }"),
         program_of("(switch (id x) (case (number 1) (expr (id a)) (expr (id b))) (case (number 2)) (default (expr (id c))))"));
     CHECK_EQ(parse("switch (x) { default: a; default: b }"), "More than one default clause in switch statement");
@@ -504,8 +536,25 @@ void test_statements()
     CHECK_EQ(parse("let\nx = 1"), program_of("(let (x (number 1)))"));
     CHECK_EQ(parse("let.x"), expression_of("(member (id let) x)"));
     CHECK_EQ(parse("var let = 1"), program_of("(var (let (number 1)))"));
-    CHECK_EQ(parse("let [a] = b"), "destructuring patterns are not supported yet");
-    CHECK_EQ(parse("var {a} = b"), "destructuring patterns are not supported yet");
+    CHECK_EQ(parse("let [a] = b"), program_of("(let ((array-pattern (id a)) (id b)))"));
+    CHECK_EQ(parse("var {a} = b"), program_of("(var ((object-pattern (\"a\" (id a))) (id b)))"));
+    CHECK_EQ(parse("const [a, , b = 1, ...c] = d"), program_of("(const ((array-pattern (id a) hole (= (id b) (number 1)) (... (id c))) (id d)))"));
+    CHECK_EQ(parse("var {a: [b], 'c': d, 1: e, [f]: g = 2, ...h} = i"), program_of("(var ((object-pattern (\"a\" (array-pattern (id b))) (\"c\" (id d)) (\"1\" (id e)) ((computed (id f)) (= (id g) (number 2))) (... (id h))) (id i)))"));
+    CHECK_EQ(parse("let [a];"), "Missing initializer in destructuring declaration");
+    CHECK_EQ(parse("var [a];"), "Missing initializer in destructuring declaration");
+    CHECK_EQ(parse("let [a, a] = b"), "Identifier 'a' has already been declared");
+    CHECK_EQ(parse("let [let] = b"), "let is disallowed as a lexically bound name");
+    CHECK_EQ(parse("var [...a, b] = c"), "Rest element must be last element");
+    CHECK_EQ(parse("var [...a = 1] = c"), "Rest element may not have a default initializer");
+    CHECK_EQ(parse("var {...a, b} = c"), "Rest element must be last element");
+    CHECK_EQ(parse("var {...[a]} = c"), "Unexpected token '['");
+    CHECK_EQ(parse("var {if} = c"), "Unexpected token 'if'");
+    CHECK_EQ(parse("var {if: a} = c"), program_of("(var ((object-pattern (\"if\" (id a))) (id c)))"));
+    CHECK_EQ(parse_strict("var [eval] = c"), "Unexpected eval or arguments in strict mode");
+    CHECK_EQ(parse("for (let [a, b] of c) ;"), program_of("(for-of (let ((array-pattern (id a) (id b)))) (id c) (empty))"));
+    CHECK_EQ(parse("for (var {a} in c) ;"), program_of("(for-in (var ((object-pattern (\"a\" (id a))))) (id c) (empty))"));
+    CHECK_EQ(parse("for (var [a] = [] in c) ;"), "for-in loop variable declaration may not have an initializer");
+    CHECK_EQ(parse("for (let [a] = [1]; ; ) break"), program_of("(for (let ((array-pattern (id a)) (array (number 1)))) - - (break))"));
     CHECK_EQ(parse("a.if + a.class + a.new"), expression_of("(binary + (binary + (member (id a) if) (member (id a) class)) (member (id a) new))"));
     CHECK_EQ(parse("\\u0069f (x) {}"), "Keyword must not contain escaped characters");
     CHECK_EQ(parse("var \\u0069f"), "Keyword must not contain escaped characters");
@@ -694,8 +743,8 @@ void test_declarations()
     CHECK(parsed.program != nullptr);
     if (parsed.program) {
         js::FunctionNode const* f = function_in(parsed.program->body, 0);
-        CHECK(f && names(f->declarations.vars) == "");
-        CHECK(f && names(f->parameters) == "a b");
+        CHECK(f && names(f->declarations.vars) == "a");
+        CHECK(f && parameter_names(*f) == "a b");
     }
     CHECK_EQ(parse("{ let a; var a; }"), "Identifier 'a' has already been declared");
     CHECK_EQ(parse("{ var a; } let a;"), "Identifier 'a' has already been declared");
@@ -746,7 +795,7 @@ void test_function_nodes()
         CHECK(f != nullptr);
         if (f) {
             CHECK_EQ(f->name->to_utf8(), "f");
-            CHECK_EQ(names(f->parameters), "a b");
+            CHECK_EQ(parameter_names(*f), "a b");
             CHECK(f->uses_arguments && f->uses_this && f->has_direct_eval);
             CHECK(!f->is_arrow && f->is_constructable && !f->is_getter && !f->is_setter && !f->is_strict && !f->has_duplicate_parameters);
             CHECK_EQ(source_of(*parsed.program, *f), "function f(a, b) { arguments; this; eval(\"x\"); }");
@@ -961,13 +1010,90 @@ void test_nesting_cap()
     CHECK(parse_source(members).program != nullptr);
 }
 
+// Destructuring: parameters, and the cover grammar's assignment patterns.
+void test_patterns()
+{
+    // Parameters: defaults, rest, patterns, and what they do to the list.
+    CHECK_EQ(parse("function f(a = 1) {}"), program_of("(function f ((= a (number 1))))"));
+    CHECK_EQ(parse("function f(...r) {}"), program_of("(function f ((... r)))"));
+    CHECK_EQ(parse("function f([a], {b}) {}"), program_of("(function f ((array-pattern (id a)) (object-pattern (\"b\" (id b)))))"));
+    CHECK_EQ(parse("function f(a, b = a, ...[c, d]) {}"), program_of("(function f (a (= b (id a)) (... (array-pattern (id c) (id d)))))"));
+    CHECK_EQ(parse("function f(a = 1) { 'use strict'; }"), "Illegal 'use strict' directive in function with non-simple parameter list");
+    CHECK_EQ(parse("function f(a, a = 1) {}"), "Duplicate parameter name not allowed in this context");
+    CHECK_EQ(parse("function f(a, [a]) {}"), "Duplicate parameter name not allowed in this context");
+    CHECK_EQ(parse("function f(a, a) {}"), program_of("(function f (a a))"));
+    CHECK_EQ(parse("function f(...a, b) {}"), "Rest parameter must be last formal parameter");
+    CHECK_EQ(parse("function f(...a,) {}"), "Rest parameter must be last formal parameter");
+    CHECK_EQ(parse("function f(...a = []) {}"), "Rest parameter may not have a default initializer");
+    CHECK_EQ(parse("function f([a]) { let a; }"), "Identifier 'a' has already been declared");
+    CHECK_EQ(parse("({ set x(v = 1) {} })"), expression_of("(object (set \"x\" (function x ((= v (number 1))))))"));
+    CHECK_EQ(parse("({ set x(...v) {} })"), "Setter must have exactly one formal parameter");
+    CHECK_EQ(parse("({ get x([a]) {} })"), "Getter must not have any formal parameters");
+    CHECK_EQ(parse_strict("function f([eval]) {}"), "Unexpected eval or arguments in strict mode");
+    Parsed parsed = parse_source("function f(a, b = 1, c) {} function g(...r) {} function h([a], b) {} function k(a, b) {}");
+    CHECK(parsed.program != nullptr);
+    if (parsed.program) {
+        js::FunctionNode const* f = function_in(parsed.program->body, 0);
+        js::FunctionNode const* g = function_in(parsed.program->body, 1);
+        js::FunctionNode const* h = function_in(parsed.program->body, 2);
+        js::FunctionNode const* k = function_in(parsed.program->body, 3);
+        CHECK(f && f->expected_argument_count == 1 && !f->has_simple_parameter_list && f->has_parameter_expressions);
+        CHECK(g && g->expected_argument_count == 0 && !g->has_simple_parameter_list && !g->has_parameter_expressions);
+        CHECK(h && h->expected_argument_count == 2 && !h->has_simple_parameter_list && !h->has_parameter_expressions);
+        CHECK(k && k->expected_argument_count == 2 && k->has_simple_parameter_list && !k->has_parameter_expressions);
+    }
+    parsed = parse_source("function f([a = 1]) {} function g({[k]: v}) {}");
+    CHECK(parsed.program != nullptr);
+    if (parsed.program) {
+        js::FunctionNode const* f = function_in(parsed.program->body, 0);
+        js::FunctionNode const* g = function_in(parsed.program->body, 1);
+        CHECK(f && f->has_parameter_expressions);
+        CHECK(g && g->has_parameter_expressions);
+    }
+
+    // Assignment patterns, converted from the literal that covered them.
+    CHECK_EQ(parse("[a, b] = c"), expression_of("(assign = (array-pattern (id a) (id b)) (id c))"));
+    CHECK_EQ(parse("[a, , b = 1, ...c] = d"), expression_of("(assign = (array-pattern (id a) hole (= (id b) (number 1)) (... (id c))) (id d))"));
+    CHECK_EQ(parse("[o.x, o[y], [z]] = d"), expression_of("(assign = (array-pattern (member (id o) x) (index (id o) (id y)) (array-pattern (id z))) (id d))"));
+    CHECK_EQ(parse("({a} = b)"), expression_of("(assign = (object-pattern (\"a\" (id a))) (id b))"));
+    CHECK_EQ(parse("({a = 1} = b)"), expression_of("(assign = (object-pattern (\"a\" (= (id a) (number 1)))) (id b))"));
+    CHECK_EQ(parse("({a: b.c = 1, [d]: e, ...f} = g)"), expression_of("(assign = (object-pattern (\"a\" (= (member (id b) c) (number 1))) ((computed (id d)) (id e)) (... (id f))) (id g))"));
+    CHECK_EQ(parse("[[a] = [1]] = b"), expression_of("(assign = (array-pattern (= (array-pattern (id a)) (array (number 1)))) (id b))"));
+    CHECK_EQ(parse("[(a)] = b"), expression_of("(assign = (array-pattern (id a)) (id b))"));
+    CHECK_EQ(parse("[(a.b)] = c"), expression_of("(assign = (array-pattern (member (id a) b)) (id c))"));
+    CHECK_EQ(parse("x = [a] = b"), expression_of("(assign = (id x) (assign = (array-pattern (id a)) (id b)))"));
+    CHECK_EQ(parse("for ([a, b] of c) ;"), program_of("(for-of (array-pattern (id a) (id b)) (id c) (empty))"));
+    CHECK_EQ(parse("for ({a} in c) ;"), program_of("(for-in (object-pattern (\"a\" (id a))) (id c) (empty))"));
+    CHECK_EQ(parse("[a + 1] = b"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("[f()] = b"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("[([a])] = b"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("[...a, b] = c"), "Rest element must be last element");
+    CHECK_EQ(parse("[...a,] = c"), "Rest element must be last element");
+    CHECK_EQ(parse("[...a = 1] = c"), "Rest element may not have a default initializer");
+    CHECK_EQ(parse("[...[a]] = c"), expression_of("(assign = (array-pattern (... (array-pattern (id a)))) (id c))"));
+    CHECK_EQ(parse("({...a,} = c)"), "Rest element must be last element");
+    CHECK_EQ(parse("({...{a}} = c)"), "`...` must be followed by an assignable reference in assignment contexts");
+    CHECK_EQ(parse("({...a.b} = c)"), expression_of("(assign = (object-pattern (... (member (id a) b))) (id c))"));
+    CHECK_EQ(parse("({get a() {}} = b)"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("({a() {}} = b)"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("({a: 1} = b)"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("[a] += b"), "Invalid left-hand side in assignment");
+    CHECK_EQ(parse("([a]) = b"), "Invalid left-hand side in assignment");
+    CHECK_EQ(parse("[a?.b] = c"), "Invalid left-hand side in assignment");
+    CHECK_EQ(parse_strict("[eval] = c"), "Unexpected eval or arguments in strict mode");
+    CHECK_EQ(parse_strict("({a: arguments} = c)"), "Unexpected eval or arguments in strict mode");
+    CHECK_EQ(parse("[{a = 1}.b] = c"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("[a = {b = 1}] = c"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("for ([a] = [1] of c) ;"), "Invalid left-hand side in for-of loop");
+    CHECK_EQ(parse("for ({a = 1}; ; ) ;"), "Invalid shorthand property initializer");
+    CHECK_EQ(parse("for ([a], b in c) ;"), "Invalid left-hand side in for-in loop");
+}
+
 void test_unsupported_features()
 {
     CHECK_EQ(parse("class A {}"), "class declarations are not supported yet");
     CHECK_EQ(parse("x = class {}"), "class expressions are not supported yet");
     CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
-    CHECK_EQ(parse("var [a] = b"), "destructuring patterns are not supported yet");
-    CHECK_EQ(parse("function f([a]) {}"), "destructuring patterns are not supported yet");
     CHECK_EQ(parse("async function f() {}"), "async functions are not supported yet");
     CHECK_EQ(parse("await x"), "async functions are not supported yet");
     CHECK_EQ(parse("for await (x of y);"), "async functions are not supported yet");
@@ -977,15 +1103,8 @@ void test_unsupported_features()
     CHECK_EQ(parse("import x from 'y'"), "modules are not supported yet");
     CHECK_EQ(parse("export var x"), "modules are not supported yet");
     CHECK_EQ(parse("super.x"), "super references are not supported yet");
-    CHECK_EQ(parse("function f(...r) {}"), "rest parameters are not supported yet");
-    CHECK_EQ(parse("function f(a = 1) {}"), "default parameters are not supported yet");
     CHECK_EQ(parse("x = 10n"), "BigInt literals are not supported");
-    CHECK_EQ(parse("[a, b] = c"), "destructuring patterns are not supported yet");
-    CHECK_EQ(parse("({a} = b)"), "destructuring patterns are not supported yet");
-    CHECK_EQ(parse("({a = 1} = b)"), "destructuring patterns are not supported yet");
-    CHECK_EQ(parse("for ([a] in o);"), "destructuring patterns are not supported yet");
     CHECK_EQ(parse("({a: 1}) = b"), "Invalid left-hand side in assignment");
-    CHECK_EQ(parse("(a = 1,) => 1"), "default parameters are not supported yet");
     CHECK_EQ(parse("async (a = 1) => 1"), "async functions are not supported yet");
     CHECK_EQ(parse("async ((a)) => 1"), "async functions are not supported yet");
     CHECK_EQ(parse("async function f() {}"), "async functions are not supported yet");
@@ -1049,6 +1168,7 @@ int main()
     test_error_positions();
     test_nesting_cap();
     test_unsupported_features();
+    test_patterns();
     test_function_constructor();
     return sashfold::test::report("js_parser");
 }

@@ -9,9 +9,10 @@
 // Coverage: ES5 whole, plus the pieces of later editions a tree-walker
 // takes cheaply and real pages use everywhere — let/const with block
 // scoping, arrow functions, template literals, `**`, `??`, `?.`, optional
-// catch binding, shorthand and computed property names. Classes,
-// generators, destructuring, spread, modules and async are parse errors
-// that name themselves.
+// catch binding, shorthand and computed property names, the iterator
+// protocol with for-of and spread, destructuring patterns, default and
+// rest parameters. Classes, generators, modules and async are parse
+// errors that name themselves.
 
 #include "js/Value.h"
 
@@ -57,6 +58,8 @@ enum class NodeType : std::uint8_t {
     MemberExpression,
     SequenceExpression,
     SpreadElement,
+    ArrayPattern,
+    ObjectPattern,
     // statements
     VariableDeclaration,
     FunctionDeclaration,
@@ -114,7 +117,9 @@ struct FunctionDeclaration;
 // What a scope declares, gathered while parsing so that instantiating it
 // (§16.1.7, §10.2.11, §14.2.3) walks lists rather than the tree.
 struct Declarations {
-    // `var` names, parameters excluded, first occurrence only.
+    // `var` names, first occurrence only; a parameter's name among them
+    // is that parameter's binding unless the parameters have a scope of
+    // their own.
     std::vector<JsString*> vars;
     // Hoisted function declarations in source order; for a name declared
     // twice the last one wins.
@@ -195,6 +200,7 @@ struct ArrayLiteral : Expression {
     {
     }
     std::vector<Expression*> elements; // nullptr = a hole
+    bool trailing_comma = false; // `[a, b,]`: fine in a literal, not after a pattern's rest element
 };
 
 struct PropertyDefinition {
@@ -213,11 +219,78 @@ struct ObjectLiteral : Expression {
     {
     }
     std::vector<PropertyDefinition> properties;
+    bool trailing_comma = false; // `{ a, }`: fine in a literal, not after a pattern's rest property
+};
+
+// The binding and assignment patterns of §14.3.3 and §13.15.5: an array
+// pattern takes its values from an iterator, an object pattern reads them
+// by key. A target is a name (an Identifier), a nested pattern, or in an
+// assignment pattern any simple assignment target (a member expression);
+// an element may carry a default, taken when its value is undefined.
+// Binding patterns (declarations, parameters, catch) are parsed as such;
+// an assignment pattern begins life as an array or object literal — the
+// cover grammar — and is converted when the `=` or the for-in/of head
+// after it says what it was.
+struct PatternElement {
+    Expression* target = nullptr; // null = an elision
+    Expression* initializer = nullptr;
+};
+
+struct ArrayPattern : Expression {
+    ArrayPattern()
+        : Expression(NodeType::ArrayPattern)
+    {
+    }
+    std::vector<PatternElement> elements;
+    Expression* rest = nullptr; // `...target`: the remaining values, as an array
+};
+
+struct PatternProperty {
+    JsString* key = nullptr; // a numeric key is stored as its canonical string
+    Expression* computed_key = nullptr; // `[expr]: target`; key is null then
+    Expression* target = nullptr;
+    Expression* initializer = nullptr;
+};
+
+struct ObjectPattern : Expression {
+    ObjectPattern()
+        : Expression(NodeType::ObjectPattern)
+    {
+    }
+    std::vector<PatternProperty> properties;
+    Expression* rest = nullptr; // `...target`: the properties not named above, copied into a fresh object
+};
+
+inline bool is_pattern(Expression const* expression)
+{
+    return expression->type == NodeType::ArrayPattern || expression->type == NodeType::ObjectPattern;
+}
+
+// A formal parameter (§15.1): a name or a binding pattern, an optional
+// default, and whether it is the rest parameter that takes the remaining
+// arguments as an array.
+struct Parameter {
+    JsString* name = nullptr; // null when pattern is set
+    Expression* pattern = nullptr; // an ArrayPattern or ObjectPattern
+    Expression* initializer = nullptr;
+    bool is_rest = false;
 };
 
 struct FunctionNode {
     JsString* name = nullptr; // null when anonymous
-    std::vector<JsString*> parameters;
+    std::vector<Parameter> parameters;
+    // IsSimpleParameterList: names only — no default, rest or pattern.
+    // Anything else means an unmapped arguments object, no duplicate
+    // names, and no "use strict" directive of the function's own.
+    bool has_simple_parameter_list = true;
+    // ContainsExpression: a default or a computed key somewhere in the
+    // list, which puts the parameters in a scope of their own so that
+    // closures made there cannot see the body's declarations (§10.2.11
+    // step 28).
+    bool has_parameter_expressions = false;
+    // ExpectedArgumentCount (§15.1.5), the function's `length`: the
+    // parameters before the first default or the rest.
+    std::uint32_t expected_argument_count = 0;
     std::vector<Statement*> body; // empty when expression_body is set
     Expression* expression_body = nullptr; // an arrow's concise body
     Declarations declarations; // the function's own var scope
@@ -345,7 +418,7 @@ struct AssignmentExpression : Expression {
     {
     }
     AssignmentOp op = AssignmentOp::Assign;
-    Expression* target = nullptr; // Identifier or MemberExpression
+    Expression* target = nullptr; // Identifier or MemberExpression; for `=` also a pattern
     Expression* value = nullptr;
 };
 
@@ -409,7 +482,8 @@ struct SpreadElement : Expression {
 };
 
 struct VariableDeclarator {
-    JsString* name = nullptr;
+    JsString* name = nullptr; // null when pattern is set
+    Expression* pattern = nullptr; // `var [a, b] = …`, `let { x } = …`
     Expression* init = nullptr;
 };
 
@@ -565,7 +639,8 @@ struct TryStatement : Statement {
     {
     }
     BlockStatement* block = nullptr;
-    JsString* catch_parameter = nullptr; // null for `catch {` and when there is no handler
+    JsString* catch_parameter = nullptr; // null for `catch {`, for a pattern, and when there is no handler
+    Expression* catch_pattern = nullptr; // `catch ([a]) {`, `catch ({ message }) {`
     BlockStatement* handler = nullptr;
     BlockStatement* finalizer = nullptr;
 };

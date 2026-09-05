@@ -31,7 +31,7 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 - **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, with **Sashfold Mono** as the honest last fallback; PNG, GIF and JPEG decoders, `srcset` and `<picture>`; CSS background images and gradients (layers, position, size, repeat, clip), rounded corners.
 - **A shell** — tabs, history, forms, pages running their own scripts (the DOM, events, timers), selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, boxes that scroll under the wheel, the keyboard and their own scrollbars, chrome drawn from a theme file, and a `--script` mode that drives it for CI.
 
-Not written yet: the newer half of JavaScript — a JavaScript engine of our own runs a page's scripts against the DOM, with events, timers and an event loop (ES5 plus `let`/`const`, arrows, template literals, `?.`, `??`, the standard library from Object to Date, a precise garbage collector, scored on test262 below), but classes, generators, async functions and promises, destructuring, rest parameters, modules, `Map`/`Set`, typed arrays, `fetch` and `XMLHttpRequest` are not written, so a page built by a bundle that needs them still arrives as its markup alone; also subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
+Not written yet: the newer half of JavaScript — a JavaScript engine of our own runs a page's scripts against the DOM, with events, timers and an event loop (ES5 plus `let`/`const`, arrows, template literals, `?.`, `??`, destructuring, default and rest parameters, for-of and spread, the standard library from Object to Date, a precise garbage collector, scored on test262 below), but classes, generators, async functions and promises, modules, `Map`/`Set`, typed arrays, `fetch` and `XMLHttpRequest` are not written, so a page built by a bundle that needs them still arrives as its markup alone; also subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
 
 ## Measured
 
@@ -40,8 +40,8 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 | html5lib tokenizer / tree construction | **7032 / 7032** and **1784 / 1784** (100%) |
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
-| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **8511 / 14616 (58.2%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| test262, the ECMAScript conformance suite, 36,468 tests over 64 directories | **17538 / 36468 (48.1%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
+| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **8503 / 14616 (58.2%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| test262, the ECMAScript conformance suite, 36,468 tests over 64 directories | **19709 / 36468 (54.0%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).

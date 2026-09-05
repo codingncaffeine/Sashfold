@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8511 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8503 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5336,10 +5336,8 @@ css/css-color/border-top-color.xht
 css/css-color/color-001.html
 css/css-color/color-002.html
 css/css-color/color-003.html
-css/css-color/color-mix-basic-001.html
 css/css-color/color-mix-currentcolor-002.html
 css/css-color/color-mix-currentcolor-nested-for-color-property.html
-css/css-color/color-mix-non-srgb-001.html
 css/css-color/currentcolor-001.html
 css/css-color/currentcolor-005.html
 css/css-color/hex-001.html
@@ -7378,14 +7376,8 @@ css/css-text/text-encoding/shaping-tatweel-002.html
 css/css-text/text-encoding/shaping-tatweel-003.html
 css/css-text/text-fit/grow-dynamic.html
 css/css-text/text-fit/shrink-dynamic.html
-css/css-text/text-group-align/text-group-align-center-vlr.html
-css/css-text/text-group-align/text-group-align-center.html
-css/css-text/text-group-align/text-group-align-end-vlr.html
-css/css-text/text-group-align/text-group-align-end.html
 css/css-text/text-group-align/text-group-align-left-vlr.html
 css/css-text/text-group-align/text-group-align-left.html
-css/css-text/text-group-align/text-group-align-right-vlr.html
-css/css-text/text-group-align/text-group-align-right.html
 css/css-text/text-group-align/text-group-align-start-vlr.html
 css/css-text/text-group-align/text-group-align-start.html
 css/css-text/text-indent/anonymous-flex-item-001.html
