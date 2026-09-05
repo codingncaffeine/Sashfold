@@ -291,10 +291,17 @@ struct Browser::Impl {
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
-        std::unique_ptr<dom::Document> document;
-        // The page's scripts: declared after the document so that it goes
-        // first — its wrappers point into the tree.
+        // The page's scripts and the page. The realm's wrappers point into
+        // the document, so on every path that ends a tab the realm must go
+        // first. Move-assignment runs the members forward — closing a tab
+        // that is not the last one assigns its right-hand neighbour over it —
+        // so the realm is declared first and the old one ends before the old
+        // tree is freed. Destruction runs the members backwards, which the
+        // destructor below settles by ending the realm itself. (With the
+        // document first, the smoke script's close-tab 0 freed a tree while
+        // its realm still held wrappers into it; the sanitizer lane caught it.)
         std::unique_ptr<bindings::Realm> realm;
+        std::unique_ptr<dom::Document> document;
         // The realm's mutation count the styles and layout below reflect;
         // when the realm has moved on, they are computed again before use.
         std::uint64_t page_mutations = 0;
@@ -325,6 +332,11 @@ struct Browser::Impl {
         // or a scrollbar to. Null means the page itself.
         dom::Element const* scroller = nullptr;
         std::string status;
+
+        Tab() = default;
+        Tab(Tab&&) = default;
+        Tab& operator=(Tab&&) = default;
+        ~Tab() { realm.reset(); } // before the document, whatever the member order says
 
         HistoryEntry const* current() const
         {

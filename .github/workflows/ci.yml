@@ -66,6 +66,10 @@ jobs:
 
   linux-sanitizers:
     runs-on: ubuntu-latest
+    env:
+      # A report that names its caller: the vptr check alone prints the
+      # object, not the frame that reached it.
+      UBSAN_OPTIONS: print_stacktrace=1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: sudo apt-get update && sudo apt-get install -y ninja-build clang
