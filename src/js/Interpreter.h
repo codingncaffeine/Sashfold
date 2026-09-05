@@ -84,6 +84,13 @@ struct Intrinsics {
     Object* array_iterator_prototype = nullptr;
     Object* string_iterator_prototype = nullptr;
     Function* array_prototype_values = nullptr;
+    // The keyed collections (§24) and their iterators.
+    Object* map_prototype = nullptr;
+    Object* set_prototype = nullptr;
+    Object* weak_map_prototype = nullptr;
+    Object* weak_set_prototype = nullptr;
+    Object* map_iterator_prototype = nullptr;
+    Object* set_iterator_prototype = nullptr;
 };
 
 // An Iterator Record (§7.4.1): the iterator, its next method read once,

@@ -29,6 +29,20 @@ void test_constructor_and_statics()
     CHECK_JS_THROWS(in, "String.fromCodePoint(0x110000)", "RangeError");
     CHECK_JS_THROWS(in, "String.fromCodePoint(1.5)", "RangeError");
     CHECK_JS_TRUE(in, "String.raw({ raw: ['a', 'b', 'c'] }, 1, 2) === 'a1b2c' && String.raw({ raw: 'xy' }, '-') === 'x-y' && String.raw({ raw: [] }) === ''");
+    // Tagged templates: the tag gets the site's frozen strings, with the
+    // raw ones on `raw`, and the substitutions; the same object every
+    // time the site runs; a member tag keeps its object as this.
+    CHECK_JS_STRING(in, "(function () { function tag(s, ...v) { return s.join('|') + '#' + s.raw.join('|') + '#' + v.join(','); } return tag`a${1}b\\n${2}c`; })()", "a|b\n|c#a|b\\n|c#1,2");
+    CHECK_JS_TRUE(in, "(function () { function id(s) { return s; } function site() { return id`x${1}y`; } var a = site(), b = site(); return a === b && a !== id`x${1}y` && Object.isFrozen(a) && Object.isFrozen(a.raw) && a.length === 2 && a.raw.length === 2; })()");
+    CHECK_JS_STRING(in, "String.raw`a\\n${1 + 1}b`", "a\\n2b");
+    CHECK_JS_STRING(in, "(function () { var o = { n: 'o', tag(s, v) { return this.n + s[0] + v; } }; return o.tag`t${9}` + o['tag']`u${8}`; })()", "ot9ou8");
+    // An invalid escape leaves the cooked string undefined and keeps the raw text.
+    CHECK_JS_TRUE(in, "(function () { function tag(s) { return s[0] === undefined && s.raw[0] === '\\\\unicode' && s[1] === '!'; } return tag`\\unicode${0}!`; })()");
+    CHECK_JS_THROWS(in, "`\\unicode`", "SyntaxError");
+    CHECK_JS_THROWS(in, "(1)`x`", "TypeError");
+    CHECK_JS_THROWS(in, "a?.b`x`", "SyntaxError");
+    CHECK_JS_NUMBER(in, "(function () { function tag() { return arguments.length; } return tag`` + tag`${1}${2}`; })()", 4);
+    CHECK_JS_NUMBER(in, "(function () { function f(s) { return s.raw[0]; } return f`\\u{41}${0}`.length * 10 + f`${0}`.length; })()", 60);
     CHECK_JS_THROWS(in, "String.prototype.toString.call(1)", "TypeError");
     CHECK_JS_TRUE(in, "String.prototype.valueOf.call(new String('v')) === 'v' && 'x'.toString() === 'x'");
 }

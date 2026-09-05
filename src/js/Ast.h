@@ -43,6 +43,7 @@ enum class NodeType : std::uint8_t {
     ThisExpression,
     RegExpLiteral,
     TemplateLiteral,
+    TaggedTemplate,
     ArrayLiteral,
     ObjectLiteral,
     FunctionExpression,
@@ -188,7 +189,9 @@ struct RegExpLiteral : Expression {
     JsString* flags = nullptr;
 };
 
-// `a${b}c`: quasis.size() == expressions.size() + 1.
+// `a${b}c`: quasis.size() == expressions.size() + 1. A cooked span is
+// null where its escapes were invalid, which only a tagged template may
+// carry (§12.9.6.1).
 struct TemplateLiteral : Expression {
     TemplateLiteral()
         : Expression(NodeType::TemplateLiteral)
@@ -197,6 +200,18 @@ struct TemplateLiteral : Expression {
     std::vector<JsString*> cooked;
     std::vector<JsString*> raw;
     std::vector<Expression*> expressions;
+};
+
+// tag`a${b}c` (§13.3.11): the tag called with the site's template object
+// — the cooked strings, frozen, with the raw ones on its `raw`, made once
+// per site — and the substitutions.
+struct TaggedTemplate : Expression {
+    TaggedTemplate()
+        : Expression(NodeType::TaggedTemplate)
+    {
+    }
+    Expression* tag = nullptr;
+    TemplateLiteral* quasi = nullptr;
 };
 
 struct ArrayLiteral : Expression {

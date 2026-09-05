@@ -103,6 +103,11 @@ public:
         Arguments,
         ArrayIterator, // %ArrayIteratorPrototype%'s instances (§23.1.5)
         StringIterator, // %StringIteratorPrototype%'s instances (§22.1.5)
+        Map, // §24.1
+        Set, // §24.2
+        WeakMap, // §24.3
+        WeakSet, // §24.4
+        CollectionIterator, // %MapIteratorPrototype% and %SetIteratorPrototype%'s instances (§24.1.5, §24.2.5)
         Math,
         Json,
         Global,
@@ -442,6 +447,120 @@ private:
     Object* m_iterated;
     double m_next_index = 0;
     Kind m_kind;
+};
+
+class CollectionIteratorObject;
+
+// The table behind Map, Set, WeakMap and WeakSet (§24.1–§24.4): entries in
+// the order they were added, keyed by SameValueZero, a deleted one left
+// as a hole so that an iterator mid-walk keeps its place. The holes are
+// squeezed out when they outnumber the live entries, every attached
+// iterator's position moved along with them; an iterator and its table
+// know each other for as long as both live, and whichever dies first
+// tells the other. Defined in RuntimeCollections.cpp.
+class CollectionTable {
+public:
+    struct Entry {
+        Value key;
+        Value value;
+        bool live = false;
+    };
+
+    CollectionTable() = default;
+    ~CollectionTable();
+    CollectionTable(CollectionTable const&) = delete;
+    CollectionTable& operator=(CollectionTable const&) = delete;
+
+    std::size_t size() const { return m_live; }
+    Entry const* find(Value const& key) const; // null when absent
+    bool has(Value const& key) const { return find(key) != nullptr; }
+    void set(Value const& key, Value const& value); // adds or replaces; a −0 key is stored as +0
+    bool remove(Value const& key);
+    void clear();
+    std::vector<Entry> const& entries() const { return m_entries; } // holes included, for iteration by index
+
+    void attach(CollectionIteratorObject*);
+    void detach(CollectionIteratorObject*);
+    void trace(Tracer&) const;
+    std::size_t size_in_bytes() const { return m_entries.size() * sizeof(Entry) + m_index.size() * 3 * sizeof(void*); }
+
+    // A forEach counting through the entries by index: no compaction
+    // while one is open.
+    class WalkGuard {
+    public:
+        explicit WalkGuard(CollectionTable& table)
+            : m_table(table)
+        {
+            ++m_table.m_walkers;
+        }
+        ~WalkGuard() { --m_table.m_walkers; }
+        WalkGuard(WalkGuard const&) = delete;
+        WalkGuard& operator=(WalkGuard const&) = delete;
+
+    private:
+        CollectionTable& m_table;
+    };
+
+private:
+    struct Hash {
+        std::size_t operator()(Value const&) const;
+    };
+    struct Equal {
+        bool operator()(Value const&, Value const&) const;
+    };
+    void compact();
+
+    std::vector<Entry> m_entries;
+    std::unordered_map<Value, std::size_t, Hash, Equal> m_index;
+    std::size_t m_live = 0;
+    int m_walkers = 0;
+    std::vector<CollectionIteratorObject*> m_iterators;
+};
+
+// A Map, Set, WeakMap or WeakSet; the class says which. The weak kinds
+// hold their keys as strongly as the others for now: the collector has no
+// ephemerons, and nothing a script can observe tells the difference.
+class CollectionObject : public Object {
+public:
+    CollectionObject(Object* prototype, Class class_id)
+        : Object(prototype, class_id)
+    {
+    }
+    CollectionTable& table() { return m_table; }
+    CollectionTable const& table() const { return m_table; }
+    void trace(Tracer&) override;
+    std::size_t size_in_bytes() const override { return Object::size_in_bytes() + m_table.size_in_bytes(); }
+
+private:
+    CollectionTable m_table;
+};
+
+// %MapIteratorPrototype% and %SetIteratorPrototype%'s instances: the
+// collection being walked, the position, and what a step yields.
+// Exhausted, it lets the collection go.
+class CollectionIteratorObject : public Object {
+public:
+    enum class Kind : std::uint8_t { Keys, Values, Entries };
+
+    CollectionIteratorObject(Object* prototype, CollectionObject* collection, Kind kind, bool is_map);
+    ~CollectionIteratorObject() override;
+
+    CollectionObject* collection() const { return m_collection; }
+    Kind kind() const { return m_kind; }
+    bool is_map() const { return m_is_map; }
+    std::size_t index() const { return m_index; }
+    void set_index(std::size_t index) { m_index = index; }
+    void finish();
+    // The table telling the iterator it is gone.
+    void table_gone() { m_attached = false; }
+    void trace(Tracer&) override;
+
+private:
+    CollectionObject* m_collection;
+    std::size_t m_index = 0;
+    Kind m_kind;
+    bool m_is_map;
+    bool m_attached = true;
 };
 
 // %StringIteratorPrototype%'s instances (§22.1.5): the string and the

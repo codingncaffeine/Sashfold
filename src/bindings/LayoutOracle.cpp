@@ -3,7 +3,10 @@
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace sashfold::bindings {
 
@@ -79,17 +82,58 @@ void LayoutOracle::install(HostHooks& hooks)
     hooks.computed_style = [this](dom::Element const& element) { return style(element); };
 }
 
+namespace {
+
+// What the stylesheets are: the elements that carry them and what they
+// say, so that a script change elsewhere in the tree does not recompile
+// every sheet (the shell keeps the same signature for its tabs).
+std::string sheet_signature(dom::Node const& node)
+{
+    std::string signature;
+    if (node.is_element()) {
+        auto const& element = static_cast<dom::Element const&>(node);
+        if (element.is_html("style")) {
+            signature += "s" + std::to_string(reinterpret_cast<std::uintptr_t>(&element)) + ":";
+            for (dom::Node const* child : element.children()) {
+                if (child->is_text())
+                    signature += std::to_string(static_cast<dom::Text const*>(child)->data.size()) + ",";
+            }
+        } else if (element.is_html("link")) {
+            signature += "l" + std::to_string(reinterpret_cast<std::uintptr_t>(&element)) + ":";
+            if (dom::Attr const* href = element.find_attribute("href"))
+                signature += href->value;
+            if (dom::Attr const* rel = element.find_attribute("rel"))
+                signature += rel->value;
+            if (dom::Attr const* media = element.find_attribute("media"))
+                signature += media->value;
+            signature += ";";
+        }
+    }
+    for (dom::Node const* child : node.children())
+        signature += sheet_signature(*child);
+    return signature;
+}
+
+} // namespace
+
 void LayoutOracle::ensure()
 {
     std::uint64_t const mutations = m_realm ? m_realm->mutation_count() : 0;
     if (m_computed && mutations == m_mutations)
         return;
-    std::vector<css::SheetSource> const sheets = css::collect_stylesheets(m_document, &m_base, m_fetch, m_media);
-    // The page's own fonts answer its measurements, as they do the render:
-    // a test that measures text in Ahem and then sets a width from it must
-    // measure in Ahem.
-    text::FontManager::instance().set_page_fonts(css::collect_page_fonts(sheets, m_fetch, m_media));
-    m_styles = css::resolve_styles(m_document, sheets, m_media, &m_base);
+    // The sheets are parsed and compiled again only when the elements
+    // carrying them changed; every mutation still cascades and lays out.
+    std::string signature = sheet_signature(m_document);
+    if (!m_style_set || signature != m_sheet_signature) {
+        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(m_document, &m_base, m_fetch, m_media);
+        // The page's own fonts answer its measurements, as they do the
+        // render: a test that measures text in Ahem and then sets a width
+        // from it must measure in Ahem.
+        text::FontManager::instance().set_page_fonts(css::collect_page_fonts(sheets, m_fetch, m_media));
+        m_style_set.emplace(sheets, m_media, &m_base);
+        m_sheet_signature = std::move(signature);
+    }
+    m_styles = css::resolve_styles(m_document, *m_style_set);
     m_layout = layout::layout_document(m_document, m_styles, m_media.width, nullptr, nullptr, m_media.height);
     m_computed = true;
     m_mutations = mutations;

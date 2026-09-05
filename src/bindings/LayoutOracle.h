@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 
 namespace sashfold::bindings {
 
@@ -42,6 +43,11 @@ private:
     Realm* m_realm = nullptr;
     bool m_computed = false;
     std::uint64_t m_mutations = 0;
+    // The sheets parsed and compiled once per set of stylesheet elements:
+    // a script that reads a box after every write to the tree must not
+    // pay for a re-parse each time, only for the cascade and the layout.
+    std::string m_sheet_signature;
+    std::optional<css::StyleSet> m_style_set;
     css::StyleMap m_styles;
     layout::LayoutResult m_layout;
 };

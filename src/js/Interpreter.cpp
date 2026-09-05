@@ -245,6 +245,9 @@ struct Interpreter::Impl {
     // The global environment's [[VarNames]]: every var and function a
     // script has declared, so a later `let` of the same name is refused.
     std::unordered_set<JsString*> global_var_names;
+    // The realm's [[TemplateMap]] (§9.3.1): one template object per
+    // tagged-template site, the same one every time the site runs.
+    std::unordered_map<TemplateLiteral const*, Object*> template_objects;
 
     Heap& heap() { return self.heap(); }
     WellKnownAtoms const& atoms() { return self.atoms(); }
@@ -1715,6 +1718,8 @@ struct Interpreter::Impl {
             return evaluate_regexp(*static_cast<RegExpLiteral const*>(expression));
         case NodeType::TemplateLiteral:
             return evaluate_template(*static_cast<TemplateLiteral const*>(expression), cx);
+        case NodeType::TaggedTemplate:
+            return evaluate_tagged_template(*static_cast<TaggedTemplate const*>(expression), cx);
         case NodeType::ArrayLiteral:
             return evaluate_array(*static_cast<ArrayLiteral const*>(expression), cx);
         case NodeType::ObjectLiteral:
@@ -1808,6 +1813,107 @@ struct Interpreter::Impl {
             result += literal.cooked[i + 1]->data();
         }
         return Value::string(heap().string(std::move(result)));
+    }
+
+    // GetTemplateObject (§13.2.8.4): the site's cooked strings as a frozen
+    // array whose `raw` is the frozen array of raw strings, made once.
+    std::optional<Object*> template_object(TemplateLiteral const& literal)
+    {
+        if (auto const found = template_objects.find(&literal); found != template_objects.end())
+            return found->second;
+        Roots const roots(self);
+        auto freeze = [&](ArrayObject& array) -> bool {
+            PropertyDescriptor fixed;
+            fixed.writable = false;
+            fixed.configurable = false;
+            for (std::uint32_t i = 0; i < array.length(); ++i) {
+                if (!self.define_property_or_throw(array, PropertyKey::index(i), fixed))
+                    return false;
+            }
+            PropertyDescriptor length;
+            length.writable = false;
+            if (!self.define_property_or_throw(array, PropertyKey::atom(atoms().length), length))
+                return false;
+            array.prevent_extensions();
+            return true;
+        };
+        std::vector<Value> cooked;
+        std::vector<Value> raw;
+        for (std::size_t i = 0; i < literal.raw.size(); ++i) {
+            cooked.push_back(literal.cooked[i] ? Value::string(literal.cooked[i]) : Value::undefined());
+            raw.push_back(Value::string(literal.raw[i]));
+        }
+        ArrayObject* raw_array = self.new_array(raw);
+        self.root(Value::object(raw_array));
+        ArrayObject* cooked_array = self.new_array(cooked);
+        self.root(Value::object(cooked_array));
+        if (!freeze(*raw_array))
+            return std::nullopt;
+        cooked_array->put(PropertyKey::atom(atoms().raw), Value::object(raw_array), frozen_attributes);
+        if (!freeze(*cooked_array))
+            return std::nullopt;
+        template_objects.emplace(&literal, cooked_array);
+        return cooked_array;
+    }
+
+    // TaggedTemplate (§13.3.11.1): the tag as a call's callee — a member
+    // tag keeps its object as `this` — then the template object and the
+    // substitutions, in that order.
+    std::optional<Value> evaluate_tagged_template(TaggedTemplate const& tagged, Context& cx)
+    {
+        Roots const roots(self);
+        Value callee_value;
+        Value this_value;
+        Expression const* tag = tagged.tag;
+        if (tag->type == NodeType::MemberExpression) {
+            Reference reference;
+            bool short_circuit = false;
+            std::optional<Value> const value = evaluate_chain(tag, cx, short_circuit, &reference);
+            if (!value)
+                return std::nullopt;
+            callee_value = *value;
+            this_value = short_circuit ? Value::undefined() : this_for_call(reference);
+        } else if (tag->type == NodeType::Identifier) {
+            Reference reference = resolve(static_cast<Identifier const*>(tag)->name, cx.lexical);
+            std::optional<Value> const value = get_value(reference, cx);
+            if (!value)
+                return std::nullopt;
+            callee_value = *value;
+            this_value = this_for_call(reference);
+        } else if (tag->type == NodeType::SuperMember) {
+            std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(tag), cx);
+            if (!reference)
+                return std::nullopt;
+            self.root(reference->base);
+            self.root(reference->key_value);
+            std::optional<Value> const value = get_value(*reference, cx);
+            if (!value)
+                return std::nullopt;
+            callee_value = *value;
+            this_value = this_for_call(*reference);
+        } else {
+            std::optional<Value> const value = evaluate(tag, cx);
+            if (!value)
+                return std::nullopt;
+            callee_value = *value;
+        }
+        self.root(callee_value);
+        self.root(this_value);
+        std::optional<Object*> const site = template_object(*tagged.quasi);
+        if (!site)
+            return std::nullopt;
+        std::vector<Value> arguments;
+        arguments.push_back(Value::object(*site));
+        for (Expression const* expression : tagged.quasi->expressions) {
+            std::optional<Value> const value = evaluate(expression, cx);
+            if (!value)
+                return std::nullopt;
+            self.root(*value);
+            arguments.push_back(*value);
+        }
+        if (!Interpreter::is_callable(callee_value))
+            return self.throw_type_error(expression_text(tag, cx) + " is not a function");
+        return self.call(callee_value, this_value, arguments);
     }
 
     std::optional<Value> evaluate_array(ArrayLiteral const& literal, Context& cx)
@@ -3243,6 +3349,8 @@ struct Interpreter::Impl {
             tracer.visit(context.function);
         }
         tracer.visit(global_lexical);
+        for (auto const& [site, object] : template_objects)
+            tracer.visit(object);
     }
 };
 
@@ -3301,6 +3409,12 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.array_iterator_prototype);
     tracer.visit(i.string_iterator_prototype);
     tracer.visit(i.array_prototype_values);
+    tracer.visit(i.map_prototype);
+    tracer.visit(i.set_prototype);
+    tracer.visit(i.weak_map_prototype);
+    tracer.visit(i.weak_set_prototype);
+    tracer.visit(i.map_iterator_prototype);
+    tracer.visit(i.set_iterator_prototype);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);

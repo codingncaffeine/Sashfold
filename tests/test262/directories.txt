@@ -45,6 +45,8 @@ test/built-ins/Infinity
 test/built-ins/isFinite
 test/built-ins/isNaN
 test/built-ins/JSON
+test/built-ins/Map
+test/built-ins/MapIteratorPrototype
 test/built-ins/Math
 test/built-ins/NaN
 test/built-ins/Number
@@ -52,10 +54,14 @@ test/built-ins/Object
 test/built-ins/parseFloat
 test/built-ins/parseInt
 test/built-ins/RegExp
+test/built-ins/Set
+test/built-ins/SetIteratorPrototype
 test/built-ins/String
 test/built-ins/StringIteratorPrototype
 test/built-ins/Symbol
 test/built-ins/undefined
+test/built-ins/WeakMap
+test/built-ins/WeakSet
 test/built-ins/eval
 test/built-ins/decodeURI
 test/built-ins/decodeURIComponent

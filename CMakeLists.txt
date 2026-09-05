@@ -101,6 +101,7 @@ add_library(sashfold_core STATIC
   src/js/Parser.cpp
   src/js/Regex.cpp
   src/js/RuntimeArray.cpp
+  src/js/RuntimeCollections.cpp
   src/js/RuntimeDate.cpp
   src/js/RuntimeIterator.cpp
   src/js/RuntimeJson.cpp

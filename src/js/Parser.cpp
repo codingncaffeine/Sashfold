@@ -51,7 +51,9 @@
 //     (label name s) (with o s)
 //   expressions
 //     (id x) (number 1) (string "x") true false null this (regex /p/f)
-//     (template ("cooked"…) (exprs…))
+//     (template ("cooked"…) (exprs…))      a cooked span with a bad escape
+//                                          prints as undefined
+//     (tagged tag (template …))
 //     (array e|hole …)
 //     (object (init "key" v) (get "key" f) (set "key" f) (proto v)
 //             (computed k v) (get computed k f) (set computed k f)…)
@@ -461,7 +463,7 @@ struct Parser::Impl {
     Expression* parse_array_literal();
     Expression* parse_object_literal();
     bool parse_property_key(PropertyDefinition&, Token* key_token);
-    Expression* parse_template();
+    Expression* parse_template(bool tagged = false);
     Expression* parse_function_expression();
     bool looks_like_arrow_head();
     bool balanced_parens_then_arrow();
@@ -1257,6 +1259,7 @@ Expression* Parser::Impl::parse_new()
 Expression* Parser::Impl::parse_call_tail(Expression* expression, bool allow_call)
 {
     SourcePosition const start = expression->position;
+    bool chained = false; // a `?.` has been seen: no template may follow (§13.3.1.1)
     while (true) {
         if (m_current.is(Punctuator::Dot)) {
             advance();
@@ -1274,6 +1277,7 @@ Expression* Parser::Impl::parse_call_tail(Expression* expression, bool allow_cal
                 fail(m_current.position, "Invalid optional chain from new expression");
                 return nullptr;
             }
+            chained = true;
             advance();
             if (m_current.is(Punctuator::LeftParen)) {
                 auto* call = make<CallExpression>(start);
@@ -1303,7 +1307,8 @@ Expression* Parser::Impl::parse_call_tail(Expression* expression, bool allow_cal
                 advance();
                 expression = finish(member);
             } else if (m_current.type == TokenType::Template) {
-                fail_unsupported("tagged templates");
+                // §13.3.1.1: no template on an optional chain.
+                fail(m_current.position, "Invalid tagged template on optional chain");
                 return nullptr;
             } else {
                 fail_unexpected();
@@ -1338,8 +1343,19 @@ Expression* Parser::Impl::parse_call_tail(Expression* expression, bool allow_cal
                 return nullptr;
             expression = finish(call);
         } else if (m_current.type == TokenType::Template) {
-            fail_unsupported("tagged templates");
-            return nullptr;
+            // TaggedTemplate (§13.3.11): the expression so far is the tag —
+            // never one reached through `?.`.
+            if (chained) {
+                fail(m_current.position, "Invalid tagged template on optional chain");
+                return nullptr;
+            }
+            Expression* quasi = parse_template(true);
+            if (!quasi)
+                return nullptr;
+            auto* tagged = make<TaggedTemplate>(start);
+            tagged->tag = expression;
+            tagged->quasi = static_cast<TemplateLiteral*>(quasi);
+            expression = finish(tagged);
         } else {
             break;
         }
@@ -1835,10 +1851,12 @@ Expression* Parser::Impl::parse_object_literal()
     return finish(object);
 }
 
-// TemplateLiteral (§13.2.8), untagged. After the `}` that closes a
-// substitution the lexer is asked for the next span directly, since a
-// `}` read as a punctuator would be followed by ordinary tokens.
-Expression* Parser::Impl::parse_template()
+// TemplateLiteral (§13.2.8). After the `}` that closes a substitution the
+// lexer is asked for the next span directly, since a `}` read as a
+// punctuator would be followed by ordinary tokens. A tagged template
+// keeps a span with an invalid escape as a null cooked value; an untagged
+// one makes it an early error (§12.9.6.1).
+Expression* Parser::Impl::parse_template(bool tagged)
 {
     SourcePosition const start = m_current.position;
     if (!enter())
@@ -1850,14 +1868,12 @@ Expression* Parser::Impl::parse_template()
             fail_unexpected();
             return nullptr;
         }
-        // §12.9.6.1: an untagged template with an invalid escape has no
-        // cooked value and is an early error.
-        if (!m_current.cooked_valid) {
+        if (!m_current.cooked_valid && !tagged) {
             leave();
             fail(m_current.position, "Invalid escape sequence in template literal");
             return nullptr;
         }
-        literal->cooked.push_back(atom(m_current.value));
+        literal->cooked.push_back(m_current.cooked_valid ? atom(m_current.value) : nullptr);
         literal->raw.push_back(atom(m_current.raw));
         if (m_current.template_tail) {
             advance();
@@ -4000,13 +4016,25 @@ struct Dumper {
             out += "(regex /" + utf8_from_utf16(regex->pattern->view()) + "/" + utf8_from_utf16(regex->flags->view()) + ")";
             break;
         }
+        case NodeType::TaggedTemplate: {
+            auto const* tagged = static_cast<TaggedTemplate const*>(e);
+            out += "(tagged ";
+            expression(tagged->tag);
+            out += ' ';
+            expression(tagged->quasi);
+            out += ')';
+            break;
+        }
         case NodeType::TemplateLiteral: {
             auto const* literal = static_cast<TemplateLiteral const*>(e);
             out += "(template (";
             for (std::size_t i = 0; i < literal->cooked.size(); ++i) {
                 if (i > 0)
                     out += ' ';
-                quoted(literal->cooked[i]->view());
+                if (literal->cooked[i])
+                    quoted(literal->cooked[i]->view());
+                else
+                    out += "undefined";
             }
             out += ") (";
             for (std::size_t i = 0; i < literal->expressions.size(); ++i) {

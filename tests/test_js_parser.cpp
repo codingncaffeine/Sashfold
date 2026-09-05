@@ -354,8 +354,12 @@ void test_templates()
     CHECK_EQ(parse("`t\\tab \\\"q\\\"`"), expression_of("(template (\"t\tab \\\"q\\\"\") ())"));
     CHECK_EQ(parse("`${a + b}`"), expression_of("(template (\"\" \"\") ((binary + (id a) (id b))))"));
     CHECK_EQ(parse("`${f(1)}` + `${g}`"), expression_of("(binary + (template (\"\" \"\") ((call (id f) (number 1)))) (template (\"\" \"\") ((id g))))"));
-    CHECK_EQ(parse("tag`x`"), "tagged templates are not supported yet");
-    CHECK_EQ(parse("a.b`x`"), "tagged templates are not supported yet");
+    CHECK_EQ(parse("tag`x`"), expression_of("(tagged (id tag) (template (\"x\") ()))"));
+    CHECK_EQ(parse("a.b`x${y}z`.c"), expression_of("(member (tagged (member (id a) b) (template (\"x\" \"z\") ((id y)))) c)"));
+    CHECK_EQ(parse("f()`x`()"), expression_of("(call (tagged (call (id f)) (template (\"x\") ())))"));
+    CHECK_EQ(parse("new t`x`"), expression_of("(new (tagged (id t) (template (\"x\") ())))"));
+    CHECK_EQ(parse("t`\\unicode`"), expression_of("(tagged (id t) (template (undefined) ()))"));
+    CHECK_EQ(parse("`\\unicode`"), "Invalid escape sequence in template literal");
     CHECK_EQ(parse("`\\unicode`"), "Invalid escape sequence in template literal");
     CHECK_EQ(parse("`\\01`"), "Invalid escape sequence in template literal");
     CHECK_EQ(parse("`abc"), "Unterminated template literal");
@@ -911,7 +915,7 @@ void test_optional_chaining()
     CHECK_EQ(parse("a?.b.c = 1"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("a?.b++"), "Invalid left-hand side expression in postfix operation");
     CHECK_EQ(parse("for (a?.b in o);"), "Invalid left-hand side in for-in loop");
-    CHECK_EQ(parse("a?.`x`"), "tagged templates are not supported yet");
+    CHECK_EQ(parse("a?.`x`"), "Invalid tagged template on optional chain");
     Parsed parsed = parse_source("eval?.(x)");
     CHECK(parsed.program != nullptr);
     if (parsed.program) {
