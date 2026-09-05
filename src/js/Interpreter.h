@@ -350,8 +350,12 @@ public:
     // The realm keeps every program it ran: functions point into them.
     void keep(std::unique_ptr<Program>);
 
-private:
+    // The evaluator's mechanisms (Evaluator.h), shared by the tree-walker
+    // and the bytecode VM. Internal to src/js.
     struct Impl;
+    Impl& impl() { return *m_impl; }
+
+private:
     friend struct Impl;
     friend class ScriptFunction;
     std::unique_ptr<Heap> m_heap;

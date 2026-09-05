@@ -16,6 +16,7 @@
 // is traced as a root.
 
 #include "js/Ast.h"
+#include "js/Evaluator.h"
 #include "js/Object.h"
 #include "js/Parser.h"
 #include "js/Runtime.h"
@@ -40,68 +41,8 @@ namespace sashfold::js {
 
 namespace {
 
-// A completion record (§6.2.4). The value is `empty` when the statement
-// produced none, which UpdateEmpty resolves at the statement above.
-struct Completion {
-    enum class Type : std::uint8_t { Normal, Return, Break, Continue, Throw };
-    Type type = Type::Normal;
-    Value value = Value::empty();
-    JsString* target = nullptr;
 
-    static Completion normal(Value value = Value::empty())
-    {
-        Completion completion;
-        completion.value = value;
-        return completion;
-    }
-    static Completion thrown()
-    {
-        Completion completion;
-        completion.type = Type::Throw;
-        return completion;
-    }
-    bool is_abrupt() const { return type != Type::Normal; }
-    // UpdateEmpty (§6.2.4.3).
-    Completion with_value_if_empty(Value const& fallback) const
-    {
-        Completion result = *this;
-        if (result.value.is_empty())
-            result.value = fallback;
-        return result;
-    }
-};
 
-// The running execution context (§9.4): the environment the code resolves
-// names in, the one its `var`s land in, and what it is evaluating.
-struct Context {
-    Environment* lexical = nullptr;
-    Environment* variable = nullptr;
-    Program const* program = nullptr;
-    ScriptFunction* function = nullptr; // null for global and eval code
-    bool strict = false;
-    PrivateEnvironment* private_environment = nullptr; // the class bodies' Private Names in scope (§9.2)
-};
-
-// A Reference Record (§6.2.5) in the shapes the evaluator produces: a
-// binding in a declarative environment, a property of an object
-// environment (the global object or a `with` target), a property of a
-// value, an unresolvable name, or no reference at all — a plain value,
-// which `delete` and `typeof` accept.
-struct Reference {
-    // Super: a property of the home object's prototype (the base), read
-    // and written with `this` (this_value) as the receiver (§13.3.7.3).
-    // Private: `o.#x` — the base and the Private Name as the key (§13.3.3),
-    // read and written on the base alone, with `name` for the messages.
-    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Super, Private, Value };
-    Kind kind = Kind::Value;
-    Environment* environment = nullptr;
-    JsString* name = nullptr;
-    Value base; // Property, Super: the base; Value: the value itself
-    PropertyKey key; // Property, Super (once ready) and ObjectEnvironment
-    Value key_value; // Property, Super: the key before ToPropertyKey, when not yet converted
-    Value this_value; // Super: the receiver
-    bool key_ready = false;
-};
 
 // A mapped arguments object (§10.4.4): the indices that correspond to
 // formal parameters read and write the parameters' bindings, until a
@@ -209,19 +150,6 @@ char const* stack_position()
     return static_cast<char const*>(__builtin_frame_address(0));
 }
 
-bool is_anonymous_function_definition(Expression const* expression)
-{
-    // IsAnonymousFunctionDefinition (§8.4.3) for the forms this grammar
-    // has: an arrow, a function expression or a class expression without
-    // a name.
-    if (expression->type == NodeType::ArrowFunction)
-        return true;
-    if (expression->type == NodeType::FunctionExpression)
-        return static_cast<FunctionExpression const*>(expression)->function->name == nullptr;
-    if (expression->type == NodeType::ClassExpression)
-        return static_cast<ClassExpression const*>(expression)->node->name == nullptr;
-    return false;
-}
 
 bool contains(std::vector<JsString*> const& names, JsString* name)
 {
@@ -232,3347 +160,3374 @@ bool contains(std::vector<JsString*> const& names, JsString* name)
 
 // ------------------------------------------------------------------ Impl
 
-struct Interpreter::Impl {
-    explicit Impl(Interpreter& interpreter)
-        : self(interpreter)
-    {
+// ---- limits
+// The C++ stack against the budget, measured from where script was
+// entered: a deep recursion is a RangeError before it is a crash.
+bool Interpreter::Impl::stack_ok()
+{
+    char const* here = stack_position();
+    if (self.m_stack_base == nullptr)
+        self.m_stack_base = here;
+    std::ptrdiff_t const used = self.m_stack_base > here ? self.m_stack_base - here : here - self.m_stack_base;
+    if (static_cast<std::size_t>(used) > self.m_stack_budget) {
+        self.throw_range_error("Maximum call stack size exceeded");
+        return false;
     }
+    return true;
+}
 
-    Interpreter& self;
-    // A deque: the evaluator keeps references to running contexts while
-    // nested calls push more, and a vector would move them.
-    std::deque<Context> contexts;
-    // The declarative record of the global environment (§9.1.1.4), in
-    // front of the object record over the global object.
-    Environment* global_lexical = nullptr;
-    // The global environment's [[VarNames]]: every var and function a
-    // script has declared, so a later `let` of the same name is refused.
-    std::unordered_set<JsString*> global_var_names;
-    // The realm's [[TemplateMap]] (§9.3.1): one template object per
-    // tagged-template site, the same one every time the site runs.
-    std::unordered_map<TemplateLiteral const*, Object*> template_objects;
 
-    Heap& heap() { return self.heap(); }
-    WellKnownAtoms const& atoms() { return self.atoms(); }
+bool Interpreter::Impl::step()
+{
+    ++self.m_steps;
+    if (self.m_should_stop && self.m_steps % self.m_interrupt_interval == 0 && self.m_should_stop()) {
+        self.m_terminated = true;
+        self.throw_error(ErrorType::RangeError, "script terminated");
+        return false;
+    }
+    return true;
+}
 
-    struct ContextScope {
-        ContextScope(Impl& impl, Context context)
-            : m_impl(impl)
-        {
-            m_impl.contexts.push_back(context);
+
+// ---- messages
+std::string Interpreter::Impl::expression_text(Expression const* expression, Context const& cx)
+{
+    if (!cx.program || expression->end_offset <= expression->position.offset)
+        return "expression";
+    std::u16string_view const source = cx.program->source;
+    std::size_t const start = expression->position.offset;
+    std::size_t const end = std::min<std::size_t>(expression->end_offset, source.size());
+    if (end <= start)
+        return "expression";
+    std::string text = utf8_from_utf16(source.substr(start, end - start));
+    if (text.size() > 60)
+        text = text.substr(0, 57) + "...";
+    return text;
+}
+
+
+// ---- environments
+Environment* Interpreter::Impl::new_environment(Environment* outer, Object* object)
+{
+    return heap().allocate<Environment>(outer, object);
+}
+
+
+// The nearest environment with a `this`; the global object's has one.
+// A derived constructor's is a ReferenceError until super() has run.
+std::optional<Value> Interpreter::Impl::resolve_this(Environment* environment)
+{
+    for (Environment* e = environment; e != nullptr; e = e->outer()) {
+        if (e->has_this()) {
+            if (!e->this_initialized())
+                return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            return e->this_value();
         }
-        ~ContextScope() { m_impl.contexts.pop_back(); }
-        ContextScope(ContextScope const&) = delete;
-        ContextScope& operator=(ContextScope const&) = delete;
-        Context& context() { return m_impl.contexts.back(); }
-
-    private:
-        Impl& m_impl;
-    };
-
-    // ---- limits
-
-    // The C++ stack against the budget, measured from where script was
-    // entered: a deep recursion is a RangeError before it is a crash.
-    bool stack_ok()
-    {
-        char const* here = stack_position();
-        if (self.m_stack_base == nullptr)
-            self.m_stack_base = here;
-        std::ptrdiff_t const used = self.m_stack_base > here ? self.m_stack_base - here : here - self.m_stack_base;
-        if (static_cast<std::size_t>(used) > self.m_stack_budget) {
-            self.throw_range_error("Maximum call stack size exceeded");
-            return false;
-        }
-        return true;
     }
+    return Value::object(self.global());
+}
 
-    bool step()
-    {
-        ++self.m_steps;
-        if (self.m_should_stop && self.m_steps % self.m_interrupt_interval == 0 && self.m_should_stop()) {
-            self.m_terminated = true;
-            self.throw_error(ErrorType::RangeError, "script terminated");
-            return false;
-        }
-        return true;
+
+// GetThisEnvironment (§9.4.3): the record that owns `this`, or null
+// when none does (global code).
+Environment* Interpreter::Impl::this_environment(Environment* environment)
+{
+    for (Environment* e = environment; e != nullptr; e = e->outer()) {
+        if (e->has_this())
+            return e;
     }
+    return nullptr;
+}
 
-    // ---- messages
-    std::string expression_text(Expression const* expression, Context const& cx)
-    {
-        if (!cx.program || expression->end_offset <= expression->position.offset)
-            return "expression";
-        std::u16string_view const source = cx.program->source;
-        std::size_t const start = expression->position.offset;
-        std::size_t const end = std::min<std::size_t>(expression->end_offset, source.size());
-        if (end <= start)
-            return "expression";
-        std::string text = utf8_from_utf16(source.substr(start, end - start));
-        if (text.size() > 60)
-            text = text.substr(0, 57) + "...";
-        return text;
-    }
 
-    // ---- environments
-    Environment* new_environment(Environment* outer, Object* object = nullptr)
-    {
-        return heap().allocate<Environment>(outer, object);
-    }
-
-    // The nearest environment with a `this`; the global object's has one.
-    // A derived constructor's is a ReferenceError until super() has run.
-    std::optional<Value> resolve_this(Environment* environment)
-    {
-        for (Environment* e = environment; e != nullptr; e = e->outer()) {
-            if (e->has_this()) {
-                if (!e->this_initialized())
-                    return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
-                return e->this_value();
-            }
-        }
-        return Value::object(self.global());
-    }
-
-    // GetThisEnvironment (§9.4.3): the record that owns `this`, or null
-    // when none does (global code).
-    Environment* this_environment(Environment* environment)
-    {
-        for (Environment* e = environment; e != nullptr; e = e->outer()) {
-            if (e->has_this())
-                return e;
-        }
-        return nullptr;
-    }
-
-    // ResolveBinding (§9.4.2): outward through the chain. A `with`
-    // object's @@unscopables is not consulted yet.
-    Reference resolve(JsString* name, Environment* environment)
-    {
-        Reference reference;
-        reference.name = name;
-        for (Environment* e = environment; e != nullptr; e = e->outer()) {
-            if (e->is_object_environment()) {
-                PropertyKey const key = PropertyKey::atom(name);
-                if (e->object()->has_property(key)) {
-                    reference.kind = Reference::Kind::ObjectEnvironment;
-                    reference.environment = e;
-                    reference.key = key;
-                    return reference;
-                }
-            } else if (e->find(name)) {
-                reference.kind = Reference::Kind::Binding;
+// ResolveBinding (§9.4.2): outward through the chain. A `with`
+// object's @@unscopables is not consulted yet.
+Reference Interpreter::Impl::resolve(JsString* name, Environment* environment)
+{
+    Reference reference;
+    reference.name = name;
+    for (Environment* e = environment; e != nullptr; e = e->outer()) {
+        if (e->is_object_environment()) {
+            PropertyKey const key = PropertyKey::atom(name);
+            if (e->object()->has_property(key)) {
+                reference.kind = Reference::Kind::ObjectEnvironment;
                 reference.environment = e;
+                reference.key = key;
                 return reference;
             }
+        } else if (e->find(name)) {
+            reference.kind = Reference::Kind::Binding;
+            reference.environment = e;
+            return reference;
         }
-        reference.kind = Reference::Kind::Unresolvable;
-        return reference;
     }
+    reference.kind = Reference::Kind::Unresolvable;
+    return reference;
+}
 
-    bool ensure_key(Reference& reference)
-    {
-        if (reference.key_ready)
-            return true;
-        std::optional<PropertyKey> const key = self.to_property_key(reference.key_value);
-        if (!key)
-            return false;
-        reference.key = *key;
-        reference.key_ready = true;
+
+bool Interpreter::Impl::ensure_key(Reference& reference)
+{
+    if (reference.key_ready)
         return true;
-    }
+    std::optional<PropertyKey> const key = self.to_property_key(reference.key_value);
+    if (!key)
+        return false;
+    reference.key = *key;
+    reference.key_ready = true;
+    return true;
+}
 
-    std::string reference_key_text(Reference const& reference)
-    {
-        return reference.key_ready ? key_description(reference.key) : self.describe(reference.key_value);
-    }
 
-    // GetValue (§6.2.5.5).
-    std::optional<Value> get_value(Reference& reference, Context const& cx)
-    {
-        switch (reference.kind) {
-        case Reference::Kind::Value:
-            return reference.base;
-        case Reference::Kind::Unresolvable:
+std::string Interpreter::Impl::reference_key_text(Reference const& reference)
+{
+    return reference.key_ready ? key_description(reference.key) : self.describe(reference.key_value);
+}
+
+
+// GetValue (§6.2.5.5).
+std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context const& cx)
+{
+    switch (reference.kind) {
+    case Reference::Kind::Value:
+        return reference.base;
+    case Reference::Kind::Unresolvable:
+        return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
+    case Reference::Kind::Binding: {
+        Environment::Binding const* binding = reference.environment->find(reference.name);
+        if (binding == nullptr)
             return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
-        case Reference::Kind::Binding: {
-            Environment::Binding const* binding = reference.environment->find(reference.name);
-            if (binding == nullptr)
-                return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
-            if (!binding->initialized)
-                return self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
-            return binding->value;
-        }
-        case Reference::Kind::ObjectEnvironment: {
-            // §9.1.1.2.6: the property may be gone by now; strict code
-            // notices, sloppy code reads undefined.
-            Object* object = reference.environment->object();
-            if (!object->has_property(reference.key)) {
-                if (cx.strict)
-                    return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
-                return Value::undefined();
-            }
-            return self.get(*object, reference.key);
-        }
-        case Reference::Kind::Property: {
-            if (reference.base.is_nullish())
-                return self.throw_type_error("Cannot read properties of " + std::string(reference.base.is_null() ? "null" : "undefined")
-                    + " (reading '" + reference_key_text(reference) + "')");
-            if (!ensure_key(reference))
-                return std::nullopt;
-            return self.get(reference.base, reference.key);
-        }
-        case Reference::Kind::Super: {
-            // §13.3.7.3: the home object's prototype, `this` receiving.
-            if (reference.base.is_nullish())
-                return self.throw_type_error("Cannot read properties of null (reading '" + reference_key_text(reference) + "')");
-            if (!ensure_key(reference))
-                return std::nullopt;
-            return reference.base.as_object()->get(self, reference.key, reference.this_value);
-        }
-        case Reference::Kind::Private:
-            return private_get(reference.base, reference.key);
-        }
-        return Value::undefined();
+        if (!binding->initialized)
+            return self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
+        return binding->value;
     }
+    case Reference::Kind::ObjectEnvironment: {
+        // §9.1.1.2.6: the property may be gone by now; strict code
+        // notices, sloppy code reads undefined.
+        Object* object = reference.environment->object();
+        if (!object->has_property(reference.key)) {
+            if (cx.strict)
+                return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
+            return Value::undefined();
+        }
+        return self.get(*object, reference.key);
+    }
+    case Reference::Kind::Property: {
+        if (reference.base.is_nullish())
+            return self.throw_type_error("Cannot read properties of " + std::string(reference.base.is_null() ? "null" : "undefined")
+                + " (reading '" + reference_key_text(reference) + "')");
+        if (!ensure_key(reference))
+            return std::nullopt;
+        return self.get(reference.base, reference.key);
+    }
+    case Reference::Kind::Super: {
+        // §13.3.7.3: the home object's prototype, `this` receiving.
+        if (reference.base.is_nullish())
+            return self.throw_type_error("Cannot read properties of null (reading '" + reference_key_text(reference) + "')");
+        if (!ensure_key(reference))
+            return std::nullopt;
+        return reference.base.as_object()->get(self, reference.key, reference.this_value);
+    }
+    case Reference::Kind::Private:
+        return private_get(reference.base, reference.key);
+    }
+    return Value::undefined();
+}
 
-    // PutValue (§6.2.5.6).
-    bool put_value(Reference& reference, Value const& value, Context const& cx)
-    {
-        switch (reference.kind) {
-        case Reference::Kind::Value:
-            self.throw_reference_error("Invalid left-hand side in assignment");
+
+// PutValue (§6.2.5.6).
+bool Interpreter::Impl::put_value(Reference& reference, Value const& value, Context const& cx)
+{
+    switch (reference.kind) {
+    case Reference::Kind::Value:
+        self.throw_reference_error("Invalid left-hand side in assignment");
+        return false;
+    case Reference::Kind::Unresolvable: {
+        if (cx.strict) {
+            self.throw_reference_error(reference.name->to_utf8() + " is not defined");
             return false;
-        case Reference::Kind::Unresolvable: {
+        }
+        return self.set(*self.global(), PropertyKey::atom(reference.name), value, false).has_value();
+    }
+    case Reference::Kind::Binding: {
+        // SetMutableBinding (§9.1.1.1.5).
+        Environment::Binding* binding = reference.environment->find(reference.name);
+        if (binding == nullptr) {
             if (cx.strict) {
                 self.throw_reference_error(reference.name->to_utf8() + " is not defined");
                 return false;
             }
-            return self.set(*self.global(), PropertyKey::atom(reference.name), value, false).has_value();
-        }
-        case Reference::Kind::Binding: {
-            // SetMutableBinding (§9.1.1.1.5).
-            Environment::Binding* binding = reference.environment->find(reference.name);
-            if (binding == nullptr) {
-                if (cx.strict) {
-                    self.throw_reference_error(reference.name->to_utf8() + " is not defined");
-                    return false;
-                }
-                reference.environment->declare(reference.name, value, true, true, true);
-                return true;
-            }
-            if (!binding->initialized) {
-                self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
-                return false;
-            }
-            if (!binding->mutable_) {
-                if (binding->strict || cx.strict) {
-                    self.throw_type_error("Assignment to constant variable.");
-                    return false;
-                }
-                return true;
-            }
-            binding->value = value;
+            reference.environment->declare(reference.name, value, true, true, true);
             return true;
         }
-        case Reference::Kind::ObjectEnvironment: {
-            // §9.1.1.2.5.
-            Object* object = reference.environment->object();
-            if (!object->has_property(reference.key) && cx.strict) {
-                self.throw_reference_error(reference.name->to_utf8() + " is not defined");
-                return false;
-            }
-            return self.set(*object, reference.key, value, cx.strict).has_value();
+        if (!binding->initialized) {
+            self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
+            return false;
         }
-        case Reference::Kind::Property: {
-            if (reference.base.is_nullish()) {
-                self.throw_type_error("Cannot set properties of " + std::string(reference.base.is_null() ? "null" : "undefined")
-                    + " (setting '" + reference_key_text(reference) + "')");
-                return false;
-            }
-            if (!ensure_key(reference))
-                return false;
-            return self.set(reference.base, reference.key, value, cx.strict).has_value();
-        }
-        case Reference::Kind::Private:
-            return private_set(reference.base, reference.key, value);
-        case Reference::Kind::Super: {
-            if (reference.base.is_nullish()) {
-                self.throw_type_error("Cannot set properties of null (setting '" + reference_key_text(reference) + "')");
-                return false;
-            }
-            if (!ensure_key(reference))
-                return false;
-            std::optional<bool> const stored = reference.base.as_object()->set(self, reference.key, value, reference.this_value);
-            if (!stored)
-                return false;
-            if (!*stored && cx.strict) {
-                self.throw_type_error("Cannot assign to read only property '" + key_description(reference.key) + "' of object");
+        if (!binding->mutable_) {
+            if (binding->strict || cx.strict) {
+                self.throw_type_error("Assignment to constant variable.");
                 return false;
             }
             return true;
-        }
-        }
-        return false;
-    }
-
-    // The `this` a call through this reference gets (§13.3.6.2).
-    Value this_for_call(Reference const& reference)
-    {
-        if (reference.kind == Reference::Kind::Super)
-            return reference.this_value;
-        if (reference.kind == Reference::Kind::Property || reference.kind == Reference::Kind::Private)
-            return reference.base;
-        if (reference.kind == Reference::Kind::ObjectEnvironment && reference.environment->is_with_environment())
-            return Value::object(reference.environment->object());
-        return Value::undefined();
-    }
-
-    // ---- functions
-
-    // SetFunctionName (§10.2.9): the `name` own property, with the
-    // accessor prefix when there is one; a symbol names as [description].
-    void set_function_name(Object& function, PropertyKey const& key, std::string_view prefix = {})
-    {
-        std::u16string name;
-        if (key.is_symbol()) {
-            JsString const* description = key.as_symbol()->description();
-            if (key.as_symbol()->is_private())
-                name = description->data(); // §10.2.9 step 2.a: a Private Name's description as it is, `#x`
-            else if (description)
-                name = u"[" + description->data() + u"]";
-        } else {
-            name = heap().key_to_string(key)->data();
-        }
-        if (!prefix.empty())
-            name = utf16_from_utf8(prefix) + u" " + name;
-        Heap::NoCollect const guard(heap());
-        function.put(PropertyKey::atom(atoms().name), Value::string(heap().string(std::move(name))), Configurable);
-    }
-
-    // The closure for a function expression or arrow (§15.2.5, §15.3.4).
-    // A named function expression binds its own name, immutably, in an
-    // environment of its own between the closure and its scope.
-    std::optional<Value> make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key)
-    {
-        Heap::NoCollect const guard(heap());
-        Environment* scope = cx.lexical;
-        if (!node.is_arrow && node.name != nullptr && !node.is_getter && !node.is_setter && node.is_constructable) {
-            scope = new_environment(cx.lexical);
-            Environment::Binding& binding = scope->declare(node.name, Value::undefined(), false, true);
-            binding.strict = false;
-        }
-        ScriptFunction* function = self.new_script_function(node, scope, cx.private_environment);
-        if (scope != cx.lexical)
-            scope->find(node.name)->value = Value::object(function);
-        if (name_key && node.name == nullptr)
-            set_function_name(*function, *name_key);
-        return Value::object(function);
-    }
-
-    // NamedEvaluation (§8.4.5): an anonymous function definition takes
-    // the name it is assigned to.
-    std::optional<Value> evaluate_named(Expression const* expression, Context& cx, PropertyKey const& name_key)
-    {
-        if (expression->type == NodeType::ArrowFunction)
-            return make_closure(*static_cast<ArrowFunction const*>(expression)->function, cx, &name_key);
-        if (expression->type == NodeType::FunctionExpression)
-            return make_closure(*static_cast<FunctionExpression const*>(expression)->function, cx, &name_key);
-        if (expression->type == NodeType::ClassExpression)
-            return evaluate_class(*static_cast<ClassExpression const*>(expression)->node, cx, &name_key);
-        return evaluate(expression, cx);
-    }
-
-    // CreateUnmappedArgumentsObject / CreateMappedArgumentsObject
-    // (§10.4.4.6, §10.4.4.7). The mapped form aliases the parameters for
-    // sloppy functions with simple, distinct parameter lists; both carry
-    // %Array.prototype.values% as their @@iterator.
-    Object* make_arguments_object(ScriptFunction& function, Environment* environment, std::span<Value const> arguments, bool mapped)
-    {
-        Heap::NoCollect const guard(heap());
-        FunctionNode const& node = function.node();
-        Object* object = nullptr;
-        if (mapped) {
-            // Only a simple list is mapped, so every parameter is a name.
-            std::vector<JsString*> names(std::min(node.parameters.size(), arguments.size()), nullptr);
-            for (std::size_t i = 0; i < names.size(); ++i)
-                names[i] = node.parameters[i].name;
-            object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(names));
-        } else {
-            object = heap().allocate<Object>(self.intrinsics().object_prototype, Object::Class::Arguments);
-        }
-        for (std::size_t i = 0; i < arguments.size(); ++i)
-            object->put(PropertyKey::index(static_cast<std::uint32_t>(i)), arguments[i]);
-        object->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(arguments.size())), builtin_attributes);
-        object->put(PropertyKey::symbol(atoms().symbol_iterator), Value::object(self.intrinsics().array_prototype_values), builtin_attributes);
-        if (mapped)
-            object->put(PropertyKey::atom(atoms().callee), Value::object(&function), builtin_attributes);
-        else
-            object->put_accessor(PropertyKey::atom(atoms().callee), self.intrinsics().throw_type_error, self.intrinsics().throw_type_error, 0);
-        return object;
-    }
-
-    // [[Call]] and [[Construct]] of a script function share this:
-    // PrepareForOrdinaryCall, OrdinaryCallBindThis and
-    // FunctionDeclarationInstantiation (§10.2.1, §10.2.1.2, §10.2.11), then
-    // the body.
-    std::optional<Value> call_script_function(ScriptFunction& function, Value const& this_argument,
-        std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key = nullptr)
-    {
-        FunctionNode const& node = function.node();
-        Roots const roots(self);
-        self.root(Value::object(&function));
-        self.root(this_argument);
-        for (Value const& argument : arguments)
-            self.root(argument);
-
-        Environment* variable = new_environment(function.scope());
-        variable->set_function(&function);
-        ContextScope scope(*this, Context { variable, variable, node.program, &function, node.is_strict, function.private_environment() });
-        Context& cx = scope.context();
-
-        if (!node.is_arrow) {
-            if (node.is_derived_constructor) {
-                // A derived constructor's `this` waits for super() (§10.2.1.1).
-                variable->set_this_uninitialized();
-            } else {
-                // OrdinaryCallBindThis: sloppy code sees the global object for
-                // a nullish `this` and a wrapper for a primitive one.
-                Value this_value = this_argument;
-                if (!node.is_strict) {
-                    if (this_value.is_nullish()) {
-                        this_value = Value::object(self.global());
-                    } else if (!this_value.is_object()) {
-                        std::optional<Object*> const boxed = self.to_object(this_value);
-                        if (!boxed)
-                            return std::nullopt;
-                        this_value = Value::object(*boxed);
-                    }
-                }
-                variable->set_this(this_value);
-            }
-            variable->set_new_target(new_target);
-            // A base class constructor defines its fields on the fresh
-            // instance before anything else runs (§10.2.2 step 6.b).
-            if (node.is_class_constructor && !node.is_derived_constructor && new_target != nullptr && this_argument.is_object()) {
-                if (!initialize_instance_elements(*this_argument.as_object(), function))
-                    return std::nullopt;
-            }
-        }
-
-        // Parameters (steps 21–26). A simple list binds each name to its
-        // argument, the last occurrence of a duplicated name winning; any
-        // other list declares every name uninitialised first, so that a
-        // default reading a later parameter finds its dead zone, and
-        // binds them in order once the arguments object exists.
-        std::vector<JsString*> parameter_names;
-        collect_parameter_names(node, parameter_names);
-        if (node.has_simple_parameter_list) {
-            for (std::size_t i = 0; i < node.parameters.size(); ++i) {
-                Value const value = i < arguments.size() ? arguments[i] : Value::undefined();
-                if (Environment::Binding* existing = variable->find(node.parameters[i].name))
-                    existing->value = value;
-                else
-                    variable->declare(node.parameters[i].name, value);
-            }
-        } else {
-            for (JsString* name : parameter_names)
-                variable->declare(name, Value::undefined(), true, false);
-        }
-
-        // The arguments object, when the body can reach it and nothing of
-        // its own shadows it; mapped only for a sloppy simple list.
-        if (!node.is_arrow && (node.uses_arguments || node.has_direct_eval)) {
-            bool shadowed = contains(parameter_names, atoms().arguments);
-            for (FunctionDeclaration const* declaration : node.declarations.functions) {
-                if (declaration->function->name == atoms().arguments)
-                    shadowed = true;
-            }
-            for (auto const& [name, is_const] : node.declarations.lexicals) {
-                if (name == atoms().arguments)
-                    shadowed = true;
-            }
-            if (!shadowed) {
-                bool const mapped = !node.is_strict && node.has_simple_parameter_list && !node.has_duplicate_parameters;
-                Object* arguments_object = make_arguments_object(function, variable, arguments, mapped);
-                variable->declare(atoms().arguments, Value::object(arguments_object), !node.is_strict, true);
-            }
-        }
-
-        if (!node.has_simple_parameter_list && !bind_parameters(node, variable, arguments, cx))
-            return std::nullopt;
-
-        // Vars (steps 27–28): in the parameters' record unless a default
-        // or a computed key could have made a closure there, in which case
-        // they get a record of their own that such a closure cannot see;
-        // a var named like a parameter starts with the parameter's value.
-        Environment* var_env = variable;
-        if (node.has_parameter_expressions) {
-            var_env = new_environment(variable);
-            cx.variable = var_env;
-            for (JsString* name : node.declarations.vars) {
-                if (var_env->find(name))
-                    continue;
-                Environment::Binding const* parameter = variable->find(name);
-                var_env->declare(name, parameter ? parameter->value : Value::undefined());
-            }
-        } else {
-            for (JsString* name : node.declarations.vars) {
-                if (!variable->find(name))
-                    variable->declare(name, Value::undefined());
-            }
-        }
-
-        // Top-level lexicals live in their own record when there are any,
-        // so a direct eval's `var` can tell them apart from the vars.
-        Environment* lexical = var_env;
-        if (!node.declarations.lexicals.empty())
-            lexical = new_environment(var_env);
-        cx.lexical = lexical;
-        for (FunctionDeclaration const* declaration : node.declarations.functions) {
-            ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, cx.private_environment);
-            JsString* name = declaration->function->name;
-            if (Environment::Binding* existing = var_env->find(name))
-                existing->value = Value::object(closure);
-            else
-                var_env->declare(name, Value::object(closure));
-        }
-        for (auto const& [name, is_const] : node.declarations.lexicals)
-            lexical->declare(name, Value::undefined(), !is_const, false);
-
-        // The body. A field initializer is its expression, named after
-        // the field when it is an anonymous function; a default derived
-        // constructor hands its arguments to the parent class.
-        std::optional<Value> value;
-        if (node.is_default_constructor) {
-            if (node.is_derived_constructor) {
-                Object* parent = function.prototype();
-                Value const parent_value = parent ? Value::object(parent) : Value::undefined();
-                if (!Interpreter::is_constructor(parent_value))
-                    return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
-                std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
-                if (!result)
-                    return std::nullopt;
-                variable->set_this(*result);
-                if (!initialize_instance_elements(*result->as_object(), function))
-                    return std::nullopt;
-            }
-            value = Value::undefined();
-        } else if (node.expression_body) {
-            if (node.is_field_initializer && field_key && is_anonymous_function_definition(node.expression_body))
-                value = evaluate_named(node.expression_body, cx, *field_key);
-            else
-                value = evaluate(node.expression_body, cx);
-            if (!value)
-                return std::nullopt;
-        } else {
-            Completion const completion = execute_list(node.body, cx);
-            if (completion.type == Completion::Type::Throw)
-                return std::nullopt;
-            if (completion.type == Completion::Type::Return)
-                value = completion.value.is_empty() ? Value::undefined() : completion.value;
-            else
-                value = Value::undefined();
-        }
-        // [[Construct]] of a derived class (§10.2.2 steps 10–12): an object
-        // returned is the result, anything else but undefined a TypeError,
-        // and undefined yields the `this` that super() bound.
-        if (new_target != nullptr && node.is_derived_constructor) {
-            if (value->is_object())
-                return *value;
-            if (!value->is_undefined())
-                return self.throw_type_error("Derived constructors may only return object or undefined");
-            if (!variable->this_initialized())
-                return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
-            return variable->this_value();
-        }
-        return *value;
-    }
-
-    // ---- classes
-
-    // The [[HomeObject]] of the running method: the nearest non-arrow
-    // function's, arrows looking outward for theirs (§9.4.3).
-    Object* home_object_of(Context const& cx)
-    {
-        for (Environment* e = cx.lexical; e != nullptr; e = e->outer()) {
-            Function* function = e->function();
-            if (function == nullptr)
-                continue;
-            auto* script = static_cast<ScriptFunction*>(function);
-            if (script->node().is_arrow)
-                continue;
-            return script->home_object();
-        }
-        return nullptr;
-    }
-
-    // MakeSuperPropertyReference (§13.3.7.3): `this` first, then the
-    // key, against the home object's prototype.
-    std::optional<Reference> evaluate_super_member(SuperMember const& member, Context& cx)
-    {
-        std::optional<Value> const this_value = resolve_this(cx.lexical);
-        if (!this_value)
-            return std::nullopt;
-        Roots const roots(self);
-        self.root(*this_value);
-        Object* home = home_object_of(cx);
-        if (home == nullptr)
-            return self.throw_syntax_error("'super' keyword unexpected here");
-        Reference reference;
-        reference.kind = Reference::Kind::Super;
-        reference.this_value = *this_value;
-        Object* base = home->prototype();
-        reference.base = base ? Value::object(base) : Value::null();
-        if (member.property) {
-            std::optional<Value> const key_value = evaluate(member.property, cx);
-            if (!key_value)
-                return std::nullopt;
-            reference.key_value = *key_value;
-            if (!key_value->is_object()) {
-                std::optional<PropertyKey> const key = self.to_property_key(*key_value);
-                if (!key)
-                    return std::nullopt;
-                reference.key = *key;
-                reference.key_ready = true;
-            }
-        } else {
-            reference.key = heap().key(member.name);
-            reference.key_ready = true;
-        }
-        return reference;
-    }
-
-    // SuperCall (§13.3.7.1): the parent class constructed with this
-    // call's new.target, the result bound as `this` — once — and the
-    // class's fields defined on it.
-    std::optional<Value> evaluate_super_call(SuperCall const& call, Context& cx)
-    {
-        Environment* this_env = this_environment(cx.lexical);
-        if (this_env == nullptr || this_env->function() == nullptr)
-            return self.throw_syntax_error("'super' keyword unexpected here");
-        auto* active = static_cast<ScriptFunction*>(this_env->function());
-        Object* new_target = this_env->new_target();
-        Roots const roots(self);
-        Object* parent = active->prototype();
-        Value const parent_value = parent ? Value::object(parent) : Value::undefined();
-        self.root(parent_value);
-        std::vector<Value> arguments;
-        if (!evaluate_arguments(call.arguments, cx, arguments))
-            return std::nullopt;
-        if (!Interpreter::is_constructor(parent_value))
-            return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
-        if (new_target == nullptr)
-            return self.throw_syntax_error("'super' keyword unexpected here");
-        std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
-        if (!result)
-            return std::nullopt;
-        self.root(*result);
-        if (this_env->this_initialized())
-            return self.throw_reference_error("Super constructor may only be called once");
-        this_env->set_this(*result);
-        if (!initialize_instance_elements(*result->as_object(), *active))
-            return std::nullopt;
-        return *result;
-    }
-
-    // NewTarget (§13.3.12.1): the running function's, undefined when it
-    // was called rather than constructed, and in global code.
-    Value evaluate_new_target(Context& cx)
-    {
-        Environment* this_env = this_environment(cx.lexical);
-        if (this_env == nullptr || this_env->new_target() == nullptr)
-            return Value::undefined();
-        return Value::object(this_env->new_target());
-    }
-
-    // A field initializer runs as a call with the instance as `this`, the
-    // field's key naming an anonymous function it evaluates to.
-    std::optional<Value> call_field_initializer(ScriptFunction& initializer, Value const& this_value, PropertyKey const& key)
-    {
-        if (self.m_call_depth >= self.m_call_depth_limit)
-            return self.throw_range_error("Maximum call stack size exceeded");
-        if (!step() || !stack_ok())
-            return std::nullopt;
-        ++self.m_call_depth;
-        std::optional<Value> const result = call_script_function(initializer, this_value, {}, nullptr, &key);
-        --self.m_call_depth;
-        return result;
-    }
-
-    // ---- private names (§7.3.30–§7.3.33)
-    //
-    // A private element is a property keyed by the class's Private Name,
-    // found on the object alone — never up the prototype chain — and never
-    // listed (Object::own_keys skips the key). A private method is a frozen
-    // data property, so a write to it is the TypeError the specification
-    // asks for; a private accessor is an accessor.
-
-    std::string private_name_text(PropertyKey const& key)
-    {
-        JsString const* description = key.as_symbol()->description();
-        return description ? description->to_utf8() : std::string("#");
-    }
-
-    // PrivateGet (§7.3.32).
-    std::optional<Value> private_get(Value const& base, PropertyKey const& key)
-    {
-        Property const* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
-        if (element == nullptr)
-            return self.throw_type_error("Cannot read private member " + private_name_text(key) + " from an object whose class did not declare it");
-        if (!element->accessor)
-            return element->value;
-        if (element->getter == nullptr)
-            return self.throw_type_error("'" + private_name_text(key) + "' was defined without a getter");
-        return self.call(Value::object(element->getter), base, {});
-    }
-
-    // PrivateSet (§7.3.33).
-    bool private_set(Value const& base, PropertyKey const& key, Value const& value)
-    {
-        Property* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
-        if (element == nullptr) {
-            self.throw_type_error("Cannot write private member " + private_name_text(key) + " to an object whose class did not declare it");
-            return false;
-        }
-        if (element->accessor) {
-            if (element->setter == nullptr) {
-                self.throw_type_error("'" + private_name_text(key) + "' was defined without a setter");
-                return false;
-            }
-            Value const arguments[1] = { value };
-            return self.call(Value::object(element->setter), base, arguments).has_value();
-        }
-        if (!element->writable()) {
-            self.throw_type_error("Private method '" + private_name_text(key) + "' is not writable");
-            return false;
-        }
-        element->value = value;
-        return true;
-    }
-
-    // PrivateFieldAdd (§7.3.30): once per object, and never on an object
-    // that is no longer extensible (the 2025 rule) — a constructor that
-    // returns an object already carrying the field, or a sealed one, is
-    // refused.
-    bool private_field_add(Object& object, PropertyKey const& key, Value const& value)
-    {
-        if (!object.is_extensible()) {
-            self.throw_type_error("Cannot define private field " + private_name_text(key) + " on a non-extensible object");
-            return false;
-        }
-        if (object.find_own(key) != nullptr) {
-            self.throw_type_error("Cannot initialize " + private_name_text(key) + " twice on the same object");
-            return false;
-        }
-        object.put(key, value, Writable);
-        return true;
-    }
-
-    // PrivateMethodOrAccessorAdd (§7.3.31).
-    bool private_method_add(Object& object, PrivateMethod const& method)
-    {
-        PropertyKey const key = PropertyKey::symbol(method.name);
-        if (!object.is_extensible()) {
-            self.throw_type_error("Cannot define private method " + private_name_text(key) + " on a non-extensible object");
-            return false;
-        }
-        if (object.find_own(key) != nullptr) {
-            self.throw_type_error("Cannot initialize private methods of class twice on the same object");
-            return false;
-        }
-        if (method.method != nullptr)
-            object.put(key, Value::object(method.method), frozen_attributes);
-        else
-            object.put_accessor(key, method.getter, method.setter, frozen_attributes);
-        return true;
-    }
-
-    // `#x in o` (§13.10.1 steps 4–9): the right operand must be an object;
-    // the answer is whether it carries the element.
-    std::optional<Value> evaluate_private_in(PrivateInExpression const& expression, Context& cx)
-    {
-        std::optional<Value> const right = evaluate(expression.right, cx);
-        if (!right)
-            return std::nullopt;
-        if (!right->is_object())
-            return self.throw_type_error("Cannot use 'in' operator to search for '" + expression.name->to_utf8() + "' in " + self.describe(*right));
-        Symbol* name = cx.private_environment ? cx.private_environment->lookup(expression.name) : nullptr;
-        if (name == nullptr)
-            return self.throw_syntax_error("Private field '" + expression.name->to_utf8() + "' must be declared in an enclosing class");
-        return Value::boolean(right->as_object()->find_own(PropertyKey::symbol(name)) != nullptr);
-    }
-
-    // DefineField (§7.3.33).
-    bool define_field(Object& receiver, ClassField const& field)
-    {
-        Roots const roots(self);
-        self.root(Value::object(&receiver));
-        self.root(field.key.is_symbol() ? Value::symbol(field.key.as_symbol()) : Value::undefined());
-        Value value = Value::undefined();
-        if (field.initializer) {
-            self.root(Value::object(field.initializer));
-            std::optional<Value> const result = call_field_initializer(*field.initializer, Value::object(&receiver), field.key);
-            if (!result)
-                return false;
-            value = *result;
-        }
-        self.root(value);
-        if (field.key.is_symbol() && field.key.as_symbol()->is_private())
-            return private_field_add(receiver, field.key, value);
-        return self.create_data_property(receiver, field.key, value).has_value();
-    }
-
-    // InitializeInstanceElements (§7.3.34): the constructor's private
-    // methods and accessors, then its fields, in order.
-    bool initialize_instance_elements(Object& instance, ScriptFunction& constructor)
-    {
-        Roots const roots(self);
-        self.root(Value::object(&constructor));
-        std::vector<PrivateMethod> const methods = constructor.private_methods();
-        for (PrivateMethod const& method : methods) {
-            if (!private_method_add(instance, method))
-                return false;
-        }
-        std::vector<ClassField> const fields = constructor.fields();
-        for (ClassField const& field : fields) {
-            if (!define_field(instance, field))
-                return false;
-        }
-        return true;
-    }
-
-    // The constructor function of a class (§15.7.14 steps 14–17): its
-    // [[Prototype]] is the parent class, its `prototype` the class's
-    // prototype object, immutable, and the two point at each other.
-    ScriptFunction* new_class_constructor(FunctionNode const& node, Environment* scope, Object* proto, Object* constructor_parent)
-    {
-        Heap::NoCollect const guard(heap());
-        auto* function = heap().allocate<ScriptFunction>(constructor_parent, node, scope, true);
-        function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
-        function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
-        function->put(PropertyKey::atom(atoms().prototype), Value::object(proto), frozen_attributes);
-        proto->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
-        function->set_home_object(proto);
-        return function;
-    }
-
-    // ClassDefinitionEvaluation (§15.7.14): the heritage, the prototype
-    // object and the constructor, then every element in order — methods
-    // and accessors defined at once, instance fields recorded on the
-    // constructor, static fields and blocks run last with the class as
-    // `this` — the class's own name bound throughout its body.
-    std::optional<Value> evaluate_class(ClassNode const& node, Context& cx, PropertyKey const* name_key)
-    {
-        Roots const roots(self);
-        Environment* const saved = cx.lexical;
-        bool const saved_strict = cx.strict;
-        PrivateEnvironment* const outer_private = cx.private_environment;
-        Environment* class_env = new_environment(saved);
-        if (node.name)
-            class_env->declare(node.name, Value::undefined(), false, false);
-        cx.lexical = class_env;
-        cx.strict = true;
-        auto leave = [&]() {
-            cx.lexical = saved;
-            cx.strict = saved_strict;
-            cx.private_environment = outer_private;
-        };
-        Object* proto_parent = self.intrinsics().object_prototype;
-        Object* constructor_parent = self.intrinsics().function_prototype;
-        if (node.has_heritage) {
-            std::optional<Value> const superclass = evaluate(node.heritage, cx);
-            if (!superclass) {
-                leave();
-                return std::nullopt;
-            }
-            self.root(*superclass);
-            if (superclass->is_null()) {
-                proto_parent = nullptr;
-            } else if (!Interpreter::is_constructor(*superclass)) {
-                leave();
-                return self.throw_type_error("Class extends value " + self.describe(*superclass) + " is not a constructor or null");
-            } else {
-                std::optional<Value> const parent_proto = self.get(*superclass, PropertyKey::atom(atoms().prototype));
-                if (!parent_proto) {
-                    leave();
-                    return std::nullopt;
-                }
-                if (parent_proto->is_object()) {
-                    proto_parent = parent_proto->as_object();
-                } else if (parent_proto->is_null()) {
-                    proto_parent = nullptr;
-                } else {
-                    leave();
-                    return self.throw_type_error("Class extends value does not have valid prototype property " + self.describe(*parent_proto));
-                }
-                constructor_parent = superclass->as_object();
-            }
-        }
-        // The class's Private Names (§15.7.14 steps 4–6 and 11): a fresh
-        // cell per declared `#x`, chained to the enclosing class's, in scope
-        // for everything the body makes — the heritage above saw only the
-        // outer ones. The context traces it from here on, as it does the
-        // functions made in the body, which keep it.
-        bool has_private = false;
-        for (ClassElement const& element : node.elements)
-            has_private = has_private || element.is_private;
-        if (has_private) {
-            cx.private_environment = heap().allocate<PrivateEnvironment>(outer_private);
-            for (ClassElement const& element : node.elements) {
-                if (!element.is_private)
-                    continue;
-                bool known = false;
-                for (auto const& [description, name] : cx.private_environment->names())
-                    known = known || description == element.key;
-                if (!known)
-                    cx.private_environment->add(element.key, heap().private_symbol(element.key));
-            }
-        }
-        Object* proto = self.new_object();
-        proto->set_prototype(proto_parent);
-        self.root(Value::object(proto));
-        ScriptFunction* constructor = new_class_constructor(*node.constructor, class_env, proto, constructor_parent);
-        constructor->set_private_environment(cx.private_environment);
-        self.root(Value::object(constructor));
-        if (!node.name && name_key)
-            set_function_name(*constructor, *name_key);
-
-        struct StaticElement {
-            ClassElement const* element;
-            PropertyKey key;
-        };
-        std::vector<StaticElement> statics;
-        for (ClassElement const& element : node.elements) {
-            Object* target = element.is_static ? static_cast<Object*>(constructor) : proto;
-            PropertyKey key;
-            if (element.kind != ClassElement::Kind::StaticBlock) {
-                if (element.computed_key) {
-                    std::optional<Value> const key_value = evaluate(element.computed_key, cx);
-                    if (!key_value) {
-                        leave();
-                        return std::nullopt;
-                    }
-                    self.root(*key_value);
-                    std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
-                    if (!converted) {
-                        leave();
-                        return std::nullopt;
-                    }
-                    key = *converted;
-                    if (key.is_symbol())
-                        self.root(Value::symbol(key.as_symbol()));
-                } else if (element.is_private) {
-                    key = PropertyKey::symbol(cx.private_environment->lookup(element.key));
-                } else {
-                    key = heap().key(element.key);
-                }
-            }
-            switch (element.kind) {
-            case ClassElement::Kind::Method: {
-                Heap::NoCollect const guard(heap());
-                ScriptFunction* closure = self.new_script_function(*element.function, class_env, cx.private_environment);
-                closure->set_home_object(target);
-                set_function_name(*closure, key);
-                if (element.is_private) {
-                    // A private method (§15.7.14 steps 22–23): a static one
-                    // goes on the class now; an instance one waits on the
-                    // constructor for each new object.
-                    PrivateMethod method;
-                    method.name = key.as_symbol();
-                    method.method = closure;
-                    if (!element.is_static) {
-                        constructor->private_methods().push_back(method);
-                    } else if (!private_method_add(*constructor, method)) {
-                        leave();
-                        return std::nullopt;
-                    }
-                    break;
-                }
-                // DefineMethodProperty: writable, configurable, not enumerable —
-                // through validation, so a key the target already holds as
-                // non-configurable (a static `['prototype']`) is a TypeError.
-                if (!self.define_property_or_throw(*target, key, PropertyDescriptor::data(Value::object(closure), builtin_attributes))) {
-                    leave();
-                    return std::nullopt;
-                }
-                break;
-            }
-            case ClassElement::Kind::Getter:
-            case ClassElement::Kind::Setter: {
-                Heap::NoCollect const guard(heap());
-                ScriptFunction* accessor = self.new_script_function(*element.function, class_env, cx.private_environment);
-                accessor->set_home_object(target);
-                bool const is_getter = element.kind == ClassElement::Kind::Getter;
-                set_function_name(*accessor, key, is_getter ? "get" : "set");
-                if (element.is_private && !element.is_static) {
-                    // An instance private accessor joins its other half on
-                    // the constructor's list (§15.7.14 step 24).
-                    PrivateMethod* method = nullptr;
-                    for (PrivateMethod& candidate : constructor->private_methods()) {
-                        if (candidate.name == key.as_symbol())
-                            method = &candidate;
-                    }
-                    if (method == nullptr) {
-                        constructor->private_methods().push_back(PrivateMethod {});
-                        method = &constructor->private_methods().back();
-                        method->name = key.as_symbol();
-                    }
-                    (is_getter ? method->getter : method->setter) = accessor;
-                    break;
-                }
-                Object* getter = nullptr;
-                Object* setter = nullptr;
-                if (Property const* existing = target->find_own(key); existing && existing->accessor) {
-                    getter = existing->getter;
-                    setter = existing->setter;
-                }
-                if (is_getter)
-                    getter = accessor;
-                else
-                    setter = accessor;
-                // A static private accessor is a frozen private element of
-                // the class; a public one is configurable, and defined through
-                // validation so a non-configurable key on the target throws.
-                if (element.is_private) {
-                    target->put_accessor(key, getter, setter, frozen_attributes);
-                } else if (!self.define_property_or_throw(*target, key, PropertyDescriptor::accessor(getter, setter, Configurable))) {
-                    leave();
-                    return std::nullopt;
-                }
-                break;
-            }
-            case ClassElement::Kind::Field: {
-                if (element.is_static) {
-                    statics.push_back({ &element, key });
-                    break;
-                }
-                Heap::NoCollect const guard(heap());
-                ClassField field;
-                field.key = key;
-                if (element.function) {
-                    field.initializer = self.new_script_function(*element.function, class_env, cx.private_environment);
-                    field.initializer->set_home_object(proto);
-                }
-                constructor->fields().push_back(field);
-                break;
-            }
-            case ClassElement::Kind::StaticBlock:
-                statics.push_back({ &element, PropertyKey() });
-                break;
-            }
-        }
-        if (node.name) {
-            Environment::Binding* binding = class_env->find(node.name);
-            binding->value = Value::object(constructor);
-            binding->initialized = true;
-        }
-        // Static fields and blocks, in order, with the class as `this`.
-        for (StaticElement const& item : statics) {
-            ScriptFunction* closure = nullptr;
-            if (item.element->function) {
-                Heap::NoCollect const guard(heap());
-                closure = self.new_script_function(*item.element->function, class_env, cx.private_environment);
-                closure->set_home_object(constructor);
-            }
-            if (closure)
-                self.root(Value::object(closure));
-            if (item.element->kind == ClassElement::Kind::StaticBlock) {
-                if (!self.call(Value::object(closure), Value::object(constructor), {})) {
-                    leave();
-                    return std::nullopt;
-                }
-                continue;
-            }
-            ClassField field;
-            field.key = item.key;
-            field.initializer = closure;
-            if (!define_field(*constructor, field)) {
-                leave();
-                return std::nullopt;
-            }
-        }
-        leave();
-        return Value::object(constructor);
-    }
-
-    Completion execute_class_declaration(ClassDeclaration const& declaration, Context& cx)
-    {
-        // BindingClassDeclarationEvaluation (§15.7.15): the outer binding,
-        // declared at the scope's entry, takes the class.
-        std::optional<Value> const value = evaluate_class(*declaration.node, cx, nullptr);
-        if (!value)
-            return Completion::thrown();
-        Roots const roots(self);
-        self.root(*value);
-        if (!initialize_binding(declaration.node->name, *value, cx.lexical))
-            return Completion::thrown();
-        return Completion::normal();
-    }
-
-    // ---- patterns
-
-    // How a pattern's leaves take their values: InitializeReferencedBinding
-    // of a name declared in `env` (let/const, parameters, catch, a for
-    // head's binding); PutValue through a resolved name (`var`); or
-    // PutValue through any reference an assignment pattern names.
-    enum class BindMode : std::uint8_t { Initialize, VarAssign, Assign };
-
-    // BoundNames (§8.2.1) of a target.
-    static void collect_bound_names(Expression const* target, std::vector<JsString*>& out)
-    {
-        if (target->type == NodeType::Identifier) {
-            out.push_back(static_cast<Identifier const*>(target)->name);
-        } else if (target->type == NodeType::ArrayPattern) {
-            auto const& pattern = *static_cast<ArrayPattern const*>(target);
-            for (PatternElement const& element : pattern.elements) {
-                if (element.target)
-                    collect_bound_names(element.target, out);
-            }
-            if (pattern.rest)
-                collect_bound_names(pattern.rest, out);
-        } else if (target->type == NodeType::ObjectPattern) {
-            auto const& pattern = *static_cast<ObjectPattern const*>(target);
-            for (PatternProperty const& property : pattern.properties)
-                collect_bound_names(property.target, out);
-            if (pattern.rest)
-                collect_bound_names(pattern.rest, out);
-        }
-        // A member expression binds nothing.
-    }
-
-    static void collect_bound_names(JsString* name, Expression const* pattern, std::vector<JsString*>& out)
-    {
-        if (name)
-            out.push_back(name);
-        else if (pattern)
-            collect_bound_names(pattern, out);
-    }
-
-    static void collect_parameter_names(FunctionNode const& node, std::vector<JsString*>& out)
-    {
-        for (Parameter const& parameter : node.parameters)
-            collect_bound_names(parameter.name, parameter.pattern, out);
-    }
-
-    // InitializeReferencedBinding for a name declared, uninitialised, in
-    // `env` or one of its outers.
-    bool initialize_binding(JsString* name, Value const& value, Environment* env)
-    {
-        Environment::Binding* binding = nullptr;
-        for (Environment* e = env; e != nullptr && binding == nullptr; e = e->outer())
-            binding = e->find(name);
-        if (binding == nullptr) {
-            self.throw_reference_error(name->to_utf8() + " is not defined");
-            return false;
         }
         binding->value = value;
-        binding->initialized = true;
         return true;
     }
-
-    // The reference a non-pattern target names, taken before its value is
-    // read, as §13.15.5.5 and §8.6.3 order it. Rooted in the caller's scope.
-    bool prepare_target(Expression const* target, BindMode mode, Context& cx, std::optional<Reference>& reference)
-    {
-        if (target == nullptr || is_pattern(target) || mode == BindMode::Initialize)
-            return true;
-        reference = evaluate_reference(target, cx);
-        if (!reference)
+    case Reference::Kind::ObjectEnvironment: {
+        // §9.1.1.2.5.
+        Object* object = reference.environment->object();
+        if (!object->has_property(reference.key) && cx.strict) {
+            self.throw_reference_error(reference.name->to_utf8() + " is not defined");
             return false;
-        self.root(reference->base);
-        self.root(reference->key_value);
+        }
+        return self.set(*object, reference.key, value, cx.strict).has_value();
+    }
+    case Reference::Kind::Property: {
+        if (reference.base.is_nullish()) {
+            self.throw_type_error("Cannot set properties of " + std::string(reference.base.is_null() ? "null" : "undefined")
+                + " (setting '" + reference_key_text(reference) + "')");
+            return false;
+        }
+        if (!ensure_key(reference))
+            return false;
+        return self.set(reference.base, reference.key, value, cx.strict).has_value();
+    }
+    case Reference::Kind::Private:
+        return private_set(reference.base, reference.key, value);
+    case Reference::Kind::Super: {
+        if (reference.base.is_nullish()) {
+            self.throw_type_error("Cannot set properties of null (setting '" + reference_key_text(reference) + "')");
+            return false;
+        }
+        if (!ensure_key(reference))
+            return false;
+        std::optional<bool> const stored = reference.base.as_object()->set(self, reference.key, value, reference.this_value);
+        if (!stored)
+            return false;
+        if (!*stored && cx.strict) {
+            self.throw_type_error("Cannot assign to read only property '" + key_description(reference.key) + "' of object");
+            return false;
+        }
         return true;
     }
-
-    // One element's target takes `value`, or its default when that is
-    // undefined — an anonymous function default named after a plain
-    // target (NamedEvaluation) — then stores it by mode.
-    bool bind_element(Expression const* target, Expression const* initializer, Value value,
-        std::optional<Reference>& reference, BindMode mode, Environment* env, Context& cx)
-    {
-        Roots const roots(self);
-        self.root(value);
-        if (initializer && value.is_undefined()) {
-            std::optional<Value> replacement;
-            if (target->type == NodeType::Identifier && is_anonymous_function_definition(initializer))
-                replacement = evaluate_named(initializer, cx, PropertyKey::atom(static_cast<Identifier const*>(target)->name));
-            else
-                replacement = evaluate(initializer, cx);
-            if (!replacement)
-                return false;
-            value = *replacement;
-            self.root(value);
-        }
-        if (is_pattern(target))
-            return bind_pattern(target, value, mode, env, cx);
-        if (mode == BindMode::Initialize)
-            return initialize_binding(static_cast<Identifier const*>(target)->name, value, env);
-        return put_value(*reference, value, cx);
     }
+    return false;
+}
 
-    // A declared target — a parameter, a declarator, a catch parameter or
-    // a for head's binding: a name or a pattern with an optional default.
-    bool bind_declared(JsString* name, Expression const* pattern, Expression const* initializer, Value const& value,
-        BindMode mode, Environment* env, Context& cx)
-    {
-        Roots const roots(self);
-        std::optional<Reference> reference;
-        if (name && mode != BindMode::Initialize)
-            reference = resolve(name, cx.lexical);
-        if (pattern)
-            return bind_element(pattern, initializer, value, reference, mode, env, cx);
-        // A name is bound through a transient Identifier-shaped path: the
-        // default's NamedEvaluation and the store only need the name.
-        self.root(value);
-        Value stored = value;
-        if (initializer && value.is_undefined()) {
-            std::optional<Value> replacement = is_anonymous_function_definition(initializer)
-                ? evaluate_named(initializer, cx, PropertyKey::atom(name))
-                : evaluate(initializer, cx);
-            if (!replacement)
-                return false;
-            stored = *replacement;
-            self.root(stored);
-        }
-        if (mode == BindMode::Initialize)
-            return initialize_binding(name, stored, env);
-        return put_value(*reference, stored, cx);
+
+// The `this` a call through this reference gets (§13.3.6.2).
+Value Interpreter::Impl::this_for_call(Reference const& reference)
+{
+    if (reference.kind == Reference::Kind::Super)
+        return reference.this_value;
+    if (reference.kind == Reference::Kind::Property || reference.kind == Reference::Kind::Private)
+        return reference.base;
+    if (reference.kind == Reference::Kind::ObjectEnvironment && reference.environment->is_with_environment())
+        return Value::object(reference.environment->object());
+    return Value::undefined();
+}
+
+
+// ---- functions
+// SetFunctionName (§10.2.9): the `name` own property, with the
+// accessor prefix when there is one; a symbol names as [description].
+void Interpreter::Impl::set_function_name(Object& function, PropertyKey const& key, std::string_view prefix)
+{
+    std::u16string name;
+    if (key.is_symbol()) {
+        JsString const* description = key.as_symbol()->description();
+        if (key.as_symbol()->is_private())
+            name = description->data(); // §10.2.9 step 2.a: a Private Name's description as it is, `#x`
+        else if (description)
+            name = u"[" + description->data() + u"]";
+    } else {
+        name = heap().key_to_string(key)->data();
     }
+    if (!prefix.empty())
+        name = utf16_from_utf8(prefix) + u" " + name;
+    Heap::NoCollect const guard(heap());
+    function.put(PropertyKey::atom(atoms().name), Value::string(heap().string(std::move(name))), Configurable);
+}
 
-    // BindingInitialization / DestructuringAssignmentEvaluation of a
-    // pattern over a value (§8.6.2, §13.15.5.2).
-    bool bind_pattern(Expression const* pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
-    {
-        Roots const roots(self);
-        self.root(value);
-        if (pattern->type == NodeType::ArrayPattern)
-            return bind_array_pattern(*static_cast<ArrayPattern const*>(pattern), value, mode, env, cx);
-        return bind_object_pattern(*static_cast<ObjectPattern const*>(pattern), value, mode, env, cx);
+
+// The closure for a function expression or arrow (§15.2.5, §15.3.4).
+// A named function expression binds its own name, immutably, in an
+// environment of its own between the closure and its scope.
+std::optional<Value> Interpreter::Impl::make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key)
+{
+    Heap::NoCollect const guard(heap());
+    Environment* scope = cx.lexical;
+    if (!node.is_arrow && node.name != nullptr && !node.is_getter && !node.is_setter && node.is_constructable) {
+        scope = new_environment(cx.lexical);
+        Environment::Binding& binding = scope->declare(node.name, Value::undefined(), false, true);
+        binding.strict = false;
     }
+    ScriptFunction* function = self.new_script_function(node, scope, cx.private_environment);
+    if (scope != cx.lexical)
+        scope->find(node.name)->value = Value::object(function);
+    if (name_key && node.name == nullptr)
+        set_function_name(*function, *name_key);
+    return Value::object(function);
+}
 
-    // IteratorBindingInitialization / IteratorDestructuringAssignmentEvaluation
-    // (§8.6.3, §13.15.5.5): the value's iterator is stepped once per
-    // element, an elision discarding its step, the rest element taking
-    // everything left; the iterator is closed when the pattern ends before
-    // it does, and on any throw that is not the iterator's own.
-    bool bind_array_pattern(ArrayPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
-    {
-        std::optional<IteratorRecord> record = self.get_iterator(value);
-        if (!record)
-            return false;
-        self.root(record->iterator);
-        self.root(record->next_method);
-        auto finish = [&](bool ok) {
-            if (record->done)
-                return ok;
-            if (ok)
-                return self.iterator_close(*record, false);
-            if (!self.m_terminated)
-                self.iterator_close(*record, true);
-            return false;
-        };
-        auto next = [&](Value& out) -> bool {
-            out = Value::undefined();
-            if (record->done)
-                return true;
-            std::optional<bool> const stepped = self.iterator_step(*record, out);
-            if (!stepped)
-                return false;
-            if (!*stepped)
-                out = Value::undefined();
-            return true;
-        };
-        for (PatternElement const& element : pattern.elements) {
-            Roots const element_roots(self);
-            std::optional<Reference> reference;
-            if (!prepare_target(element.target, mode, cx, reference))
-                return finish(false);
-            Value element_value;
-            if (!next(element_value))
-                return false; // the iterator's own throw: done, and not closed
-            if (element.target == nullptr)
-                continue;
-            if (!bind_element(element.target, element.initializer, element_value, reference, mode, env, cx))
-                return finish(false);
-        }
-        if (pattern.rest) {
-            Roots const rest_roots(self);
-            std::optional<Reference> reference;
-            if (!prepare_target(pattern.rest, mode, cx, reference))
-                return finish(false);
-            ArrayObject* rest = self.new_array();
-            self.root(Value::object(rest));
-            std::uint32_t count = 0;
-            while (!record->done) {
-                Value element_value;
-                std::optional<bool> const stepped = self.iterator_step(*record, element_value);
-                if (!stepped)
-                    return false;
-                if (!*stepped)
-                    break;
-                rest->set_element(count++, element_value);
+
+// NamedEvaluation (§8.4.5): an anonymous function definition takes
+// the name it is assigned to.
+std::optional<Value> Interpreter::Impl::evaluate_named(Expression const* expression, Context& cx, PropertyKey const& name_key)
+{
+    if (expression->type == NodeType::ArrowFunction)
+        return make_closure(*static_cast<ArrowFunction const*>(expression)->function, cx, &name_key);
+    if (expression->type == NodeType::FunctionExpression)
+        return make_closure(*static_cast<FunctionExpression const*>(expression)->function, cx, &name_key);
+    if (expression->type == NodeType::ClassExpression)
+        return evaluate_class(*static_cast<ClassExpression const*>(expression)->node, cx, &name_key);
+    return evaluate(expression, cx);
+}
+
+
+// CreateUnmappedArgumentsObject / CreateMappedArgumentsObject
+// (§10.4.4.6, §10.4.4.7). The mapped form aliases the parameters for
+// sloppy functions with simple, distinct parameter lists; both carry
+// %Array.prototype.values% as their @@iterator.
+Object* Interpreter::Impl::make_arguments_object(ScriptFunction& function, Environment* environment, std::span<Value const> arguments, bool mapped)
+{
+    Heap::NoCollect const guard(heap());
+    FunctionNode const& node = function.node();
+    Object* object = nullptr;
+    if (mapped) {
+        // Only a simple list is mapped, so every parameter is a name.
+        std::vector<JsString*> names(std::min(node.parameters.size(), arguments.size()), nullptr);
+        for (std::size_t i = 0; i < names.size(); ++i)
+            names[i] = node.parameters[i].name;
+        object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(names));
+    } else {
+        object = heap().allocate<Object>(self.intrinsics().object_prototype, Object::Class::Arguments);
+    }
+    for (std::size_t i = 0; i < arguments.size(); ++i)
+        object->put(PropertyKey::index(static_cast<std::uint32_t>(i)), arguments[i]);
+    object->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(arguments.size())), builtin_attributes);
+    object->put(PropertyKey::symbol(atoms().symbol_iterator), Value::object(self.intrinsics().array_prototype_values), builtin_attributes);
+    if (mapped)
+        object->put(PropertyKey::atom(atoms().callee), Value::object(&function), builtin_attributes);
+    else
+        object->put_accessor(PropertyKey::atom(atoms().callee), self.intrinsics().throw_type_error, self.intrinsics().throw_type_error, 0);
+    return object;
+}
+
+
+// [[Call]] and [[Construct]] of a script function share this:
+// PrepareForOrdinaryCall, OrdinaryCallBindThis and
+// FunctionDeclarationInstantiation (§10.2.1, §10.2.1.2, §10.2.11), then
+// the body.
+std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& function, Value const& this_argument,
+    std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key)
+{
+    FunctionNode const& node = function.node();
+    Roots const roots(self);
+    self.root(Value::object(&function));
+    self.root(this_argument);
+    for (Value const& argument : arguments)
+        self.root(argument);
+
+    Environment* variable = new_environment(function.scope());
+    variable->set_function(&function);
+    ContextScope scope(*this, Context { variable, variable, node.program, &function, node.is_strict, function.private_environment() });
+    Context& cx = scope.context();
+
+    if (!node.is_arrow) {
+        if (node.is_derived_constructor) {
+            // A derived constructor's `this` waits for super() (§10.2.1.1).
+            variable->set_this_uninitialized();
+        } else {
+            // OrdinaryCallBindThis: sloppy code sees the global object for
+            // a nullish `this` and a wrapper for a primitive one.
+            Value this_value = this_argument;
+            if (!node.is_strict) {
+                if (this_value.is_nullish()) {
+                    this_value = Value::object(self.global());
+                } else if (!this_value.is_object()) {
+                    std::optional<Object*> const boxed = self.to_object(this_value);
+                    if (!boxed)
+                        return std::nullopt;
+                    this_value = Value::object(*boxed);
+                }
             }
-            rest->set_length(count);
-            if (!bind_element(pattern.rest, nullptr, Value::object(rest), reference, mode, env, cx))
-                return finish(false);
+            variable->set_this(this_value);
         }
-        return finish(true);
+        variable->set_new_target(new_target);
+        // A base class constructor defines its fields on the fresh
+        // instance before anything else runs (§10.2.2 step 6.b).
+        if (node.is_class_constructor && !node.is_derived_constructor && new_target != nullptr && this_argument.is_object()) {
+            if (!initialize_instance_elements(*this_argument.as_object(), function))
+                return std::nullopt;
+        }
     }
 
-    // The object forms (§8.6.2, §13.15.5.3): RequireObjectCoercible, then
-    // one Get per property — the key evaluated first, then the target's
-    // reference, then the read — and a rest property as CopyDataProperties
-    // with the keys already taken left out.
-    bool bind_object_pattern(ObjectPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
-    {
-        if (value.is_nullish()) {
-            self.throw_type_error("Cannot destructure '" + self.describe(value) + "' as it is " + (value.is_null() ? "null" : "undefined") + ".");
+    // Parameters (steps 21–26). A simple list binds each name to its
+    // argument, the last occurrence of a duplicated name winning; any
+    // other list declares every name uninitialised first, so that a
+    // default reading a later parameter finds its dead zone, and
+    // binds them in order once the arguments object exists.
+    std::vector<JsString*> parameter_names;
+    collect_parameter_names(node, parameter_names);
+    if (node.has_simple_parameter_list) {
+        for (std::size_t i = 0; i < node.parameters.size(); ++i) {
+            Value const value = i < arguments.size() ? arguments[i] : Value::undefined();
+            if (Environment::Binding* existing = variable->find(node.parameters[i].name))
+                existing->value = value;
+            else
+                variable->declare(node.parameters[i].name, value);
+        }
+    } else {
+        for (JsString* name : parameter_names)
+            variable->declare(name, Value::undefined(), true, false);
+    }
+
+    // The arguments object, when the body can reach it and nothing of
+    // its own shadows it; mapped only for a sloppy simple list.
+    if (!node.is_arrow && (node.uses_arguments || node.has_direct_eval)) {
+        bool shadowed = contains(parameter_names, atoms().arguments);
+        for (FunctionDeclaration const* declaration : node.declarations.functions) {
+            if (declaration->function->name == atoms().arguments)
+                shadowed = true;
+        }
+        for (auto const& [name, is_const] : node.declarations.lexicals) {
+            if (name == atoms().arguments)
+                shadowed = true;
+        }
+        if (!shadowed) {
+            bool const mapped = !node.is_strict && node.has_simple_parameter_list && !node.has_duplicate_parameters;
+            Object* arguments_object = make_arguments_object(function, variable, arguments, mapped);
+            variable->declare(atoms().arguments, Value::object(arguments_object), !node.is_strict, true);
+        }
+    }
+
+    if (!node.has_simple_parameter_list && !bind_parameters(node, variable, arguments, cx))
+        return std::nullopt;
+
+    // Vars (steps 27–28): in the parameters' record unless a default
+    // or a computed key could have made a closure there, in which case
+    // they get a record of their own that such a closure cannot see;
+    // a var named like a parameter starts with the parameter's value.
+    Environment* var_env = variable;
+    if (node.has_parameter_expressions) {
+        var_env = new_environment(variable);
+        cx.variable = var_env;
+        for (JsString* name : node.declarations.vars) {
+            if (var_env->find(name))
+                continue;
+            Environment::Binding const* parameter = variable->find(name);
+            var_env->declare(name, parameter ? parameter->value : Value::undefined());
+        }
+    } else {
+        for (JsString* name : node.declarations.vars) {
+            if (!variable->find(name))
+                variable->declare(name, Value::undefined());
+        }
+    }
+
+    // Top-level lexicals live in their own record when there are any,
+    // so a direct eval's `var` can tell them apart from the vars.
+    Environment* lexical = var_env;
+    if (!node.declarations.lexicals.empty())
+        lexical = new_environment(var_env);
+    cx.lexical = lexical;
+    for (FunctionDeclaration const* declaration : node.declarations.functions) {
+        ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, cx.private_environment);
+        JsString* name = declaration->function->name;
+        if (Environment::Binding* existing = var_env->find(name))
+            existing->value = Value::object(closure);
+        else
+            var_env->declare(name, Value::object(closure));
+    }
+    for (auto const& [name, is_const] : node.declarations.lexicals)
+        lexical->declare(name, Value::undefined(), !is_const, false);
+
+    // The body. A field initializer is its expression, named after
+    // the field when it is an anonymous function; a default derived
+    // constructor hands its arguments to the parent class.
+    std::optional<Value> value;
+    if (node.is_default_constructor) {
+        if (node.is_derived_constructor) {
+            Object* parent = function.prototype();
+            Value const parent_value = parent ? Value::object(parent) : Value::undefined();
+            if (!Interpreter::is_constructor(parent_value))
+                return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
+            std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
+            if (!result)
+                return std::nullopt;
+            variable->set_this(*result);
+            if (!initialize_instance_elements(*result->as_object(), function))
+                return std::nullopt;
+        }
+        value = Value::undefined();
+    } else if (node.expression_body) {
+        if (node.is_field_initializer && field_key && is_anonymous_function_definition(node.expression_body))
+            value = evaluate_named(node.expression_body, cx, *field_key);
+        else
+            value = evaluate(node.expression_body, cx);
+        if (!value)
+            return std::nullopt;
+    } else {
+        Completion const completion = execute_list(node.body, cx);
+        if (completion.type == Completion::Type::Throw)
+            return std::nullopt;
+        if (completion.type == Completion::Type::Return)
+            value = completion.value.is_empty() ? Value::undefined() : completion.value;
+        else
+            value = Value::undefined();
+    }
+    // [[Construct]] of a derived class (§10.2.2 steps 10–12): an object
+    // returned is the result, anything else but undefined a TypeError,
+    // and undefined yields the `this` that super() bound.
+    if (new_target != nullptr && node.is_derived_constructor) {
+        if (value->is_object())
+            return *value;
+        if (!value->is_undefined())
+            return self.throw_type_error("Derived constructors may only return object or undefined");
+        if (!variable->this_initialized())
+            return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+        return variable->this_value();
+    }
+    return *value;
+}
+
+
+// ---- classes
+// The [[HomeObject]] of the running method: the nearest non-arrow
+// function's, arrows looking outward for theirs (§9.4.3).
+Object* Interpreter::Impl::home_object_of(Context const& cx)
+{
+    for (Environment* e = cx.lexical; e != nullptr; e = e->outer()) {
+        Function* function = e->function();
+        if (function == nullptr)
+            continue;
+        auto* script = static_cast<ScriptFunction*>(function);
+        if (script->node().is_arrow)
+            continue;
+        return script->home_object();
+    }
+    return nullptr;
+}
+
+
+// MakeSuperPropertyReference (§13.3.7.3): `this` first, then the
+// key, against the home object's prototype.
+std::optional<Reference> Interpreter::Impl::evaluate_super_member(SuperMember const& member, Context& cx)
+{
+    std::optional<Value> const this_value = resolve_this(cx.lexical);
+    if (!this_value)
+        return std::nullopt;
+    Roots const roots(self);
+    self.root(*this_value);
+    Object* home = home_object_of(cx);
+    if (home == nullptr)
+        return self.throw_syntax_error("'super' keyword unexpected here");
+    Reference reference;
+    reference.kind = Reference::Kind::Super;
+    reference.this_value = *this_value;
+    Object* base = home->prototype();
+    reference.base = base ? Value::object(base) : Value::null();
+    if (member.property) {
+        std::optional<Value> const key_value = evaluate(member.property, cx);
+        if (!key_value)
+            return std::nullopt;
+        reference.key_value = *key_value;
+        if (!key_value->is_object()) {
+            std::optional<PropertyKey> const key = self.to_property_key(*key_value);
+            if (!key)
+                return std::nullopt;
+            reference.key = *key;
+            reference.key_ready = true;
+        }
+    } else {
+        reference.key = heap().key(member.name);
+        reference.key_ready = true;
+    }
+    return reference;
+}
+
+
+// SuperCall (§13.3.7.1): the parent class constructed with this
+// call's new.target, the result bound as `this` — once — and the
+// class's fields defined on it.
+std::optional<Value> Interpreter::Impl::evaluate_super_call(SuperCall const& call, Context& cx)
+{
+    Environment* this_env = this_environment(cx.lexical);
+    if (this_env == nullptr || this_env->function() == nullptr)
+        return self.throw_syntax_error("'super' keyword unexpected here");
+    auto* active = static_cast<ScriptFunction*>(this_env->function());
+    Object* new_target = this_env->new_target();
+    Roots const roots(self);
+    Object* parent = active->prototype();
+    Value const parent_value = parent ? Value::object(parent) : Value::undefined();
+    self.root(parent_value);
+    std::vector<Value> arguments;
+    if (!evaluate_arguments(call.arguments, cx, arguments))
+        return std::nullopt;
+    if (!Interpreter::is_constructor(parent_value))
+        return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
+    if (new_target == nullptr)
+        return self.throw_syntax_error("'super' keyword unexpected here");
+    std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
+    if (!result)
+        return std::nullopt;
+    self.root(*result);
+    if (this_env->this_initialized())
+        return self.throw_reference_error("Super constructor may only be called once");
+    this_env->set_this(*result);
+    if (!initialize_instance_elements(*result->as_object(), *active))
+        return std::nullopt;
+    return *result;
+}
+
+
+// NewTarget (§13.3.12.1): the running function's, undefined when it
+// was called rather than constructed, and in global code.
+Value Interpreter::Impl::evaluate_new_target(Context& cx)
+{
+    Environment* this_env = this_environment(cx.lexical);
+    if (this_env == nullptr || this_env->new_target() == nullptr)
+        return Value::undefined();
+    return Value::object(this_env->new_target());
+}
+
+
+// A field initializer runs as a call with the instance as `this`, the
+// field's key naming an anonymous function it evaluates to.
+std::optional<Value> Interpreter::Impl::call_field_initializer(ScriptFunction& initializer, Value const& this_value, PropertyKey const& key)
+{
+    if (self.m_call_depth >= self.m_call_depth_limit)
+        return self.throw_range_error("Maximum call stack size exceeded");
+    if (!step() || !stack_ok())
+        return std::nullopt;
+    ++self.m_call_depth;
+    std::optional<Value> const result = call_script_function(initializer, this_value, {}, nullptr, &key);
+    --self.m_call_depth;
+    return result;
+}
+
+
+// ---- private names (§7.3.30–§7.3.33)
+//
+// A private element is a property keyed by the class's Private Name,
+// found on the object alone — never up the prototype chain — and never
+// listed (Object::own_keys skips the key). A private method is a frozen
+// data property, so a write to it is the TypeError the specification
+// asks for; a private accessor is an accessor.
+std::string Interpreter::Impl::private_name_text(PropertyKey const& key)
+{
+    JsString const* description = key.as_symbol()->description();
+    return description ? description->to_utf8() : std::string("#");
+}
+
+
+// PrivateGet (§7.3.32).
+std::optional<Value> Interpreter::Impl::private_get(Value const& base, PropertyKey const& key)
+{
+    Property const* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
+    if (element == nullptr)
+        return self.throw_type_error("Cannot read private member " + private_name_text(key) + " from an object whose class did not declare it");
+    if (!element->accessor)
+        return element->value;
+    if (element->getter == nullptr)
+        return self.throw_type_error("'" + private_name_text(key) + "' was defined without a getter");
+    return self.call(Value::object(element->getter), base, {});
+}
+
+
+// PrivateSet (§7.3.33).
+bool Interpreter::Impl::private_set(Value const& base, PropertyKey const& key, Value const& value)
+{
+    Property* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
+    if (element == nullptr) {
+        self.throw_type_error("Cannot write private member " + private_name_text(key) + " to an object whose class did not declare it");
+        return false;
+    }
+    if (element->accessor) {
+        if (element->setter == nullptr) {
+            self.throw_type_error("'" + private_name_text(key) + "' was defined without a setter");
             return false;
         }
-        std::vector<PropertyKey> taken;
-        for (PatternProperty const& property : pattern.properties) {
-            PropertyKey key;
-            if (property.computed_key) {
-                std::optional<Value> const key_value = evaluate(property.computed_key, cx);
-                if (!key_value)
-                    return false;
+        Value const arguments[1] = { value };
+        return self.call(Value::object(element->setter), base, arguments).has_value();
+    }
+    if (!element->writable()) {
+        self.throw_type_error("Private method '" + private_name_text(key) + "' is not writable");
+        return false;
+    }
+    element->value = value;
+    return true;
+}
+
+
+// PrivateFieldAdd (§7.3.30): once per object, and never on an object
+// that is no longer extensible (the 2025 rule) — a constructor that
+// returns an object already carrying the field, or a sealed one, is
+// refused.
+bool Interpreter::Impl::private_field_add(Object& object, PropertyKey const& key, Value const& value)
+{
+    if (!object.is_extensible()) {
+        self.throw_type_error("Cannot define private field " + private_name_text(key) + " on a non-extensible object");
+        return false;
+    }
+    if (object.find_own(key) != nullptr) {
+        self.throw_type_error("Cannot initialize " + private_name_text(key) + " twice on the same object");
+        return false;
+    }
+    object.put(key, value, Writable);
+    return true;
+}
+
+
+// PrivateMethodOrAccessorAdd (§7.3.31).
+bool Interpreter::Impl::private_method_add(Object& object, PrivateMethod const& method)
+{
+    PropertyKey const key = PropertyKey::symbol(method.name);
+    if (!object.is_extensible()) {
+        self.throw_type_error("Cannot define private method " + private_name_text(key) + " on a non-extensible object");
+        return false;
+    }
+    if (object.find_own(key) != nullptr) {
+        self.throw_type_error("Cannot initialize private methods of class twice on the same object");
+        return false;
+    }
+    if (method.method != nullptr)
+        object.put(key, Value::object(method.method), frozen_attributes);
+    else
+        object.put_accessor(key, method.getter, method.setter, frozen_attributes);
+    return true;
+}
+
+
+// `#x in o` (§13.10.1 steps 4–9): the right operand must be an object;
+// the answer is whether it carries the element.
+std::optional<Value> Interpreter::Impl::evaluate_private_in(PrivateInExpression const& expression, Context& cx)
+{
+    std::optional<Value> const right = evaluate(expression.right, cx);
+    if (!right)
+        return std::nullopt;
+    if (!right->is_object())
+        return self.throw_type_error("Cannot use 'in' operator to search for '" + expression.name->to_utf8() + "' in " + self.describe(*right));
+    Symbol* name = cx.private_environment ? cx.private_environment->lookup(expression.name) : nullptr;
+    if (name == nullptr)
+        return self.throw_syntax_error("Private field '" + expression.name->to_utf8() + "' must be declared in an enclosing class");
+    return Value::boolean(right->as_object()->find_own(PropertyKey::symbol(name)) != nullptr);
+}
+
+
+// DefineField (§7.3.33).
+bool Interpreter::Impl::define_field(Object& receiver, ClassField const& field)
+{
+    Roots const roots(self);
+    self.root(Value::object(&receiver));
+    self.root(field.key.is_symbol() ? Value::symbol(field.key.as_symbol()) : Value::undefined());
+    Value value = Value::undefined();
+    if (field.initializer) {
+        self.root(Value::object(field.initializer));
+        std::optional<Value> const result = call_field_initializer(*field.initializer, Value::object(&receiver), field.key);
+        if (!result)
+            return false;
+        value = *result;
+    }
+    self.root(value);
+    if (field.key.is_symbol() && field.key.as_symbol()->is_private())
+        return private_field_add(receiver, field.key, value);
+    return self.create_data_property(receiver, field.key, value).has_value();
+}
+
+
+// InitializeInstanceElements (§7.3.34): the constructor's private
+// methods and accessors, then its fields, in order.
+bool Interpreter::Impl::initialize_instance_elements(Object& instance, ScriptFunction& constructor)
+{
+    Roots const roots(self);
+    self.root(Value::object(&constructor));
+    std::vector<PrivateMethod> const methods = constructor.private_methods();
+    for (PrivateMethod const& method : methods) {
+        if (!private_method_add(instance, method))
+            return false;
+    }
+    std::vector<ClassField> const fields = constructor.fields();
+    for (ClassField const& field : fields) {
+        if (!define_field(instance, field))
+            return false;
+    }
+    return true;
+}
+
+
+// The constructor function of a class (§15.7.14 steps 14–17): its
+// [[Prototype]] is the parent class, its `prototype` the class's
+// prototype object, immutable, and the two point at each other.
+ScriptFunction* Interpreter::Impl::new_class_constructor(FunctionNode const& node, Environment* scope, Object* proto, Object* constructor_parent)
+{
+    Heap::NoCollect const guard(heap());
+    auto* function = heap().allocate<ScriptFunction>(constructor_parent, node, scope, true);
+    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
+    function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
+    function->put(PropertyKey::atom(atoms().prototype), Value::object(proto), frozen_attributes);
+    proto->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
+    function->set_home_object(proto);
+    return function;
+}
+
+
+// ClassDefinitionEvaluation (§15.7.14): the heritage, the prototype
+// object and the constructor, then every element in order — methods
+// and accessors defined at once, instance fields recorded on the
+// constructor, static fields and blocks run last with the class as
+// `this` — the class's own name bound throughout its body.
+std::optional<Value> Interpreter::Impl::evaluate_class(ClassNode const& node, Context& cx, PropertyKey const* name_key)
+{
+    Roots const roots(self);
+    Environment* const saved = cx.lexical;
+    bool const saved_strict = cx.strict;
+    PrivateEnvironment* const outer_private = cx.private_environment;
+    Environment* class_env = new_environment(saved);
+    if (node.name)
+        class_env->declare(node.name, Value::undefined(), false, false);
+    cx.lexical = class_env;
+    cx.strict = true;
+    auto leave = [&]() {
+        cx.lexical = saved;
+        cx.strict = saved_strict;
+        cx.private_environment = outer_private;
+    };
+    Object* proto_parent = self.intrinsics().object_prototype;
+    Object* constructor_parent = self.intrinsics().function_prototype;
+    if (node.has_heritage) {
+        std::optional<Value> const superclass = evaluate(node.heritage, cx);
+        if (!superclass) {
+            leave();
+            return std::nullopt;
+        }
+        self.root(*superclass);
+        if (superclass->is_null()) {
+            proto_parent = nullptr;
+        } else if (!Interpreter::is_constructor(*superclass)) {
+            leave();
+            return self.throw_type_error("Class extends value " + self.describe(*superclass) + " is not a constructor or null");
+        } else {
+            std::optional<Value> const parent_proto = self.get(*superclass, PropertyKey::atom(atoms().prototype));
+            if (!parent_proto) {
+                leave();
+                return std::nullopt;
+            }
+            if (parent_proto->is_object()) {
+                proto_parent = parent_proto->as_object();
+            } else if (parent_proto->is_null()) {
+                proto_parent = nullptr;
+            } else {
+                leave();
+                return self.throw_type_error("Class extends value does not have valid prototype property " + self.describe(*parent_proto));
+            }
+            constructor_parent = superclass->as_object();
+        }
+    }
+    // The class's Private Names (§15.7.14 steps 4–6 and 11): a fresh
+    // cell per declared `#x`, chained to the enclosing class's, in scope
+    // for everything the body makes — the heritage above saw only the
+    // outer ones. The context traces it from here on, as it does the
+    // functions made in the body, which keep it.
+    bool has_private = false;
+    for (ClassElement const& element : node.elements)
+        has_private = has_private || element.is_private;
+    if (has_private) {
+        cx.private_environment = heap().allocate<PrivateEnvironment>(outer_private);
+        for (ClassElement const& element : node.elements) {
+            if (!element.is_private)
+                continue;
+            bool known = false;
+            for (auto const& [description, name] : cx.private_environment->names())
+                known = known || description == element.key;
+            if (!known)
+                cx.private_environment->add(element.key, heap().private_symbol(element.key));
+        }
+    }
+    Object* proto = self.new_object();
+    proto->set_prototype(proto_parent);
+    self.root(Value::object(proto));
+    ScriptFunction* constructor = new_class_constructor(*node.constructor, class_env, proto, constructor_parent);
+    constructor->set_private_environment(cx.private_environment);
+    self.root(Value::object(constructor));
+    if (!node.name && name_key)
+        set_function_name(*constructor, *name_key);
+
+    struct StaticElement {
+        ClassElement const* element;
+        PropertyKey key;
+    };
+    std::vector<StaticElement> statics;
+    for (ClassElement const& element : node.elements) {
+        Object* target = element.is_static ? static_cast<Object*>(constructor) : proto;
+        PropertyKey key;
+        if (element.kind != ClassElement::Kind::StaticBlock) {
+            if (element.computed_key) {
+                std::optional<Value> const key_value = evaluate(element.computed_key, cx);
+                if (!key_value) {
+                    leave();
+                    return std::nullopt;
+                }
                 self.root(*key_value);
                 std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
-                if (!converted)
-                    return false;
+                if (!converted) {
+                    leave();
+                    return std::nullopt;
+                }
                 key = *converted;
                 if (key.is_symbol())
                     self.root(Value::symbol(key.as_symbol()));
+            } else if (element.is_private) {
+                key = PropertyKey::symbol(cx.private_environment->lookup(element.key));
             } else {
-                key = heap().key(property.key);
+                key = heap().key(element.key);
             }
-            std::optional<Reference> reference;
-            if (!prepare_target(property.target, mode, cx, reference))
-                return false;
-            std::optional<Value> const property_value = self.get(value, key);
-            if (!property_value)
-                return false;
-            if (!bind_element(property.target, property.initializer, *property_value, reference, mode, env, cx))
-                return false;
-            if (pattern.rest)
-                taken.push_back(key);
         }
-        if (pattern.rest) {
-            std::optional<Reference> reference;
-            if (!prepare_target(pattern.rest, mode, cx, reference))
-                return false;
-            Object* rest = self.new_object();
-            self.root(Value::object(rest));
-            if (!copy_data_properties(*rest, value, taken))
-                return false;
-            if (!bind_element(pattern.rest, nullptr, Value::object(rest), reference, mode, env, cx))
-                return false;
-        }
-        return true;
-    }
-
-    // IteratorBindingInitialization of a function's formals (§10.2.11
-    // steps 24–26) over its argument list, for a non-simple list: each
-    // parameter in order, the rest parameter taking what is left.
-    bool bind_parameters(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context& cx)
-    {
-        Roots const roots(self);
-        std::size_t index = 0;
-        for (Parameter const& parameter : node.parameters) {
-            Value value = Value::undefined();
-            if (parameter.is_rest) {
-                ArrayObject* rest = self.new_array(index < arguments.size() ? arguments.subspan(index) : std::span<Value const>());
-                value = Value::object(rest);
-                index = arguments.size();
-            } else if (index < arguments.size()) {
-                value = arguments[index++];
-            } else {
-                ++index;
+        switch (element.kind) {
+        case ClassElement::Kind::Method: {
+            Heap::NoCollect const guard(heap());
+            ScriptFunction* closure = self.new_script_function(*element.function, class_env, cx.private_environment);
+            closure->set_home_object(target);
+            set_function_name(*closure, key);
+            if (element.is_private) {
+                // A private method (§15.7.14 steps 22–23): a static one
+                // goes on the class now; an instance one waits on the
+                // constructor for each new object.
+                PrivateMethod method;
+                method.name = key.as_symbol();
+                method.method = closure;
+                if (!element.is_static) {
+                    constructor->private_methods().push_back(method);
+                } else if (!private_method_add(*constructor, method)) {
+                    leave();
+                    return std::nullopt;
+                }
+                break;
             }
-            self.root(value);
-            if (!bind_declared(parameter.name, parameter.pattern, parameter.initializer, value, BindMode::Initialize, env, cx))
-                return false;
+            // DefineMethodProperty: writable, configurable, not enumerable —
+            // through validation, so a key the target already holds as
+            // non-configurable (a static `['prototype']`) is a TypeError.
+            if (!self.define_property_or_throw(*target, key, PropertyDescriptor::data(Value::object(closure), builtin_attributes))) {
+                leave();
+                return std::nullopt;
+            }
+            break;
         }
-        return true;
+        case ClassElement::Kind::Getter:
+        case ClassElement::Kind::Setter: {
+            Heap::NoCollect const guard(heap());
+            ScriptFunction* accessor = self.new_script_function(*element.function, class_env, cx.private_environment);
+            accessor->set_home_object(target);
+            bool const is_getter = element.kind == ClassElement::Kind::Getter;
+            set_function_name(*accessor, key, is_getter ? "get" : "set");
+            if (element.is_private && !element.is_static) {
+                // An instance private accessor joins its other half on
+                // the constructor's list (§15.7.14 step 24).
+                PrivateMethod* method = nullptr;
+                for (PrivateMethod& candidate : constructor->private_methods()) {
+                    if (candidate.name == key.as_symbol())
+                        method = &candidate;
+                }
+                if (method == nullptr) {
+                    constructor->private_methods().push_back(PrivateMethod {});
+                    method = &constructor->private_methods().back();
+                    method->name = key.as_symbol();
+                }
+                (is_getter ? method->getter : method->setter) = accessor;
+                break;
+            }
+            Object* getter = nullptr;
+            Object* setter = nullptr;
+            if (Property const* existing = target->find_own(key); existing && existing->accessor) {
+                getter = existing->getter;
+                setter = existing->setter;
+            }
+            if (is_getter)
+                getter = accessor;
+            else
+                setter = accessor;
+            // A static private accessor is a frozen private element of
+            // the class; a public one is configurable, and defined through
+            // validation so a non-configurable key on the target throws.
+            if (element.is_private) {
+                target->put_accessor(key, getter, setter, frozen_attributes);
+            } else if (!self.define_property_or_throw(*target, key, PropertyDescriptor::accessor(getter, setter, Configurable))) {
+                leave();
+                return std::nullopt;
+            }
+            break;
+        }
+        case ClassElement::Kind::Field: {
+            if (element.is_static) {
+                statics.push_back({ &element, key });
+                break;
+            }
+            Heap::NoCollect const guard(heap());
+            ClassField field;
+            field.key = key;
+            if (element.function) {
+                field.initializer = self.new_script_function(*element.function, class_env, cx.private_environment);
+                field.initializer->set_home_object(proto);
+            }
+            constructor->fields().push_back(field);
+            break;
+        }
+        case ClassElement::Kind::StaticBlock:
+            statics.push_back({ &element, PropertyKey() });
+            break;
+        }
     }
+    if (node.name) {
+        Environment::Binding* binding = class_env->find(node.name);
+        binding->value = Value::object(constructor);
+        binding->initialized = true;
+    }
+    // Static fields and blocks, in order, with the class as `this`.
+    for (StaticElement const& item : statics) {
+        ScriptFunction* closure = nullptr;
+        if (item.element->function) {
+            Heap::NoCollect const guard(heap());
+            closure = self.new_script_function(*item.element->function, class_env, cx.private_environment);
+            closure->set_home_object(constructor);
+        }
+        if (closure)
+            self.root(Value::object(closure));
+        if (item.element->kind == ClassElement::Kind::StaticBlock) {
+            if (!self.call(Value::object(closure), Value::object(constructor), {})) {
+                leave();
+                return std::nullopt;
+            }
+            continue;
+        }
+        ClassField field;
+        field.key = item.key;
+        field.initializer = closure;
+        if (!define_field(*constructor, field)) {
+            leave();
+            return std::nullopt;
+        }
+    }
+    leave();
+    return Value::object(constructor);
+}
 
-    // CopyDataProperties (§7.3.25): the source's own enumerable properties,
-    // read one by one into data properties of the target; null and
-    // undefined copy nothing; the excluded keys are skipped.
-    bool copy_data_properties(Object& target, Value const& source, std::span<PropertyKey const> excluded)
-    {
-        if (source.is_nullish())
-            return true;
-        Roots const roots(self);
-        self.root(source);
-        std::optional<Object*> const from = self.to_object(source);
-        if (!from)
+
+Completion Interpreter::Impl::execute_class_declaration(ClassDeclaration const& declaration, Context& cx)
+{
+    // BindingClassDeclarationEvaluation (§15.7.15): the outer binding,
+    // declared at the scope's entry, takes the class.
+    std::optional<Value> const value = evaluate_class(*declaration.node, cx, nullptr);
+    if (!value)
+        return Completion::thrown();
+    Roots const roots(self);
+    self.root(*value);
+    if (!initialize_binding(declaration.node->name, *value, cx.lexical))
+        return Completion::thrown();
+    return Completion::normal();
+}
+
+
+// BoundNames (§8.2.1) of a target.
+void Interpreter::Impl::collect_bound_names(Expression const* target, std::vector<JsString*>& out)
+{
+    if (target->type == NodeType::Identifier) {
+        out.push_back(static_cast<Identifier const*>(target)->name);
+    } else if (target->type == NodeType::ArrayPattern) {
+        auto const& pattern = *static_cast<ArrayPattern const*>(target);
+        for (PatternElement const& element : pattern.elements) {
+            if (element.target)
+                collect_bound_names(element.target, out);
+        }
+        if (pattern.rest)
+            collect_bound_names(pattern.rest, out);
+    } else if (target->type == NodeType::ObjectPattern) {
+        auto const& pattern = *static_cast<ObjectPattern const*>(target);
+        for (PatternProperty const& property : pattern.properties)
+            collect_bound_names(property.target, out);
+        if (pattern.rest)
+            collect_bound_names(pattern.rest, out);
+    }
+    // A member expression binds nothing.
+}
+
+
+void Interpreter::Impl::collect_bound_names(JsString* name, Expression const* pattern, std::vector<JsString*>& out)
+{
+    if (name)
+        out.push_back(name);
+    else if (pattern)
+        collect_bound_names(pattern, out);
+}
+
+
+void Interpreter::Impl::collect_parameter_names(FunctionNode const& node, std::vector<JsString*>& out)
+{
+    for (Parameter const& parameter : node.parameters)
+        collect_bound_names(parameter.name, parameter.pattern, out);
+}
+
+
+// InitializeReferencedBinding for a name declared, uninitialised, in
+// `env` or one of its outers.
+bool Interpreter::Impl::initialize_binding(JsString* name, Value const& value, Environment* env)
+{
+    Environment::Binding* binding = nullptr;
+    for (Environment* e = env; e != nullptr && binding == nullptr; e = e->outer())
+        binding = e->find(name);
+    if (binding == nullptr) {
+        self.throw_reference_error(name->to_utf8() + " is not defined");
+        return false;
+    }
+    binding->value = value;
+    binding->initialized = true;
+    return true;
+}
+
+
+// The reference a non-pattern target names, taken before its value is
+// read, as §13.15.5.5 and §8.6.3 order it. Rooted in the caller's scope.
+bool Interpreter::Impl::prepare_target(Expression const* target, BindMode mode, Context& cx, std::optional<Reference>& reference)
+{
+    if (target == nullptr || is_pattern(target) || mode == BindMode::Initialize)
+        return true;
+    reference = evaluate_reference(target, cx);
+    if (!reference)
+        return false;
+    self.root(reference->base);
+    self.root(reference->key_value);
+    return true;
+}
+
+
+// One element's target takes `value`, or its default when that is
+// undefined — an anonymous function default named after a plain
+// target (NamedEvaluation) — then stores it by mode.
+bool Interpreter::Impl::bind_element(Expression const* target, Expression const* initializer, Value value,
+    std::optional<Reference>& reference, BindMode mode, Environment* env, Context& cx)
+{
+    Roots const roots(self);
+    self.root(value);
+    if (initializer && value.is_undefined()) {
+        std::optional<Value> replacement;
+        if (target->type == NodeType::Identifier && is_anonymous_function_definition(initializer))
+            replacement = evaluate_named(initializer, cx, PropertyKey::atom(static_cast<Identifier const*>(target)->name));
+        else
+            replacement = evaluate(initializer, cx);
+        if (!replacement)
             return false;
-        self.root(Value::object(*from));
-        for (PropertyKey const& key : (*from)->own_keys()) {
-            if (std::find(excluded.begin(), excluded.end(), key) != excluded.end())
-                continue;
+        value = *replacement;
+        self.root(value);
+    }
+    if (is_pattern(target))
+        return bind_pattern(target, value, mode, env, cx);
+    if (mode == BindMode::Initialize)
+        return initialize_binding(static_cast<Identifier const*>(target)->name, value, env);
+    return put_value(*reference, value, cx);
+}
+
+
+// A declared target — a parameter, a declarator, a catch parameter or
+// a for head's binding: a name or a pattern with an optional default.
+bool Interpreter::Impl::bind_declared(JsString* name, Expression const* pattern, Expression const* initializer, Value const& value,
+    BindMode mode, Environment* env, Context& cx)
+{
+    Roots const roots(self);
+    std::optional<Reference> reference;
+    if (name && mode != BindMode::Initialize)
+        reference = resolve(name, cx.lexical);
+    if (pattern)
+        return bind_element(pattern, initializer, value, reference, mode, env, cx);
+    // A name is bound through a transient Identifier-shaped path: the
+    // default's NamedEvaluation and the store only need the name.
+    self.root(value);
+    Value stored = value;
+    if (initializer && value.is_undefined()) {
+        std::optional<Value> replacement = is_anonymous_function_definition(initializer)
+            ? evaluate_named(initializer, cx, PropertyKey::atom(name))
+            : evaluate(initializer, cx);
+        if (!replacement)
+            return false;
+        stored = *replacement;
+        self.root(stored);
+    }
+    if (mode == BindMode::Initialize)
+        return initialize_binding(name, stored, env);
+    return put_value(*reference, stored, cx);
+}
+
+
+// BindingInitialization / DestructuringAssignmentEvaluation of a
+// pattern over a value (§8.6.2, §13.15.5.2).
+bool Interpreter::Impl::bind_pattern(Expression const* pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
+{
+    Roots const roots(self);
+    self.root(value);
+    if (pattern->type == NodeType::ArrayPattern)
+        return bind_array_pattern(*static_cast<ArrayPattern const*>(pattern), value, mode, env, cx);
+    return bind_object_pattern(*static_cast<ObjectPattern const*>(pattern), value, mode, env, cx);
+}
+
+
+// IteratorBindingInitialization / IteratorDestructuringAssignmentEvaluation
+// (§8.6.3, §13.15.5.5): the value's iterator is stepped once per
+// element, an elision discarding its step, the rest element taking
+// everything left; the iterator is closed when the pattern ends before
+// it does, and on any throw that is not the iterator's own.
+bool Interpreter::Impl::bind_array_pattern(ArrayPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
+{
+    std::optional<IteratorRecord> record = self.get_iterator(value);
+    if (!record)
+        return false;
+    self.root(record->iterator);
+    self.root(record->next_method);
+    auto finish = [&](bool ok) {
+        if (record->done)
+            return ok;
+        if (ok)
+            return self.iterator_close(*record, false);
+        if (!self.m_terminated)
+            self.iterator_close(*record, true);
+        return false;
+    };
+    auto next = [&](Value& out) -> bool {
+        out = Value::undefined();
+        if (record->done)
+            return true;
+        std::optional<bool> const stepped = self.iterator_step(*record, out);
+        if (!stepped)
+            return false;
+        if (!*stepped)
+            out = Value::undefined();
+        return true;
+    };
+    for (PatternElement const& element : pattern.elements) {
+        Roots const element_roots(self);
+        std::optional<Reference> reference;
+        if (!prepare_target(element.target, mode, cx, reference))
+            return finish(false);
+        Value element_value;
+        if (!next(element_value))
+            return false; // the iterator's own throw: done, and not closed
+        if (element.target == nullptr)
+            continue;
+        if (!bind_element(element.target, element.initializer, element_value, reference, mode, env, cx))
+            return finish(false);
+    }
+    if (pattern.rest) {
+        Roots const rest_roots(self);
+        std::optional<Reference> reference;
+        if (!prepare_target(pattern.rest, mode, cx, reference))
+            return finish(false);
+        ArrayObject* rest = self.new_array();
+        self.root(Value::object(rest));
+        std::uint32_t count = 0;
+        while (!record->done) {
+            Value element_value;
+            std::optional<bool> const stepped = self.iterator_step(*record, element_value);
+            if (!stepped)
+                return false;
+            if (!*stepped)
+                break;
+            rest->set_element(count++, element_value);
+        }
+        rest->set_length(count);
+        if (!bind_element(pattern.rest, nullptr, Value::object(rest), reference, mode, env, cx))
+            return finish(false);
+    }
+    return finish(true);
+}
+
+
+// The object forms (§8.6.2, §13.15.5.3): RequireObjectCoercible, then
+// one Get per property — the key evaluated first, then the target's
+// reference, then the read — and a rest property as CopyDataProperties
+// with the keys already taken left out.
+bool Interpreter::Impl::bind_object_pattern(ObjectPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx)
+{
+    if (value.is_nullish()) {
+        self.throw_type_error("Cannot destructure '" + self.describe(value) + "' as it is " + (value.is_null() ? "null" : "undefined") + ".");
+        return false;
+    }
+    std::vector<PropertyKey> taken;
+    for (PatternProperty const& property : pattern.properties) {
+        PropertyKey key;
+        if (property.computed_key) {
+            std::optional<Value> const key_value = evaluate(property.computed_key, cx);
+            if (!key_value)
+                return false;
+            self.root(*key_value);
+            std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
+            if (!converted)
+                return false;
+            key = *converted;
             if (key.is_symbol())
                 self.root(Value::symbol(key.as_symbol()));
-            std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
-            if (!desc || !desc->enumerable.value_or(false))
-                continue;
-            std::optional<Value> const value = self.get(**from, key);
-            if (!value)
-                return false;
-            self.root(*value);
-            if (!self.create_data_property(target, key, *value))
-                return false;
+        } else {
+            key = heap().key(property.key);
         }
-        return true;
+        std::optional<Reference> reference;
+        if (!prepare_target(property.target, mode, cx, reference))
+            return false;
+        std::optional<Value> const property_value = self.get(value, key);
+        if (!property_value)
+            return false;
+        if (!bind_element(property.target, property.initializer, *property_value, reference, mode, env, cx))
+            return false;
+        if (pattern.rest)
+            taken.push_back(key);
     }
+    if (pattern.rest) {
+        std::optional<Reference> reference;
+        if (!prepare_target(pattern.rest, mode, cx, reference))
+            return false;
+        Object* rest = self.new_object();
+        self.root(Value::object(rest));
+        if (!copy_data_properties(*rest, value, taken))
+            return false;
+        if (!bind_element(pattern.rest, nullptr, Value::object(rest), reference, mode, env, cx))
+            return false;
+    }
+    return true;
+}
 
-    // ---- declaration instantiation
 
-    // GlobalDeclarationInstantiation (§16.1.7).
-    bool global_declaration_instantiation(Program const& program, Context& cx)
-    {
-        Object* global = self.global();
-        for (auto const& [name, is_const] : program.declarations.lexicals) {
-            std::string const text = name->to_utf8();
-            if (global_var_names.contains(name) || global_lexical->find(name))
-                { self.throw_syntax_error("Identifier '" + text + "' has already been declared"); return false; }
-            // HasRestrictedGlobalProperty: a non-configurable global
-            // property (undefined, NaN, Infinity) cannot be shadowed.
-            std::optional<PropertyDescriptor> const existing = global->get_own_property(PropertyKey::atom(name));
-            if (existing && !existing->configurable.value_or(false))
-                { self.throw_syntax_error("Identifier '" + text + "' has already been declared"); return false; }
+// IteratorBindingInitialization of a function's formals (§10.2.11
+// steps 24–26) over its argument list, for a non-simple list: each
+// parameter in order, the rest parameter taking what is left.
+bool Interpreter::Impl::bind_parameters(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context& cx)
+{
+    Roots const roots(self);
+    std::size_t index = 0;
+    for (Parameter const& parameter : node.parameters) {
+        Value value = Value::undefined();
+        if (parameter.is_rest) {
+            ArrayObject* rest = self.new_array(index < arguments.size() ? arguments.subspan(index) : std::span<Value const>());
+            value = Value::object(rest);
+            index = arguments.size();
+        } else if (index < arguments.size()) {
+            value = arguments[index++];
+        } else {
+            ++index;
         }
-        std::vector<JsString*> var_names;
-        for (JsString* name : program.declarations.vars) {
-            if (global_lexical->find(name))
-                { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
-            var_names.push_back(name);
+        self.root(value);
+        if (!bind_declared(parameter.name, parameter.pattern, parameter.initializer, value, BindMode::Initialize, env, cx))
+            return false;
+    }
+    return true;
+}
+
+
+// CopyDataProperties (§7.3.25): the source's own enumerable properties,
+// read one by one into data properties of the target; null and
+// undefined copy nothing; the excluded keys are skipped.
+bool Interpreter::Impl::copy_data_properties(Object& target, Value const& source, std::span<PropertyKey const> excluded)
+{
+    if (source.is_nullish())
+        return true;
+    Roots const roots(self);
+    self.root(source);
+    std::optional<Object*> const from = self.to_object(source);
+    if (!from)
+        return false;
+    self.root(Value::object(*from));
+    for (PropertyKey const& key : (*from)->own_keys()) {
+        if (std::find(excluded.begin(), excluded.end(), key) != excluded.end())
+            continue;
+        if (key.is_symbol())
+            self.root(Value::symbol(key.as_symbol()));
+        std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
+        if (!desc || !desc->enumerable.value_or(false))
+            continue;
+        std::optional<Value> const value = self.get(**from, key);
+        if (!value)
+            return false;
+        self.root(*value);
+        if (!self.create_data_property(target, key, *value))
+            return false;
+    }
+    return true;
+}
+
+
+// ---- declaration instantiation
+// GlobalDeclarationInstantiation (§16.1.7).
+bool Interpreter::Impl::global_declaration_instantiation(Program const& program, Context& cx)
+{
+    Object* global = self.global();
+    for (auto const& [name, is_const] : program.declarations.lexicals) {
+        std::string const text = name->to_utf8();
+        if (global_var_names.contains(name) || global_lexical->find(name))
+            { self.throw_syntax_error("Identifier '" + text + "' has already been declared"); return false; }
+        // HasRestrictedGlobalProperty: a non-configurable global
+        // property (undefined, NaN, Infinity) cannot be shadowed.
+        std::optional<PropertyDescriptor> const existing = global->get_own_property(PropertyKey::atom(name));
+        if (existing && !existing->configurable.value_or(false))
+            { self.throw_syntax_error("Identifier '" + text + "' has already been declared"); return false; }
+    }
+    std::vector<JsString*> var_names;
+    for (JsString* name : program.declarations.vars) {
+        if (global_lexical->find(name))
+            { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
+        var_names.push_back(name);
+    }
+    // Functions, last declaration of a name first; each must be
+    // declarable on the global object (§9.1.1.4.16).
+    std::vector<FunctionDeclaration const*> functions;
+    std::vector<JsString*> function_names;
+    for (auto it = program.declarations.functions.rbegin(); it != program.declarations.functions.rend(); ++it) {
+        JsString* name = (*it)->function->name;
+        if (contains(function_names, name))
+            continue;
+        if (global_lexical->find(name))
+            { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
+        std::optional<PropertyDescriptor> const existing = global->get_own_property(PropertyKey::atom(name));
+        bool declarable = true;
+        if (!existing)
+            declarable = global->is_extensible();
+        else if (!existing->configurable.value_or(false))
+            declarable = existing->is_data() && existing->writable.value_or(false) && existing->enumerable.value_or(false);
+        if (!declarable)
+            { self.throw_type_error("Cannot redefine global function '" + name->to_utf8() + "'"); return false; }
+        function_names.push_back(name);
+        functions.push_back(*it);
+    }
+    for (JsString* name : var_names) {
+        if (contains(function_names, name))
+            continue;
+        if (!global->get_own_property(PropertyKey::atom(name)) && !global->is_extensible())
+            { self.throw_type_error("Cannot define global variable '" + name->to_utf8() + "'"); return false; }
+    }
+    for (auto const& [name, is_const] : program.declarations.lexicals)
+        global_lexical->declare(name, Value::undefined(), !is_const, false);
+    for (FunctionDeclaration const* declaration : functions) {
+        JsString* name = declaration->function->name;
+        ScriptFunction* closure = self.new_script_function(*declaration->function, global_lexical, cx.private_environment);
+        Roots const roots(self);
+        self.root(Value::object(closure));
+        if (!create_global_function_binding(name, Value::object(closure), false))
+            return false;
+    }
+    for (JsString* name : var_names) {
+        if (!create_global_var_binding(name, false))
+            return false;
+    }
+    (void)cx;
+    return true;
+}
+
+
+// CreateGlobalFunctionBinding (§9.1.1.4.18).
+bool Interpreter::Impl::create_global_function_binding(JsString* name, Value const& value, bool deletable)
+{
+    Object* global = self.global();
+    PropertyKey const key = PropertyKey::atom(name);
+    std::optional<PropertyDescriptor> const existing = global->get_own_property(key);
+    PropertyDescriptor desc;
+    if (!existing || existing->configurable.value_or(false)) {
+        desc = PropertyDescriptor::data(value, static_cast<std::uint8_t>(Writable | Enumerable | (deletable ? Configurable : 0)));
+    } else {
+        desc.value = value;
+    }
+    if (!self.define_property_or_throw(*global, key, desc))
+        return false;
+    if (!self.set(*global, key, value, false))
+        return false;
+    global_var_names.insert(name);
+    return true;
+}
+
+
+// CreateGlobalVarBinding (§9.1.1.4.17).
+bool Interpreter::Impl::create_global_var_binding(JsString* name, bool deletable)
+{
+    Object* global = self.global();
+    PropertyKey const key = PropertyKey::atom(name);
+    if (!global->get_own_property(key) && global->is_extensible()) {
+        PropertyDescriptor const desc = PropertyDescriptor::data(Value::undefined(), static_cast<std::uint8_t>(Writable | Enumerable | (deletable ? Configurable : 0)));
+        if (!self.define_property_or_throw(*global, key, desc))
+            return false;
+    }
+    global_var_names.insert(name);
+    return true;
+}
+
+
+// BlockDeclarationInstantiation (§14.2.3), with B.3.2.1's hoisting
+// already settled by the parser.
+void Interpreter::Impl::instantiate_block(Declarations const& declarations, Environment* environment, PrivateEnvironment* private_environment)
+{
+    for (auto const& [name, is_const] : declarations.lexicals)
+        environment->declare(name, Value::undefined(), !is_const, false);
+    for (FunctionDeclaration const* declaration : declarations.functions) {
+        JsString* name = declaration->function->name;
+        ScriptFunction* closure = self.new_script_function(*declaration->function, environment, private_environment);
+        if (Environment::Binding* existing = environment->find(name))
+            existing->value = Value::object(closure);
+        else
+            environment->declare(name, Value::object(closure));
+    }
+}
+
+
+// EvalDeclarationInstantiation (§19.2.1.3).
+bool Interpreter::Impl::eval_declaration_instantiation(Program const& program, Environment* variable, Environment* lexical, bool strict,
+    PrivateEnvironment* private_environment)
+{
+    bool const global_scope = variable->is_object_environment();
+    if (!strict) {
+        std::vector<JsString*> names = program.declarations.vars;
+        for (FunctionDeclaration const* declaration : program.declarations.functions)
+            names.push_back(declaration->function->name);
+        if (global_scope) {
+            for (JsString* name : names) {
+                if (global_lexical->find(name))
+                    { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
+            }
         }
-        // Functions, last declaration of a name first; each must be
-        // declarable on the global object (§9.1.1.4.16).
-        std::vector<FunctionDeclaration const*> functions;
-        std::vector<JsString*> function_names;
-        for (auto it = program.declarations.functions.rbegin(); it != program.declarations.functions.rend(); ++it) {
-            JsString* name = (*it)->function->name;
-            if (contains(function_names, name))
+        // A var may not cross a lexical declaration of the same name
+        // between here and the var scope.
+        for (Environment* e = lexical->outer(); e != nullptr && e != variable; e = e->outer()) {
+            if (e->is_object_environment())
                 continue;
-            if (global_lexical->find(name))
-                { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
-            std::optional<PropertyDescriptor> const existing = global->get_own_property(PropertyKey::atom(name));
+            for (JsString* name : names) {
+                if (e->find(name))
+                    { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
+            }
+        }
+    }
+    std::vector<FunctionDeclaration const*> functions;
+    std::vector<JsString*> function_names;
+    for (auto it = program.declarations.functions.rbegin(); it != program.declarations.functions.rend(); ++it) {
+        JsString* name = (*it)->function->name;
+        if (contains(function_names, name))
+            continue;
+        if (global_scope) {
+            std::optional<PropertyDescriptor> const existing = self.global()->get_own_property(PropertyKey::atom(name));
             bool declarable = true;
             if (!existing)
-                declarable = global->is_extensible();
+                declarable = self.global()->is_extensible();
             else if (!existing->configurable.value_or(false))
                 declarable = existing->is_data() && existing->writable.value_or(false) && existing->enumerable.value_or(false);
             if (!declarable)
                 { self.throw_type_error("Cannot redefine global function '" + name->to_utf8() + "'"); return false; }
-            function_names.push_back(name);
-            functions.push_back(*it);
         }
-        for (JsString* name : var_names) {
-            if (contains(function_names, name))
-                continue;
-            if (!global->get_own_property(PropertyKey::atom(name)) && !global->is_extensible())
+        function_names.push_back(name);
+        functions.push_back(*it);
+    }
+    for (JsString* name : program.declarations.vars) {
+        if (global_scope && !contains(function_names, name)) {
+            if (!self.global()->get_own_property(PropertyKey::atom(name)) && !self.global()->is_extensible())
                 { self.throw_type_error("Cannot define global variable '" + name->to_utf8() + "'"); return false; }
         }
-        for (auto const& [name, is_const] : program.declarations.lexicals)
-            global_lexical->declare(name, Value::undefined(), !is_const, false);
-        for (FunctionDeclaration const* declaration : functions) {
-            JsString* name = declaration->function->name;
-            ScriptFunction* closure = self.new_script_function(*declaration->function, global_lexical, cx.private_environment);
-            Roots const roots(self);
-            self.root(Value::object(closure));
-            if (!create_global_function_binding(name, Value::object(closure), false))
-                return false;
-        }
-        for (JsString* name : var_names) {
-            if (!create_global_var_binding(name, false))
-                return false;
-        }
-        (void)cx;
-        return true;
     }
-
-    // CreateGlobalFunctionBinding (§9.1.1.4.18).
-    bool create_global_function_binding(JsString* name, Value const& value, bool deletable)
-    {
-        Object* global = self.global();
-        PropertyKey const key = PropertyKey::atom(name);
-        std::optional<PropertyDescriptor> const existing = global->get_own_property(key);
-        PropertyDescriptor desc;
-        if (!existing || existing->configurable.value_or(false)) {
-            desc = PropertyDescriptor::data(value, static_cast<std::uint8_t>(Writable | Enumerable | (deletable ? Configurable : 0)));
+    for (auto const& [name, is_const] : program.declarations.lexicals)
+        lexical->declare(name, Value::undefined(), !is_const, false);
+    for (FunctionDeclaration const* declaration : functions) {
+        JsString* name = declaration->function->name;
+        ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, private_environment);
+        Roots const roots(self);
+        self.root(Value::object(closure));
+        if (global_scope) {
+            if (!create_global_function_binding(name, Value::object(closure), true))
+                return false;
+        } else if (Environment::Binding* existing = variable->find(name)) {
+            existing->value = Value::object(closure);
         } else {
-            desc.value = value;
+            variable->declare(name, Value::object(closure), true, true, true);
         }
-        if (!self.define_property_or_throw(*global, key, desc))
-            return false;
-        if (!self.set(*global, key, value, false))
-            return false;
-        global_var_names.insert(name);
-        return true;
     }
+    for (JsString* name : program.declarations.vars) {
+        if (global_scope) {
+            if (!create_global_var_binding(name, true))
+                return false;
+        } else if (!variable->find(name)) {
+            variable->declare(name, Value::undefined(), true, true, true);
+        }
+    }
+    return true;
+}
 
-    // CreateGlobalVarBinding (§9.1.1.4.17).
-    bool create_global_var_binding(JsString* name, bool deletable)
-    {
-        Object* global = self.global();
-        PropertyKey const key = PropertyKey::atom(name);
-        if (!global->get_own_property(key) && global->is_extensible()) {
-            PropertyDescriptor const desc = PropertyDescriptor::data(Value::undefined(), static_cast<std::uint8_t>(Writable | Enumerable | (deletable ? Configurable : 0)));
-            if (!self.define_property_or_throw(*global, key, desc))
+
+// The var environment a direct eval declares into: the nearest
+// function environment, or the global object's.
+Environment* Interpreter::Impl::variable_environment_of(Environment* environment)
+{
+    for (Environment* e = environment; e != nullptr; e = e->outer()) {
+        if (e->function() != nullptr)
+            return e;
+        if (e->is_object_environment() && !e->is_with_environment())
+            return e;
+    }
+    return self.intrinsics().global_environment;
+}
+
+
+// PerformEval (§19.2.1.1) for both the direct and the indirect form.
+std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct,
+    PrivateEnvironment* private_environment)
+{
+    ParseOptions options;
+    options.strict = direct && strict_caller;
+    if (direct) {
+        // §19.2.1.1 step 6: the eval code may name the private names of
+        // every class body it runs inside.
+        for (PrivateEnvironment const* env = private_environment; env != nullptr; env = env->outer()) {
+            for (auto const& [description, name] : env->names())
+                options.private_names.emplace_back(description->view());
+        }
+    }
+    Environment* variable = direct ? variable_environment_of(scope) : self.intrinsics().global_environment;
+    if (direct) {
+        // §19.2.1.1 steps 8–10: what `new.target`, `super` and
+        // `arguments` may do in the eval code follows from the function
+        // whose `this` it sees — an arrow's eval at the top level is
+        // not in function code at all.
+        Environment* this_env = this_environment(scope);
+        if (this_env && this_env->function()) {
+            FunctionNode const& fn = static_cast<ScriptFunction*>(this_env->function())->node();
+            options.in_function = true;
+            options.allow_super_property = fn.is_method;
+            options.allow_super_call = fn.is_derived_constructor;
+            options.in_field_initializer = fn.is_field_initializer || fn.is_static_block;
+        }
+    }
+    Parser parser(heap(), std::u16string(source), options);
+    std::unique_ptr<Program> program = parser.parse_program("eval");
+    if (!program) {
+        ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
+        return self.throw_syntax_error(error.message);
+    }
+    bool const strict = options.strict || program->is_strict;
+    Program const* tree = program.get();
+    self.keep(std::move(program));
+
+    Environment* outer = direct ? scope : global_lexical;
+    Environment* lexical = new_environment(outer);
+    if (strict)
+        variable = lexical;
+    if (!this_value.is_empty())
+        lexical->set_this(this_value);
+    // Eval code owns its own declarations: the function field stays
+    // null so a block function's Annex B copy reads the eval's var list.
+    PrivateEnvironment* const private_env = direct ? private_environment : nullptr;
+    ContextScope context_scope(*this, Context { lexical, variable, tree, nullptr, strict, private_env });
+    Context& cx = context_scope.context();
+    if (!eval_declaration_instantiation(*tree, variable, lexical, strict, private_env))
+        return std::nullopt;
+    Completion const completion = execute_list(tree->body, cx);
+    if (completion.type == Completion::Type::Throw)
+        return std::nullopt;
+    return completion.value.is_empty() ? Value::undefined() : completion.value;
+}
+
+
+// ---- expressions
+std::optional<Value> Interpreter::Impl::evaluate(Expression const* expression, Context& cx)
+{
+    if (!stack_ok())
+        return std::nullopt;
+    switch (expression->type) {
+    case NodeType::Identifier: {
+        Reference reference = resolve(static_cast<Identifier const*>(expression)->name, cx.lexical);
+        return get_value(reference, cx);
+    }
+    case NodeType::NumberLiteral:
+        return Value::number(static_cast<NumberLiteral const*>(expression)->value);
+    case NodeType::StringLiteral:
+        return Value::string(static_cast<StringLiteral const*>(expression)->value);
+    case NodeType::BooleanLiteral:
+        return Value::boolean(static_cast<BooleanLiteral const*>(expression)->value);
+    case NodeType::NullLiteral:
+        return Value::null();
+    case NodeType::ThisExpression:
+        return resolve_this(cx.lexical);
+    case NodeType::RegExpLiteral:
+        return evaluate_regexp(*static_cast<RegExpLiteral const*>(expression));
+    case NodeType::TemplateLiteral:
+        return evaluate_template(*static_cast<TemplateLiteral const*>(expression), cx);
+    case NodeType::TaggedTemplate:
+        return evaluate_tagged_template(*static_cast<TaggedTemplate const*>(expression), cx);
+    case NodeType::ArrayLiteral:
+        return evaluate_array(*static_cast<ArrayLiteral const*>(expression), cx);
+    case NodeType::ObjectLiteral:
+        return evaluate_object(*static_cast<ObjectLiteral const*>(expression), cx);
+    case NodeType::FunctionExpression:
+        return make_closure(*static_cast<FunctionExpression const*>(expression)->function, cx, nullptr);
+    case NodeType::ArrowFunction:
+        return make_closure(*static_cast<ArrowFunction const*>(expression)->function, cx, nullptr);
+    case NodeType::ClassExpression:
+        return evaluate_class(*static_cast<ClassExpression const*>(expression)->node, cx, nullptr);
+    case NodeType::SuperMember: {
+        std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(expression), cx);
+        if (!reference)
+            return std::nullopt;
+        Roots const roots(self);
+        self.root(reference->base);
+        self.root(reference->key_value);
+        return get_value(*reference, cx);
+    }
+    case NodeType::SuperCall:
+        return evaluate_super_call(*static_cast<SuperCall const*>(expression), cx);
+    case NodeType::NewTargetExpression:
+        return evaluate_new_target(cx);
+    case NodeType::UnaryExpression:
+        return evaluate_unary(*static_cast<UnaryExpression const*>(expression), cx);
+    case NodeType::UpdateExpression:
+        return evaluate_update(*static_cast<UpdateExpression const*>(expression), cx);
+    case NodeType::BinaryExpression:
+        return evaluate_binary(*static_cast<BinaryExpression const*>(expression), cx);
+    case NodeType::LogicalExpression:
+        return evaluate_logical(*static_cast<LogicalExpression const*>(expression), cx);
+    case NodeType::AssignmentExpression:
+        return evaluate_assignment(*static_cast<AssignmentExpression const*>(expression), cx);
+    case NodeType::ConditionalExpression: {
+        auto const& conditional = *static_cast<ConditionalExpression const*>(expression);
+        std::optional<Value> const test = evaluate(conditional.test, cx);
+        if (!test)
+            return std::nullopt;
+        return evaluate(to_boolean(*test) ? conditional.consequent : conditional.alternate, cx);
+    }
+    case NodeType::CallExpression:
+    case NodeType::MemberExpression: {
+        bool short_circuit = false;
+        return evaluate_chain(expression, cx, short_circuit, nullptr);
+    }
+    case NodeType::PrivateIn:
+        return evaluate_private_in(*static_cast<PrivateInExpression const*>(expression), cx);
+    case NodeType::NewExpression:
+        return evaluate_new(*static_cast<NewExpression const*>(expression), cx);
+    case NodeType::SequenceExpression: {
+        Value last;
+        for (Expression const* part : static_cast<SequenceExpression const*>(expression)->expressions) {
+            std::optional<Value> const value = evaluate(part, cx);
+            if (!value)
+                return std::nullopt;
+            last = *value;
+        }
+        return last;
+    }
+    default:
+        break;
+    }
+    return self.throw_syntax_error("unsupported expression");
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_regexp(RegExpLiteral const& literal)
+{
+    // §13.2.7.3: a fresh RegExp object each time the literal is
+    // evaluated, made the way the constructor makes one.
+    Value const arguments[2] = { Value::string(literal.pattern), Value::string(literal.flags) };
+    Function* constructor = self.intrinsics().regexp_constructor;
+    if (constructor == nullptr)
+        return self.throw_syntax_error("regular expressions are not supported yet");
+    return self.construct(Value::object(constructor), arguments);
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_template(TemplateLiteral const& literal, Context& cx)
+{
+    // §13.2.8.6: the cooked spans with each substitution's ToString.
+    std::u16string result = literal.cooked[0]->data();
+    for (std::size_t i = 0; i < literal.expressions.size(); ++i) {
+        std::optional<Value> const value = evaluate(literal.expressions[i], cx);
+        if (!value)
+            return std::nullopt;
+        Roots const roots(self);
+        self.root(*value);
+        std::optional<JsString*> const text = self.to_string(*value);
+        if (!text)
+            return std::nullopt;
+        result += (*text)->data();
+        result += literal.cooked[i + 1]->data();
+    }
+    return Value::string(heap().string(std::move(result)));
+}
+
+
+// GetTemplateObject (§13.2.8.4): the site's cooked strings as a frozen
+// array whose `raw` is the frozen array of raw strings, made once.
+std::optional<Object*> Interpreter::Impl::template_object(TemplateLiteral const& literal)
+{
+    if (auto const found = template_objects.find(&literal); found != template_objects.end())
+        return found->second;
+    Roots const roots(self);
+    auto freeze = [&](ArrayObject& array) -> bool {
+        PropertyDescriptor fixed;
+        fixed.writable = false;
+        fixed.configurable = false;
+        for (std::uint32_t i = 0; i < array.length(); ++i) {
+            if (!self.define_property_or_throw(array, PropertyKey::index(i), fixed))
                 return false;
         }
-        global_var_names.insert(name);
+        PropertyDescriptor length;
+        length.writable = false;
+        if (!self.define_property_or_throw(array, PropertyKey::atom(atoms().length), length))
+            return false;
+        array.prevent_extensions();
         return true;
+    };
+    std::vector<Value> cooked;
+    std::vector<Value> raw;
+    for (std::size_t i = 0; i < literal.raw.size(); ++i) {
+        cooked.push_back(literal.cooked[i] ? Value::string(literal.cooked[i]) : Value::undefined());
+        raw.push_back(Value::string(literal.raw[i]));
     }
+    ArrayObject* raw_array = self.new_array(raw);
+    self.root(Value::object(raw_array));
+    ArrayObject* cooked_array = self.new_array(cooked);
+    self.root(Value::object(cooked_array));
+    if (!freeze(*raw_array))
+        return std::nullopt;
+    cooked_array->put(PropertyKey::atom(atoms().raw), Value::object(raw_array), frozen_attributes);
+    if (!freeze(*cooked_array))
+        return std::nullopt;
+    template_objects.emplace(&literal, cooked_array);
+    return cooked_array;
+}
 
-    // BlockDeclarationInstantiation (§14.2.3), with B.3.2.1's hoisting
-    // already settled by the parser.
-    void instantiate_block(Declarations const& declarations, Environment* environment, PrivateEnvironment* private_environment)
-    {
-        for (auto const& [name, is_const] : declarations.lexicals)
-            environment->declare(name, Value::undefined(), !is_const, false);
-        for (FunctionDeclaration const* declaration : declarations.functions) {
-            JsString* name = declaration->function->name;
-            ScriptFunction* closure = self.new_script_function(*declaration->function, environment, private_environment);
-            if (Environment::Binding* existing = environment->find(name))
-                existing->value = Value::object(closure);
-            else
-                environment->declare(name, Value::object(closure));
-        }
-    }
 
-    // EvalDeclarationInstantiation (§19.2.1.3).
-    bool eval_declaration_instantiation(Program const& program, Environment* variable, Environment* lexical, bool strict,
-        PrivateEnvironment* private_environment)
-    {
-        bool const global_scope = variable->is_object_environment();
-        if (!strict) {
-            std::vector<JsString*> names = program.declarations.vars;
-            for (FunctionDeclaration const* declaration : program.declarations.functions)
-                names.push_back(declaration->function->name);
-            if (global_scope) {
-                for (JsString* name : names) {
-                    if (global_lexical->find(name))
-                        { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
-                }
-            }
-            // A var may not cross a lexical declaration of the same name
-            // between here and the var scope.
-            for (Environment* e = lexical->outer(); e != nullptr && e != variable; e = e->outer()) {
-                if (e->is_object_environment())
-                    continue;
-                for (JsString* name : names) {
-                    if (e->find(name))
-                        { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
-                }
-            }
-        }
-        std::vector<FunctionDeclaration const*> functions;
-        std::vector<JsString*> function_names;
-        for (auto it = program.declarations.functions.rbegin(); it != program.declarations.functions.rend(); ++it) {
-            JsString* name = (*it)->function->name;
-            if (contains(function_names, name))
-                continue;
-            if (global_scope) {
-                std::optional<PropertyDescriptor> const existing = self.global()->get_own_property(PropertyKey::atom(name));
-                bool declarable = true;
-                if (!existing)
-                    declarable = self.global()->is_extensible();
-                else if (!existing->configurable.value_or(false))
-                    declarable = existing->is_data() && existing->writable.value_or(false) && existing->enumerable.value_or(false);
-                if (!declarable)
-                    { self.throw_type_error("Cannot redefine global function '" + name->to_utf8() + "'"); return false; }
-            }
-            function_names.push_back(name);
-            functions.push_back(*it);
-        }
-        for (JsString* name : program.declarations.vars) {
-            if (global_scope && !contains(function_names, name)) {
-                if (!self.global()->get_own_property(PropertyKey::atom(name)) && !self.global()->is_extensible())
-                    { self.throw_type_error("Cannot define global variable '" + name->to_utf8() + "'"); return false; }
-            }
-        }
-        for (auto const& [name, is_const] : program.declarations.lexicals)
-            lexical->declare(name, Value::undefined(), !is_const, false);
-        for (FunctionDeclaration const* declaration : functions) {
-            JsString* name = declaration->function->name;
-            ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, private_environment);
-            Roots const roots(self);
-            self.root(Value::object(closure));
-            if (global_scope) {
-                if (!create_global_function_binding(name, Value::object(closure), true))
-                    return false;
-            } else if (Environment::Binding* existing = variable->find(name)) {
-                existing->value = Value::object(closure);
-            } else {
-                variable->declare(name, Value::object(closure), true, true, true);
-            }
-        }
-        for (JsString* name : program.declarations.vars) {
-            if (global_scope) {
-                if (!create_global_var_binding(name, true))
-                    return false;
-            } else if (!variable->find(name)) {
-                variable->declare(name, Value::undefined(), true, true, true);
-            }
-        }
-        return true;
-    }
-
-    // The var environment a direct eval declares into: the nearest
-    // function environment, or the global object's.
-    Environment* variable_environment_of(Environment* environment)
-    {
-        for (Environment* e = environment; e != nullptr; e = e->outer()) {
-            if (e->function() != nullptr)
-                return e;
-            if (e->is_object_environment() && !e->is_with_environment())
-                return e;
-        }
-        return self.intrinsics().global_environment;
-    }
-
-    // PerformEval (§19.2.1.1) for both the direct and the indirect form.
-    std::optional<Value> perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct,
-        PrivateEnvironment* private_environment)
-    {
-        ParseOptions options;
-        options.strict = direct && strict_caller;
-        if (direct) {
-            // §19.2.1.1 step 6: the eval code may name the private names of
-            // every class body it runs inside.
-            for (PrivateEnvironment const* env = private_environment; env != nullptr; env = env->outer()) {
-                for (auto const& [description, name] : env->names())
-                    options.private_names.emplace_back(description->view());
-            }
-        }
-        Environment* variable = direct ? variable_environment_of(scope) : self.intrinsics().global_environment;
-        if (direct) {
-            // §19.2.1.1 steps 8–10: what `new.target`, `super` and
-            // `arguments` may do in the eval code follows from the function
-            // whose `this` it sees — an arrow's eval at the top level is
-            // not in function code at all.
-            Environment* this_env = this_environment(scope);
-            if (this_env && this_env->function()) {
-                FunctionNode const& fn = static_cast<ScriptFunction*>(this_env->function())->node();
-                options.in_function = true;
-                options.allow_super_property = fn.is_method;
-                options.allow_super_call = fn.is_derived_constructor;
-                options.in_field_initializer = fn.is_field_initializer || fn.is_static_block;
-            }
-        }
-        Parser parser(heap(), std::u16string(source), options);
-        std::unique_ptr<Program> program = parser.parse_program("eval");
-        if (!program) {
-            ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
-            return self.throw_syntax_error(error.message);
-        }
-        bool const strict = options.strict || program->is_strict;
-        Program const* tree = program.get();
-        self.keep(std::move(program));
-
-        Environment* outer = direct ? scope : global_lexical;
-        Environment* lexical = new_environment(outer);
-        if (strict)
-            variable = lexical;
-        if (!this_value.is_empty())
-            lexical->set_this(this_value);
-        // Eval code owns its own declarations: the function field stays
-        // null so a block function's Annex B copy reads the eval's var list.
-        PrivateEnvironment* const private_env = direct ? private_environment : nullptr;
-        ContextScope context_scope(*this, Context { lexical, variable, tree, nullptr, strict, private_env });
-        Context& cx = context_scope.context();
-        if (!eval_declaration_instantiation(*tree, variable, lexical, strict, private_env))
-            return std::nullopt;
-        Completion const completion = execute_list(tree->body, cx);
-        if (completion.type == Completion::Type::Throw)
-            return std::nullopt;
-        return completion.value.is_empty() ? Value::undefined() : completion.value;
-    }
-
-    // ---- expressions
-
-    std::optional<Value> evaluate(Expression const* expression, Context& cx)
-    {
-        if (!stack_ok())
-            return std::nullopt;
-        switch (expression->type) {
-        case NodeType::Identifier: {
-            Reference reference = resolve(static_cast<Identifier const*>(expression)->name, cx.lexical);
-            return get_value(reference, cx);
-        }
-        case NodeType::NumberLiteral:
-            return Value::number(static_cast<NumberLiteral const*>(expression)->value);
-        case NodeType::StringLiteral:
-            return Value::string(static_cast<StringLiteral const*>(expression)->value);
-        case NodeType::BooleanLiteral:
-            return Value::boolean(static_cast<BooleanLiteral const*>(expression)->value);
-        case NodeType::NullLiteral:
-            return Value::null();
-        case NodeType::ThisExpression:
-            return resolve_this(cx.lexical);
-        case NodeType::RegExpLiteral:
-            return evaluate_regexp(*static_cast<RegExpLiteral const*>(expression));
-        case NodeType::TemplateLiteral:
-            return evaluate_template(*static_cast<TemplateLiteral const*>(expression), cx);
-        case NodeType::TaggedTemplate:
-            return evaluate_tagged_template(*static_cast<TaggedTemplate const*>(expression), cx);
-        case NodeType::ArrayLiteral:
-            return evaluate_array(*static_cast<ArrayLiteral const*>(expression), cx);
-        case NodeType::ObjectLiteral:
-            return evaluate_object(*static_cast<ObjectLiteral const*>(expression), cx);
-        case NodeType::FunctionExpression:
-            return make_closure(*static_cast<FunctionExpression const*>(expression)->function, cx, nullptr);
-        case NodeType::ArrowFunction:
-            return make_closure(*static_cast<ArrowFunction const*>(expression)->function, cx, nullptr);
-        case NodeType::ClassExpression:
-            return evaluate_class(*static_cast<ClassExpression const*>(expression)->node, cx, nullptr);
-        case NodeType::SuperMember: {
-            std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(expression), cx);
-            if (!reference)
-                return std::nullopt;
-            Roots const roots(self);
-            self.root(reference->base);
-            self.root(reference->key_value);
-            return get_value(*reference, cx);
-        }
-        case NodeType::SuperCall:
-            return evaluate_super_call(*static_cast<SuperCall const*>(expression), cx);
-        case NodeType::NewTargetExpression:
-            return evaluate_new_target(cx);
-        case NodeType::UnaryExpression:
-            return evaluate_unary(*static_cast<UnaryExpression const*>(expression), cx);
-        case NodeType::UpdateExpression:
-            return evaluate_update(*static_cast<UpdateExpression const*>(expression), cx);
-        case NodeType::BinaryExpression:
-            return evaluate_binary(*static_cast<BinaryExpression const*>(expression), cx);
-        case NodeType::LogicalExpression:
-            return evaluate_logical(*static_cast<LogicalExpression const*>(expression), cx);
-        case NodeType::AssignmentExpression:
-            return evaluate_assignment(*static_cast<AssignmentExpression const*>(expression), cx);
-        case NodeType::ConditionalExpression: {
-            auto const& conditional = *static_cast<ConditionalExpression const*>(expression);
-            std::optional<Value> const test = evaluate(conditional.test, cx);
-            if (!test)
-                return std::nullopt;
-            return evaluate(to_boolean(*test) ? conditional.consequent : conditional.alternate, cx);
-        }
-        case NodeType::CallExpression:
-        case NodeType::MemberExpression: {
-            bool short_circuit = false;
-            return evaluate_chain(expression, cx, short_circuit, nullptr);
-        }
-        case NodeType::PrivateIn:
-            return evaluate_private_in(*static_cast<PrivateInExpression const*>(expression), cx);
-        case NodeType::NewExpression:
-            return evaluate_new(*static_cast<NewExpression const*>(expression), cx);
-        case NodeType::SequenceExpression: {
-            Value last;
-            for (Expression const* part : static_cast<SequenceExpression const*>(expression)->expressions) {
-                std::optional<Value> const value = evaluate(part, cx);
-                if (!value)
-                    return std::nullopt;
-                last = *value;
-            }
-            return last;
-        }
-        default:
-            break;
-        }
-        return self.throw_syntax_error("unsupported expression");
-    }
-
-    static bool to_boolean(Value const& value) { return Interpreter::to_boolean(value); }
-
-    std::optional<Value> evaluate_regexp(RegExpLiteral const& literal)
-    {
-        // §13.2.7.3: a fresh RegExp object each time the literal is
-        // evaluated, made the way the constructor makes one.
-        Value const arguments[2] = { Value::string(literal.pattern), Value::string(literal.flags) };
-        Function* constructor = self.intrinsics().regexp_constructor;
-        if (constructor == nullptr)
-            return self.throw_syntax_error("regular expressions are not supported yet");
-        return self.construct(Value::object(constructor), arguments);
-    }
-
-    std::optional<Value> evaluate_template(TemplateLiteral const& literal, Context& cx)
-    {
-        // §13.2.8.6: the cooked spans with each substitution's ToString.
-        std::u16string result = literal.cooked[0]->data();
-        for (std::size_t i = 0; i < literal.expressions.size(); ++i) {
-            std::optional<Value> const value = evaluate(literal.expressions[i], cx);
-            if (!value)
-                return std::nullopt;
-            Roots const roots(self);
-            self.root(*value);
-            std::optional<JsString*> const text = self.to_string(*value);
-            if (!text)
-                return std::nullopt;
-            result += (*text)->data();
-            result += literal.cooked[i + 1]->data();
-        }
-        return Value::string(heap().string(std::move(result)));
-    }
-
-    // GetTemplateObject (§13.2.8.4): the site's cooked strings as a frozen
-    // array whose `raw` is the frozen array of raw strings, made once.
-    std::optional<Object*> template_object(TemplateLiteral const& literal)
-    {
-        if (auto const found = template_objects.find(&literal); found != template_objects.end())
-            return found->second;
-        Roots const roots(self);
-        auto freeze = [&](ArrayObject& array) -> bool {
-            PropertyDescriptor fixed;
-            fixed.writable = false;
-            fixed.configurable = false;
-            for (std::uint32_t i = 0; i < array.length(); ++i) {
-                if (!self.define_property_or_throw(array, PropertyKey::index(i), fixed))
-                    return false;
-            }
-            PropertyDescriptor length;
-            length.writable = false;
-            if (!self.define_property_or_throw(array, PropertyKey::atom(atoms().length), length))
-                return false;
-            array.prevent_extensions();
-            return true;
-        };
-        std::vector<Value> cooked;
-        std::vector<Value> raw;
-        for (std::size_t i = 0; i < literal.raw.size(); ++i) {
-            cooked.push_back(literal.cooked[i] ? Value::string(literal.cooked[i]) : Value::undefined());
-            raw.push_back(Value::string(literal.raw[i]));
-        }
-        ArrayObject* raw_array = self.new_array(raw);
-        self.root(Value::object(raw_array));
-        ArrayObject* cooked_array = self.new_array(cooked);
-        self.root(Value::object(cooked_array));
-        if (!freeze(*raw_array))
-            return std::nullopt;
-        cooked_array->put(PropertyKey::atom(atoms().raw), Value::object(raw_array), frozen_attributes);
-        if (!freeze(*cooked_array))
-            return std::nullopt;
-        template_objects.emplace(&literal, cooked_array);
-        return cooked_array;
-    }
-
-    // TaggedTemplate (§13.3.11.1): the tag as a call's callee — a member
-    // tag keeps its object as `this` — then the template object and the
-    // substitutions, in that order.
-    std::optional<Value> evaluate_tagged_template(TaggedTemplate const& tagged, Context& cx)
-    {
-        Roots const roots(self);
-        Value callee_value;
-        Value this_value;
-        Expression const* tag = tagged.tag;
-        if (tag->type == NodeType::MemberExpression) {
-            Reference reference;
-            bool short_circuit = false;
-            std::optional<Value> const value = evaluate_chain(tag, cx, short_circuit, &reference);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-            this_value = short_circuit ? Value::undefined() : this_for_call(reference);
-        } else if (tag->type == NodeType::Identifier) {
-            Reference reference = resolve(static_cast<Identifier const*>(tag)->name, cx.lexical);
-            std::optional<Value> const value = get_value(reference, cx);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-            this_value = this_for_call(reference);
-        } else if (tag->type == NodeType::SuperMember) {
-            std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(tag), cx);
-            if (!reference)
-                return std::nullopt;
-            self.root(reference->base);
-            self.root(reference->key_value);
-            std::optional<Value> const value = get_value(*reference, cx);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-            this_value = this_for_call(*reference);
-        } else {
-            std::optional<Value> const value = evaluate(tag, cx);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-        }
-        self.root(callee_value);
-        self.root(this_value);
-        std::optional<Object*> const site = template_object(*tagged.quasi);
-        if (!site)
-            return std::nullopt;
-        std::vector<Value> arguments;
-        arguments.push_back(Value::object(*site));
-        for (Expression const* expression : tagged.quasi->expressions) {
-            std::optional<Value> const value = evaluate(expression, cx);
-            if (!value)
-                return std::nullopt;
-            self.root(*value);
-            arguments.push_back(*value);
-        }
-        if (!Interpreter::is_callable(callee_value))
-            return self.throw_type_error(expression_text(tag, cx) + " is not a function");
-        return self.call(callee_value, this_value, arguments);
-    }
-
-    std::optional<Value> evaluate_array(ArrayLiteral const& literal, Context& cx)
-    {
-        // §13.2.4.2: elisions are holes; the length counts them.
-        Roots const roots(self);
-        ArrayObject* array = self.new_array();
-        self.root(Value::object(array));
-        std::uint32_t index = 0;
-        for (Expression const* element : literal.elements) {
-            if (element == nullptr) {
-                ++index;
-                continue;
-            }
-            if (element->type == NodeType::SpreadElement) {
-                // §13.2.4.1: the iterable's values, each an element of its own.
-                std::optional<Value> const iterable = evaluate(static_cast<SpreadElement const*>(element)->argument, cx);
-                if (!iterable)
-                    return std::nullopt;
-                Roots const spread_roots(self);
-                self.root(*iterable);
-                std::optional<std::vector<Value>> const values = self.iterable_to_list(*iterable);
-                if (!values)
-                    return std::nullopt;
-                for (Value const& value : *values)
-                    array->set_element(index++, value);
-                continue;
-            }
-            std::optional<Value> const value = evaluate(element, cx);
-            if (!value)
-                return std::nullopt;
-            array->set_element(index++, *value);
-        }
-        array->set_length(index);
-        return Value::object(array);
-    }
-
-    std::optional<Value> evaluate_object(ObjectLiteral const& literal, Context& cx)
-    {
-        // PropertyDefinitionEvaluation (§13.2.5.5).
-        Roots const roots(self);
-        Object* object = self.new_object();
-        self.root(Value::object(object));
-        for (PropertyDefinition const& property : literal.properties) {
-            if (property.is_proto) {
-                std::optional<Value> const value = evaluate(property.value, cx);
-                if (!value)
-                    return std::nullopt;
-                if (value->is_object())
-                    object->set_prototype(value->as_object());
-                else if (value->is_null())
-                    object->set_prototype(nullptr);
-                continue;
-            }
-            if (property.kind == PropertyDefinition::Kind::Spread) {
-                // `...source` is CopyDataProperties into the new object.
-                std::optional<Value> const source = evaluate(property.value, cx);
-                if (!source)
-                    return std::nullopt;
-                if (!copy_data_properties(*object, *source, {}))
-                    return std::nullopt;
-                continue;
-            }
-            PropertyKey key;
-            if (property.computed_key) {
-                std::optional<Value> const key_value = evaluate(property.computed_key, cx);
-                if (!key_value)
-                    return std::nullopt;
-                self.root(*key_value);
-                std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
-                if (!converted)
-                    return std::nullopt;
-                key = *converted;
-                if (key.is_symbol())
-                    self.root(Value::symbol(key.as_symbol()));
-            } else {
-                key = heap().key(property.key);
-            }
-            if (property.kind == PropertyDefinition::Kind::Init) {
-                std::optional<Value> value;
-                if (property.value->type == NodeType::FunctionExpression || property.value->type == NodeType::ArrowFunction
-                    || property.value->type == NodeType::ClassExpression)
-                    value = evaluate_named(property.value, cx, key);
-                else
-                    value = evaluate(property.value, cx);
-                if (!value)
-                    return std::nullopt;
-                self.root(*value);
-                // A method shorthand's function has the object as its home
-                // (§15.4.5), for `super.x` inside it.
-                if (property.value->type == NodeType::FunctionExpression
-                    && static_cast<FunctionExpression const*>(property.value)->function->is_method && value->is_object())
-                    static_cast<ScriptFunction*>(value->as_object())->set_home_object(object);
-                if (!self.create_data_property(*object, key, *value))
-                    return std::nullopt;
-                continue;
-            }
-            // A getter or setter joins an existing accessor's other half.
-            FunctionNode const& node = *static_cast<FunctionExpression const*>(property.value)->function;
-            Heap::NoCollect const guard(heap());
-            ScriptFunction* accessor = self.new_script_function(node, cx.lexical, cx.private_environment);
-            accessor->set_home_object(object);
-            set_function_name(*accessor, key, property.kind == PropertyDefinition::Kind::Get ? "get" : "set");
-            Object* getter = nullptr;
-            Object* setter = nullptr;
-            if (Property const* existing = object->find_own(key); existing && existing->accessor) {
-                getter = existing->getter;
-                setter = existing->setter;
-            }
-            if (property.kind == PropertyDefinition::Kind::Get)
-                getter = accessor;
-            else
-                setter = accessor;
-            object->put_accessor(key, getter, setter, Enumerable | Configurable);
-        }
-        return Value::object(object);
-    }
-
-    // A reference to `object.name` / `object[property]`, evaluated as the
-    // link of an optional chain it may be (§13.3.9). The key of a
-    // computed access stays a value until GetValue/PutValue converts it,
-    // after the base's own check, as §6.2.5.5 orders them.
-    std::optional<Reference> evaluate_member_reference(MemberExpression const& member, Context& cx, bool& short_circuit)
-    {
+// TaggedTemplate (§13.3.11.1): the tag as a call's callee — a member
+// tag keeps its object as `this` — then the template object and the
+// substitutions, in that order.
+std::optional<Value> Interpreter::Impl::evaluate_tagged_template(TaggedTemplate const& tagged, Context& cx)
+{
+    Roots const roots(self);
+    Value callee_value;
+    Value this_value;
+    Expression const* tag = tagged.tag;
+    if (tag->type == NodeType::MemberExpression) {
         Reference reference;
-        std::optional<Value> base;
-        if ((member.object->type == NodeType::MemberExpression || member.object->type == NodeType::CallExpression) && !member.object->parenthesized) {
-            base = evaluate_chain(member.object, cx, short_circuit, nullptr);
-            if (!base)
-                return std::nullopt;
-            if (short_circuit) {
-                reference.kind = Reference::Kind::Value;
-                reference.base = Value::undefined();
-                return reference;
-            }
-        } else {
-            base = evaluate(member.object, cx);
-            if (!base)
-                return std::nullopt;
+        bool short_circuit = false;
+        std::optional<Value> const value = evaluate_chain(tag, cx, short_circuit, &reference);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+        this_value = short_circuit ? Value::undefined() : this_for_call(reference);
+    } else if (tag->type == NodeType::Identifier) {
+        Reference reference = resolve(static_cast<Identifier const*>(tag)->name, cx.lexical);
+        std::optional<Value> const value = get_value(reference, cx);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+        this_value = this_for_call(reference);
+    } else if (tag->type == NodeType::SuperMember) {
+        std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(tag), cx);
+        if (!reference)
+            return std::nullopt;
+        self.root(reference->base);
+        self.root(reference->key_value);
+        std::optional<Value> const value = get_value(*reference, cx);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+        this_value = this_for_call(*reference);
+    } else {
+        std::optional<Value> const value = evaluate(tag, cx);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+    }
+    self.root(callee_value);
+    self.root(this_value);
+    std::optional<Object*> const site = template_object(*tagged.quasi);
+    if (!site)
+        return std::nullopt;
+    std::vector<Value> arguments;
+    arguments.push_back(Value::object(*site));
+    for (Expression const* expression : tagged.quasi->expressions) {
+        std::optional<Value> const value = evaluate(expression, cx);
+        if (!value)
+            return std::nullopt;
+        self.root(*value);
+        arguments.push_back(*value);
+    }
+    if (!Interpreter::is_callable(callee_value))
+        return self.throw_type_error(expression_text(tag, cx) + " is not a function");
+    return self.call(callee_value, this_value, arguments);
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_array(ArrayLiteral const& literal, Context& cx)
+{
+    // §13.2.4.2: elisions are holes; the length counts them.
+    Roots const roots(self);
+    ArrayObject* array = self.new_array();
+    self.root(Value::object(array));
+    std::uint32_t index = 0;
+    for (Expression const* element : literal.elements) {
+        if (element == nullptr) {
+            ++index;
+            continue;
         }
-        if (member.optional && base->is_nullish()) {
-            short_circuit = true;
+        if (element->type == NodeType::SpreadElement) {
+            // §13.2.4.1: the iterable's values, each an element of its own.
+            std::optional<Value> const iterable = evaluate(static_cast<SpreadElement const*>(element)->argument, cx);
+            if (!iterable)
+                return std::nullopt;
+            Roots const spread_roots(self);
+            self.root(*iterable);
+            std::optional<std::vector<Value>> const values = self.iterable_to_list(*iterable);
+            if (!values)
+                return std::nullopt;
+            for (Value const& value : *values)
+                array->set_element(index++, value);
+            continue;
+        }
+        std::optional<Value> const value = evaluate(element, cx);
+        if (!value)
+            return std::nullopt;
+        array->set_element(index++, *value);
+    }
+    array->set_length(index);
+    return Value::object(array);
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_object(ObjectLiteral const& literal, Context& cx)
+{
+    // PropertyDefinitionEvaluation (§13.2.5.5).
+    Roots const roots(self);
+    Object* object = self.new_object();
+    self.root(Value::object(object));
+    for (PropertyDefinition const& property : literal.properties) {
+        if (property.is_proto) {
+            std::optional<Value> const value = evaluate(property.value, cx);
+            if (!value)
+                return std::nullopt;
+            if (value->is_object())
+                object->set_prototype(value->as_object());
+            else if (value->is_null())
+                object->set_prototype(nullptr);
+            continue;
+        }
+        if (property.kind == PropertyDefinition::Kind::Spread) {
+            // `...source` is CopyDataProperties into the new object.
+            std::optional<Value> const source = evaluate(property.value, cx);
+            if (!source)
+                return std::nullopt;
+            if (!copy_data_properties(*object, *source, {}))
+                return std::nullopt;
+            continue;
+        }
+        PropertyKey key;
+        if (property.computed_key) {
+            std::optional<Value> const key_value = evaluate(property.computed_key, cx);
+            if (!key_value)
+                return std::nullopt;
+            self.root(*key_value);
+            std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
+            if (!converted)
+                return std::nullopt;
+            key = *converted;
+            if (key.is_symbol())
+                self.root(Value::symbol(key.as_symbol()));
+        } else {
+            key = heap().key(property.key);
+        }
+        if (property.kind == PropertyDefinition::Kind::Init) {
+            std::optional<Value> value;
+            if (property.value->type == NodeType::FunctionExpression || property.value->type == NodeType::ArrowFunction
+                || property.value->type == NodeType::ClassExpression)
+                value = evaluate_named(property.value, cx, key);
+            else
+                value = evaluate(property.value, cx);
+            if (!value)
+                return std::nullopt;
+            self.root(*value);
+            // A method shorthand's function has the object as its home
+            // (§15.4.5), for `super.x` inside it.
+            if (property.value->type == NodeType::FunctionExpression
+                && static_cast<FunctionExpression const*>(property.value)->function->is_method && value->is_object())
+                static_cast<ScriptFunction*>(value->as_object())->set_home_object(object);
+            if (!self.create_data_property(*object, key, *value))
+                return std::nullopt;
+            continue;
+        }
+        // A getter or setter joins an existing accessor's other half.
+        FunctionNode const& node = *static_cast<FunctionExpression const*>(property.value)->function;
+        Heap::NoCollect const guard(heap());
+        ScriptFunction* accessor = self.new_script_function(node, cx.lexical, cx.private_environment);
+        accessor->set_home_object(object);
+        set_function_name(*accessor, key, property.kind == PropertyDefinition::Kind::Get ? "get" : "set");
+        Object* getter = nullptr;
+        Object* setter = nullptr;
+        if (Property const* existing = object->find_own(key); existing && existing->accessor) {
+            getter = existing->getter;
+            setter = existing->setter;
+        }
+        if (property.kind == PropertyDefinition::Kind::Get)
+            getter = accessor;
+        else
+            setter = accessor;
+        object->put_accessor(key, getter, setter, Enumerable | Configurable);
+    }
+    return Value::object(object);
+}
+
+
+// A reference to `object.name` / `object[property]`, evaluated as the
+// link of an optional chain it may be (§13.3.9). The key of a
+// computed access stays a value until GetValue/PutValue converts it,
+// after the base's own check, as §6.2.5.5 orders them.
+std::optional<Reference> Interpreter::Impl::evaluate_member_reference(MemberExpression const& member, Context& cx, bool& short_circuit)
+{
+    Reference reference;
+    std::optional<Value> base;
+    if ((member.object->type == NodeType::MemberExpression || member.object->type == NodeType::CallExpression) && !member.object->parenthesized) {
+        base = evaluate_chain(member.object, cx, short_circuit, nullptr);
+        if (!base)
+            return std::nullopt;
+        if (short_circuit) {
             reference.kind = Reference::Kind::Value;
             reference.base = Value::undefined();
             return reference;
         }
-        if (member.is_private) {
-            // MakePrivateReference (§13.3.3): the name resolved through the
-            // class bodies in scope — the parser saw one declare it.
-            Symbol* name = cx.private_environment ? cx.private_environment->lookup(member.name) : nullptr;
-            if (name == nullptr)
-                return self.throw_syntax_error("Private field '" + member.name->to_utf8() + "' must be declared in an enclosing class");
-            reference.kind = Reference::Kind::Private;
-            reference.base = *base;
-            reference.name = member.name;
-            reference.key = PropertyKey::symbol(name);
-            reference.key_ready = true;
-            return reference;
-        }
-        reference.kind = Reference::Kind::Property;
-        reference.base = *base;
-        Roots const roots(self);
-        self.root(*base);
-        if (member.property) {
-            std::optional<Value> const key_value = evaluate(member.property, cx);
-            if (!key_value)
-                return std::nullopt;
-            reference.key_value = *key_value;
-            // Strings and numbers convert at once (nothing observable
-            // happens); an object waits for the base check.
-            if (!key_value->is_object()) {
-                std::optional<PropertyKey> const key = self.to_property_key(*key_value);
-                if (!key)
-                    return std::nullopt;
-                reference.key = *key;
-                reference.key_ready = true;
-            }
-        } else {
-            reference.key = heap().key(member.name);
-            reference.key_ready = true;
-        }
+    } else {
+        base = evaluate(member.object, cx);
+        if (!base)
+            return std::nullopt;
+    }
+    if (member.optional && base->is_nullish()) {
+        short_circuit = true;
+        reference.kind = Reference::Kind::Value;
+        reference.base = Value::undefined();
         return reference;
     }
-
-    // A member or call expression, as a link of a chain: the value, and
-    // for a member the reference too, so a call knows its `this`.
-    std::optional<Value> evaluate_chain(Expression const* expression, Context& cx, bool& short_circuit, Reference* out_reference)
-    {
-        if (expression->type == NodeType::MemberExpression) {
-            std::optional<Reference> reference = evaluate_member_reference(*static_cast<MemberExpression const*>(expression), cx, short_circuit);
-            if (!reference)
-                return std::nullopt;
-            if (short_circuit)
-                return Value::undefined();
-            Roots const roots(self);
-            self.root(reference->base);
-            self.root(reference->key_value);
-            std::optional<Value> const value = get_value(*reference, cx);
-            if (!value)
-                return std::nullopt;
-            if (out_reference)
-                *out_reference = *reference;
-            return value;
-        }
-        return evaluate_call(*static_cast<CallExpression const*>(expression), cx, short_circuit);
+    if (member.is_private) {
+        // MakePrivateReference (§13.3.3): the name resolved through the
+        // class bodies in scope — the parser saw one declare it.
+        Symbol* name = cx.private_environment ? cx.private_environment->lookup(member.name) : nullptr;
+        if (name == nullptr)
+            return self.throw_syntax_error("Private field '" + member.name->to_utf8() + "' must be declared in an enclosing class");
+        reference.kind = Reference::Kind::Private;
+        reference.base = *base;
+        reference.name = member.name;
+        reference.key = PropertyKey::symbol(name);
+        reference.key_ready = true;
+        return reference;
     }
-
-    std::optional<Value> evaluate_arguments(std::vector<Expression*> const& expressions, Context& cx, std::vector<Value>& values)
-    {
-        // The caller's Roots scope keeps each argument alive.
-        values.reserve(expressions.size());
-        for (Expression const* expression : expressions) {
-            if (expression->type == NodeType::SpreadElement) {
-                // §13.3.8.1: the iterable's values join the list in place.
-                std::optional<Value> const iterable = evaluate(static_cast<SpreadElement const*>(expression)->argument, cx);
-                if (!iterable)
-                    return std::nullopt;
-                self.root(*iterable);
-                std::optional<std::vector<Value>> const spread = self.iterable_to_list(*iterable);
-                if (!spread)
-                    return std::nullopt;
-                for (Value const& value : *spread) {
-                    self.root(value);
-                    values.push_back(value);
-                }
-                continue;
-            }
-            std::optional<Value> const value = evaluate(expression, cx);
-            if (!value)
+    reference.kind = Reference::Kind::Property;
+    reference.base = *base;
+    Roots const roots(self);
+    self.root(*base);
+    if (member.property) {
+        std::optional<Value> const key_value = evaluate(member.property, cx);
+        if (!key_value)
+            return std::nullopt;
+        reference.key_value = *key_value;
+        // Strings and numbers convert at once (nothing observable
+        // happens); an object waits for the base check.
+        if (!key_value->is_object()) {
+            std::optional<PropertyKey> const key = self.to_property_key(*key_value);
+            if (!key)
                 return std::nullopt;
-            self.root(*value);
-            values.push_back(*value);
+            reference.key = *key;
+            reference.key_ready = true;
         }
-        return Value::undefined();
+    } else {
+        reference.key = heap().key(member.name);
+        reference.key_ready = true;
     }
+    return reference;
+}
 
-    std::optional<Value> evaluate_call(CallExpression const& call, Context& cx, bool& short_circuit)
-    {
-        // §13.3.6: the callee is evaluated as a reference so that a
-        // member call gets its base as `this`; a direct eval is told apart
-        // by the callee resolving to the intrinsic.
-        Roots const roots(self);
-        Value callee_value;
-        Value this_value;
-        Expression const* callee = call.callee;
-        if (callee->type == NodeType::MemberExpression) {
-            // Parentheses keep the reference (`(o.m)()` still calls with
-            // o as this) but end an optional chain: a short-circuit
-            // inside them yields undefined, which is then not callable.
-            Reference reference;
-            bool inner_short_circuit = false;
-            bool& flag = callee->parenthesized ? inner_short_circuit : short_circuit;
-            std::optional<Value> const value = evaluate_chain(callee, cx, flag, &reference);
-            if (!value)
-                return std::nullopt;
-            if (flag) {
-                if (!callee->parenthesized)
-                    return Value::undefined();
-                callee_value = Value::undefined();
-            } else {
-                callee_value = *value;
-                this_value = this_for_call(reference);
-            }
-        } else if (callee->type == NodeType::CallExpression && !callee->parenthesized) {
-            std::optional<Value> const value = evaluate_chain(callee, cx, short_circuit, nullptr);
-            if (!value)
-                return std::nullopt;
-            if (short_circuit)
-                return Value::undefined();
-            callee_value = *value;
-        } else if (callee->type == NodeType::Identifier) {
-            Reference reference = resolve(static_cast<Identifier const*>(callee)->name, cx.lexical);
-            std::optional<Value> const value = get_value(reference, cx);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-            this_value = this_for_call(reference);
-        } else if (callee->type == NodeType::SuperMember) {
-            // `super.m()`: the method from the parent, this staying this.
-            std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(callee), cx);
-            if (!reference)
-                return std::nullopt;
-            self.root(reference->base);
-            self.root(reference->key_value);
-            std::optional<Value> const value = get_value(*reference, cx);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-            this_value = this_for_call(*reference);
-        } else {
-            std::optional<Value> const value = evaluate(callee, cx);
-            if (!value)
-                return std::nullopt;
-            callee_value = *value;
-        }
-        self.root(callee_value);
-        self.root(this_value);
-        if (call.optional && callee_value.is_nullish()) {
-            short_circuit = true;
+
+// A member or call expression, as a link of a chain: the value, and
+// for a member the reference too, so a call knows its `this`.
+std::optional<Value> Interpreter::Impl::evaluate_chain(Expression const* expression, Context& cx, bool& short_circuit, Reference* out_reference)
+{
+    if (expression->type == NodeType::MemberExpression) {
+        std::optional<Reference> reference = evaluate_member_reference(*static_cast<MemberExpression const*>(expression), cx, short_circuit);
+        if (!reference)
+            return std::nullopt;
+        if (short_circuit)
             return Value::undefined();
-        }
-        std::vector<Value> arguments;
-        if (!evaluate_arguments(call.arguments, cx, arguments))
-            return std::nullopt;
-        if (call.is_direct_eval && callee_value.is_object() && callee_value.as_object() == self.intrinsics().eval) {
-            // §13.3.6.1 step 6: a direct eval of a string runs in this
-            // scope; anything else is returned as it is.
-            if (arguments.empty())
-                return Value::undefined();
-            if (!arguments[0].is_string())
-                return arguments[0];
-            if (!step())
-                return std::nullopt;
-            return perform_eval(arguments[0].as_string()->view(), cx.lexical, cx.strict, Value::empty(), true, cx.private_environment);
-        }
-        if (!Interpreter::is_callable(callee_value))
-            return self.throw_type_error(expression_text(callee, cx) + " is not a function");
-        return self.call(callee_value, this_value, arguments);
-    }
-
-    std::optional<Value> evaluate_new(NewExpression const& expression, Context& cx)
-    {
-        // §13.3.5.1.
         Roots const roots(self);
-        std::optional<Value> const constructor = evaluate(expression.callee, cx);
-        if (!constructor)
+        self.root(reference->base);
+        self.root(reference->key_value);
+        std::optional<Value> const value = get_value(*reference, cx);
+        if (!value)
             return std::nullopt;
-        self.root(*constructor);
-        std::vector<Value> arguments;
-        if (!evaluate_arguments(expression.arguments, cx, arguments))
-            return std::nullopt;
-        if (!Interpreter::is_constructor(*constructor))
-            return self.throw_type_error(expression_text(expression.callee, cx) + " is not a constructor");
-        return self.construct(*constructor, arguments);
+        if (out_reference)
+            *out_reference = *reference;
+        return value;
     }
+    return evaluate_call(*static_cast<CallExpression const*>(expression), cx, short_circuit);
+}
 
-    // The reference an assignment, update or delete targets. Only an
-    // identifier or a member expression is a reference; anything else is
-    // evaluated for its value.
-    std::optional<Reference> evaluate_reference(Expression const* expression, Context& cx)
-    {
-        if (expression->type == NodeType::Identifier)
-            return resolve(static_cast<Identifier const*>(expression)->name, cx.lexical);
-        if (expression->type == NodeType::MemberExpression) {
-            bool short_circuit = false;
-            return evaluate_member_reference(*static_cast<MemberExpression const*>(expression), cx, short_circuit);
+
+std::optional<Value> Interpreter::Impl::evaluate_arguments(std::vector<Expression*> const& expressions, Context& cx, std::vector<Value>& values)
+{
+    // The caller's Roots scope keeps each argument alive.
+    values.reserve(expressions.size());
+    for (Expression const* expression : expressions) {
+        if (expression->type == NodeType::SpreadElement) {
+            // §13.3.8.1: the iterable's values join the list in place.
+            std::optional<Value> const iterable = evaluate(static_cast<SpreadElement const*>(expression)->argument, cx);
+            if (!iterable)
+                return std::nullopt;
+            self.root(*iterable);
+            std::optional<std::vector<Value>> const spread = self.iterable_to_list(*iterable);
+            if (!spread)
+                return std::nullopt;
+            for (Value const& value : *spread) {
+                self.root(value);
+                values.push_back(value);
+            }
+            continue;
         }
-        if (expression->type == NodeType::SuperMember)
-            return evaluate_super_member(*static_cast<SuperMember const*>(expression), cx);
         std::optional<Value> const value = evaluate(expression, cx);
         if (!value)
             return std::nullopt;
-        Reference reference;
-        reference.kind = Reference::Kind::Value;
-        reference.base = *value;
-        return reference;
+        self.root(*value);
+        values.push_back(*value);
     }
+    return Value::undefined();
+}
 
-    std::optional<Value> evaluate_unary(UnaryExpression const& unary, Context& cx)
-    {
-        switch (unary.op) {
-        case UnaryOp::Typeof: {
-            // §13.5.3: an unresolvable name is "undefined" rather than a
-            // ReferenceError; a binding in its dead zone still throws.
-            std::optional<Reference> reference = evaluate_reference(unary.operand, cx);
-            if (!reference)
-                return std::nullopt;
-            if (reference->kind == Reference::Kind::Unresolvable)
-                return Value::string(atoms().undefined);
-            Roots const roots(self);
-            self.root(reference->base);
-            self.root(reference->key_value);
-            std::optional<Value> const value = get_value(*reference, cx);
-            if (!value)
-                return std::nullopt;
-            return Value::string(self.type_of(*value));
-        }
-        case UnaryOp::Delete:
-            return evaluate_delete(unary, cx);
-        case UnaryOp::Void: {
-            if (!evaluate(unary.operand, cx))
-                return std::nullopt;
-            return Value::undefined();
-        }
-        default:
-            break;
-        }
-        std::optional<Value> const operand = evaluate(unary.operand, cx);
-        if (!operand)
+
+std::optional<Value> Interpreter::Impl::evaluate_call(CallExpression const& call, Context& cx, bool& short_circuit)
+{
+    // §13.3.6: the callee is evaluated as a reference so that a
+    // member call gets its base as `this`; a direct eval is told apart
+    // by the callee resolving to the intrinsic.
+    Roots const roots(self);
+    Value callee_value;
+    Value this_value;
+    Expression const* callee = call.callee;
+    if (callee->type == NodeType::MemberExpression) {
+        // Parentheses keep the reference (`(o.m)()` still calls with
+        // o as this) but end an optional chain: a short-circuit
+        // inside them yields undefined, which is then not callable.
+        Reference reference;
+        bool inner_short_circuit = false;
+        bool& flag = callee->parenthesized ? inner_short_circuit : short_circuit;
+        std::optional<Value> const value = evaluate_chain(callee, cx, flag, &reference);
+        if (!value)
             return std::nullopt;
-        switch (unary.op) {
-        case UnaryOp::Not:
-            return Value::boolean(!to_boolean(*operand));
-        case UnaryOp::Minus: {
-            std::optional<double> const number = self.to_number(*operand);
-            if (!number)
-                return std::nullopt;
-            return Value::number(-*number);
+        if (flag) {
+            if (!callee->parenthesized)
+                return Value::undefined();
+            callee_value = Value::undefined();
+        } else {
+            callee_value = *value;
+            this_value = this_for_call(reference);
         }
-        case UnaryOp::Plus: {
-            std::optional<double> const number = self.to_number(*operand);
-            if (!number)
-                return std::nullopt;
-            return Value::number(*number);
-        }
-        case UnaryOp::BitwiseNot: {
-            std::optional<std::int32_t> const number = self.to_int32(*operand);
-            if (!number)
-                return std::nullopt;
-            return Value::number(static_cast<double>(~*number));
-        }
-        default:
-            break;
-        }
+    } else if (callee->type == NodeType::CallExpression && !callee->parenthesized) {
+        std::optional<Value> const value = evaluate_chain(callee, cx, short_circuit, nullptr);
+        if (!value)
+            return std::nullopt;
+        if (short_circuit)
+            return Value::undefined();
+        callee_value = *value;
+    } else if (callee->type == NodeType::Identifier) {
+        Reference reference = resolve(static_cast<Identifier const*>(callee)->name, cx.lexical);
+        std::optional<Value> const value = get_value(reference, cx);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+        this_value = this_for_call(reference);
+    } else if (callee->type == NodeType::SuperMember) {
+        // `super.m()`: the method from the parent, this staying this.
+        std::optional<Reference> reference = evaluate_super_member(*static_cast<SuperMember const*>(callee), cx);
+        if (!reference)
+            return std::nullopt;
+        self.root(reference->base);
+        self.root(reference->key_value);
+        std::optional<Value> const value = get_value(*reference, cx);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+        this_value = this_for_call(*reference);
+    } else {
+        std::optional<Value> const value = evaluate(callee, cx);
+        if (!value)
+            return std::nullopt;
+        callee_value = *value;
+    }
+    self.root(callee_value);
+    self.root(this_value);
+    if (call.optional && callee_value.is_nullish()) {
+        short_circuit = true;
         return Value::undefined();
     }
+    std::vector<Value> arguments;
+    if (!evaluate_arguments(call.arguments, cx, arguments))
+        return std::nullopt;
+    if (call.is_direct_eval && callee_value.is_object() && callee_value.as_object() == self.intrinsics().eval) {
+        // §13.3.6.1 step 6: a direct eval of a string runs in this
+        // scope; anything else is returned as it is.
+        if (arguments.empty())
+            return Value::undefined();
+        if (!arguments[0].is_string())
+            return arguments[0];
+        if (!step())
+            return std::nullopt;
+        return perform_eval(arguments[0].as_string()->view(), cx.lexical, cx.strict, Value::empty(), true, cx.private_environment);
+    }
+    if (!Interpreter::is_callable(callee_value))
+        return self.throw_type_error(expression_text(callee, cx) + " is not a function");
+    return self.call(callee_value, this_value, arguments);
+}
 
-    std::optional<Value> evaluate_delete(UnaryExpression const& unary, Context& cx)
-    {
-        // §13.5.1.2: a property is deleted from the boxed base, strictly a
-        // TypeError when that fails; a binding only when it is deletable;
-        // anything that is not a reference deletes as true.
+
+std::optional<Value> Interpreter::Impl::evaluate_new(NewExpression const& expression, Context& cx)
+{
+    // §13.3.5.1.
+    Roots const roots(self);
+    std::optional<Value> const constructor = evaluate(expression.callee, cx);
+    if (!constructor)
+        return std::nullopt;
+    self.root(*constructor);
+    std::vector<Value> arguments;
+    if (!evaluate_arguments(expression.arguments, cx, arguments))
+        return std::nullopt;
+    if (!Interpreter::is_constructor(*constructor))
+        return self.throw_type_error(expression_text(expression.callee, cx) + " is not a constructor");
+    return self.construct(*constructor, arguments);
+}
+
+
+// The reference an assignment, update or delete targets. Only an
+// identifier or a member expression is a reference; anything else is
+// evaluated for its value.
+std::optional<Reference> Interpreter::Impl::evaluate_reference(Expression const* expression, Context& cx)
+{
+    if (expression->type == NodeType::Identifier)
+        return resolve(static_cast<Identifier const*>(expression)->name, cx.lexical);
+    if (expression->type == NodeType::MemberExpression) {
+        bool short_circuit = false;
+        return evaluate_member_reference(*static_cast<MemberExpression const*>(expression), cx, short_circuit);
+    }
+    if (expression->type == NodeType::SuperMember)
+        return evaluate_super_member(*static_cast<SuperMember const*>(expression), cx);
+    std::optional<Value> const value = evaluate(expression, cx);
+    if (!value)
+        return std::nullopt;
+    Reference reference;
+    reference.kind = Reference::Kind::Value;
+    reference.base = *value;
+    return reference;
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_unary(UnaryExpression const& unary, Context& cx)
+{
+    switch (unary.op) {
+    case UnaryOp::Typeof: {
+        // §13.5.3: an unresolvable name is "undefined" rather than a
+        // ReferenceError; a binding in its dead zone still throws.
         std::optional<Reference> reference = evaluate_reference(unary.operand, cx);
         if (!reference)
             return std::nullopt;
-        switch (reference->kind) {
-        case Reference::Kind::Value:
-        case Reference::Kind::Unresolvable:
-            return Value::boolean(true);
-        case Reference::Kind::Super:
-            // §13.5.1.2 step 5.a: a super reference cannot be deleted.
-            return self.throw_reference_error("Unsupported reference to 'super'");
-        case Reference::Kind::Private:
-            // §13.5.1.1: an early error the parser raises; nothing reaches here.
-            return self.throw_syntax_error("Private fields can not be deleted");
-        case Reference::Kind::Binding:
-            return Value::boolean(reference->environment->remove(reference->name));
-        case Reference::Kind::ObjectEnvironment:
-            return Value::boolean(reference->environment->object()->delete_property(reference->key));
-        case Reference::Kind::Property: {
-            Roots const roots(self);
-            self.root(reference->base);
-            self.root(reference->key_value);
-            if (reference->base.is_nullish())
-                return self.throw_type_error("Cannot convert undefined or null to object");
-            std::optional<Object*> const object = self.to_object(reference->base);
-            if (!object)
-                return std::nullopt;
-            self.root(Value::object(*object));
-            if (!ensure_key(*reference))
-                return std::nullopt;
-            bool const deleted = (*object)->delete_property(reference->key);
-            if (!deleted && cx.strict)
-                return self.throw_type_error("Cannot delete property '" + key_description(reference->key) + "' of object");
-            return Value::boolean(deleted);
-        }
-        }
-        return Value::boolean(true);
-    }
-
-    std::optional<Value> evaluate_update(UpdateExpression const& update, Context& cx)
-    {
-        // §13.4.2–§13.4.5: the old value as a number, the new one stored,
-        // the prefix form yielding the new and the postfix the old.
-        std::optional<Reference> reference = evaluate_reference(update.target, cx);
-        if (!reference)
-            return std::nullopt;
+        if (reference->kind == Reference::Kind::Unresolvable)
+            return Value::string(atoms().undefined);
         Roots const roots(self);
         self.root(reference->base);
         self.root(reference->key_value);
-        std::optional<Value> const old_value = get_value(*reference, cx);
-        if (!old_value)
+        std::optional<Value> const value = get_value(*reference, cx);
+        if (!value)
             return std::nullopt;
-        self.root(*old_value);
-        std::optional<double> const old_number = self.to_number(*old_value);
-        if (!old_number)
-            return std::nullopt;
-        double const new_number = update.increment ? *old_number + 1 : *old_number - 1;
-        if (!put_value(*reference, Value::number(new_number), cx))
-            return std::nullopt;
-        return Value::number(update.prefix ? new_number : *old_number);
+        return Value::string(self.type_of(*value));
     }
-
-    // The operator of a binary or compound-assignment expression applied
-    // to two evaluated operands (§13.6–§13.12, §13.15.3 ApplyStringOrNumericBinaryOperator).
-    std::optional<Value> apply_binary(BinaryOp op, Value const& left, Value const& right)
-    {
-        Roots const roots(self);
-        self.root(left);
-        self.root(right);
-        switch (op) {
-        case BinaryOp::Add: {
-            // §13.15.3: primitives first, then a string on either side
-            // concatenates, otherwise numbers add.
-            std::optional<Value> const lprim = self.to_primitive(left);
-            if (!lprim)
-                return std::nullopt;
-            self.root(*lprim);
-            std::optional<Value> const rprim = self.to_primitive(right);
-            if (!rprim)
-                return std::nullopt;
-            self.root(*rprim);
-            if (lprim->is_string() || rprim->is_string()) {
-                std::optional<JsString*> const lstr = self.to_string(*lprim);
-                if (!lstr)
-                    return std::nullopt;
-                self.root(Value::string(*lstr));
-                std::optional<JsString*> const rstr = self.to_string(*rprim);
-                if (!rstr)
-                    return std::nullopt;
-                if ((*lstr)->is_empty())
-                    return Value::string(*rstr);
-                if ((*rstr)->is_empty())
-                    return Value::string(*lstr);
-                std::u16string joined;
-                joined.reserve((*lstr)->length() + (*rstr)->length());
-                joined += (*lstr)->view();
-                joined += (*rstr)->view();
-                return Value::string(heap().string(std::move(joined)));
-            }
-            std::optional<double> const lnum = self.to_number(*lprim);
-            if (!lnum)
-                return std::nullopt;
-            std::optional<double> const rnum = self.to_number(*rprim);
-            if (!rnum)
-                return std::nullopt;
-            return Value::number(*lnum + *rnum);
-        }
-        case BinaryOp::Subtract:
-        case BinaryOp::Multiply:
-        case BinaryOp::Divide:
-        case BinaryOp::Remainder:
-        case BinaryOp::Exponent: {
-            std::optional<double> const lnum = self.to_number(left);
-            if (!lnum)
-                return std::nullopt;
-            std::optional<double> const rnum = self.to_number(right);
-            if (!rnum)
-                return std::nullopt;
-            switch (op) {
-            case BinaryOp::Subtract:
-                return Value::number(*lnum - *rnum);
-            case BinaryOp::Multiply:
-                return Value::number(*lnum * *rnum);
-            case BinaryOp::Divide:
-                return Value::number(*lnum / *rnum);
-            case BinaryOp::Remainder:
-                return Value::number(std::fmod(*lnum, *rnum));
-            default:
-                return Value::number(number_exponentiate(*lnum, *rnum));
-            }
-        }
-        case BinaryOp::LeftShift:
-        case BinaryOp::RightShift:
-        case BinaryOp::UnsignedRightShift:
-        case BinaryOp::BitwiseAnd:
-        case BinaryOp::BitwiseOr:
-        case BinaryOp::BitwiseXor: {
-            std::optional<std::int32_t> const lnum = self.to_int32(left);
-            if (!lnum)
-                return std::nullopt;
-            std::optional<std::uint32_t> const rnum = self.to_uint32(right);
-            if (!rnum)
-                return std::nullopt;
-            auto const lbits = static_cast<std::uint32_t>(*lnum);
-            std::uint32_t const shift = *rnum & 31u;
-            switch (op) {
-            case BinaryOp::LeftShift:
-                return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits << shift)));
-            case BinaryOp::RightShift:
-                return Value::number(static_cast<double>(*lnum >> shift));
-            case BinaryOp::UnsignedRightShift:
-                return Value::number(static_cast<double>(lbits >> shift));
-            case BinaryOp::BitwiseAnd:
-                return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits & *rnum)));
-            case BinaryOp::BitwiseOr:
-                return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits | *rnum)));
-            default:
-                return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits ^ *rnum)));
-            }
-        }
-        case BinaryOp::Equal:
-        case BinaryOp::NotEqual: {
-            std::optional<bool> const equal = self.loose_equals(left, right);
-            if (!equal)
-                return std::nullopt;
-            return Value::boolean(op == BinaryOp::Equal ? *equal : !*equal);
-        }
-        case BinaryOp::StrictEqual:
-            return Value::boolean(Interpreter::strict_equals(left, right));
-        case BinaryOp::StrictNotEqual:
-            return Value::boolean(!Interpreter::strict_equals(left, right));
-        case BinaryOp::Less: {
-            std::optional<std::optional<bool>> const r = self.less_than(left, right, true);
-            if (!r)
-                return std::nullopt;
-            return Value::boolean(r->value_or(false));
-        }
-        case BinaryOp::Greater: {
-            std::optional<std::optional<bool>> const r = self.less_than(right, left, false);
-            if (!r)
-                return std::nullopt;
-            return Value::boolean(r->value_or(false));
-        }
-        case BinaryOp::LessEqual: {
-            std::optional<std::optional<bool>> const r = self.less_than(right, left, false);
-            if (!r)
-                return std::nullopt;
-            return Value::boolean(r->has_value() && !**r);
-        }
-        case BinaryOp::GreaterEqual: {
-            std::optional<std::optional<bool>> const r = self.less_than(left, right, true);
-            if (!r)
-                return std::nullopt;
-            return Value::boolean(r->has_value() && !**r);
-        }
-        case BinaryOp::In: {
-            // §13.10.1: the right operand must be an object; then the
-            // left becomes a key.
-            if (!right.is_object())
-                return self.throw_type_error("Cannot use 'in' operator to search for '" + self.describe(left) + "' in " + self.describe(right));
-            std::optional<PropertyKey> const key = self.to_property_key(left);
-            if (!key)
-                return std::nullopt;
-            return Value::boolean(right.as_object()->has_property(*key));
-        }
-        case BinaryOp::Instanceof: {
-            std::optional<bool> const result = self.instance_of(left, right);
-            if (!result)
-                return std::nullopt;
-            return Value::boolean(*result);
-        }
-        }
+    case UnaryOp::Delete:
+        return evaluate_delete(unary, cx);
+    case UnaryOp::Void: {
+        if (!evaluate(unary.operand, cx))
+            return std::nullopt;
         return Value::undefined();
     }
-
-    std::optional<Value> evaluate_binary(BinaryExpression const& binary, Context& cx)
-    {
-        std::optional<Value> const left = evaluate(binary.left, cx);
-        if (!left)
-            return std::nullopt;
-        Roots const roots(self);
-        self.root(*left);
-        std::optional<Value> const right = evaluate(binary.right, cx);
-        if (!right)
-            return std::nullopt;
-        return apply_binary(binary.op, *left, *right);
+    default:
+        break;
     }
-
-    std::optional<Value> evaluate_logical(LogicalExpression const& logical, Context& cx)
-    {
-        // §13.13: the left operand decides whether the right is evaluated.
-        std::optional<Value> const left = evaluate(logical.left, cx);
-        if (!left)
+    std::optional<Value> const operand = evaluate(unary.operand, cx);
+    if (!operand)
+        return std::nullopt;
+    switch (unary.op) {
+    case UnaryOp::Not:
+        return Value::boolean(!to_boolean(*operand));
+    case UnaryOp::Minus: {
+        std::optional<double> const number = self.to_number(*operand);
+        if (!number)
             return std::nullopt;
-        bool evaluate_right = false;
-        switch (logical.op) {
-        case LogicalOp::And:
-            evaluate_right = to_boolean(*left);
-            break;
-        case LogicalOp::Or:
-            evaluate_right = !to_boolean(*left);
-            break;
-        case LogicalOp::Nullish:
-            evaluate_right = left->is_nullish();
-            break;
-        }
-        if (!evaluate_right)
-            return *left;
-        return evaluate(logical.right, cx);
+        return Value::number(-*number);
     }
-
-    static std::optional<BinaryOp> binary_for(AssignmentOp op)
-    {
-        switch (op) {
-        case AssignmentOp::Add: return BinaryOp::Add;
-        case AssignmentOp::Subtract: return BinaryOp::Subtract;
-        case AssignmentOp::Multiply: return BinaryOp::Multiply;
-        case AssignmentOp::Divide: return BinaryOp::Divide;
-        case AssignmentOp::Remainder: return BinaryOp::Remainder;
-        case AssignmentOp::Exponent: return BinaryOp::Exponent;
-        case AssignmentOp::LeftShift: return BinaryOp::LeftShift;
-        case AssignmentOp::RightShift: return BinaryOp::RightShift;
-        case AssignmentOp::UnsignedRightShift: return BinaryOp::UnsignedRightShift;
-        case AssignmentOp::BitwiseAnd: return BinaryOp::BitwiseAnd;
-        case AssignmentOp::BitwiseOr: return BinaryOp::BitwiseOr;
-        case AssignmentOp::BitwiseXor: return BinaryOp::BitwiseXor;
-        default: return std::nullopt;
-        }
-    }
-
-    std::optional<Value> evaluate_assignment(AssignmentExpression const& assignment, Context& cx)
-    {
-        // §13.15.2: the target reference first, then the right-hand side,
-        // then the store. A compound operator reads the target once, and
-        // a logical one may not evaluate the right-hand side at all. A
-        // pattern takes the right-hand side's value first and names its
-        // targets as it goes (§13.15.2 step 1.a–1.d).
-        if (is_pattern(assignment.target)) {
-            std::optional<Value> const value = evaluate(assignment.value, cx);
-            if (!value)
-                return std::nullopt;
-            Roots const roots(self);
-            self.root(*value);
-            if (!bind_pattern(assignment.target, *value, BindMode::Assign, nullptr, cx))
-                return std::nullopt;
-            return *value;
-        }
-        std::optional<Reference> reference = evaluate_reference(assignment.target, cx);
-        if (!reference)
+    case UnaryOp::Plus: {
+        std::optional<double> const number = self.to_number(*operand);
+        if (!number)
             return std::nullopt;
+        return Value::number(*number);
+    }
+    case UnaryOp::BitwiseNot: {
+        std::optional<std::int32_t> const number = self.to_int32(*operand);
+        if (!number)
+            return std::nullopt;
+        return Value::number(static_cast<double>(~*number));
+    }
+    default:
+        break;
+    }
+    return Value::undefined();
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_delete(UnaryExpression const& unary, Context& cx)
+{
+    // §13.5.1.2: a property is deleted from the boxed base, strictly a
+    // TypeError when that fails; a binding only when it is deletable;
+    // anything that is not a reference deletes as true.
+    std::optional<Reference> reference = evaluate_reference(unary.operand, cx);
+    if (!reference)
+        return std::nullopt;
+    switch (reference->kind) {
+    case Reference::Kind::Value:
+    case Reference::Kind::Unresolvable:
+        return Value::boolean(true);
+    case Reference::Kind::Super:
+        // §13.5.1.2 step 5.a: a super reference cannot be deleted.
+        return self.throw_reference_error("Unsupported reference to 'super'");
+    case Reference::Kind::Private:
+        // §13.5.1.1: an early error the parser raises; nothing reaches here.
+        return self.throw_syntax_error("Private fields can not be deleted");
+    case Reference::Kind::Binding:
+        return Value::boolean(reference->environment->remove(reference->name));
+    case Reference::Kind::ObjectEnvironment:
+        return Value::boolean(reference->environment->object()->delete_property(reference->key));
+    case Reference::Kind::Property: {
         Roots const roots(self);
         self.root(reference->base);
         self.root(reference->key_value);
-        bool const named = assignment.target->type == NodeType::Identifier && is_anonymous_function_definition(assignment.value);
-        auto evaluate_value = [&]() -> std::optional<Value> {
-            if (named)
-                return evaluate_named(assignment.value, cx, PropertyKey::atom(static_cast<Identifier const*>(assignment.target)->name));
-            return evaluate(assignment.value, cx);
-        };
-        if (assignment.op == AssignmentOp::Assign) {
-            std::optional<Value> const value = evaluate_value();
-            if (!value)
-                return std::nullopt;
-            self.root(*value);
-            if (!put_value(*reference, *value, cx))
-                return std::nullopt;
-            return *value;
-        }
-        std::optional<Value> const current = get_value(*reference, cx);
-        if (!current)
+        if (reference->base.is_nullish())
+            return self.throw_type_error("Cannot convert undefined or null to object");
+        std::optional<Object*> const object = self.to_object(reference->base);
+        if (!object)
             return std::nullopt;
-        self.root(*current);
-        if (assignment.op == AssignmentOp::LogicalAnd || assignment.op == AssignmentOp::LogicalOr || assignment.op == AssignmentOp::Nullish) {
-            bool proceed = false;
-            switch (assignment.op) {
-            case AssignmentOp::LogicalAnd:
-                proceed = to_boolean(*current);
-                break;
-            case AssignmentOp::LogicalOr:
-                proceed = !to_boolean(*current);
-                break;
-            default:
-                proceed = current->is_nullish();
-                break;
-            }
-            if (!proceed)
-                return *current;
-            std::optional<Value> const value = evaluate_value();
-            if (!value)
-                return std::nullopt;
-            self.root(*value);
-            if (!put_value(*reference, *value, cx))
-                return std::nullopt;
-            return *value;
-        }
-        std::optional<Value> const operand = evaluate(assignment.value, cx);
-        if (!operand)
+        self.root(Value::object(*object));
+        if (!ensure_key(*reference))
             return std::nullopt;
-        self.root(*operand);
-        std::optional<Value> const result = apply_binary(*binary_for(assignment.op), *current, *operand);
+        bool const deleted = (*object)->delete_property(reference->key);
+        if (!deleted && cx.strict)
+            return self.throw_type_error("Cannot delete property '" + key_description(reference->key) + "' of object");
+        return Value::boolean(deleted);
+    }
+    }
+    return Value::boolean(true);
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_update(UpdateExpression const& update, Context& cx)
+{
+    // §13.4.2–§13.4.5: the old value as a number, the new one stored,
+    // the prefix form yielding the new and the postfix the old.
+    std::optional<Reference> reference = evaluate_reference(update.target, cx);
+    if (!reference)
+        return std::nullopt;
+    Roots const roots(self);
+    self.root(reference->base);
+    self.root(reference->key_value);
+    std::optional<Value> const old_value = get_value(*reference, cx);
+    if (!old_value)
+        return std::nullopt;
+    self.root(*old_value);
+    std::optional<double> const old_number = self.to_number(*old_value);
+    if (!old_number)
+        return std::nullopt;
+    double const new_number = update.increment ? *old_number + 1 : *old_number - 1;
+    if (!put_value(*reference, Value::number(new_number), cx))
+        return std::nullopt;
+    return Value::number(update.prefix ? new_number : *old_number);
+}
+
+
+// The operator of a binary or compound-assignment expression applied
+// to two evaluated operands (§13.6–§13.12, §13.15.3 ApplyStringOrNumericBinaryOperator).
+std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& left, Value const& right)
+{
+    Roots const roots(self);
+    self.root(left);
+    self.root(right);
+    switch (op) {
+    case BinaryOp::Add: {
+        // §13.15.3: primitives first, then a string on either side
+        // concatenates, otherwise numbers add.
+        std::optional<Value> const lprim = self.to_primitive(left);
+        if (!lprim)
+            return std::nullopt;
+        self.root(*lprim);
+        std::optional<Value> const rprim = self.to_primitive(right);
+        if (!rprim)
+            return std::nullopt;
+        self.root(*rprim);
+        if (lprim->is_string() || rprim->is_string()) {
+            std::optional<JsString*> const lstr = self.to_string(*lprim);
+            if (!lstr)
+                return std::nullopt;
+            self.root(Value::string(*lstr));
+            std::optional<JsString*> const rstr = self.to_string(*rprim);
+            if (!rstr)
+                return std::nullopt;
+            if ((*lstr)->is_empty())
+                return Value::string(*rstr);
+            if ((*rstr)->is_empty())
+                return Value::string(*lstr);
+            std::u16string joined;
+            joined.reserve((*lstr)->length() + (*rstr)->length());
+            joined += (*lstr)->view();
+            joined += (*rstr)->view();
+            return Value::string(heap().string(std::move(joined)));
+        }
+        std::optional<double> const lnum = self.to_number(*lprim);
+        if (!lnum)
+            return std::nullopt;
+        std::optional<double> const rnum = self.to_number(*rprim);
+        if (!rnum)
+            return std::nullopt;
+        return Value::number(*lnum + *rnum);
+    }
+    case BinaryOp::Subtract:
+    case BinaryOp::Multiply:
+    case BinaryOp::Divide:
+    case BinaryOp::Remainder:
+    case BinaryOp::Exponent: {
+        std::optional<double> const lnum = self.to_number(left);
+        if (!lnum)
+            return std::nullopt;
+        std::optional<double> const rnum = self.to_number(right);
+        if (!rnum)
+            return std::nullopt;
+        switch (op) {
+        case BinaryOp::Subtract:
+            return Value::number(*lnum - *rnum);
+        case BinaryOp::Multiply:
+            return Value::number(*lnum * *rnum);
+        case BinaryOp::Divide:
+            return Value::number(*lnum / *rnum);
+        case BinaryOp::Remainder:
+            return Value::number(std::fmod(*lnum, *rnum));
+        default:
+            return Value::number(number_exponentiate(*lnum, *rnum));
+        }
+    }
+    case BinaryOp::LeftShift:
+    case BinaryOp::RightShift:
+    case BinaryOp::UnsignedRightShift:
+    case BinaryOp::BitwiseAnd:
+    case BinaryOp::BitwiseOr:
+    case BinaryOp::BitwiseXor: {
+        std::optional<std::int32_t> const lnum = self.to_int32(left);
+        if (!lnum)
+            return std::nullopt;
+        std::optional<std::uint32_t> const rnum = self.to_uint32(right);
+        if (!rnum)
+            return std::nullopt;
+        auto const lbits = static_cast<std::uint32_t>(*lnum);
+        std::uint32_t const shift = *rnum & 31u;
+        switch (op) {
+        case BinaryOp::LeftShift:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits << shift)));
+        case BinaryOp::RightShift:
+            return Value::number(static_cast<double>(*lnum >> shift));
+        case BinaryOp::UnsignedRightShift:
+            return Value::number(static_cast<double>(lbits >> shift));
+        case BinaryOp::BitwiseAnd:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits & *rnum)));
+        case BinaryOp::BitwiseOr:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits | *rnum)));
+        default:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits ^ *rnum)));
+        }
+    }
+    case BinaryOp::Equal:
+    case BinaryOp::NotEqual: {
+        std::optional<bool> const equal = self.loose_equals(left, right);
+        if (!equal)
+            return std::nullopt;
+        return Value::boolean(op == BinaryOp::Equal ? *equal : !*equal);
+    }
+    case BinaryOp::StrictEqual:
+        return Value::boolean(Interpreter::strict_equals(left, right));
+    case BinaryOp::StrictNotEqual:
+        return Value::boolean(!Interpreter::strict_equals(left, right));
+    case BinaryOp::Less: {
+        std::optional<std::optional<bool>> const r = self.less_than(left, right, true);
+        if (!r)
+            return std::nullopt;
+        return Value::boolean(r->value_or(false));
+    }
+    case BinaryOp::Greater: {
+        std::optional<std::optional<bool>> const r = self.less_than(right, left, false);
+        if (!r)
+            return std::nullopt;
+        return Value::boolean(r->value_or(false));
+    }
+    case BinaryOp::LessEqual: {
+        std::optional<std::optional<bool>> const r = self.less_than(right, left, false);
+        if (!r)
+            return std::nullopt;
+        return Value::boolean(r->has_value() && !**r);
+    }
+    case BinaryOp::GreaterEqual: {
+        std::optional<std::optional<bool>> const r = self.less_than(left, right, true);
+        if (!r)
+            return std::nullopt;
+        return Value::boolean(r->has_value() && !**r);
+    }
+    case BinaryOp::In: {
+        // §13.10.1: the right operand must be an object; then the
+        // left becomes a key.
+        if (!right.is_object())
+            return self.throw_type_error("Cannot use 'in' operator to search for '" + self.describe(left) + "' in " + self.describe(right));
+        std::optional<PropertyKey> const key = self.to_property_key(left);
+        if (!key)
+            return std::nullopt;
+        return Value::boolean(right.as_object()->has_property(*key));
+    }
+    case BinaryOp::Instanceof: {
+        std::optional<bool> const result = self.instance_of(left, right);
         if (!result)
             return std::nullopt;
-        self.root(*result);
-        if (!put_value(*reference, *result, cx))
-            return std::nullopt;
-        return *result;
+        return Value::boolean(*result);
     }
-
-    // ---- statements
-
-    // LoopContinues (§14.7.1.2).
-    static bool loop_continues(Completion const& completion, std::span<JsString* const> labels)
-    {
-        if (completion.type == Completion::Type::Normal)
-            return true;
-        if (completion.type != Completion::Type::Continue)
-            return false;
-        if (completion.target == nullptr)
-            return true;
-        return std::find(labels.begin(), labels.end(), completion.target) != labels.end();
     }
+    return Value::undefined();
+}
 
-    // The exit of a breakable statement (§14.13.4 step 3, §14.7.1.1): a
-    // `break` with no label ends it normally, with the value kept so far.
-    static Completion finish_loop(Completion const& completion, Value const& last)
-    {
-        Completion result = completion.with_value_if_empty(last);
-        if (result.type == Completion::Type::Break && result.target == nullptr) {
-            result.type = Completion::Type::Normal;
-            result.target = nullptr;
-        }
-        return result;
+
+std::optional<Value> Interpreter::Impl::evaluate_binary(BinaryExpression const& binary, Context& cx)
+{
+    std::optional<Value> const left = evaluate(binary.left, cx);
+    if (!left)
+        return std::nullopt;
+    Roots const roots(self);
+    self.root(*left);
+    std::optional<Value> const right = evaluate(binary.right, cx);
+    if (!right)
+        return std::nullopt;
+    return apply_binary(binary.op, *left, *right);
+}
+
+
+std::optional<Value> Interpreter::Impl::evaluate_logical(LogicalExpression const& logical, Context& cx)
+{
+    // §13.13: the left operand decides whether the right is evaluated.
+    std::optional<Value> const left = evaluate(logical.left, cx);
+    if (!left)
+        return std::nullopt;
+    bool evaluate_right = false;
+    switch (logical.op) {
+    case LogicalOp::And:
+        evaluate_right = to_boolean(*left);
+        break;
+    case LogicalOp::Or:
+        evaluate_right = !to_boolean(*left);
+        break;
+    case LogicalOp::Nullish:
+        evaluate_right = left->is_nullish();
+        break;
     }
+    if (!evaluate_right)
+        return *left;
+    return evaluate(logical.right, cx);
+}
 
-    Completion execute_list(std::span<Statement* const> statements, Context& cx)
-    {
-        // §14.2.2: the value of a list is the last non-empty value, which
-        // an abrupt completion carries out as well (UpdateEmpty).
-        Roots const roots(self);
-        Value& last = self.root(Value::empty());
-        for (Statement const* statement : statements) {
-            Completion const completion = execute(statement, cx, {});
-            if (completion.is_abrupt())
-                return completion.with_value_if_empty(last);
-            if (!completion.value.is_empty())
-                last = completion.value;
-        }
-        return Completion::normal(last);
+
+std::optional<BinaryOp> Interpreter::Impl::binary_for(AssignmentOp op)
+{
+    switch (op) {
+    case AssignmentOp::Add: return BinaryOp::Add;
+    case AssignmentOp::Subtract: return BinaryOp::Subtract;
+    case AssignmentOp::Multiply: return BinaryOp::Multiply;
+    case AssignmentOp::Divide: return BinaryOp::Divide;
+    case AssignmentOp::Remainder: return BinaryOp::Remainder;
+    case AssignmentOp::Exponent: return BinaryOp::Exponent;
+    case AssignmentOp::LeftShift: return BinaryOp::LeftShift;
+    case AssignmentOp::RightShift: return BinaryOp::RightShift;
+    case AssignmentOp::UnsignedRightShift: return BinaryOp::UnsignedRightShift;
+    case AssignmentOp::BitwiseAnd: return BinaryOp::BitwiseAnd;
+    case AssignmentOp::BitwiseOr: return BinaryOp::BitwiseOr;
+    case AssignmentOp::BitwiseXor: return BinaryOp::BitwiseXor;
+    default: return std::nullopt;
     }
+}
 
-    Completion execute(Statement const* statement, Context& cx, std::span<JsString* const> labels)
-    {
-        if (!step())
-            return Completion::thrown();
-        switch (statement->type) {
-        case NodeType::VariableDeclaration:
-            return execute_declaration(*static_cast<VariableDeclaration const*>(statement), cx);
-        case NodeType::FunctionDeclaration:
-            return execute_function_declaration(*static_cast<FunctionDeclaration const*>(statement), cx);
-        case NodeType::ClassDeclaration:
-            return execute_class_declaration(*static_cast<ClassDeclaration const*>(statement), cx);
-        case NodeType::ExpressionStatement: {
-            std::optional<Value> const value = evaluate(static_cast<ExpressionStatement const*>(statement)->expression, cx);
-            if (!value)
-                return Completion::thrown();
-            return Completion::normal(*value);
-        }
-        case NodeType::BlockStatement:
-            return execute_block(*static_cast<BlockStatement const*>(statement), cx);
-        case NodeType::EmptyStatement:
-        case NodeType::DebuggerStatement:
-            return Completion::normal();
-        case NodeType::IfStatement: {
-            auto const& branch = *static_cast<IfStatement const*>(statement);
-            std::optional<Value> const test = evaluate(branch.test, cx);
-            if (!test)
-                return Completion::thrown();
-            Completion completion;
-            if (to_boolean(*test))
-                completion = execute(branch.consequent, cx, {});
-            else if (branch.alternate)
-                completion = execute(branch.alternate, cx, {});
-            return completion.with_value_if_empty(Value::undefined());
-        }
-        case NodeType::ForStatement:
-            return execute_for(*static_cast<ForStatement const*>(statement), cx, labels);
-        case NodeType::ForInStatement:
-            return execute_for_in(*static_cast<ForInStatement const*>(statement), cx, labels);
-        case NodeType::ForOfStatement:
-            return execute_for_of(*static_cast<ForOfStatement const*>(statement), cx, labels);
-        case NodeType::WhileStatement:
-            return execute_while(*static_cast<WhileStatement const*>(statement), cx, labels);
-        case NodeType::DoWhileStatement:
-            return execute_do_while(*static_cast<DoWhileStatement const*>(statement), cx, labels);
-        case NodeType::ReturnStatement: {
-            auto const& ret = *static_cast<ReturnStatement const*>(statement);
-            Completion completion;
-            completion.type = Completion::Type::Return;
-            completion.value = Value::undefined();
-            if (ret.argument) {
-                std::optional<Value> const value = evaluate(ret.argument, cx);
-                if (!value)
-                    return Completion::thrown();
-                completion.value = *value;
-            }
-            return completion;
-        }
-        case NodeType::BreakStatement: {
-            Completion completion;
-            completion.type = Completion::Type::Break;
-            completion.target = static_cast<BreakStatement const*>(statement)->label;
-            return completion;
-        }
-        case NodeType::ContinueStatement: {
-            Completion completion;
-            completion.type = Completion::Type::Continue;
-            completion.target = static_cast<ContinueStatement const*>(statement)->label;
-            return completion;
-        }
-        case NodeType::ThrowStatement: {
-            std::optional<Value> const value = evaluate(static_cast<ThrowStatement const*>(statement)->argument, cx);
-            if (!value)
-                return Completion::thrown();
-            self.throw_value(*value);
-            return Completion::thrown();
-        }
-        case NodeType::TryStatement:
-            return execute_try(*static_cast<TryStatement const*>(statement), cx);
-        case NodeType::SwitchStatement:
-            return execute_switch(*static_cast<SwitchStatement const*>(statement), cx);
-        case NodeType::LabeledStatement: {
-            // LabelledEvaluation (§14.13.4): the label joins the set the
-            // body sees, and a break aimed at it ends here, normally.
-            auto const& labelled = *static_cast<LabeledStatement const*>(statement);
-            std::vector<JsString*> extended(labels.begin(), labels.end());
-            extended.push_back(labelled.label);
-            Completion completion = execute(labelled.body, cx, extended);
-            if (completion.type == Completion::Type::Break && completion.target == labelled.label) {
-                completion.type = Completion::Type::Normal;
-                completion.target = nullptr;
-            }
-            return completion;
-        }
-        case NodeType::WithStatement:
-            return execute_with(*static_cast<WithStatement const*>(statement), cx);
-        default:
-            break;
-        }
-        self.throw_syntax_error("unsupported statement");
-        return Completion::thrown();
-    }
 
-    Completion execute_declaration(VariableDeclaration const& declaration, Context& cx)
-    {
-        for (VariableDeclarator const& declarator : declaration.declarations) {
-            if (declarator.pattern) {
-                // §14.3.2.1 / §14.3.1.2 with a pattern: the initializer's
-                // value, then the pattern over it — into the let/const
-                // bindings declared at the scope's entry, or through
-                // resolved references for a var.
-                std::optional<Value> value = Value::undefined();
-                if (declarator.init) {
-                    value = evaluate(declarator.init, cx);
-                    if (!value)
-                        return Completion::thrown();
-                }
-                Roots const roots(self);
-                self.root(*value);
-                bool const is_var = declaration.kind == VariableDeclaration::Kind::Var;
-                if (!bind_pattern(declarator.pattern, *value, is_var ? BindMode::VarAssign : BindMode::Initialize, cx.lexical, cx))
-                    return Completion::thrown();
-                continue;
-            }
-            if (declaration.kind == VariableDeclaration::Kind::Var) {
-                // §14.3.2.1: a var with an initializer assigns through a
-                // reference resolved now, so a `with` in scope can catch it.
-                if (!declarator.init)
-                    continue;
-                Reference reference = resolve(declarator.name, cx.lexical);
-                std::optional<Value> value;
-                if (is_anonymous_function_definition(declarator.init))
-                    value = evaluate_named(declarator.init, cx, PropertyKey::atom(declarator.name));
-                else
-                    value = evaluate(declarator.init, cx);
-                if (!value)
-                    return Completion::thrown();
-                Roots const roots(self);
-                self.root(*value);
-                if (!put_value(reference, *value, cx))
-                    return Completion::thrown();
-                continue;
-            }
-            // §14.3.1.2: let and const initialize the binding declared at
-            // the scope's entry; `let x;` initializes to undefined.
-            std::optional<Value> value = Value::undefined();
-            if (declarator.init) {
-                if (is_anonymous_function_definition(declarator.init))
-                    value = evaluate_named(declarator.init, cx, PropertyKey::atom(declarator.name));
-                else
-                    value = evaluate(declarator.init, cx);
-                if (!value)
-                    return Completion::thrown();
-            }
-            Environment::Binding* binding = nullptr;
-            for (Environment* e = cx.lexical; e != nullptr && binding == nullptr; e = e->outer())
-                binding = e->find(declarator.name);
-            if (binding == nullptr) {
-                self.throw_reference_error(declarator.name->to_utf8() + " is not defined");
-                return Completion::thrown();
-            }
-            binding->value = *value;
-            binding->initialized = true;
-        }
-        return Completion::normal();
-    }
-
-    Completion execute_function_declaration(FunctionDeclaration const& declaration, Context& cx)
-    {
-        // The declaration itself was instantiated at scope entry. In
-        // sloppy code a block-level one also writes its current value to
-        // the var binding the parser hoisted for it (B.3.2.1 step 2.b).
-        if (cx.strict || !declaration.annex_b_hoisted || cx.lexical == cx.variable)
-            return Completion::normal();
-        JsString* name = declaration.function->name;
-        Environment::Binding const* block_binding = cx.lexical->find(name);
-        if (block_binding == nullptr)
-            return Completion::normal();
-        Value const value = block_binding->value;
-        Roots const roots(self);
-        self.root(value);
-        if (cx.variable->is_object_environment()) {
-            if (!self.set(*cx.variable->object(), PropertyKey::atom(name), value, false))
-                return Completion::thrown();
-        } else if (Environment::Binding* var_binding = cx.variable->find(name)) {
-            var_binding->value = value;
-        }
-        return Completion::normal();
-    }
-
-    Completion execute_block(BlockStatement const& block, Context& cx)
-    {
-        // §14.2.2: a block with declarations gets an environment of its own.
-        if (block.declarations.lexicals.empty() && block.declarations.functions.empty())
-            return execute_list(block.body, cx);
-        Environment* const saved = cx.lexical;
-        cx.lexical = new_environment(saved);
-        instantiate_block(block.declarations, cx.lexical, cx.private_environment);
-        Completion const completion = execute_list(block.body, cx);
-        cx.lexical = saved;
-        return completion;
-    }
-
-    // CreatePerIterationEnvironment (§14.7.4.4): a fresh copy of the loop
-    // variables, so that closures made in one iteration keep its values.
-    void copy_iteration_environment(Context& cx, std::vector<JsString*> const& names)
-    {
-        Environment* const previous = cx.lexical;
-        Environment* copy = new_environment(previous->outer());
-        for (JsString* name : names) {
-            Environment::Binding const* binding = previous->find(name);
-            copy->declare(name, binding ? binding->value : Value::undefined(), true, binding ? binding->initialized : true);
-        }
-        cx.lexical = copy;
-    }
-
-    Completion execute_for(ForStatement const& loop, Context& cx, std::span<JsString* const> labels)
-    {
-        // §14.7.4.2, §14.7.4.3 ForBodyEvaluation.
-        Environment* const saved = cx.lexical;
-        std::vector<JsString*> per_iteration;
-        if (!loop.declarations.lexicals.empty()) {
-            cx.lexical = new_environment(saved);
-            for (auto const& [name, is_const] : loop.declarations.lexicals) {
-                cx.lexical->declare(name, Value::undefined(), !is_const, false);
-                if (!is_const)
-                    per_iteration.push_back(name);
-            }
-        }
-        auto restore = [&](Completion completion) {
-            cx.lexical = saved;
-            return completion;
-        };
-        if (loop.init) {
-            Completion const init = execute(loop.init, cx, {});
-            if (init.is_abrupt())
-                return restore(init);
-        }
-        if (!per_iteration.empty())
-            copy_iteration_environment(cx, per_iteration);
-        Roots const roots(self);
-        Value& last = self.root(Value::undefined());
-        while (true) {
-            if (loop.test) {
-                std::optional<Value> const test = evaluate(loop.test, cx);
-                if (!test)
-                    return restore(Completion::thrown());
-                if (!to_boolean(*test))
-                    return restore(Completion::normal(last));
-            }
-            Completion const body = execute(loop.body, cx, {});
-            if (!loop_continues(body, labels))
-                return restore(finish_loop(body, last));
-            if (!body.value.is_empty())
-                last = body.value;
-            if (!per_iteration.empty())
-                copy_iteration_environment(cx, per_iteration);
-            if (loop.update) {
-                if (!evaluate(loop.update, cx))
-                    return restore(Completion::thrown());
-            }
-            if (!step())
-                return restore(Completion::thrown());
-        }
-    }
-
-    Completion execute_while(WhileStatement const& loop, Context& cx, std::span<JsString* const> labels)
-    {
-        Roots const roots(self);
-        Value& last = self.root(Value::undefined());
-        while (true) {
-            std::optional<Value> const test = evaluate(loop.test, cx);
-            if (!test)
-                return Completion::thrown();
-            if (!to_boolean(*test))
-                return Completion::normal(last);
-            Completion const body = execute(loop.body, cx, {});
-            if (!loop_continues(body, labels))
-                return finish_loop(body, last);
-            if (!body.value.is_empty())
-                last = body.value;
-            if (!step())
-                return Completion::thrown();
-        }
-    }
-
-    Completion execute_do_while(DoWhileStatement const& loop, Context& cx, std::span<JsString* const> labels)
-    {
-        Roots const roots(self);
-        Value& last = self.root(Value::undefined());
-        while (true) {
-            Completion const body = execute(loop.body, cx, {});
-            if (!loop_continues(body, labels))
-                return finish_loop(body, last);
-            if (!body.value.is_empty())
-                last = body.value;
-            std::optional<Value> const test = evaluate(loop.test, cx);
-            if (!test)
-                return Completion::thrown();
-            if (!to_boolean(*test))
-                return Completion::normal(last);
-            if (!step())
-                return Completion::thrown();
-        }
-    }
-
-    // EnumerateObjectProperties (§14.7.5.9): the own string keys of each
-    // object up the chain, snapshotted on arrival, each visited once and
-    // only if still present and enumerable when its turn comes.
-    struct Enumerator {
-        Object* object = nullptr;
-        std::vector<PropertyKey> keys;
-        std::size_t next = 0;
-        std::unordered_set<JsString*> visited;
-    };
-
-    void enumerator_load(Enumerator& enumerator)
-    {
-        enumerator.keys.clear();
-        enumerator.next = 0;
-        if (enumerator.object == nullptr)
-            return;
-        for (PropertyKey const& key : enumerator.object->own_keys()) {
-            if (key.is_string())
-                enumerator.keys.push_back(key);
-        }
-    }
-
-    // The next key as a string, or null when the chain is exhausted.
-    JsString* enumerator_next(Enumerator& enumerator)
-    {
-        while (enumerator.object != nullptr) {
-            while (enumerator.next < enumerator.keys.size()) {
-                PropertyKey const key = enumerator.keys[enumerator.next++];
-                JsString* name = heap().key_to_string(key);
-                if (enumerator.visited.contains(name))
-                    continue;
-                std::optional<PropertyDescriptor> const desc = enumerator.object->get_own_property(key);
-                if (!desc)
-                    continue;
-                enumerator.visited.insert(name);
-                if (desc->enumerable.value_or(false))
-                    return name;
-            }
-            enumerator.object = enumerator.object->prototype();
-            enumerator_load(enumerator);
-        }
-        return nullptr;
-    }
-
-    // The binding a for-in/of head makes on each iteration (§14.7.5.7
-    // steps 6.g–6.i): a fresh record with the declaration's names for a
-    // let/const, declared in their dead zone and then initialised — a
-    // pattern's names all at once; a var or an expression assigns through
-    // references; a pattern target destructures.
-    bool bind_loop_head(VariableDeclaration const* declaration, Expression const* target, std::vector<JsString*> const& names,
-        Value const& value, Environment* saved, Context& cx)
-    {
-        if (declaration && declaration->kind != VariableDeclaration::Kind::Var) {
-            cx.lexical = new_environment(saved);
-            bool const mutable_ = declaration->kind != VariableDeclaration::Kind::Const;
-            for (JsString* name : names)
-                cx.lexical->declare(name, Value::undefined(), mutable_, false);
-            VariableDeclarator const& declarator = declaration->declarations[0];
-            return bind_declared(declarator.name, declarator.pattern, nullptr, value, BindMode::Initialize, cx.lexical, cx);
-        }
-        if (declaration) {
-            VariableDeclarator const& declarator = declaration->declarations[0];
-            return bind_declared(declarator.name, declarator.pattern, nullptr, value, BindMode::VarAssign, nullptr, cx);
-        }
-        if (is_pattern(target))
-            return bind_pattern(target, value, BindMode::Assign, nullptr, cx);
-        std::optional<Reference> reference = evaluate_reference(target, cx);
-        if (!reference)
-            return false;
-        Roots const roots(self);
-        self.root(reference->base);
-        self.root(reference->key_value);
-        return put_value(*reference, value, cx);
-    }
-
-    Completion execute_for_in(ForInStatement const& loop, Context& cx, std::span<JsString* const> labels)
-    {
-        // §14.7.5.6 ForIn/OfHeadEvaluation and §14.7.5.7 ForIn/OfBodyEvaluation.
-        Environment* const saved = cx.lexical;
-        bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
-        std::vector<JsString*> bound_names;
-        if (loop.declaration)
-            collect_bound_names(loop.declaration->declarations[0].name, loop.declaration->declarations[0].pattern, bound_names);
-        auto restore = [&](Completion completion) {
-            cx.lexical = saved;
-            return completion;
-        };
-        // B.3.5: `for (var x = 1 in o)` assigns the initializer first.
-        if (loop.declaration && loop.declaration->kind == VariableDeclaration::Kind::Var && loop.declaration->declarations[0].init) {
-            Completion const init = execute_declaration(*loop.declaration, cx);
-            if (init.is_abrupt())
-                return init;
-        }
-        if (lexical) {
-            // The head's expression sees the names in their dead zone.
-            cx.lexical = new_environment(saved);
-            for (JsString* name : bound_names)
-                cx.lexical->declare(name, Value::undefined(), true, false);
-        }
-        std::optional<Value> const subject = evaluate(loop.object, cx);
-        cx.lexical = saved;
-        if (!subject)
-            return Completion::thrown();
-        if (subject->is_nullish())
-            return Completion::normal();
-        Roots const roots(self);
-        self.root(*subject);
-        std::optional<Object*> const object = self.to_object(*subject);
-        if (!object)
-            return Completion::thrown();
-        self.root(Value::object(*object));
-        Enumerator enumerator;
-        enumerator.object = *object;
-        enumerator_load(enumerator);
-        Value& last = self.root(Value::undefined());
-        while (true) {
-            JsString* key = enumerator_next(enumerator);
-            if (key == nullptr)
-                return restore(Completion::normal(last));
-            Value const key_value = Value::string(key);
-            if (!bind_loop_head(loop.declaration, loop.target, bound_names, key_value, saved, cx))
-                return restore(Completion::thrown());
-            Completion const body = execute(loop.body, cx, {});
-            cx.lexical = saved;
-            if (!loop_continues(body, labels))
-                return restore(finish_loop(body, last));
-            if (!body.value.is_empty())
-                last = body.value;
-            if (!step())
-                return restore(Completion::thrown());
-        }
-    }
-
-    Completion execute_for_of(ForOfStatement const& loop, Context& cx, std::span<JsString* const> labels)
-    {
-        // §14.7.5.6 ForIn/OfHeadEvaluation (iterate) and §14.7.5.7
-        // ForIn/OfBodyEvaluation: the subject's iterator is stepped to its
-        // end; a body that leaves the loop any other way closes it, with
-        // the body's own throw still the outcome when there is one.
-        Environment* const saved = cx.lexical;
-        bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
-        std::vector<JsString*> bound_names;
-        if (loop.declaration)
-            collect_bound_names(loop.declaration->declarations[0].name, loop.declaration->declarations[0].pattern, bound_names);
-        auto restore = [&](Completion completion) {
-            cx.lexical = saved;
-            return completion;
-        };
-        if (lexical) {
-            // The head's expression sees the names in their dead zone.
-            cx.lexical = new_environment(saved);
-            for (JsString* name : bound_names)
-                cx.lexical->declare(name, Value::undefined(), true, false);
-        }
-        std::optional<Value> const subject = evaluate(loop.iterable, cx);
-        cx.lexical = saved;
-        if (!subject)
-            return Completion::thrown();
-        Roots const roots(self);
-        self.root(*subject);
-        std::optional<IteratorRecord> record = self.get_iterator(*subject);
-        if (!record)
-            return Completion::thrown();
-        self.root(record->iterator);
-        self.root(record->next_method);
-        Value& last = self.root(Value::undefined());
-        // Leaving other than by exhaustion: IteratorClose, whose own
-        // failure replaces a normal exit and never a throw. A termination
-        // is not a completion a script may observe: no return() runs for it.
-        auto leave = [&](Completion const& completion) {
-            bool const throwing = completion.type == Completion::Type::Throw;
-            if (throwing && self.m_terminated)
-                return restore(completion);
-            bool const closed = self.iterator_close(*record, throwing);
-            if (!closed && !throwing)
-                return restore(Completion::thrown());
-            return restore(finish_loop(completion, last));
-        };
-        while (true) {
-            Roots const iteration_roots(self);
-            Value value;
-            std::optional<bool> const stepped = self.iterator_step(*record, value);
-            if (!stepped)
-                return restore(Completion::thrown());
-            if (!*stepped)
-                return restore(Completion::normal(last));
-            self.root(value);
-            if (!bind_loop_head(loop.declaration, loop.target, bound_names, value, saved, cx))
-                return leave(Completion::thrown());
-            Completion const body = execute(loop.body, cx, {});
-            cx.lexical = saved;
-            if (!loop_continues(body, labels))
-                return leave(body);
-            if (!body.value.is_empty())
-                last = body.value;
-            if (!step())
-                return restore(Completion::thrown());
-        }
-    }
-
-    Completion execute_try(TryStatement const& statement, Context& cx)
-    {
-        // §14.15.3. A termination (the interrupt) is not an exception a
-        // script may observe: neither the catch nor the finally runs.
-        Completion result = execute_block(*statement.block, cx);
-        if (result.type == Completion::Type::Throw && statement.handler && !self.m_terminated) {
-            Roots const roots(self);
-            Value const thrown = self.take_exception();
-            self.root(thrown);
-            Environment* const saved = cx.lexical;
-            bool bound = true;
-            if (statement.catch_pattern) {
-                // §14.15.2: the pattern's names in a record of their own,
-                // the thrown value destructured into them; a throw from
-                // that is the catch clause's outcome.
-                cx.lexical = new_environment(saved);
-                std::vector<JsString*> names;
-                collect_bound_names(statement.catch_pattern, names);
-                for (JsString* name : names)
-                    cx.lexical->declare(name, Value::undefined(), true, false);
-                bound = bind_pattern(statement.catch_pattern, thrown, BindMode::Initialize, cx.lexical, cx);
-            } else if (statement.catch_parameter) {
-                cx.lexical = new_environment(saved);
-                cx.lexical->declare(statement.catch_parameter, thrown);
-            }
-            result = bound ? execute_block(*statement.handler, cx) : Completion::thrown();
-            cx.lexical = saved;
-        }
-        if (statement.finalizer && !self.m_terminated) {
-            Roots const roots(self);
-            Value pending;
-            bool const was_throw = result.type == Completion::Type::Throw;
-            if (was_throw) {
-                pending = self.take_exception();
-                self.root(pending);
-            } else {
-                self.root(result.value);
-            }
-            Completion const finalizer = execute_block(*statement.finalizer, cx);
-            if (finalizer.is_abrupt())
-                return finalizer.with_value_if_empty(Value::undefined());
-            if (was_throw)
-                self.throw_value(pending);
-        }
-        return result.with_value_if_empty(Value::undefined());
-    }
-
-    Completion execute_switch(SwitchStatement const& statement, Context& cx)
-    {
-        // §14.12.4 CaseBlockEvaluation: the clauses before the default are
-        // tried in order, then the ones after it, and a match falls
-        // through everything below it, the default included.
-        std::optional<Value> const discriminant = evaluate(statement.discriminant, cx);
-        if (!discriminant)
-            return Completion::thrown();
-        Roots const roots(self);
-        self.root(*discriminant);
-        Environment* const saved = cx.lexical;
-        if (!statement.declarations.lexicals.empty() || !statement.declarations.functions.empty()) {
-            cx.lexical = new_environment(saved);
-            instantiate_block(statement.declarations, cx.lexical, cx.private_environment);
-        }
-        auto restore = [&](Completion completion) {
-            cx.lexical = saved;
-            return completion;
-        };
-        std::size_t const count = statement.cases.size();
-        std::size_t default_index = count;
-        for (std::size_t i = 0; i < count; ++i) {
-            if (statement.cases[i].test == nullptr)
-                default_index = i;
-        }
-        std::size_t start = count;
-        auto matches = [&](std::size_t i, bool& matched) -> bool {
-            std::optional<Value> const test = evaluate(statement.cases[i].test, cx);
-            if (!test)
-                return false;
-            matched = Interpreter::strict_equals(*discriminant, *test);
-            return true;
-        };
-        for (std::size_t i = 0; i < count && start == count; ++i) {
-            if (i == default_index)
-                continue;
-            if (i > default_index && default_index != count) {
-                // The clauses after the default are tested only once the
-                // ones before it have all missed.
-            }
-            bool matched = false;
-            if (!matches(i, matched))
-                return restore(Completion::thrown());
-            if (matched)
-                start = i;
-        }
-        if (start == count)
-            start = default_index;
-        Value& last = self.root(Value::undefined());
-        for (std::size_t i = start; i < count; ++i) {
-            Completion const completion = execute_list(statement.cases[i].consequent, cx);
-            if (!completion.value.is_empty())
-                last = completion.value;
-            if (completion.is_abrupt())
-                return restore(finish_loop(completion, last));
-        }
-        return restore(Completion::normal(last));
-    }
-
-    Completion execute_with(WithStatement const& statement, Context& cx)
-    {
-        // §14.11.2: an object environment whose bindings are the object's
-        // properties, marked so that calls through it get it as `this`.
-        std::optional<Value> const value = evaluate(statement.object, cx);
+std::optional<Value> Interpreter::Impl::evaluate_assignment(AssignmentExpression const& assignment, Context& cx)
+{
+    // §13.15.2: the target reference first, then the right-hand side,
+    // then the store. A compound operator reads the target once, and
+    // a logical one may not evaluate the right-hand side at all. A
+    // pattern takes the right-hand side's value first and names its
+    // targets as it goes (§13.15.2 step 1.a–1.d).
+    if (is_pattern(assignment.target)) {
+        std::optional<Value> const value = evaluate(assignment.value, cx);
         if (!value)
-            return Completion::thrown();
+            return std::nullopt;
         Roots const roots(self);
         self.root(*value);
-        std::optional<Object*> const object = self.to_object(*value);
-        if (!object)
+        if (!bind_pattern(assignment.target, *value, BindMode::Assign, nullptr, cx))
+            return std::nullopt;
+        return *value;
+    }
+    std::optional<Reference> reference = evaluate_reference(assignment.target, cx);
+    if (!reference)
+        return std::nullopt;
+    Roots const roots(self);
+    self.root(reference->base);
+    self.root(reference->key_value);
+    bool const named = assignment.target->type == NodeType::Identifier && is_anonymous_function_definition(assignment.value);
+    auto evaluate_value = [&]() -> std::optional<Value> {
+        if (named)
+            return evaluate_named(assignment.value, cx, PropertyKey::atom(static_cast<Identifier const*>(assignment.target)->name));
+        return evaluate(assignment.value, cx);
+    };
+    if (assignment.op == AssignmentOp::Assign) {
+        std::optional<Value> const value = evaluate_value();
+        if (!value)
+            return std::nullopt;
+        self.root(*value);
+        if (!put_value(*reference, *value, cx))
+            return std::nullopt;
+        return *value;
+    }
+    std::optional<Value> const current = get_value(*reference, cx);
+    if (!current)
+        return std::nullopt;
+    self.root(*current);
+    if (assignment.op == AssignmentOp::LogicalAnd || assignment.op == AssignmentOp::LogicalOr || assignment.op == AssignmentOp::Nullish) {
+        bool proceed = false;
+        switch (assignment.op) {
+        case AssignmentOp::LogicalAnd:
+            proceed = to_boolean(*current);
+            break;
+        case AssignmentOp::LogicalOr:
+            proceed = !to_boolean(*current);
+            break;
+        default:
+            proceed = current->is_nullish();
+            break;
+        }
+        if (!proceed)
+            return *current;
+        std::optional<Value> const value = evaluate_value();
+        if (!value)
+            return std::nullopt;
+        self.root(*value);
+        if (!put_value(*reference, *value, cx))
+            return std::nullopt;
+        return *value;
+    }
+    std::optional<Value> const operand = evaluate(assignment.value, cx);
+    if (!operand)
+        return std::nullopt;
+    self.root(*operand);
+    std::optional<Value> const result = apply_binary(*binary_for(assignment.op), *current, *operand);
+    if (!result)
+        return std::nullopt;
+    self.root(*result);
+    if (!put_value(*reference, *result, cx))
+        return std::nullopt;
+    return *result;
+}
+
+
+// ---- statements
+// LoopContinues (§14.7.1.2).
+bool Interpreter::Impl::loop_continues(Completion const& completion, std::span<JsString* const> labels)
+{
+    if (completion.type == Completion::Type::Normal)
+        return true;
+    if (completion.type != Completion::Type::Continue)
+        return false;
+    if (completion.target == nullptr)
+        return true;
+    return std::find(labels.begin(), labels.end(), completion.target) != labels.end();
+}
+
+
+// The exit of a breakable statement (§14.13.4 step 3, §14.7.1.1): a
+// `break` with no label ends it normally, with the value kept so far.
+Completion Interpreter::Impl::finish_loop(Completion const& completion, Value const& last)
+{
+    Completion result = completion.with_value_if_empty(last);
+    if (result.type == Completion::Type::Break && result.target == nullptr) {
+        result.type = Completion::Type::Normal;
+        result.target = nullptr;
+    }
+    return result;
+}
+
+
+Completion Interpreter::Impl::execute_list(std::span<Statement* const> statements, Context& cx)
+{
+    // §14.2.2: the value of a list is the last non-empty value, which
+    // an abrupt completion carries out as well (UpdateEmpty).
+    Roots const roots(self);
+    Value& last = self.root(Value::empty());
+    for (Statement const* statement : statements) {
+        Completion const completion = execute(statement, cx, {});
+        if (completion.is_abrupt())
+            return completion.with_value_if_empty(last);
+        if (!completion.value.is_empty())
+            last = completion.value;
+    }
+    return Completion::normal(last);
+}
+
+
+Completion Interpreter::Impl::execute(Statement const* statement, Context& cx, std::span<JsString* const> labels)
+{
+    if (!step())
+        return Completion::thrown();
+    switch (statement->type) {
+    case NodeType::VariableDeclaration:
+        return execute_declaration(*static_cast<VariableDeclaration const*>(statement), cx);
+    case NodeType::FunctionDeclaration:
+        return execute_function_declaration(*static_cast<FunctionDeclaration const*>(statement), cx);
+    case NodeType::ClassDeclaration:
+        return execute_class_declaration(*static_cast<ClassDeclaration const*>(statement), cx);
+    case NodeType::ExpressionStatement: {
+        std::optional<Value> const value = evaluate(static_cast<ExpressionStatement const*>(statement)->expression, cx);
+        if (!value)
             return Completion::thrown();
-        Environment* const saved = cx.lexical;
-        cx.lexical = new_environment(saved, *object);
-        cx.lexical->set_with_environment(true);
-        Completion const completion = execute(statement.body, cx, {});
-        cx.lexical = saved;
+        return Completion::normal(*value);
+    }
+    case NodeType::BlockStatement:
+        return execute_block(*static_cast<BlockStatement const*>(statement), cx);
+    case NodeType::EmptyStatement:
+    case NodeType::DebuggerStatement:
+        return Completion::normal();
+    case NodeType::IfStatement: {
+        auto const& branch = *static_cast<IfStatement const*>(statement);
+        std::optional<Value> const test = evaluate(branch.test, cx);
+        if (!test)
+            return Completion::thrown();
+        Completion completion;
+        if (to_boolean(*test))
+            completion = execute(branch.consequent, cx, {});
+        else if (branch.alternate)
+            completion = execute(branch.alternate, cx, {});
         return completion.with_value_if_empty(Value::undefined());
     }
-
-    // ---- tracing
-    void trace(Tracer& tracer)
-    {
-        for (Context const& context : contexts) {
-            tracer.visit(context.lexical);
-            tracer.visit(context.variable);
-            tracer.visit(context.function);
-            tracer.visit(context.private_environment);
+    case NodeType::ForStatement:
+        return execute_for(*static_cast<ForStatement const*>(statement), cx, labels);
+    case NodeType::ForInStatement:
+        return execute_for_in(*static_cast<ForInStatement const*>(statement), cx, labels);
+    case NodeType::ForOfStatement:
+        return execute_for_of(*static_cast<ForOfStatement const*>(statement), cx, labels);
+    case NodeType::WhileStatement:
+        return execute_while(*static_cast<WhileStatement const*>(statement), cx, labels);
+    case NodeType::DoWhileStatement:
+        return execute_do_while(*static_cast<DoWhileStatement const*>(statement), cx, labels);
+    case NodeType::ReturnStatement: {
+        auto const& ret = *static_cast<ReturnStatement const*>(statement);
+        Completion completion;
+        completion.type = Completion::Type::Return;
+        completion.value = Value::undefined();
+        if (ret.argument) {
+            std::optional<Value> const value = evaluate(ret.argument, cx);
+            if (!value)
+                return Completion::thrown();
+            completion.value = *value;
         }
-        tracer.visit(global_lexical);
-        for (auto const& [site, object] : template_objects)
-            tracer.visit(object);
+        return completion;
     }
-};
+    case NodeType::BreakStatement: {
+        Completion completion;
+        completion.type = Completion::Type::Break;
+        completion.target = static_cast<BreakStatement const*>(statement)->label;
+        return completion;
+    }
+    case NodeType::ContinueStatement: {
+        Completion completion;
+        completion.type = Completion::Type::Continue;
+        completion.target = static_cast<ContinueStatement const*>(statement)->label;
+        return completion;
+    }
+    case NodeType::ThrowStatement: {
+        std::optional<Value> const value = evaluate(static_cast<ThrowStatement const*>(statement)->argument, cx);
+        if (!value)
+            return Completion::thrown();
+        self.throw_value(*value);
+        return Completion::thrown();
+    }
+    case NodeType::TryStatement:
+        return execute_try(*static_cast<TryStatement const*>(statement), cx);
+    case NodeType::SwitchStatement:
+        return execute_switch(*static_cast<SwitchStatement const*>(statement), cx);
+    case NodeType::LabeledStatement: {
+        // LabelledEvaluation (§14.13.4): the label joins the set the
+        // body sees, and a break aimed at it ends here, normally.
+        auto const& labelled = *static_cast<LabeledStatement const*>(statement);
+        std::vector<JsString*> extended(labels.begin(), labels.end());
+        extended.push_back(labelled.label);
+        Completion completion = execute(labelled.body, cx, extended);
+        if (completion.type == Completion::Type::Break && completion.target == labelled.label) {
+            completion.type = Completion::Type::Normal;
+            completion.target = nullptr;
+        }
+        return completion;
+    }
+    case NodeType::WithStatement:
+        return execute_with(*static_cast<WithStatement const*>(statement), cx);
+    default:
+        break;
+    }
+    self.throw_syntax_error("unsupported statement");
+    return Completion::thrown();
+}
+
+
+Completion Interpreter::Impl::execute_declaration(VariableDeclaration const& declaration, Context& cx)
+{
+    for (VariableDeclarator const& declarator : declaration.declarations) {
+        if (declarator.pattern) {
+            // §14.3.2.1 / §14.3.1.2 with a pattern: the initializer's
+            // value, then the pattern over it — into the let/const
+            // bindings declared at the scope's entry, or through
+            // resolved references for a var.
+            std::optional<Value> value = Value::undefined();
+            if (declarator.init) {
+                value = evaluate(declarator.init, cx);
+                if (!value)
+                    return Completion::thrown();
+            }
+            Roots const roots(self);
+            self.root(*value);
+            bool const is_var = declaration.kind == VariableDeclaration::Kind::Var;
+            if (!bind_pattern(declarator.pattern, *value, is_var ? BindMode::VarAssign : BindMode::Initialize, cx.lexical, cx))
+                return Completion::thrown();
+            continue;
+        }
+        if (declaration.kind == VariableDeclaration::Kind::Var) {
+            // §14.3.2.1: a var with an initializer assigns through a
+            // reference resolved now, so a `with` in scope can catch it.
+            if (!declarator.init)
+                continue;
+            Reference reference = resolve(declarator.name, cx.lexical);
+            std::optional<Value> value;
+            if (is_anonymous_function_definition(declarator.init))
+                value = evaluate_named(declarator.init, cx, PropertyKey::atom(declarator.name));
+            else
+                value = evaluate(declarator.init, cx);
+            if (!value)
+                return Completion::thrown();
+            Roots const roots(self);
+            self.root(*value);
+            if (!put_value(reference, *value, cx))
+                return Completion::thrown();
+            continue;
+        }
+        // §14.3.1.2: let and const initialize the binding declared at
+        // the scope's entry; `let x;` initializes to undefined.
+        std::optional<Value> value = Value::undefined();
+        if (declarator.init) {
+            if (is_anonymous_function_definition(declarator.init))
+                value = evaluate_named(declarator.init, cx, PropertyKey::atom(declarator.name));
+            else
+                value = evaluate(declarator.init, cx);
+            if (!value)
+                return Completion::thrown();
+        }
+        Environment::Binding* binding = nullptr;
+        for (Environment* e = cx.lexical; e != nullptr && binding == nullptr; e = e->outer())
+            binding = e->find(declarator.name);
+        if (binding == nullptr) {
+            self.throw_reference_error(declarator.name->to_utf8() + " is not defined");
+            return Completion::thrown();
+        }
+        binding->value = *value;
+        binding->initialized = true;
+    }
+    return Completion::normal();
+}
+
+
+Completion Interpreter::Impl::execute_function_declaration(FunctionDeclaration const& declaration, Context& cx)
+{
+    // The declaration itself was instantiated at scope entry. In
+    // sloppy code a block-level one also writes its current value to
+    // the var binding the parser hoisted for it (B.3.2.1 step 2.b).
+    if (cx.strict || !declaration.annex_b_hoisted || cx.lexical == cx.variable)
+        return Completion::normal();
+    JsString* name = declaration.function->name;
+    Environment::Binding const* block_binding = cx.lexical->find(name);
+    if (block_binding == nullptr)
+        return Completion::normal();
+    Value const value = block_binding->value;
+    Roots const roots(self);
+    self.root(value);
+    if (cx.variable->is_object_environment()) {
+        if (!self.set(*cx.variable->object(), PropertyKey::atom(name), value, false))
+            return Completion::thrown();
+    } else if (Environment::Binding* var_binding = cx.variable->find(name)) {
+        var_binding->value = value;
+    }
+    return Completion::normal();
+}
+
+
+Completion Interpreter::Impl::execute_block(BlockStatement const& block, Context& cx)
+{
+    // §14.2.2: a block with declarations gets an environment of its own.
+    if (block.declarations.lexicals.empty() && block.declarations.functions.empty())
+        return execute_list(block.body, cx);
+    Environment* const saved = cx.lexical;
+    cx.lexical = new_environment(saved);
+    instantiate_block(block.declarations, cx.lexical, cx.private_environment);
+    Completion const completion = execute_list(block.body, cx);
+    cx.lexical = saved;
+    return completion;
+}
+
+
+// CreatePerIterationEnvironment (§14.7.4.4): a fresh copy of the loop
+// variables, so that closures made in one iteration keep its values.
+void Interpreter::Impl::copy_iteration_environment(Context& cx, std::vector<JsString*> const& names)
+{
+    Environment* const previous = cx.lexical;
+    Environment* copy = new_environment(previous->outer());
+    for (JsString* name : names) {
+        Environment::Binding const* binding = previous->find(name);
+        copy->declare(name, binding ? binding->value : Value::undefined(), true, binding ? binding->initialized : true);
+    }
+    cx.lexical = copy;
+}
+
+
+Completion Interpreter::Impl::execute_for(ForStatement const& loop, Context& cx, std::span<JsString* const> labels)
+{
+    // §14.7.4.2, §14.7.4.3 ForBodyEvaluation.
+    Environment* const saved = cx.lexical;
+    std::vector<JsString*> per_iteration;
+    if (!loop.declarations.lexicals.empty()) {
+        cx.lexical = new_environment(saved);
+        for (auto const& [name, is_const] : loop.declarations.lexicals) {
+            cx.lexical->declare(name, Value::undefined(), !is_const, false);
+            if (!is_const)
+                per_iteration.push_back(name);
+        }
+    }
+    auto restore = [&](Completion completion) {
+        cx.lexical = saved;
+        return completion;
+    };
+    if (loop.init) {
+        Completion const init = execute(loop.init, cx, {});
+        if (init.is_abrupt())
+            return restore(init);
+    }
+    if (!per_iteration.empty())
+        copy_iteration_environment(cx, per_iteration);
+    Roots const roots(self);
+    Value& last = self.root(Value::undefined());
+    while (true) {
+        if (loop.test) {
+            std::optional<Value> const test = evaluate(loop.test, cx);
+            if (!test)
+                return restore(Completion::thrown());
+            if (!to_boolean(*test))
+                return restore(Completion::normal(last));
+        }
+        Completion const body = execute(loop.body, cx, {});
+        if (!loop_continues(body, labels))
+            return restore(finish_loop(body, last));
+        if (!body.value.is_empty())
+            last = body.value;
+        if (!per_iteration.empty())
+            copy_iteration_environment(cx, per_iteration);
+        if (loop.update) {
+            if (!evaluate(loop.update, cx))
+                return restore(Completion::thrown());
+        }
+        if (!step())
+            return restore(Completion::thrown());
+    }
+}
+
+
+Completion Interpreter::Impl::execute_while(WhileStatement const& loop, Context& cx, std::span<JsString* const> labels)
+{
+    Roots const roots(self);
+    Value& last = self.root(Value::undefined());
+    while (true) {
+        std::optional<Value> const test = evaluate(loop.test, cx);
+        if (!test)
+            return Completion::thrown();
+        if (!to_boolean(*test))
+            return Completion::normal(last);
+        Completion const body = execute(loop.body, cx, {});
+        if (!loop_continues(body, labels))
+            return finish_loop(body, last);
+        if (!body.value.is_empty())
+            last = body.value;
+        if (!step())
+            return Completion::thrown();
+    }
+}
+
+
+Completion Interpreter::Impl::execute_do_while(DoWhileStatement const& loop, Context& cx, std::span<JsString* const> labels)
+{
+    Roots const roots(self);
+    Value& last = self.root(Value::undefined());
+    while (true) {
+        Completion const body = execute(loop.body, cx, {});
+        if (!loop_continues(body, labels))
+            return finish_loop(body, last);
+        if (!body.value.is_empty())
+            last = body.value;
+        std::optional<Value> const test = evaluate(loop.test, cx);
+        if (!test)
+            return Completion::thrown();
+        if (!to_boolean(*test))
+            return Completion::normal(last);
+        if (!step())
+            return Completion::thrown();
+    }
+}
+
+
+void Interpreter::Impl::enumerator_load(Enumerator& enumerator)
+{
+    enumerator.keys.clear();
+    enumerator.next = 0;
+    if (enumerator.object == nullptr)
+        return;
+    for (PropertyKey const& key : enumerator.object->own_keys()) {
+        if (key.is_string())
+            enumerator.keys.push_back(key);
+    }
+}
+
+
+// The next key as a string, or null when the chain is exhausted.
+JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
+{
+    while (enumerator.object != nullptr) {
+        while (enumerator.next < enumerator.keys.size()) {
+            PropertyKey const key = enumerator.keys[enumerator.next++];
+            JsString* name = heap().key_to_string(key);
+            if (enumerator.visited.contains(name))
+                continue;
+            std::optional<PropertyDescriptor> const desc = enumerator.object->get_own_property(key);
+            if (!desc)
+                continue;
+            enumerator.visited.insert(name);
+            if (desc->enumerable.value_or(false))
+                return name;
+        }
+        enumerator.object = enumerator.object->prototype();
+        enumerator_load(enumerator);
+    }
+    return nullptr;
+}
+
+
+// The binding a for-in/of head makes on each iteration (§14.7.5.7
+// steps 6.g–6.i): a fresh record with the declaration's names for a
+// let/const, declared in their dead zone and then initialised — a
+// pattern's names all at once; a var or an expression assigns through
+// references; a pattern target destructures.
+bool Interpreter::Impl::bind_loop_head(VariableDeclaration const* declaration, Expression const* target, std::vector<JsString*> const& names,
+    Value const& value, Environment* saved, Context& cx)
+{
+    if (declaration && declaration->kind != VariableDeclaration::Kind::Var) {
+        cx.lexical = new_environment(saved);
+        bool const mutable_ = declaration->kind != VariableDeclaration::Kind::Const;
+        for (JsString* name : names)
+            cx.lexical->declare(name, Value::undefined(), mutable_, false);
+        VariableDeclarator const& declarator = declaration->declarations[0];
+        return bind_declared(declarator.name, declarator.pattern, nullptr, value, BindMode::Initialize, cx.lexical, cx);
+    }
+    if (declaration) {
+        VariableDeclarator const& declarator = declaration->declarations[0];
+        return bind_declared(declarator.name, declarator.pattern, nullptr, value, BindMode::VarAssign, nullptr, cx);
+    }
+    if (is_pattern(target))
+        return bind_pattern(target, value, BindMode::Assign, nullptr, cx);
+    std::optional<Reference> reference = evaluate_reference(target, cx);
+    if (!reference)
+        return false;
+    Roots const roots(self);
+    self.root(reference->base);
+    self.root(reference->key_value);
+    return put_value(*reference, value, cx);
+}
+
+
+Completion Interpreter::Impl::execute_for_in(ForInStatement const& loop, Context& cx, std::span<JsString* const> labels)
+{
+    // §14.7.5.6 ForIn/OfHeadEvaluation and §14.7.5.7 ForIn/OfBodyEvaluation.
+    Environment* const saved = cx.lexical;
+    bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
+    std::vector<JsString*> bound_names;
+    if (loop.declaration)
+        collect_bound_names(loop.declaration->declarations[0].name, loop.declaration->declarations[0].pattern, bound_names);
+    auto restore = [&](Completion completion) {
+        cx.lexical = saved;
+        return completion;
+    };
+    // B.3.5: `for (var x = 1 in o)` assigns the initializer first.
+    if (loop.declaration && loop.declaration->kind == VariableDeclaration::Kind::Var && loop.declaration->declarations[0].init) {
+        Completion const init = execute_declaration(*loop.declaration, cx);
+        if (init.is_abrupt())
+            return init;
+    }
+    if (lexical) {
+        // The head's expression sees the names in their dead zone.
+        cx.lexical = new_environment(saved);
+        for (JsString* name : bound_names)
+            cx.lexical->declare(name, Value::undefined(), true, false);
+    }
+    std::optional<Value> const subject = evaluate(loop.object, cx);
+    cx.lexical = saved;
+    if (!subject)
+        return Completion::thrown();
+    if (subject->is_nullish())
+        return Completion::normal();
+    Roots const roots(self);
+    self.root(*subject);
+    std::optional<Object*> const object = self.to_object(*subject);
+    if (!object)
+        return Completion::thrown();
+    self.root(Value::object(*object));
+    Enumerator enumerator;
+    enumerator.object = *object;
+    enumerator_load(enumerator);
+    Value& last = self.root(Value::undefined());
+    while (true) {
+        JsString* key = enumerator_next(enumerator);
+        if (key == nullptr)
+            return restore(Completion::normal(last));
+        Value const key_value = Value::string(key);
+        if (!bind_loop_head(loop.declaration, loop.target, bound_names, key_value, saved, cx))
+            return restore(Completion::thrown());
+        Completion const body = execute(loop.body, cx, {});
+        cx.lexical = saved;
+        if (!loop_continues(body, labels))
+            return restore(finish_loop(body, last));
+        if (!body.value.is_empty())
+            last = body.value;
+        if (!step())
+            return restore(Completion::thrown());
+    }
+}
+
+
+Completion Interpreter::Impl::execute_for_of(ForOfStatement const& loop, Context& cx, std::span<JsString* const> labels)
+{
+    // §14.7.5.6 ForIn/OfHeadEvaluation (iterate) and §14.7.5.7
+    // ForIn/OfBodyEvaluation: the subject's iterator is stepped to its
+    // end; a body that leaves the loop any other way closes it, with
+    // the body's own throw still the outcome when there is one.
+    Environment* const saved = cx.lexical;
+    bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
+    std::vector<JsString*> bound_names;
+    if (loop.declaration)
+        collect_bound_names(loop.declaration->declarations[0].name, loop.declaration->declarations[0].pattern, bound_names);
+    auto restore = [&](Completion completion) {
+        cx.lexical = saved;
+        return completion;
+    };
+    if (lexical) {
+        // The head's expression sees the names in their dead zone.
+        cx.lexical = new_environment(saved);
+        for (JsString* name : bound_names)
+            cx.lexical->declare(name, Value::undefined(), true, false);
+    }
+    std::optional<Value> const subject = evaluate(loop.iterable, cx);
+    cx.lexical = saved;
+    if (!subject)
+        return Completion::thrown();
+    Roots const roots(self);
+    self.root(*subject);
+    std::optional<IteratorRecord> record = self.get_iterator(*subject);
+    if (!record)
+        return Completion::thrown();
+    self.root(record->iterator);
+    self.root(record->next_method);
+    Value& last = self.root(Value::undefined());
+    // Leaving other than by exhaustion: IteratorClose, whose own
+    // failure replaces a normal exit and never a throw. A termination
+    // is not a completion a script may observe: no return() runs for it.
+    auto leave = [&](Completion const& completion) {
+        bool const throwing = completion.type == Completion::Type::Throw;
+        if (throwing && self.m_terminated)
+            return restore(completion);
+        bool const closed = self.iterator_close(*record, throwing);
+        if (!closed && !throwing)
+            return restore(Completion::thrown());
+        return restore(finish_loop(completion, last));
+    };
+    while (true) {
+        Roots const iteration_roots(self);
+        Value value;
+        std::optional<bool> const stepped = self.iterator_step(*record, value);
+        if (!stepped)
+            return restore(Completion::thrown());
+        if (!*stepped)
+            return restore(Completion::normal(last));
+        self.root(value);
+        if (!bind_loop_head(loop.declaration, loop.target, bound_names, value, saved, cx))
+            return leave(Completion::thrown());
+        Completion const body = execute(loop.body, cx, {});
+        cx.lexical = saved;
+        if (!loop_continues(body, labels))
+            return leave(body);
+        if (!body.value.is_empty())
+            last = body.value;
+        if (!step())
+            return restore(Completion::thrown());
+    }
+}
+
+
+Completion Interpreter::Impl::execute_try(TryStatement const& statement, Context& cx)
+{
+    // §14.15.3. A termination (the interrupt) is not an exception a
+    // script may observe: neither the catch nor the finally runs.
+    Completion result = execute_block(*statement.block, cx);
+    if (result.type == Completion::Type::Throw && statement.handler && !self.m_terminated) {
+        Roots const roots(self);
+        Value const thrown = self.take_exception();
+        self.root(thrown);
+        Environment* const saved = cx.lexical;
+        bool bound = true;
+        if (statement.catch_pattern) {
+            // §14.15.2: the pattern's names in a record of their own,
+            // the thrown value destructured into them; a throw from
+            // that is the catch clause's outcome.
+            cx.lexical = new_environment(saved);
+            std::vector<JsString*> names;
+            collect_bound_names(statement.catch_pattern, names);
+            for (JsString* name : names)
+                cx.lexical->declare(name, Value::undefined(), true, false);
+            bound = bind_pattern(statement.catch_pattern, thrown, BindMode::Initialize, cx.lexical, cx);
+        } else if (statement.catch_parameter) {
+            cx.lexical = new_environment(saved);
+            cx.lexical->declare(statement.catch_parameter, thrown);
+        }
+        result = bound ? execute_block(*statement.handler, cx) : Completion::thrown();
+        cx.lexical = saved;
+    }
+    if (statement.finalizer && !self.m_terminated) {
+        Roots const roots(self);
+        Value pending;
+        bool const was_throw = result.type == Completion::Type::Throw;
+        if (was_throw) {
+            pending = self.take_exception();
+            self.root(pending);
+        } else {
+            self.root(result.value);
+        }
+        Completion const finalizer = execute_block(*statement.finalizer, cx);
+        if (finalizer.is_abrupt())
+            return finalizer.with_value_if_empty(Value::undefined());
+        if (was_throw)
+            self.throw_value(pending);
+    }
+    return result.with_value_if_empty(Value::undefined());
+}
+
+
+Completion Interpreter::Impl::execute_switch(SwitchStatement const& statement, Context& cx)
+{
+    // §14.12.4 CaseBlockEvaluation: the clauses before the default are
+    // tried in order, then the ones after it, and a match falls
+    // through everything below it, the default included.
+    std::optional<Value> const discriminant = evaluate(statement.discriminant, cx);
+    if (!discriminant)
+        return Completion::thrown();
+    Roots const roots(self);
+    self.root(*discriminant);
+    Environment* const saved = cx.lexical;
+    if (!statement.declarations.lexicals.empty() || !statement.declarations.functions.empty()) {
+        cx.lexical = new_environment(saved);
+        instantiate_block(statement.declarations, cx.lexical, cx.private_environment);
+    }
+    auto restore = [&](Completion completion) {
+        cx.lexical = saved;
+        return completion;
+    };
+    std::size_t const count = statement.cases.size();
+    std::size_t default_index = count;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (statement.cases[i].test == nullptr)
+            default_index = i;
+    }
+    std::size_t start = count;
+    auto matches = [&](std::size_t i, bool& matched) -> bool {
+        std::optional<Value> const test = evaluate(statement.cases[i].test, cx);
+        if (!test)
+            return false;
+        matched = Interpreter::strict_equals(*discriminant, *test);
+        return true;
+    };
+    for (std::size_t i = 0; i < count && start == count; ++i) {
+        if (i == default_index)
+            continue;
+        if (i > default_index && default_index != count) {
+            // The clauses after the default are tested only once the
+            // ones before it have all missed.
+        }
+        bool matched = false;
+        if (!matches(i, matched))
+            return restore(Completion::thrown());
+        if (matched)
+            start = i;
+    }
+    if (start == count)
+        start = default_index;
+    Value& last = self.root(Value::undefined());
+    for (std::size_t i = start; i < count; ++i) {
+        Completion const completion = execute_list(statement.cases[i].consequent, cx);
+        if (!completion.value.is_empty())
+            last = completion.value;
+        if (completion.is_abrupt())
+            return restore(finish_loop(completion, last));
+    }
+    return restore(Completion::normal(last));
+}
+
+
+Completion Interpreter::Impl::execute_with(WithStatement const& statement, Context& cx)
+{
+    // §14.11.2: an object environment whose bindings are the object's
+    // properties, marked so that calls through it get it as `this`.
+    std::optional<Value> const value = evaluate(statement.object, cx);
+    if (!value)
+        return Completion::thrown();
+    Roots const roots(self);
+    self.root(*value);
+    std::optional<Object*> const object = self.to_object(*value);
+    if (!object)
+        return Completion::thrown();
+    Environment* const saved = cx.lexical;
+    cx.lexical = new_environment(saved, *object);
+    cx.lexical->set_with_environment(true);
+    Completion const completion = execute(statement.body, cx, {});
+    cx.lexical = saved;
+    return completion.with_value_if_empty(Value::undefined());
+}
+
+
+// ---- tracing
+void Interpreter::Impl::trace(Tracer& tracer)
+{
+    for (Context const& context : contexts) {
+        tracer.visit(context.lexical);
+        tracer.visit(context.variable);
+        tracer.visit(context.function);
+        tracer.visit(context.private_environment);
+    }
+    tracer.visit(global_lexical);
+    for (auto const& [site, object] : template_objects)
+        tracer.visit(object);
+}
+
 
 // ------------------------------------------------------- Interpreter
 
