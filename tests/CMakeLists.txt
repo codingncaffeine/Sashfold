@@ -68,6 +68,7 @@ sashfold_test(test_js_string)
 sashfold_test(test_js_number)
 sashfold_test(test_js_json)
 sashfold_test(test_js_date)
+sashfold_test(test_bindings)
 
 add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)

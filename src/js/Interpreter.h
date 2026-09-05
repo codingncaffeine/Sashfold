@@ -258,6 +258,9 @@ public:
     std::uint64_t steps() const { return m_steps; }
     // Every console.* call and every uncaught error ends up here.
     std::function<void(std::string_view level, std::string_view message)> on_console;
+    // The embedder's object behind this realm (the bindings' Realm), for
+    // natives to find their way back; untraced, unowned.
+    void* host = nullptr;
     // A description of a thrown value: "TypeError: x is not a function".
     std::string describe(Value const&);
     // The realm keeps every program it ran: functions point into them.

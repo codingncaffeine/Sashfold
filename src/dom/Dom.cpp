@@ -41,6 +41,54 @@ Node* Node::previous_sibling() const
     return *(it - 1);
 }
 
+bool Node::is_connected() const
+{
+    return &root() == m_document;
+}
+
+Node& Node::root()
+{
+    Node* node = this;
+    while (node->m_parent)
+        node = node->m_parent;
+    return *node;
+}
+
+Node const& Node::root() const
+{
+    Node const* node = this;
+    while (node->m_parent)
+        node = node->m_parent;
+    return *node;
+}
+
+void Document::adopt(Node& node)
+{
+    if (node.m_document == this)
+        return;
+    node.remove();
+    Document& old = *node.m_document;
+    // Every node of the subtree moves, the template contents included.
+    std::vector<Node*> pending { &node };
+    while (!pending.empty()) {
+        Node* current = pending.back();
+        pending.pop_back();
+        for (Node* child : current->m_children)
+            pending.push_back(child);
+        if (current->is_element()) {
+            if (Node* content = static_cast<Element*>(current)->template_content())
+                pending.push_back(content);
+        }
+        auto const it = std::find_if(old.m_nodes.begin(), old.m_nodes.end(),
+            [current](std::unique_ptr<Node> const& owned) { return owned.get() == current; });
+        if (it != old.m_nodes.end()) {
+            m_nodes.push_back(std::move(*it));
+            old.m_nodes.erase(it);
+        }
+        current->m_document = this;
+    }
+}
+
 Attr const* Element::find_attribute(std::string_view name) const
 {
     for (Attr const& attribute : m_attributes) {

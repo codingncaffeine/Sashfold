@@ -1,8 +1,9 @@
 #pragma once
 
 // Tree construction, WHATWG HTML §13.2.6: the insertion-mode machine that
-// turns tokenizer output into a Document. Scripting is off (no JS yet), so
-// <noscript> parses as content and <script> text is kept, never run.
+// turns tokenizer output into a Document. Scripting is off unless a
+// ScriptRunner is attached: then <noscript> parses as raw text and each
+// <script> is handed over as its end tag is processed, the parser paused.
 
 #include "dom/Dom.h"
 #include "html/Token.h"
@@ -14,6 +15,19 @@
 #include <vector>
 
 namespace sashfold::html {
+
+class TreeBuilder;
+
+// Whoever runs the page's scripts. The builder calls run_script with the
+// parser paused, just after a <script> element's end tag was processed
+// (§13.2.6.4.9): the runner fetches and runs the classic script now, or
+// queues a deferred one. `builder` is the parser itself, for the insertion
+// point document.write writes at.
+class ScriptRunner {
+public:
+    virtual ~ScriptRunner() = default;
+    virtual void run_script(dom::Element& script, TreeBuilder& builder) = 0;
+};
 
 class TreeBuilder {
 public:
@@ -30,8 +44,22 @@ public:
 
     dom::Element* root_html_element() const { return m_html_element; }
 
+    // The scripting flag (§13.2.3.5). A runner turns it on for a document
+    // parse; a fragment parse turns it on without a runner when its node
+    // document has scripting, since scripts in a fragment never run.
+    void set_script_runner(ScriptRunner* runner)
+    {
+        m_runner = runner;
+        m_scripting = m_scripting || runner != nullptr;
+    }
+    void set_scripting(bool scripting) { m_scripting = scripting; }
+    bool scripting() const { return m_scripting; }
+    // document.write while this parser runs: `text` goes just before the
+    // next character to be consumed.
+    void insert_input(std::u32string_view text);
+
     // Chooses the tokenizer start state a fragment context demands.
-    static Tokenizer::State tokenizer_state_for_fragment_context(dom::Element const&);
+    static Tokenizer::State tokenizer_state_for_fragment_context(dom::Element const&, bool scripting = false);
 
 private:
     enum class Mode {
@@ -159,6 +187,8 @@ private:
     dom::Element* m_head_element = nullptr;
     dom::Element* m_form_element = nullptr;
     dom::Element* m_context = nullptr; // fragment parsing
+    ScriptRunner* m_runner = nullptr;
+    bool m_scripting = false;
 
     bool m_frameset_ok = true;
     bool m_foster_parenting = false;
@@ -175,11 +205,17 @@ std::unique_ptr<dom::Document> parse_document(std::u32string code_points);
 // Sniffs the encoding first (BOM, meta prescan, windows-1252 fallback).
 std::unique_ptr<dom::Document> parse_document_bytes(std::string_view bytes);
 
+// The same into a document the caller made — so that a script runner
+// created over it can run the page's scripts while it is being parsed.
+// With a runner, scripting is on.
+void parse_document_into(dom::Document&, std::u32string code_points, ScriptRunner* runner = nullptr);
+void parse_document_bytes_into(dom::Document&, std::string_view bytes, ScriptRunner* runner = nullptr);
+
 struct FragmentParseResult {
     std::unique_ptr<dom::Document> document;
     dom::Element* root = nullptr; // fragment children hang under this
 };
 FragmentParseResult parse_fragment(std::u32string code_points, std::string_view context_namespace,
-    std::string_view context_local_name);
+    std::string_view context_local_name, bool scripting = false);
 
 }

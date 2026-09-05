@@ -36,6 +36,10 @@ public:
         return std::u32string_view(m_data).substr(m_position);
     }
 
+    // Puts `text` just before the next character to be consumed: the
+    // insertion point document.write writes at while the parser runs.
+    void insert(std::u32string_view text) { m_data.insert(m_position, text); }
+
 private:
     std::u32string m_data;
     std::size_t m_position = 0;

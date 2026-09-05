@@ -360,11 +360,13 @@ TreeBuilder::TreeBuilder(Document& document, Element& context)
     }
 }
 
-Tokenizer::State TreeBuilder::tokenizer_state_for_fragment_context(Element const& context)
+Tokenizer::State TreeBuilder::tokenizer_state_for_fragment_context(Element const& context, bool scripting)
 {
     if (!context.is_html())
         return Tokenizer::State::Data;
     std::string_view const name = context.local_name();
+    if (scripting && name == "noscript")
+        return Tokenizer::State::RAWTEXT;
     if (name == "title" || name == "textarea")
         return Tokenizer::State::RCDATA;
     if (name == "style" || name == "xmp" || name == "iframe" || name == "noembed" || name == "noframes")
@@ -374,6 +376,12 @@ Tokenizer::State TreeBuilder::tokenizer_state_for_fragment_context(Element const
     if (name == "plaintext")
         return Tokenizer::State::PLAINTEXT;
     return Tokenizer::State::Data; // noscript with scripting off parses normally
+}
+
+void TreeBuilder::insert_input(std::u32string_view text)
+{
+    if (m_tokenizer)
+        m_tokenizer->input().insert(text);
 }
 
 void TreeBuilder::run(Tokenizer& tokenizer)
@@ -658,7 +666,11 @@ bool TreeBuilder::mode_in_head(Token& token)
             parse_generic_text(token, Tokenizer::State::RCDATA);
             return false;
         }
-        if (name == "noscript") { // scripting is off
+        if (name == "noscript") {
+            if (m_scripting) {
+                parse_generic_text(token, Tokenizer::State::RAWTEXT);
+                return false;
+            }
             insert_html_element(token);
             m_mode = Mode::InHeadNoscript;
             return false;
@@ -1033,8 +1045,12 @@ bool TreeBuilder::mode_in_body(Token& token)
             parse_generic_text(token, Tokenizer::State::RAWTEXT);
             return false;
         }
-        if (name == "noscript") { // scripting off: ordinary element
-            reconstruct_formatting();
+        if (name == "noscript") {
+            if (m_scripting) {
+                parse_generic_text(token, Tokenizer::State::RAWTEXT);
+                return false;
+            }
+            reconstruct_formatting(); // scripting off: an ordinary element
             insert_html_element(token);
             return false;
         }
@@ -1224,8 +1240,14 @@ bool TreeBuilder::mode_text(Token& token)
         m_mode = m_original_mode;
         return true;
     }
-    pop(); // any end tag (script would execute here; scripting is off)
+    // Any end tag. A script element is handed to the runner once it is off
+    // the stack and the mode is back (§13.2.6.4.9), with the parser paused:
+    // what it writes lands at the insertion point and is parsed next.
+    Element* const popped = current_node();
+    pop();
     m_mode = m_original_mode;
+    if (m_runner && popped && popped->is_html("script"))
+        m_runner->run_script(*popped, *this);
     return false;
 }
 
@@ -2576,21 +2598,33 @@ std::unique_ptr<Document> parse_document_bytes(std::string_view bytes)
 std::unique_ptr<Document> parse_document(std::u32string code_points)
 {
     auto document = std::make_unique<Document>();
-    TreeBuilder builder(*document);
-    Tokenizer tokenizer(InputStream(std::move(code_points)), Tokenizer::State::Data);
-    builder.run(tokenizer);
+    parse_document_into(*document, std::move(code_points));
     return document;
 }
 
+void parse_document_into(Document& document, std::u32string code_points, ScriptRunner* runner)
+{
+    TreeBuilder builder(document);
+    builder.set_script_runner(runner);
+    Tokenizer tokenizer(InputStream(std::move(code_points)), Tokenizer::State::Data);
+    builder.run(tokenizer);
+}
+
+void parse_document_bytes_into(Document& document, std::string_view bytes, ScriptRunner* runner)
+{
+    parse_document_into(document, decode_document_bytes(bytes), runner);
+}
+
 FragmentParseResult parse_fragment(std::u32string code_points, std::string_view context_namespace,
-    std::string_view context_local_name)
+    std::string_view context_local_name, bool scripting)
 {
     FragmentParseResult result;
     result.document = std::make_unique<Document>();
     Element* context = result.document->create<Element>(std::string(context_namespace), std::string(context_local_name));
     TreeBuilder builder(*result.document, *context);
+    builder.set_scripting(scripting);
     Tokenizer tokenizer(InputStream(std::move(code_points)),
-        TreeBuilder::tokenizer_state_for_fragment_context(*context));
+        TreeBuilder::tokenizer_state_for_fragment_context(*context, scripting));
     // No last-start-tag seeding: "if no start tag has been emitted from this
     // tokenizer, then no end tag token is appropriate" — a fragment's context
     // element was never emitted, so e.g. "</script>" inside a script-context

@@ -29,6 +29,13 @@ if(MINGW)
 endif()
 
 add_library(sashfold_core STATIC
+  src/bindings/Document.cpp
+  src/bindings/Events.cpp
+  src/bindings/HtmlElements.cpp
+  src/bindings/Node.cpp
+  src/bindings/Realm.cpp
+  src/bindings/Style.cpp
+  src/bindings/Window.cpp
   src/core/Base64.cpp
   src/core/Bidi.cpp
   src/core/Bitmap.cpp
@@ -81,6 +88,7 @@ add_library(sashfold_core STATIC
   src/ui/Theme.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
+  src/html/Serializer.cpp
   src/html/Tokenizer.cpp
   src/html/TreeBuilder.cpp
   src/html/TreeDump.cpp

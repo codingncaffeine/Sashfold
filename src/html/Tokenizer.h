@@ -113,6 +113,9 @@ public:
 
     // Tree-builder hooks.
     void set_state(State state) { m_state = state; }
+    // The input, for document.write: a script run by the parser inserts
+    // text just before the next character to be consumed.
+    InputStream& input() { return m_input; }
     void set_in_foreign_content(bool value) { m_in_foreign_content = value; }
 
     // Maps html5lib fixture names ("Data state", "RCDATA state", ...).

@@ -12,6 +12,10 @@
 #include <string_view>
 #include <vector>
 
+namespace sashfold::js {
+class Object;
+}
+
 namespace sashfold::dom {
 
 namespace ns {
@@ -66,7 +70,21 @@ public:
     bool is_element() const { return m_type == NodeType::Element; }
     bool is_text() const { return m_type == NodeType::Text; }
 
+    // Whether this node is in its document's tree (DOM §4.2.1 "connected").
+    bool is_connected() const;
+    // The node at the top of the tree this one is in: the document, or the
+    // root of a detached subtree.
+    Node& root();
+    Node const& root() const;
+
+    // The one script object standing for this node, cached here for the
+    // node's lifetime (ADR 0001 §1); null until a script first reaches it.
+    // The bindings own it: the script heap's collector decides when it goes,
+    // and clears this slot when it does.
+    js::Object* wrapper = nullptr;
+
 private:
+    friend class Document;
     Document* m_document;
     NodeType m_type;
     Node* m_parent = nullptr;
@@ -173,6 +191,13 @@ public:
         m_nodes.push_back(std::move(node));
         return raw;
     }
+
+    // Moves `node` and its whole subtree into this document's arena from
+    // the document that made them (DOM §4.2.4 "adopt"), so a node parsed or
+    // created by another document can be inserted here and outlive it. A
+    // node already of this document is left alone. The node is detached from
+    // its old parent first.
+    void adopt(Node& node);
 
 private:
     std::vector<std::unique_ptr<Node>> m_nodes;
