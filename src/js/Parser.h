@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace sashfold::js {
 
@@ -29,6 +30,7 @@ struct ParseOptions {
     bool allow_super_property = false; // a direct eval inside a method: `super.x` is in scope
     bool allow_super_call = false; // … inside a derived constructor: `super()` too
     bool in_field_initializer = false; // … inside a class field initializer: `arguments` is an error
+    std::vector<std::u16string> private_names; // … inside a class body: the private names in scope, # included
 };
 
 class Parser {

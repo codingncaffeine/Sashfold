@@ -1094,6 +1094,34 @@ void test_patterns()
 }
 
 // Classes, super and new.target.
+void test_private_names()
+{
+    CHECK_EQ(parse("class A { #x = 1; #m() { return this.#x; } get #g() {} set #g(v) {} static #s; static #t() {} has(o) { return #x in o; } }"),
+        program_of("(class A (field \"#x\" (function #x () (number 1))) (method \"#m\" (function #m () (return (private this #x)))) (get \"#g\" (function #g ())) (set \"#g\" (function #g (v))) (static field \"#s\") (static method \"#t\" (function #t ())) (method \"has\" (function has (o) (return (private-in #x (id o))))))"));
+    CHECK_EQ(parse("class A { #x; m(o) { return o?.#x; } }"), program_of("(class A (field \"#x\") (method \"m\" (function m (o) (return (private? (id o) #x)))))"));
+    CHECK_EQ(parse("class A { #x; m(o) { return #x in o && #x in o.y; } }"),
+        program_of("(class A (field \"#x\") (method \"m\" (function m (o) (return (logical && (private-in #x (id o)) (private-in #x (member (id o) y)))))))"));
+    // A name may be used before the body declares it, and by a nested class.
+    CHECK_EQ(parse("class A { m() { return this.#later; } #later; n() { return class { p(o) { return o.#later; } }; } }"),
+        program_of("(class A (method \"m\" (function m () (return (private this #later)))) (field \"#later\") (method \"n\" (function n () (return (class (method \"p\" (function p (o) (return (private (id o) #later)))))))))"));
+    // The early errors.
+    CHECK_EQ(parse("class A { m() { this.#y; } }"), "Private field '#y' must be declared in an enclosing class");
+    CHECK_EQ(parse("this.#x"), "Private field '#x' must be declared in an enclosing class");
+    CHECK_EQ(parse("class A { #x; #x; }"), "Identifier '#x' has already been declared");
+    CHECK_EQ(parse("class A { #x; #x() {} }"), "Identifier '#x' has already been declared");
+    CHECK_EQ(parse("class A { get #x() {} static set #x(v) {} }"), "Identifier '#x' has already been declared");
+    CHECK_EQ(parse("class A { get #x() {} get #x() {} }"), "Identifier '#x' has already been declared");
+    CHECK_EQ(parse("class A { #constructor; }"), "Classes may not have a private element named '#constructor'");
+    CHECK_EQ(parse("class A { #x; m() { delete this.#x; } }"), "Private fields can not be deleted");
+    CHECK_EQ(parse("class A { #x; m() { delete (this.#x); } }"), "Private fields can not be deleted");
+    CHECK_EQ(parse("class A extends B { #x; m() { super.#x; } }"), "Unexpected private field");
+    CHECK_EQ(parse("class A { #x; m() { #x; } }"), "Unexpected private name '#x'");
+    CHECK_EQ(parse("class A { #x; m(o) { return 1 < #x in o; } }"), "Unexpected private name '#x'");
+    CHECK_EQ(parse("class A { #x; m(o) { return (#x) in o; } }"), "Unexpected private name '#x'");
+    CHECK_EQ(parse("var o = { #x: 1 }"), "Unexpected private name '#x'");
+    CHECK_EQ(parse("#"), "Unexpected character '#'");
+}
+
 void test_classes()
 {
     CHECK_EQ(parse("class A {}"), program_of("(class A)"));
@@ -1131,7 +1159,6 @@ void test_classes()
     CHECK_EQ(parse("class A extends function () { with (x) {} } {}"), "Strict mode code may not include a with statement");
     CHECK_EQ(parse("class A {} with (x) {}"), program_of("(class A) (with (id x) (block))"));
     CHECK_EQ(parse("class yield {}"), "Unexpected strict mode reserved word");
-    CHECK_EQ(parse("class A { #p = 1; }"), "private class members are not supported yet");
     CHECK_EQ(parse("if (x) class A {}"), "Lexical declaration cannot appear in a single-statement context");
     CHECK_EQ(parse("class A {} let A;"), "Identifier 'A' has already been declared");
     CHECK_EQ(parse("class A { *g() {} }"), "generators are not supported yet");
@@ -1216,6 +1243,7 @@ int main()
     test_unsupported_features();
     test_patterns();
     test_classes();
+    test_private_names();
     test_function_constructor();
     return sashfold::test::report("js_parser");
 }

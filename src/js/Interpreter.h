@@ -258,8 +258,10 @@ public:
     Object* new_aggregate_error(Value const& errors, std::string_view message);
     Object* new_error(ErrorType, std::string_view message);
     Object* new_error(ErrorType, JsString* message);
-    // ScriptFunction from an AST node, closed over `scope` (§10.2.3 + MakeConstructor).
-    ScriptFunction* new_script_function(FunctionNode const&, Environment* scope, Value lexical_this = Value::empty());
+    // ScriptFunction from an AST node, closed over `scope` (§10.2.3 +
+    // MakeConstructor), keeping the class body's Private Names it was
+    // made in, when it was.
+    ScriptFunction* new_script_function(FunctionNode const&, Environment* scope, PrivateEnvironment* private_environment = nullptr);
 
     // Rooting.
     class Roots {
@@ -310,7 +312,8 @@ public:
 
     // Direct eval (§19.2.1.1) from the evaluator; `eval` the function is
     // the indirect form. Exposed for the bindings' inline event handlers.
-    std::optional<Value> eval_in(std::u16string_view source, Environment* scope, bool strict, Value this_value);
+    std::optional<Value> eval_in(std::u16string_view source, Environment* scope, bool strict, Value this_value,
+        PrivateEnvironment* private_environment = nullptr);
     // Compiles a function from parameter and body texts (`new Function`,
     // and an `onclick="…"` attribute).
     std::optional<Value> compile_function(std::u16string_view parameters, std::u16string_view body,

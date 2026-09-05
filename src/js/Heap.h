@@ -110,15 +110,22 @@ private:
 
 class Symbol : public Cell {
 public:
-    explicit Symbol(JsString* description) // may be null: Symbol()
+    explicit Symbol(JsString* description, bool is_private = false) // may be null: Symbol()
         : m_description(description)
+        , m_private(is_private)
     {
     }
     JsString* description() const { return m_description; }
+    // A Private Name (§6.2.12): the key a class's `#x` becomes. It is
+    // never a script value and never enumerated — Object::own_keys skips
+    // it — so only code that resolved `#x` through a class body can reach
+    // the property it keys.
+    bool is_private() const { return m_private; }
     void trace(Tracer& tracer) override { tracer.visit(m_description); }
 
 private:
     JsString* m_description;
+    bool m_private;
 };
 
 // Something outside the heap that holds cells and must say so at every
@@ -245,6 +252,7 @@ public:
     JsString* key_to_string(PropertyKey const&);
 
     Symbol* symbol(JsString* description);
+    Symbol* private_symbol(JsString* description); // a Private Name, described as "#x"
 
     WellKnownAtoms const& atoms() const { return m_well_known; }
 

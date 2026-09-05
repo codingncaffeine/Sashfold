@@ -243,11 +243,61 @@ public:
 class ScriptFunction;
 
 // A class field a constructor defines on each instance (§15.7.10
-// ClassFieldDefinition): the key, and the initializer as a function
-// called with the instance as `this`, or none.
+// ClassFieldDefinition): the key — a Private Name for `#x` — and the
+// initializer as a function called with the instance as `this`, or none.
 struct ClassField {
     PropertyKey key;
     ScriptFunction* initializer = nullptr;
+};
+
+// A private method or accessor a class installs on each instance (§6.2.10
+// PrivateElement of kind method or accessor): the name, and the method, or
+// a getter and a setter of which either may be missing.
+struct PrivateMethod {
+    Symbol* name = nullptr;
+    Object* method = nullptr;
+    Object* getter = nullptr;
+    Object* setter = nullptr;
+};
+
+// A PrivateEnvironment Record (§9.2): the Private Names a class body
+// declares, each a fresh cell per evaluation of the class, chained to the
+// enclosing class's. Every function made inside the body keeps the one it
+// was made in, and `this.#x` resolves `#x` outward through the chain.
+class PrivateEnvironment : public Cell {
+public:
+    explicit PrivateEnvironment(PrivateEnvironment* outer)
+        : m_outer(outer)
+    {
+    }
+    PrivateEnvironment* outer() const { return m_outer; }
+    void add(JsString* description, Symbol* name) { m_names.emplace_back(description, name); }
+    // ResolvePrivateIdentifier (§9.2.1.2): null only when no enclosing
+    // class declared the name, which the parser has already refused.
+    Symbol* lookup(JsString* description) const
+    {
+        for (PrivateEnvironment const* env = this; env != nullptr; env = env->m_outer) {
+            for (auto const& [known, name] : env->m_names) {
+                if (known == description)
+                    return name;
+            }
+        }
+        return nullptr;
+    }
+    std::vector<std::pair<JsString*, Symbol*>> const& names() const { return m_names; }
+    void trace(Tracer& tracer) override
+    {
+        tracer.visit(m_outer);
+        for (auto const& [description, name] : m_names) {
+            tracer.visit(description);
+            tracer.visit(name);
+        }
+    }
+    std::size_t size_in_bytes() const override { return sizeof(*this) + m_names.size() * sizeof(m_names[0]); }
+
+private:
+    PrivateEnvironment* m_outer;
+    std::vector<std::pair<JsString*, Symbol*>> m_names;
 };
 
 // A function written in script: the AST plus the scope it closed over.
@@ -267,6 +317,13 @@ public:
     void set_home_object(Object* home) { m_home_object = home; }
     std::vector<ClassField>& fields() { return m_fields; }
     std::vector<ClassField> const& fields() const { return m_fields; }
+    // [[PrivateMethods]]: what a class constructor installs on each
+    // instance before its fields (§7.3.34).
+    std::vector<PrivateMethod>& private_methods() { return m_private_methods; }
+    std::vector<PrivateMethod> const& private_methods() const { return m_private_methods; }
+    // [[PrivateEnvironment]]: the class body's, when made inside one.
+    PrivateEnvironment* private_environment() const { return m_private_environment; }
+    void set_private_environment(PrivateEnvironment* environment) { m_private_environment = environment; }
 
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
@@ -277,7 +334,9 @@ private:
     FunctionNode const* m_node;
     Environment* m_scope;
     Object* m_home_object = nullptr;
+    PrivateEnvironment* m_private_environment = nullptr;
     std::vector<ClassField> m_fields;
+    std::vector<PrivateMethod> m_private_methods;
     bool m_constructable;
 };
 

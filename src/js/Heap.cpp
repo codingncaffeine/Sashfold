@@ -265,6 +265,12 @@ Symbol* Heap::symbol(JsString* description)
     return allocate<Symbol>(description);
 }
 
+Symbol* Heap::private_symbol(JsString* description)
+{
+    NoCollect const guard(*this);
+    return allocate<Symbol>(description, true);
+}
+
 void Heap::add_root_provider(RootProvider* provider)
 {
     if (std::find(m_root_providers.begin(), m_root_providers.end(), provider) == m_root_providers.end())

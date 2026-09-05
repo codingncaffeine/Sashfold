@@ -164,6 +164,8 @@ std::string describe_token(Token const& token)
         return "Unexpected end of input";
     case TokenType::Identifier:
         return "Unexpected identifier '" + utf8_from_utf16(token.value) + "'";
+    case TokenType::PrivateName:
+        return "Unexpected private name '" + utf8_from_utf16(token.value) + "'";
     case TokenType::Keyword:
         return "Unexpected token '" + utf8_from_utf16(token.value) + "'";
     case TokenType::Punctuator:
@@ -190,6 +192,7 @@ bool ends_expression(Token const& token)
 {
     switch (token.type) {
     case TokenType::Identifier:
+    case TokenType::PrivateName:
     case TokenType::Number:
     case TokenType::String:
     case TokenType::RegExp:
@@ -372,6 +375,10 @@ struct FunctionContext {
     bool allow_new_target = false;
     bool in_field_initializer = false; // `arguments` is an early error (§15.7.1)
     bool in_static_block = false;
+    // `await` may not be bound or referred to directly in a static block
+    // (§15.7.1) — unlike the `arguments` rule above, an arrow is a function
+    // boundary here, so arrows do not inherit this.
+    bool await_reserved = false;
 };
 
 // An error the cover grammar defers (§13.2.5.1): `{ a = 1 }` and a
@@ -380,6 +387,17 @@ struct FunctionContext {
 struct CoverError {
     SourcePosition position;
     std::string message;
+};
+
+// A class body's private names (§15.7.1 AllPrivateIdentifiersValid): what
+// it declares — with the kind, so a getter and a setter may share a name
+// and nothing else may — and every `#x` its code refers to, checked when
+// the body ends; a name the body does not declare is handed outward to the
+// enclosing class, and is an error with no class left to take it.
+struct PrivateScope {
+    enum Kind : std::uint8_t { Field = 1, Method = 2, Getter = 4, Setter = 8, Static = 16 };
+    std::unordered_map<JsString*, std::uint8_t> declared;
+    std::vector<std::pair<JsString*, SourcePosition>> referenced;
 };
 
 } // namespace
@@ -420,6 +438,11 @@ struct Parser::Impl {
     void pop_scope();
     bool declare_var(JsString* name, SourcePosition);
     bool declare_lexical(JsString* name, bool is_const, SourcePosition);
+    // Private names (§15.7.1): declared by a class element, referred to by
+    // `o.#x` and `#x in o`, settled when the class body ends.
+    bool declare_private(ClassElement const&, SourcePosition);
+    bool reference_private(JsString* name, SourcePosition);
+    bool close_private_scope();
     bool declare_function(FunctionDeclaration*, SourcePosition);
     std::unordered_set<JsString*> const* lexicals_of(int scope_id) const;
     void note_this();
@@ -540,6 +563,9 @@ struct Parser::Impl {
     // that becomes a pattern drops the ones inside it, one that stays a
     // literal reports the first (check_cover).
     std::vector<CoverError> m_cover_errors;
+    // One per class body being parsed, innermost last; a direct eval inside
+    // a class starts with a base scope holding the names in scope there.
+    std::vector<PrivateScope> m_private_scopes;
     // Set by parse_binding_pattern when the pattern holds an initializer
     // or a computed key (ContainsExpression), for the parameter list.
     bool m_pattern_has_expression = false;
@@ -556,6 +582,66 @@ Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
     m_current_start = m_lexer.save();
     m_current_regex_allowed = true;
     m_current = m_lexer.next(true);
+    if (!m_options.private_names.empty()) {
+        // Eval code inside a class body: the names the caller's classes
+        // declared are in scope, as if a class around this program had them.
+        m_private_scopes.emplace_back();
+        for (std::u16string const& name : m_options.private_names)
+            m_private_scopes.back().declared.emplace(atom(name), PrivateScope::Field);
+    }
+}
+
+bool Parser::Impl::declare_private(ClassElement const& element, SourcePosition position)
+{
+    // §15.7.1: a private name is declared once — except that a getter and a
+    // setter may share it, when both are static or both are not.
+    std::uint8_t bits = element.is_static ? PrivateScope::Static : 0;
+    switch (element.kind) {
+    case ClassElement::Kind::Getter: bits |= PrivateScope::Getter; break;
+    case ClassElement::Kind::Setter: bits |= PrivateScope::Setter; break;
+    case ClassElement::Kind::Method: bits |= PrivateScope::Method; break;
+    case ClassElement::Kind::Field: bits |= PrivateScope::Field; break;
+    case ClassElement::Kind::StaticBlock: return true;
+    }
+    PrivateScope& scope = m_private_scopes.back();
+    auto const existing = scope.declared.find(element.key);
+    if (existing == scope.declared.end()) {
+        scope.declared.emplace(element.key, bits);
+        return true;
+    }
+    std::uint8_t const old_kind = existing->second & ~PrivateScope::Static;
+    std::uint8_t const new_kind = bits & ~PrivateScope::Static;
+    bool const pair = (old_kind == PrivateScope::Getter && new_kind == PrivateScope::Setter)
+        || (old_kind == PrivateScope::Setter && new_kind == PrivateScope::Getter);
+    if (pair && (existing->second & PrivateScope::Static) == (bits & PrivateScope::Static)) {
+        existing->second = existing->second | bits;
+        return true;
+    }
+    return fail(position, "Identifier '" + element.key->to_utf8() + "' has already been declared");
+}
+
+bool Parser::Impl::reference_private(JsString* name, SourcePosition position)
+{
+    if (m_private_scopes.empty())
+        return fail(position, "Private field '" + name->to_utf8() + "' must be declared in an enclosing class");
+    m_private_scopes.back().referenced.emplace_back(name, position);
+    return true;
+}
+
+bool Parser::Impl::close_private_scope()
+{
+    // AllPrivateIdentifiersValid: what this body did not declare, the
+    // enclosing class may; with none left, the first such name is the error.
+    PrivateScope const scope = std::move(m_private_scopes.back());
+    m_private_scopes.pop_back();
+    for (auto const& [name, position] : scope.referenced) {
+        if (scope.declared.contains(name))
+            continue;
+        if (m_private_scopes.empty())
+            return fail(position, "Private field '" + name->to_utf8() + "' must be declared in an enclosing class");
+        m_private_scopes.back().referenced.emplace_back(name, position);
+    }
+    return true;
 }
 
 // ---- tokens ---------------------------------------------------------------
@@ -678,6 +764,7 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
         context->allow_super_call = node && node->is_derived_constructor;
         context->in_field_initializer = node && node->is_field_initializer;
         context->in_static_block = node && node->is_static_block;
+        context->await_reserved = node && node->is_static_block;
     }
     m_functions.push_back(std::move(context));
     Scope& top = push_scope(declarations);
@@ -878,6 +965,9 @@ bool Parser::Impl::check_binding_identifier(Token const& token, bool strict)
         if (is_eval_or_arguments(token.value))
             return fail(token.position, "Unexpected eval or arguments in strict mode");
     }
+    // §15.7.1: `await` binds nothing directly inside a class static block.
+    if (token.value == u"await" && function().await_reserved)
+        return fail(token.position, "Unexpected reserved word");
     return true;
 }
 
@@ -1080,9 +1170,35 @@ Expression* Parser::Impl::parse_conditional(bool allow_in)
 Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in)
 {
     SourcePosition const start = m_current.position;
-    Expression* left = parse_unary();
-    if (!left)
-        return nullptr;
+    Expression* left = nullptr;
+    if (m_current.type == TokenType::PrivateName) {
+        // RelationalExpression : PrivateIdentifier in ShiftExpression
+        // (§13.10): `#x in o`, only where a relational expression may begin
+        // and only with `in` next; a private name anywhere else is an error.
+        constexpr int relational_precedence = 8;
+        Token const next = peek();
+        if (!allow_in || min_precedence > relational_precedence || !next.is(Keyword::In)) {
+            fail_unexpected();
+            return nullptr;
+        }
+        auto* private_in = make<PrivateInExpression>(start);
+        private_in->name = atom(m_current.value);
+        if (!reference_private(private_in->name, m_current.position))
+            return nullptr;
+        advance(); // #x
+        advance(); // in
+        if (!enter())
+            return nullptr;
+        private_in->right = parse_binary(relational_precedence + 1, allow_in);
+        leave();
+        if (!private_in->right)
+            return nullptr;
+        left = finish(private_in);
+    } else {
+        left = parse_unary();
+        if (!left)
+            return nullptr;
+    }
     while (true) {
         relex_as_division();
         BinaryOperator const op = binary_operator_for(m_current, allow_in);
@@ -1151,6 +1267,12 @@ Expression* Parser::Impl::parse_unary()
             fail(start, "Delete of an unqualified identifier in strict mode");
             return nullptr;
         }
+        // §13.5.1.1: a private element cannot be deleted, parenthesised or not.
+        if (*op == UnaryOp::Delete && operand->type == NodeType::MemberExpression
+            && static_cast<MemberExpression const*>(operand)->is_private) {
+            fail(start, "Private fields can not be deleted");
+            return nullptr;
+        }
         auto* unary = make<UnaryExpression>(start);
         unary->op = *op;
         unary->operand = operand;
@@ -1185,6 +1307,12 @@ Expression* Parser::Impl::parse_unary()
                 || next.is(Keyword::This) || next.is(Keyword::New) || next.is(Keyword::Function) || next.is(Keyword::Null)
                 || next.is(Keyword::True) || next.is(Keyword::False) || next.is(Keyword::Typeof));
         if (operand_follows) {
+            if (is_await && function().in_static_block) {
+                // §15.7.1: no await in a static block — a real early error,
+                // not a feature the engine declines.
+                fail(m_current.position, "Unexpected reserved word");
+                return nullptr;
+            }
             fail_unsupported(is_await ? "async functions" : "generators");
             return nullptr;
         }
@@ -1263,13 +1391,17 @@ Expression* Parser::Impl::parse_call_tail(Expression* expression, bool allow_cal
     while (true) {
         if (m_current.is(Punctuator::Dot)) {
             advance();
-            if (m_current.type != TokenType::Identifier && m_current.type != TokenType::Keyword) {
+            bool const is_private = m_current.type == TokenType::PrivateName;
+            if (!is_private && m_current.type != TokenType::Identifier && m_current.type != TokenType::Keyword) {
                 fail_unexpected();
                 return nullptr;
             }
             auto* member = make<MemberExpression>(start);
             member->object = expression;
             member->name = atom(m_current.value);
+            member->is_private = is_private;
+            if (is_private && !reference_private(member->name, m_current.position))
+                return nullptr;
             advance();
             expression = finish(member);
         } else if (m_current.is(Punctuator::QuestionDot)) {
@@ -1299,11 +1431,15 @@ Expression* Parser::Impl::parse_call_tail(Expression* expression, bool allow_cal
                 member->property = property;
                 member->optional = true;
                 expression = finish(member);
-            } else if (m_current.type == TokenType::Identifier || m_current.type == TokenType::Keyword) {
+            } else if (m_current.type == TokenType::Identifier || m_current.type == TokenType::Keyword
+                || m_current.type == TokenType::PrivateName) {
                 auto* member = make<MemberExpression>(start);
                 member->object = expression;
                 member->name = atom(m_current.value);
                 member->optional = true;
+                member->is_private = m_current.type == TokenType::PrivateName;
+                if (member->is_private && !reference_private(member->name, m_current.position))
+                    return nullptr;
                 advance();
                 expression = finish(member);
             } else if (m_current.type == TokenType::Template) {
@@ -1414,6 +1550,11 @@ Expression* Parser::Impl::parse_primary()
     switch (m_current.type) {
     case TokenType::Identifier:
         return parse_identifier_reference();
+    case TokenType::PrivateName:
+        // A private name stands alone nowhere: §13.10 allows it only as the
+        // left side of `in`, which parse_binary takes before coming here.
+        fail_unexpected();
+        return nullptr;
     case TokenType::Keyword:
         switch (m_current.keyword) {
         case Keyword::This: {
@@ -1515,6 +1656,11 @@ Expression* Parser::Impl::parse_identifier_reference()
     }
     if (is_strict() && is_strict_reserved_word(m_current.value)) {
         fail(start, "Unexpected strict mode reserved word");
+        return nullptr;
+    }
+    // §15.7.1: `await` is reserved directly inside a class static block.
+    if (m_current.value == u"await" && function().await_reserved) {
+        fail(start, "Unexpected reserved word");
         return nullptr;
     }
     auto* identifier = make<Identifier>(start);
@@ -2082,6 +2228,11 @@ Expression* Parser::Impl::parse_super()
     auto* member = make<SuperMember>(start);
     if (m_current.is(Punctuator::Dot)) {
         advance();
+        if (m_current.type == TokenType::PrivateName) {
+            // §13.3.7: no `super.#x` — a private name belongs to one object.
+            fail(m_current.position, "Unexpected private field");
+            return nullptr;
+        }
         if (m_current.type != TokenType::Identifier && m_current.type != TokenType::Keyword) {
             fail_unexpected();
             return nullptr;
@@ -2146,6 +2297,7 @@ ClassNode* Parser::Impl::parse_class(bool is_expression)
     if (!enter())
         return abandon();
     advance(); // {
+    m_private_scopes.emplace_back();
     while (!m_current.is(Punctuator::RightBrace)) {
         if (m_current.is(Punctuator::Semicolon)) {
             advance();
@@ -2153,11 +2305,14 @@ ClassNode* Parser::Impl::parse_class(bool is_expression)
         }
         if (!parse_class_element(*node)) {
             leave();
+            m_private_scopes.pop_back();
             return abandon();
         }
     }
     advance(); // }
     leave();
+    if (!close_private_scope())
+        return abandon();
     node->source_end = m_previous_end;
     if (!node->constructor) {
         // The default constructor (§15.7.14 step 14): a base class's does
@@ -2225,15 +2380,13 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
     }
     if (m_current.is(Punctuator::Star))
         return fail_unsupported("generators");
-    std::u16string const& source = m_program->source;
-    if (m_current.type == TokenType::Invalid && m_current.position.offset < source.size() && source[m_current.position.offset] == u'#')
-        return fail_unsupported("private class members");
     // `get`/`set`/`async` are prefixes only when a key follows.
     bool accessor = false;
     if (m_current.type == TokenType::Identifier && !m_current.has_escape
         && (m_current.value == u"get" || m_current.value == u"set" || m_current.value == u"async")) {
         Token const next = peek();
         bool const key_follows = next.type == TokenType::Identifier || next.type == TokenType::Keyword
+            || next.type == TokenType::PrivateName
             || next.type == TokenType::String || next.type == TokenType::Number
             || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star) || next.type == TokenType::Invalid;
         if (key_follows) {
@@ -2246,10 +2399,22 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
     }
     PropertyDefinition definition;
     Token key_token;
-    if (!parse_property_key(definition, &key_token))
-        return false;
-    element.key = definition.key;
-    element.computed_key = definition.computed_key;
+    if (m_current.type == TokenType::PrivateName) {
+        // A private element (§15.7.1): the name, # included, is the key;
+        // `#constructor` is refused; the declaration is checked once the
+        // element's kind is known.
+        key_token = m_current;
+        element.is_private = true;
+        element.key = atom(m_current.value);
+        if (m_current.value == u"#constructor")
+            return fail(m_current.position, "Classes may not have a private element named '#constructor'");
+        advance();
+    } else {
+        if (!parse_property_key(definition, &key_token))
+            return false;
+        element.key = definition.key;
+        element.computed_key = definition.computed_key;
+    }
     bool const plain_key = !element.computed_key
         && (key_token.type == TokenType::Identifier || key_token.type == TokenType::Keyword || key_token.type == TokenType::String);
     bool const constructor_name = plain_key && element.key->equals(u"constructor");
@@ -2287,6 +2452,8 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
         if (!accessor)
             element.kind = ClassElement::Kind::Method;
         element.function = fn;
+        if (element.is_private && !declare_private(element, key_token.position))
+            return false;
         node.elements.push_back(element);
         return true;
     }
@@ -2319,6 +2486,8 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
         element.function = fn;
     }
     if (!consume_semicolon())
+        return false;
+    if (element.is_private && !declare_private(element, key_token.position))
         return false;
     node.elements.push_back(element);
     return true;
@@ -2873,6 +3042,10 @@ bool Parser::Impl::parse_program_body()
         return false;
     if (m_current.type != TokenType::EndOfInput)
         return fail_unexpected();
+    // Eval code inside a class: what its `#x`s referred to must be among
+    // the names the caller's classes declared.
+    if (!m_private_scopes.empty() && !close_private_scope())
+        return false;
     return pop_function();
 }
 
@@ -4157,6 +4330,15 @@ struct Dumper {
             out += ')';
             break;
         }
+        case NodeType::PrivateIn: {
+            auto const* private_in = static_cast<PrivateInExpression const*>(e);
+            out += "(private-in ";
+            out += private_in->name->to_utf8();
+            out += ' ';
+            expression(private_in->right);
+            out += ')';
+            break;
+        }
         case NodeType::MemberExpression: {
             auto const* member = static_cast<MemberExpression const*>(e);
             if (member->property) {
@@ -4164,6 +4346,11 @@ struct Dumper {
                 expression(member->object);
                 out += ' ';
                 expression(member->property);
+            } else if (member->is_private) {
+                out += member->optional ? "(private? " : "(private ";
+                expression(member->object);
+                out += ' ';
+                out += member->name->to_utf8();
             } else {
                 out += member->optional ? "(member? " : "(member ";
                 expression(member->object);

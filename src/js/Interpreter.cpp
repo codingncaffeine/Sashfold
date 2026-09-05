@@ -79,6 +79,7 @@ struct Context {
     Program const* program = nullptr;
     ScriptFunction* function = nullptr; // null for global and eval code
     bool strict = false;
+    PrivateEnvironment* private_environment = nullptr; // the class bodies' Private Names in scope (§9.2)
 };
 
 // A Reference Record (§6.2.5) in the shapes the evaluator produces: a
@@ -89,7 +90,9 @@ struct Context {
 struct Reference {
     // Super: a property of the home object's prototype (the base), read
     // and written with `this` (this_value) as the receiver (§13.3.7.3).
-    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Super, Value };
+    // Private: `o.#x` — the base and the Private Name as the key (§13.3.3),
+    // read and written on the base alone, with `name` for the messages.
+    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Super, Private, Value };
     Kind kind = Kind::Value;
     Environment* environment = nullptr;
     JsString* name = nullptr;
@@ -427,6 +430,8 @@ struct Interpreter::Impl {
                 return std::nullopt;
             return reference.base.as_object()->get(self, reference.key, reference.this_value);
         }
+        case Reference::Kind::Private:
+            return private_get(reference.base, reference.key);
         }
         return Value::undefined();
     }
@@ -489,6 +494,8 @@ struct Interpreter::Impl {
                 return false;
             return self.set(reference.base, reference.key, value, cx.strict).has_value();
         }
+        case Reference::Kind::Private:
+            return private_set(reference.base, reference.key, value);
         case Reference::Kind::Super: {
             if (reference.base.is_nullish()) {
                 self.throw_type_error("Cannot set properties of null (setting '" + reference_key_text(reference) + "')");
@@ -514,7 +521,7 @@ struct Interpreter::Impl {
     {
         if (reference.kind == Reference::Kind::Super)
             return reference.this_value;
-        if (reference.kind == Reference::Kind::Property)
+        if (reference.kind == Reference::Kind::Property || reference.kind == Reference::Kind::Private)
             return reference.base;
         if (reference.kind == Reference::Kind::ObjectEnvironment && reference.environment->is_with_environment())
             return Value::object(reference.environment->object());
@@ -530,7 +537,9 @@ struct Interpreter::Impl {
         std::u16string name;
         if (key.is_symbol()) {
             JsString const* description = key.as_symbol()->description();
-            if (description)
+            if (key.as_symbol()->is_private())
+                name = description->data(); // §10.2.9 step 2.a: a Private Name's description as it is, `#x`
+            else if (description)
                 name = u"[" + description->data() + u"]";
         } else {
             name = heap().key_to_string(key)->data();
@@ -553,7 +562,7 @@ struct Interpreter::Impl {
             Environment::Binding& binding = scope->declare(node.name, Value::undefined(), false, true);
             binding.strict = false;
         }
-        ScriptFunction* function = self.new_script_function(node, scope);
+        ScriptFunction* function = self.new_script_function(node, scope, cx.private_environment);
         if (scope != cx.lexical)
             scope->find(node.name)->value = Value::object(function);
         if (name_key && node.name == nullptr)
@@ -619,7 +628,7 @@ struct Interpreter::Impl {
 
         Environment* variable = new_environment(function.scope());
         variable->set_function(&function);
-        ContextScope scope(*this, Context { variable, variable, node.program, &function, node.is_strict });
+        ContextScope scope(*this, Context { variable, variable, node.program, &function, node.is_strict, function.private_environment() });
         Context& cx = scope.context();
 
         if (!node.is_arrow) {
@@ -721,7 +730,7 @@ struct Interpreter::Impl {
             lexical = new_environment(var_env);
         cx.lexical = lexical;
         for (FunctionDeclaration const* declaration : node.declarations.functions) {
-            ScriptFunction* closure = self.new_script_function(*declaration->function, lexical);
+            ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, cx.private_environment);
             JsString* name = declaration->function->name;
             if (Environment::Binding* existing = var_env->find(name))
                 existing->value = Value::object(closure);
@@ -891,6 +900,109 @@ struct Interpreter::Impl {
         return result;
     }
 
+    // ---- private names (§7.3.30–§7.3.33)
+    //
+    // A private element is a property keyed by the class's Private Name,
+    // found on the object alone — never up the prototype chain — and never
+    // listed (Object::own_keys skips the key). A private method is a frozen
+    // data property, so a write to it is the TypeError the specification
+    // asks for; a private accessor is an accessor.
+
+    std::string private_name_text(PropertyKey const& key)
+    {
+        JsString const* description = key.as_symbol()->description();
+        return description ? description->to_utf8() : std::string("#");
+    }
+
+    // PrivateGet (§7.3.32).
+    std::optional<Value> private_get(Value const& base, PropertyKey const& key)
+    {
+        Property const* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
+        if (element == nullptr)
+            return self.throw_type_error("Cannot read private member " + private_name_text(key) + " from an object whose class did not declare it");
+        if (!element->accessor)
+            return element->value;
+        if (element->getter == nullptr)
+            return self.throw_type_error("'" + private_name_text(key) + "' was defined without a getter");
+        return self.call(Value::object(element->getter), base, {});
+    }
+
+    // PrivateSet (§7.3.33).
+    bool private_set(Value const& base, PropertyKey const& key, Value const& value)
+    {
+        Property* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
+        if (element == nullptr) {
+            self.throw_type_error("Cannot write private member " + private_name_text(key) + " to an object whose class did not declare it");
+            return false;
+        }
+        if (element->accessor) {
+            if (element->setter == nullptr) {
+                self.throw_type_error("'" + private_name_text(key) + "' was defined without a setter");
+                return false;
+            }
+            Value const arguments[1] = { value };
+            return self.call(Value::object(element->setter), base, arguments).has_value();
+        }
+        if (!element->writable()) {
+            self.throw_type_error("Private method '" + private_name_text(key) + "' is not writable");
+            return false;
+        }
+        element->value = value;
+        return true;
+    }
+
+    // PrivateFieldAdd (§7.3.30): once per object, and never on an object
+    // that is no longer extensible (the 2025 rule) — a constructor that
+    // returns an object already carrying the field, or a sealed one, is
+    // refused.
+    bool private_field_add(Object& object, PropertyKey const& key, Value const& value)
+    {
+        if (!object.is_extensible()) {
+            self.throw_type_error("Cannot define private field " + private_name_text(key) + " on a non-extensible object");
+            return false;
+        }
+        if (object.find_own(key) != nullptr) {
+            self.throw_type_error("Cannot initialize " + private_name_text(key) + " twice on the same object");
+            return false;
+        }
+        object.put(key, value, Writable);
+        return true;
+    }
+
+    // PrivateMethodOrAccessorAdd (§7.3.31).
+    bool private_method_add(Object& object, PrivateMethod const& method)
+    {
+        PropertyKey const key = PropertyKey::symbol(method.name);
+        if (!object.is_extensible()) {
+            self.throw_type_error("Cannot define private method " + private_name_text(key) + " on a non-extensible object");
+            return false;
+        }
+        if (object.find_own(key) != nullptr) {
+            self.throw_type_error("Cannot initialize private methods of class twice on the same object");
+            return false;
+        }
+        if (method.method != nullptr)
+            object.put(key, Value::object(method.method), frozen_attributes);
+        else
+            object.put_accessor(key, method.getter, method.setter, frozen_attributes);
+        return true;
+    }
+
+    // `#x in o` (§13.10.1 steps 4–9): the right operand must be an object;
+    // the answer is whether it carries the element.
+    std::optional<Value> evaluate_private_in(PrivateInExpression const& expression, Context& cx)
+    {
+        std::optional<Value> const right = evaluate(expression.right, cx);
+        if (!right)
+            return std::nullopt;
+        if (!right->is_object())
+            return self.throw_type_error("Cannot use 'in' operator to search for '" + expression.name->to_utf8() + "' in " + self.describe(*right));
+        Symbol* name = cx.private_environment ? cx.private_environment->lookup(expression.name) : nullptr;
+        if (name == nullptr)
+            return self.throw_syntax_error("Private field '" + expression.name->to_utf8() + "' must be declared in an enclosing class");
+        return Value::boolean(right->as_object()->find_own(PropertyKey::symbol(name)) != nullptr);
+    }
+
     // DefineField (§7.3.33).
     bool define_field(Object& receiver, ClassField const& field)
     {
@@ -906,14 +1018,22 @@ struct Interpreter::Impl {
             value = *result;
         }
         self.root(value);
+        if (field.key.is_symbol() && field.key.as_symbol()->is_private())
+            return private_field_add(receiver, field.key, value);
         return self.create_data_property(receiver, field.key, value).has_value();
     }
 
-    // InitializeInstanceElements (§7.3.34): the constructor's fields, in order.
+    // InitializeInstanceElements (§7.3.34): the constructor's private
+    // methods and accessors, then its fields, in order.
     bool initialize_instance_elements(Object& instance, ScriptFunction& constructor)
     {
         Roots const roots(self);
         self.root(Value::object(&constructor));
+        std::vector<PrivateMethod> const methods = constructor.private_methods();
+        for (PrivateMethod const& method : methods) {
+            if (!private_method_add(instance, method))
+                return false;
+        }
         std::vector<ClassField> const fields = constructor.fields();
         for (ClassField const& field : fields) {
             if (!define_field(instance, field))
@@ -947,6 +1067,7 @@ struct Interpreter::Impl {
         Roots const roots(self);
         Environment* const saved = cx.lexical;
         bool const saved_strict = cx.strict;
+        PrivateEnvironment* const outer_private = cx.private_environment;
         Environment* class_env = new_environment(saved);
         if (node.name)
             class_env->declare(node.name, Value::undefined(), false, false);
@@ -955,6 +1076,7 @@ struct Interpreter::Impl {
         auto leave = [&]() {
             cx.lexical = saved;
             cx.strict = saved_strict;
+            cx.private_environment = outer_private;
         };
         Object* proto_parent = self.intrinsics().object_prototype;
         Object* constructor_parent = self.intrinsics().function_prototype;
@@ -987,10 +1109,31 @@ struct Interpreter::Impl {
                 constructor_parent = superclass->as_object();
             }
         }
+        // The class's Private Names (§15.7.14 steps 4–6 and 11): a fresh
+        // cell per declared `#x`, chained to the enclosing class's, in scope
+        // for everything the body makes — the heritage above saw only the
+        // outer ones. The context traces it from here on, as it does the
+        // functions made in the body, which keep it.
+        bool has_private = false;
+        for (ClassElement const& element : node.elements)
+            has_private = has_private || element.is_private;
+        if (has_private) {
+            cx.private_environment = heap().allocate<PrivateEnvironment>(outer_private);
+            for (ClassElement const& element : node.elements) {
+                if (!element.is_private)
+                    continue;
+                bool known = false;
+                for (auto const& [description, name] : cx.private_environment->names())
+                    known = known || description == element.key;
+                if (!known)
+                    cx.private_environment->add(element.key, heap().private_symbol(element.key));
+            }
+        }
         Object* proto = self.new_object();
         proto->set_prototype(proto_parent);
         self.root(Value::object(proto));
         ScriptFunction* constructor = new_class_constructor(*node.constructor, class_env, proto, constructor_parent);
+        constructor->set_private_environment(cx.private_environment);
         self.root(Value::object(constructor));
         if (!node.name && name_key)
             set_function_name(*constructor, *name_key);
@@ -1019,37 +1162,84 @@ struct Interpreter::Impl {
                     key = *converted;
                     if (key.is_symbol())
                         self.root(Value::symbol(key.as_symbol()));
+                } else if (element.is_private) {
+                    key = PropertyKey::symbol(cx.private_environment->lookup(element.key));
                 } else {
                     key = heap().key(element.key);
                 }
             }
             switch (element.kind) {
             case ClassElement::Kind::Method: {
-                // DefineMethodProperty: writable, configurable, not enumerable.
                 Heap::NoCollect const guard(heap());
-                ScriptFunction* closure = self.new_script_function(*element.function, class_env);
+                ScriptFunction* closure = self.new_script_function(*element.function, class_env, cx.private_environment);
                 closure->set_home_object(target);
                 set_function_name(*closure, key);
-                target->put(key, Value::object(closure), builtin_attributes);
+                if (element.is_private) {
+                    // A private method (§15.7.14 steps 22–23): a static one
+                    // goes on the class now; an instance one waits on the
+                    // constructor for each new object.
+                    PrivateMethod method;
+                    method.name = key.as_symbol();
+                    method.method = closure;
+                    if (!element.is_static) {
+                        constructor->private_methods().push_back(method);
+                    } else if (!private_method_add(*constructor, method)) {
+                        leave();
+                        return std::nullopt;
+                    }
+                    break;
+                }
+                // DefineMethodProperty: writable, configurable, not enumerable —
+                // through validation, so a key the target already holds as
+                // non-configurable (a static `['prototype']`) is a TypeError.
+                if (!self.define_property_or_throw(*target, key, PropertyDescriptor::data(Value::object(closure), builtin_attributes))) {
+                    leave();
+                    return std::nullopt;
+                }
                 break;
             }
             case ClassElement::Kind::Getter:
             case ClassElement::Kind::Setter: {
                 Heap::NoCollect const guard(heap());
-                ScriptFunction* accessor = self.new_script_function(*element.function, class_env);
+                ScriptFunction* accessor = self.new_script_function(*element.function, class_env, cx.private_environment);
                 accessor->set_home_object(target);
-                set_function_name(*accessor, key, element.kind == ClassElement::Kind::Getter ? "get" : "set");
+                bool const is_getter = element.kind == ClassElement::Kind::Getter;
+                set_function_name(*accessor, key, is_getter ? "get" : "set");
+                if (element.is_private && !element.is_static) {
+                    // An instance private accessor joins its other half on
+                    // the constructor's list (§15.7.14 step 24).
+                    PrivateMethod* method = nullptr;
+                    for (PrivateMethod& candidate : constructor->private_methods()) {
+                        if (candidate.name == key.as_symbol())
+                            method = &candidate;
+                    }
+                    if (method == nullptr) {
+                        constructor->private_methods().push_back(PrivateMethod {});
+                        method = &constructor->private_methods().back();
+                        method->name = key.as_symbol();
+                    }
+                    (is_getter ? method->getter : method->setter) = accessor;
+                    break;
+                }
                 Object* getter = nullptr;
                 Object* setter = nullptr;
                 if (Property const* existing = target->find_own(key); existing && existing->accessor) {
                     getter = existing->getter;
                     setter = existing->setter;
                 }
-                if (element.kind == ClassElement::Kind::Getter)
+                if (is_getter)
                     getter = accessor;
                 else
                     setter = accessor;
-                target->put_accessor(key, getter, setter, Configurable);
+                // A static private accessor is a frozen private element of
+                // the class; a public one is configurable, and defined through
+                // validation so a non-configurable key on the target throws.
+                if (element.is_private) {
+                    target->put_accessor(key, getter, setter, frozen_attributes);
+                } else if (!self.define_property_or_throw(*target, key, PropertyDescriptor::accessor(getter, setter, Configurable))) {
+                    leave();
+                    return std::nullopt;
+                }
                 break;
             }
             case ClassElement::Kind::Field: {
@@ -1061,7 +1251,7 @@ struct Interpreter::Impl {
                 ClassField field;
                 field.key = key;
                 if (element.function) {
-                    field.initializer = self.new_script_function(*element.function, class_env);
+                    field.initializer = self.new_script_function(*element.function, class_env, cx.private_environment);
                     field.initializer->set_home_object(proto);
                 }
                 constructor->fields().push_back(field);
@@ -1082,7 +1272,7 @@ struct Interpreter::Impl {
             ScriptFunction* closure = nullptr;
             if (item.element->function) {
                 Heap::NoCollect const guard(heap());
-                closure = self.new_script_function(*item.element->function, class_env);
+                closure = self.new_script_function(*item.element->function, class_env, cx.private_environment);
                 closure->set_home_object(constructor);
             }
             if (closure)
@@ -1491,7 +1681,7 @@ struct Interpreter::Impl {
             global_lexical->declare(name, Value::undefined(), !is_const, false);
         for (FunctionDeclaration const* declaration : functions) {
             JsString* name = declaration->function->name;
-            ScriptFunction* closure = self.new_script_function(*declaration->function, global_lexical);
+            ScriptFunction* closure = self.new_script_function(*declaration->function, global_lexical, cx.private_environment);
             Roots const roots(self);
             self.root(Value::object(closure));
             if (!create_global_function_binding(name, Value::object(closure), false))
@@ -1541,13 +1731,13 @@ struct Interpreter::Impl {
 
     // BlockDeclarationInstantiation (§14.2.3), with B.3.2.1's hoisting
     // already settled by the parser.
-    void instantiate_block(Declarations const& declarations, Environment* environment)
+    void instantiate_block(Declarations const& declarations, Environment* environment, PrivateEnvironment* private_environment)
     {
         for (auto const& [name, is_const] : declarations.lexicals)
             environment->declare(name, Value::undefined(), !is_const, false);
         for (FunctionDeclaration const* declaration : declarations.functions) {
             JsString* name = declaration->function->name;
-            ScriptFunction* closure = self.new_script_function(*declaration->function, environment);
+            ScriptFunction* closure = self.new_script_function(*declaration->function, environment, private_environment);
             if (Environment::Binding* existing = environment->find(name))
                 existing->value = Value::object(closure);
             else
@@ -1556,7 +1746,8 @@ struct Interpreter::Impl {
     }
 
     // EvalDeclarationInstantiation (§19.2.1.3).
-    bool eval_declaration_instantiation(Program const& program, Environment* variable, Environment* lexical, bool strict)
+    bool eval_declaration_instantiation(Program const& program, Environment* variable, Environment* lexical, bool strict,
+        PrivateEnvironment* private_environment)
     {
         bool const global_scope = variable->is_object_environment();
         if (!strict) {
@@ -1609,7 +1800,7 @@ struct Interpreter::Impl {
             lexical->declare(name, Value::undefined(), !is_const, false);
         for (FunctionDeclaration const* declaration : functions) {
             JsString* name = declaration->function->name;
-            ScriptFunction* closure = self.new_script_function(*declaration->function, lexical);
+            ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, private_environment);
             Roots const roots(self);
             self.root(Value::object(closure));
             if (global_scope) {
@@ -1646,10 +1837,19 @@ struct Interpreter::Impl {
     }
 
     // PerformEval (§19.2.1.1) for both the direct and the indirect form.
-    std::optional<Value> perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct)
+    std::optional<Value> perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct,
+        PrivateEnvironment* private_environment)
     {
         ParseOptions options;
         options.strict = direct && strict_caller;
+        if (direct) {
+            // §19.2.1.1 step 6: the eval code may name the private names of
+            // every class body it runs inside.
+            for (PrivateEnvironment const* env = private_environment; env != nullptr; env = env->outer()) {
+                for (auto const& [description, name] : env->names())
+                    options.private_names.emplace_back(description->view());
+            }
+        }
         Environment* variable = direct ? variable_environment_of(scope) : self.intrinsics().global_environment;
         if (direct) {
             // §19.2.1.1 steps 8–10: what `new.target`, `super` and
@@ -1683,9 +1883,10 @@ struct Interpreter::Impl {
             lexical->set_this(this_value);
         // Eval code owns its own declarations: the function field stays
         // null so a block function's Annex B copy reads the eval's var list.
-        ContextScope context_scope(*this, Context { lexical, variable, tree, nullptr, strict });
+        PrivateEnvironment* const private_env = direct ? private_environment : nullptr;
+        ContextScope context_scope(*this, Context { lexical, variable, tree, nullptr, strict, private_env });
         Context& cx = context_scope.context();
-        if (!eval_declaration_instantiation(*tree, variable, lexical, strict))
+        if (!eval_declaration_instantiation(*tree, variable, lexical, strict, private_env))
             return std::nullopt;
         Completion const completion = execute_list(tree->body, cx);
         if (completion.type == Completion::Type::Throw)
@@ -1765,6 +1966,8 @@ struct Interpreter::Impl {
             bool short_circuit = false;
             return evaluate_chain(expression, cx, short_circuit, nullptr);
         }
+        case NodeType::PrivateIn:
+            return evaluate_private_in(*static_cast<PrivateInExpression const*>(expression), cx);
         case NodeType::NewExpression:
             return evaluate_new(*static_cast<NewExpression const*>(expression), cx);
         case NodeType::SequenceExpression: {
@@ -2014,7 +2217,7 @@ struct Interpreter::Impl {
             // A getter or setter joins an existing accessor's other half.
             FunctionNode const& node = *static_cast<FunctionExpression const*>(property.value)->function;
             Heap::NoCollect const guard(heap());
-            ScriptFunction* accessor = self.new_script_function(node, cx.lexical);
+            ScriptFunction* accessor = self.new_script_function(node, cx.lexical, cx.private_environment);
             accessor->set_home_object(object);
             set_function_name(*accessor, key, property.kind == PropertyDefinition::Kind::Get ? "get" : "set");
             Object* getter = nullptr;
@@ -2058,6 +2261,19 @@ struct Interpreter::Impl {
             short_circuit = true;
             reference.kind = Reference::Kind::Value;
             reference.base = Value::undefined();
+            return reference;
+        }
+        if (member.is_private) {
+            // MakePrivateReference (§13.3.3): the name resolved through the
+            // class bodies in scope — the parser saw one declare it.
+            Symbol* name = cx.private_environment ? cx.private_environment->lookup(member.name) : nullptr;
+            if (name == nullptr)
+                return self.throw_syntax_error("Private field '" + member.name->to_utf8() + "' must be declared in an enclosing class");
+            reference.kind = Reference::Kind::Private;
+            reference.base = *base;
+            reference.name = member.name;
+            reference.key = PropertyKey::symbol(name);
+            reference.key_ready = true;
             return reference;
         }
         reference.kind = Reference::Kind::Property;
@@ -2214,7 +2430,7 @@ struct Interpreter::Impl {
                 return arguments[0];
             if (!step())
                 return std::nullopt;
-            return perform_eval(arguments[0].as_string()->view(), cx.lexical, cx.strict, Value::empty(), true);
+            return perform_eval(arguments[0].as_string()->view(), cx.lexical, cx.strict, Value::empty(), true, cx.private_environment);
         }
         if (!Interpreter::is_callable(callee_value))
             return self.throw_type_error(expression_text(callee, cx) + " is not a function");
@@ -2333,6 +2549,9 @@ struct Interpreter::Impl {
         case Reference::Kind::Super:
             // §13.5.1.2 step 5.a: a super reference cannot be deleted.
             return self.throw_reference_error("Unsupported reference to 'super'");
+        case Reference::Kind::Private:
+            // §13.5.1.1: an early error the parser raises; nothing reaches here.
+            return self.throw_syntax_error("Private fields can not be deleted");
         case Reference::Kind::Binding:
             return Value::boolean(reference->environment->remove(reference->name));
         case Reference::Kind::ObjectEnvironment:
@@ -2905,7 +3124,7 @@ struct Interpreter::Impl {
             return execute_list(block.body, cx);
         Environment* const saved = cx.lexical;
         cx.lexical = new_environment(saved);
-        instantiate_block(block.declarations, cx.lexical);
+        instantiate_block(block.declarations, cx.lexical, cx.private_environment);
         Completion const completion = execute_list(block.body, cx);
         cx.lexical = saved;
         return completion;
@@ -3274,7 +3493,7 @@ struct Interpreter::Impl {
         Environment* const saved = cx.lexical;
         if (!statement.declarations.lexicals.empty() || !statement.declarations.functions.empty()) {
             cx.lexical = new_environment(saved);
-            instantiate_block(statement.declarations, cx.lexical);
+            instantiate_block(statement.declarations, cx.lexical, cx.private_environment);
         }
         auto restore = [&](Completion completion) {
             cx.lexical = saved;
@@ -3347,6 +3566,7 @@ struct Interpreter::Impl {
             tracer.visit(context.lexical);
             tracer.visit(context.variable);
             tracer.visit(context.function);
+            tracer.visit(context.private_environment);
         }
         tracer.visit(global_lexical);
         for (auto const& [site, object] : template_objects)
@@ -3464,7 +3684,7 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
     }
     Program const* tree = program.get();
     keep(std::move(program));
-    Impl::ContextScope scope(*m_impl, Context { m_impl->global_lexical, m_intrinsics.global_environment, tree, nullptr, tree->is_strict });
+    Impl::ContextScope scope(*m_impl, Context { m_impl->global_lexical, m_intrinsics.global_environment, tree, nullptr, tree->is_strict, nullptr });
     Context& cx = scope.context();
     if (!m_impl->global_declaration_instantiation(*tree, cx)) {
         outcome.ok = false;
@@ -3550,9 +3770,10 @@ Outcome Interpreter::call_outcome(Value const& callee, Value const& this_value, 
     return outcome;
 }
 
-std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environment* scope, bool strict, Value this_value)
+std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environment* scope, bool strict, Value this_value,
+    PrivateEnvironment* private_environment)
 {
-    return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true);
+    return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true, private_environment);
 }
 
 std::optional<Value> Interpreter::compile_function(std::u16string_view parameters, std::u16string_view body, Environment* scope)
@@ -3569,14 +3790,15 @@ std::optional<Value> Interpreter::compile_function(std::u16string_view parameter
     return Value::object(new_script_function(node, scope ? scope : m_impl->global_lexical));
 }
 
-ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Environment* scope, Value)
+ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Environment* scope, PrivateEnvironment* private_environment)
 {
     // OrdinaryFunctionCreate + MakeConstructor (§10.2.3, §10.2.5):
     // `length` then `name`, and for a constructor a fresh `prototype`
     // pointing back. Arrows take their `this` from the scope chain, so
-    // the lexical-this parameter has nothing to record.
+    // there is no lexical this to record; the Private Names in scope are.
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<ScriptFunction>(m_intrinsics.function_prototype, node, scope, node.is_constructable);
+    function->set_private_environment(private_environment);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
     if (!node.is_strict && !node.is_arrow && node.is_constructable) {

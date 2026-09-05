@@ -149,7 +149,6 @@ void test_fields()
     CHECK_JS_THROWS(in, "(function () { class A { static prototype() {} } })()", "SyntaxError");
     CHECK_JS_THROWS(in, "(function () { class A { get constructor() {} } })()", "SyntaxError");
     CHECK_JS_THROWS(in, "(function () { class A { constructor() {} constructor() {} } })()", "SyntaxError");
-    CHECK_JS_THROWS(in, "(function () { class A { #x = 1; } })()", "SyntaxError");
     // A static method named constructor is just a static method.
     CHECK_JS_STRING(in, "(function () { class A { static constructor() { return 'sc'; } } return A.constructor() + (A.prototype.constructor === A); })()", "sctrue");
 }
@@ -174,6 +173,51 @@ void test_super_and_eval()
     CHECK_JS_NUMBER(in, "(function () { var base = { n: 1 }; var o = { m() { super.n += 1; return this.n; } }; Object.setPrototypeOf(o, base); return o.m() + base.n; })()", 3);
 }
 
+void test_private_members()
+{
+    js::Interpreter& in = fresh();
+    // Fields, methods and accessors, instance and static, reachable only
+    // through the class's own code; nothing lists them.
+    CHECK_JS_STRING(in, "(function () { class C { #x = 1; #y; static #s = 's'; #m(v) { return this.#x + v; } get #g() { return this.#x * 10; } set #g(v) { this.#x = v; } static #sm() { return C.#s + '!'; } read() { this.#y = 2; return [this.#x, this.#y, this.#m(1), this.#g, C.#sm()].join(); } write(v) { this.#g = v; return this.#x; } } var c = new C(); return c.read() + '|' + c.write(7) + '|' + Object.keys(c).length + Object.getOwnPropertyNames(c).length + Object.getOwnPropertySymbols(c).length + Reflect.ownKeys(C).length; })()", "1,2,2,10,s!|7|0003");
+    CHECK_JS_NUMBER(in, "(function () { class C { static #count = 0; static inc() { return ++C.#count; } static get #twice() { return C.#count * 2; } static t() { C.#count += 1; return C.#twice; } } C.inc(); C.inc(); return C.t(); })()", 6);
+    CHECK_JS_STRING(in, "(function () { class C { #x = 1; y = 2; } var c = new C(); return JSON.stringify(c) + JSON.stringify({ ...c }) + Object.keys(Object.assign({}, c)).join(); })()", "{\"y\":2}{\"y\":2}y");
+    CHECK_JS_STRING(in, "(function () { class C { #m() {} n() { return this.#m.name; } } return new C().n() + ':' + (C.toString().indexOf('#m() {}') > 0); })()", "#m:true");
+    // Brand checks: an object the class did not make has no such member.
+    CHECK_JS_THROWS(in, "(function () { class C { #x; static get(o) { return o.#x; } } C.get({}); })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class C { #x; static set(o) { o.#x = 1; } } C.set({}); })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class C { #x; static get(o) { return o.#x; } } C.get(1); })()", "TypeError");
+    CHECK_JS_TRUE(in, "(function () { class C { #x; static has(o) { return #x in o; } } return C.has(new C()) && !C.has({}) && !C.has(Object.create(new C())); })()");
+    CHECK_JS_THROWS(in, "(function () { class C { #x; static has(o) { return #x in o; } } C.has(1); })()", "TypeError");
+    CHECK_JS_TRUE(in, "(function () { class C { #x = 1; static r(o) { return o?.#x; } } return C.r(null) === undefined && C.r(new C()) === 1; })()");
+    // A private method is not writable; an accessor missing its half throws.
+    CHECK_JS_THROWS(in, "(function () { class C { #m() {} set() { this.#m = 1; } } new C().set(); })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class C { get #g() { return 1; } set() { this.#g = 2; } } new C().set(); })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class C { set #g(v) {} get() { return this.#g; } } new C().get(); })()", "TypeError");
+    // The return-override trick adds the field to any extensible object,
+    // once; a sealed or frozen object refuses it (the 2025 rule).
+    CHECK_JS_NUMBER(in, "(function () { class Base { constructor(o) { return o; } } class C extends Base { #x = 41; constructor(o) { super(o); } static read(o) { return o.#x + 1; } } var o = {}; new C(o); return C.read(o); })()", 42);
+    CHECK_JS_THROWS(in, "(function () { class Base { constructor(o) { return o; } } class C extends Base { #x = 1; constructor(o) { super(o); } } new C(Object.preventExtensions({})); })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class Base { constructor() { Object.preventExtensions(this); } } class C extends Base { #m() {} } new C(); })()", "TypeError");
+    // A public method whose key the target already holds non-configurable
+    // is a TypeError, as DefinePropertyOrThrow has it.
+    CHECK_JS_THROWS(in, "(function () { class C { static ['prototype']() {} } })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class C { static get ['prototype']() {} } })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class Base { constructor(o) { return o; } } class C extends Base { #x = 1; constructor(o) { super(o); } } var o = {}; new C(o); new C(o); })()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { class Base { constructor(o) { return o; } } class C extends Base { #m() {} constructor(o) { super(o); } } var o = {}; new C(o); new C(o); })()", "TypeError");
+    // Every evaluation of a class body makes its own names; nested classes,
+    // arrows, plain functions and a direct eval inside the body see the
+    // outer names, and an inner class's own name shadows.
+    CHECK_JS_THROWS(in, "(function () { function make() { return class { #x = 1; static read(o) { return o.#x; } }; } var A = make(), B = make(); return A.read(new B()); })()", "TypeError");
+    CHECK_JS_NUMBER(in, "(function () { class Outer { #x = 5; test() { var self = this; class Inner { get() { return self.#x; } } var arrow = () => this.#x; function plain(o) { return o.#x; } return new Inner().get() + arrow() + plain(this) + eval('this.#x'); } } return new Outer().test(); })()", 20);
+    CHECK_JS_STRING(in, "(function () { class A { #x = 'a'; m() { class B { #x = 'b'; read(o) { return o.#x; } } return new B().read(new B()) + this.#x; } } return new A().m(); })()", "ba");
+    CHECK_JS_THROWS(in, "(function () { class A { #x = 'a'; m() { return eval('this.#y'); } } new A().m(); })()", "SyntaxError");
+    CHECK_JS_THROWS(in, "eval('this.#x')", "SyntaxError");
+    // Derived instances get the base's private methods through super();
+    // a private field can be a destructuring target.
+    CHECK_JS_STRING(in, "(function () { class A { #p() { return 'p'; } callP() { return this.#p(); } } class B extends A {} return new B().callP(); })()", "p");
+    CHECK_JS_NUMBER(in, "(function () { class C { #x; set(arr) { [this.#x] = arr; return this.#x; } } return new C().set([3]); })()", 3);
+}
+
 } // namespace
 
 int main()
@@ -182,5 +226,6 @@ int main()
     test_inheritance();
     test_fields();
     test_super_and_eval();
+    test_private_members();
     return sashfold::test::report("js_class");
 }

@@ -65,6 +65,7 @@ enum class NodeType : std::uint8_t {
     SuperMember,
     SuperCall,
     NewTargetExpression,
+    PrivateIn, // `#x in o`
     // statements
     VariableDeclaration,
     FunctionDeclaration,
@@ -366,6 +367,7 @@ struct ClassElement {
     enum class Kind : std::uint8_t { Method, Getter, Setter, Field, StaticBlock };
     Kind kind = Kind::Method;
     bool is_static = false;
+    bool is_private = false; // `#x`: key is the private name, # included (§15.7.1)
     JsString* key = nullptr; // a numeric key is stored as its canonical string
     Expression* computed_key = nullptr; // `[expr]`; key is null then
     FunctionNode* function = nullptr; // null for a field without an initializer
@@ -557,6 +559,18 @@ struct MemberExpression : Expression {
     JsString* name = nullptr; // `a.b`
     Expression* property = nullptr; // `a[b]`; name is null then
     bool optional = false; // `a?.b`
+    bool is_private = false; // `a.#b`: name is the private name, # included
+};
+
+// `#x in o` (§13.10): whether the object has the class's private
+// element — a RelationalExpression that may only begin with the name.
+struct PrivateInExpression : Expression {
+    PrivateInExpression()
+        : Expression(NodeType::PrivateIn)
+    {
+    }
+    JsString* name = nullptr; // # included
+    Expression* right = nullptr;
 };
 
 struct SequenceExpression : Expression {

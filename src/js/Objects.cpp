@@ -523,7 +523,10 @@ std::vector<PropertyKey> Object::own_keys() const
             atoms.push_back(property.key);
             break;
         case PropertyKey::Kind::Symbol:
-            symbols.push_back(property.key);
+            // A Private Name keys a class's `#x`: it is not a property key
+            // the language can see (§6.2.10), so no key list has it.
+            if (!property.key.as_symbol()->is_private())
+                symbols.push_back(property.key);
             break;
         }
     }
@@ -938,9 +941,16 @@ void ScriptFunction::trace(Tracer& tracer)
     Object::trace(tracer);
     tracer.visit(m_scope);
     tracer.visit(m_home_object);
+    tracer.visit(m_private_environment);
     for (ClassField const& field : m_fields) {
         tracer.visit(field.key);
         tracer.visit(field.initializer);
+    }
+    for (PrivateMethod const& method : m_private_methods) {
+        tracer.visit(method.name);
+        tracer.visit(method.method);
+        tracer.visit(method.getter);
+        tracer.visit(method.setter);
     }
 }
 

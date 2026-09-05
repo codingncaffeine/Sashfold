@@ -1049,6 +1049,28 @@ Token scan_punctuator(Scanner& s, Token token)
 
 } // namespace
 
+namespace {
+
+// PrivateIdentifier (§12.7): `#` and an IdentifierName — any name, a
+// reserved word included. The `#` stays in the value, so a private name
+// reads as it is written and never collides with a property name.
+Token scan_private_name(Scanner& s, Token token)
+{
+    s.advance(); // #
+    std::size_t units = 0;
+    char32_t const c = s.code_point(&units);
+    if (!(c == U'\\' || Lexer::is_identifier_start(c)))
+        return invalid(std::move(token), "Unexpected character '#'");
+    token = scan_identifier(s, std::move(token));
+    if (token.type == TokenType::Invalid)
+        return token;
+    token.type = TokenType::PrivateName;
+    token.value.insert(token.value.begin(), u'#');
+    return token;
+}
+
+} // namespace
+
 Lexer::Lexer(std::u16string_view source)
     : m_source(source)
 {
@@ -1071,6 +1093,8 @@ Token Lexer::next(bool regex_allowed)
             token.type = TokenType::EndOfInput;
         else if (c == U'\\' || is_identifier_start(c))
             token = scan_identifier(scanner, std::move(token));
+        else if (c == U'#')
+            token = scan_private_name(scanner, std::move(token));
         else if (is_decimal_digit(c) || (c == U'.' && is_decimal_digit(scanner.peek(1))))
             token = scan_number(scanner, std::move(token));
         else if (c == U'"' || c == U'\'')
@@ -1119,14 +1143,16 @@ bool Lexer::is_identifier_start(char32_t c)
     // points are never identifier characters and the sentinel is not one.
     if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
         return false;
+    // ZWNJ and ZWJ may continue a name, never start one (§12.7: they are
+    // IdentifierPartChar, not IdentifierStartChar).
+    if (c == 0x200C || c == 0x200D)
+        return false;
     return !is_whitespace(c) && !is_line_terminator(c);
 }
 
 bool Lexer::is_identifier_part(char32_t c)
 {
-    // ZWNJ and ZWJ (§12.7 IdentifierPartChar) are non-ASCII and not
-    // whitespace, so the start rule already admits them.
-    return is_identifier_start(c) || is_decimal_digit(c);
+    return is_identifier_start(c) || is_decimal_digit(c) || c == 0x200C || c == 0x200D;
 }
 
 bool Lexer::is_line_terminator(char32_t c)

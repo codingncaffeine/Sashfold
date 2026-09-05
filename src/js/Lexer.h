@@ -20,6 +20,7 @@ namespace sashfold::js {
 enum class TokenType : std::uint8_t {
     EndOfInput,
     Identifier, // includes the contextual words: let, of, get, set, static, async, await, yield
+    PrivateName, // #x (§12.7 PrivateIdentifier); value keeps the #
     Keyword, // the always-reserved words
     Punctuator,
     Number,

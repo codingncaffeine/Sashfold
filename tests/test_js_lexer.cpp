@@ -28,12 +28,14 @@ constexpr TokenType Tmpl = TokenType::Template;
 constexpr TokenType Re = TokenType::RegExp;
 constexpr TokenType Bad = TokenType::Invalid;
 constexpr TokenType End = TokenType::EndOfInput;
+constexpr TokenType Priv = TokenType::PrivateName;
 
 char const* type_name(TokenType type)
 {
     switch (type) {
     case TokenType::EndOfInput: return "end";
     case TokenType::Identifier: return "id";
+    case TokenType::PrivateName: return "private";
     case TokenType::Keyword: return "kw";
     case TokenType::Punctuator: return "punct";
     case TokenType::Number: return "number";
@@ -580,6 +582,12 @@ void test_identifiers()
             { Kw, u"enum" } });
     CHECK_TOKENS(u"$_a1 _$ $$ a$b", { { Id, u"$_a1" }, { Id, u"_$" }, { Id, u"$$" }, { Id, u"a$b" } });
     CHECK_TOKENS(u"If IF ifx", { { Id, u"If" }, { Id, u"IF" }, { Id, u"ifx" } });
+    // A private name (§12.7): `#` and any IdentifierName, a reserved word
+    // or an escape included; the # stays in the value.
+    CHECK_TOKENS(u"#x #if #\\u0061b #$_", { { Priv, u"#x" }, { Priv, u"#if" }, { Priv, u"#ab" }, { Priv, u"#$_" } });
+    CHECK_EQ(first(u"#").message, "Unexpected character '#'");
+    CHECK_EQ(first(u"# x").message, "Unexpected character '#'");
+    CHECK_EQ(first(u"#1").message, "Unexpected character '#'");
     CHECK_EQ(first(u"while").is(Keyword::While), true);
     CHECK(Lexer::keyword_for(u"while") == Keyword::While);
     CHECK(!Lexer::keyword_for(u"let"));
