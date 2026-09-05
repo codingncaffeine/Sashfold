@@ -41,7 +41,7 @@ Not written yet: scripting on pages — a JavaScript engine of our own now runs 
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **8345 / 14616 (57.1%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| test262, the ECMAScript conformance suite, 36,434 tests over 62 directories | **16962 / 36434 (46.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
+| test262, the ECMAScript conformance suite, 36,434 tests over 62 directories | **17185 / 36434 (47.2%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).

@@ -28,8 +28,9 @@ struct RegexFlags {
     bool dot_all = false; // s
     bool unicode = false; // u
     bool sticky = false; // y
+    bool has_indices = false; // d: the match result carries an `indices` array
 
-    // Parses "gimsuy" in any order; nullopt on a repeat or an unknown letter.
+    // Parses "dgimsuy" in any order; nullopt on a repeat or an unknown letter.
     static std::optional<RegexFlags> parse(std::u16string_view);
     std::u16string to_string() const; // canonical order: d g i m s u v y
 };

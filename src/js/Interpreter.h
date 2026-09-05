@@ -152,6 +152,9 @@ public:
     std::optional<bool> set(Object&, PropertyKey const&, Value const&, bool strict);
     // CreateDataProperty(OrThrow) and DefinePropertyOrThrow.
     std::optional<bool> create_data_property(Object&, PropertyKey const&, Value const&, bool or_throw = true);
+    // [[DefineOwnProperty]] as script sees it: the array-length conversion
+    // of ArraySetLength happens here, so it can throw. false = rejected.
+    std::optional<bool> define_own_property(Object&, PropertyKey const&, PropertyDescriptor const&);
     std::optional<bool> define_property_or_throw(Object&, PropertyKey const&, PropertyDescriptor const&);
     std::optional<bool> delete_property_or_throw(Object&, PropertyKey const&);
     std::optional<bool> has_property(Value const& base, PropertyKey const&);

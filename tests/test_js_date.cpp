@@ -97,6 +97,9 @@ void test_formatting()
     CHECK_JS_TRUE(in, "Date.parse(new Date(1788480000000).toString()) === 1788480000000 && Date.parse(new Date(1788480000000).toUTCString()) === 1788480000000 && Date.parse(new Date(1788480000000).toISOString()) === 1788480000000");
     CHECK_JS_TRUE(in, "new Date(-62198755200000).toString().startsWith('Fri Jan 01 -0001') && new Date(-62198755200000).toUTCString() === 'Fri, 01 Jan -0001 00:00:00 GMT'");
     CHECK_JS_TRUE(in, "new Date(1788480000000).getTimezoneOffset() === -60 && new Date(-9e14).getTimezoneOffset() === -60 && new Date(9e14).getTimezoneOffset() === -60");
+    js::set_time_source(fixed_now, [](double) { return 0.0; });
+    CHECK_JS_TRUE(in, "Object.is(new Date(0).getTimezoneOffset(), 0) && Date.parse('1970-01-01T00:00:00') === 0");
+    js::set_time_source(fixed_now, fixed_offset);
 }
 
 } // namespace

@@ -879,7 +879,9 @@ struct Interpreter::Impl {
             variable = lexical;
         if (!this_value.is_empty())
             lexical->set_this(this_value);
-        ContextScope context_scope(*this, Context { lexical, variable, tree, direct && variable->function() ? static_cast<ScriptFunction*>(variable->function()) : nullptr, strict });
+        // Eval code owns its own declarations: the function field stays
+        // null so a block function's Annex B copy reads the eval's var list.
+        ContextScope context_scope(*this, Context { lexical, variable, tree, nullptr, strict });
         Context& cx = context_scope.context();
         if (!eval_declaration_instantiation(*tree, variable, lexical, strict))
             return std::nullopt;
@@ -1861,12 +1863,9 @@ struct Interpreter::Impl {
         // The declaration itself was instantiated at scope entry. In
         // sloppy code a block-level one also writes its current value to
         // the var binding the parser hoisted for it (B.3.2.1 step 2.b).
-        if (cx.strict)
+        if (cx.strict || !declaration.annex_b_hoisted || cx.lexical == cx.variable)
             return Completion::normal();
         JsString* name = declaration.function->name;
-        Declarations const& top = cx.function ? cx.function->node().declarations : cx.program->declarations;
-        if (!contains(top.vars, name) || cx.lexical == cx.variable)
-            return Completion::normal();
         Environment::Binding const* block_binding = cx.lexical->find(name);
         if (block_binding == nullptr)
             return Completion::normal();
@@ -2429,6 +2428,14 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     auto* function = m_heap->allocate<ScriptFunction>(m_intrinsics.function_prototype, node, scope, node.is_constructable);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.parameters.size())), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
+    if (!node.is_strict && !node.is_arrow && node.is_constructable) {
+        // A sloppy plain function carries its own null `caller` and
+        // `arguments` (§17.1 leaves them implementation-defined; every
+        // engine has them), so a read does not reach the poison pill on
+        // Function.prototype.
+        function->put(PropertyKey::atom(atoms().caller), Value::null(), frozen_attributes);
+        function->put(PropertyKey::atom(atoms().arguments), Value::null(), frozen_attributes);
+    }
     if (node.is_constructable) {
         Object* prototype = new_object();
         prototype->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);

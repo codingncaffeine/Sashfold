@@ -317,7 +317,24 @@ void install_math_library(Interpreter& in)
     define_unary(in, *math, "asinh", [](double x) { return std::asinh(x); });
     define_unary(in, *math, "atan", [](double x) { return std::atan(x); });
     define_unary(in, *math, "atanh", [](double x) { return std::atanh(x); });
-    define_unary(in, *math, "cbrt", [](double x) { return std::cbrt(x); });
+    define_unary(in, *math, "cbrt", [](double x) {
+        // The C library's cube root is a rounding off on some platforms
+        // (27 is not always 3); the nearest of the three candidates whose
+        // cube lands closest is the same everywhere.
+        if (!std::isfinite(x) || x == 0)
+            return x;
+        double const estimate = std::cbrt(x);
+        double best = estimate;
+        double best_error = std::abs(estimate * estimate * estimate - x);
+        for (double const candidate : { std::nextafter(estimate, -std::numeric_limits<double>::infinity()), std::nextafter(estimate, std::numeric_limits<double>::infinity()) }) {
+            double const error = std::abs(candidate * candidate * candidate - x);
+            if (error < best_error) {
+                best = candidate;
+                best_error = error;
+            }
+        }
+        return best;
+    });
     define_unary(in, *math, "ceil", [](double x) { return std::ceil(x); });
     define_unary(in, *math, "cos", [](double x) { return std::cos(x); });
     define_unary(in, *math, "cosh", [](double x) { return std::cosh(x); });

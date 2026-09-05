@@ -332,6 +332,7 @@ struct Label {
 // so the decision waits until the function body is finished.
 struct AnnexBCandidate {
     JsString* name;
+    FunctionDeclaration* declaration;
     std::vector<int> enclosing_scopes;
 };
 
@@ -651,6 +652,7 @@ bool Parser::Impl::pop_function()
         }
         if (clashes || fn.parameter_names.contains(candidate.name))
             continue;
+        candidate.declaration->annex_b_hoisted = true;
         if (fn.var_set.insert(candidate.name).second)
             fn.declarations->vars.push_back(candidate.name);
     }
@@ -728,8 +730,12 @@ bool Parser::Impl::declare_function(FunctionDeclaration* declaration, SourcePosi
     if (!fn.is_strict) {
         AnnexBCandidate candidate;
         candidate.name = name;
-        for (std::size_t i = 0; i + 1 < fn.scopes.size(); ++i)
-            candidate.enclosing_scopes.push_back(fn.scopes[i]->id);
+        candidate.declaration = declaration;
+        // A catch parameter is no obstacle: B.3.4 lets a var redeclare it.
+        for (std::size_t i = 0; i + 1 < fn.scopes.size(); ++i) {
+            if (!fn.scopes[i]->is_catch_parameter)
+                candidate.enclosing_scopes.push_back(fn.scopes[i]->id);
+        }
         fn.annex_b.push_back(std::move(candidate));
     }
     return true;

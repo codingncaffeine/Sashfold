@@ -339,6 +339,18 @@ public:
         : Object(prototype, Class::Error)
     {
     }
+    // The stack trace text captured at construction, read through the
+    // Error.prototype.stack accessor; null until it is captured.
+    JsString* stack() const { return m_stack; }
+    void set_stack(JsString* stack) { m_stack = stack; }
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_stack);
+    }
+
+private:
+    JsString* m_stack = nullptr;
 };
 
 class DateObject : public Object {

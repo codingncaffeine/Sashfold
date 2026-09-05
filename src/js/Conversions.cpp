@@ -163,7 +163,7 @@ Object* Interpreter::new_error(ErrorType type, JsString* message)
     if (message)
         error->put(PropertyKey::atom(atoms().message), Value::string(message), builtin_attributes);
     std::string const line = describe(Value::object(error));
-    error->put(PropertyKey::atom(atoms().stack), Value::string(m_heap->string(std::string_view(line))), builtin_attributes);
+    error->set_stack(m_heap->string(std::string_view(line)));
     return error;
 }
 
@@ -558,9 +558,36 @@ std::optional<bool> Interpreter::create_data_property(Object& object, PropertyKe
     return ok;
 }
 
+std::optional<bool> Interpreter::define_own_property(Object& object, PropertyKey const& key, PropertyDescriptor const& descriptor)
+{
+    // [[DefineOwnProperty]] with the part of ArraySetLength (§10.4.2.4
+    // steps 3–5) that runs script and throws: an array's new length must
+    // be the same number as ToUint32 and ToNumber make of it.
+    if (object.is_array() && key.is_atom() && key.as_atom() == atoms().length && descriptor.value) {
+        Roots const roots(*this);
+        root(Value::object(&object));
+        root(*descriptor.value);
+        std::optional<std::uint32_t> const new_length = to_uint32(*descriptor.value);
+        if (!new_length)
+            return std::nullopt;
+        std::optional<double> const number_length = to_number(*descriptor.value);
+        if (!number_length)
+            return std::nullopt;
+        if (static_cast<double>(*new_length) != *number_length)
+            return throw_range_error("Invalid array length");
+        PropertyDescriptor converted = descriptor;
+        converted.value = Value::number(static_cast<double>(*new_length));
+        return object.define_own_property(key, converted);
+    }
+    return object.define_own_property(key, descriptor);
+}
+
 std::optional<bool> Interpreter::define_property_or_throw(Object& object, PropertyKey const& key, PropertyDescriptor const& descriptor)
 {
-    if (!object.define_own_property(key, descriptor))
+    std::optional<bool> const defined = define_own_property(object, key, descriptor);
+    if (!defined)
+        return std::nullopt;
+    if (!*defined)
         return throw_type_error("Cannot redefine property: " + key_description(key));
     return true;
 }

@@ -1287,6 +1287,15 @@ void install_array(Interpreter& in)
         return Value::object(*array);
     });
     install_prototype(in, prototype);
+    {
+        // §23.1.3.41: the names a `with` over an array must not see.
+        Heap::NoCollect const unscopables_guard(in.heap());
+        Object* unscopables = in.new_object(nullptr);
+        unscopables->set_prototype(nullptr);
+        for (std::string_view name : { "at", "copyWithin", "entries", "fill", "find", "findIndex", "findLast", "findLastIndex", "flat", "flatMap", "includes", "keys", "toReversed", "toSorted", "toSpliced", "values" })
+            unscopables->put(in.key(name), Value::boolean(true));
+        prototype.put(PropertyKey::symbol(in.atoms().symbol_unscopables), Value::object(unscopables), Configurable);
+    }
 }
 
 }

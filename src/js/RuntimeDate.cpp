@@ -777,7 +777,9 @@ void install_date(Interpreter& in)
             return std::nullopt;
         if (std::isnan(*t))
             return Value::number(nan);
-        return Value::number(-local_time_zone_offset_minutes(*t));
+        // §21.4.4.11: (t − LocalTime(t)) / msPerMinute — computed as written,
+        // so a zone at UTC answers +0, not the −0 a negated offset gives.
+        return Value::number((*t - local_time(*t)) / ms_per_minute);
     });
 
     // The setters share one shape (§21.4.4.20–35): the arguments coerce
@@ -810,10 +812,10 @@ void install_date(Interpreter& in)
                 return std::nullopt;
             double t = *tv;
             if (std::isnan(t)) {
-                if (first != 0) {
-                    this_date(this_value).set_time_value(nan);
+                // §21.4.4.20 step 4: a NaN date stays as it is — the
+                // argument's valueOf may have set a new time meanwhile.
+                if (first != 0)
                     return Value::number(nan);
-                }
                 t = 0;
             } else if (local) {
                 t = local_time(t);

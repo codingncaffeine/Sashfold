@@ -417,6 +417,9 @@ struct FunctionDeclaration : Statement {
     {
     }
     FunctionNode* function = nullptr;
+    // B.3.2.1: a block-level declaration in sloppy code that the parser
+    // also hoisted as a var; evaluating it copies the block binding out.
+    bool annex_b_hoisted = false;
 };
 
 struct ExpressionStatement : Statement {

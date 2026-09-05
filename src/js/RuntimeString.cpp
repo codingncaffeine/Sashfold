@@ -326,6 +326,32 @@ std::optional<Value> regexp_builtin_exec(Interpreter& in, RegExpObject& regexp, 
             groups->put(in.key(std::u16string_view(name)), result->element(static_cast<std::uint32_t>(index)));
         result->put(PropertyKey::atom(in.atoms().groups), Value::object(groups));
     }
+    if (flags.has_indices) {
+        // MakeMatchIndicesIndexPairArray (§22.2.7.8): one [start, end] per
+        // group, undefined where the group did not take part, and a
+        // `groups` of the named ones.
+        ArrayObject* indices = in.new_array();
+        in.root(Value::object(indices));
+        for (std::size_t k = 0; k < match->groups.size(); ++k) {
+            Value pair = Value::undefined();
+            if (match->groups[k]) {
+                Value const bounds[2] = { Value::number(static_cast<double>(match->groups[k]->first)), Value::number(static_cast<double>(match->groups[k]->second)) };
+                pair = Value::object(in.new_array(bounds));
+            }
+            indices->set_element(static_cast<std::uint32_t>(k), pair);
+        }
+        if (names.empty()) {
+            indices->put(PropertyKey::atom(in.atoms().groups), Value::undefined());
+        } else {
+            Object* index_groups = in.new_object(nullptr);
+            index_groups->set_prototype(nullptr);
+            in.root(Value::object(index_groups));
+            for (auto const& [name, index] : names)
+                index_groups->put(in.key(std::u16string_view(name)), indices->element(static_cast<std::uint32_t>(index)));
+            indices->put(PropertyKey::atom(in.atoms().groups), Value::object(index_groups));
+        }
+        result->put(in.key("indices"), Value::object(indices));
+    }
     return Value::object(result);
 }
 
@@ -887,7 +913,7 @@ void install_regexp_library(Interpreter& in)
     define_flag_getter(in, prototype, "dotAll", &RegexFlags::dot_all);
     define_flag_getter(in, prototype, "unicode", &RegexFlags::unicode);
     define_flag_getter(in, prototype, "sticky", &RegexFlags::sticky);
-    define_flag_getter(in, prototype, "hasIndices", nullptr);
+    define_flag_getter(in, prototype, "hasIndices", &RegexFlags::has_indices);
     define_flag_getter(in, prototype, "unicodeSets", nullptr);
     {
         Heap::NoCollect const symbol_guard(in.heap());

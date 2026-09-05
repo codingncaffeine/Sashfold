@@ -624,7 +624,9 @@ void test_function_properties()
     CHECK_JS_TRUE(in, "(function () { function F(a) { this.a = a; } var G = F.bind({ ignored: true }, 5); var g = new G(); return g.a === 5 && g instanceof F && g instanceof G; })()");
     CHECK_JS_STRING(in, "(function () { function f() {} var g = f.bind().bind(); return g.name; })()", "bound bound f");
     CHECK_JS_THROWS(in, "(function () { 'use strict'; return (function () {}).caller; })()", "TypeError");
-    CHECK_JS_THROWS(in, "(function () {}).arguments", "TypeError");
+    CHECK_JS_TRUE(in, "(function () {}).arguments === null && (function () {}).caller === null");
+    CHECK_JS_THROWS(in, "(function () { 'use strict'; }).arguments", "TypeError");
+    CHECK_JS_THROWS(in, "(() => 1).caller", "TypeError");
     CHECK_JS_TRUE(in, "Function.prototype() === undefined");
     CHECK_JS_TRUE(in, "Object.getPrototypeOf(function () {}) === Function.prototype");
     CHECK_JS_TRUE(in, "Object.getPrototypeOf(Function.prototype) === Object.prototype");

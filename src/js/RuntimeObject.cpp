@@ -805,7 +805,7 @@ std::optional<Value> construct_error(Interpreter& interp, ErrorType type, Args a
         error->put(PropertyKey::atom(interp.atoms().cause), *cause, builtin_attributes);
     }
     std::string const line = interp.describe(Value::object(error));
-    error->put(PropertyKey::atom(interp.atoms().stack), Value::string(interp.string(std::string_view(line))), builtin_attributes);
+    error->set_stack(interp.string(std::string_view(line)));
     return Value::object(error);
 }
 
@@ -876,7 +876,10 @@ void install_reflect(Interpreter& in)
         std::optional<PropertyDescriptor> const desc = to_property_descriptor(interp, argument(args, 2));
         if (!desc)
             return std::nullopt;
-        return Value::boolean((*object)->define_own_property(*key, *desc));
+        std::optional<bool> const defined = interp.define_own_property(**object, *key, *desc);
+        if (!defined)
+            return std::nullopt;
+        return Value::boolean(*defined);
     });
     define_method(in, *reflect, "deleteProperty", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.deleteProperty");
@@ -1210,6 +1213,42 @@ void install_error(Interpreter& in)
         prototype.put(PropertyKey::atom(in.atoms().name), Value::string(in.atom(spec.name)), builtin_attributes);
         prototype.put(PropertyKey::atom(in.atoms().message), Value::string(in.atoms().empty), builtin_attributes);
     }
+    // The error-stack accessor: `stack` reads the text captured at
+    // construction, and a write lands as an own data property of the
+    // receiver (SetterThatIgnoresPrototypeProperties), never on the
+    // prototype itself.
+    define_accessor(
+        in, *i.error_prototype, "stack",
+        [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
+            if (!this_value.is_object())
+                return interp.throw_type_error("Error.prototype.stack getter called on non-object");
+            Object* object = this_value.as_object();
+            if (!object->is_error())
+                return Value::undefined();
+            JsString* stack = static_cast<ErrorObject*>(object)->stack();
+            return Value::string(stack ? stack : interp.atoms().empty);
+        },
+        [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
+            if (!this_value.is_object())
+                return interp.throw_type_error("Error.prototype.stack setter called on non-object");
+            Value const value = argument(args, 0);
+            if (!value.is_string())
+                return interp.throw_type_error("Error.prototype.stack setter called with a non-string value");
+            Object* object = this_value.as_object();
+            if (object == interp.intrinsics().error_prototype)
+                return interp.throw_type_error("Error.prototype.stack setter called on Error.prototype itself");
+            Interpreter::Roots const roots(interp);
+            interp.root(this_value);
+            interp.root(value);
+            PropertyKey const key = PropertyKey::atom(interp.atoms().stack);
+            if (!object->get_own_property(key)) {
+                if (!interp.create_data_property(*object, key, value))
+                    return std::nullopt;
+            } else if (!interp.set(*object, key, value, true)) {
+                return std::nullopt;
+            }
+            return Value::undefined();
+        });
     define_method(in, *i.error_prototype, "toString", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
         // §20.5.3.4.
         if (!this_value.is_object())

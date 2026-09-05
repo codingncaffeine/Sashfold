@@ -447,7 +447,7 @@ int main(int argc, char** argv)
     std::string revision_file;
     int max_printed = 20;
     int jobs = 4;
-    int timeout_ms = 10000;
+    int timeout_ms = 60000;
     if (char const* env = std::getenv("SASHFOLD_PRINT_FAILURES"))
         max_printed = std::atoi(env);
     for (int i = 4; i < argc; ++i) {

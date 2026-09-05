@@ -2066,6 +2066,9 @@ std::optional<RegexFlags> RegexFlags::parse(std::u16string_view text)
     for (char16_t const c : text) {
         bool* field = nullptr;
         switch (c) {
+        case u'd':
+            field = &flags.has_indices;
+            break;
         case u'g':
             field = &flags.global;
             break;
@@ -2097,6 +2100,8 @@ std::optional<RegexFlags> RegexFlags::parse(std::u16string_view text)
 std::u16string RegexFlags::to_string() const
 {
     std::u16string out;
+    if (has_indices)
+        out += u'd';
     if (global)
         out += u'g';
     if (ignore_case)
