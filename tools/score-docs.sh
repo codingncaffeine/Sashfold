@@ -18,11 +18,11 @@ dirs=$(grep -c '"path":' docs/wpt.json)
 # three other figures that are not this one.
 count() { grep -c "$1" "$2" || true; }
 [ "$(count 'tests over CSS2' README.md)" = 1 ] || { printf 'README headline row moved\n'; exit 1; }
-[ "$(count 'by directory' docs/index.html)" = 1 ] || { printf 'the score tile moved\n'; exit 1; }
+[ "$(count 'WPT CSS reference tests</a>' docs/index.html)" = 1 ] || { printf 'the score tile moved\n'; exit 1; }
 
 sed -i -E "s|[0-9,]+ tests over CSS2|${comma} tests over CSS2|" README.md
-sed -i -E "s|\*\*[0-9]+ / [0-9]+ \([0-9.]+%\)\*\*|**${passed} / ${total} (${pct}%)**|" README.md
-sed -i -E "/by directory/ s|[0-9]+ / [0-9]+|${passed} / ${total}|; /by directory/ s|[0-9.]+%, by directory|${pct}%, by directory|" docs/index.html
+sed -i -E "/tests over CSS2/ s|\*\*[0-9]+ / [0-9]+ \([0-9.]+%\)\*\*|**${passed} / ${total} (${pct}%)**|" README.md
+sed -i -E "/WPT CSS reference tests<\/a>/ s|[0-9]+ / [0-9]+|${passed} / ${total}|; /WPT CSS reference tests<\/a>/ s|[0-9.]+%, by directory|${pct}%, by directory|" docs/index.html
 
 printf '%s / %s (%s%%) over %s directories (CSS2 and %s css-* ones)\n' "$passed" "$total" "$pct" "$dirs" "$((dirs - 1))"
 grep -n "$passed / $total" README.md docs/index.html

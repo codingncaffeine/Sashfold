@@ -78,6 +78,20 @@ struct Intrinsics {
     // The registry behind Symbol.for and Symbol.keyFor (§20.4.2.2): an
     // ordinary object no script can reach, mapping each key to its symbol.
     Object* symbol_registry = nullptr;
+    // The iterator prototypes (§27.1.2, §23.1.5.2, §22.1.5.1), and
+    // %Array.prototype.values%, which arguments objects carry as @@iterator.
+    Object* iterator_prototype = nullptr;
+    Object* array_iterator_prototype = nullptr;
+    Object* string_iterator_prototype = nullptr;
+    Function* array_prototype_values = nullptr;
+};
+
+// An Iterator Record (§7.4.1): the iterator, its next method read once,
+// and whether it has been stepped to its end or has thrown.
+struct IteratorRecord {
+    Value iterator;
+    Value next_method;
+    bool done = false;
 };
 
 // The outcome of running a script or calling into it from the outside.
@@ -182,6 +196,19 @@ public:
     std::optional<bool> is_regexp(Value const&);
     std::optional<double> length_of_array_like(Object&);
     std::optional<std::vector<Value>> create_list_from_array_like(Value const&);
+    // The iterator protocol (§7.4). A record's two values are the caller's
+    // to root across the loop; every step may run script.
+    std::optional<IteratorRecord> get_iterator(Value const& iterable); // TypeError when not iterable
+    std::optional<IteratorRecord> get_iterator_from_method(Value const& iterable, Value const& method);
+    // IteratorStepValue: true with the value in `out`; false at the end;
+    // nullopt on a throw. Either of the last two marks the record done.
+    std::optional<bool> iterator_step(IteratorRecord&, Value& out);
+    // IteratorClose. With `throwing` an exception is pending and stays the
+    // outcome whatever return() does; otherwise false means return() threw
+    // or answered a non-object, and that error is now the pending one.
+    bool iterator_close(IteratorRecord const&, bool throwing);
+    std::optional<std::vector<Value>> iterable_to_list(Value const& iterable);
+    Object* create_iter_result(Value const& value, bool done); // { value, done }
     // The typeof string (§13.5.3).
     JsString* type_of(Value const&);
 

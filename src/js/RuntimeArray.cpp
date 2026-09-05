@@ -1244,9 +1244,9 @@ void install_array(Interpreter& in)
         return array_from_values(interp, values);
     });
     define_method(in, *constructor, "from", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
-        // §23.1.2.1 over an array-like: the realm has no iterator
-        // protocol yet, so a string is read by code unit and an iterable
-        // object by its length.
+        // §23.1.2.1: an iterable is walked with its @@iterator, read once;
+        // anything else is read as an array-like by its length. Both build
+        // the realm's Array (no subclass constructors).
         Interpreter::Roots const roots(interp);
         Value const items = argument(args, 0);
         Value const mapper = argument(args, 1);
@@ -1256,6 +1256,49 @@ void install_array(Interpreter& in)
         interp.root(items);
         interp.root(mapper);
         interp.root(this_argument);
+        std::optional<Value> const using_iterator = interp.get_method(items, PropertyKey::symbol(interp.atoms().symbol_iterator));
+        if (!using_iterator)
+            return std::nullopt;
+        if (!using_iterator->is_undefined()) {
+            interp.root(*using_iterator);
+            std::optional<IteratorRecord> record = interp.get_iterator_from_method(items, *using_iterator);
+            if (!record)
+                return std::nullopt;
+            interp.root(record->iterator);
+            interp.root(record->next_method);
+            ArrayObject* array = interp.new_array();
+            interp.root(Value::object(array));
+            double k = 0;
+            while (true) {
+                Interpreter::Roots const element_roots(interp);
+                Value next;
+                std::optional<bool> const stepped = interp.iterator_step(*record, next);
+                if (!stepped)
+                    return std::nullopt;
+                if (!*stepped) {
+                    if (!set_length(interp, *array, k))
+                        return std::nullopt;
+                    return Value::object(array);
+                }
+                interp.root(next);
+                Value mapped = next;
+                if (!mapper.is_undefined()) {
+                    Value const arguments[2] = { next, Value::number(k) };
+                    std::optional<Value> const result = interp.call(mapper, this_argument, arguments);
+                    if (!result) {
+                        interp.iterator_close(*record, true);
+                        return std::nullopt;
+                    }
+                    mapped = *result;
+                    interp.root(mapped);
+                }
+                if (!create_at(interp, *array, k, mapped)) {
+                    interp.iterator_close(*record, true);
+                    return std::nullopt;
+                }
+                k += 1;
+            }
+        }
         std::optional<Object*> const array_like = interp.to_object(items);
         if (!array_like)
             return std::nullopt;

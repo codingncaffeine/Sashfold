@@ -29,6 +29,7 @@ void install_string(Interpreter&); // String — RuntimeString.cpp
 void install_regexp(Interpreter&); // RegExp — RuntimeString.cpp
 void install_json(Interpreter&); // JSON — RuntimeJson.cpp
 void install_date(Interpreter&); // Date — RuntimeDate.cpp
+void install_iterators(Interpreter&); // %IteratorPrototype%, the array and string iterators, Array.prototype.values and kin — RuntimeIterator.cpp
 
 // Helpers shared by the installers and the bindings.
 

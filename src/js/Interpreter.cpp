@@ -524,8 +524,8 @@ struct Interpreter::Impl {
 
     // CreateUnmappedArgumentsObject / CreateMappedArgumentsObject
     // (§10.4.4.6, §10.4.4.7). The mapped form aliases the parameters for
-    // sloppy functions with simple, distinct parameter lists; Symbol.iterator
-    // is not installed, since the realm has no iterators yet.
+    // sloppy functions with simple, distinct parameter lists; both carry
+    // %Array.prototype.values% as their @@iterator.
     Object* make_arguments_object(ScriptFunction& function, Environment* environment, std::span<Value const> arguments, bool mapped)
     {
         Heap::NoCollect const guard(heap());
@@ -542,6 +542,7 @@ struct Interpreter::Impl {
         for (std::size_t i = 0; i < arguments.size(); ++i)
             object->put(PropertyKey::index(static_cast<std::uint32_t>(i)), arguments[i]);
         object->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(arguments.size())), builtin_attributes);
+        object->put(PropertyKey::symbol(atoms().symbol_iterator), Value::object(self.intrinsics().array_prototype_values), builtin_attributes);
         if (mapped)
             object->put(PropertyKey::atom(atoms().callee), Value::object(&function), builtin_attributes);
         else
@@ -1750,6 +1751,8 @@ struct Interpreter::Impl {
             return execute_for(*static_cast<ForStatement const*>(statement), cx, labels);
         case NodeType::ForInStatement:
             return execute_for_in(*static_cast<ForInStatement const*>(statement), cx, labels);
+        case NodeType::ForOfStatement:
+            return execute_for_of(*static_cast<ForOfStatement const*>(statement), cx, labels);
         case NodeType::WhileStatement:
             return execute_while(*static_cast<WhileStatement const*>(statement), cx, labels);
         case NodeType::DoWhileStatement:
@@ -2110,6 +2113,84 @@ struct Interpreter::Impl {
         }
     }
 
+    Completion execute_for_of(ForOfStatement const& loop, Context& cx, std::span<JsString* const> labels)
+    {
+        // §14.7.5.6 ForIn/OfHeadEvaluation (iterate) and §14.7.5.7
+        // ForIn/OfBodyEvaluation: the subject's iterator is stepped to its
+        // end; a body that leaves the loop any other way closes it, with
+        // the body's own throw still the outcome when there is one.
+        Environment* const saved = cx.lexical;
+        bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
+        JsString* const bound_name = loop.declaration ? loop.declaration->declarations[0].name : nullptr;
+        auto restore = [&](Completion completion) {
+            cx.lexical = saved;
+            return completion;
+        };
+        if (lexical) {
+            // The head's expression sees the name in its dead zone.
+            cx.lexical = new_environment(saved);
+            cx.lexical->declare(bound_name, Value::undefined(), true, false);
+        }
+        std::optional<Value> const subject = evaluate(loop.iterable, cx);
+        cx.lexical = saved;
+        if (!subject)
+            return Completion::thrown();
+        Roots const roots(self);
+        self.root(*subject);
+        std::optional<IteratorRecord> record = self.get_iterator(*subject);
+        if (!record)
+            return Completion::thrown();
+        self.root(record->iterator);
+        self.root(record->next_method);
+        Value& last = self.root(Value::undefined());
+        // Leaving other than by exhaustion: IteratorClose, whose own
+        // failure replaces a normal exit and never a throw. A termination
+        // is not a completion a script may observe: no return() runs for it.
+        auto leave = [&](Completion const& completion) {
+            bool const throwing = completion.type == Completion::Type::Throw;
+            if (throwing && self.m_terminated)
+                return restore(completion);
+            bool const closed = self.iterator_close(*record, throwing);
+            if (!closed && !throwing)
+                return restore(Completion::thrown());
+            return restore(finish_loop(completion, last));
+        };
+        while (true) {
+            Roots const iteration_roots(self);
+            Value value;
+            std::optional<bool> const stepped = self.iterator_step(*record, value);
+            if (!stepped)
+                return restore(Completion::thrown());
+            if (!*stepped)
+                return restore(Completion::normal(last));
+            self.root(value);
+            if (lexical) {
+                cx.lexical = new_environment(saved);
+                cx.lexical->declare(bound_name, value, loop.declaration->kind != VariableDeclaration::Kind::Const, true);
+            } else if (loop.declaration) {
+                Reference reference = resolve(bound_name, cx.lexical);
+                if (!put_value(reference, value, cx))
+                    return leave(Completion::thrown());
+            } else {
+                std::optional<Reference> reference = evaluate_reference(loop.target, cx);
+                if (!reference)
+                    return leave(Completion::thrown());
+                self.root(reference->base);
+                self.root(reference->key_value);
+                if (!put_value(*reference, value, cx))
+                    return leave(Completion::thrown());
+            }
+            Completion const body = execute(loop.body, cx, {});
+            cx.lexical = saved;
+            if (!loop_continues(body, labels))
+                return leave(body);
+            if (!body.value.is_empty())
+                last = body.value;
+            if (!step())
+                return restore(Completion::thrown());
+        }
+    }
+
     Completion execute_try(TryStatement const& statement, Context& cx)
     {
         // §14.15.3. A termination (the interrupt) is not an exception a
@@ -2288,6 +2369,10 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.regexp_constructor);
     tracer.visit(i.eval);
     tracer.visit(i.throw_type_error);
+    tracer.visit(i.iterator_prototype);
+    tracer.visit(i.array_iterator_prototype);
+    tracer.visit(i.string_iterator_prototype);
+    tracer.visit(i.array_prototype_values);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);

@@ -101,6 +101,8 @@ public:
         Date,
         RegExp,
         Arguments,
+        ArrayIterator, // %ArrayIteratorPrototype%'s instances (§23.1.5)
+        StringIterator, // %StringIteratorPrototype%'s instances (§22.1.5)
         Math,
         Json,
         Global,
@@ -392,6 +394,62 @@ private:
     Regex m_regex;
     JsString* m_source;
     JsString* m_flags;
+};
+
+// %ArrayIteratorPrototype%'s instances (§23.1.5.1): the array-like being
+// walked, how far, and whether a step yields the index, the element or
+// both. Exhausted, it lets the array go.
+class ArrayIteratorObject : public Object {
+public:
+    enum class Kind : std::uint8_t { Keys, Values, Entries };
+
+    ArrayIteratorObject(Object* prototype, Object* iterated, Kind kind)
+        : Object(prototype, Class::ArrayIterator)
+        , m_iterated(iterated)
+        , m_kind(kind)
+    {
+    }
+
+    Object* iterated() const { return m_iterated; }
+    Kind kind() const { return m_kind; }
+    double next_index() const { return m_next_index; }
+    void set_next_index(double index) { m_next_index = index; }
+    void finish() { m_iterated = nullptr; }
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_iterated);
+    }
+
+private:
+    Object* m_iterated;
+    double m_next_index = 0;
+    Kind m_kind;
+};
+
+// %StringIteratorPrototype%'s instances (§22.1.5): the string and the
+// position of the next code point.
+class StringIteratorObject : public Object {
+public:
+    StringIteratorObject(Object* prototype, JsString* string)
+        : Object(prototype, Class::StringIterator)
+        , m_string(string)
+    {
+    }
+
+    JsString* string() const { return m_string; }
+    std::size_t position() const { return m_position; }
+    void set_position(std::size_t position) { m_position = position; }
+    void finish() { m_string = nullptr; }
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_string);
+    }
+
+private:
+    JsString* m_string;
+    std::size_t m_position = 0;
 };
 
 // A scope (§9.1): the bindings a block, function or script declares, or —

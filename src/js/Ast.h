@@ -65,6 +65,7 @@ enum class NodeType : std::uint8_t {
     IfStatement,
     ForStatement,
     ForInStatement,
+    ForOfStatement,
     WhileStatement,
     DoWhileStatement,
     ReturnStatement,
@@ -483,6 +484,17 @@ struct ForInStatement : Statement {
     VariableDeclaration* declaration = nullptr; // `for (var x in …)`
     Expression* target = nullptr; // `for (x in …)`; declaration is null then
     Expression* object = nullptr;
+    Statement* body = nullptr;
+};
+
+struct ForOfStatement : Statement {
+    ForOfStatement()
+        : Statement(NodeType::ForOfStatement)
+    {
+    }
+    VariableDeclaration* declaration = nullptr; // `for (const x of …)`
+    Expression* target = nullptr; // `for (x of …)`; declaration is null then
+    Expression* iterable = nullptr;
     Statement* body = nullptr;
 };
 

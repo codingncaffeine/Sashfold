@@ -63,6 +63,8 @@ std::string class_name(Object const& object)
     case Object::Class::Date: return "Date";
     case Object::Class::RegExp: return "RegExp";
     case Object::Class::Arguments: return "Arguments";
+    case Object::Class::ArrayIterator: return "Array Iterator";
+    case Object::Class::StringIterator: return "String Iterator";
     case Object::Class::Math: return "Math";
     case Object::Class::Json: return "JSON";
     case Object::Class::Global: return "global";

@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8519 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8517 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1315,10 +1315,6 @@ css/CSS2/floats/floats-wrap-bfc-005.xht
 css/CSS2/floats/floats-wrap-bfc-007.xht
 css/CSS2/floats/floats-wrap-bfc-008.html
 css/CSS2/floats/floats-wrap-bfc-outside-001.xht
-css/CSS2/floats/floats-wrap-bfc-with-margin-001.html
-css/CSS2/floats/floats-wrap-bfc-with-margin-001a.tentative.html
-css/CSS2/floats/floats-wrap-bfc-with-margin-002.tentative.html
-css/CSS2/floats/floats-wrap-bfc-with-margin-003.tentative.html
 css/CSS2/floats/floats-wrap-bfc-with-margin-006.tentative.html
 css/CSS2/floats/floats-wrap-bfc-with-margin-007.tentative.html
 css/CSS2/floats/floats-wrap-bfc-with-margin-008.tentative.html
@@ -6660,8 +6656,6 @@ css/css-grid/grid-lanes/overflow/grid-lanes-overflowing-container-014.html
 css/css-grid/grid-lanes/row-empty-grid-lanes-container-001.html
 css/css-grid/grid-lanes/row-empty-grid-lanes-container-002.html
 css/css-grid/grid-lanes/row-empty-grid-lanes-container-content-editable-001.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/alignment/column-subgrid-alignment-in-subgridded-axis-002.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/alignment/row-subgrid-alignment-in-subgridded-axis-002.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-002.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-003.html
@@ -6822,6 +6816,7 @@ css/css-grid/placement/grid-placement-using-named-grid-lines-003.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-004.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-005.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-006.html
+css/css-grid/placement/grid-placement-using-named-grid-lines-007.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-008.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-009.html
 css/css-grid/placement/grid-template-areas-must-keep-named-columns-order-001.html
@@ -7365,9 +7360,11 @@ css/css-text/text-align/text-align-start-last-default.html
 css/css-text/text-align/text-align-start-last-end.html
 css/css-text/text-align/text-align-start-last-justify.html
 css/css-text/text-align/text-align-start-last-start.html
+css/css-text/text-autospace/text-autospace-dynamic-text-001.html
 css/css-text/text-autospace/text-autospace-dynamic-text-002.html
 css/css-text/text-autospace/text-autospace-dynamic-text-003.html
 css/css-text/text-autospace/text-autospace-dynamic-text-004.html
+css/css-text/text-autospace/text-autospace-edit-001.html
 css/css-text/text-autospace/text-autospace-elements-005.html
 css/css-text/text-autospace/text-autospace-elements-005b.html
 css/css-text/text-autospace/text-autospace-mixed-001.html
@@ -7575,6 +7572,7 @@ css/css-text/white-space/pre-001.html
 css/css-text/white-space/pre-float-001.html
 css/css-text/white-space/pre-line-051.html
 css/css-text/white-space/pre-line-052.html
+css/css-text/white-space/pre-line-with-space-and-newline.html
 css/css-text/white-space/pre-wrap-018.html
 css/css-text/white-space/pre-wrap-051.html
 css/css-text/white-space/pre-wrap-052.html

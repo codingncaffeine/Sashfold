@@ -2336,19 +2336,18 @@ Statement* Parser::Impl::parse_for()
     }
 
     if (m_current.is(Keyword::In) || (m_current.is_identifier(u"of") && !m_current.has_escape)) {
-        if (!m_current.is(Keyword::In)) {
-            fail_unsupported("for-of loops");
-            return nullptr;
-        }
+        bool const is_of = !m_current.is(Keyword::In);
+        std::string_view const loop_name = is_of ? "in for-of loop" : "in for-in loop";
         if (declaration) {
             if (declaration->declarations.size() != 1) {
-                fail(head_start, "Invalid left-hand side in for-in loop: Must have a single binding");
+                fail(head_start, "Invalid left-hand side " + std::string(loop_name) + ": Must have a single binding");
                 return nullptr;
             }
-            // B.3.5: `for (var x = 1 in o)` survives in sloppy code only.
+            // B.3.5: `for (var x = 1 in o)` survives in sloppy code only; a
+            // for-of head never takes an initializer.
             if (declaration->declarations[0].init
-                && (declaration->kind != VariableDeclaration::Kind::Var || is_strict())) {
-                fail(head_start, "for-in loop variable declaration may not have an initializer");
+                && (is_of || declaration->kind != VariableDeclaration::Kind::Var || is_strict())) {
+                fail(head_start, std::string(is_of ? "for-of" : "for-in") + " loop variable declaration may not have an initializer");
                 return nullptr;
             }
             finish(declaration);
@@ -2356,10 +2355,30 @@ Statement* Parser::Impl::parse_for()
             && !m_parenthesised.contains(target)) {
             fail_unsupported("destructuring patterns");
             return nullptr;
-        } else if (!check_simple_target(target, head_start, "in for-in loop")) {
+        } else if (is_of && target->type == NodeType::Identifier && !m_parenthesised.contains(target)
+            && static_cast<Identifier const*>(target)->name->equals(u"async")) {
+            // §14.7.5.1: `for (async of …)` is kept apart from an async
+            // arrow's head; in parentheses the name is a name again.
+            fail(head_start, "The left-hand side of a for-of loop may not be 'async'");
+            return nullptr;
+        } else if (!check_simple_target(target, head_start, loop_name)) {
             return nullptr;
         }
-        advance(); // in
+        advance(); // in, or of
+        if (is_of) {
+            auto* statement = make<ForOfStatement>(start);
+            statement->declaration = declaration;
+            statement->target = target;
+            statement->iterable = parse_assignment(true);
+            if (!statement->iterable || !expect(Punctuator::RightParen))
+                return nullptr;
+            statement->body = parse_iteration_body();
+            if (!statement->body)
+                return nullptr;
+            if (lexical_scope)
+                pop_scope();
+            return finish(statement);
+        }
         auto* statement = make<ForInStatement>(start);
         statement->declaration = declaration;
         statement->target = target;
@@ -3270,6 +3289,20 @@ struct Dumper {
                 expression(loop->target);
             out += ' ';
             expression(loop->object);
+            out += ' ';
+            statement(loop->body);
+            out += ')';
+            break;
+        }
+        case NodeType::ForOfStatement: {
+            auto const* loop = static_cast<ForOfStatement const*>(s);
+            out += "(for-of ";
+            if (loop->declaration)
+                declarators(*loop->declaration);
+            else
+                expression(loop->target);
+            out += ' ';
+            expression(loop->iterable);
             out += ' ';
             statement(loop->body);
             out += ')';

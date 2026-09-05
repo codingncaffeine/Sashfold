@@ -34,6 +34,7 @@ test/language/types
 test/language/white-space
 # The built-in library.
 test/built-ins/Array
+test/built-ins/ArrayIteratorPrototype
 test/built-ins/Boolean
 test/built-ins/Date
 test/built-ins/Error
@@ -52,6 +53,7 @@ test/built-ins/parseFloat
 test/built-ins/parseInt
 test/built-ins/RegExp
 test/built-ins/String
+test/built-ins/StringIteratorPrototype
 test/built-ins/Symbol
 test/built-ins/undefined
 test/built-ins/eval

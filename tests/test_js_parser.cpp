@@ -443,7 +443,17 @@ void test_statements()
     CHECK_EQ(parse("for (let k = 1 in o) x"), "for-in loop variable declaration may not have an initializer");
     CHECK_EQ(parse("for (var a, b in o) x"), "Invalid left-hand side in for-in loop: Must have a single binding");
     CHECK_EQ(parse("for (a = 1 in o) x"), "Invalid left-hand side in for-in loop");
-    CHECK_EQ(parse("for (x of y) z"), "for-of loops are not supported yet");
+    CHECK_EQ(parse("for (x of y) z"), program_of("(for-of (id x) (id y) (expr (id z)))"));
+    CHECK_EQ(parse("for (const x of y) z"), program_of("(for-of (const (x)) (id y) (expr (id z)))"));
+    CHECK_EQ(parse("for (var x = 1 of y) z"), "for-of loop variable declaration may not have an initializer");
+    CHECK_EQ(parse("for (let a, b of o) x"), "Invalid left-hand side in for-of loop: Must have a single binding");
+    CHECK_EQ(parse("for (a = 1 of o) x"), "Invalid left-hand side in for-of loop");
+    // On one line `async of` reads as an async arrow's head, which the
+    // parser declines by name; split by a line terminator it is a name
+    // again, and the for-of rule is what refuses it.
+    CHECK_EQ(parse("for (async of o) x"), "async functions are not supported yet");
+    CHECK_EQ(parse("for (async\nof o) x"), "The left-hand side of a for-of loop may not be 'async'");
+    CHECK_EQ(parse("for ((async) of o) x"), program_of("(for-of (id async) (id o) (expr (id x)))"));
     CHECK_EQ(parse("for (var x = (a in b);;) {}"), program_of("(for (var (x (binary in (id a) (id b)))) - - (block))"));
     CHECK_EQ(parse("for (let in o) x"), program_of("(for-in (id let) (id o) (expr (id x)))"));
     CHECK_EQ(parse("for (let;;) x"), program_of("(for (expr (id let)) - - (expr (id x)))"));

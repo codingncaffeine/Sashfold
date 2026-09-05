@@ -415,37 +415,57 @@ void install_object_statics(Interpreter& in, Object& constructor)
         return value;
     });
     define_method(in, constructor, "fromEntries", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
-        // §20.1.2.7 over an array-like of pairs: the realm has no
-        // iterator protocol yet, so the entries are read by index.
+        // §20.1.2.7: AddEntriesFromIterable over the iterable's pairs. A
+        // pair that is not an object, or a read that throws, closes the
+        // iterator with that error as the outcome.
         Interpreter::Roots const roots(interp);
         Value const iterable = argument(args, 0);
         if (iterable.is_nullish())
             return interp.throw_type_error("Object.fromEntries requires an iterable");
-        std::optional<std::vector<Value>> const entries = interp.create_list_from_array_like(iterable);
-        if (!entries)
-            return std::nullopt;
-        for (Value const& entry : *entries)
-            interp.root(entry);
+        interp.root(iterable);
         Object* object = interp.new_object();
         interp.root(Value::object(object));
-        for (Value const& entry : *entries) {
-            if (!entry.is_object())
-                return interp.throw_type_error("Iterator value " + interp.describe(entry) + " is not an entry object");
-            std::optional<Value> const k = interp.get(*entry.as_object(), PropertyKey::index(0));
-            if (!k)
+        std::optional<IteratorRecord> record = interp.get_iterator(iterable);
+        if (!record)
+            return std::nullopt;
+        interp.root(record->iterator);
+        interp.root(record->next_method);
+        while (true) {
+            Interpreter::Roots const entry_roots(interp);
+            Value entry;
+            std::optional<bool> const stepped = interp.iterator_step(*record, entry);
+            if (!stepped)
                 return std::nullopt;
+            if (!*stepped)
+                return Value::object(object);
+            interp.root(entry);
+            if (!entry.is_object()) {
+                interp.throw_type_error("Iterator value " + interp.describe(entry) + " is not an entry object");
+                interp.iterator_close(*record, true);
+                return std::nullopt;
+            }
+            std::optional<Value> const k = interp.get(*entry.as_object(), PropertyKey::index(0));
+            if (!k) {
+                interp.iterator_close(*record, true);
+                return std::nullopt;
+            }
             interp.root(*k);
             std::optional<Value> const v = interp.get(*entry.as_object(), PropertyKey::index(1));
-            if (!v)
+            if (!v) {
+                interp.iterator_close(*record, true);
                 return std::nullopt;
+            }
             interp.root(*v);
             std::optional<PropertyKey> const key = interp.to_property_key(*k);
-            if (!key)
+            if (!key) {
+                interp.iterator_close(*record, true);
                 return std::nullopt;
-            if (!interp.create_data_property(*object, *key, *v))
+            }
+            if (!interp.create_data_property(*object, *key, *v)) {
+                interp.iterator_close(*record, true);
                 return std::nullopt;
+            }
         }
-        return Value::object(object);
     });
     define_method(in, constructor, "getOwnPropertyDescriptor", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         Interpreter::Roots const roots(interp);
@@ -1451,6 +1471,7 @@ void install_intrinsics(Interpreter& in)
     install_regexp(in);
     install_json(in);
     install_date(in);
+    install_iterators(in);
     install_reflect(in);
     install_console(in);
 }
