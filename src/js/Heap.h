@@ -185,6 +185,7 @@ struct WellKnownAtoms {
     JsString* next = nullptr;
     JsString* description = nullptr;
     JsString* raw = nullptr;
+    JsString* then = nullptr;
     JsString* comma = nullptr; // ","
 
     // Well-known symbols (§6.1.5.1) the runtime consults.

@@ -265,6 +265,10 @@ RunResult run_one(std::filesystem::path const& root, std::string const& source, 
 
     std::string program = mode == Mode::Strict ? "\"use strict\";\n" + source : source;
     js::Outcome const outcome = interpreter.run_script(program, "test");
+    // The job queue drains before the verdict, as a host's microtask
+    // checkpoint would: an async test's $DONE runs from a reaction job.
+    if (!interpreter.terminated())
+        interpreter.run_jobs({});
     if (interpreter.terminated())
         return { false, "timeout" };
 

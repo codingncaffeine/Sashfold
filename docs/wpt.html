@@ -42,16 +42,16 @@
 <p><a href="./">← sashfold.com</a></p>
 <h1>Web Platform Tests</h1>
 <p>Sashfold's pass rate on the CSS <em>reference tests</em> of the <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a> — the tests that need no scripting: a test page and a reference page must render to the same pixels. Every test and every reference is rendered by Sashfold itself, headless, at the suite's 800×600 viewport, with the built-in face and the fonts the tests bring along. The comparison follows the suite's own rules (pixel-identical unless a test declares a fuzziness allowance; references may chain).</p>
-<div class="stat"><span class="big">8503 / 14616</span><span class="what">CSS reference tests passing — 58.2%</span></div>
+<div class="stat"><span class="big">8508 / 14616</span><span class="what">CSS reference tests passing — 58.2%</span></div>
 <table>
 <thead><tr><th>Directory</th><th></th><th>Passing</th><th>Rate</th></tr></thead>
 <tbody>
-<tr><td><code>css/CSS2</code></td><td><div class="bar"><span style="width: 81%"></span></div></td><td class="num">5036 / 6169</td><td class="num">81.6%</td></tr>
-<tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 37%"></span></div></td><td class="num">264 / 711</td><td class="num">37.1%</td></tr>
+<tr><td><code>css/CSS2</code></td><td><div class="bar"><span style="width: 81%"></span></div></td><td class="num">5037 / 6169</td><td class="num">81.7%</td></tr>
+<tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 37%"></span></div></td><td class="num">265 / 711</td><td class="num">37.3%</td></tr>
 <tr><td><code>css/css-box</code></td><td><div class="bar"><span style="width: 7%"></span></div></td><td class="num">5 / 69</td><td class="num">7.2%</td></tr>
 <tr><td><code>css/css-cascade</code></td><td><div class="bar"><span style="width: 32%"></span></div></td><td class="num">14 / 43</td><td class="num">32.6%</td></tr>
-<tr><td><code>css/css-color</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">126 / 307</td><td class="num">41.0%</td></tr>
-<tr><td><code>css/css-display</code></td><td><div class="bar"><span style="width: 25%"></span></div></td><td class="num">55 / 213</td><td class="num">25.8%</td></tr>
+<tr><td><code>css/css-color</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">127 / 307</td><td class="num">41.4%</td></tr>
+<tr><td><code>css/css-display</code></td><td><div class="bar"><span style="width: 26%"></span></div></td><td class="num">56 / 213</td><td class="num">26.3%</td></tr>
 <tr><td><code>css/css-flexbox</code></td><td><div class="bar"><span style="width: 61%"></span></div></td><td class="num">619 / 1003</td><td class="num">61.7%</td></tr>
 <tr><td><code>css/css-fonts</code></td><td><div class="bar"><span style="width: 40%"></span></div></td><td class="num">149 / 371</td><td class="num">40.2%</td></tr>
 <tr><td><code>css/css-grid</code></td><td><div class="bar"><span style="width: 35%"></span></div></td><td class="num">586 / 1643</td><td class="num">35.7%</td></tr>
@@ -62,7 +62,7 @@
 <tr><td><code>css/css-values</code></td><td><div class="bar"><span style="width: 41%"></span></div></td><td class="num">87 / 211</td><td class="num">41.2%</td></tr>
 <tr><td><code>css/selectors</code></td><td><div class="bar"><span style="width: 34%"></span></div></td><td class="num">79 / 226</td><td class="num">35.0%</td></tr>
 <tr><td><code>css/css-variables</code></td><td><div class="bar"><span style="width: 50%"></span></div></td><td class="num">91 / 182</td><td class="num">50.0%</td></tr>
-<tr><td><code>css/css-writing-modes</code></td><td><div class="bar"><span style="width: 51%"></span></div></td><td class="num">590 / 1139</td><td class="num">51.8%</td></tr>
+<tr><td><code>css/css-writing-modes</code></td><td><div class="bar"><span style="width: 51%"></span></div></td><td class="num">591 / 1139</td><td class="num">51.9%</td></tr>
 </tbody>
 </table>
 <p class="muted">Scored 2026-09-05 against WPT revision <code>b1a7025f8bc1</code>. The count is every reference test the suite's manifest rules find under these directories, including the ones that wait on scripts (Sashfold runs none yet, so those fail). XHTML test files are parsed by the HTML parser. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>

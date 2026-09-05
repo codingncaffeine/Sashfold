@@ -657,7 +657,7 @@ Realm::~Realm()
     // the interpreter is destroyed here, the extra documents after it
     // (member order), the page's document by whoever owns it, later.
     m_internals->timers.clear();
-    m_internals->microtasks.clear();
+    m_internals->interpreter.clear_jobs();
     m_internals->interpreter.heap().remove_root_provider(this);
 }
 
@@ -873,19 +873,16 @@ void Realm::perform_microtask_checkpoint()
     if (in.in_checkpoint)
         return;
     in.in_checkpoint = true;
-    std::size_t budget = 1000000;
-    while (!in.microtasks.empty() && budget-- > 0) {
-        std::unique_ptr<js::Persistent> task = std::move(in.microtasks.front());
-        in.microtasks.pop_front();
-        js::Interpreter::Roots const roots(in.interpreter);
-        js::Value const callback = in.interpreter.root(task->value());
-        in.call_reporting(callback, js::Value::undefined(), {}, "microtask");
-        if (in.interpreter.terminated())
-            break;
-    }
-    if (budget == 0 && !in.microtasks.empty()) {
-        in.microtasks.clear();
-        in.console("error", "a million microtasks in one checkpoint: the rest were dropped");
+    {
+        // The queue is the interpreter's: queueMicrotask callbacks and
+        // promise reactions in one order. The Entry accounts the time;
+        // its own checkpoint on the way out finds in_checkpoint set.
+        Internals::Entry const entry(in);
+        in.interpreter.run_jobs([&in](js::Value const& thrown) {
+            if (in.interpreter.terminated())
+                return; // the host stopped the script; nothing to report but the count
+            in.report_uncaught(thrown, "microtask");
+        });
     }
     in.in_checkpoint = false;
 }

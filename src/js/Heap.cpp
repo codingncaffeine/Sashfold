@@ -330,6 +330,7 @@ void Heap::intern_well_known()
     a.next = atom(std::string_view("next"));
     a.description = atom(std::string_view("description"));
     a.raw = atom(std::string_view("raw"));
+    a.then = atom(std::string_view("then"));
     a.comma = atom(std::string_view(","));
 
     // The well-known symbols (§6.1.5.1) are rooted by collect() itself;

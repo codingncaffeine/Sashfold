@@ -91,6 +91,26 @@ struct Intrinsics {
     Object* weak_set_prototype = nullptr;
     Object* map_iterator_prototype = nullptr;
     Object* set_iterator_prototype = nullptr;
+    // Promise (§27.2) and AggregateError (§20.5.7).
+    Object* promise_prototype = nullptr;
+    Function* promise_constructor = nullptr;
+    Object* aggregate_error_prototype = nullptr;
+    Function* aggregate_error_constructor = nullptr;
+};
+
+// A job (§9.5): what the host runs at its microtask checkpoints, in the
+// order it was queued. A callback job is a queueMicrotask; a reaction job
+// (§27.2.2.1) runs one PromiseReaction with the settled value; a
+// resolve-thenable job (§27.2.2.2) calls a thenable's `then` with fresh
+// resolving functions for the promise.
+struct Job {
+    enum class Kind : std::uint8_t { Callback, Reaction, ResolveThenable };
+    Kind kind = Kind::Callback;
+    PromiseReaction reaction; // Reaction
+    Value argument; // Reaction: the value or reason; ResolveThenable: the thenable
+    Value then; // Callback: the function; ResolveThenable: the thenable's then
+    std::vector<Value> arguments; // Callback
+    PromiseObject* promise = nullptr; // ResolveThenable
 };
 
 // An Iterator Record (§7.4.1): the iterator, its next method read once,
@@ -232,6 +252,10 @@ public:
     // A native function with `name` and `length` set as §10.3.3 has them.
     NativeFunction* new_native(std::string_view name, int length, NativeFunction::Callback,
         NativeFunction::ConstructCallback = {});
+    // A native function carrying traced slots (see ClosureFunction).
+    ClosureFunction* new_closure(std::string_view name, int length, std::vector<Value> slots, ClosureFunction::Callback);
+    // An AggregateError with `errors` as given (an array) and a message.
+    Object* new_aggregate_error(Value const& errors, std::string_view message);
     Object* new_error(ErrorType, std::string_view message);
     Object* new_error(ErrorType, JsString* message);
     // ScriptFunction from an AST node, closed over `scope` (§10.2.3 + MakeConstructor).
@@ -262,6 +286,27 @@ public:
         return m_roots.back();
     }
     void trace_roots(Tracer&) override;
+
+    // The job queue (§9.5). Promise reactions and queueMicrotask callbacks
+    // share one FIFO; the host drains it at every microtask checkpoint
+    // with run_jobs, or one job at a time with run_next_job. A rejection
+    // nobody has handled by the end of a drain is reported to on_console
+    // once, as "Uncaught (in promise) …".
+    void enqueue_job(Job);
+    void enqueue_microtask(Value const& callback, std::span<Value const> arguments);
+    bool has_pending_jobs() const { return !m_jobs.empty(); }
+    void clear_jobs();
+    // Runs the oldest job; false when there was none. A throw the job could
+    // not turn into a rejection (a callback job's, or a broken capability)
+    // lands in *thrown when given, else is dropped.
+    bool run_next_job(Value* thrown);
+    // Runs jobs until the queue is empty (or the script is terminated),
+    // reporting each throw, then the unhandled rejections.
+    void run_jobs(std::function<void(Value const&)> const& report);
+    // HostPromiseRejectionTracker (§27.2.1.9): `rejected` = the "reject"
+    // operation, else "handle".
+    void track_rejection(PromiseObject&, bool rejected);
+    void report_unhandled_rejections();
 
     // Direct eval (§19.2.1.1) from the evaluator; `eval` the function is
     // the indirect form. Exposed for the bindings' inline event handlers.
@@ -313,6 +358,8 @@ private:
     // push: a vector would move its elements when it grows.
     std::deque<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
+    std::deque<Job> m_jobs; // traced
+    std::vector<PromiseObject*> m_unhandled_rejections; // traced; rejected with no handler yet
     Value m_exception;
     bool m_has_exception = false;
     int m_call_depth = 0;

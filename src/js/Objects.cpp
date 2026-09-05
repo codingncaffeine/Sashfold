@@ -958,6 +958,32 @@ std::optional<Value> NativeFunction::construct(Interpreter& interpreter, std::sp
     return m_construct(interpreter, arguments, new_target);
 }
 
+std::optional<Value> ClosureFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
+{
+    return m_callback(interpreter, *this, this_value, arguments);
+}
+
+void ClosureFunction::trace(Tracer& tracer)
+{
+    Object::trace(tracer);
+    for (Value const& slot : m_slots)
+        tracer.visit(slot);
+}
+
+void PromiseObject::trace(Tracer& tracer)
+{
+    Object::trace(tracer);
+    tracer.visit(m_result);
+    for (std::vector<PromiseReaction> const* reactions : { &m_fulfill_reactions, &m_reject_reactions }) {
+        for (PromiseReaction const& reaction : *reactions) {
+            tracer.visit(reaction.handler);
+            tracer.visit(reaction.capability_promise);
+            tracer.visit(reaction.capability_resolve);
+            tracer.visit(reaction.capability_reject);
+        }
+    }
+}
+
 std::optional<Value> BoundFunction::call(Interpreter& interpreter, Value const&, std::span<Value const> arguments)
 {
     // [[Call]] of a bound function (§10.4.1.1): the bound this replaces

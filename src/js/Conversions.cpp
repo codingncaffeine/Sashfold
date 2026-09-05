@@ -70,6 +70,7 @@ std::string class_name(Object const& object)
     case Object::Class::WeakMap: return "WeakMap";
     case Object::Class::WeakSet: return "WeakSet";
     case Object::Class::CollectionIterator: return "Collection Iterator";
+    case Object::Class::Promise: return "Promise";
     case Object::Class::Math: return "Math";
     case Object::Class::Json: return "JSON";
     case Object::Class::Global: return "global";
@@ -149,6 +150,15 @@ NativeFunction* Interpreter::new_native(std::string_view name, int length, Nativ
     // new, so nothing may collect until the function holds it.
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<NativeFunction>(m_intrinsics.function_prototype, std::move(call), std::move(construct));
+    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
+    function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
+    return function;
+}
+
+ClosureFunction* Interpreter::new_closure(std::string_view name, int length, std::vector<Value> slots, ClosureFunction::Callback callback)
+{
+    Heap::NoCollect const guard(*m_heap);
+    auto* function = m_heap->allocate<ClosureFunction>(m_intrinsics.function_prototype, std::move(slots), std::move(callback));
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
     return function;

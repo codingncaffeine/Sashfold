@@ -271,7 +271,6 @@ struct Realm::Internals {
     int next_timer_id = 1;
     std::uint64_t next_sequence = 1;
     std::uint64_t next_listener_id = 1;
-    std::deque<std::unique_ptr<js::Persistent>> microtasks;
     bool in_checkpoint = false;
     // A deferred script, fetched when prepared and run when the parser is done.
     struct PendingScript {

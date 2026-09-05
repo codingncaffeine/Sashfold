@@ -108,6 +108,7 @@ public:
         WeakMap, // §24.3
         WeakSet, // §24.4
         CollectionIterator, // %MapIteratorPrototype% and %SetIteratorPrototype%'s instances (§24.1.5, §24.2.5)
+        Promise, // §27.2
         Math,
         Json,
         Global,
@@ -300,6 +301,36 @@ public:
 private:
     Callback m_call;
     ConstructCallback m_construct;
+};
+
+// A function written in C++ that carries values: the resolving functions
+// of a promise, a combinator's element functions, `finally`'s thunks. The
+// slots are traced, which a capture in a std::function could not be, so
+// a callback reaches its state through `self.slot(i)` and never by
+// capturing a cell.
+class ClosureFunction : public Function {
+public:
+    using Callback = std::function<std::optional<Value>(Interpreter&, ClosureFunction& self, Value const& this_value,
+        std::span<Value const> arguments)>;
+
+    ClosureFunction(Object* prototype, std::vector<Value> slots, Callback callback)
+        : Function(prototype)
+        , m_slots(std::move(slots))
+        , m_callback(std::move(callback))
+    {
+    }
+
+    Value const& slot(std::size_t index) const { return m_slots[index]; }
+    void set_slot(std::size_t index, Value const& value) { m_slots[index] = value; }
+    std::size_t slot_count() const { return m_slots.size(); }
+
+    std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
+    void trace(Tracer&) override;
+    std::size_t size_in_bytes() const override { return Object::size_in_bytes() + m_slots.size() * sizeof(Value); }
+
+private:
+    std::vector<Value> m_slots;
+    Callback m_callback;
 };
 
 // Function.prototype.bind's result (§10.4.1).
@@ -561,6 +592,61 @@ private:
     Kind m_kind;
     bool m_is_map;
     bool m_attached = true;
+};
+
+// A PromiseReaction Record (§27.2.1.2): what to do when a promise settles
+// — the handler, or none (the value or reason passes through), and the
+// capability of the promise `then` derived, or none (an await's).
+struct PromiseReaction {
+    enum class Type : std::uint8_t { Fulfill, Reject };
+    Type type = Type::Fulfill;
+    Value handler = Value::empty(); // empty = pass through
+    Value capability_promise = Value::empty(); // empty = no derived promise
+    Value capability_resolve = Value::empty();
+    Value capability_reject = Value::empty();
+};
+
+// A promise (§27.2.6): its state, its result once settled, and until
+// then the reactions waiting on each outcome. `handled` is
+// [[PromiseIsHandled]]: whether anything has ever asked for the outcome,
+// which decides whether a rejection is reported.
+class PromiseObject : public Object {
+public:
+    enum class State : std::uint8_t { Pending, Fulfilled, Rejected };
+
+    explicit PromiseObject(Object* prototype)
+        : Object(prototype, Class::Promise)
+    {
+    }
+
+    State state() const { return m_state; }
+    Value const& result() const { return m_result; }
+    std::vector<PromiseReaction>& fulfill_reactions() { return m_fulfill_reactions; }
+    std::vector<PromiseReaction>& reject_reactions() { return m_reject_reactions; }
+    // Settles a pending promise; both reaction lists are let go (the
+    // caller has taken the ones it will trigger).
+    void settle(State state, Value const& result)
+    {
+        m_state = state;
+        m_result = result;
+        m_fulfill_reactions.clear();
+        m_reject_reactions.clear();
+    }
+    bool is_handled() const { return m_handled; }
+    void set_handled() { m_handled = true; }
+
+    void trace(Tracer&) override;
+    std::size_t size_in_bytes() const override
+    {
+        return Object::size_in_bytes() + (m_fulfill_reactions.size() + m_reject_reactions.size()) * sizeof(PromiseReaction);
+    }
+
+private:
+    std::vector<PromiseReaction> m_fulfill_reactions;
+    std::vector<PromiseReaction> m_reject_reactions;
+    Value m_result;
+    State m_state = State::Pending;
+    bool m_handled = false;
 };
 
 // %StringIteratorPrototype%'s instances (§22.1.5): the string and the

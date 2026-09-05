@@ -3415,9 +3415,26 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.weak_set_prototype);
     tracer.visit(i.map_iterator_prototype);
     tracer.visit(i.set_iterator_prototype);
+    tracer.visit(i.promise_prototype);
+    tracer.visit(i.promise_constructor);
+    tracer.visit(i.aggregate_error_prototype);
+    tracer.visit(i.aggregate_error_constructor);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);
+    for (Job const& job : m_jobs) {
+        tracer.visit(job.argument);
+        tracer.visit(job.then);
+        tracer.visit(job.reaction.handler);
+        tracer.visit(job.reaction.capability_promise);
+        tracer.visit(job.reaction.capability_resolve);
+        tracer.visit(job.reaction.capability_reject);
+        tracer.visit(job.promise);
+        for (Value const& argument : job.arguments)
+            tracer.visit(argument);
+    }
+    for (PromiseObject* promise : m_unhandled_rejections)
+        tracer.visit(promise);
     m_impl->trace(tracer);
 }
 

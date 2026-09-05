@@ -72,6 +72,7 @@ sashfold_test(test_js_iterator)
 sashfold_test(test_js_destructuring)
 sashfold_test(test_js_class)
 sashfold_test(test_js_collections)
+sashfold_test(test_js_promise)
 sashfold_test(test_bindings)
 
 add_executable(test_theme test_theme.cpp)

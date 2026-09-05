@@ -107,6 +107,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimeJson.cpp
   src/js/RuntimeNumber.cpp
   src/js/RuntimeObject.cpp
+  src/js/RuntimePromise.cpp
   src/js/RuntimeString.cpp
   src/js/Strings.cpp
 )

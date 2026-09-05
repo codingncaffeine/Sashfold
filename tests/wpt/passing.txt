@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8503 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8508 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5031,6 +5031,7 @@ css/CSS2/zindex/z-index-016.xht
 css/CSS2/zindex/z-index-017.xht
 css/CSS2/zindex/z-index-018.xht
 css/CSS2/zindex/z-index-019.xht
+css/CSS2/zindex/z-index-020.html
 css/CSS2/zindex/z-index-abspos-001.xht
 css/CSS2/zindex/z-index-abspos-002.xht
 css/CSS2/zindex/z-index-abspos-003.xht
@@ -5292,6 +5293,7 @@ css/css-backgrounds/css3-background-origin-padding-box.html
 css/css-backgrounds/css3-background-size-001.html
 css/css-backgrounds/css3-background-size-contain.html
 css/css-backgrounds/css3-background-size.html
+css/css-backgrounds/document-canvas-remove-body.html
 css/css-backgrounds/fieldset-inset-shadow.html
 css/css-backgrounds/first-letter-space-not-selected.html
 css/css-backgrounds/inline-background-rtl-001.html
@@ -5329,6 +5331,7 @@ css/css-color/background-color-hsl-004.html
 css/css-color/background-color-rgb-001.html
 css/css-color/background-color-rgb-002.html
 css/css-color/background-color-rgb-003.html
+css/css-color/body-opacity-0-to-1-stacking-context.html
 css/css-color/border-bottom-color.xht
 css/css-color/border-left-color.xht
 css/css-color/border-right-color.xht
@@ -5458,6 +5461,7 @@ css/css-display/display-contents-text-inherit.html
 css/css-display/display-flow-root-001.html
 css/css-display/display-flow-root-002.html
 css/css-display/display-none-inline-img.html
+css/css-display/order-dynamic.html
 css/css-display/run-in/counter-increment-applies-to-011.xht
 css/css-display/run-in/counter-reset-applies-to-011.xht
 css/css-display/run-in/font-style-applies-to-004.xht
@@ -8393,6 +8397,7 @@ css/css-writing-modes/vertical-alignment-007.xht
 css/css-writing-modes/vertical-alignment-srl-030.xht
 css/css-writing-modes/vertical-alignment-srl-032.xht
 css/css-writing-modes/vlr-text-orientation-sideways-alongside-vlr-floats.html
+css/css-writing-modes/vrl-inline-paint-invalidation.html
 css/css-writing-modes/vrl-text-orientation-sideways-alongside-vrl-floats.html
 css/css-writing-modes/wm-propagation-001.html
 css/css-writing-modes/wm-propagation-002.html

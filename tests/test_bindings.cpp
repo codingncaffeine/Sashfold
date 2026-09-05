@@ -577,7 +577,13 @@ void test_window_location_url_storage_navigator()
     CHECK(page->boolean("navigator.userAgent === 'Mozilla/5.0 TestAgent Sashfold/0.0' && navigator.language === 'en-US' && navigator.languages.length === 2 && navigator.onLine && navigator.cookieEnabled && !('serviceWorker' in navigator)"));
     CHECK(page->boolean("innerWidth === 1024 && innerHeight === 768 && screen.width === 1024 && devicePixelRatio === 1"));
     CHECK(page->boolean("matchMedia('(min-width: 500px)').matches && !matchMedia('(max-width: 500px)').matches && matchMedia('screen').media === 'screen'"));
-    CHECK(page->boolean("typeof fetch === 'undefined' && typeof XMLHttpRequest === 'undefined' && typeof Promise === 'undefined'"));
+    CHECK(page->boolean("typeof fetch === 'undefined' && typeof XMLHttpRequest === 'undefined' && typeof Promise === 'function'"));
+    // Promise reactions and queueMicrotask share the checkpoint's queue.
+    page->eval("var order = []; Promise.resolve().then(function () { order.push('reaction'); }); queueMicrotask(function () { order.push('microtask'); }); order.push('sync');");
+    CHECK_EQ(page->string("order.join(' ')"), "sync reaction microtask");
+    // An unhandled rejection is reported to the console once the checkpoint ends.
+    page->eval("Promise.reject(new TypeError('nobody listens'));");
+    CHECK(page->console.find("error:Uncaught (in promise) TypeError: nobody listens") != std::string::npos);
     CHECK_EQ(page->string("btoa('hello') + '|' + atob('aGVsbG8=') + '|' + atob(' aGk ')"), "aGVsbG8=|hello|hi");
     CHECK(page->throws("btoa('\\u0100')").starts_with("InvalidCharacterError"));
     CHECK(page->boolean("(function () { var o = structuredClone({ a: [1, { b: 2 }] }); return o.a[1].b === 2; })()"));

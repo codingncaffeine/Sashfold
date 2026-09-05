@@ -656,8 +656,9 @@ void install_window(Realm::Internals& in)
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))
             return interp.throw_type_error("Failed to execute 'queueMicrotask' on 'Window': parameter 1 is not of type 'Function'.");
-        Realm::Internals& internals = internals_of(interp);
-        internals.microtasks.push_back(std::make_unique<js::Persistent>(interp.heap(), callback));
+        // One FIFO with the promise reactions (HTML §8.1.7.3 queues both
+        // on the same microtask queue).
+        interp.enqueue_microtask(callback, {});
         return js::Value::undefined();
     });
 

@@ -33,6 +33,7 @@ test/language/statements
 test/language/types
 test/language/white-space
 # The built-in library.
+test/built-ins/AggregateError
 test/built-ins/Array
 test/built-ins/ArrayIteratorPrototype
 test/built-ins/Boolean
@@ -53,6 +54,7 @@ test/built-ins/Number
 test/built-ins/Object
 test/built-ins/parseFloat
 test/built-ins/parseInt
+test/built-ins/Promise
 test/built-ins/RegExp
 test/built-ins/Set
 test/built-ins/SetIteratorPrototype

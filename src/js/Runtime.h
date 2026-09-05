@@ -31,6 +31,7 @@ void install_json(Interpreter&); // JSON — RuntimeJson.cpp
 void install_date(Interpreter&); // Date — RuntimeDate.cpp
 void install_iterators(Interpreter&); // %IteratorPrototype%, the array and string iterators, Array.prototype.values and kin — RuntimeIterator.cpp
 void install_collections(Interpreter&); // Map, Set, WeakMap, WeakSet, their iterators, Map.groupBy and Object.groupBy — RuntimeCollections.cpp
+void install_promise(Interpreter&); // Promise, AggregateError, and the job queue's definitions — RuntimePromise.cpp
 
 // Helpers shared by the installers and the bindings.
 

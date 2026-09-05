@@ -2,15 +2,15 @@
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-05",
   "viewport": [800, 600],
-  "passed": 8503,
+  "passed": 8508,
   "total": 14616,
   "directories": [
-    { "path": "css/CSS2", "passed": 5036, "total": 6169 },
-    { "path": "css/css-backgrounds", "passed": 264, "total": 711 },
+    { "path": "css/CSS2", "passed": 5037, "total": 6169 },
+    { "path": "css/css-backgrounds", "passed": 265, "total": 711 },
     { "path": "css/css-box", "passed": 5, "total": 69 },
     { "path": "css/css-cascade", "passed": 14, "total": 43 },
-    { "path": "css/css-color", "passed": 126, "total": 307 },
-    { "path": "css/css-display", "passed": 55, "total": 213 },
+    { "path": "css/css-color", "passed": 127, "total": 307 },
+    { "path": "css/css-display", "passed": 56, "total": 213 },
     { "path": "css/css-flexbox", "passed": 619, "total": 1003 },
     { "path": "css/css-fonts", "passed": 149, "total": 371 },
     { "path": "css/css-grid", "passed": 586, "total": 1643 },
@@ -21,6 +21,6 @@
     { "path": "css/css-values", "passed": 87, "total": 211 },
     { "path": "css/selectors", "passed": 79, "total": 226 },
     { "path": "css/css-variables", "passed": 91, "total": 182 },
-    { "path": "css/css-writing-modes", "passed": 590, "total": 1139 }
+    { "path": "css/css-writing-modes", "passed": 591, "total": 1139 }
   ]
 }
