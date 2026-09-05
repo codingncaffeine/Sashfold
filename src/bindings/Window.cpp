@@ -53,6 +53,7 @@ bool StorageObject::remove_item(std::string_view key)
 std::optional<js::PropertyDescriptor> StorageObject::get_own_property(js::PropertyKey const& key) const
 {
     if (key.is_string()) {
+        js::Heap::NoCollect const guard(*heap()); // a fresh string the caller has not rooted yet
         std::string const name = key.is_index() ? std::to_string(key.as_index()) : key.as_atom()->to_utf8();
         if (std::string const* value = find(name))
             return js::PropertyDescriptor::data(js::Value::string(heap()->string(*value)), js::default_attributes);
@@ -438,6 +439,13 @@ Native deliver_observations(js::Interpreter& interpreter, js::Value const&, Args
     interpreter.root(js::Value::object(entries));
     std::vector<js::Value> const targets = std::move(observer->targets);
     observer->targets.clear();
+    // The targets left the observer, which was rooting them; and an entry is
+    // several cells, none reachable until it holds them. The callback runs
+    // after the guard, in its own block below.
+    for (js::Value const& target : targets)
+        interpreter.root(target);
+    {
+    js::Heap::NoCollect const no_collect(interpreter.heap());
     for (js::Value const& target : targets) {
         js::Object* entry = interpreter.new_object();
         entries->push(js::Value::object(entry));
@@ -466,6 +474,7 @@ Native deliver_observations(js::Interpreter& interpreter, js::Value const&, Args
             entry->put(interpreter.key("borderBoxSize"), js::Value::object(size_list));
             entry->put(interpreter.key("devicePixelContentBoxSize"), js::Value::object(size_list));
         }
+    }
     }
     js::Value const callback_arguments[2] = { js::Value::object(entries), observer_value };
     in.call_reporting(observer->callback, observer_value, callback_arguments, intersection ? "IntersectionObserver callback" : "ResizeObserver callback");

@@ -123,6 +123,9 @@ struct Runner {
     std::ostream& out;
     ScriptResult result;
     int line_number = 0;
+    // The pages' clock: virtual, moved by `advance`, so a timer fires when
+    // the script says and the run is the same on every machine.
+    double clock_ms = 0;
 
     void fail(std::string const& what)
     {
@@ -130,10 +133,16 @@ struct Runner {
         out << "FAIL line " << line_number << ": " << what << "\n";
     }
 
+    // Loads, then the scripts they set going, then the loads those queued.
     void settle()
     {
-        while (browser.has_pending_load())
-            browser.tick();
+        for (int round = 0; round < 4; ++round) {
+            while (browser.has_pending_load())
+                browser.tick();
+            browser.run_scripts();
+            if (!browser.has_pending_load())
+                break;
+        }
     }
 
     std::filesystem::path resolve(std::string const& text) const
@@ -377,6 +386,15 @@ struct Runner {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
+        } else if (command == "advance") {
+            auto const ms = int_arg(0);
+            if (!ms || *ms < 0)
+                return fail("advance: needs a number of milliseconds");
+            clock_ms += *ms;
+            settle();
+        } else if (command == "assert-console") {
+            if (browser.console_text().find(argument) == std::string::npos)
+                fail("assert-console: \"" + argument + "\" not found in:\n" + browser.console_text());
         } else if (command == "echo") {
             out << argument << "\n";
         } else {
@@ -392,11 +410,12 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
 {
     std::ifstream file(path);
     Runner runner { browser, std::filesystem::absolute(std::filesystem::path(path)).parent_path(),
-        update_goldens, out, {}, 0 };
+        update_goldens, out, {}, 0, 0 };
     if (!file) {
         runner.fail("cannot read script " + path);
         return runner.result;
     }
+    browser.set_clock([&runner] { return runner.clock_ms; });
     std::string line;
     while (std::getline(file, line)) {
         ++runner.line_number;

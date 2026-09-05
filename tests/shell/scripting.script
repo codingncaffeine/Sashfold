@@ -1,0 +1,26 @@
+# Scripts in the shell: an inline script runs as the page is parsed and its
+# console is readable; a click handler changes the page and can keep a
+# link from being followed; a timer fires when the clock is advanced; a
+# form control's value reaches the script. Everything is a data: URL so the
+# run needs no network.
+resize 800 500
+open data:text/html,<title>Untitled</title><p id="p">before</p><p><button id="b" onclick="document.getElementById('p').textContent = 'clicked'">Go</button></p><p><a href="data:text/html,Gone" onclick="event.preventDefault(); this.textContent = 'stayed'">Leave</a></p><p><input id="i" name="i"></p><p id="echo">empty</p><script>document.title = 'Scripted'; console.log('ready ' + document.readyState); setTimeout(function () { document.getElementById('p').textContent += ' timer'; console.log('fired'); }, 1000); document.addEventListener('DOMContentLoaded', function () { console.log('loaded ' + document.readyState); }); document.getElementById('i').addEventListener('input', function (e) { document.getElementById('echo').textContent = 'typed ' + e.target.value; });</script>
+assert-title Scripted
+assert-text before
+assert-console log: ready loading
+assert-console log: loaded interactive
+click-text Go
+assert-text clicked
+assert-no-text before
+click-text Leave
+assert-text stayed
+assert-title Scripted
+advance 999
+assert-no-text timer
+advance 1
+assert-text clicked timer
+assert-console log: fired
+focus i
+type ab
+assert-text typed ab
+assert-value i ab

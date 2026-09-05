@@ -41,6 +41,8 @@
 //   assert-hints <n>     the number of keyboard link-hint labels showing
 //   inspect-text <text>  devtools: inspect the element of the first run containing text
 //   assert-inspected <tag#id.class>   the inspected element
+//   advance <ms>         move the pages' clock forward and run the timers due
+//   assert-console <text>   the page's console output contains text
 //   echo <text>
 
 #include "ui/Browser.h"

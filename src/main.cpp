@@ -1,3 +1,5 @@
+#include "bindings/LayoutOracle.h"
+#include "bindings/Realm.h"
 #include "core/Bitmap.h"
 #include "core/Png.h"
 #include "core/Unicode.h"
@@ -25,6 +27,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -50,7 +53,7 @@ int usage(char const* program)
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
-              << "                 [--report out.json] [--dump-layout]\n"
+              << "                 [--report out.json] [--dump-layout] [--no-scripts] [--script-time ms]\n"
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
@@ -72,7 +75,9 @@ int usage(char const* program)
               << "          that fails renders the page the window would show. --max-height caps the\n"
               << "          picture, --thumbnail draws the viewport's top small, --report writes a\n"
               << "          JSON account of the load and the render, --dump-layout prints every\n"
-              << "          laid-out box and text run with its position and size.\n"
+              << "          laid-out box and text run with its position and size. The page's\n"
+              << "          scripts run first, their timers on a virtual clock given --script-time\n"
+              << "          milliseconds (3000); --no-scripts renders the markup alone.\n"
               << "  --bench times parse, style, layout and paint of a page, several runs.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
@@ -385,6 +390,8 @@ struct RenderExtras {
     int thumbnail_width = 320;
     int max_height = 0; // a cap on the picture's height; 0 keeps the page's
     bool dump_layout = false; // print the fragment tree after layout
+    bool scripts = true; // run the page's scripts before laying it out
+    double script_time_ms = 3000; // how much virtual time the page's timers get
 };
 
 // The fragment tree as text, one box per line — the instrument for a
@@ -630,10 +637,50 @@ int render_page(std::string const& path, std::string const& output, int viewport
     css::MediaContext const media { static_cast<float>(viewport_width),
         static_cast<float>(viewport_height) };
     auto const t0 = clock::now();
-    auto document = html::parse_document_bytes(loaded.bytes);
-    auto const t1 = clock::now();
     int sheet_failures = 0;
     int image_failures = 0;
+    // The page is parsed with its scripts running. Timers run on a virtual
+    // clock afterwards, up to the budget: what the page does in its first
+    // seconds, without waiting for them. A script that asks for a box gets
+    // the page laid out as it stands.
+    auto document = std::make_unique<dom::Document>();
+    bindings::LayoutOracle oracle(*document, loaded.url, sheet_fetcher(loaded), media);
+    std::unique_ptr<bindings::Realm> realm;
+    double script_clock = 0;
+    if (extras.scripts) {
+        bindings::HostHooks hooks;
+        hooks.fetch_script = [&loaded](net::Url const& url) -> std::optional<std::string> {
+            net::FetchResult result = loaded.loader->load_subresource(url, loaded.url, "");
+            if (!result.response || result.response->status != 200) {
+                std::cerr << "script " << url.serialize() << ": " << describe_failure(result) << "\n";
+                return std::nullopt;
+            }
+            return std::string(result.response->body.begin(), result.response->body.end());
+        };
+        hooks.now = [&script_clock] { return script_clock; };
+        hooks.should_stop = [started] { return clock::now() - started > std::chrono::seconds(30); };
+        oracle.install(hooks);
+        hooks.console = [](std::string_view level, std::string_view message) {
+            std::cerr << "console." << level << ": " << message << "\n";
+        };
+        hooks.viewport_width = media.width;
+        hooks.viewport_height = media.height;
+        hooks.user_agent = std::string(net::user_agent());
+        realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));
+        oracle.set_realm(realm.get());
+    }
+    html::parse_document_bytes_into(*document, loaded.bytes, realm.get());
+    if (realm) {
+        realm->document_parsed();
+        for (int i = 0; i < 200 && realm->has_pending_timers(); ++i) {
+            double const due = *realm->next_timer_due();
+            if (due > extras.script_time_ms)
+                break;
+            script_clock = std::max(script_clock, due);
+            realm->run_pending();
+        }
+    }
+    auto const t1 = clock::now();
     std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, &loaded.url,
         sheet_fetcher(loaded, &sheet_failures), media);
     std::vector<text::PageFont> const fonts
@@ -708,7 +755,16 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << " },\n"
             << "  \"images\": { \"count\": " << images.size() << ", \"failed\": " << image_failures
             << " },\n"
-            << "  \"fonts\": " << fonts.size() << ",\n"
+            << "  \"fonts\": " << fonts.size() << ",\n";
+        if (realm) {
+            bindings::ScriptStats const& scripts = realm->stats();
+            out << "  \"scripts\": { \"run\": " << scripts.scripts_run << ", \"failed\": " << scripts.scripts_failed
+                << ", \"skipped\": " << scripts.scripts_skipped << ", \"external\": " << scripts.external_fetched
+                << ", \"external_failed\": " << scripts.external_failed << ", \"timers\": " << scripts.timers_fired
+                << ", \"events\": " << scripts.events_dispatched << ", \"errors\": " << scripts.uncaught_errors
+                << ", \"ms\": " << static_cast<long>(scripts.script_ms + 0.5) << " },\n";
+        }
+        out
             << "  \"connections\": { \"opened\": " << connections.opened << ", \"reused\": "
             << connections.reused << ", \"retried\": " << connections.retried << " },\n";
         FeatureCensus const census = feature_census(sheets);
@@ -1036,6 +1092,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             window->present(browser.frame()); // the "Loading" frame, before the synchronous fetch
             browser.tick();
         }
+        browser.run_scripts(); // the pages' timers that came due
         if (browser.needs_paint())
             window->present(browser.frame());
         std::string const title = browser.window_title();
@@ -1058,8 +1115,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             }
         }
-        if (!browser.has_pending_load())
-            window->wait(theme_path.empty() ? -1 : 500);
+        if (!browser.has_pending_load()) {
+            // Sleep until input, the theme check, or the next page timer.
+            int timeout = theme_path.empty() ? -1 : 500;
+            if (std::optional<double> const due = browser.next_timer_ms()) {
+                int const ms = static_cast<int>(std::ceil(*due));
+                timeout = timeout < 0 ? ms : std::min(timeout, ms);
+            }
+            window->wait(timeout);
+        }
     }
     return 0;
 }
@@ -1130,6 +1194,13 @@ int main(int argc, char** argv)
             update_goldens = true;
         } else if (arg == "--dump-layout") {
             extras.dump_layout = true;
+        } else if (arg == "--no-scripts") {
+            extras.scripts = false;
+        } else if (arg == "--script-time") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            extras.script_time_ms = std::max(0, std::atoi(text.c_str()));
         } else if (arg == "--runs") {
             std::string text;
             if (!value_after(i, text))

@@ -19,9 +19,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sashfold::ui {
@@ -47,6 +49,18 @@ public:
         (void)first_party;
         (void)referrer;
         return { std::nullopt, "this loader serves documents only" };
+    }
+    // document.cookie: the Cookie header the page would send, and a
+    // Set-Cookie line a script wrote. A loader without a jar keeps none.
+    virtual std::string cookies_for(net::Url const& url)
+    {
+        (void)url;
+        return {};
+    }
+    virtual void set_cookie(net::Url const& url, std::string_view set_cookie_line)
+    {
+        (void)url;
+        (void)set_cookie_line;
     }
 };
 
@@ -122,6 +136,21 @@ public:
     bool has_pending_load() const;
     // Performs one queued load; true when it did.
     bool tick();
+
+    // --- Scripts ------------------------------------------------------------
+    // Runs every timer due on any tab's page and brings the active tab's
+    // styles and layout up to date with what its scripts changed; true
+    // when something ran. The window loop and the replay call it after
+    // input, and again when next_timer_ms has elapsed.
+    bool run_scripts();
+    // Milliseconds until the earliest pending timer of any tab; nullopt
+    // when none is pending.
+    std::optional<double> next_timer_ms() const;
+    // The clock the pages' timers run on, in ms; wall time unless set. The
+    // replay gives a virtual one so a timer fires when the script says.
+    void set_clock(std::function<double()> now);
+    // The active page's console output, one line per call, oldest first.
+    std::string console_text() const;
 
     // --- Output -------------------------------------------------------------
     Bitmap const& frame(); // paints when something changed

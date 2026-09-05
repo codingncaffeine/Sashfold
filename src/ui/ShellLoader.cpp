@@ -2,8 +2,10 @@
 
 #include "core/Ascii.h"
 
+#include <chrono>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace sashfold::ui {
 
@@ -108,6 +110,21 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url con
     options.cache = &m_cache;
     options.pool = &m_pool;
     return net::fetch(url, options);
+}
+
+std::string ShellLoader::cookies_for(net::Url const& url)
+{
+    using namespace std::chrono;
+    // The page is its own first party: what document.cookie sees is what
+    // a navigation to the page would send.
+    return m_cookies.cookie_header(url, nullptr, duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+}
+
+void ShellLoader::set_cookie(net::Url const& url, std::string_view set_cookie_line)
+{
+    using namespace std::chrono;
+    std::vector<net::Header> const headers { net::Header { "Set-Cookie", std::string(set_cookie_line) } };
+    m_cookies.store(url, nullptr, headers, duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
 }
 
 }

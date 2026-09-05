@@ -1,6 +1,8 @@
 #include "ui/Browser.h"
 #include "ui/Forms.h"
 
+#include "bindings/LayoutOracle.h"
+#include "bindings/Realm.h"
 #include "core/Ascii.h"
 #include "core/Unicode.h"
 #include "css/StyleResolver.h"
@@ -18,8 +20,10 @@
 #include "ui/Reader.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <utility>
 
 namespace sashfold::ui {
@@ -288,7 +292,15 @@ struct Browser::Impl {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
         std::unique_ptr<dom::Document> document;
+        // The page's scripts: declared after the document so that it goes
+        // first — its wrappers point into the tree.
+        std::unique_ptr<bindings::Realm> realm;
+        // The realm's mutation count the styles and layout below reflect;
+        // when the realm has moved on, they are computed again before use.
+        std::uint64_t page_mutations = 0;
+        std::vector<std::string> console; // the page's console output, oldest first
         std::vector<css::SheetSource> sheets; // the page's stylesheets, kept so a resize can restyle
+        std::string sheet_signature; // which elements carried them, so a script change elsewhere keeps them
         std::vector<text::PageFont> fonts; // the fonts its @font-face rules brought along
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
         css::MediaContext style_media;
@@ -393,6 +405,12 @@ struct Browser::Impl {
     std::vector<Hint> hints;
 
     bool devtools_open = false; // the panel under the content: DOM tree, box and style
+
+    // The clock the pages' timers run on (ms); wall time unless the replay
+    // installs a virtual one. And when the current entry into script began,
+    // for the slow-script stop.
+    std::function<double()> clock;
+    std::chrono::steady_clock::time_point script_started = std::chrono::steady_clock::now();
 
     Bitmap frame;
     bool dirty = true;
@@ -867,9 +885,262 @@ struct Browser::Impl {
         stop_hints(); // the labels pointed into the old layout
     }
 
+    // --- Scripts ---------------------------------------------------------------------
+
+    static double wall_ms()
+    {
+        using namespace std::chrono;
+        return static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count())
+            / 1000.0;
+    }
+
+    double script_now() const { return clock ? clock() : wall_ms(); }
+
+    // The tab a document belongs to. Tabs move when the vector grows, so a
+    // hook keeps the document and looks its tab up each time.
+    Tab* tab_of(dom::Document const* document)
+    {
+        for (Tab& tab : tabs) {
+            if (tab.document.get() == document)
+                return &tab;
+        }
+        return nullptr;
+    }
+
+    std::size_t index_of(Tab const& tab) const { return static_cast<std::size_t>(&tab - tabs.data()); }
+
+    // Styles and layout are brought up to date with what scripts changed
+    // since they were last computed. Called before anything reads them.
+    void ensure_fresh(Tab& tab)
+    {
+        if (!tab.realm || !tab.document || tab.page_mutations == tab.realm->mutation_count())
+            return;
+        refresh_page(tab);
+        dirty = true;
+    }
+
+    // What the stylesheets are: the elements that carry them, so that a
+    // script change elsewhere in the tree does not recompile every sheet.
+    static std::string sheet_signature(dom::Node const& node)
+    {
+        std::string signature;
+        if (node.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(node);
+            if (element.is_html("style")) {
+                signature += "s" + std::to_string(reinterpret_cast<std::uintptr_t>(&element)) + ":";
+                for (dom::Node const* child : element.children()) {
+                    if (child->is_text())
+                        signature += std::to_string(static_cast<dom::Text const*>(child)->data.size()) + ",";
+                }
+            } else if (element.is_html("link")) {
+                signature += "l" + std::to_string(reinterpret_cast<std::uintptr_t>(&element)) + ":";
+                if (dom::Attr const* href = element.find_attribute("href"))
+                    signature += href->value;
+                if (dom::Attr const* rel = element.find_attribute("rel"))
+                    signature += rel->value;
+                if (dom::Attr const* media = element.find_attribute("media"))
+                    signature += media->value;
+                signature += ";";
+            }
+        }
+        for (dom::Node const* child : node.children())
+            signature += sheet_signature(*child);
+        return signature;
+    }
+
+    static bool has_unfetched_image(dom::Node const& node, layout::ImageMap const& images)
+    {
+        if (node.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(node);
+            if (element.is_html("img") && !images.contains(&element))
+                return true;
+        }
+        for (dom::Node const* child : node.children()) {
+            if (has_unfetched_image(*child, images))
+                return true;
+        }
+        return false;
+    }
+
+    // The page's hooks: what its scripts ask of the shell. Each keeps the
+    // document, never the Tab, and looks the tab up when called.
+    std::unique_ptr<bindings::Realm> make_realm(Tab& tab, net::Url const& url)
+    {
+        dom::Document* const document = tab.document.get();
+        net::Url const page_url = url;
+        bindings::HostHooks hooks;
+        hooks.fetch_script = [this, page_url](net::Url const& target) -> std::optional<std::string> {
+            net::FetchResult result = loader.load_subresource(target, page_url, referrer_for(&page_url, target));
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            return std::string(result.response->body.begin(), result.response->body.end());
+        };
+        hooks.now = [this] { return script_now(); };
+        hooks.should_stop = [this] {
+            return std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);
+        };
+        hooks.layout_box = [this, document](dom::Element const& element) -> std::optional<bindings::LayoutBox> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            ensure_fresh(*owner);
+            return bindings::find_element_box(owner->layout.root, element);
+        };
+        hooks.computed_style = [this, document](dom::Element const& element) -> css::ComputedStyle const* {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return nullptr;
+            ensure_fresh(*owner);
+            auto const it = owner->styles.find(&element);
+            return it == owner->styles.end() ? nullptr : &it->second;
+        };
+        hooks.navigate = [this, document](net::Url const& target) {
+            if (Tab* const owner = tab_of(document))
+                queue(index_of(*owner), target, Mode::Push);
+        };
+        hooks.scroll_to = [this, document](int, int y) {
+            if (Tab* const owner = tab_of(document)) {
+                ensure_fresh(*owner);
+                set_scroll(*owner, y);
+            }
+        };
+        hooks.scroll_position = [this, document]() -> std::pair<int, int> {
+            Tab* const owner = tab_of(document);
+            return { 0, owner ? owner->scroll_y : 0 };
+        };
+        hooks.cookie_get = [this, page_url] { return loader.cookies_for(page_url); };
+        hooks.cookie_set = [this, page_url](std::string_view line) { loader.set_cookie(page_url, line); };
+        hooks.control_value = [this, document](dom::Element const& element) -> std::optional<std::string> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            auto const it = owner->controls.states.find(&element);
+            if (it == owner->controls.states.end())
+                return std::nullopt;
+            return it->second.value;
+        };
+        hooks.set_control_value = [this, document](dom::Element const& element, std::string_view value) {
+            if (Tab* const owner = tab_of(document)) {
+                layout::ControlState& state = state_of(*owner, element);
+                state.value = std::string(value);
+                state.caret = decode_utf8(*state.value).size();
+            }
+        };
+        hooks.control_checked = [this, document](dom::Element const& element) -> std::optional<bool> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            auto const it = owner->controls.states.find(&element);
+            if (it == owner->controls.states.end())
+                return std::nullopt;
+            return it->second.checked;
+        };
+        hooks.set_control_checked = [this, document](dom::Element const& element, bool checked) {
+            if (Tab* const owner = tab_of(document))
+                state_of(*owner, element).checked = checked;
+        };
+        hooks.focus = [this, document](dom::Element const* element) {
+            if (Tab* const owner = tab_of(document)) {
+                owner->controls.focused = element;
+                if (element)
+                    caret_to_end(*owner, *element);
+            }
+        };
+        hooks.focused = [this, document]() -> dom::Element const* {
+            Tab* const owner = tab_of(document);
+            return owner ? owner->controls.focused : nullptr;
+        };
+        hooks.image_size = [this, document](dom::Element const& element) -> std::optional<std::pair<int, int>> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            auto const it = owner->images.find(&element);
+            if (it == owner->images.end() || !it->second.bitmap)
+                return std::nullopt;
+            float const density = it->second.density > 0 ? it->second.density : 1.0f;
+            return std::pair<int, int> { static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->width()) / density)),
+                static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->height()) / density)) };
+        };
+        hooks.submit_form = [this, document](dom::Element const& form, dom::Element const* submitter) {
+            Tab* const owner = tab_of(document);
+            HistoryEntry const* const entry = owner ? owner->current() : nullptr;
+            if (!owner || !entry)
+                return;
+            std::optional<net::Url> const target = get_submission_url(form,
+                submitter ? submitter : default_submitter(form), &owner->controls, entry->final_url);
+            if (target)
+                queue(index_of(*owner), *target, Mode::Push);
+        };
+        hooks.console = [this, document](std::string_view level, std::string_view message) {
+            std::string const line = std::string(level) + ": " + std::string(message);
+            if (Tab* const owner = tab_of(document)) {
+                if (owner->console.size() >= 500)
+                    owner->console.erase(owner->console.begin());
+                owner->console.push_back(line);
+            }
+            if (level == "error")
+                std::fprintf(stderr, "[page] %s\n", line.c_str());
+        };
+        css::MediaContext const media = media_context();
+        hooks.viewport_width = media.width;
+        hooks.viewport_height = media.height;
+        hooks.user_agent = std::string(net::user_agent());
+        return std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
+    }
+
+    // Styles, pictures and layout from the document as it stands: after
+    // the parse, and again whenever its scripts changed something.
+    void refresh_page(Tab& tab)
+    {
+        HistoryEntry* const entry = tab.current();
+        if (!entry || !tab.document)
+            return;
+        // The page's stylesheets come through the loader with the page as
+        // first party and the usual referrer policy; a sheet that fails to
+        // load is simply absent.
+        net::Url const& page_url = entry->final_url;
+        auto const fetch_sheet = [&](net::Url const& url) -> std::optional<css::FetchedSheet> {
+            net::FetchResult result = loader.load_subresource(url, page_url,
+                referrer_for(&page_url, url));
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            std::string const* header = net::find_header(result.response->headers, "content-type");
+            return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+        };
+        std::string const signature = sheet_signature(*tab.document);
+        if (signature != tab.sheet_signature || !tab.style_set) {
+            tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
+            tab.fonts = css::collect_page_fonts(tab.sheets, fetch_sheet, media_context());
+            tab.style_set.reset();
+            tab.sheet_signature = signature;
+        }
+        restyle(tab);
+        auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url));
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            return std::move(result.response->body);
+        };
+        // Pictures are decoded once: only a page with an <img> not seen yet
+        // is walked again (the fetches come from the cache; the decoding
+        // does not).
+        if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images)) {
+            layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context());
+            for (auto& [element, image] : fresh)
+                tab.images[element] = std::move(image);
+        }
+        tab.backgrounds = collect_background_images(tab.styles, fetch_image);
+        entry->title = find_title(*tab.document);
+        relayout(tab);
+        tab.page_mutations = tab.realm ? tab.realm->mutation_count() : 0;
+    }
+
     void render(Tab& tab)
     {
         HistoryEntry* const entry = tab.current();
+        // The realm goes before the document its wrappers point into.
+        tab.realm.reset();
+        tab.console.clear();
         if (!entry) {
             tab.document.reset();
             tab.scrolls.clear();
@@ -890,7 +1161,7 @@ struct Browser::Impl {
                     entry->bytes.size());
             source = generated;
         }
-        tab.document = html::parse_document_bytes(source);
+        tab.document = std::make_unique<dom::Document>();
         tab.controls = {}; // a new document: nothing typed into it yet
         // ⛔ And nothing scrolled in it. These are keyed by element, and the
         // elements of the document being replaced are about to be freed: a
@@ -901,36 +1172,94 @@ struct Browser::Impl {
         tab.scroller = nullptr;
         tab.inspected = nullptr;
         tab.tree_scroll = 0;
-        // The page's stylesheets come through the loader with the page as
-        // first party and the usual referrer policy; a sheet that fails to
-        // load is simply absent.
-        net::Url const& page_url = entry->final_url;
-        auto const fetch_sheet = [&](net::Url const& url) -> std::optional<css::FetchedSheet> {
-            net::FetchResult result = loader.load_subresource(url, page_url,
-                referrer_for(&page_url, url));
-            if (!result.response || result.response->status != 200)
-                return std::nullopt;
-            std::string const* header = net::find_header(result.response->headers, "content-type");
-            return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
-        };
-        tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
-        tab.fonts = css::collect_page_fonts(tab.sheets, fetch_sheet, media_context());
+        tab.images.clear();
+        tab.backgrounds.clear();
+        tab.sheets.clear();
+        tab.fonts.clear();
         tab.style_set.reset();
-        restyle(tab);
-        auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
-            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url));
-            if (!result.response || result.response->status != 200)
-                return std::nullopt;
-            return std::move(result.response->body);
-        };
-        tab.images = collect_images(*tab.document, &page_url, fetch_image, media_context());
-        tab.backgrounds = collect_background_images(tab.styles, fetch_image);
-        entry->title = find_title(*tab.document);
+        tab.sheet_signature.clear();
+        tab.styles.clear();
+        tab.layout = layout::LayoutResult {};
+        tab.runs.clear();
+        tab.selection.reset();
+        tab.page_mutations = ~std::uint64_t(0); // nothing computed yet: the first question computes
         tab.scroll_y = entry->scroll_y;
-        relayout(tab);
+        // The page is parsed with its scripts running, each as its end tag
+        // goes by; a script that asks for a box gets the page laid out as
+        // it stands.
+        tab.realm = make_realm(tab, entry->final_url);
+        script_started = std::chrono::steady_clock::now();
+        html::parse_document_bytes_into(*tab.document, source, tab.realm.get());
+        tab.realm->document_parsed();
+        refresh_page(tab);
         if (entry->scroll_y == 0 && entry->final_url.fragment && !entry->final_url.fragment->empty())
             scroll_to_fragment(tab, *entry->final_url.fragment);
         dirty = true;
+    }
+
+    // The element a page point lands on: a text run's, a control's, else
+    // the deepest box.
+    dom::Element const* element_under(Tab const& tab, int x, int y) const
+    {
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!point)
+            return nullptr;
+        dom::Element const* element = hit_run(tab.layout.root, point->first, point->second);
+        if (!element)
+            element = hit_control(tab.layout.root, point->first, point->second);
+        if (!element)
+            element = element_at_point(tab.layout.root, point->first, point->second);
+        return element;
+    }
+
+    // A window key as a page sees it.
+    static bindings::KeyInit key_init_for(KeyEvent const& key)
+    {
+        bindings::KeyInit init;
+        init.ctrl = key.ctrl;
+        init.shift = key.shift;
+        init.alt = key.alt;
+        auto const named = [&](char const* name, int code) {
+            init.key = name;
+            init.code = name;
+            init.key_code = code;
+        };
+        switch (key.key) {
+        case Key::Enter: named("Enter", 13); break;
+        case Key::Escape: named("Escape", 27); break;
+        case Key::Backspace: named("Backspace", 8); break;
+        case Key::Delete: named("Delete", 46); break;
+        case Key::Tab: named("Tab", 9); break;
+        case Key::Space:
+            init.key = " ";
+            init.code = "Space";
+            init.key_code = 32;
+            break;
+        case Key::Left: named("ArrowLeft", 37); break;
+        case Key::Right: named("ArrowRight", 39); break;
+        case Key::Up: named("ArrowUp", 38); break;
+        case Key::Down: named("ArrowDown", 40); break;
+        case Key::Home: named("Home", 36); break;
+        case Key::End: named("End", 35); break;
+        case Key::PageUp: named("PageUp", 33); break;
+        case Key::PageDown: named("PageDown", 34); break;
+        case Key::F5: named("F5", 116); break;
+        case Key::F12: named("F12", 123); break;
+        case Key::Letter: {
+            char32_t const upper = key.letter;
+            if (upper >= U'0' && upper <= U'9') {
+                init.key = std::string(1, static_cast<char>(upper));
+                init.code = "Digit" + init.key;
+            } else {
+                init.key = std::string(1, static_cast<char>(key.shift ? upper : upper - U'A' + U'a'));
+                init.code = "Key" + std::string(1, static_cast<char>(upper));
+            }
+            init.key_code = static_cast<int>(upper);
+            break;
+        }
+        case Key::None: break;
+        }
+        return init;
     }
 
     static std::optional<float> fragment_top(layout::Fragment const& fragment,
@@ -1294,6 +1623,7 @@ struct Browser::Impl {
         if (index >= tabs.size())
             return;
         active = index;
+        ensure_fresh(tabs[index]); // its scripts may have run while another tab showed
         blur_address();
         sync_address();
         if (find_open)
@@ -2775,6 +3105,25 @@ struct Browser::Impl {
                         inspect_at(*tab, x, y);
                     break;
                 }
+                // The page hears the click first; preventDefault keeps the
+                // shell from following a link or toggling a control.
+                if (Tab* const tab = active_tab(); tab && tab->realm && tab->document) {
+                    if (dom::Element const* const target = element_under(*tab, x, y)) {
+                        ChromeLayout const chrome = layout_chrome();
+                        bindings::MouseInit init;
+                        init.client_x = x - chrome.content.x;
+                        init.client_y = y - chrome.content.y;
+                        dom::Element& element = const_cast<dom::Element&>(*target);
+                        script_started = std::chrono::steady_clock::now();
+                        tab->realm->dispatch_mouse_event(element, "mousedown", init);
+                        bool const proceed = tab->realm->dispatch_mouse_event(element, "click", init);
+                        ensure_fresh(*tab);
+                        dirty = true;
+                        if (!proceed || !tab->document)
+                            break;
+                        update_hover(x, y); // the page may have changed under the pointer
+                    }
+                }
                 if (dom::Element const* const control = control_at(x, y)) {
                     activate_control(*control);
                 } else {
@@ -2866,6 +3215,22 @@ struct Browser::Impl {
             || (key.ctrl && key.shift && key.key == Key::Letter && key.letter == U'I')) {
             toggle_devtools();
             return;
+        }
+        // The page hears a key meant for it — not the shell's own chords —
+        // at the focused control, else the document; preventDefault keeps
+        // the shell's handling from running.
+        if (!key.ctrl && !key.alt && !address_focus && !find_focus) {
+            if (Tab* const tab = active_tab(); tab && tab->realm && tab->document) {
+                dom::Element const* const target = tab->controls.focused;
+                script_started = std::chrono::steady_clock::now();
+                bool const proceed = tab->realm->dispatch_key_event(const_cast<dom::Element*>(target), "keydown",
+                    key_init_for(key));
+                ensure_fresh(*tab);
+                if (!proceed) {
+                    dirty = true;
+                    return;
+                }
+            }
         }
         if (key.ctrl && key.key == Key::Letter) {
             switch (key.letter) {
@@ -3023,6 +3388,16 @@ struct Browser::Impl {
         }
         if (!address_focus) {
             type_into_control(code_point);
+            // The control's page hears what was typed.
+            if (Tab* const tab = tab_with_focused_control(); tab && tab->realm) {
+                bindings::InputInit init;
+                append_utf8(init.data, code_point);
+                dom::Element& control = const_cast<dom::Element&>(*tab->controls.focused);
+                script_started = std::chrono::steady_clock::now();
+                tab->realm->dispatch_input_event(control, "input", init);
+                ensure_fresh(*tab);
+                dirty = true;
+            }
             return;
         }
         if (select_all) {
@@ -3415,8 +3790,55 @@ bool Browser::tick()
     return m_impl->perform(load);
 }
 
+bool Browser::run_scripts()
+{
+    Impl& impl = *m_impl;
+    bool ran = false;
+    for (Impl::Tab& tab : impl.tabs) {
+        if (!tab.realm)
+            continue;
+        impl.script_started = std::chrono::steady_clock::now();
+        if (tab.realm->run_pending())
+            ran = true;
+    }
+    if (Impl::Tab* const tab = impl.active_tab())
+        impl.ensure_fresh(*tab);
+    return ran;
+}
+
+std::optional<double> Browser::next_timer_ms() const
+{
+    std::optional<double> soonest;
+    for (Impl::Tab const& tab : m_impl->tabs) {
+        if (!tab.realm)
+            continue;
+        if (std::optional<double> const due = tab.realm->next_timer_due()) {
+            if (!soonest || *due < *soonest)
+                soonest = *due;
+        }
+    }
+    if (!soonest)
+        return std::nullopt;
+    return std::max(0.0, *soonest - m_impl->script_now());
+}
+
+void Browser::set_clock(std::function<double()> now) { m_impl->clock = std::move(now); }
+
+std::string Browser::console_text() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab)
+        return {};
+    std::string text;
+    for (std::string const& line : tab->console)
+        text += line + "\n";
+    return text;
+}
+
 Bitmap const& Browser::frame()
 {
+    if (Impl::Tab* const tab = m_impl->active_tab())
+        m_impl->ensure_fresh(*tab);
     if (m_impl->dirty)
         m_impl->paint();
     return m_impl->frame;

@@ -1,3 +1,5 @@
+#include "bindings/LayoutOracle.h"
+#include "bindings/Realm.h"
 #include "core/Bitmap.h"
 #include "core/Png.h"
 #include "css/StyleResolver.h"
@@ -396,11 +398,6 @@ private:
         ++renders;
         css::MediaContext const media { static_cast<float>(viewport_width),
             static_cast<float>(viewport_height) };
-        auto document = html::parse_document_bytes(*source);
-        auto rendered = std::make_shared<Rendered>();
-        rendered->url = *url;
-        gather_info(*document, *url, rendered->info);
-
         auto const fetch_sheet = [&](net::Url const& target) -> std::optional<css::FetchedSheet> {
             std::optional<std::string> const bytes = read_url(target);
             if (!bytes)
@@ -409,6 +406,46 @@ private:
             return css::FetchedSheet { std::vector<std::uint8_t>(bytes->begin(), bytes->end()),
                 path.ends_with(".css") ? "text/css" : "" };
         };
+        // A page with a script element runs it, as wptrunner would: inline
+        // and external classic scripts as the parser meets them, then the
+        // timers on a virtual clock until none is pending, so a test that
+        // waits on a timeout or an animation frame before it removes
+        // reftest-wait gets to remove it. Pages without scripts skip the
+        // realm, which is most of the suite.
+        auto document = std::make_unique<dom::Document>();
+        std::unique_ptr<bindings::Realm> realm;
+        bindings::LayoutOracle oracle(*document, *url, fetch_sheet, media);
+        double script_clock = 0;
+        if (lowercased(*source).find("<script") != std::string::npos) {
+            bindings::HostHooks hooks;
+            hooks.fetch_script = [this](net::Url const& target) { return read_url(target); };
+            hooks.now = [&script_clock] { return script_clock; };
+            auto const started = std::chrono::steady_clock::now();
+            hooks.should_stop = [started] { return std::chrono::steady_clock::now() - started > std::chrono::seconds(5); };
+            oracle.install(hooks);
+            hooks.console = [rel](std::string_view level, std::string_view message) {
+                if (std::getenv("SASHFOLD_WPT_TRACE"))
+                    std::cerr << "    " << rel << " console." << level << ": " << message << "\n";
+            };
+            hooks.viewport_width = media.width;
+            hooks.viewport_height = media.height;
+            realm = std::make_unique<bindings::Realm>(*document, *url, std::move(hooks));
+            oracle.set_realm(realm.get());
+        }
+        html::parse_document_bytes_into(*document, *source, realm.get());
+        if (realm) {
+            realm->document_parsed();
+            for (int i = 0; i < 200 && realm->has_pending_timers(); ++i) {
+                double const due = *realm->next_timer_due();
+                if (due > 20000)
+                    break;
+                script_clock = std::max(script_clock, due);
+                realm->run_pending();
+            }
+        }
+        auto rendered = std::make_shared<Rendered>();
+        rendered->url = *url;
+        gather_info(*document, *url, rendered->info); // after the scripts: reftest-wait may be gone
         auto const fetch_image = [&](net::Url const& target) -> std::optional<std::vector<std::uint8_t>> {
             std::optional<std::string> const bytes = read_url(target);
             if (!bytes)

@@ -254,7 +254,10 @@ Native pre_insert(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom:
     dom::Node* reference = child;
     if (reference == &node)
         reference = next_sibling_of(node);
-    js::Value const result = js::Value::object(in.wrap(node));
+    // Rooted: an inserted script may run below, and a fragment's wrapper is
+    // reachable from nothing else once its children have moved.
+    js::Interpreter::Roots const roots(in.interpreter);
+    js::Value const result = in.interpreter.root(js::Value::object(in.wrap(node)));
     if (node.type() == dom::NodeType::DocumentFragment) {
         std::vector<dom::Node*> const children = node.children();
         for (dom::Node* fragment_child : children)
@@ -488,9 +491,10 @@ std::optional<std::string> string_argument(Realm::Internals& in, Args args, std:
 js::Value attribute_map(Realm::Internals& in, dom::Element& element)
 {
     js::Interpreter& interpreter = in.interpreter;
-    js::Interpreter::Roots const roots(interpreter);
+    // Several cells per attribute, none reachable until the map holds them:
+    // no collection while they are made.
+    js::Heap::NoCollect const guard(interpreter.heap());
     js::ArrayObject* map = interpreter.new_array();
-    interpreter.root(js::Value::object(map));
     map->set_prototype(in.prototype("NamedNodeMap"));
     map->host_data = &element;
     for (dom::Attr const& attribute : element.attributes()) {

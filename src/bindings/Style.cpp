@@ -533,6 +533,7 @@ std::string dataset_attribute(std::string_view name)
 std::optional<js::PropertyDescriptor> TokenListObject::get_own_property(js::PropertyKey const& key) const
 {
     if (key.is_index()) {
+        js::Heap::NoCollect const guard(*heap()); // a fresh string the caller has not rooted yet
         std::vector<std::string> const tokens = tokens_of(*this);
         if (key.as_index() < tokens.size())
             return js::PropertyDescriptor::data(js::Value::string(heap()->string(tokens[key.as_index()])), js::Enumerable);
@@ -595,6 +596,7 @@ std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js
 std::optional<js::PropertyDescriptor> DatasetObject::get_own_property(js::PropertyKey const& key) const
 {
     if (key.is_atom()) {
+        js::Heap::NoCollect const guard(*heap()); // a fresh string the caller has not rooted yet
         std::string const attribute = dataset_attribute(key.as_atom()->to_utf8());
         if (dom::Attr const* found = element->find_attribute(attribute))
             return js::PropertyDescriptor::data(js::Value::string(heap()->string(found->value)), js::default_attributes);
