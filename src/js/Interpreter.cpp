@@ -1005,13 +1005,28 @@ struct Interpreter::Impl {
         self.root(Value::object(array));
         std::uint32_t index = 0;
         for (Expression const* element : literal.elements) {
-            if (element) {
-                std::optional<Value> const value = evaluate(element, cx);
-                if (!value)
-                    return std::nullopt;
-                array->set_element(index, *value);
+            if (element == nullptr) {
+                ++index;
+                continue;
             }
-            ++index;
+            if (element->type == NodeType::SpreadElement) {
+                // §13.2.4.1: the iterable's values, each an element of its own.
+                std::optional<Value> const iterable = evaluate(static_cast<SpreadElement const*>(element)->argument, cx);
+                if (!iterable)
+                    return std::nullopt;
+                Roots const spread_roots(self);
+                self.root(*iterable);
+                std::optional<std::vector<Value>> const values = self.iterable_to_list(*iterable);
+                if (!values)
+                    return std::nullopt;
+                for (Value const& value : *values)
+                    array->set_element(index++, value);
+                continue;
+            }
+            std::optional<Value> const value = evaluate(element, cx);
+            if (!value)
+                return std::nullopt;
+            array->set_element(index++, *value);
         }
         array->set_length(index);
         return Value::object(array);
@@ -1032,6 +1047,35 @@ struct Interpreter::Impl {
                     object->set_prototype(value->as_object());
                 else if (value->is_null())
                     object->set_prototype(nullptr);
+                continue;
+            }
+            if (property.kind == PropertyDefinition::Kind::Spread) {
+                // CopyDataProperties (§7.3.25): the source's own enumerable
+                // properties, read one by one; null and undefined copy nothing.
+                std::optional<Value> const source = evaluate(property.value, cx);
+                if (!source)
+                    return std::nullopt;
+                if (source->is_nullish())
+                    continue;
+                Roots const copy_roots(self);
+                self.root(*source);
+                std::optional<Object*> const from = self.to_object(*source);
+                if (!from)
+                    return std::nullopt;
+                self.root(Value::object(*from));
+                for (PropertyKey const& key : (*from)->own_keys()) {
+                    if (key.is_symbol())
+                        self.root(Value::symbol(key.as_symbol()));
+                    std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
+                    if (!desc || !desc->enumerable.value_or(false))
+                        continue;
+                    std::optional<Value> const value = self.get(**from, key);
+                    if (!value)
+                        return std::nullopt;
+                    self.root(*value);
+                    if (!self.create_data_property(*object, key, *value))
+                        return std::nullopt;
+                }
                 continue;
             }
             PropertyKey key;
@@ -1163,6 +1207,21 @@ struct Interpreter::Impl {
         // The caller's Roots scope keeps each argument alive.
         values.reserve(expressions.size());
         for (Expression const* expression : expressions) {
+            if (expression->type == NodeType::SpreadElement) {
+                // §13.3.8.1: the iterable's values join the list in place.
+                std::optional<Value> const iterable = evaluate(static_cast<SpreadElement const*>(expression)->argument, cx);
+                if (!iterable)
+                    return std::nullopt;
+                self.root(*iterable);
+                std::optional<std::vector<Value>> const spread = self.iterable_to_list(*iterable);
+                if (!spread)
+                    return std::nullopt;
+                for (Value const& value : *spread) {
+                    self.root(value);
+                    values.push_back(value);
+                }
+                continue;
+            }
             std::optional<Value> const value = evaluate(expression, cx);
             if (!value)
                 return std::nullopt;

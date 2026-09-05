@@ -143,6 +143,35 @@ void test_the_library_over_iterables()
     CHECK_JS_STRING(in, "Array.from(Array.prototype.entries.call('ab')).join(';')", "0,a;1,b");
 }
 
+void test_spread()
+{
+    js::Interpreter& in = fresh();
+    // Array literals and argument lists spread any iterable, in place.
+    CHECK_JS_STRING(in, "[...'ab', 0, ...[1, 2]].join()", "a,b,0,1,2");
+    CHECK_JS_NUMBER(in, "Math.max(...[1, 5, 3])", 5);
+    CHECK_JS_NUMBER(in, "(function () { return arguments.length; })(...[1, 2], 3, ...'xy')", 5);
+    CHECK_JS_NUMBER(in, "new Date(...[2020, 0, 1]).getFullYear()", 2020);
+    CHECK_JS_NUMBER(in, "(function () { var a = [3, 4]; return Math.min(...a, ...a); })()", 3);
+    // A hole spreads as undefined and becomes a real element.
+    CHECK_JS_TRUE(in, "(function () { var a = [...[1, , 3]]; return a.length === 3 && a.hasOwnProperty(1) && a[1] === undefined; })()");
+    CHECK_JS_TRUE(in, "Array.isArray([...[]]) && [...[]].length === 0");
+    // A custom iterable is walked by the protocol.
+    CHECK_JS_STRING(in, "(function () { var it = {}; it[Symbol.iterator] = function () { var i = 0; return { next: function () { return i < 3 ? { value: i++ * 2, done: false } : { done: true }; } }; }; return [...it].join() + ' ' + String(...it); })()", "0,2,4 0");
+    CHECK_JS_THROWS(in, "[...5]", "TypeError");
+    CHECK_JS_THROWS(in, "Math.max(...{})", "TypeError");
+    CHECK_JS_THROWS(in, "[...undefined]", "TypeError");
+    // Object spread copies own enumerable properties, strings and symbols
+    // alike, later ones winning; null and undefined copy nothing.
+    CHECK_JS_STRING(in, "(function () { var o = { ...{ a: 1, b: 2 }, b: 3, ...null, ...undefined }; return Object.keys(o).join() + o.a + o.b; })()", "a,b13");
+    CHECK_JS_TRUE(in, "(function () { var s = Symbol(); var src = { x: 1 }; src[s] = 2; Object.defineProperty(src, 'hidden', { value: 3, enumerable: false }); var proto = { inherited: 4 }; Object.setPrototypeOf(src, proto); var o = { ...src }; return o.x === 1 && o[s] === 2 && !('hidden' in o) && !('inherited' in o); })()");
+    CHECK_JS_STRING(in, "(function () { var o = { ...'ab' }; return Object.keys(o).join() + o[0] + o[1]; })()", "0,1ab");
+    CHECK_JS_TRUE(in, "(function () { var o = { ...[7, 8] }; return o[0] === 7 && o[1] === 8 && !('length' in o); })()");
+    // A getter on the source runs once, and a copy is a data property
+    // whatever the source's was.
+    CHECK_JS_TRUE(in, "(function () { var reads = 0; var src = { get g() { reads++; return 9; } }; var o = { ...src }; var d = Object.getOwnPropertyDescriptor(o, 'g'); return reads === 1 && d.value === 9 && d.writable && d.enumerable; })()");
+    CHECK_JS_STRING(in, "(function () { var log = []; var o = { ...{ get a() { log.push('a'); return 1; } }, b: (log.push('b'), 2), ...{ get c() { log.push('c'); return 3; } } }; return log.join() + Object.keys(o).join(); })()", "a,b,ca,b,c");
+}
+
 } // namespace
 
 int main()
@@ -151,5 +180,6 @@ int main()
     test_the_protocol();
     test_bindings_and_syntax();
     test_the_library_over_iterables();
+    test_spread();
     return sashfold::test::report("js_iterator");
 }

@@ -1224,14 +1224,25 @@ bool Parser::Impl::parse_arguments(std::vector<Expression*>& arguments)
         return false;
     advance(); // (
     while (!m_current.is(Punctuator::RightParen)) {
+        Expression* argument = nullptr;
         if (m_current.is(Punctuator::Ellipsis)) {
-            leave();
-            return fail_unsupported("spread syntax");
-        }
-        Expression* argument = parse_assignment(true);
-        if (!argument) {
-            leave();
-            return false;
+            // §13.3.8.1: `...iterable` spreads into the list.
+            SourcePosition const spread_start = m_current.position;
+            advance();
+            Expression* iterable = parse_assignment(true);
+            if (!iterable) {
+                leave();
+                return false;
+            }
+            auto* spread = make<SpreadElement>(spread_start);
+            spread->argument = iterable;
+            argument = finish(spread);
+        } else {
+            argument = parse_assignment(true);
+            if (!argument) {
+                leave();
+                return false;
+            }
         }
         arguments.push_back(argument);
         if (m_current.is(Punctuator::Comma)) {
@@ -1342,7 +1353,9 @@ Expression* Parser::Impl::parse_primary()
         if (m_current.is(Punctuator::LeftBrace))
             return parse_object_literal();
         if (m_current.is(Punctuator::Ellipsis)) {
-            fail_unsupported("spread syntax");
+            // `...` outside an array literal, an argument list or an object
+            // literal can only begin an arrow function's rest parameter.
+            fail_unsupported("rest parameters");
             return nullptr;
         }
         fail_unexpected();
@@ -1471,12 +1484,22 @@ Expression* Parser::Impl::parse_array_literal()
             array->elements.push_back(nullptr);
             continue;
         }
+        Expression* element = nullptr;
         if (m_current.is(Punctuator::Ellipsis)) {
-            leave();
-            fail_unsupported("spread syntax");
-            return nullptr;
+            // §13.2.4.1: `...iterable` contributes the values it yields.
+            SourcePosition const spread_start = m_current.position;
+            advance();
+            Expression* iterable = parse_assignment(true);
+            if (!iterable) {
+                leave();
+                return nullptr;
+            }
+            auto* spread = make<SpreadElement>(spread_start);
+            spread->argument = iterable;
+            element = finish(spread);
+        } else {
+            element = parse_assignment(true);
         }
-        Expression* element = parse_assignment(true);
         if (!element) {
             leave();
             return nullptr;
@@ -1550,9 +1573,26 @@ Expression* Parser::Impl::parse_object_literal()
         PropertyDefinition property;
         SourcePosition const property_start = m_current.position;
         if (m_current.is(Punctuator::Ellipsis)) {
-            leave();
-            fail_unsupported("spread syntax");
-            return nullptr;
+            // §13.2.5.5: `...source` copies the source's own enumerable
+            // properties in — a definition with no key of its own.
+            advance();
+            property.kind = PropertyDefinition::Kind::Spread;
+            property.value = parse_assignment(true);
+            if (!property.value) {
+                leave();
+                return nullptr;
+            }
+            object->properties.push_back(property);
+            if (m_current.is(Punctuator::Comma)) {
+                advance();
+                continue;
+            }
+            if (!m_current.is(Punctuator::RightBrace)) {
+                leave();
+                fail_unexpected();
+                return nullptr;
+            }
+            continue;
         }
         if (m_current.is(Punctuator::Star)) {
             leave();
@@ -3084,7 +3124,9 @@ struct Dumper {
             out += "(object";
             for (PropertyDefinition const& property : static_cast<ObjectLiteral const*>(e)->properties) {
                 out += " (";
-                if (property.computed_key) {
+                if (property.kind == PropertyDefinition::Kind::Spread) {
+                    out += "spread";
+                } else if (property.computed_key) {
                     out += property.kind == PropertyDefinition::Kind::Get ? "get computed " : property.kind == PropertyDefinition::Kind::Set ? "set computed " : "computed ";
                     expression(property.computed_key);
                 } else if (property.is_proto) {
@@ -3201,6 +3243,11 @@ struct Dumper {
                 out += ' ';
                 expression(part);
             }
+            out += ')';
+            break;
+        case NodeType::SpreadElement:
+            out += "(spread ";
+            expression(static_cast<SpreadElement const*>(e)->argument);
             out += ')';
             break;
         default:

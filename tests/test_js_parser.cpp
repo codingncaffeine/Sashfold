@@ -376,7 +376,8 @@ void test_object_literals()
     CHECK_EQ(parse("({1.5: x, 0x10: y, 1e3: z, .5: w})"), expression_of("(object (init \"1.5\" (id x)) (init \"16\" (id y)) (init \"1000\" (id z)) (init \"0.5\" (id w)))"));
     CHECK_EQ(parse("({a: 1,})"), expression_of("(object (init \"a\" (number 1)))"));
     CHECK_EQ(parse("({a: 1, a: 2})"), expression_of("(object (init \"a\" (number 1)) (init \"a\" (number 2)))"));
-    CHECK_EQ(parse("({...a})"), "spread syntax are not supported yet");
+    CHECK_EQ(parse("({...a})"), program_of("(expr (object (spread (id a))))"));
+    CHECK_EQ(parse("({...a, b, ...c()})"), program_of("(expr (object (spread (id a)) (init \"b\" (id b)) (spread (call (id c)))))"));
     CHECK_EQ(parse("({*g() {}})"), "generators are not supported yet");
     CHECK_EQ(parse("({async m() {}})"), "async functions are not supported yet");
     CHECK_EQ(parse("({m(a, a) {}})"), "Duplicate parameter name not allowed in this context");
@@ -411,7 +412,12 @@ void test_array_literals()
     CHECK_EQ(parse("[,]"), expression_of("(array hole)"));
     CHECK_EQ(parse("[,,a]"), expression_of("(array hole hole (id a))"));
     CHECK_EQ(parse("[[a], {b: [c]}]"), expression_of("(array (array (id a)) (object (init \"b\" (array (id c)))))"));
-    CHECK_EQ(parse("[...a]"), "spread syntax are not supported yet");
+    CHECK_EQ(parse("[...a]"), program_of("(expr (array (spread (id a))))"));
+    CHECK_EQ(parse("[1, ...a, , ...b]"), program_of("(expr (array (number 1) (spread (id a)) hole (spread (id b))))"));
+    CHECK_EQ(parse("new F(...a, 2)"), program_of("(expr (new (id F) (spread (id a)) (number 2)))"));
+    CHECK_EQ(parse("...a"), "rest parameters are not supported yet");
+    CHECK_EQ(parse("[...a, ]"), program_of("(expr (array (spread (id a))))"));
+    CHECK_EQ(parse("[... a]"), program_of("(expr (array (spread (id a))))"));
     CHECK_EQ(parse("[a b]"), "Unexpected identifier 'b'");
 }
 
@@ -838,7 +844,7 @@ void test_new_and_calls()
     CHECK_EQ(parse("f(a)(b, c)"), expression_of("(call (call (id f) (id a)) (id b) (id c))"));
     CHECK_EQ(parse("f(a,)"), expression_of("(call (id f) (id a))"));
     CHECK_EQ(parse("a.b(c)[d].e"), expression_of("(member (index (call (member (id a) b) (id c)) (id d)) e)"));
-    CHECK_EQ(parse("f(...a)"), "spread syntax are not supported yet");
+    CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
     CHECK_EQ(parse("f(a b)"), "Unexpected identifier 'b'");
 }
 
@@ -959,7 +965,7 @@ void test_unsupported_features()
 {
     CHECK_EQ(parse("class A {}"), "class declarations are not supported yet");
     CHECK_EQ(parse("x = class {}"), "class expressions are not supported yet");
-    CHECK_EQ(parse("f(...a)"), "spread syntax are not supported yet");
+    CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
     CHECK_EQ(parse("var [a] = b"), "destructuring patterns are not supported yet");
     CHECK_EQ(parse("function f([a]) {}"), "destructuring patterns are not supported yet");
     CHECK_EQ(parse("async function f() {}"), "async functions are not supported yet");

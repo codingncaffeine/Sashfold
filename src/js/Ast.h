@@ -56,6 +56,7 @@ enum class NodeType : std::uint8_t {
     NewExpression,
     MemberExpression,
     SequenceExpression,
+    SpreadElement,
     // statements
     VariableDeclaration,
     FunctionDeclaration,
@@ -197,11 +198,11 @@ struct ArrayLiteral : Expression {
 };
 
 struct PropertyDefinition {
-    enum class Kind : std::uint8_t { Init, Get, Set };
+    enum class Kind : std::uint8_t { Init, Get, Set, Spread };
     Kind kind = Kind::Init;
     JsString* key = nullptr; // a numeric key is stored as its canonical string
     Expression* computed_key = nullptr; // `[expr]: value`; key is null then
-    Expression* value = nullptr; // a FunctionExpression for Get/Set
+    Expression* value = nullptr; // a FunctionExpression for Get/Set; the source object for Spread (`...source`, no key)
     bool is_proto = false; // `__proto__: value` sets the prototype (§13.2.5.5)
     bool is_anonymous_function = false; // the value takes the key as its name
 };
@@ -395,6 +396,16 @@ struct SequenceExpression : Expression {
     {
     }
     std::vector<Expression*> expressions;
+};
+
+// `...iterable` in an array literal or an argument list (§13.2.4.1,
+// §13.3.8.1): the values the iterable yields take its place.
+struct SpreadElement : Expression {
+    SpreadElement()
+        : Expression(NodeType::SpreadElement)
+    {
+    }
+    Expression* argument = nullptr;
 };
 
 struct VariableDeclarator {

@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8517 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8511 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -5336,7 +5336,6 @@ css/css-color/border-top-color.xht
 css/css-color/color-001.html
 css/css-color/color-002.html
 css/css-color/color-003.html
-css/css-color/color-layers-no-blend-mode.html
 css/css-color/color-mix-basic-001.html
 css/css-color/color-mix-currentcolor-002.html
 css/css-color/color-mix-currentcolor-nested-for-color-property.html
@@ -6668,7 +6667,6 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/column-subgrid
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/column-subgrid-grid-gap-011.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/row-subgrid-grid-gap-010.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/gap/row-subgrid-grid-gap-011.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-002.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-003.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-013.html
@@ -6677,9 +6675,7 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-016.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-017.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-018.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-003.html
-css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-004.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-005.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-006.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/row-line-names-009.html
@@ -6834,7 +6830,6 @@ css/css-grid/subgrid/dynamic-min-content-002.html
 css/css-grid/subgrid/dynamic-min-content-003.html
 css/css-grid/subgrid/dynamic-subgridded-item-height.html
 css/css-grid/subgrid/independent-tracks-from-parent-grid.html
-css/css-grid/subgrid/line-names-001.html
 css/css-grid/subgrid/line-names-002.html
 css/css-grid/subgrid/line-names-003.html
 css/css-grid/subgrid/line-names-007.html
@@ -6847,7 +6842,6 @@ css/css-grid/subgrid/parent-repeat-auto-fit-001.html
 css/css-grid/subgrid/parent-repeat-auto-fit-002.html
 css/css-grid/subgrid/percentage-track-sizing.html
 css/css-grid/subgrid/repeat-auto-fill-007.html
-css/css-grid/subgrid/repeat-auto-fill-008.html
 css/css-grid/subgrid/scrollbar-gutter-001.html
 css/css-grid/subgrid/scrollbar-gutter-002.html
 css/css-grid/subgrid/standalone-axis-size-003.html
