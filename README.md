@@ -31,7 +31,7 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 - **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, with **Sashfold Mono** as the honest last fallback; PNG, GIF and JPEG decoders, `srcset` and `<picture>`; CSS background images and gradients (layers, position, size, repeat, clip), rounded corners.
 - **A shell** — tabs, history, forms without scripts, selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, boxes that scroll under the wheel, the keyboard and their own scrollbars, chrome drawn from a theme file, and a `--script` mode that drives it for CI.
 
-Not written yet: scripting, subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
+Not written yet: scripting (a JavaScript engine of our own is being written: its tokenizer, parser, garbage collector, object model and regular-expression matcher exist and are tested, and nothing runs a script yet), subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
 
 ## Measured
 
@@ -71,7 +71,7 @@ Every mode and flag is on [Running Sashfold](https://github.com/codingncaffeine/
 
 ## The wiki
 
-The details live on the [wiki](https://github.com/codingncaffeine/Sashfold/wiki): what works and how, the design decisions (the pledge, [why C++](https://github.com/codingncaffeine/Sashfold/wiki/Why-C%2B%2B), the security defaults), the tests and the tools.
+The details live on the [wiki](https://github.com/codingncaffeine/Sashfold/wiki): what works and how, the design decisions (the pledge, [why C++](https://github.com/codingncaffeine/Sashfold/wiki/Why-C%2B%2B), [the architecture](https://github.com/codingncaffeine/Sashfold/wiki/Architecture), the security defaults), the tests and the tools.
 
 ## License
 
