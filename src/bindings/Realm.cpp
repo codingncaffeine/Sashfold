@@ -649,6 +649,7 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     install_nodes(in);
     install_style(in);
     install_window(in);
+    install_binary(in);
 }
 
 Realm::~Realm()

@@ -29,6 +29,7 @@ if(MINGW)
 endif()
 
 add_library(sashfold_core STATIC
+  src/bindings/Binary.cpp
   src/bindings/Document.cpp
   src/bindings/Events.cpp
   src/bindings/HtmlElements.cpp

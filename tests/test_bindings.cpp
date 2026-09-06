@@ -732,6 +732,46 @@ void test_dom_parser_and_foreign_documents()
     CHECK_EQ(page->console, "");
 }
 
+void test_binary_data()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    // TextEncoder: UTF-8 out, a lone surrogate replaced, encodeInto's counts.
+    CHECK_EQ(page->string("Array.from(new TextEncoder().encode('h\\u00e9\\ud83d\\ude00')).join()"), "104,195,169,240,159,152,128");
+    CHECK_EQ(page->string("Array.from(new TextEncoder().encode('\\ud800x')).join()"), "239,191,189,120");
+    CHECK(page->boolean("new TextEncoder().encoding === 'utf-8' && new TextEncoder().encode().length === 0 && new TextEncoder().encode(undefined).length === 0 && new TextEncoder().encode(12).length === 2 && new TextEncoder().encode('a') instanceof Uint8Array"));
+    CHECK_EQ(page->string("(function () { var out = new Uint8Array(4); var r = new TextEncoder().encodeInto('a\\u00e9\\u20ac', out); return r.read + ':' + r.written + ':' + Array.from(out).join(); })()"), "2:3:97,195,169,0");
+    // TextDecoder: labels, the BOM, streaming across chunks, fatal mode.
+    CHECK_EQ(page->string("new TextDecoder().decode(new Uint8Array([104, 195, 169, 240, 159, 152, 128]))"), "h\xc3\xa9\xf0\x9f\x98\x80");
+    CHECK_EQ(page->string("new TextDecoder().decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x41]))"), "A");
+    CHECK_EQ(page->number("new TextDecoder('utf-8', { ignoreBOM: true }).decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x41])).length"), 2);
+    CHECK_EQ(page->string("new TextDecoder().decode(new Uint8Array([0xC3, 0x28, 0xE2, 0x82]))"), "\xef\xbf\xbd(\xef\xbf\xbd");
+    CHECK_EQ(page->string("(function () { var d = new TextDecoder(); return d.decode(new Uint8Array([0xE2, 0x82]), { stream: true }) + '|' + d.decode(new Uint8Array([0xAC]), { stream: true }) + '|' + d.decode(); })()"), "|\xe2\x82\xac|");
+    CHECK_EQ(page->string("(function () { var d = new TextDecoder(); return d.decode(new Uint8Array([0xE2, 0x82]), { stream: true }) + '|' + d.decode(); })()"), "|\xef\xbf\xbd");
+    CHECK(page->throws("new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array([0xFF]))").starts_with("TypeError"));
+    CHECK(page->throws("new TextDecoder('bogus')").starts_with("RangeError"));
+    CHECK(page->throws("new TextDecoder().decode('abc')").starts_with("TypeError"));
+    CHECK(page->throws("TextDecoder.prototype.decode.call({}, new Uint8Array(1))").starts_with("TypeError"));
+    CHECK_EQ(page->string("new TextDecoder('utf-16le').decode(new Uint8Array([0x3D, 0xD8, 0x00, 0xDE, 0x41, 0x00]))"), "\xf0\x9f\x98\x80" "A");
+    CHECK_EQ(page->string("new TextDecoder('latin1').decode(new Uint8Array([0x80, 0xE9])) + '|' + new TextDecoder('latin1').encoding + '|' + new TextDecoder('UTF8').encoding"), "\xe2\x82\xac\xc3\xa9|windows-1252|utf-8");
+    CHECK(page->boolean("(function () { var d = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }); return d.fatal && d.ignoreBOM && d.encoding === 'utf-8' && new TextDecoder().decode() === '' && new TextDecoder().decode(new ArrayBuffer(0)) === '' && new TextDecoder().decode(new DataView(new Uint8Array([0x41]).buffer)) === 'A'; })()"));
+    // Blob and File: parts of every kind, the type normalized, slices,
+    // and the three readers through promises.
+    CHECK(page->boolean("(function () { var b = new Blob(['ab', new Uint8Array([99]), new Blob(['d'])], { type: 'Text/Plain' }); return b.size === 4 && b.type === 'text/plain' && b.slice(1, 3).size === 2 && b.slice(-1, undefined, 'X').type === 'x' && new Blob().size === 0 && new Blob([], { type: 'a\\u00e9' }).type === '' && Object.prototype.toString.call(b) === '[object Blob]'; })()"));
+    page->eval("var texts = []; var b = new Blob(['h\\u00e9', new Uint8Array([33])]); b.text().then(function (t) { texts.push(t); }); b.slice(0, 1).text().then(function (t) { texts.push(t); }); b.arrayBuffer().then(function (ab) { texts.push(ab.byteLength + ':' + new Uint8Array(ab).join()); }); b.bytes().then(function (u) { texts.push(u.constructor.name + u.length); });");
+    CHECK_EQ(page->string("texts.join('|')"), "h\xc3\xa9!|h|4:104,195,169,33|Uint8Array4");
+    CHECK(page->boolean("(function () { var f = new File(['x'], 'a.txt', { type: 'text/plain', lastModified: 5 }); return f instanceof Blob && f instanceof File && f.name === 'a.txt' && f.lastModified === 5 && f.size === 1 && f.type === 'text/plain' && Object.prototype.toString.call(f) === '[object File]' && typeof new File([], 'b').lastModified === 'number' && f.webkitRelativePath === ''; })()"));
+    CHECK(page->throws("new File(['x'])").starts_with("TypeError"));
+    CHECK(page->throws("new Blob(5)").starts_with("TypeError"));
+    CHECK(page->throws("Blob.prototype.slice.call({})").starts_with("TypeError"));
+    // crypto.getRandomValues fills integer views in place and refuses the rest.
+    CHECK(page->boolean("(function () { var a = new Uint8Array(64); var r = crypto.getRandomValues(a); var sum = 0; for (var i = 0; i < a.length; i++) sum += a[i]; var b = new Int32Array(2); crypto.getRandomValues(b); var c = new Uint8Array(new ArrayBuffer(8), 4, 2); crypto.getRandomValues(c); return r === a && sum > 0 && (b[0] !== 0 || b[1] !== 0) && c.length === 2; })()"));
+    CHECK(page->throws("crypto.getRandomValues(new Float32Array(1))").starts_with("TypeMismatchError"));
+    CHECK(page->throws("crypto.getRandomValues(new DataView(new ArrayBuffer(1)))").starts_with("TypeMismatchError"));
+    CHECK(page->throws("crypto.getRandomValues(new Uint8Array(65537))").starts_with("QuotaExceededError"));
+    CHECK(page->throws("crypto.getRandomValues([1])").starts_with("TypeError"));
+    CHECK_EQ(page->console, "");
+}
+
 } // namespace
 
 int main()
@@ -754,5 +794,6 @@ int main()
     test_layout_and_style_hooks();
     test_form_controls_without_a_host();
     test_dom_parser_and_foreign_documents();
+    test_binary_data();
     return test::report("test_bindings");
 }

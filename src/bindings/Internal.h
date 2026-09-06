@@ -360,6 +360,7 @@ void install_events(Realm::Internals&); // Events.cpp
 void install_nodes(Realm::Internals&); // Node.cpp
 void install_style(Realm::Internals&); // Style.cpp
 void install_window(Realm::Internals&); // Window.cpp
+void install_binary(Realm::Internals&); // Binary.cpp: TextEncoder, TextDecoder, Blob, File
 
 // Objects the style file makes for the node bindings.
 js::Value make_token_list(Realm::Internals&, dom::Element&, std::string attribute); // classList, relList

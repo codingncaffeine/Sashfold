@@ -1123,17 +1123,39 @@ void install_window(Realm::Internals& in)
         return internals_of(interp).string(out);
     });
     js::define_method(interpreter, *crypto, "getRandomValues", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        // Web Crypto §10.1.1: an integer typed array of at most 65536
+        // bytes, filled in place; a float view or a DataView is a
+        // TypeMismatchError.
         js::Value const array = js::argument(args, 0);
-        if (!array.is_object())
+        if (!array.is_object() || (array.as_object()->class_id() != js::Object::Class::TypedArray && array.as_object()->class_id() != js::Object::Class::DataView))
             return interp.throw_type_error("Failed to execute 'getRandomValues' on 'Crypto': parameter 1 is not of type 'ArrayBufferView'.");
-        std::optional<double> const length = interp.length_of_array_like(*array.as_object());
-        if (!length)
-            return std::nullopt;
+        Realm::Internals& internals = internals_of(interp);
+        if (array.as_object()->class_id() == js::Object::Class::DataView)
+            return internals.throw_dom_exception("TypeMismatchError", "The provided ArrayBufferView is of type 'DataView', which is not an integer array type.");
+        auto& typed = *static_cast<js::TypedArrayObject*>(array.as_object());
+        switch (typed.element_type()) {
+        case js::ElementType::Float16:
+        case js::ElementType::Float32:
+        case js::ElementType::Float64:
+            return internals.throw_dom_exception("TypeMismatchError", "The provided ArrayBufferView is of type '" + std::string(js::element_type_name(typed.element_type())) + "', which is not an integer array type.");
+        case js::ElementType::Int8:
+        case js::ElementType::Uint8:
+        case js::ElementType::Uint8Clamped:
+        case js::ElementType::Int16:
+        case js::ElementType::Uint16:
+        case js::ElementType::Int32:
+        case js::ElementType::Uint32:
+            break;
+        }
+        std::size_t const byte_length = typed.byte_length();
+        if (byte_length > 65536)
+            return internals.throw_dom_exception("QuotaExceededError", "The ArrayBufferView's byte length (" + std::to_string(byte_length) + ") exceeds the number of bytes of entropy available via this API (65536).");
         std::random_device device;
-        std::uniform_int_distribution<int> byte(0, 255);
-        for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(*length); ++i) {
-            if (!interp.set(array, interp.heap().key(i), js::Value::number(byte(device)), false))
-                return std::nullopt;
+        std::uint8_t* bytes = typed.buffer()->data() + typed.byte_offset();
+        for (std::size_t i = 0; i < byte_length; i += 4) {
+            std::uint32_t const word = device();
+            for (std::size_t k = 0; k < 4 && i + k < byte_length; ++k)
+                bytes[i + k] = static_cast<std::uint8_t>(word >> (8 * k));
         }
         return array;
     });
