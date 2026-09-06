@@ -17,6 +17,8 @@ Harnesses:
 - `url.cpp` — the URL parser.
 - `inflate.cpp` — zlib, gzip and raw deflate streams.
 - `http_response.cpp` — HTTP/1.1 response heads and bodies.
+- `x509.cpp` — DER, X.509 certificates and CRLs (seed corpus: the test
+  PKI of `tests/fixtures/x509/`, as DER).
 - `truetype.cpp` — the TrueType reader: table directory, cmap, glyf,
   composites (seed: a small Sashfold Mono from `gen_font --seed`); smoke run
   in CI.
@@ -28,4 +30,4 @@ Harnesses:
   IDCT (seed: a tiny baseline file written by the test encoder); smoke run
   in CI.
 
-Still to come, one per parser as each lands: xkb, x509_der, js_lexer.
+Still to come, one per parser as each lands: xkb, tls_records, js_lexer.

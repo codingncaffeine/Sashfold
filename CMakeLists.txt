@@ -75,6 +75,8 @@ add_library(sashfold_core STATIC
   src/net/Http.cpp
   src/net/Idna.cpp
   src/net/Url.cpp
+  src/net/tls/Der.cpp
+  src/net/tls/X509.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
   src/text/Face.cpp
@@ -180,6 +182,7 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(url)
   sashfold_fuzzer(inflate)
   sashfold_fuzzer(http_response)
+  sashfold_fuzzer(x509)
   sashfold_fuzzer(truetype)
   sashfold_fuzzer(png)
   sashfold_fuzzer(gif)
