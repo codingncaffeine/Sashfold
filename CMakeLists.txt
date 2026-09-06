@@ -76,6 +76,9 @@ add_library(sashfold_core STATIC
   src/net/Idna.cpp
   src/net/Url.cpp
   src/net/tls/Der.cpp
+  src/net/tls/Tls13.cpp
+  src/net/tls/TrustStore.cpp
+  src/net/tls/Validate.cpp
   src/net/tls/X509.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
