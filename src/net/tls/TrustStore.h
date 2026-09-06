@@ -25,7 +25,7 @@ public:
 
 private:
     std::vector<Certificate> m_anchors;
-    std::multimap<std::vector<std::uint8_t>, std::size_t> m_by_subject; // subject DER → index
+    std::multimap<std::string, std::size_t> m_by_subject; // subject DER as bytes → index
     void add(Certificate certificate);
 };
 

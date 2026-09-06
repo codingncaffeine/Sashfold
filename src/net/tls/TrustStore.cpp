@@ -7,9 +7,9 @@ namespace sashfold::tls {
 
 void TrustStore::add(Certificate certificate)
 {
-    std::vector<std::uint8_t> const key = certificate.subject.der;
+    std::string key(certificate.subject.der.begin(), certificate.subject.der.end());
     m_anchors.push_back(std::move(certificate));
-    m_by_subject.emplace(key, m_anchors.size() - 1);
+    m_by_subject.emplace(std::move(key), m_anchors.size() - 1);
 }
 
 TrustStore TrustStore::from_pem(std::string_view pem)
@@ -49,7 +49,8 @@ TrustStore TrustStore::load()
 std::vector<Certificate const*> TrustStore::by_subject(Name const& subject) const
 {
     std::vector<Certificate const*> out;
-    auto const range = m_by_subject.equal_range(subject.der);
+    std::string const key(subject.der.begin(), subject.der.end());
+    auto const range = m_by_subject.equal_range(key);
     for (auto it = range.first; it != range.second; ++it)
         out.push_back(&m_anchors[it->second]);
     return out;
