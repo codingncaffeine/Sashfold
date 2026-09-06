@@ -26,11 +26,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace sashfold::js {
 
 class Parser;
+class ModuleRecord;
 
 enum class ErrorType : std::uint8_t {
     Error,
@@ -179,6 +181,25 @@ public:
     Outcome run_script(std::u16string_view source, std::string name = "");
     Outcome run_script(std::string_view utf8_source, std::string name = "");
 
+    // Modules (§16.2). The host names a module by a key — a URL, a path —
+    // and supplies two hooks: one resolves a specifier against the
+    // requesting module's key into a key (or fills `error`), the other
+    // fetches a key's source text. parse_module makes the record over the
+    // Module goal's parse (null with a SyntaxError pending; a key already
+    // in the module map answers its record unparsed), load_module walks a
+    // record's requests through the hooks parsing each new module into
+    // the map, and link_module / evaluate_module are Link and Evaluate —
+    // the latter answers the top-level promise, settled once the job
+    // queue has drained. The map keeps every record for the realm's life.
+    using ModuleResolver = std::function<std::optional<std::string>(std::string_view referrer_key, std::string_view specifier, std::string& error)>;
+    using ModuleFetcher = std::function<std::optional<std::u16string>(std::string_view key, std::string& error)>;
+    void set_module_hooks(ModuleResolver, ModuleFetcher);
+    ModuleRecord* parse_module(std::u16string_view source, std::string key);
+    ModuleRecord* find_module(std::string_view key) const;
+    bool load_module(ModuleRecord&);
+    bool link_module(ModuleRecord&);
+    std::optional<Value> evaluate_module(ModuleRecord&);
+
     // Calling into script from C++ (bindings, the event loop).
     std::optional<Value> call(Value const& callee, Value const& this_value, std::span<Value const> arguments);
     std::optional<Value> construct(Value const& callee, std::span<Value const> arguments);
@@ -227,6 +248,10 @@ public:
     std::optional<bool> set(Object&, PropertyKey const&, Value const&, bool strict);
     // CreateDataProperty(OrThrow) and DefinePropertyOrThrow.
     std::optional<bool> create_data_property(Object&, PropertyKey const&, Value const&, bool or_throw = true);
+    // [[GetOwnProperty]] as script sees it: a module namespace reads the
+    // export's binding, which throws in its dead zone, so the reflective
+    // built-ins ask here. Outer nullopt = a throw; inner = absent.
+    std::optional<std::optional<PropertyDescriptor>> get_own_property(Object&, PropertyKey const&);
     // [[DefineOwnProperty]] as script sees it: the array-length conversion
     // of ArraySetLength happens here, so it can throw. false = rejected.
     std::optional<bool> define_own_property(Object&, PropertyKey const&, PropertyDescriptor const&);
@@ -397,6 +422,9 @@ private:
     // push: a vector would move its elements when it grows.
     std::deque<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
+    std::unordered_map<std::string, ModuleRecord*> m_modules; // the module map (§16.2.1.7); traced
+    ModuleResolver m_module_resolver;
+    ModuleFetcher m_module_fetcher;
     std::deque<Job> m_jobs; // traced
     std::vector<PromiseObject*> m_unhandled_rejections; // traced; rejected with no handler yet
     Value m_exception;

@@ -1058,7 +1058,7 @@ void Parser::Impl::request_module(JsString* specifier, std::vector<ImportAttribu
 // exported name must be declared — a var, a lexical, a function, a class
 // or an import (§16.2.1.1) — and the export entries sort into the three
 // tables: an export of an imported binding is an indirect export of the
-// other module's name, unless what was imported was a namespace.
+// other module's name, or of its namespace.
 bool Parser::Impl::finish_module()
 {
     Scope const& top = *function().scopes.front();
@@ -1074,9 +1074,14 @@ bool Parser::Impl::finish_module()
         }
         if (!top.lexical_names.contains(entry.local_name) && !top.var_names.contains(entry.local_name))
             return fail(pending.position, "Export '" + utf8_from_utf16(entry.local_name->view()) + "' is not defined in module");
+        // An export of an imported binding is an indirect export of the
+        // other module's name — of its whole namespace when the import was
+        // `* as` (ParseModule step 10.a.ii, ES2025: so that `export * as
+        // ns from 'm'` and `import * as ns from 'm'; export { ns }` are one
+        // unambiguous export).
         auto const imported = std::find_if(m_program->import_entries.begin(), m_program->import_entries.end(),
             [&](ImportEntryRecord const& record) { return record.local_name == entry.local_name; });
-        if (imported != m_program->import_entries.end() && imported->import_name != star) {
+        if (imported != m_program->import_entries.end()) {
             m_program->indirect_export_entries.push_back(
                 ExportEntryRecord { entry.export_name, imported->module_request, imported->import_name, nullptr });
         } else {

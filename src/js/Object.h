@@ -121,6 +121,7 @@ public:
         ArrayBuffer, // §25.1
         TypedArray, // an Integer-Indexed exotic object (§10.4.5): a view of one element type over a buffer
         DataView, // §25.3
+        ModuleNamespace, // a module namespace exotic object (§10.4.6): a module's exports as live properties
     };
 
     explicit Object(Object* prototype, Class class_id = Class::Object)
@@ -906,6 +907,8 @@ private:
 // A scope (§9.1): the bindings a block, function or script declares, or —
 // when made over an object — that object's properties (the global object,
 // a `with` target). Closures capture one; the chain runs outward.
+class ModuleRecord;
+
 class Environment : public Cell {
 public:
     struct Binding {
@@ -918,6 +921,12 @@ public:
         // against one that throws only from strict code: a sloppy function
         // expression's own name (§9.1.1.1.5 step 4, CreateImmutableBinding's S).
         bool strict = true;
+        // An indirect binding (§9.1.1.5.5 CreateImportBinding): `import { x }`
+        // binds x to the exporting module's binding, live — every read goes
+        // through that module's environment, and a write is the TypeError of
+        // an immutable binding. `value` is unused then.
+        ModuleRecord* import_module = nullptr;
+        JsString* import_name = nullptr;
     };
 
     explicit Environment(Environment* outer, Object* object = nullptr)
@@ -936,6 +945,9 @@ public:
     Binding* find(JsString* name);
     Binding const* find(JsString* name) const;
     Binding& declare(JsString* name, Value initial = Value::undefined(), bool mutable_ = true, bool initialized = true, bool deletable = false);
+    // CreateImportBinding (§9.1.1.5.5): an immutable, initialised binding
+    // whose value is another module's binding, followed at every access.
+    Binding& declare_import(JsString* name, ModuleRecord* module, JsString* import_name);
     bool remove(JsString* name); // deletable bindings only
     std::vector<Binding> const& bindings() const { return m_bindings; }
 

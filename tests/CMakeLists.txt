@@ -76,6 +76,7 @@ sashfold_test(test_js_promise)
 sashfold_test(test_js_generator)
 sashfold_test(test_js_async)
 sashfold_test(test_js_typed_array)
+sashfold_test(test_js_module)
 sashfold_test(test_crypto)
 sashfold_test(test_bindings)
 

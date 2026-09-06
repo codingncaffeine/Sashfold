@@ -2,6 +2,7 @@
 
 #include "js/Ast.h"
 #include "js/Interpreter.h"
+#include "js/Module.h"
 
 #include <algorithm>
 #include <cmath>
@@ -500,7 +501,17 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
             return interpreter.define_own_property(*target, key, desc);
         return target->define_own_property(key, desc);
     };
-    std::optional<PropertyDescriptor> const existing = target->get_own_property(key);
+    // A module namespace receiver reads its export's binding here, which
+    // throws in its dead zone (§10.4.6.4): the interpreter's wrapper.
+    std::optional<PropertyDescriptor> existing;
+    if (target->class_id() == Class::ModuleNamespace) {
+        std::optional<std::optional<PropertyDescriptor>> const read = interpreter.get_own_property(*target, key);
+        if (!read)
+            return std::nullopt;
+        existing = *read;
+    } else {
+        existing = target->get_own_property(key);
+    }
     if (existing) {
         if (existing->is_accessor())
             return false;
@@ -1157,6 +1168,14 @@ Environment::Binding& Environment::declare(JsString* name, Value initial, bool m
     return binding;
 }
 
+Environment::Binding& Environment::declare_import(JsString* name, ModuleRecord* module, JsString* import_name)
+{
+    Binding& binding = declare(name, Value::undefined(), false, true);
+    binding.import_module = module;
+    binding.import_name = import_name;
+    return binding;
+}
+
 bool Environment::remove(JsString* name)
 {
     for (auto it = m_bindings.begin(); it != m_bindings.end(); ++it) {
@@ -1175,6 +1194,8 @@ void Environment::trace(Tracer& tracer)
     for (Binding const& binding : m_bindings) {
         tracer.visit(binding.name);
         tracer.visit(binding.value);
+        tracer.visit(binding.import_module);
+        tracer.visit(binding.import_name);
     }
     tracer.visit(m_outer);
     tracer.visit(m_object);

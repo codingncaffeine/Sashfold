@@ -17,6 +17,7 @@
 
 #include "js/Ast.h"
 #include "js/Evaluator.h"
+#include "js/Module.h"
 #include "js/Object.h"
 #include "js/Parser.h"
 #include "js/Runtime.h"
@@ -298,6 +299,16 @@ std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context 
         Environment::Binding const* binding = reference.environment->find(reference.name);
         if (binding == nullptr)
             return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
+        // An import binding reads the exporting module's binding, live
+        // (§9.1.1.5.1 GetBindingValue): its dead zone crosses the import,
+        // and a module whose environment does not exist yet is one too.
+        for (int hops = 0; binding->import_module != nullptr && hops < 64; ++hops) {
+            Environment* target = binding->import_module->environment();
+            Environment::Binding const* target_binding = target != nullptr ? target->find(binding->import_name) : nullptr;
+            if (target_binding == nullptr)
+                return self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
+            binding = target_binding;
+        }
         if (!binding->initialized)
             return self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
         return binding->value;
@@ -1264,13 +1275,16 @@ std::optional<Value> Interpreter::Impl::evaluate_class(ClassNode const& node, Co
 Completion Interpreter::Impl::execute_class_declaration(ClassDeclaration const& declaration, Context& cx)
 {
     // BindingClassDeclarationEvaluation (§15.7.15): the outer binding,
-    // declared at the scope's entry, takes the class.
-    std::optional<Value> const value = evaluate_class(*declaration.node, cx, nullptr);
+    // declared at the scope's entry, takes the class. An anonymous
+    // `export default class` is named "default" and binds `*default*`.
+    PropertyKey const default_key = PropertyKey::atom(heap().atom(u"default"));
+    bool const anonymous = declaration.node->name == nullptr;
+    std::optional<Value> const value = evaluate_class(*declaration.node, cx, anonymous ? &default_key : nullptr);
     if (!value)
         return Completion::thrown();
     Roots const roots(self);
     self.root(*value);
-    if (!initialize_binding(declaration.node->name, *value, cx.lexical))
+    if (!initialize_binding(anonymous ? heap().atom(u"*default*") : declaration.node->name, *value, cx.lexical))
         return Completion::thrown();
     return Completion::normal();
 }
@@ -1584,8 +1598,10 @@ bool Interpreter::Impl::copy_data_properties(Object& target, Value const& source
             continue;
         if (key.is_symbol())
             self.root(Value::symbol(key.as_symbol()));
-        std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
-        if (!desc || !desc->enumerable.value_or(false))
+        std::optional<std::optional<PropertyDescriptor>> const desc = self.get_own_property(**from, key);
+        if (!desc)
+            return false;
+        if (!*desc || !(*desc)->enumerable.value_or(false))
             continue;
         std::optional<Value> const value = self.get(**from, key);
         if (!value)
@@ -3036,17 +3052,51 @@ Completion Interpreter::Impl::execute(Statement const* statement, Context& cx, s
     case NodeType::WithStatement:
         return execute_with(*static_cast<WithStatement const*>(statement), cx);
     case NodeType::ImportDeclaration:
+        // §16.2.2.7: the bindings were made when the module was linked.
+        return Completion::normal();
     case NodeType::ExportDeclaration:
-        // Only the Module goal makes these, and no host evaluates a module
-        // yet: the records, their linking and their evaluation are not
-        // written.
-        self.throw_syntax_error("module code is not supported yet");
-        return Completion::thrown();
+        return execute_export(*static_cast<ExportDeclaration const*>(statement), cx);
     default:
         break;
     }
     self.throw_syntax_error("unsupported statement");
     return Completion::thrown();
+}
+
+
+// ExportDeclaration evaluation (§16.2.3.7): a declaration is evaluated as
+// itself, a default expression is evaluated — named "default" when it is
+// an anonymous function or class — and bound to `*default*`, and the
+// named and star forms did their work at link time.
+Completion Interpreter::Impl::execute_export(ExportDeclaration const& declaration, Context& cx)
+{
+    switch (declaration.kind) {
+    case ExportDeclaration::Kind::Declaration:
+        return execute(declaration.declaration, cx, {});
+    case ExportDeclaration::Kind::Default: {
+        if (declaration.declaration != nullptr) {
+            if (declaration.declaration->type == NodeType::FunctionDeclaration)
+                return Completion::normal(); // instantiated at link time
+            return execute(declaration.declaration, cx, {});
+        }
+        std::optional<Value> value;
+        if (is_anonymous_function_definition(declaration.expression))
+            value = evaluate_named(declaration.expression, cx, PropertyKey::atom(heap().atom(u"default")));
+        else
+            value = evaluate(declaration.expression, cx);
+        if (!value)
+            return Completion::thrown();
+        Roots const roots(self);
+        self.root(*value);
+        if (!initialize_binding(heap().atom(u"*default*"), *value, cx.lexical))
+            return Completion::thrown();
+        return Completion::normal();
+    }
+    case ExportDeclaration::Kind::Named:
+    case ExportDeclaration::Kind::Star:
+        return Completion::normal();
+    }
+    return Completion::normal();
 }
 
 
@@ -3273,7 +3323,9 @@ void Interpreter::Impl::enumerator_load(Enumerator& enumerator)
 }
 
 
-// The next key as a string, or null when the chain is exhausted.
+// The next key as a string, or null when the chain is exhausted — or
+// when a module namespace's export threw in its dead zone (§10.4.6.4),
+// which the caller tells apart by the exception pending.
 JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
 {
     while (enumerator.object != nullptr) {
@@ -3282,7 +3334,15 @@ JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
             JsString* name = heap().key_to_string(key);
             if (enumerator.visited.contains(name))
                 continue;
-            std::optional<PropertyDescriptor> const desc = enumerator.object->get_own_property(key);
+            std::optional<PropertyDescriptor> desc;
+            if (enumerator.object->class_id() == Object::Class::ModuleNamespace) {
+                std::optional<std::optional<PropertyDescriptor>> const read = self.get_own_property(*enumerator.object, key);
+                if (!read)
+                    return nullptr;
+                desc = *read;
+            } else {
+                desc = enumerator.object->get_own_property(key);
+            }
             if (!desc)
                 continue;
             enumerator.visited.insert(name);
@@ -3371,7 +3431,7 @@ Completion Interpreter::Impl::execute_for_in(ForInStatement const& loop, Context
     while (true) {
         JsString* key = enumerator_next(enumerator);
         if (key == nullptr)
-            return restore(Completion::normal(last));
+            return restore(self.has_exception() ? Completion::thrown() : Completion::normal(last));
         Value const key_value = Value::string(key);
         if (!bind_loop_head(loop.declaration, loop.target, bound_names, key_value, saved, cx))
             return restore(Completion::thrown());
@@ -3702,6 +3762,8 @@ void Interpreter::trace_roots(Tracer& tracer)
     }
     for (PromiseObject* promise : m_unhandled_rejections)
         tracer.visit(promise);
+    for (auto const& [key, record] : m_modules)
+        tracer.visit(record);
     m_impl->trace(tracer);
 }
 
@@ -3752,6 +3814,106 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
 Outcome Interpreter::run_script(std::string_view utf8_source, std::string name)
 {
     return run_script(std::u16string_view(utf16_from_utf8(utf8_source)), std::move(name));
+}
+
+// ---- modules (§16.2)
+
+void Interpreter::set_module_hooks(ModuleResolver resolver, ModuleFetcher fetcher)
+{
+    m_module_resolver = std::move(resolver);
+    m_module_fetcher = std::move(fetcher);
+}
+
+ModuleRecord* Interpreter::find_module(std::string_view key) const
+{
+    auto const found = m_modules.find(std::string(key));
+    return found == m_modules.end() ? nullptr : found->second;
+}
+
+// ParseModule (§16.2.1.6.1): the Module goal's parse, then a record in
+// the map — which roots it; the record owns the tree, and functions made
+// from the tree point into it, so the record lives as long as the realm.
+ModuleRecord* Interpreter::parse_module(std::u16string_view source, std::string key)
+{
+    if (ModuleRecord* existing = find_module(key))
+        return existing;
+    ParseOptions options;
+    options.module = true;
+    Parser parser(*m_heap, std::u16string(source), options);
+    std::unique_ptr<Program> program = parser.parse_program(key);
+    if (!program) {
+        ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
+        std::string message = error.message;
+        if (!key.empty())
+            message += " (" + key + ":" + std::to_string(error.position.line) + ":" + std::to_string(error.position.column) + ")";
+        throw_syntax_error(message);
+        return nullptr;
+    }
+    ModuleRecord* record = m_heap->allocate<ModuleRecord>(key, std::move(program));
+    m_modules.emplace(std::move(key), record);
+    return record;
+}
+
+// HostLoadImportedModule (§16.2.1.8) for every request of the record and,
+// depth first, of what it brings in: the resolver names the module, the
+// map answers one already parsed, the fetcher and the parser make the
+// rest. A resolution or fetch failure is a TypeError, a parse failure the
+// SyntaxError, either pending on return.
+bool Interpreter::load_module(ModuleRecord& record)
+{
+    for (ModuleRequest const& request : record.program().requested_modules) {
+        if (record.imported_module(request.specifier) != nullptr)
+            continue;
+        std::string const specifier = request.specifier->to_utf8();
+        if (!m_module_resolver || !m_module_fetcher) {
+            throw_type_error("Cannot load module '" + specifier + "': this host loads no modules");
+            return false;
+        }
+        // The only attribute a host understands is `type`, and no type
+        // but JavaScript is written (JSON, CSS, text and bytes modules are
+        // proposals or other items): refused by name, at load, as the
+        // host's HostLoadImportedModule would.
+        for (ImportAttribute const& attribute : request.attributes) {
+            if (attribute.key->view() == u"type") {
+                throw_type_error("Cannot import '" + specifier + "' as a module of type '" + attribute.value->to_utf8()
+                    + "': modules of that type are not supported yet");
+                return false;
+            }
+        }
+        std::string error;
+        std::optional<std::string> const key = m_module_resolver(record.key(), specifier, error);
+        if (!key) {
+            throw_type_error(error.empty() ? "Failed to resolve module specifier '" + specifier + "'" : error);
+            return false;
+        }
+        ModuleRecord* dependency = find_module(*key);
+        if (dependency == nullptr) {
+            std::optional<std::u16string> const source = m_module_fetcher(*key, error);
+            if (!source) {
+                throw_type_error(error.empty() ? "Failed to fetch module '" + *key + "'" : error);
+                return false;
+            }
+            dependency = parse_module(*source, *key);
+            if (dependency == nullptr)
+                return false;
+        }
+        record.add_loaded_module(request.specifier, dependency);
+        if (!load_module(*dependency))
+            return false;
+    }
+    return true;
+}
+
+bool Interpreter::link_module(ModuleRecord& record)
+{
+    return record.link(*this);
+}
+
+std::optional<Value> Interpreter::evaluate_module(ModuleRecord& record)
+{
+    if (m_call_depth == 0)
+        m_stack_base = stack_position();
+    return record.evaluate(*this);
 }
 
 std::optional<Value> Interpreter::call(Value const& callee, Value const& this_value, std::span<Value const> arguments)

@@ -1437,8 +1437,8 @@ void test_modules()
         CHECK(parsed.program != nullptr);
         if (parsed.program) {
             CHECK_EQ(tables_of(*parsed.program),
-                "requested: m n o | imports: m.a>a m.b>c n.*>ns | local: ns=ns q=q default=*default* t=t"
-                " | indirect: a<m.a d<m.b p<o.* r<o.q s<o.s | star: o");
+                "requested: m n o | imports: m.a>a m.b>c n.*>ns | local: q=q default=*default* t=t"
+                " | indirect: a<m.a d<m.b ns<n.* p<o.* r<o.q s<o.s | star: o");
             CHECK(!parsed.program->has_top_level_await);
             CHECK(parsed.program->is_module && parsed.program->is_strict);
             CHECK_EQ(names(parsed.program->declarations.vars), "q");

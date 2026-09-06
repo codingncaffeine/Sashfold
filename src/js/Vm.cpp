@@ -1120,6 +1120,10 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         case Opcode::ForInNext: {
             auto* enumerator = static_cast<ForInIteratorObject*>(frame.registers[ins.a].as_object());
             JsString* key = enumerator_next(enumerator->enumerator());
+            if (key == nullptr && self.has_exception()) {
+                ok = false;
+                break;
+            }
             frame.push(key ? Value::string(key) : Value::empty());
             break;
         }

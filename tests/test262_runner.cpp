@@ -15,10 +15,9 @@
 // functions or features not written yet; what the engine cannot do, it does
 // not score.
 
-#include "js/Heap.h"
 #include "js/Interpreter.h"
+#include "js/Module.h"
 #include "js/Object.h"
-#include "js/Parser.h"
 #include "js/Strings.h"
 
 #include <algorithm>
@@ -203,15 +202,10 @@ struct RunResult {
     std::string reason;
 };
 
-// One test in one mode: a fresh realm, the harness, the test.
-RunResult run_one(std::filesystem::path const& root, std::string const& source, Metadata const& meta, Mode mode,
-    int timeout_ms)
+// The host hooks INTERPRETING.md asks for: print, and the $262 object.
+// Answers the buffer print appends to.
+std::shared_ptr<std::string> install_host(js::Interpreter& interpreter)
 {
-    js::Interpreter interpreter;
-    auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
-
-    // The host hooks INTERPRETING.md asks for: print, and the $262 object.
     auto printed = std::make_shared<std::string>();
     {
         js::Interpreter::Roots roots(interpreter);
@@ -261,20 +255,55 @@ RunResult run_one(std::filesystem::path const& root, std::string const& source, 
         host->put(interpreter.key("detachArrayBuffer"), js::Value::object(detach), js::builtin_attributes);
         global->put(interpreter.key("$262"), js::Value::object(host), js::builtin_attributes);
     }
+    return printed;
+}
 
-    if (mode != Mode::Raw) {
-        std::vector<std::string> harness { "assert.js", "sta.js" };
-        if (meta.async)
-            harness.push_back("doneprintHandle.js");
-        harness.insert(harness.end(), meta.includes.begin(), meta.includes.end());
-        for (std::string const& name : harness) {
-            std::optional<std::string> const text = read_file(root / "harness" / name);
-            if (!text)
-                return { false, "harness file missing: " + name };
-            js::Outcome const outcome = interpreter.run_script(*text, "harness/" + name);
-            if (!outcome.ok)
-                return { false, "harness " + name + " failed: " + interpreter.describe(outcome.value) };
+// The harness files a test asks for, run as scripts before it; false
+// with the reason in `failure` when one is missing or throws.
+bool load_harness(std::filesystem::path const& root, js::Interpreter& interpreter, Metadata const& meta, RunResult& failure)
+{
+    std::vector<std::string> harness { "assert.js", "sta.js" };
+    if (meta.async)
+        harness.push_back("doneprintHandle.js");
+    harness.insert(harness.end(), meta.includes.begin(), meta.includes.end());
+    for (std::string const& name : harness) {
+        std::optional<std::string> const text = read_file(root / "harness" / name);
+        if (!text) {
+            failure = { false, "harness file missing: " + name };
+            return false;
         }
+        js::Outcome const outcome = interpreter.run_script(*text, "harness/" + name);
+        if (!outcome.ok) {
+            failure = { false, "harness " + name + " failed: " + interpreter.describe(outcome.value) };
+            return false;
+        }
+    }
+    return true;
+}
+
+// An async test reports through print: Test262:AsyncTestComplete, or
+// Test262:AsyncTestFailure with the reason.
+RunResult async_verdict(std::string const& printed)
+{
+    if (printed.find("Test262:AsyncTestComplete") == std::string::npos)
+        return { false, "async test did not complete: " + trimmed(printed) };
+    if (printed.find("Test262:AsyncTestFailure") != std::string::npos)
+        return { false, trimmed(printed) };
+    return { true, "" };
+}
+
+// One test in one mode: a fresh realm, the harness, the test.
+RunResult run_one(std::filesystem::path const& root, std::string const& source, Metadata const& meta, Mode mode,
+    int timeout_ms)
+{
+    js::Interpreter interpreter;
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
+    auto const printed = install_host(interpreter);
+    if (mode != Mode::Raw) {
+        RunResult failure;
+        if (!load_harness(root, interpreter, meta, failure))
+            return failure;
     }
 
     std::string program = mode == Mode::Strict ? "\"use strict\";\n" + source : source;
@@ -298,40 +327,81 @@ RunResult run_one(std::filesystem::path const& root, std::string const& source, 
     }
     if (!outcome.ok)
         return { false, interpreter.describe(outcome.value) };
-    if (meta.async) {
-        if (printed->find("Test262:AsyncTestComplete") == std::string::npos)
-            return { false, "async test did not complete: " + trimmed(*printed) };
-        if (printed->find("Test262:AsyncTestFailure") != std::string::npos)
-            return { false, trimmed(*printed) };
-    }
+    if (meta.async)
+        return async_verdict(*printed);
     return { true, "" };
 }
 
-// Module code, until the module records, their linking and their
-// evaluation are written: the Module goal's parse alone, which is the
-// whole of a test that expects a SyntaxError at the parse phase. Every
-// other module test is declined by name.
-RunResult run_module(std::string const& source, Metadata const& meta)
+// Module code (INTERPRETING.md): the harness runs as scripts, then the
+// test is parsed under the Module goal with its path as the key, its
+// imports resolved to files beside it, linked and evaluated, and the job
+// queue drains before the evaluation promise is read. A negative test's
+// phase says where the error must come from: parse (the test's own
+// parse), resolution (loading — a dependency's parse error included —
+// and linking), or runtime (the promise's rejection). Once, never as
+// sloppy and strict: module code is strict.
+RunResult run_module(std::filesystem::path const& root, std::filesystem::path const& path, std::string const& source,
+    Metadata const& meta, int timeout_ms)
 {
-    js::Heap heap;
-    js::ParseOptions options;
-    options.module = true;
-    js::Parser parser(heap, js::utf16_from_utf8(source), options);
-    std::unique_ptr<js::Program> const program = parser.parse_program("test");
-    bool const expects_parse_error = !meta.negative_type.empty() && meta.negative_phase == "parse";
-    if (!program) {
-        std::string const message = parser.error() ? parser.error()->message : "parse failed";
-        if (!expects_parse_error)
-            return { false, "SyntaxError: " + message };
-        if (meta.negative_type != "SyntaxError")
-            return { false, "expected " + meta.negative_type + ", got SyntaxError: " + message };
-        if (message.find("not supported") != std::string::npos)
-            return { false, "the expected error came from an unsupported feature: " + message };
-        return { true, "" };
+    js::Interpreter interpreter;
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
+    auto const printed = install_host(interpreter);
+    if (!meta.raw) {
+        RunResult failure;
+        if (!load_harness(root, interpreter, meta, failure))
+            return failure;
     }
-    if (expects_parse_error)
-        return { false, "expected " + meta.negative_type + " (parse), parsed" };
-    return { false, "module code is not supported" };
+    interpreter.set_module_hooks(
+        [](std::string_view referrer, std::string_view specifier, std::string&) -> std::optional<std::string> {
+            // "the name of a file within the same directory" as the referrer.
+            std::filesystem::path const base = std::filesystem::path(std::string(referrer)).parent_path();
+            return (base / std::string(specifier)).lexically_normal().generic_string();
+        },
+        [](std::string_view key, std::string& error) -> std::optional<std::u16string> {
+            std::optional<std::string> const text = read_file(std::filesystem::path(std::string(key)));
+            if (!text) {
+                error = "Cannot find module '" + std::string(key) + "'";
+                return std::nullopt;
+            }
+            return js::utf16_from_utf8(*text);
+        });
+
+    bool const negative = !meta.negative_type.empty();
+    auto const verdict = [&](std::string const& phase, std::string const& described) -> RunResult {
+        if (!negative)
+            return { false, described };
+        if (meta.negative_phase != phase)
+            return { false, "expected " + meta.negative_type + " at " + meta.negative_phase + ", got " + described + " at " + phase };
+        if (error_name(described) != meta.negative_type)
+            return { false, "expected " + meta.negative_type + ", got " + described };
+        if (described.find("not supported") != std::string::npos)
+            return { false, "the expected error came from an unsupported feature: " + described };
+        return { true, "" };
+    };
+
+    js::ModuleRecord* record = interpreter.parse_module(js::utf16_from_utf8(source), path.lexically_normal().generic_string());
+    if (record == nullptr)
+        return verdict("parse", interpreter.describe(interpreter.take_exception()));
+    if (!interpreter.load_module(*record) || !interpreter.link_module(*record))
+        return verdict("resolution", interpreter.describe(interpreter.take_exception()));
+    std::optional<js::Value> const promise = interpreter.evaluate_module(*record);
+    if (!interpreter.terminated())
+        interpreter.run_jobs({});
+    if (interpreter.terminated())
+        return { false, "timeout" };
+    if (!promise)
+        return verdict("runtime", interpreter.describe(interpreter.take_exception()));
+    auto const* state = static_cast<js::PromiseObject const*>(promise->as_object());
+    if (state->state() == js::PromiseObject::State::Rejected)
+        return verdict("runtime", interpreter.describe(state->result()));
+    if (state->state() == js::PromiseObject::State::Pending)
+        return { false, "the evaluation promise never settled" };
+    if (negative)
+        return { false, "expected " + meta.negative_type + " (" + meta.negative_phase + "), ran without error" };
+    if (meta.async)
+        return async_verdict(*printed);
+    return { true, "" };
 }
 
 struct Test {
@@ -599,7 +669,7 @@ int main(int argc, char** argv)
             Metadata const meta = parse_metadata(*source);
             RunResult result;
             if (meta.module) {
-                result = run_module(*source, meta);
+                result = run_module(root, root / tests[i].rel, *source, meta, timeout_ms);
             } else {
                 std::vector<Mode> modes;
                 if (meta.raw)

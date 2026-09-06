@@ -292,8 +292,10 @@ std::optional<Value> enumerable_own_properties(Interpreter& in, Object& object, 
     for (PropertyKey const& key : object.own_keys()) {
         if (key.is_symbol())
             continue;
-        std::optional<PropertyDescriptor> const desc = object.get_own_property(key);
-        if (!desc || !desc->enumerable.value_or(false))
+        std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
+        if (!desc)
+            return std::nullopt;
+        if (!*desc || !(*desc)->enumerable.value_or(false))
             continue;
         Value const name = Value::string(in.heap().key_to_string(key));
         if (kind == OwnKind::Keys) {
@@ -346,8 +348,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
                 return std::nullopt;
             interp.root(Value::object(*from));
             for (PropertyKey const& key : (*from)->own_keys()) {
-                std::optional<PropertyDescriptor> const desc = (*from)->get_own_property(key);
-                if (!desc || !desc->enumerable.value_or(false))
+                std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**from, key);
+                if (!desc)
+                    return std::nullopt;
+                if (!*desc || !(*desc)->enumerable.value_or(false))
                     continue;
                 std::optional<Value> const value = interp.get(**from, key);
                 if (!value)
@@ -476,10 +480,12 @@ void install_object_statics(Interpreter& in, Object& constructor)
         std::optional<PropertyKey> const key = interp.to_property_key(argument(args, 1));
         if (!key)
             return std::nullopt;
-        std::optional<PropertyDescriptor> const desc = (*object)->get_own_property(*key);
+        std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, *key);
         if (!desc)
+            return std::nullopt;
+        if (!*desc)
             return Value::undefined();
-        return Value::object(from_property_descriptor(interp, *desc));
+        return Value::object(from_property_descriptor(interp, **desc));
     });
     define_method(in, constructor, "getOwnPropertyDescriptors", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         Interpreter::Roots const roots(interp);
@@ -490,10 +496,12 @@ void install_object_statics(Interpreter& in, Object& constructor)
         Object* result = interp.new_object();
         interp.root(Value::object(result));
         for (PropertyKey const& key : (*object)->own_keys()) {
-            std::optional<PropertyDescriptor> const desc = (*object)->get_own_property(key);
+            std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, key);
             if (!desc)
+                return std::nullopt;
+            if (!*desc)
                 continue;
-            Object* descriptor = from_property_descriptor(interp, *desc);
+            Object* descriptor = from_property_descriptor(interp, **desc);
             if (!interp.create_data_property(*result, key, Value::object(descriptor)))
                 return std::nullopt;
         }
@@ -543,7 +551,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
         std::optional<PropertyKey> const key = interp.to_property_key(argument(args, 1));
         if (!key)
             return std::nullopt;
-        return Value::boolean((*object)->get_own_property(*key).has_value());
+        std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, *key);
+        if (!desc)
+            return std::nullopt;
+        return Value::boolean(desc->has_value());
     });
     define_method(in, constructor, "is", 2, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
         return Value::boolean(Interpreter::same_value(argument(args, 0), argument(args, 1)));
@@ -617,7 +628,10 @@ void install_object_prototype(Interpreter& in, Object& prototype)
         std::optional<Object*> const object = interp.to_object(this_value);
         if (!object)
             return std::nullopt;
-        return Value::boolean((*object)->get_own_property(*key).has_value());
+        std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, *key);
+        if (!desc)
+            return std::nullopt;
+        return Value::boolean(desc->has_value());
     });
     define_method(in, prototype, "isPrototypeOf", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
         Value const value = argument(args, 0);
@@ -642,8 +656,10 @@ void install_object_prototype(Interpreter& in, Object& prototype)
         std::optional<Object*> const object = interp.to_object(this_value);
         if (!object)
             return std::nullopt;
-        std::optional<PropertyDescriptor> const desc = (*object)->get_own_property(*key);
-        return Value::boolean(desc && desc->enumerable.value_or(false));
+        std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, *key);
+        if (!desc)
+            return std::nullopt;
+        return Value::boolean(*desc && (*desc)->enumerable.value_or(false));
     });
     define_method(in, prototype, "toLocaleString", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
         return interp.invoke(this_value, PropertyKey::atom(interp.atoms().to_string), {});
@@ -931,10 +947,12 @@ void install_reflect(Interpreter& in)
         std::optional<PropertyKey> const key = interp.to_property_key(argument(args, 1));
         if (!key)
             return std::nullopt;
-        std::optional<PropertyDescriptor> const desc = (*object)->get_own_property(*key);
+        std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, *key);
         if (!desc)
+            return std::nullopt;
+        if (!*desc)
             return Value::undefined();
-        return Value::object(from_property_descriptor(interp, *desc));
+        return Value::object(from_property_descriptor(interp, **desc));
     });
     define_method(in, *reflect, "getPrototypeOf", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.getPrototypeOf");

@@ -5,6 +5,7 @@
 // Everything that can run script returns std::optional; the pieces that
 // cannot are static. The evaluator itself lives in Interpreter.cpp.
 
+#include "js/Module.h"
 #include "js/Object.h"
 #include "js/Runtime.h"
 #include "js/Strings.h"
@@ -82,6 +83,7 @@ std::string class_name(Object const& object)
     case Object::Class::ArrayBuffer: return "ArrayBuffer";
     case Object::Class::TypedArray: return std::string(element_type_name(static_cast<TypedArrayObject const&>(object).element_type()));
     case Object::Class::DataView: return "DataView";
+    case Object::Class::ModuleNamespace: return "Module";
     }
     return "Object";
 }
@@ -595,6 +597,16 @@ std::optional<bool> Interpreter::create_data_property(Object& object, PropertyKe
     return ok;
 }
 
+std::optional<std::optional<PropertyDescriptor>> Interpreter::get_own_property(Object& object, PropertyKey const& key)
+{
+    // [[GetOwnProperty]] with the one part that throws: a module
+    // namespace's export is read from its binding, which may be in its
+    // dead zone (§10.4.6.4).
+    if (object.class_id() == Object::Class::ModuleNamespace)
+        return static_cast<ModuleNamespaceObject&>(object).get_own_property(*this, key);
+    return object.get_own_property(key);
+}
+
 std::optional<bool> Interpreter::define_own_property(Object& object, PropertyKey const& key, PropertyDescriptor const& descriptor)
 {
     // [[DefineOwnProperty]] with the parts that run script and throw: a
@@ -982,8 +994,14 @@ std::string Interpreter::describe(Value const& value)
     if (object.is_error() || data_property_up_chain(object, PropertyKey::atom(atoms().message))) {
         std::string name = "Error";
         std::string message;
-        if (std::optional<Value> const n = data_property_up_chain(object, PropertyKey::atom(atoms().name)); n && n->is_string())
+        if (std::optional<Value> const n = data_property_up_chain(object, PropertyKey::atom(atoms().name)); n && n->is_string()) {
             name = n->as_string()->to_utf8();
+        } else if (std::optional<Value> const c = data_property_up_chain(object, PropertyKey::atom(atoms().constructor)); c && is_callable(*c)) {
+            // An error-shaped object of a class that never set `name`
+            // (test262's Test262Error is one): its constructor's.
+            if (std::optional<Value> const cn = data_property_up_chain(*c->as_object(), PropertyKey::atom(atoms().name)); cn && cn->is_string() && !cn->as_string()->view().empty())
+                name = cn->as_string()->to_utf8();
+        }
         if (std::optional<Value> const m = data_property_up_chain(object, PropertyKey::atom(atoms().message)); m && m->is_string())
             message = m->as_string()->to_utf8();
         if (name.empty())

@@ -277,6 +277,7 @@ struct Interpreter::Impl {
     Completion execute(Statement const* statement, Context& cx, std::span<JsString* const> labels);
     Completion execute_declaration(VariableDeclaration const& declaration, Context& cx);
     Completion execute_function_declaration(FunctionDeclaration const& declaration, Context& cx);
+    Completion execute_export(ExportDeclaration const& declaration, Context& cx);
     Completion execute_block(BlockStatement const& block, Context& cx);
     void copy_iteration_environment(Context& cx, std::vector<JsString*> const& names);
     Completion execute_for(ForStatement const& loop, Context& cx, std::span<JsString* const> labels);

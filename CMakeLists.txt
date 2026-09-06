@@ -113,6 +113,7 @@ add_library(sashfold_core STATIC
   src/js/Heap.cpp
   src/js/Interpreter.cpp
   src/js/Lexer.cpp
+  src/js/Module.cpp
   src/js/Objects.cpp
   src/js/Parser.cpp
   src/js/Regex.cpp
