@@ -36,7 +36,16 @@ struct Context {
 
 int round_px(float value)
 {
-    return static_cast<int>(value >= 0 ? value + 0.5f : value - 0.5f);
+    // A coordinate beyond the int range saturates: the cast is undefined
+    // for it, and nothing that far from the canvas is drawn anyway.
+    float const rounded = value >= 0 ? value + 0.5f : value - 0.5f;
+    if (rounded != rounded)
+        return 0;
+    if (rounded >= 2147483648.0f)
+        return 2147483647;
+    if (rounded <= -2147483648.0f)
+        return -2147483647 - 1;
+    return static_cast<int>(rounded);
 }
 
 Rect snap(float x, float y, float width, float height)

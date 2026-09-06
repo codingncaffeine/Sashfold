@@ -1474,6 +1474,7 @@ void install_intrinsics(Interpreter& in)
     install_iterators(in);
     install_collections(in);
     install_promise(in);
+    install_generators(in);
     install_reflect(in);
     install_console(in);
 }

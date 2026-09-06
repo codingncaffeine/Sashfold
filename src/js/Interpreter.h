@@ -96,6 +96,28 @@ struct Intrinsics {
     Function* promise_constructor = nullptr;
     Object* aggregate_error_prototype = nullptr;
     Function* aggregate_error_constructor = nullptr;
+    // Generators and async functions (§27.3–§27.7): the function
+    // prototypes each kind of function object hangs off, the constructors
+    // that make one from source text, and the prototypes their instances
+    // get. None is a global; scripts reach them through a function's chain.
+    Object* generator_function_prototype = nullptr; // %GeneratorFunction.prototype%
+    Function* generator_function = nullptr; // %GeneratorFunction%
+    Object* generator_prototype = nullptr; // %GeneratorFunction.prototype.prototype%
+    Object* async_function_prototype = nullptr; // %AsyncFunction.prototype%
+    Function* async_function = nullptr; // %AsyncFunction%
+    Object* async_iterator_prototype = nullptr; // %AsyncIteratorPrototype%
+    Object* async_from_sync_iterator_prototype = nullptr; // %AsyncFromSyncIteratorPrototype%
+    Object* async_generator_function_prototype = nullptr; // %AsyncGeneratorFunction.prototype%
+    Function* async_generator_function = nullptr; // %AsyncGeneratorFunction%
+    Object* async_generator_prototype = nullptr; // %AsyncGeneratorFunction.prototype.prototype%
+};
+
+// A PromiseCapability Record (§27.2.1.1): a promise and the two functions
+// that settle it.
+struct PromiseCapability {
+    Value promise;
+    Value resolve;
+    Value reject;
 };
 
 // A job (§9.5): what the host runs at its microtask checkpoints, in the
@@ -314,10 +336,10 @@ public:
     // the indirect form. Exposed for the bindings' inline event handlers.
     std::optional<Value> eval_in(std::u16string_view source, Environment* scope, bool strict, Value this_value,
         PrivateEnvironment* private_environment = nullptr);
-    // Compiles a function from parameter and body texts (`new Function`,
-    // and an `onclick="…"` attribute).
+    // Compiles a function from parameter and body texts (`new Function`
+    // and its generator/async kin, and an `onclick="…"` attribute).
     std::optional<Value> compile_function(std::u16string_view parameters, std::u16string_view body,
-        Environment* scope = nullptr);
+        Environment* scope = nullptr, DynamicFunctionKind kind = DynamicFunctionKind::Normal);
 
     // Limits and instrumentation.
     void set_call_depth_limit(int depth) { m_call_depth_limit = depth; }

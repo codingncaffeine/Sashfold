@@ -569,6 +569,12 @@ void SashfoldMono::draw_glyph(Bitmap& target, char32_t code_point, float x, floa
 {
     if (code_point < 0x21 || is_blank(code_point))
         return;
+    // A glyph placed or sized far beyond any bitmap draws nothing, and the
+    // conversions to int below are undefined for such values (a text-indent
+    // of ten trillion pixels reached here).
+    constexpr float limit = 1.0e7f;
+    if (!(x > -limit && x < limit && baseline_y > -limit && baseline_y < limit && size > 0.0f && size < limit))
+        return;
     int const size_q = static_cast<int>(size * 4.0f + 0.5f);
     if (size_q <= 0)
         return;

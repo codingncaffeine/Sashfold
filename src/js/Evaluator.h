@@ -8,6 +8,7 @@
 // to the engine: nothing outside src/js includes this.
 
 #include "js/Ast.h"
+#include "js/Bytecode.h"
 #include "js/Heap.h"
 #include "js/Interpreter.h"
 #include "js/Object.h"
@@ -16,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -26,6 +28,10 @@
 #include <vector>
 
 namespace sashfold::js {
+
+class Frame;
+class GeneratorObject;
+class AsyncContextObject;
 
 // A completion record (§6.2.4). The value is `empty` when the statement
 // produced none, which UpdateEmpty resolves at the statement above.
@@ -167,12 +173,24 @@ struct Interpreter::Impl {
     std::optional<Value> make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key);
     std::optional<Value> evaluate_named(Expression const* expression, Context& cx, PropertyKey const& name_key);
     Object* make_arguments_object(ScriptFunction& function, Environment* environment, std::span<Value const> arguments, bool mapped);
+    // [[Call]] and [[Construct]] of a script function: an async function
+    // takes the promise path (call_async_function), everything else
+    // run_script_function — the prologue, then the body on the tier that
+    // runs it.
     std::optional<Value> call_script_function(ScriptFunction& function, Value const& this_argument,
         std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key = nullptr);
+    std::optional<Value> run_script_function(ScriptFunction& function, Value const& this_argument,
+        std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key,
+        PromiseCapability const* async_capability);
 
     // ---- classes
     Object* home_object_of(Context const& cx);
+    // MakeSuperPropertyReference with the key already evaluated: a value
+    // (`super[key]`) or a name (`super.name`).
+    std::optional<Reference> super_reference(Context const& cx, Value const* key_value, JsString* name);
     std::optional<Reference> evaluate_super_member(SuperMember const& member, Context& cx);
+    // SuperCall with the arguments already evaluated.
+    std::optional<Value> super_call(Context& cx, std::span<Value const> arguments);
     std::optional<Value> evaluate_super_call(SuperCall const& call, Context& cx);
     Value evaluate_new_target(Context& cx);
     std::optional<Value> call_field_initializer(ScriptFunction& initializer, Value const& this_value, PropertyKey const& key);
@@ -183,6 +201,8 @@ struct Interpreter::Impl {
     bool private_set(Value const& base, PropertyKey const& key, Value const& value);
     bool private_field_add(Object& object, PropertyKey const& key, Value const& value);
     bool private_method_add(Object& object, PrivateMethod const& method);
+    // `#name in right` with the right side already evaluated.
+    std::optional<Value> private_in(JsString* name, Value const& right, Context const& cx);
     std::optional<Value> evaluate_private_in(PrivateInExpression const& expression, Context& cx);
     bool define_field(Object& receiver, ClassField const& field);
     bool initialize_instance_elements(Object& instance, ScriptFunction& constructor);
@@ -240,6 +260,8 @@ struct Interpreter::Impl {
     std::optional<Value> evaluate_new(NewExpression const& expression, Context& cx);
     std::optional<Reference> evaluate_reference(Expression const* expression, Context& cx);
     std::optional<Value> evaluate_unary(UnaryExpression const& unary, Context& cx);
+    // `delete` of an evaluated reference (§13.5.1.2).
+    std::optional<Value> delete_reference(Reference& reference, Context const& cx);
     std::optional<Value> evaluate_delete(UnaryExpression const& unary, Context& cx);
     std::optional<Value> evaluate_update(UpdateExpression const& update, Context& cx);
     std::optional<Value> apply_binary(BinaryOp op, Value const& left, Value const& right);
@@ -279,6 +301,22 @@ struct Interpreter::Impl {
     Completion execute_try(TryStatement const& statement, Context& cx);
     Completion execute_switch(SwitchStatement const& statement, Context& cx);
     Completion execute_with(WithStatement const& statement, Context& cx);
+
+    // ---- the bytecode tier (Compiler.cpp, Vm.cpp): generator and async bodies
+    // One compiled body per function node, made at the first call; the
+    // programs are the realm's for life, so the keys never dangle.
+    std::unordered_map<FunctionNode const*, std::unique_ptr<CodeBlock>> code_blocks;
+    std::vector<Frame*> vm_frames; // the frames running now, innermost last; traced
+    CodeBlock const* compiled_body(FunctionNode const& node); // null with a SyntaxError pending
+    Frame* new_frame(CodeBlock const& code, Context const& cx);
+    Context frame_context(Frame const& frame) const;
+    RunStatus vm_run(Frame& frame);
+    bool vm_unwind(Frame& frame);
+    std::optional<Value> start_generator(ScriptFunction& function, Context const& cx);
+    std::optional<Value> generator_resume(GeneratorObject& generator, ResumeKind kind, Value const& value);
+    std::optional<Value> call_async_function(ScriptFunction& function, Value const& this_argument, std::span<Value const> arguments);
+    std::optional<Value> start_async(ScriptFunction& function, Context const& cx, PromiseCapability const& capability);
+    void async_step(AsyncContextObject& context);
 
     // ---- tracing
     void trace(Tracer& tracer);

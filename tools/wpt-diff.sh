@@ -36,5 +36,5 @@ bucket "$tmp/lost" lost
 if [ -s "$tmp/lost" ]; then
     printf '\n-- every lost test --\n'
     cat "$tmp/lost"
-    printf '\nlook at one with:\n  ./build-gcc/tests/wpt_reftest.exe wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION --only %s --dump /tmp/dump --print 5\n' "$(head -1 "$tmp/lost")"
+    printf '\nlook at one with:\n  ./build-gcc/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION --only %s --dump /tmp/dump --print 5\n' "$(head -1 "$tmp/lost")"
 fi

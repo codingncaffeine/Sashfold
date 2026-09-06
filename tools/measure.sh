@@ -44,7 +44,9 @@ fi
 printf '\n== scoring ==\n'
 args=(wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION --print 100000)
 [ -n "$only" ] && args+=(--only "$only")
-"./$build/tests/wpt_reftest.exe" "${args[@]}" > "$logs/new.log" 2>&1
+runner="./$build/tests/wpt_reftest"
+[ -f "$runner.exe" ] && runner="$runner.exe"
+"$runner" "${args[@]}" > "$logs/new.log" 2>&1
 printf '%s\n' "$(tail -1 "$logs/new.log")"
 
 if [ -n "$only" ]; then

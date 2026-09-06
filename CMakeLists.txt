@@ -93,6 +93,7 @@ add_library(sashfold_core STATIC
   src/html/Tokenizer.cpp
   src/html/TreeBuilder.cpp
   src/html/TreeDump.cpp
+  src/js/Compiler.cpp
   src/js/Conversions.cpp
   src/js/Heap.cpp
   src/js/Interpreter.cpp
@@ -103,6 +104,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimeArray.cpp
   src/js/RuntimeCollections.cpp
   src/js/RuntimeDate.cpp
+  src/js/RuntimeGenerator.cpp
   src/js/RuntimeIterator.cpp
   src/js/RuntimeJson.cpp
   src/js/RuntimeNumber.cpp
@@ -110,6 +112,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimePromise.cpp
   src/js/RuntimeString.cpp
   src/js/Strings.cpp
+  src/js/Vm.cpp
 )
 if(WIN32)
   target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp
@@ -141,6 +144,12 @@ target_link_libraries(gen_font PRIVATE sashfold_core sashfold_warnings)
 # that tools/sashfold100.sh leaves beside each page. A build tool, never shipped.
 add_executable(sashfold100 tools/sashfold100.cpp)
 target_link_libraries(sashfold100 PRIVATE sashfold_core sashfold_warnings)
+
+# js_probe runs a script on the engine and shows the tree, the completion and
+# the bytecode of every body the bytecode tier compiled (tools/js-probe.cpp).
+# A build tool for the script engine's own work, never shipped.
+add_executable(js_probe tools/js-probe.cpp)
+target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 
 enable_testing()
 add_subdirectory(tests)

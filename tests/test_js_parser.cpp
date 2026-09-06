@@ -319,8 +319,8 @@ void test_arrows()
     CHECK_EQ(parse("x\n=> 1"), "Unexpected token '=>'");
     CHECK_EQ(parse("()"), "Unexpected token ')'");
     CHECK_EQ(parse("(a, a) => 1"), "Duplicate parameter name not allowed in this context");
-    CHECK_EQ(parse("async x => x"), "async functions are not supported yet");
-    CHECK_EQ(parse("async (x) => x"), "async functions are not supported yet");
+    CHECK_EQ(parse("async x => x"), expression_of("(async arrow (x) (id x))"));
+    CHECK_EQ(parse("async (x) => x"), expression_of("(async arrow (x) (id x))"));
     CHECK_EQ(parse("async(x)"), expression_of("(call (id async) (id x))"));
     CHECK_EQ(parse("x => {}()"), "Unexpected token '('");
     // In a for-head an arrow's concise body inherits the `in` exclusion
@@ -409,8 +409,8 @@ void test_object_literals()
     CHECK_EQ(parse("({a: 1, a: 2})"), expression_of("(object (init \"a\" (number 1)) (init \"a\" (number 2)))"));
     CHECK_EQ(parse("({...a})"), program_of("(expr (object (spread (id a))))"));
     CHECK_EQ(parse("({...a, b, ...c()})"), program_of("(expr (object (spread (id a)) (init \"b\" (id b)) (spread (call (id c)))))"));
-    CHECK_EQ(parse("({*g() {}})"), "generators are not supported yet");
-    CHECK_EQ(parse("({async m() {}})"), "async functions are not supported yet");
+    CHECK_EQ(parse("({*g() {}})"), expression_of("(object (init \"g\" (function* g ())))"));
+    CHECK_EQ(parse("({async m() {}})"), expression_of("(object (init \"m\" (async function m ())))"));
     CHECK_EQ(parse("({m(a, a) {}})"), "Duplicate parameter name not allowed in this context");
     Parsed parsed = parse_source("x = {a: function() {}, b: function n() {}, c: () => 1, d: 1, m() {}, get g() {}}");
     CHECK(parsed.program != nullptr);
@@ -488,7 +488,7 @@ void test_statements()
     // On one line `async of` reads as an async arrow's head, which the
     // parser declines by name; split by a line terminator it is a name
     // again, and the for-of rule is what refuses it.
-    CHECK_EQ(parse("for (async of o) x"), "async functions are not supported yet");
+    CHECK_EQ(parse("for (async of o) x"), "The left-hand side of a for-of loop may not be 'async'");
     CHECK_EQ(parse("for (async\nof o) x"), "The left-hand side of a for-of loop may not be 'async'");
     CHECK_EQ(parse("for ((async) of o) x"), program_of("(for-of (id async) (id o) (expr (id x)))"));
     CHECK_EQ(parse("for (var x = (a in b);;) {}"), program_of("(for (var (x (binary in (id a) (id b)))) - - (block))"));
@@ -1161,31 +1161,153 @@ void test_classes()
     CHECK_EQ(parse("class yield {}"), "Unexpected strict mode reserved word");
     CHECK_EQ(parse("if (x) class A {}"), "Lexical declaration cannot appear in a single-statement context");
     CHECK_EQ(parse("class A {} let A;"), "Identifier 'A' has already been declared");
-    CHECK_EQ(parse("class A { *g() {} }"), "generators are not supported yet");
-    CHECK_EQ(parse("class A { async m() {} }"), "async functions are not supported yet");
+    CHECK_EQ(parse("class A { *g() {} }"), program_of("(class A (method \"g\" (function* g ())))"));
+    CHECK_EQ(parse("class A { async m() {} }"), program_of("(class A (method \"m\" (async function m ())))"));
 }
 
 void test_unsupported_features()
 {
     CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
-    CHECK_EQ(parse("async function f() {}"), "async functions are not supported yet");
-    CHECK_EQ(parse("await x"), "async functions are not supported yet");
-    CHECK_EQ(parse("for await (x of y);"), "async functions are not supported yet");
-    CHECK_EQ(parse("function* g() {}"), "generators are not supported yet");
-    CHECK_EQ(parse("(function* () {})"), "generators are not supported yet");
-    CHECK_EQ(parse("yield x"), "generators are not supported yet");
     CHECK_EQ(parse("import x from 'y'"), "modules are not supported yet");
     CHECK_EQ(parse("export var x"), "modules are not supported yet");
     CHECK_EQ(parse("x = 10n"), "BigInt literals are not supported");
     CHECK_EQ(parse("({a: 1}) = b"), "Invalid left-hand side in assignment");
-    CHECK_EQ(parse("async (a = 1) => 1"), "async functions are not supported yet");
-    CHECK_EQ(parse("async ((a)) => 1"), "async functions are not supported yet");
-    CHECK_EQ(parse("async function f() {}"), "async functions are not supported yet");
     CHECK_EQ(parse("(a,)"), "Unexpected token ')'");
     CHECK_EQ(parse("(a, b,)"), "Unexpected token ')'");
+    CHECK_EQ(parse("x = enum"), "Unexpected token 'enum'");
+}
+
+// Generators and async functions (§15.5, §15.8, §15.6, §15.9): the heads,
+// yield and await where they are expressions, and the words as plain
+// names everywhere else.
+void test_generators_and_async()
+{
+    // Heads.
+    CHECK_EQ(parse("function* g() {}"), program_of("(function* g ())"));
+    CHECK_EQ(parse("(function* () {})"), expression_of("(function* ())"));
+    CHECK_EQ(parse("async function f() {}"), program_of("(async function f ())"));
+    CHECK_EQ(parse("async function* g() {}"), program_of("(async function* g ())"));
+    CHECK_EQ(parse("x = async function () {}"), expression_of("(assign = (id x) (async function ()))"));
+    // An async function expression is a PrimaryExpression: it takes a
+    // call or member tail, and `async` before a line break is a name.
+    CHECK_EQ(parse("x = async function () {}()"), expression_of("(assign = (id x) (call (async function ())))"));
+    CHECK_EQ(parse("(async function f() {}.prototype)"), expression_of("(member (async function f ()) prototype)"));
+    CHECK_EQ(parse("async\nfunction f() {}"), program_of("(expr (id async)) (function f ())"));
+    CHECK_EQ(parse("async x => x"), expression_of("(async arrow (x) (id x))"));
+    CHECK_EQ(parse("async (a, b) => a"), expression_of("(async arrow (a b) (id a))"));
+    CHECK_EQ(parse("async (a = 1) => 1"), expression_of("(async arrow ((= a (number 1))) (number 1))"));
+    CHECK_EQ(parse("async ((a)) => 1"), "Unexpected token '=>'");
+    CHECK_EQ(parse("async () => {}"), expression_of("(async arrow ())"));
+    // `async` on a line of its own is a name; so is `async` before anything but a function or an arrow head.
+    CHECK_EQ(parse("async\nfunction f() {}"), program_of("(expr (id async)) (function f ())"));
+    CHECK_EQ(parse("async\nx => x"), program_of("(expr (id async)) (expr (arrow (x) (id x)))"));
+    CHECK_EQ(parse("async(x)"), expression_of("(call (id async) (id x))"));
+    CHECK_EQ(parse("async.x"), expression_of("(member (id async) x)"));
+    CHECK_EQ(parse("var async = 1"), program_of("(var (async (number 1)))"));
+    CHECK_EQ(parse("if (x) async function f() {}"), "Async functions can only be declared at the top level or inside a block");
+    // Methods.
+    CHECK_EQ(parse("({ async *g() {}, async m() {}, *n() {}, async: 1, async() {}, get: 2 })"),
+        expression_of("(object (init \"g\" (async function* g ())) (init \"m\" (async function m ())) (init \"n\" (function* n ())) (init \"async\" (number 1)) (init \"async\" (function async ())) (init \"get\" (number 2)))"));
+    CHECK_EQ(parse("({ async\nm() {} })"), "Unexpected identifier 'm'");
+    CHECK_EQ(parse("({ async get x() {} })"), "Unexpected identifier 'x'");
+    CHECK_EQ(parse("({ *x: 1 })"), "Unexpected token ':'");
+    CHECK_EQ(parse("class A { static async *m() {} async n() {} *o() {} async = 1; }"),
+        program_of("(class A (static method \"m\" (async function* m ())) (method \"n\" (async function n ())) (method \"o\" (function* o ())) (field \"async\" (function async () (number 1))))"));
+    CHECK_EQ(parse("class A { *constructor() {} }"), "Class constructor may not be a generator");
+    CHECK_EQ(parse("class A { async constructor() {} }"), "Class constructor may not be an async method");
+    // yield.
+    CHECK_EQ(parse("function* g() { yield; yield 1; yield* it; }"),
+        program_of("(function* g () (expr (yield)) (expr (yield (number 1))) (expr (yield* (id it))))"));
+    CHECK_EQ(parse("function* g() { var x = yield y }"), program_of("(function* g () (var (x (yield (id y)))))"));
+    CHECK_EQ(parse("function* g() { yield\n1 }"), program_of("(function* g () (expr (yield)) (expr (number 1)))"));
+    CHECK_EQ(parse("function* g() { f(yield, yield 2) }"), program_of("(function* g () (expr (call (id f) (yield) (yield (number 2)))))"));
+    CHECK_EQ(parse("function* g() { [yield] }"), program_of("(function* g () (expr (array (yield))))"));
+    CHECK_EQ(parse("function* g() { x = yield }"), program_of("(function* g () (expr (assign = (id x) (yield))))"));
+    CHECK_EQ(parse("function* g() { yield yield 1 }"), program_of("(function* g () (expr (yield (yield (number 1)))))"));
+    CHECK_EQ(parse("function* g() { yield /re/ }"), program_of("(function* g () (expr (yield (regex /re/))))"));
+    CHECK_EQ(parse("function* g() { a ? yield : yield }"), program_of("(function* g () (expr (cond (id a) (yield) (yield))))"));
+    CHECK_EQ(parse("function* g(a = yield) {}"), "Yield expression not allowed in formal parameter");
+    CHECK_EQ(parse("function* g(yield) {}"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { var yield }"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { yield: 1 }"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { ({ yield }) }"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { yield.x }"), "Unexpected token '.'");
+    CHECK_EQ(parse("function* g() { 1 + yield }"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* yield() {}"), program_of("(function* yield ())"));
+    CHECK_EQ(parse("(function* yield() {})"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { function* yield() {} }"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { function yield() {} }"), "Unexpected identifier 'yield'");
+    CHECK_EQ(parse("function* g() { (function yield() {}) }"), program_of("(function* g () (expr (function yield ())))"));
+    CHECK_EQ(parse("function* g() { () => yield }"), program_of("(function* g () (expr (arrow () (id yield))))"));
+    CHECK_EQ(parse("function* g() { (a = yield) => a }"), "Yield expression not allowed in formal parameter");
+    CHECK_EQ(parse("function* g() { (yield) => 1 }"), "Unexpected identifier 'yield'");
+    // Outside a generator `yield` is a name in sloppy code.
+    CHECK_EQ(parse("yield"), expression_of("(id yield)"));
+    CHECK_EQ(parse("yield x"), "Unexpected identifier 'x'");
+    CHECK_EQ(parse("function f() { yield = 1 }"), program_of("(function f () (expr (assign = (id yield) (number 1))))"));
+    // await.
+    CHECK_EQ(parse("async function f() { await x; }"), program_of("(async function f () (expr (await (id x))))"));
+    CHECK_EQ(parse("async function f() { await x + 1 }"), program_of("(async function f () (expr (binary + (await (id x)) (number 1))))"));
+    CHECK_EQ(parse("async function f() { await await x }"), program_of("(async function f () (expr (await (await (id x)))))"));
+    CHECK_EQ(parse("async function f() { return await g() }"), program_of("(async function f () (return (await (call (id g)))))"));
+    CHECK_EQ(parse("async function f(a = await x) {}"), "Await expression not allowed in formal parameter");
+    CHECK_EQ(parse("async function f(await) {}"), "Unexpected reserved word");
+    CHECK_EQ(parse("async function f() { var await }"), "Unexpected reserved word");
+    CHECK_EQ(parse("async function f() { await: 1 }"), "Unexpected reserved word");
+    CHECK_EQ(parse("async function f() { () => await }"), program_of("(async function f () (expr (arrow () (id await))))"));
+    CHECK_EQ(parse("async function f() { (a = await 1) => a }"), "Await expression not allowed in formal parameter");
+    CHECK_EQ(parse("async function f() { async () => await x }"), program_of("(async function f () (expr (async arrow () (await (id x)))))"));
+    CHECK_EQ(parse("function f() { async (a = await 1) => a }"), "Await expression not allowed in formal parameter");
+    CHECK_EQ(parse("async function* g() { yield await x }"), program_of("(async function* g () (expr (yield (await (id x)))))"));
+    CHECK_EQ(parse("(async function await() {})"), "Unexpected reserved word");
+    CHECK_EQ(parse("async function await() {}"), program_of("(async function await ())"));
+    // Outside async code `await` is a name.
     CHECK_EQ(parse("await"), expression_of("(id await)"));
     CHECK_EQ(parse("await(x)"), expression_of("(call (id await) (id x))"));
-    CHECK_EQ(parse("x = enum"), "Unexpected token 'enum'");
+    CHECK_EQ(parse("await x"), "Unexpected identifier 'x'");
+    // for await.
+    CHECK_EQ(parse("async function f() { for await (const x of y) z }"), program_of("(async function f () (for-await-of (const (x)) (id y) (expr (id z))))"));
+    CHECK_EQ(parse("async function f() { for await (x of y) z }"), program_of("(async function f () (for-await-of (id x) (id y) (expr (id z))))"));
+    CHECK_EQ(parse("async function f() { for await (x in y) z }"), "for await loops must iterate with of");
+    CHECK_EQ(parse("async function f() { for await (;;) z }"), "for await loops must iterate with of");
+    CHECK_EQ(parse("function f() { for await (x of y) z }"), "Unexpected reserved word");
+    CHECK_EQ(parse("for await (x of y);"), "Unexpected reserved word");
+    // Node flags.
+    Parsed parsed = parse_source("function* g() {} async function f() {} async function* h() {} var a = async () => 1");
+    CHECK(parsed.program != nullptr);
+    if (parsed.program) {
+        js::FunctionNode const* g = function_in(parsed.program->body, 0);
+        js::FunctionNode const* f = function_in(parsed.program->body, 1);
+        js::FunctionNode const* h = function_in(parsed.program->body, 2);
+        js::FunctionNode const* a = function_in(parsed.program->body, 3);
+        CHECK(g && g->is_generator && !g->is_async && !g->is_constructable);
+        CHECK(f && !f->is_generator && f->is_async && !f->is_constructable);
+        CHECK(h && h->is_generator && h->is_async && !h->is_constructable);
+        CHECK(a && a->is_arrow && a->is_async && !a->is_constructable);
+        CHECK(g && source_of(*parsed.program, *g) == "function* g() {}");
+        CHECK(f && source_of(*parsed.program, *f) == "async function f() {}");
+        CHECK(a && source_of(*parsed.program, *a) == "async () => 1");
+    }
+    // The dynamic function kinds.
+    js::ParseError error;
+    std::unique_ptr<js::Program> program = js::Parser::parse_function_constructor(heap(), u"a", u"yield a", &error, js::DynamicFunctionKind::Generator);
+    CHECK(program != nullptr);
+    if (program) {
+        js::FunctionNode const* fn = function_in(program->body, 0);
+        CHECK(fn && fn->is_generator && !fn->is_async);
+        CHECK(fn && source_of(*program, *fn) == "function* anonymous(a\n) {\nyield a\n}");
+    }
+    program = js::Parser::parse_function_constructor(heap(), u"", u"await x", &error, js::DynamicFunctionKind::Async);
+    CHECK(program != nullptr);
+    if (program) {
+        js::FunctionNode const* fn = function_in(program->body, 0);
+        CHECK(fn && !fn->is_generator && fn->is_async);
+        CHECK(fn && source_of(*program, *fn) == "async function anonymous(\n) {\nawait x\n}");
+    }
+    program = js::Parser::parse_function_constructor(heap(), u"", u"yield await x", &error, js::DynamicFunctionKind::AsyncGenerator);
+    CHECK(program != nullptr);
+    program = js::Parser::parse_function_constructor(heap(), u"", u"yield 1", &error);
+    CHECK(program == nullptr);
 }
 
 void test_function_constructor()
@@ -1241,6 +1363,7 @@ int main()
     test_error_positions();
     test_nesting_cap();
     test_unsupported_features();
+    test_generators_and_async();
     test_patterns();
     test_classes();
     test_private_names();

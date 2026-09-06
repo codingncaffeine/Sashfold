@@ -6264,7 +6264,6 @@ css/css-fonts/synthetic-oblique-out-of-capabilities-range.html
 css/css-fonts/system-ui-mixed.html
 css/css-fonts/test-synthetic-bold.html
 css/css-fonts/test-synthetic-italic.html
-css/css-fonts/variation-sequences.html
 css/css-fonts/variations/font-descriptor-range-reversed.html
 css/css-fonts/variations/font-slant-2a.html
 css/css-fonts/variations/variable-avar2-rvrn.html
@@ -7025,6 +7024,7 @@ css/css-overflow/text-overflow-015.html
 css/css-overflow/text-overflow-020.html
 css/css-overflow/text-overflow-021.html
 css/css-overflow/text-overflow-030.html
+css/css-overflow/text-overflow-ellipsis-003.html
 css/css-overflow/text-overflow-ellipsis-changing-scroll.html
 css/css-overflow/text-overflow-ellipsis-editable-div-with-caret.html
 css/css-overflow/text-overflow-ellipsis-editing-input.html

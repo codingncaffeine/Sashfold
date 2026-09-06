@@ -6,7 +6,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 build=${SASHFOLD_BUILD:-build-gcc}
-"./$build/tests/test262_runner.exe" test262 tests/test262/directories.txt tests/test262/passing.txt \
+runner="./$build/tests/test262_runner"
+[ -f "$runner.exe" ] && runner="$runner.exe"
+"$runner" test262 tests/test262/directories.txt tests/test262/passing.txt \
     --revision tests/test262/REVISION --json docs/test262.json --html docs/test262.html --jobs 6 > /dev/null 2>&1 || true
 
 passed=$(grep -o '"passed": [0-9]*' docs/test262.json | head -1 | grep -o '[0-9]*')

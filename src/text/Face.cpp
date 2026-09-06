@@ -105,6 +105,11 @@ public:
     void draw_glyph(Bitmap& target, std::uint32_t glyph, float x, float baseline_y, float size,
         Color color, bool bold, bool italic) const override
     {
+        // A glyph placed or sized far beyond any bitmap draws nothing, and
+        // the conversions to int below are undefined for such values.
+        constexpr float limit = 1.0e7f;
+        if (!(x > -limit && x < limit && baseline_y > -limit && baseline_y < limit && size > 0.0f && size < limit))
+            return;
         int const size_q = static_cast<int>(size * 4.0f + 0.5f);
         if (glyph == 0 || glyph > 0xFFFF || size_q <= 0)
             return; // 0 is "no glyph": the caller falls back, this face draws nothing

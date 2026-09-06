@@ -42,20 +42,20 @@
 <p><a href="./">← sashfold.com</a></p>
 <h1>test262</h1>
 <p>Sashfold's pass rate on <a href="https://github.com/tc39/test262">test262</a>, the ECMAScript conformance suite, run the way the suite's own instructions say: the harness first, then the test, once as sloppy code and once as strict unless the test says otherwise. Every test under each listed directory counts, including the ones that need modules, async functions or features not written yet. A test that expects a syntax error scores only when the engine raised a real one, never when it merely declined a feature it does not have.</p>
-<div class="stat"><span class="big">25334 / 38060</span><span class="what">test262 tests passing — 66.6%</span></div>
+<div class="stat"><span class="big">30358 / 38284</span><span class="what">test262 tests passing — 79.3%</span></div>
 <table>
 <thead><tr><th>Directory</th><th></th><th>Passing</th><th>Rate</th></tr></thead>
 <tbody>
-<tr><td><code>test/language/arguments-object</code></td><td><div class="bar"><span style="width: 55%"></span></div></td><td class="num">146 / 263</td><td class="num">55.5%</td></tr>
+<tr><td><code>test/language/arguments-object</code></td><td><div class="bar"><span style="width: 76%"></span></div></td><td class="num">201 / 263</td><td class="num">76.4%</td></tr>
 <tr><td><code>test/language/asi</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">102 / 102</td><td class="num">100.0%</td></tr>
-<tr><td><code>test/language/block-scope</code></td><td><div class="bar"><span style="width: 64%"></span></div></td><td class="num">94 / 145</td><td class="num">64.8%</td></tr>
-<tr><td><code>test/language/comments</code></td><td><div class="bar"><span style="width: 96%"></span></div></td><td class="num">50 / 52</td><td class="num">96.2%</td></tr>
-<tr><td><code>test/language/computed-property-names</code></td><td><div class="bar"><span style="width: 89%"></span></div></td><td class="num">43 / 48</td><td class="num">89.6%</td></tr>
-<tr><td><code>test/language/destructuring</code></td><td><div class="bar"><span style="width: 78%"></span></div></td><td class="num">15 / 19</td><td class="num">78.9%</td></tr>
+<tr><td><code>test/language/block-scope</code></td><td><div class="bar"><span style="width: 89%"></span></div></td><td class="num">130 / 145</td><td class="num">89.7%</td></tr>
+<tr><td><code>test/language/comments</code></td><td><div class="bar"><span style="width: 98%"></span></div></td><td class="num">51 / 52</td><td class="num">98.1%</td></tr>
+<tr><td><code>test/language/computed-property-names</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">48 / 48</td><td class="num">100.0%</td></tr>
+<tr><td><code>test/language/destructuring</code></td><td><div class="bar"><span style="width: 89%"></span></div></td><td class="num">17 / 19</td><td class="num">89.5%</td></tr>
 <tr><td><code>test/language/directive-prologue</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">62 / 62</td><td class="num">100.0%</td></tr>
-<tr><td><code>test/language/eval-code</code></td><td><div class="bar"><span style="width: 44%"></span></div></td><td class="num">156 / 347</td><td class="num">45.0%</td></tr>
+<tr><td><code>test/language/eval-code</code></td><td><div class="bar"><span style="width: 72%"></span></div></td><td class="num">250 / 347</td><td class="num">72.0%</td></tr>
 <tr><td><code>test/language/export</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 3</td><td class="num">0.0%</td></tr>
-<tr><td><code>test/language/expressions</code></td><td><div class="bar"><span style="width: 49%"></span></div></td><td class="num">5542 / 11102</td><td class="num">49.9%</td></tr>
+<tr><td><code>test/language/expressions</code></td><td><div class="bar"><span style="width: 72%"></span></div></td><td class="num">8019 / 11102</td><td class="num">72.2%</td></tr>
 <tr><td><code>test/language/function-code</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">217 / 217</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/language/future-reserved-words</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">55 / 55</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/language/global-code</code></td><td><div class="bar"><span style="width: 92%"></span></div></td><td class="num">39 / 42</td><td class="num">92.9%</td></tr>
@@ -71,17 +71,24 @@
 <tr><td><code>test/language/rest-parameters</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">11 / 11</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/language/source-text</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">1 / 1</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/language/statementList</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">80 / 80</td><td class="num">100.0%</td></tr>
-<tr><td><code>test/language/statements</code></td><td><div class="bar"><span style="width: 47%"></span></div></td><td class="num">4460 / 9347</td><td class="num">47.7%</td></tr>
+<tr><td><code>test/language/statements</code></td><td><div class="bar"><span style="width: 71%"></span></div></td><td class="num">6651 / 9347</td><td class="num">71.2%</td></tr>
 <tr><td><code>test/language/types</code></td><td><div class="bar"><span style="width: 97%"></span></div></td><td class="num">110 / 113</td><td class="num">97.3%</td></tr>
 <tr><td><code>test/language/white-space</code></td><td><div class="bar"><span style="width: 97%"></span></div></td><td class="num">65 / 67</td><td class="num">97.0%</td></tr>
 <tr><td><code>test/built-ins/AggregateError</code></td><td><div class="bar"><span style="width: 88%"></span></div></td><td class="num">22 / 25</td><td class="num">88.0%</td></tr>
-<tr><td><code>test/built-ins/Array</code></td><td><div class="bar"><span style="width: 92%"></span></div></td><td class="num">2836 / 3082</td><td class="num">92.0%</td></tr>
+<tr><td><code>test/built-ins/Array</code></td><td><div class="bar"><span style="width: 92%"></span></div></td><td class="num">2837 / 3082</td><td class="num">92.1%</td></tr>
 <tr><td><code>test/built-ins/ArrayIteratorPrototype</code></td><td><div class="bar"><span style="width: 62%"></span></div></td><td class="num">17 / 27</td><td class="num">63.0%</td></tr>
+<tr><td><code>test/built-ins/AsyncFromSyncIteratorPrototype</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 38</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/built-ins/AsyncFunction</code></td><td><div class="bar"><span style="width: 94%"></span></div></td><td class="num">17 / 18</td><td class="num">94.4%</td></tr>
+<tr><td><code>test/built-ins/AsyncGeneratorFunction</code></td><td><div class="bar"><span style="width: 34%"></span></div></td><td class="num">8 / 23</td><td class="num">34.8%</td></tr>
+<tr><td><code>test/built-ins/AsyncGeneratorPrototype</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 48</td><td class="num">0.0%</td></tr>
+<tr><td><code>test/built-ins/AsyncIteratorPrototype</code></td><td><div class="bar"><span style="width: 0%"></span></div></td><td class="num">0 / 13</td><td class="num">0.0%</td></tr>
 <tr><td><code>test/built-ins/Boolean</code></td><td><div class="bar"><span style="width: 98%"></span></div></td><td class="num">50 / 51</td><td class="num">98.0%</td></tr>
 <tr><td><code>test/built-ins/Date</code></td><td><div class="bar"><span style="width: 98%"></span></div></td><td class="num">583 / 594</td><td class="num">98.1%</td></tr>
 <tr><td><code>test/built-ins/Error</code></td><td><div class="bar"><span style="width: 77%"></span></div></td><td class="num">72 / 93</td><td class="num">77.4%</td></tr>
 <tr><td><code>test/built-ins/NativeErrors</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">88 / 94</td><td class="num">93.6%</td></tr>
-<tr><td><code>test/built-ins/Function</code></td><td><div class="bar"><span style="width: 88%"></span></div></td><td class="num">451 / 509</td><td class="num">88.6%</td></tr>
+<tr><td><code>test/built-ins/Function</code></td><td><div class="bar"><span style="width: 91%"></span></div></td><td class="num">468 / 509</td><td class="num">91.9%</td></tr>
+<tr><td><code>test/built-ins/GeneratorFunction</code></td><td><div class="bar"><span style="width: 91%"></span></div></td><td class="num">21 / 23</td><td class="num">91.3%</td></tr>
+<tr><td><code>test/built-ins/GeneratorPrototype</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">61 / 61</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/global</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">29 / 29</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/Infinity</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">6 / 6</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/isFinite</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">15 / 15</td><td class="num">100.0%</td></tr>
@@ -92,12 +99,12 @@
 <tr><td><code>test/built-ins/Math</code></td><td><div class="bar"><span style="width: 95%"></span></div></td><td class="num">312 / 327</td><td class="num">95.4%</td></tr>
 <tr><td><code>test/built-ins/NaN</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">6 / 6</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/Number</code></td><td><div class="bar"><span style="width: 99%"></span></div></td><td class="num">337 / 340</td><td class="num">99.1%</td></tr>
-<tr><td><code>test/built-ins/Object</code></td><td><div class="bar"><span style="width: 97%"></span></div></td><td class="num">3312 / 3411</td><td class="num">97.1%</td></tr>
+<tr><td><code>test/built-ins/Object</code></td><td><div class="bar"><span style="width: 97%"></span></div></td><td class="num">3317 / 3411</td><td class="num">97.2%</td></tr>
 <tr><td><code>test/built-ins/parseFloat</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">54 / 54</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/parseInt</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">55 / 55</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/Promise</code></td><td><div class="bar"><span style="width: 87%"></span></div></td><td class="num">639 / 732</td><td class="num">87.3%</td></tr>
 <tr><td><code>test/built-ins/RegExp</code></td><td><div class="bar"><span style="width: 76%"></span></div></td><td class="num">974 / 1266</td><td class="num">76.9%</td></tr>
-<tr><td><code>test/built-ins/Set</code></td><td><div class="bar"><span style="width: 85%"></span></div></td><td class="num">328 / 383</td><td class="num">85.6%</td></tr>
+<tr><td><code>test/built-ins/Set</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">359 / 383</td><td class="num">93.7%</td></tr>
 <tr><td><code>test/built-ins/SetIteratorPrototype</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">11 / 11</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/String</code></td><td><div class="bar"><span style="width: 94%"></span></div></td><td class="num">1157 / 1223</td><td class="num">94.6%</td></tr>
 <tr><td><code>test/built-ins/StringIteratorPrototype</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">7 / 7</td><td class="num">100.0%</td></tr>
@@ -111,7 +118,7 @@
 <tr><td><code>test/built-ins/encodeURI</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">31 / 31</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/built-ins/encodeURIComponent</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">31 / 31</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/annexB/language</code></td><td><div class="bar"><span style="width: 96%"></span></div></td><td class="num">814 / 845</td><td class="num">96.3%</td></tr>
-<tr><td><code>test/annexB/built-ins/RegExp</code></td><td><div class="bar"><span style="width: 53%"></span></div></td><td class="num">33 / 62</td><td class="num">53.2%</td></tr>
+<tr><td><code>test/annexB/built-ins/RegExp</code></td><td><div class="bar"><span style="width: 56%"></span></div></td><td class="num">35 / 62</td><td class="num">56.5%</td></tr>
 <tr><td><code>test/annexB/built-ins/String</code></td><td><div class="bar"><span style="width: 94%"></span></div></td><td class="num">105 / 111</td><td class="num">94.6%</td></tr>
 <tr><td><code>test/annexB/built-ins/Date</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">24 / 24</td><td class="num">100.0%</td></tr>
 <tr><td><code>test/annexB/built-ins/escape</code></td><td><div class="bar"><span style="width: 93%"></span></div></td><td class="num">15 / 16</td><td class="num">93.8%</td></tr>
@@ -120,7 +127,7 @@
 <tr><td><code>test/annexB/built-ins/Function</code></td><td><div class="bar"><span style="width: 100%"></span></div></td><td class="num">6 / 6</td><td class="num">100.0%</td></tr>
 </tbody>
 </table>
-<p class="muted">Scored 2026-09-05 against test262 revision <code>419d3e0a2273</code>. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>
+<p class="muted">Scored 2026-09-06 against test262 revision <code>419d3e0a2273</code>. The number is enforced in CI: a baseline names every passing test, and a test that stops passing fails the build. What the engine cannot do, it does not score.</p>
 </main>
 </body>
 </html>

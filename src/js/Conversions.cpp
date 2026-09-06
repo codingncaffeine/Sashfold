@@ -71,6 +71,10 @@ std::string class_name(Object const& object)
     case Object::Class::WeakSet: return "WeakSet";
     case Object::Class::CollectionIterator: return "Collection Iterator";
     case Object::Class::Promise: return "Promise";
+    case Object::Class::Generator: return "Generator";
+    case Object::Class::AsyncGenerator: return "AsyncGenerator";
+    case Object::Class::AsyncContext: return "Object";
+    case Object::Class::AsyncFromSyncIterator: return "Async-from-Sync Iterator";
     case Object::Class::Math: return "Math";
     case Object::Class::Json: return "JSON";
     case Object::Class::Global: return "global";

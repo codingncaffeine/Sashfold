@@ -21,6 +21,7 @@
 #include "js/Parser.h"
 #include "js/Runtime.h"
 #include "js/Strings.h"
+#include "js/Vm.h"
 
 #include <algorithm>
 #include <cmath>
@@ -453,12 +454,14 @@ void Interpreter::Impl::set_function_name(Object& function, PropertyKey const& k
 
 // The closure for a function expression or arrow (§15.2.5, §15.3.4).
 // A named function expression binds its own name, immutably, in an
-// environment of its own between the closure and its scope.
+// environment of its own between the closure and its scope; generator
+// and async function expressions too (§15.5.5, §15.8.5). A method's
+// name is its key, not a binding.
 std::optional<Value> Interpreter::Impl::make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key)
 {
     Heap::NoCollect const guard(heap());
     Environment* scope = cx.lexical;
-    if (!node.is_arrow && node.name != nullptr && !node.is_getter && !node.is_setter && node.is_constructable) {
+    if (!node.is_arrow && !node.is_method && node.name != nullptr) {
         scope = new_environment(cx.lexical);
         Environment::Binding& binding = scope->declare(node.name, Value::undefined(), false, true);
         binding.strict = false;
@@ -522,6 +525,17 @@ Object* Interpreter::Impl::make_arguments_object(ScriptFunction& function, Envir
 // the body.
 std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& function, Value const& this_argument,
     std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key)
+{
+    FunctionNode const& node = function.node();
+    if (node.is_async && node.is_generator)
+        return self.throw_syntax_error("async generators are not supported yet");
+    if (node.is_async)
+        return call_async_function(function, this_argument, arguments);
+    return run_script_function(function, this_argument, arguments, new_target, field_key, nullptr);
+}
+
+std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& function, Value const& this_argument,
+    std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key, PromiseCapability const* async_capability)
 {
     FunctionNode const& node = function.node();
     Roots const roots(self);
@@ -644,6 +658,14 @@ std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& fun
     for (auto const& [name, is_const] : node.declarations.lexicals)
         lexical->declare(name, Value::undefined(), !is_const, false);
 
+    // A body that can suspend runs on the bytecode tier: a generator's
+    // waits for its first next() (§15.5.2), an async function's runs to
+    // its first await (§15.8.4) — both with this call's environments.
+    if (node.is_generator)
+        return start_generator(function, cx);
+    if (async_capability != nullptr)
+        return start_async(function, cx, *async_capability);
+
     // The body. A field initializer is its expression, named after
     // the field when it is an anonymous function; a default derived
     // constructor hands its arguments to the parent class.
@@ -716,6 +738,23 @@ Object* Interpreter::Impl::home_object_of(Context const& cx)
 // key, against the home object's prototype.
 std::optional<Reference> Interpreter::Impl::evaluate_super_member(SuperMember const& member, Context& cx)
 {
+    if (!member.property)
+        return super_reference(cx, nullptr, member.name);
+    // `this` is resolved before the key is evaluated (§13.3.7.1).
+    std::optional<Value> const this_value = resolve_this(cx.lexical);
+    if (!this_value)
+        return std::nullopt;
+    Roots const roots(self);
+    self.root(*this_value);
+    std::optional<Value> const key_value = evaluate(member.property, cx);
+    if (!key_value)
+        return std::nullopt;
+    self.root(*key_value);
+    return super_reference(cx, &*key_value, nullptr);
+}
+
+std::optional<Reference> Interpreter::Impl::super_reference(Context const& cx, Value const* key_value, JsString* name)
+{
     std::optional<Value> const this_value = resolve_this(cx.lexical);
     if (!this_value)
         return std::nullopt;
@@ -729,10 +768,7 @@ std::optional<Reference> Interpreter::Impl::evaluate_super_member(SuperMember co
     reference.this_value = *this_value;
     Object* base = home->prototype();
     reference.base = base ? Value::object(base) : Value::null();
-    if (member.property) {
-        std::optional<Value> const key_value = evaluate(member.property, cx);
-        if (!key_value)
-            return std::nullopt;
+    if (key_value) {
         reference.key_value = *key_value;
         if (!key_value->is_object()) {
             std::optional<PropertyKey> const key = self.to_property_key(*key_value);
@@ -742,7 +778,7 @@ std::optional<Reference> Interpreter::Impl::evaluate_super_member(SuperMember co
             reference.key_ready = true;
         }
     } else {
-        reference.key = heap().key(member.name);
+        reference.key = heap().key(name);
         reference.key_ready = true;
     }
     return reference;
@@ -754,6 +790,15 @@ std::optional<Reference> Interpreter::Impl::evaluate_super_member(SuperMember co
 // class's fields defined on it.
 std::optional<Value> Interpreter::Impl::evaluate_super_call(SuperCall const& call, Context& cx)
 {
+    Roots const roots(self);
+    std::vector<Value> arguments;
+    if (!evaluate_arguments(call.arguments, cx, arguments))
+        return std::nullopt;
+    return super_call(cx, arguments);
+}
+
+std::optional<Value> Interpreter::Impl::super_call(Context& cx, std::span<Value const> arguments)
+{
     Environment* this_env = this_environment(cx.lexical);
     if (this_env == nullptr || this_env->function() == nullptr)
         return self.throw_syntax_error("'super' keyword unexpected here");
@@ -763,9 +808,6 @@ std::optional<Value> Interpreter::Impl::evaluate_super_call(SuperCall const& cal
     Object* parent = active->prototype();
     Value const parent_value = parent ? Value::object(parent) : Value::undefined();
     self.root(parent_value);
-    std::vector<Value> arguments;
-    if (!evaluate_arguments(call.arguments, cx, arguments))
-        return std::nullopt;
     if (!Interpreter::is_constructor(parent_value))
         return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
     if (new_target == nullptr)
@@ -908,12 +950,17 @@ std::optional<Value> Interpreter::Impl::evaluate_private_in(PrivateInExpression 
     std::optional<Value> const right = evaluate(expression.right, cx);
     if (!right)
         return std::nullopt;
-    if (!right->is_object())
-        return self.throw_type_error("Cannot use 'in' operator to search for '" + expression.name->to_utf8() + "' in " + self.describe(*right));
-    Symbol* name = cx.private_environment ? cx.private_environment->lookup(expression.name) : nullptr;
+    return private_in(expression.name, *right, cx);
+}
+
+std::optional<Value> Interpreter::Impl::private_in(JsString* description, Value const& right, Context const& cx)
+{
+    if (!right.is_object())
+        return self.throw_type_error("Cannot use 'in' operator to search for '" + description->to_utf8() + "' in " + self.describe(right));
+    Symbol* name = cx.private_environment ? cx.private_environment->lookup(description) : nullptr;
     if (name == nullptr)
-        return self.throw_syntax_error("Private field '" + expression.name->to_utf8() + "' must be declared in an enclosing class");
-    return Value::boolean(right->as_object()->find_own(PropertyKey::symbol(name)) != nullptr);
+        return self.throw_syntax_error("Private field '" + description->to_utf8() + "' must be declared in an enclosing class");
+    return Value::boolean(right.as_object()->find_own(PropertyKey::symbol(name)) != nullptr);
 }
 
 
@@ -1896,6 +1943,12 @@ std::optional<Value> Interpreter::Impl::evaluate(Expression const* expression, C
     }
     case NodeType::PrivateIn:
         return evaluate_private_in(*static_cast<PrivateInExpression const*>(expression), cx);
+    case NodeType::YieldExpression:
+    case NodeType::AwaitExpression:
+        // A generator's or async function's body runs on the bytecode VM;
+        // the tree-walker meets these only inside a class heritage or
+        // computed key that the VM handed it whole.
+        return self.throw_syntax_error("yield and await inside a class heritage or computed key are not supported yet");
     case NodeType::NewExpression:
         return evaluate_new(*static_cast<NewExpression const*>(expression), cx);
     case NodeType::SequenceExpression: {
@@ -2482,7 +2535,12 @@ std::optional<Value> Interpreter::Impl::evaluate_delete(UnaryExpression const& u
     std::optional<Reference> reference = evaluate_reference(unary.operand, cx);
     if (!reference)
         return std::nullopt;
-    switch (reference->kind) {
+    return delete_reference(*reference, cx);
+}
+
+std::optional<Value> Interpreter::Impl::delete_reference(Reference& reference, Context const& cx)
+{
+    switch (reference.kind) {
     case Reference::Kind::Value:
     case Reference::Kind::Unresolvable:
         return Value::boolean(true);
@@ -2493,24 +2551,24 @@ std::optional<Value> Interpreter::Impl::evaluate_delete(UnaryExpression const& u
         // §13.5.1.1: an early error the parser raises; nothing reaches here.
         return self.throw_syntax_error("Private fields can not be deleted");
     case Reference::Kind::Binding:
-        return Value::boolean(reference->environment->remove(reference->name));
+        return Value::boolean(reference.environment->remove(reference.name));
     case Reference::Kind::ObjectEnvironment:
-        return Value::boolean(reference->environment->object()->delete_property(reference->key));
+        return Value::boolean(reference.environment->object()->delete_property(reference.key));
     case Reference::Kind::Property: {
         Roots const roots(self);
-        self.root(reference->base);
-        self.root(reference->key_value);
-        if (reference->base.is_nullish())
+        self.root(reference.base);
+        self.root(reference.key_value);
+        if (reference.base.is_nullish())
             return self.throw_type_error("Cannot convert undefined or null to object");
-        std::optional<Object*> const object = self.to_object(reference->base);
+        std::optional<Object*> const object = self.to_object(reference.base);
         if (!object)
             return std::nullopt;
         self.root(Value::object(*object));
-        if (!ensure_key(*reference))
+        if (!ensure_key(reference))
             return std::nullopt;
-        bool const deleted = (*object)->delete_property(reference->key);
+        bool const deleted = (*object)->delete_property(reference.key);
         if (!deleted && cx.strict)
-            return self.throw_type_error("Cannot delete property '" + key_description(reference->key) + "' of object");
+            return self.throw_type_error("Cannot delete property '" + key_description(reference.key) + "' of object");
         return Value::boolean(deleted);
     }
     }
@@ -3526,6 +3584,8 @@ void Interpreter::Impl::trace(Tracer& tracer)
     tracer.visit(global_lexical);
     for (auto const& [site, object] : template_objects)
         tracer.visit(object);
+    for (Frame* frame : vm_frames)
+        tracer.visit(frame);
 }
 
 
@@ -3594,6 +3654,16 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.promise_constructor);
     tracer.visit(i.aggregate_error_prototype);
     tracer.visit(i.aggregate_error_constructor);
+    tracer.visit(i.generator_function_prototype);
+    tracer.visit(i.generator_function);
+    tracer.visit(i.generator_prototype);
+    tracer.visit(i.async_function_prototype);
+    tracer.visit(i.async_function);
+    tracer.visit(i.async_iterator_prototype);
+    tracer.visit(i.async_from_sync_iterator_prototype);
+    tracer.visit(i.async_generator_function_prototype);
+    tracer.visit(i.async_generator_function);
+    tracer.visit(i.async_generator_prototype);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);
@@ -3731,12 +3801,13 @@ std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environmen
     return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true, private_environment);
 }
 
-std::optional<Value> Interpreter::compile_function(std::u16string_view parameters, std::u16string_view body, Environment* scope)
+std::optional<Value> Interpreter::compile_function(std::u16string_view parameters, std::u16string_view body, Environment* scope,
+    DynamicFunctionKind kind)
 {
     // CreateDynamicFunction (§20.2.1.1.1): the parser assembles and checks
     // the wrapper; the function closes over the global environment.
     ParseError error;
-    std::unique_ptr<Program> program = Parser::parse_function_constructor(*m_heap, parameters, body, &error);
+    std::unique_ptr<Program> program = Parser::parse_function_constructor(*m_heap, parameters, body, &error, kind);
     if (!program)
         return throw_syntax_error(error.message);
     auto const* statement = static_cast<ExpressionStatement const*>(program->body[0]);
@@ -3752,7 +3823,23 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     // pointing back. Arrows take their `this` from the scope chain, so
     // there is no lexical this to record; the Private Names in scope are.
     Heap::NoCollect const guard(*m_heap);
-    auto* function = m_heap->allocate<ScriptFunction>(m_intrinsics.function_prototype, node, scope, node.is_constructable);
+    // A generator or async function hangs off its kind's function
+    // prototype (§27.3.3, §27.7.3, §27.4.3), and a generator's instances
+    // off a fresh object that inherits from the kind's %…Prototype%.
+    Object* function_prototype = m_intrinsics.function_prototype;
+    Object* instance_prototype = nullptr;
+    if (node.is_generator && node.is_async) {
+        if (m_intrinsics.async_generator_function_prototype)
+            function_prototype = m_intrinsics.async_generator_function_prototype;
+        instance_prototype = m_intrinsics.async_generator_prototype;
+    } else if (node.is_generator) {
+        if (m_intrinsics.generator_function_prototype)
+            function_prototype = m_intrinsics.generator_function_prototype;
+        instance_prototype = m_intrinsics.generator_prototype;
+    } else if (node.is_async && m_intrinsics.async_function_prototype) {
+        function_prototype = m_intrinsics.async_function_prototype;
+    }
+    auto* function = m_heap->allocate<ScriptFunction>(function_prototype, node, scope, node.is_constructable);
     function->set_private_environment(private_environment);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
@@ -3767,6 +3854,11 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     if (node.is_constructable) {
         Object* prototype = new_object();
         prototype->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
+        function->put(PropertyKey::atom(atoms().prototype), Value::object(prototype), Writable);
+    } else if (node.is_generator) {
+        // §15.5.4 / §15.6.4: writable, not enumerable, not configurable,
+        // and with no `constructor` back-link.
+        Object* prototype = new_object(instance_prototype);
         function->put(PropertyKey::atom(atoms().prototype), Value::object(prototype), Writable);
     }
     return function;

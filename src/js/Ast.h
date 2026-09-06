@@ -11,8 +11,8 @@
 // scoping, arrow functions, template literals, `**`, `??`, `?.`, optional
 // catch binding, shorthand and computed property names, the iterator
 // protocol with for-of and spread, destructuring patterns, default and
-// rest parameters. Classes, generators, modules and async are parse
-// errors that name themselves.
+// rest parameters, classes, generators and async functions. Modules are
+// a parse error that names itself.
 
 #include "js/Value.h"
 
@@ -66,6 +66,8 @@ enum class NodeType : std::uint8_t {
     SuperCall,
     NewTargetExpression,
     PrivateIn, // `#x in o`
+    YieldExpression,
+    AwaitExpression,
     // statements
     VariableDeclaration,
     FunctionDeclaration,
@@ -299,6 +301,10 @@ struct Parameter {
 
 struct ClassNode;
 
+// The four kinds CreateDynamicFunction (§20.2.1.1.1) makes: `Function`,
+// `GeneratorFunction`, `AsyncFunction`, `AsyncGeneratorFunction`.
+enum class DynamicFunctionKind : std::uint8_t { Normal, Generator, Async, AsyncGenerator };
+
 struct FunctionNode {
     JsString* name = nullptr; // null when anonymous
     std::vector<Parameter> parameters;
@@ -314,6 +320,11 @@ struct FunctionNode {
     bool is_field_initializer = false; // the initializer is expression_body; `arguments` is an early error
     bool is_static_block = false; // `static { … }`: a body, no `return`
     ClassNode const* class_node = nullptr; // for a class constructor, the class whose fields it initialises
+    // `function*` / `async function` / `async function*` (§15.5, §15.8,
+    // §15.6): a body that can suspend — at a `yield`, at an `await` —
+    // and so runs on the bytecode VM. Neither kind is a constructor.
+    bool is_generator = false;
+    bool is_async = false;
     // IsSimpleParameterList: names only — no default, rest or pattern.
     // Anything else means an unmapped arguments object, no duplicate
     // names, and no "use strict" directive of the function's own.
@@ -581,6 +592,28 @@ struct SequenceExpression : Expression {
     std::vector<Expression*> expressions;
 };
 
+// `yield` / `yield argument` / `yield* iterable` (§15.5.5, §27.5.3.8):
+// the generator hands the value out and suspends until it is resumed;
+// with `*` it delegates to the iterable's iterator until that one ends.
+struct YieldExpression : Expression {
+    YieldExpression()
+        : Expression(NodeType::YieldExpression)
+    {
+    }
+    Expression* argument = nullptr; // null: yields undefined
+    bool delegate = false; // `yield*`
+};
+
+// `await argument` (§27.7.5.3): the async body suspends until the
+// operand, resolved as a promise, settles; a rejection is a throw here.
+struct AwaitExpression : Expression {
+    AwaitExpression()
+        : Expression(NodeType::AwaitExpression)
+    {
+    }
+    Expression* argument = nullptr;
+};
+
 // `...iterable` in an array literal or an argument list (§13.2.4.1,
 // §13.3.8.1): the values the iterable yields take its place.
 struct SpreadElement : Expression {
@@ -699,6 +732,7 @@ struct ForOfStatement : Statement {
     Expression* target = nullptr; // `for (x of …)`; declaration is null then
     Expression* iterable = nullptr;
     Statement* body = nullptr;
+    bool is_await = false; // `for await (… of …)` (§14.7.5): the async iteration protocol, awaiting each step
 };
 
 struct WhileStatement : Statement {

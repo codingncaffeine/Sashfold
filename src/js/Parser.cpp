@@ -379,6 +379,16 @@ struct FunctionContext {
     // (§15.7.1) — unlike the `arguments` rule above, an arrow is a function
     // boundary here, so arrows do not inherit this.
     bool await_reserved = false;
+    // The grammar's [Yield] and [Await] parameters: inside a generator body
+    // `yield` is an expression and never a name; inside an async body the
+    // same for `await`. An arrow's parameters are parsed with the enclosing
+    // function's answers, its body with its own (§15.3: ConciseBody is
+    // [~Yield, ~Await]; an async arrow's is [+Await]).
+    bool in_generator = false;
+    bool in_async = false;
+    // Between a function's `(` and `)`: a yield or await expression there
+    // is an early error (§15.1.1, §15.5.1, §15.8.1).
+    bool in_parameters = false;
 };
 
 // An error the cover grammar defers (§13.2.5.1): `{ a = 1 }` and a
@@ -448,7 +458,9 @@ struct Parser::Impl {
     void note_this();
     bool note_arguments();
     void note_direct_eval();
-    bool check_binding_identifier(Token const&, bool strict);
+    bool check_binding_identifier(Token const&, bool strict); // with the current function's yield/await answers
+    bool check_binding_identifier(Token const&, bool strict, bool yield_reserved, bool await_reserved);
+    bool check_reserved_reference(Token const&); // `yield` in a generator, `await` in async code or a static block
     bool check_simple_target(Expression const*, SourcePosition, std::string_view what);
 
     // Nodes.
@@ -487,10 +499,12 @@ struct Parser::Impl {
     Expression* parse_object_literal();
     bool parse_property_key(PropertyDefinition&, Token* key_token);
     Expression* parse_template(bool tagged = false);
-    Expression* parse_function_expression();
+    Expression* parse_function_expression(bool is_async);
     bool looks_like_arrow_head();
-    bool balanced_parens_then_arrow();
-    Expression* parse_arrow(bool allow_in);
+    // `async_start` set: an async arrow, `async` already consumed.
+    Expression* parse_arrow(bool allow_in, std::optional<SourcePosition> async_start = std::nullopt);
+    Expression* parse_yield(bool allow_in);
+    bool expression_follows_yield() const;
     Expression* parse_super();
 
     // Classes (§15.7).
@@ -516,8 +530,11 @@ struct Parser::Impl {
     bool parse_formal_parameters(FunctionNode*, std::vector<Token>& bound);
     bool parse_function_body(FunctionNode*);
     bool parse_directive_prologue(std::vector<Statement*>& body);
+    // `yield_reserved`/`await_reserved`: the parameters' [Yield]/[Await]
+    // answers, captured where they were parsed (an arrow's differ from its
+    // body's).
     bool finish_parameters(FunctionNode*, FunctionKind, std::vector<Token> const& parameter_tokens,
-        std::optional<Token> const& name_token);
+        std::optional<Token> const& name_token, bool yield_reserved, bool await_reserved);
 
     // Statements.
     bool parse_program_body();
@@ -529,7 +546,7 @@ struct Parser::Impl {
     BlockStatement* parse_block(bool is_catch_body);
     Statement* parse_variable_statement();
     VariableDeclaration* parse_declaration_list(VariableDeclaration::Kind, bool allow_in, bool in_for_head);
-    Statement* parse_function_declaration();
+    Statement* parse_function_declaration(bool is_async);
     Statement* parse_if();
     Statement* parse_for();
     Statement* parse_while();
@@ -758,6 +775,12 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
         context->allow_super_call = outer.allow_super_call;
         context->in_field_initializer = outer.in_field_initializer;
         context->in_static_block = outer.in_static_block;
+        // The parameters take the enclosing [Yield]/[Await] (an async
+        // arrow's are [~Yield, +Await]); parse_arrow resets both for the
+        // body once `=>` is consumed.
+        bool const async_arrow = node && node->is_async;
+        context->in_generator = !async_arrow && outer.in_generator;
+        context->in_async = async_arrow || outer.in_async || outer.await_reserved;
     } else {
         context->allow_new_target = true;
         context->allow_super_property = node && node->is_method;
@@ -765,6 +788,8 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
         context->in_field_initializer = node && node->is_field_initializer;
         context->in_static_block = node && node->is_static_block;
         context->await_reserved = node && node->is_static_block;
+        context->in_generator = node && node->is_generator;
+        context->in_async = node && node->is_async;
     }
     m_functions.push_back(std::move(context));
     Scope& top = push_scope(declarations);
@@ -955,6 +980,11 @@ void Parser::Impl::note_direct_eval()
 // eval/arguments cannot be bound.
 bool Parser::Impl::check_binding_identifier(Token const& token, bool strict)
 {
+    return check_binding_identifier(token, strict, function().in_generator, function().in_async || function().await_reserved);
+}
+
+bool Parser::Impl::check_binding_identifier(Token const& token, bool strict, bool yield_reserved, bool await_reserved)
+{
     if (token.type != TokenType::Identifier)
         return fail(token.position, describe_token(token));
     if (token.has_escape && Lexer::keyword_for(token.value))
@@ -965,8 +995,23 @@ bool Parser::Impl::check_binding_identifier(Token const& token, bool strict)
         if (is_eval_or_arguments(token.value))
             return fail(token.position, "Unexpected eval or arguments in strict mode");
     }
-    // §15.7.1: `await` binds nothing directly inside a class static block.
-    if (token.value == u"await" && function().await_reserved)
+    // `yield` binds nothing in a generator (§13.1.1: BindingIdentifier with
+    // [Yield]); `await` binds nothing in async code, nor directly inside a
+    // class static block (§15.7.1).
+    if (token.value == u"yield" && yield_reserved)
+        return fail(token.position, "Unexpected identifier 'yield'");
+    if (token.value == u"await" && await_reserved)
+        return fail(token.position, "Unexpected reserved word");
+    return true;
+}
+
+// IdentifierReference / LabelIdentifier (§13.1.1): the same two words are
+// no names either where they are reserved.
+bool Parser::Impl::check_reserved_reference(Token const& token)
+{
+    if (token.value == u"yield" && function().in_generator)
+        return fail(token.position, "Unexpected identifier 'yield'");
+    if (token.value == u"await" && (function().in_async || function().await_reserved))
         return fail(token.position, "Unexpected reserved word");
     return true;
 }
@@ -1066,18 +1111,34 @@ Expression* Parser::Impl::parse_assignment(bool allow_in, bool cover)
     Expression* result = nullptr;
     bool arrow = false;
     if (m_current.type == TokenType::Identifier && !m_current.has_escape) {
+        if (m_current.value == u"yield" && function().in_generator) {
+            result = parse_yield(allow_in);
+            leave();
+            return result;
+        }
         if (m_current.value == u"async") {
+            // `async x => …` and `async (…) => …` (§15.9), each with no line
+            // terminator after `async`. `async function …` is a
+            // PrimaryExpression (§15.8) that parse_primary takes, so it can
+            // carry a call or member tail; anything else leaves `async` an
+            // ordinary name — `async(x)` is a call.
+            SourcePosition const async_start = m_current.position;
             Snapshot const saved = snapshot();
             advance();
-            bool const async_form = !m_current.newline_before
-                && (m_current.is(Keyword::Function) || m_current.type == TokenType::Identifier
-                    || (m_current.is(Punctuator::LeftParen) && balanced_parens_then_arrow()));
-            rewind(saved);
-            if (async_form) {
-                leave();
-                fail_unsupported("async functions");
-                return nullptr;
+            bool const same_line = !m_current.newline_before;
+            bool async_arrow = false;
+            if (same_line && m_current.type == TokenType::Identifier) {
+                Token const after = peek();
+                async_arrow = after.is(Punctuator::Arrow) && !after.newline_before;
+            } else if (same_line && m_current.is(Punctuator::LeftParen)) {
+                async_arrow = looks_like_arrow_head();
             }
+            if (async_arrow) {
+                result = parse_arrow(allow_in, async_start);
+                leave();
+                return result;
+            }
+            rewind(saved);
         }
         Token const next = peek();
         arrow = next.is(Punctuator::Arrow) && !next.newline_before;
@@ -1135,6 +1196,46 @@ Expression* Parser::Impl::parse_assignment(bool allow_in, bool cover)
     if (result && !cover && !check_cover(cover_mark))
         return nullptr;
     return result;
+}
+
+// YieldExpression (§15.5): `yield`, `yield AssignmentExpression` or
+// `yield* AssignmentExpression`, inside a generator body only — the
+// caller has checked — and never among its parameters. An operand follows
+// unless the next token cannot begin an expression or sits on a new line
+// (yield [no LineTerminator here] …).
+Expression* Parser::Impl::parse_yield(bool allow_in)
+{
+    SourcePosition const start = m_current.position;
+    if (function().in_parameters) {
+        fail(start, "Yield expression not allowed in formal parameter");
+        return nullptr;
+    }
+    advance(); // yield
+    auto* yield = make<YieldExpression>(start);
+    if (!m_current.newline_before) {
+        if (m_current.is(Punctuator::Star)) {
+            advance();
+            yield->delegate = true;
+            yield->argument = parse_assignment(allow_in);
+            if (!yield->argument)
+                return nullptr;
+        } else if (expression_follows_yield()) {
+            yield->argument = parse_assignment(allow_in);
+            if (!yield->argument)
+                return nullptr;
+        }
+    }
+    return finish(yield);
+}
+
+bool Parser::Impl::expression_follows_yield() const
+{
+    Token const& token = m_current;
+    if (token.type == TokenType::EndOfInput || token.is(Keyword::In))
+        return false;
+    return !(token.is(Punctuator::RightParen) || token.is(Punctuator::RightBracket) || token.is(Punctuator::RightBrace)
+        || token.is(Punctuator::Comma) || token.is(Punctuator::Semicolon) || token.is(Punctuator::Colon)
+        || token.is(Punctuator::Question) || token.is(Punctuator::Arrow));
 }
 
 // ConditionalExpression (§13.14). The middle operand always admits `in`.
@@ -1295,25 +1396,28 @@ Expression* Parser::Impl::parse_unary()
         update->target = operand;
         return finish(update);
     }
-    // `await x` and `yield x` are not expressions of this grammar; name
-    // the feature rather than tripping over the operand.
-    if (m_current.type == TokenType::Identifier && !m_current.has_escape
-        && (m_current.value == u"await" || m_current.value == u"yield")) {
-        bool const is_await = m_current.value == u"await";
-        Token const next = peek();
-        bool const operand_follows = !next.newline_before
-            && (next.type == TokenType::Identifier || next.type == TokenType::Number || next.type == TokenType::String
-                || next.type == TokenType::Template || next.is(Punctuator::LeftBracket) || next.is(Punctuator::LeftBrace)
-                || next.is(Keyword::This) || next.is(Keyword::New) || next.is(Keyword::Function) || next.is(Keyword::Null)
-                || next.is(Keyword::True) || next.is(Keyword::False) || next.is(Keyword::Typeof));
-        if (operand_follows) {
-            if (is_await && function().in_static_block) {
-                // §15.7.1: no await in a static block — a real early error,
-                // not a feature the engine declines.
-                fail(m_current.position, "Unexpected reserved word");
+    // AwaitExpression (§15.8): `await UnaryExpression`, in an async body
+    // and never among its parameters. Directly in a class static block
+    // `await` is reserved but no expression (§15.7.1).
+    if (m_current.is_identifier(u"await") && !m_current.has_escape) {
+        if (function().in_async) {
+            if (function().in_parameters) {
+                fail(start, "Await expression not allowed in formal parameter");
                 return nullptr;
             }
-            fail_unsupported(is_await ? "async functions" : "generators");
+            if (!enter())
+                return nullptr;
+            advance(); // await
+            Expression* operand = parse_unary();
+            leave();
+            if (!operand)
+                return nullptr;
+            auto* await = make<AwaitExpression>(start);
+            await->argument = operand;
+            return finish(await);
+        }
+        if (function().await_reserved) {
+            fail(start, "Unexpected reserved word");
             return nullptr;
         }
     }
@@ -1549,6 +1653,14 @@ Expression* Parser::Impl::parse_primary()
     SourcePosition const start = m_current.position;
     switch (m_current.type) {
     case TokenType::Identifier:
+        // AsyncFunctionExpression (§15.8): `async function …` with no line
+        // terminator between the two, in any expression position; `async`
+        // followed by anything else is a name.
+        if (m_current.value == u"async" && !m_current.has_escape) {
+            Token const next = peek();
+            if (next.is(Keyword::Function) && !next.newline_before)
+                return parse_function_expression(true);
+        }
         return parse_identifier_reference();
     case TokenType::PrivateName:
         // A private name stands alone nowhere: §13.10 allows it only as the
@@ -1574,7 +1686,7 @@ Expression* Parser::Impl::parse_primary()
             return finish(literal);
         }
         case Keyword::Function:
-            return parse_function_expression();
+            return parse_function_expression(false);
         case Keyword::Class:
             return parse_class_expression();
         case Keyword::Super:
@@ -1658,11 +1770,8 @@ Expression* Parser::Impl::parse_identifier_reference()
         fail(start, "Unexpected strict mode reserved word");
         return nullptr;
     }
-    // §15.7.1: `await` is reserved directly inside a class static block.
-    if (m_current.value == u"await" && function().await_reserved) {
-        fail(start, "Unexpected reserved word");
+    if (!check_reserved_reference(m_current))
         return nullptr;
-    }
     auto* identifier = make<Identifier>(start);
     identifier->name = atom(m_current.value);
     if (identifier->name == m_heap.atoms().arguments && !note_arguments())
@@ -1864,25 +1973,33 @@ Expression* Parser::Impl::parse_object_literal()
             }
             continue;
         }
-        if (m_current.is(Punctuator::Star)) {
-            leave();
-            fail_unsupported("generators");
-            return nullptr;
+        // `async` is a method prefix when a key follows on the same line
+        // (§15.8: async [no LineTerminator here]), `*` a generator's, and
+        // `get`/`set` an accessor's — the last two never together.
+        bool is_async = false;
+        bool is_generator = false;
+        if (m_current.is_identifier(u"async") && !m_current.has_escape) {
+            Token const next = peek();
+            bool const key_follows = !next.newline_before
+                && (next.type == TokenType::Identifier || next.type == TokenType::Keyword || next.type == TokenType::String
+                    || next.type == TokenType::Number || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star));
+            if (key_follows) {
+                is_async = true;
+                advance();
+            }
         }
-        // `get`/`set`/`async` are accessor prefixes only when a key follows.
+        if (m_current.is(Punctuator::Star)) {
+            is_generator = true;
+            advance();
+        }
         bool accessor = false;
-        if (m_current.type == TokenType::Identifier && !m_current.has_escape
-            && (m_current.value == u"get" || m_current.value == u"set" || m_current.value == u"async")) {
+        if (!is_async && !is_generator && m_current.type == TokenType::Identifier && !m_current.has_escape
+            && (m_current.value == u"get" || m_current.value == u"set")) {
             Token const next = peek();
             bool const key_follows = next.type == TokenType::Identifier || next.type == TokenType::Keyword
                 || next.type == TokenType::String || next.type == TokenType::Number
-                || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star);
+                || next.is(Punctuator::LeftBracket);
             if (key_follows) {
-                if (m_current.value == u"async") {
-                    leave();
-                    fail_unsupported("async functions");
-                    return nullptr;
-                }
                 accessor = true;
                 property.kind = m_current.value == u"get" ? PropertyDefinition::Kind::Get : PropertyDefinition::Kind::Set;
                 advance();
@@ -1893,7 +2010,7 @@ Expression* Parser::Impl::parse_object_literal()
             leave();
             return nullptr;
         }
-        if (accessor || m_current.is(Punctuator::LeftParen)) {
+        if (accessor || is_async || is_generator || m_current.is(Punctuator::LeftParen)) {
             if (!m_current.is(Punctuator::LeftParen)) {
                 leave();
                 fail_unexpected();
@@ -1905,6 +2022,8 @@ Expression* Parser::Impl::parse_object_literal()
             fn->name = property.computed_key ? nullptr : property.key;
             fn->is_constructable = false; // §15.4: methods and accessors have no [[Construct]]
             fn->is_method = true; // the object is its home: `super.x` resolves against it
+            fn->is_async = is_async;
+            fn->is_generator = is_generator;
             fn->is_getter = property.kind == PropertyDefinition::Kind::Get;
             fn->is_setter = property.kind == PropertyDefinition::Kind::Set;
             FunctionKind const kind = fn->is_getter ? FunctionKind::Getter : fn->is_setter ? FunctionKind::Setter : FunctionKind::Method;
@@ -1951,6 +2070,10 @@ Expression* Parser::Impl::parse_object_literal()
             if (is_strict() && is_strict_reserved_word(key_token.value)) {
                 leave();
                 fail(key_token.position, "Unexpected strict mode reserved word");
+                return nullptr;
+            }
+            if (!check_reserved_reference(key_token)) {
+                leave();
                 return nullptr;
             }
             auto* identifier = make<Identifier>(key_token.position);
@@ -2046,13 +2169,19 @@ Expression* Parser::Impl::parse_template(bool tagged)
     return finish(literal);
 }
 
-Expression* Parser::Impl::parse_function_expression()
+// FunctionExpression, GeneratorExpression, AsyncFunctionExpression and
+// AsyncGeneratorExpression (§15.2, §15.5, §15.8, §15.6): `is_async` means
+// the current token is the `async` before `function`.
+Expression* Parser::Impl::parse_function_expression(bool is_async)
 {
     SourcePosition const start = m_current.position;
+    if (is_async)
+        advance(); // async
     advance(); // function
+    bool is_generator = false;
     if (m_current.is(Punctuator::Star)) {
-        fail_unsupported("generators");
-        return nullptr;
+        is_generator = true;
+        advance();
     }
     std::optional<Token> name_token;
     if (m_current.type == TokenType::Identifier) {
@@ -2062,6 +2191,10 @@ Expression* Parser::Impl::parse_function_expression()
     FunctionNode* fn = m_program->make_function();
     fn->position = start;
     fn->source_start = start.offset;
+    fn->is_generator = is_generator;
+    fn->is_async = is_async;
+    if (is_generator || is_async)
+        fn->is_constructable = false; // §15.5.4, §15.8.4: neither kind has [[Construct]]
     if (name_token)
         fn->name = atom(name_token->value);
     if (!parse_function_rest(fn, FunctionKind::Expression, name_token))
@@ -2124,42 +2257,20 @@ bool Parser::Impl::looks_like_arrow_head()
     return matches;
 }
 
-// After `async`: does the `(` at the current token open a balanced group
-// followed by `=>` on the same line? Only used to name async arrows,
-// which are not supported, so an inexact scan (a template inside the
-// group can mislead it) costs nothing but a less specific message.
-bool Parser::Impl::balanced_parens_then_arrow()
+// ArrowFunction and AsyncArrowFunction (§15.3, §15.9), the lookahead
+// having confirmed the shape. The head is parsed as a formal parameter
+// list in the arrow's own context, so a default sees the parameters
+// before it; `this` and `arguments` in it belong to the enclosing
+// function, as note_this arranges.
+Expression* Parser::Impl::parse_arrow(bool allow_in, std::optional<SourcePosition> async_start)
 {
-    Snapshot const saved = snapshot();
-    int depth = 0;
-    bool matches = false;
-    do {
-        if (m_current.is(Punctuator::LeftParen))
-            ++depth;
-        else if (m_current.is(Punctuator::RightParen))
-            --depth;
-        else if (m_current.type == TokenType::EndOfInput || m_current.type == TokenType::Invalid)
-            break;
-        advance();
-    } while (depth > 0);
-    if (depth == 0)
-        matches = m_current.is(Punctuator::Arrow) && !m_current.newline_before;
-    rewind(saved);
-    return matches;
-}
-
-// ArrowFunction (§15.3), the lookahead having confirmed the shape. The
-// head is parsed as a formal parameter list in the arrow's own context,
-// so a default sees the parameters before it; `this` and `arguments`
-// in it belong to the enclosing function, as note_this arranges.
-Expression* Parser::Impl::parse_arrow(bool allow_in)
-{
-    SourcePosition const start = m_current.position;
+    SourcePosition const start = async_start.value_or(m_current.position);
     FunctionNode* fn = m_program->make_function();
     fn->position = start;
     fn->source_start = start.offset;
     fn->is_arrow = true;
     fn->is_constructable = false;
+    fn->is_async = async_start.has_value();
     if (!enter())
         return nullptr;
     push_function(fn, &fn->declarations, true);
@@ -2181,6 +2292,12 @@ Expression* Parser::Impl::parse_arrow(bool allow_in)
         fail_unexpected();
         return nullptr;
     }
+    // The parameters were [?Yield, ?Await] of the enclosing function; the
+    // body is [~Yield, ~Await], or [+Await] for an async arrow (§15.3, §15.9).
+    bool const parameters_yield = function().in_generator;
+    bool const parameters_await = function().in_async;
+    function().in_generator = false;
+    function().in_async = fn->is_async;
     advance(); // =>
     if (m_current.is(Punctuator::LeftBrace)) {
         if (!parse_function_body(fn))
@@ -2196,7 +2313,7 @@ Expression* Parser::Impl::parse_arrow(bool allow_in)
         fn->expression_body = body;
         fn->source_end = m_previous_end;
     }
-    if (!finish_parameters(fn, FunctionKind::Arrow, parameter_tokens, std::nullopt))
+    if (!finish_parameters(fn, FunctionKind::Arrow, parameter_tokens, std::nullopt, parameters_yield, parameters_await))
         return nullptr;
     pop_function();
     leave();
@@ -2378,20 +2495,34 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
                 return parse_static_block(node, element_start);
         }
     }
-    if (m_current.is(Punctuator::Star))
-        return fail_unsupported("generators");
-    // `get`/`set`/`async` are prefixes only when a key follows.
+    // `async` (no line terminator after it), `*`, `async *`, or `get`/`set`
+    // are method prefixes when a key follows; a field takes none of them.
+    bool is_async = false;
+    bool is_generator = false;
+    if (m_current.is_identifier(u"async") && !m_current.has_escape) {
+        Token const next = peek();
+        bool const key_follows = !next.newline_before
+            && (next.type == TokenType::Identifier || next.type == TokenType::Keyword || next.type == TokenType::PrivateName
+                || next.type == TokenType::String || next.type == TokenType::Number
+                || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star) || next.type == TokenType::Invalid);
+        if (key_follows) {
+            is_async = true;
+            advance();
+        }
+    }
+    if (m_current.is(Punctuator::Star)) {
+        is_generator = true;
+        advance();
+    }
     bool accessor = false;
-    if (m_current.type == TokenType::Identifier && !m_current.has_escape
-        && (m_current.value == u"get" || m_current.value == u"set" || m_current.value == u"async")) {
+    if (!is_async && !is_generator && m_current.type == TokenType::Identifier && !m_current.has_escape
+        && (m_current.value == u"get" || m_current.value == u"set")) {
         Token const next = peek();
         bool const key_follows = next.type == TokenType::Identifier || next.type == TokenType::Keyword
             || next.type == TokenType::PrivateName
             || next.type == TokenType::String || next.type == TokenType::Number
-            || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star) || next.type == TokenType::Invalid;
+            || next.is(Punctuator::LeftBracket) || next.type == TokenType::Invalid;
         if (key_follows) {
-            if (m_current.value == u"async")
-                return fail_unsupported("async functions");
             accessor = true;
             element.kind = m_current.value == u"get" ? ClassElement::Kind::Getter : ClassElement::Kind::Setter;
             advance();
@@ -2420,12 +2551,16 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
     bool const constructor_name = plain_key && element.key->equals(u"constructor");
     if (plain_key && element.is_static && element.key->equals(u"prototype"))
         return fail(key_token.position, "Classes may not have a static property named 'prototype'");
-    if (accessor || m_current.is(Punctuator::LeftParen)) {
+    if (accessor || is_async || is_generator || m_current.is(Punctuator::LeftParen)) {
         if (!m_current.is(Punctuator::LeftParen))
             return fail_unexpected();
         bool const is_constructor = constructor_name && !element.is_static;
         if (is_constructor && accessor)
             return fail(key_token.position, "Class constructor may not be an accessor");
+        if (is_constructor && is_generator)
+            return fail(key_token.position, "Class constructor may not be a generator");
+        if (is_constructor && is_async)
+            return fail(key_token.position, "Class constructor may not be an async method");
         FunctionNode* fn = m_program->make_function();
         fn->position = element_start;
         fn->source_start = element_start.offset;
@@ -2433,6 +2568,8 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
         fn->is_method = true;
         fn->is_getter = element.kind == ClassElement::Kind::Getter;
         fn->is_setter = element.kind == ClassElement::Kind::Setter;
+        fn->is_async = is_async;
+        fn->is_generator = is_generator;
         if (is_constructor) {
             if (node.constructor)
                 return fail(key_token.position, "A class may only have one constructor");
@@ -2845,7 +2982,7 @@ bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std:
     // itself strict — its parameters would have been parsed sloppily.
     if (function().use_strict_directive && !fn->has_simple_parameter_list)
         return fail(fn->position, "Illegal 'use strict' directive in function with non-simple parameter list");
-    if (!finish_parameters(fn, kind, parameter_tokens, name_token))
+    if (!finish_parameters(fn, kind, parameter_tokens, name_token, function().in_generator, function().in_async || function().await_reserved))
         return false;
     leave();
     return pop_function();
@@ -2857,6 +2994,7 @@ bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std:
 bool Parser::Impl::parse_formal_parameters(FunctionNode* fn, std::vector<Token>& bound)
 {
     FunctionContext& context = function();
+    context.in_parameters = true;
     bool counting = true; // still before the first default or the rest
     while (!m_current.is(Punctuator::RightParen)) {
         Parameter parameter;
@@ -2913,6 +3051,7 @@ bool Parser::Impl::parse_formal_parameters(FunctionNode* fn, std::vector<Token>&
         if (!m_current.is(Punctuator::RightParen))
             return fail_unexpected();
     }
+    context.in_parameters = false;
     advance(); // )
     return true;
 }
@@ -2971,11 +3110,11 @@ bool Parser::Impl::parse_directive_prologue(std::vector<Statement*>& body)
 // The early errors on a function's name and parameters (§15.2.1, §15.3.1,
 // §15.4.1) with the function's final strictness.
 bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::vector<Token> const& parameter_tokens,
-    std::optional<Token> const& name_token)
+    std::optional<Token> const& name_token, bool yield_reserved, bool await_reserved)
 {
     bool const strict = fn->is_strict;
     for (Token const& token : parameter_tokens) {
-        if (!check_binding_identifier(token, strict))
+        if (!check_binding_identifier(token, strict, yield_reserved, await_reserved))
             return false;
     }
     // Duplicates are allowed only in a sloppy plain function with a simple
@@ -2989,8 +3128,21 @@ bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::v
                 return fail(token.position, "Duplicate parameter name not allowed in this context");
         }
     }
-    if (name_token && !check_binding_identifier(*name_token, strict))
-        return false;
+    // The name: a declaration's binds in the enclosing scope, with that
+    // scope's [Yield]/[Await] (§15.2, §15.5: BindingIdentifier[?Yield,
+    // ?Await]); an expression's is its own function's — a generator
+    // expression cannot be named `yield`, an async one `await`.
+    if (name_token) {
+        bool name_yield = fn->is_generator;
+        bool name_await = fn->is_async;
+        if (kind == FunctionKind::Declaration && m_functions.size() >= 2) {
+            FunctionContext const& enclosing = *m_functions[m_functions.size() - 2];
+            name_yield = enclosing.in_generator;
+            name_await = enclosing.in_async || enclosing.await_reserved;
+        }
+        if (!check_binding_identifier(*name_token, strict, name_yield, name_await))
+            return false;
+    }
     if (kind == FunctionKind::Getter && !fn->parameters.empty())
         return fail(fn->position, "Getter must not have any formal parameters");
     if (kind == FunctionKind::Setter && (fn->parameters.size() != 1 || fn->parameters[0].is_rest))
@@ -2998,13 +3150,18 @@ bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::v
     return true;
 }
 
-Statement* Parser::Impl::parse_function_declaration()
+// FunctionDeclaration and its generator and async forms (§15.2, §15.5,
+// §15.8, §15.6): `is_async` means the current token is the `async`.
+Statement* Parser::Impl::parse_function_declaration(bool is_async)
 {
     SourcePosition const start = m_current.position;
+    if (is_async)
+        advance(); // async
     advance(); // function
+    bool is_generator = false;
     if (m_current.is(Punctuator::Star)) {
-        fail_unsupported("generators");
-        return nullptr;
+        is_generator = true;
+        advance();
     }
     if (m_current.type != TokenType::Identifier) {
         if (m_current.is(Punctuator::LeftParen))
@@ -3019,6 +3176,10 @@ Statement* Parser::Impl::parse_function_declaration()
     fn->position = start;
     fn->source_start = start.offset;
     fn->name = atom(name_token.value);
+    fn->is_generator = is_generator;
+    fn->is_async = is_async;
+    if (is_generator || is_async)
+        fn->is_constructable = false;
     auto* declaration = make<FunctionDeclaration>(start);
     declaration->function = fn;
     // The name binds in the enclosing scope, which is still the current
@@ -3077,7 +3238,13 @@ bool Parser::Impl::is_let_declaration_start()
 Statement* Parser::Impl::parse_statement_list_item()
 {
     if (m_current.is(Keyword::Function))
-        return parse_function_declaration();
+        return parse_function_declaration(false);
+    if (m_current.is_identifier(u"async") && !m_current.has_escape) {
+        // `async function` with no line terminator between (§15.8).
+        Token const next = peek();
+        if (next.is(Keyword::Function) && !next.newline_before)
+            return parse_function_declaration(true);
+    }
     if (m_current.is(Keyword::Class))
         return parse_class_declaration();
     if (m_current.is(Keyword::Const) || is_let_declaration_start()) {
@@ -3106,6 +3273,16 @@ Statement* Parser::Impl::parse_statement_inner(bool is_body)
     SourcePosition const start = m_current.position;
     if (m_current.is(Punctuator::LeftBrace))
         return parse_block(false);
+    if (m_current.is_identifier(u"async") && !m_current.has_escape) {
+        // §14.5: an ExpressionStatement may not begin `async function`; the
+        // declaration belongs in a statement list, not a single-statement
+        // position.
+        Token const next = peek();
+        if (next.is(Keyword::Function) && !next.newline_before) {
+            fail(start, "Async functions can only be declared at the top level or inside a block");
+            return nullptr;
+        }
+    }
     if (m_current.is(Punctuator::Semicolon)) {
         advance();
         return finish(make<EmptyStatement>(start));
@@ -3304,7 +3481,7 @@ Statement* Parser::Impl::parse_if()
             SourcePosition const branch_start = m_current.position;
             auto* block = make<BlockStatement>(branch_start);
             push_scope(&block->declarations);
-            Statement* declaration = parse_function_declaration();
+            Statement* declaration = parse_function_declaration(false);
             if (!declaration)
                 return nullptr;
             block->body.push_back(declaration);
@@ -3335,9 +3512,15 @@ Statement* Parser::Impl::parse_for()
 {
     SourcePosition const start = m_current.position;
     advance(); // for
+    bool is_await = false;
     if (m_current.is_identifier(u"await") && !m_current.has_escape) {
-        fail_unsupported("async functions");
-        return nullptr;
+        // `for await (… of …)` (§14.7.5), in an async body only.
+        if (!function().in_async) {
+            fail(m_current.position, "Unexpected reserved word");
+            return nullptr;
+        }
+        is_await = true;
+        advance();
     }
     if (!expect(Punctuator::LeftParen))
         return nullptr;
@@ -3377,6 +3560,10 @@ Statement* Parser::Impl::parse_for()
 
     if (m_current.is(Keyword::In) || (m_current.is_identifier(u"of") && !m_current.has_escape)) {
         bool const is_of = !m_current.is(Keyword::In);
+        if (is_await && !is_of) {
+            fail(head_start, "for await loops must iterate with of");
+            return nullptr;
+        }
         std::string_view const loop_name = is_of ? "in for-of loop" : "in for-in loop";
         if (declaration) {
             if (declaration->declarations.size() != 1) {
@@ -3393,7 +3580,7 @@ Statement* Parser::Impl::parse_for()
             finish(declaration);
         } else if (is_pattern(target)) {
             // Converted above.
-        } else if (is_of && target->type == NodeType::Identifier && !m_parenthesised.contains(target)
+        } else if (is_of && !is_await && target->type == NodeType::Identifier && !m_parenthesised.contains(target)
             && static_cast<Identifier const*>(target)->name->equals(u"async")) {
             // §14.7.5.1: `for (async of …)` is kept apart from an async
             // arrow's head; in parentheses the name is a name again.
@@ -3407,6 +3594,7 @@ Statement* Parser::Impl::parse_for()
             auto* statement = make<ForOfStatement>(start);
             statement->declaration = declaration;
             statement->target = target;
+            statement->is_await = is_await;
             statement->iterable = parse_assignment(true);
             if (!statement->iterable || !expect(Punctuator::RightParen))
                 return nullptr;
@@ -3431,6 +3619,10 @@ Statement* Parser::Impl::parse_for()
         return finish(statement);
     }
 
+    if (is_await) {
+        fail(head_start, "for await loops must iterate with of");
+        return nullptr;
+    }
     auto* statement = make<ForStatement>(start);
     if (declaration) {
         if (declaration->kind == VariableDeclaration::Kind::Const) {
@@ -3773,6 +3965,8 @@ Statement* Parser::Impl::parse_labelled(bool is_body)
             fail(m_current.position, "Unexpected strict mode reserved word");
             return nullptr;
         }
+        if (!check_reserved_reference(m_current))
+            return nullptr;
         JsString* name = atom(m_current.value);
         bool const duplicate = std::any_of(fn.labels.begin(), fn.labels.end(), [&](Label const& l) { return l.name == name; });
         if (duplicate) {
@@ -3799,7 +3993,7 @@ Statement* Parser::Impl::parse_labelled(bool is_body)
             fail(m_current.position, "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement");
             return nullptr;
         }
-        body = parse_function_declaration();
+        body = parse_function_declaration(false);
     } else {
         body = parse_statement(true);
     }
@@ -3847,13 +4041,19 @@ std::unique_ptr<Program> Parser::parse_program(std::string name)
 // and smuggles statements after it is rejected, as the specification's
 // separate parse of the body would reject it.
 std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16string_view parameters,
-    std::u16string_view body, ParseError* error)
+    std::u16string_view body, ParseError* error, DynamicFunctionKind kind)
 {
+    // The wrapper's head names the kind (§20.2.1.1.1 CreateDynamicFunction
+    // step 6): the source text the function will show is exactly this.
+    std::u16string_view const prefix = kind == DynamicFunctionKind::Generator ? u"(function* anonymous("
+        : kind == DynamicFunctionKind::Async                                      ? u"(async function anonymous("
+        : kind == DynamicFunctionKind::AsyncGenerator                             ? u"(async function* anonymous("
+                                                                                  : u"(function anonymous(";
     // The parameter text must be FormalParameters on its own (step 17 of
     // §20.2.1.1.1): parsed first with an empty body, so that a comment or
     // bracket left open in it cannot borrow its closing from the body.
     {
-        std::u16string head = u"(function anonymous(";
+        std::u16string head(prefix);
         head += parameters;
         head += u"\n) {\n})";
         std::size_t const head_end = head.size();
@@ -3871,7 +4071,7 @@ std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16
             return nullptr;
         }
     }
-    std::u16string source = u"(function anonymous(";
+    std::u16string source(prefix);
     source += parameters;
     source += u"\n) {\n";
     source += body;
@@ -4017,9 +4217,12 @@ struct Dumper {
     void function(FunctionNode const& fn)
     {
         if (fn.is_arrow) {
-            out += "(arrow (";
+            out += fn.is_async ? "(async arrow (" : "(arrow (";
         } else {
-            out += "(function ";
+            out += fn.is_async ? "(async function" : "(function";
+            if (fn.is_generator)
+                out += '*';
+            out += ' ';
             if (fn.name) {
                 name(fn.name);
                 out += ' ';
@@ -4255,6 +4458,21 @@ struct Dumper {
             break;
         case NodeType::ArrowFunction:
             function(*static_cast<ArrowFunction const*>(e)->function);
+            break;
+        case NodeType::YieldExpression: {
+            auto const* yield = static_cast<YieldExpression const*>(e);
+            out += yield->delegate ? "(yield*" : "(yield";
+            if (yield->argument) {
+                out += ' ';
+                expression(yield->argument);
+            }
+            out += ')';
+            break;
+        }
+        case NodeType::AwaitExpression:
+            out += "(await ";
+            expression(static_cast<AwaitExpression const*>(e)->argument);
+            out += ')';
             break;
         case NodeType::UnaryExpression: {
             auto const* unary = static_cast<UnaryExpression const*>(e);
@@ -4537,7 +4755,7 @@ struct Dumper {
         }
         case NodeType::ForOfStatement: {
             auto const* loop = static_cast<ForOfStatement const*>(s);
-            out += "(for-of ";
+            out += loop->is_await ? "(for-await-of " : "(for-of ";
             if (loop->declaration)
                 declarators(*loop->declaration);
             else

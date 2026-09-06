@@ -46,10 +46,11 @@ public:
     std::unique_ptr<Program> parse_program(std::string name = "");
     std::optional<ParseError> const& error() const { return m_error; }
 
-    // `new Function(p1, …, body)` (§20.2.1.1.1): a program whose only
-    // statement is an ExpressionStatement holding the FunctionExpression.
+    // `new Function(p1, …, body)` and its GeneratorFunction, AsyncFunction
+    // and AsyncGeneratorFunction kin (§20.2.1.1.1): a program whose only
+    // statement is an ExpressionStatement holding the function expression.
     static std::unique_ptr<Program> parse_function_constructor(Heap&, std::u16string_view parameters,
-        std::u16string_view body, ParseError* error);
+        std::u16string_view body, ParseError* error, DynamicFunctionKind kind = DynamicFunctionKind::Normal);
 
     static constexpr int max_nesting_depth = 1000;
 

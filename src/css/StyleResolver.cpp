@@ -3920,8 +3920,11 @@ struct Resolver {
                 style.z_index = std::nullopt;
             } else if (values[0]->is_token(Token::Type::Number)) {
                 Token const& token = values[0]->token();
+                // An integer outside the supported range is clamped to it
+                // (css-values-4 §5.1), not converted through undefined
+                // behaviour.
                 if (token.numeric_type == Token::NumericType::Integer)
-                    style.z_index = static_cast<int>(token.numeric_value);
+                    style.z_index = static_cast<int>(std::clamp(token.numeric_value, -2147483648.0, 2147483647.0));
             }
             return;
         }

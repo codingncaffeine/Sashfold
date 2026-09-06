@@ -32,6 +32,17 @@ void install_date(Interpreter&); // Date — RuntimeDate.cpp
 void install_iterators(Interpreter&); // %IteratorPrototype%, the array and string iterators, Array.prototype.values and kin — RuntimeIterator.cpp
 void install_collections(Interpreter&); // Map, Set, WeakMap, WeakSet, their iterators, Map.groupBy and Object.groupBy — RuntimeCollections.cpp
 void install_promise(Interpreter&); // Promise, AggregateError, and the job queue's definitions — RuntimePromise.cpp
+void install_generators(Interpreter&); // %GeneratorFunction%, %GeneratorPrototype%, %AsyncFunction% — RuntimeGenerator.cpp
+
+// The promise operations the engine itself needs (an await, an async
+// function's result): NewPromiseCapability (§27.2.1.5), PromiseResolve
+// (§27.2.4.7.1) and PerformPromiseThen (§27.2.5.4.1) — the last with no
+// derived capability when the caller wants none, in which case the
+// reactions settle nothing and the result is undefined.
+std::optional<PromiseCapability> new_promise_capability(Interpreter&, Value const& constructor);
+std::optional<Value> promise_resolve(Interpreter&, Value const& constructor, Value const& value);
+Value perform_then(Interpreter&, PromiseObject& promise, Value const& on_fulfilled, Value const& on_rejected,
+    std::optional<PromiseCapability> const& capability);
 
 // Helpers shared by the installers and the bindings.
 

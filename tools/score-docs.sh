@@ -5,7 +5,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 build=${SASHFOLD_BUILD:-build-gcc}
-"./$build/tests/wpt_reftest.exe" wpt tests/wpt/directories.txt tests/wpt/passing.txt \
+runner="./$build/tests/wpt_reftest"
+[ -f "$runner.exe" ] && runner="$runner.exe"
+"$runner" wpt tests/wpt/directories.txt tests/wpt/passing.txt \
     --revision tests/wpt/REVISION --json docs/wpt.json --html docs/wpt.html > /dev/null 2>&1 || true
 
 passed=$(grep -o '"passed": [0-9]*' docs/wpt.json | head -1 | grep -o '[0-9]*')

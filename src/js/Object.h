@@ -109,6 +109,10 @@ public:
         WeakSet, // §24.4
         CollectionIterator, // %MapIteratorPrototype% and %SetIteratorPrototype%'s instances (§24.1.5, §24.2.5)
         Promise, // §27.2
+        Generator, // §27.5: a generator, its frame suspended between next() calls
+        AsyncGenerator, // §27.6
+        AsyncContext, // an async function between an await and its resumption; never a script value
+        AsyncFromSyncIterator, // §27.1.6
         Math,
         Json,
         Global,

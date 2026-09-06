@@ -26,12 +26,8 @@ namespace {
 
 // ---- the reactions and jobs
 
-// A PromiseCapability Record (§27.2.1.1) as three values.
-struct Capability {
-    Value promise;
-    Value resolve;
-    Value reject;
-};
+// A PromiseCapability Record (§27.2.1.1) as three values (Interpreter.h).
+using Capability = PromiseCapability;
 
 bool is_promise(Value const& value)
 {
@@ -138,8 +134,12 @@ ResolvingFunctions create_resolving_functions(Interpreter& in, PromiseObject& pr
     return ResolvingFunctions { Value::object(resolve), Value::object(reject) };
 }
 
+} // namespace
+
 // NewPromiseCapability (§27.2.1.5): a promise from any constructor, with
-// the resolve and reject its executor was handed.
+// the resolve and reject its executor was handed. This and the next two
+// are the engine's too (Runtime.h): an await and an async function's
+// result go through them.
 std::optional<Capability> new_promise_capability(Interpreter& in, Value const& constructor)
 {
     if (!Interpreter::is_constructor(constructor))
@@ -238,6 +238,8 @@ Value perform_then(Interpreter& in, PromiseObject& promise, Value const& on_fulf
     promise.set_handled();
     return capability ? capability->promise : Value::undefined();
 }
+
+namespace {
 
 // The combinators' shared shape (§27.2.4.1.2 and kin): the iterable
 // walked with the constructor's `resolve`, each element's promise given
