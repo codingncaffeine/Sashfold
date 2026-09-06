@@ -33,6 +33,9 @@ void install_iterators(Interpreter&); // %IteratorPrototype%, the array and stri
 void install_collections(Interpreter&); // Map, Set, WeakMap, WeakSet, their iterators, Map.groupBy and Object.groupBy — RuntimeCollections.cpp
 void install_promise(Interpreter&); // Promise, AggregateError, and the job queue's definitions — RuntimePromise.cpp
 void install_generators(Interpreter&); // %GeneratorFunction%, %GeneratorPrototype%, %AsyncFunction% — RuntimeGenerator.cpp
+void install_array_buffer(Interpreter&); // ArrayBuffer — RuntimeArrayBuffer.cpp
+void install_typed_arrays(Interpreter&); // %TypedArray% and its nine kinds — RuntimeTypedArray.cpp
+void install_data_view(Interpreter&); // DataView — RuntimeArrayBuffer.cpp
 
 // The promise operations the engine itself needs (an await, an async
 // function's result): NewPromiseCapability (§27.2.1.5), PromiseResolve
@@ -74,6 +77,20 @@ std::optional<JsString*> this_string_value(Interpreter&, Value const& this_value
 // The [[NumberData]] etc. behind `this`, or a TypeError naming the method.
 std::optional<double> this_number_value(Interpreter&, Value const& this_value, std::string_view method);
 std::optional<bool> this_boolean_value(Interpreter&, Value const& this_value, std::string_view method);
+
+// Typed arrays for each other and for the bindings (a Uint8Array of the
+// bytes a page asked for).
+// AllocateArrayBuffer (§25.1.3.1): the prototype from new_target (null =
+// the intrinsic); a RangeError when the length passes its maximum or the
+// size the engine allows.
+std::optional<ArrayBufferObject*> allocate_array_buffer(Interpreter&, Object* new_target, double byte_length,
+    std::optional<double> max_byte_length);
+// AllocateTypedArray with a length (§23.2.5.1.1): `length` zero elements
+// over a fresh buffer, with the kind's own prototype.
+std::optional<TypedArrayObject*> new_typed_array(Interpreter&, ElementType, double length);
+// ValidateTypedArray (§23.2.4.4): a typed array in bounds, or a TypeError
+// naming the caller.
+std::optional<TypedArrayObject*> validate_typed_array(Interpreter&, Value const&, std::string_view method);
 
 // The current time in ms since the epoch, and the local zone's offset
 // (minutes east of UTC) at a given UTC time — the two places Date reads

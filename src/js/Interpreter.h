@@ -110,6 +110,16 @@ struct Intrinsics {
     Object* async_generator_function_prototype = nullptr; // %AsyncGeneratorFunction.prototype%
     Function* async_generator_function = nullptr; // %AsyncGeneratorFunction%
     Object* async_generator_prototype = nullptr; // %AsyncGeneratorFunction.prototype.prototype%
+    // ArrayBuffer (§25.1), the typed arrays (§23.2) — %TypedArray% and one
+    // constructor and prototype per element type — and DataView (§25.3).
+    Object* array_buffer_prototype = nullptr;
+    Function* array_buffer_constructor = nullptr;
+    Object* typed_array_prototype = nullptr; // %TypedArray.prototype%
+    Function* typed_array_constructor = nullptr; // %TypedArray%
+    Object* typed_array_prototypes[element_type_count] = {}; // by ElementType
+    Function* typed_array_constructors[element_type_count] = {};
+    Object* data_view_prototype = nullptr;
+    Function* data_view_constructor = nullptr;
 };
 
 // A PromiseCapability Record (§27.2.1.1): a promise and the two functions

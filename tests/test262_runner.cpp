@@ -245,6 +245,18 @@ RunResult run_one(std::filesystem::path const& root, std::string const& source, 
                 return outcome.value;
             });
         host->put(interpreter.key("evalScript"), js::Value::object(eval_script), js::builtin_attributes);
+        // $262.detachArrayBuffer: DetachArrayBuffer (§25.1.3.5) from the
+        // outside, which the typed-array tests use to take a buffer away
+        // mid-operation.
+        js::NativeFunction* detach = interpreter.new_native("detachArrayBuffer", 1,
+            [](js::Interpreter& in, js::Value const&, std::span<js::Value const> arguments) -> std::optional<js::Value> {
+                js::Value const buffer = arguments.empty() ? js::Value::undefined() : arguments[0];
+                if (!buffer.is_object() || buffer.as_object()->class_id() != js::Object::Class::ArrayBuffer)
+                    return in.throw_type_error("detachArrayBuffer needs an ArrayBuffer");
+                static_cast<js::ArrayBufferObject*>(buffer.as_object())->detach();
+                return js::Value::null();
+            });
+        host->put(interpreter.key("detachArrayBuffer"), js::Value::object(detach), js::builtin_attributes);
         global->put(interpreter.key("$262"), js::Value::object(host), js::builtin_attributes);
     }
 

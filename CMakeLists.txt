@@ -113,6 +113,7 @@ add_library(sashfold_core STATIC
   src/js/Parser.cpp
   src/js/Regex.cpp
   src/js/RuntimeArray.cpp
+  src/js/RuntimeArrayBuffer.cpp
   src/js/RuntimeCollections.cpp
   src/js/RuntimeDate.cpp
   src/js/RuntimeGenerator.cpp
@@ -122,6 +123,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimeObject.cpp
   src/js/RuntimePromise.cpp
   src/js/RuntimeString.cpp
+  src/js/RuntimeTypedArray.cpp
   src/js/Strings.cpp
   src/js/Vm.cpp
 )

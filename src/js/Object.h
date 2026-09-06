@@ -17,6 +17,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -117,6 +118,9 @@ public:
         Json,
         Global,
         Host, // a DOM wrapper or another object the bindings own the meaning of
+        ArrayBuffer, // §25.1
+        TypedArray, // an Integer-Indexed exotic object (§10.4.5): a view of one element type over a buffer
+        DataView, // §25.3
     };
 
     explicit Object(Object* prototype, Class class_id = Class::Object)
@@ -735,6 +739,168 @@ public:
 private:
     JsString* m_string;
     std::size_t m_position = 0;
+};
+
+// ----------------------------------------------- ArrayBuffer and its views
+
+// The element types a typed array or a DataView reads and writes (§23.2,
+// Table 71): the integer widths, the clamped byte and the three float
+// widths. The two BigInt kinds join when BigInt does.
+enum class ElementType : std::uint8_t {
+    Int8,
+    Uint8,
+    Uint8Clamped,
+    Int16,
+    Uint16,
+    Int32,
+    Uint32,
+    Float16,
+    Float32,
+    Float64,
+};
+inline constexpr int element_type_count = 10;
+constexpr std::size_t element_size(ElementType type)
+{
+    switch (type) {
+    case ElementType::Int8:
+    case ElementType::Uint8:
+    case ElementType::Uint8Clamped:
+        return 1;
+    case ElementType::Int16:
+    case ElementType::Uint16:
+    case ElementType::Float16:
+        return 2;
+    case ElementType::Int32:
+    case ElementType::Uint32:
+    case ElementType::Float32:
+        return 4;
+    case ElementType::Float64:
+        return 8;
+    }
+    return 1;
+}
+// "Int8Array" … "Float64Array": the constructor's name and the tag.
+std::string_view element_type_name(ElementType);
+// NumericToRawBytes and RawBytesToNumeric (§25.1.3.16–.17): one element,
+// in the byte order asked for. Defined in RuntimeArrayBuffer.cpp.
+void write_element(ElementType, std::uint8_t* out, double, bool little_endian);
+double read_element(ElementType, std::uint8_t const* in, bool little_endian);
+
+// An ArrayBuffer (§25.1): a block of bytes, fixed in length or resizable
+// up to a maximum decided when it was made, and detachable — after which
+// it has no bytes at all and every view over it is out of bounds. Typed
+// arrays and DataViews read and write through it and own no bytes of
+// their own.
+class ArrayBufferObject : public Object {
+public:
+    ArrayBufferObject(Object* prototype, std::size_t byte_length, std::optional<std::size_t> max_byte_length)
+        : Object(prototype, Class::ArrayBuffer)
+        , m_bytes(byte_length, 0)
+        , m_max_byte_length(max_byte_length)
+    {
+    }
+
+    std::size_t byte_length() const { return m_bytes.size(); } // 0 once detached
+    std::uint8_t* data() { return m_bytes.data(); }
+    std::uint8_t const* data() const { return m_bytes.data(); }
+    bool is_detached() const { return m_detached; }
+    bool is_resizable() const { return m_max_byte_length.has_value(); } // the opposite of IsFixedLengthArrayBuffer
+    std::optional<std::size_t> max_byte_length() const { return m_max_byte_length; }
+    // DetachArrayBuffer (§25.1.3.5): the bytes are let go for good.
+    void detach()
+    {
+        std::vector<std::uint8_t>().swap(m_bytes);
+        m_detached = true;
+    }
+    // A resizable buffer's new length, within its maximum; new bytes are zero.
+    void resize(std::size_t byte_length) { m_bytes.resize(byte_length, 0); }
+
+    std::size_t size_in_bytes() const override { return sizeof(*this) + m_bytes.capacity(); }
+
+private:
+    std::vector<std::uint8_t> m_bytes;
+    std::optional<std::size_t> m_max_byte_length;
+    bool m_detached = false;
+};
+
+// A typed array (§10.4.5, §23.2): a view of elements of one type over an
+// ArrayBuffer from a byte offset — either a fixed count of them or, over
+// a resizable buffer, as many as fit up to the buffer's end. Its numeric
+// keys, every canonical numeric string and not only the array indices,
+// are the elements: [[Get]] and [[Set]] read and write the buffer, an
+// index past the end or over a detached buffer is absent, and no element
+// can be made an accessor, read-only or non-enumerable. Defined in
+// RuntimeArrayBuffer.cpp.
+class TypedArrayObject : public Object {
+public:
+    // No length = length-tracking: the view follows a resizable buffer's
+    // end. No buffer = still being constructed (out of bounds until then).
+    TypedArrayObject(Object* prototype, ElementType, ArrayBufferObject*, std::size_t byte_offset, std::optional<std::size_t> length);
+
+    ElementType element_type() const { return m_type; }
+    std::size_t element_size() const { return js::element_size(m_type); }
+    ArrayBufferObject* buffer() const { return m_buffer; }
+    std::size_t byte_offset() const { return m_byte_offset; } // [[ByteOffset]], whatever the bounds
+    bool is_length_tracking() const { return !m_length.has_value(); }
+    // The constructors' initializers hand the view its buffer.
+    void attach(ArrayBufferObject*, std::size_t byte_offset, std::optional<std::size_t> length);
+    // IsTypedArrayOutOfBounds (§10.4.5.12): detached, or reaching past the
+    // buffer's current end.
+    bool is_out_of_bounds() const;
+    // TypedArrayLength (§10.4.5.13) and TypedArrayByteLength (§10.4.5.14);
+    // both 0 when out of bounds.
+    std::size_t length() const;
+    std::size_t byte_length() const { return length() * element_size(); }
+    // IsValidIntegerIndex (§10.4.5.15).
+    bool is_valid_index(double) const;
+    // The storage half of TypedArrayGetElement and TypedArraySetElement:
+    // the index must be valid, and the value is a Number already
+    // converted by ToNumber. Neither runs script.
+    Value get_element(std::size_t index) const;
+    void set_element(std::size_t index, double number);
+    // The numeric index a key names (CanonicalNumericIndexString, §7.1.21),
+    // or none for an ordinary name or a symbol.
+    static std::optional<double> numeric_index(PropertyKey const&);
+    // [[DefineOwnProperty]] (§10.4.5.3) for a numeric key, with the
+    // interpreter at hand so that the value can be converted by ToNumber;
+    // the interpreter's wrappers route every such define here.
+    std::optional<bool> define_numeric(Interpreter&, double numeric_index, PropertyDescriptor const&);
+
+    std::optional<PropertyDescriptor> get_own_property(PropertyKey const&) const override;
+    bool define_own_property(PropertyKey const&, PropertyDescriptor const&) override;
+    bool has_property(PropertyKey const&) const override;
+    std::optional<Value> get(Interpreter&, PropertyKey const&, Value const& receiver) override;
+    std::optional<bool> set(Interpreter&, PropertyKey const&, Value const&, Value const& receiver) override;
+    bool delete_property(PropertyKey const&) override;
+    std::vector<PropertyKey> own_keys() const override;
+    void trace(Tracer&) override;
+
+private:
+    ArrayBufferObject* m_buffer;
+    std::size_t m_byte_offset;
+    std::optional<std::size_t> m_length; // [[ArrayLength]]; absent = auto
+    ElementType m_type;
+};
+
+// A DataView (§25.3): a window of bytes over an ArrayBuffer, read and
+// written one element at a time in the byte order each call names; over a
+// resizable buffer it may track the buffer's end. Defined in
+// RuntimeArrayBuffer.cpp.
+class DataViewObject : public Object {
+public:
+    DataViewObject(Object* prototype, ArrayBufferObject*, std::size_t byte_offset, std::optional<std::size_t> byte_length);
+
+    ArrayBufferObject* buffer() const { return m_buffer; }
+    std::size_t byte_offset() const { return m_byte_offset; }
+    bool is_length_tracking() const { return !m_byte_length.has_value(); }
+    bool is_out_of_bounds() const; // IsViewOutOfBounds (§25.3.1.3)
+    std::size_t view_byte_length() const; // GetViewByteLength (§25.3.1.4); 0 when out of bounds
+    void trace(Tracer&) override;
+
+private:
+    ArrayBufferObject* m_buffer;
+    std::size_t m_byte_offset;
+    std::optional<std::size_t> m_byte_length; // [[ByteLength]]; absent = auto
 };
 
 // A scope (§9.1): the bindings a block, function or script declares, or —

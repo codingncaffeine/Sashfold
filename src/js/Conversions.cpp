@@ -79,6 +79,9 @@ std::string class_name(Object const& object)
     case Object::Class::Json: return "JSON";
     case Object::Class::Global: return "global";
     case Object::Class::Host: return "Object";
+    case Object::Class::ArrayBuffer: return "ArrayBuffer";
+    case Object::Class::TypedArray: return std::string(element_type_name(static_cast<TypedArrayObject const&>(object).element_type()));
+    case Object::Class::DataView: return "DataView";
     }
     return "Object";
 }
@@ -572,8 +575,21 @@ std::optional<bool> Interpreter::set(Object& object, PropertyKey const& key, Val
 std::optional<bool> Interpreter::create_data_property(Object& object, PropertyKey const& key, Value const& value, bool or_throw)
 {
     // CreateDataProperty (§7.3.5): a fresh writable, enumerable,
-    // configurable property, or a TypeError when the object refuses it.
-    bool const ok = object.define_own_property(key, PropertyDescriptor::data(value, default_attributes));
+    // configurable property, or a TypeError when the object refuses it. A
+    // typed array's element converts the value, which may run script.
+    PropertyDescriptor const descriptor = PropertyDescriptor::data(value, default_attributes);
+    std::optional<bool> defined;
+    if (object.class_id() == Object::Class::TypedArray) {
+        if (std::optional<double> const index = TypedArrayObject::numeric_index(key))
+            defined = static_cast<TypedArrayObject&>(object).define_numeric(*this, *index, descriptor);
+        else
+            defined = object.define_own_property(key, descriptor);
+    } else {
+        defined = object.define_own_property(key, descriptor);
+    }
+    if (!defined)
+        return std::nullopt;
+    bool const ok = *defined;
     if (!ok && or_throw)
         return throw_type_error("Cannot define property " + key_description(key) + ", object is not extensible");
     return ok;
@@ -581,9 +597,14 @@ std::optional<bool> Interpreter::create_data_property(Object& object, PropertyKe
 
 std::optional<bool> Interpreter::define_own_property(Object& object, PropertyKey const& key, PropertyDescriptor const& descriptor)
 {
-    // [[DefineOwnProperty]] with the part of ArraySetLength (§10.4.2.4
-    // steps 3–5) that runs script and throws: an array's new length must
-    // be the same number as ToUint32 and ToNumber make of it.
+    // [[DefineOwnProperty]] with the parts that run script and throw: a
+    // typed array's element converts its value by ToNumber (§10.4.5.3),
+    // and ArraySetLength (§10.4.2.4 steps 3–5) wants an array's new length
+    // to be the same number as ToUint32 and ToNumber make of it.
+    if (object.class_id() == Object::Class::TypedArray) {
+        if (std::optional<double> const index = TypedArrayObject::numeric_index(key))
+            return static_cast<TypedArrayObject&>(object).define_numeric(*this, *index, descriptor);
+    }
     if (object.is_array() && key.is_atom() && key.as_atom() == atoms().length && descriptor.value) {
         Roots const roots(*this);
         root(Value::object(&object));

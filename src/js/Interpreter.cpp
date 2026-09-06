@@ -3664,6 +3664,16 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.async_generator_function_prototype);
     tracer.visit(i.async_generator_function);
     tracer.visit(i.async_generator_prototype);
+    tracer.visit(i.array_buffer_prototype);
+    tracer.visit(i.array_buffer_constructor);
+    tracer.visit(i.typed_array_prototype);
+    tracer.visit(i.typed_array_constructor);
+    for (Object* prototype : i.typed_array_prototypes)
+        tracer.visit(prototype);
+    for (Function* constructor : i.typed_array_constructors)
+        tracer.visit(constructor);
+    tracer.visit(i.data_view_prototype);
+    tracer.visit(i.data_view_constructor);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);

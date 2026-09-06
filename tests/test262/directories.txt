@@ -35,6 +35,7 @@ test/language/white-space
 # The built-in library.
 test/built-ins/AggregateError
 test/built-ins/Array
+test/built-ins/ArrayBuffer
 test/built-ins/ArrayIteratorPrototype
 test/built-ins/AsyncFromSyncIteratorPrototype
 test/built-ins/AsyncFunction
@@ -42,6 +43,7 @@ test/built-ins/AsyncGeneratorFunction
 test/built-ins/AsyncGeneratorPrototype
 test/built-ins/AsyncIteratorPrototype
 test/built-ins/Boolean
+test/built-ins/DataView
 test/built-ins/Date
 test/built-ins/Error
 test/built-ins/NativeErrors
@@ -68,6 +70,8 @@ test/built-ins/SetIteratorPrototype
 test/built-ins/String
 test/built-ins/StringIteratorPrototype
 test/built-ins/Symbol
+test/built-ins/TypedArray
+test/built-ins/TypedArrayConstructors
 test/built-ins/undefined
 test/built-ins/WeakMap
 test/built-ins/WeakSet

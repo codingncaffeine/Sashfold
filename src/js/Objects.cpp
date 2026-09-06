@@ -230,6 +230,8 @@ bool has_indexed_properties(Object const& object)
 {
     if (object.is_host())
         return true; // the bindings may answer indices the storage does not show
+    if (object.class_id() == Object::Class::TypedArray)
+        return true; // every index below its length, out of the buffer
     if (has_index_key(object))
         return true;
     if (object.is_array()) {
@@ -459,6 +461,11 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
     // and a chain with none behaves as a writable data property would.
     std::optional<PropertyDescriptor> own;
     for (Object* link = this; link != nullptr; link = link->prototype()) {
+        // A typed array up the chain answers for itself (§10.4.5.5): its
+        // [[Set]] decides a numeric key with no look further up and no
+        // property created on the receiver, so the walk hands over to it.
+        if (link != this && link->class_id() == Class::TypedArray)
+            return link->set(interpreter, key, value, receiver);
         own = link->get_own_property(key);
         if (own)
             break;
@@ -481,7 +488,10 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
     // The write lands on the receiver: an existing data property there is
     // updated in place (only its value), a missing one is created as
     // assignment creates properties (CreateDataProperty), and an accessor
-    // or a read-only property on the receiver refuses.
+    // or a read-only property on the receiver refuses. The define goes
+    // through the interpreter's wrapper, which converts what a receiver's
+    // [[DefineOwnProperty]] converts by running script — an array's length,
+    // a typed array's element.
     Object* target = receiver.as_object();
     std::optional<PropertyDescriptor> const existing = target->get_own_property(key);
     if (existing) {
@@ -491,9 +501,9 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
             return false;
         PropertyDescriptor value_only;
         value_only.value = value;
-        return target->define_own_property(key, value_only);
+        return interpreter.define_own_property(*target, key, value_only);
     }
-    return target->define_own_property(key, PropertyDescriptor::data(value, default_attributes));
+    return interpreter.define_own_property(*target, key, PropertyDescriptor::data(value, default_attributes));
 }
 
 bool Object::delete_property(PropertyKey const& key)

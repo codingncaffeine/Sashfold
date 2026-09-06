@@ -1473,6 +1473,9 @@ void install_intrinsics(Interpreter& in)
     install_date(in);
     install_iterators(in);
     install_collections(in);
+    install_array_buffer(in);
+    install_typed_arrays(in);
+    install_data_view(in);
     install_promise(in);
     install_generators(in);
     install_reflect(in);

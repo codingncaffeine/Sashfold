@@ -180,11 +180,22 @@ std::optional<Value> array_iterator_next(Interpreter& in, Value const& this_valu
     Object* const array = iterator.iterated();
     if (array == nullptr)
         return Value::object(in.create_iter_result(Value::undefined(), true));
-    std::optional<double> const length = in.length_of_array_like(*array);
-    if (!length)
-        return std::nullopt;
+    double length = 0;
+    if (array->class_id() == Object::Class::TypedArray) {
+        // A typed array's length is its own (§23.1.5.1 step 1.b.iv), and
+        // a view gone out of bounds ends the walk with a TypeError.
+        auto const& typed = static_cast<TypedArrayObject const&>(*array);
+        if (typed.is_out_of_bounds())
+            return in.throw_type_error("Cannot iterate a detached or out-of-bounds TypedArray");
+        length = static_cast<double>(typed.length());
+    } else {
+        std::optional<double> const array_length = in.length_of_array_like(*array);
+        if (!array_length)
+            return std::nullopt;
+        length = *array_length;
+    }
     double const index = iterator.next_index();
-    if (index >= *length) {
+    if (index >= length) {
         iterator.finish();
         return Value::object(in.create_iter_result(Value::undefined(), true));
     }
