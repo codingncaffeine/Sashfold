@@ -75,6 +75,7 @@ sashfold_test(test_js_collections)
 sashfold_test(test_js_promise)
 sashfold_test(test_js_generator)
 sashfold_test(test_js_async)
+sashfold_test(test_crypto)
 sashfold_test(test_bindings)
 
 add_executable(test_theme test_theme.cpp)

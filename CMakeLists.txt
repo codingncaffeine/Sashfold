@@ -48,6 +48,12 @@ add_library(sashfold_core STATIC
   src/core/Png.cpp
   src/core/RoundRect.cpp
   src/core/Unicode.cpp
+  src/crypto/BigInt.cpp
+  src/crypto/ChaCha20Poly1305.cpp
+  src/crypto/Ec.cpp
+  src/crypto/Rsa.cpp
+  src/crypto/Sha2.cpp
+  src/crypto/X25519.cpp
   src/css/CounterStyles.cpp
   src/css/Grid.cpp
   src/css/Parser.cpp
@@ -115,11 +121,11 @@ add_library(sashfold_core STATIC
   src/js/Vm.cpp
 )
 if(WIN32)
-  target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp
+  target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/RandomWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp
     src/platform/win32/WindowWin32.cpp src/platform/win32/FontsWin32.cpp)
-  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32)
+  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32 bcrypt)
 else()
-  target_sources(sashfold_core PRIVATE src/platform/posix/ClipboardPosix.cpp src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp
+  target_sources(sashfold_core PRIVATE src/platform/posix/ClipboardPosix.cpp src/platform/posix/RandomPosix.cpp src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp
     src/platform/posix/WindowPosix.cpp src/platform/posix/FontsPosix.cpp)
 endif()
 target_include_directories(sashfold_core PUBLIC src)
