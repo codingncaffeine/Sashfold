@@ -4,11 +4,12 @@
 // function body the bytecode tier compiled (--dump-bytecode). A build tool
 // for the script engine's own work, never shipped.
 //
-//   js_probe "<source>" [--dump-ast] [--dump-bytecode]
+//   js_probe "<source>" [--module] [--dump-ast] [--dump-bytecode]
 //
-// The source is one argument; a file arrives as "$(cat page.js)". Exit
-// status: 0 when the script completed, 1 when it threw, 2 for a syntax
-// error or a usage error.
+// The source is one argument; a file arrives as "$(cat page.js)". With
+// --module it is parsed under the Module goal and, until module
+// evaluation is written, only parsed. Exit status: 0 when the script
+// completed, 1 when it threw, 2 for a syntax error or a usage error.
 #include "js/Bytecode.h"
 #include "js/Evaluator.h"
 #include "js/Interpreter.h"
@@ -27,7 +28,7 @@ namespace {
 
 int usage()
 {
-    std::fputs("usage: js_probe \"<source>\" [--dump-ast] [--dump-bytecode]\n", stderr);
+    std::fputs("usage: js_probe \"<source>\" [--module] [--dump-ast] [--dump-bytecode]\n", stderr);
     return 2;
 }
 
@@ -37,12 +38,15 @@ int main(int argc, char** argv)
 {
     bool want_ast = false;
     bool want_bytecode = false;
+    bool want_module = false;
     char const* source = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-ast") == 0) {
             want_ast = true;
         } else if (std::strcmp(argv[i], "--dump-bytecode") == 0) {
             want_bytecode = true;
+        } else if (std::strcmp(argv[i], "--module") == 0) {
+            want_module = true;
         } else if (source == nullptr) {
             source = argv[i];
         } else {
@@ -54,16 +58,24 @@ int main(int argc, char** argv)
 
     js::Interpreter in;
     in.heap().set_stress(true);
-    if (want_ast) {
-        js::Parser parser(in.heap(), js::utf16_from_utf8(source));
+    if (want_ast || want_module) {
+        js::ParseOptions options;
+        options.module = want_module;
+        js::Parser parser(in.heap(), js::utf16_from_utf8(source), options);
         std::unique_ptr<js::Program> const program = parser.parse_program("<probe>");
         if (!program) {
             std::optional<js::ParseError> const& error = parser.error();
             std::printf("syntax error: %s\n", error ? error->message.c_str() : "(no message)");
             return 2;
         }
-        std::fputs(js::dump_ast(*program).c_str(), stdout);
-        std::fputc('\n', stdout);
+        if (want_ast) {
+            std::fputs(js::dump_ast(*program).c_str(), stdout);
+            std::fputc('\n', stdout);
+        }
+        if (want_module) {
+            std::puts("parsed as a module; module evaluation is not written yet");
+            return 0;
+        }
     }
     js::Outcome const outcome = in.run_script(std::string_view(source), "<probe>");
     in.run_jobs([&in](js::Value const& thrown) {

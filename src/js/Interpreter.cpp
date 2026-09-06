@@ -1961,6 +1961,11 @@ std::optional<Value> Interpreter::Impl::evaluate(Expression const* expression, C
         }
         return last;
     }
+    case NodeType::ImportCall:
+        // Not written yet: the call names itself.
+        return self.throw_syntax_error("dynamic import() is not supported yet");
+    case NodeType::ImportMeta:
+        return self.throw_syntax_error("import.meta is not supported yet");
     default:
         break;
     }
@@ -3030,6 +3035,13 @@ Completion Interpreter::Impl::execute(Statement const* statement, Context& cx, s
     }
     case NodeType::WithStatement:
         return execute_with(*static_cast<WithStatement const*>(statement), cx);
+    case NodeType::ImportDeclaration:
+    case NodeType::ExportDeclaration:
+        // Only the Module goal makes these, and no host evaluates a module
+        // yet: the records, their linking and their evaluation are not
+        // written.
+        self.throw_syntax_error("module code is not supported yet");
+        return Completion::thrown();
     default:
         break;
     }

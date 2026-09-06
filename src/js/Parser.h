@@ -24,6 +24,11 @@ struct ParseError {
 };
 
 struct ParseOptions {
+    // The Module goal (§16.2.1): strict throughout, `await` a keyword with
+    // top-level await allowed, import and export declarations at the top
+    // level, `import.meta` an expression, no HTML-like comments, and the
+    // record tables filled on the Program.
+    bool module = false;
     bool strict = false; // the caller's strictness (a direct eval inherits it)
     bool in_function = false; // a direct eval inside a function: `new.target` and `arguments` are in scope
     bool allow_return = false; // for `new Function` bodies

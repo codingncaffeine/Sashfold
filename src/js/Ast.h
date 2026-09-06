@@ -11,8 +11,9 @@
 // scoping, arrow functions, template literals, `**`, `??`, `?.`, optional
 // catch binding, shorthand and computed property names, the iterator
 // protocol with for-of and spread, destructuring patterns, default and
-// rest parameters, classes, generators and async functions. Modules are
-// a parse error that names itself.
+// rest parameters, classes, generators and async functions, and the
+// Module goal's import and export declarations with the record tables
+// their linking reads.
 
 #include "js/Value.h"
 
@@ -68,6 +69,8 @@ enum class NodeType : std::uint8_t {
     PrivateIn, // `#x in o`
     YieldExpression,
     AwaitExpression,
+    ImportCall, // `import(specifier)`
+    ImportMeta, // `import.meta`
     // statements
     VariableDeclaration,
     FunctionDeclaration,
@@ -90,6 +93,8 @@ enum class NodeType : std::uint8_t {
     LabeledStatement,
     WithStatement,
     DebuggerStatement,
+    ImportDeclaration,
+    ExportDeclaration,
 };
 
 struct Node {
@@ -614,6 +619,27 @@ struct AwaitExpression : Expression {
     Expression* argument = nullptr;
 };
 
+// `import(specifier)` / `import(specifier, options)` (§13.3.10): a
+// promise of the module's namespace, in script and module code alike.
+// The options are the import attributes of §13.3.10.1, read at the call.
+struct ImportCall : Expression {
+    ImportCall()
+        : Expression(NodeType::ImportCall)
+    {
+    }
+    Expression* specifier = nullptr;
+    Expression* options = nullptr;
+};
+
+// `import.meta` (§13.3.12): the running module's meta object, made once
+// by the host; a parse error outside module code.
+struct ImportMeta : Expression {
+    ImportMeta()
+        : Expression(NodeType::ImportMeta)
+    {
+    }
+};
+
 // `...iterable` in an array literal or an argument list (§13.2.4.1,
 // §13.3.8.1): the values the iterable yields take its place.
 struct SpreadElement : Expression {
@@ -649,6 +675,10 @@ struct FunctionDeclaration : Statement {
     // B.3.2.1: a block-level declaration in sloppy code that the parser
     // also hoisted as a var; evaluating it copies the block binding out.
     bool annex_b_hoisted = false;
+    // `export default function () {}` (§16.2.3): the function may be
+    // anonymous, in which case it binds the module's `*default*` and its
+    // own name is "default".
+    bool is_default_export = false;
 };
 
 struct ClassDeclaration : Statement {
@@ -657,6 +687,65 @@ struct ClassDeclaration : Statement {
     {
     }
     ClassNode* node = nullptr; // its name is a lexical binding of the enclosing scope
+    bool is_default_export = false; // `export default class {}`: as for a function, `*default*` and "default"
+};
+
+// An import attribute (§16.2.2 WithClause): `with { type: "json" }`.
+struct ImportAttribute {
+    JsString* key = nullptr;
+    JsString* value = nullptr;
+};
+
+// One name an ImportDeclaration binds: the exporter's name — "default"
+// for `import d from`, "*" for `import * as ns from`, else the export's
+// own name — and the local binding it becomes.
+struct ImportEntry {
+    JsString* import_name = nullptr;
+    JsString* local_name = nullptr;
+};
+
+// ImportDeclaration (§16.2.2): `import 'm'`, `import d from 'm'`, `import
+// * as ns from 'm'`, `import { a, b as c } from 'm'`, with or without a
+// WithClause. Instantiation reads the Program's tables, not this node;
+// evaluating it does nothing.
+struct ImportDeclaration : Statement {
+    ImportDeclaration()
+        : Statement(NodeType::ImportDeclaration)
+    {
+    }
+    JsString* specifier = nullptr;
+    std::vector<ImportEntry> entries; // empty for a bare `import 'm'`
+    std::vector<ImportAttribute> attributes;
+};
+
+// `a as b` in an export list: the local binding (or, after `from`, the
+// other module's export) and the name it is exported under.
+struct ExportSpecifier {
+    JsString* local_name = nullptr;
+    JsString* export_name = nullptr;
+};
+
+// ExportDeclaration (§16.2.3) in its four shapes: a declaration (`export
+// var/let/const/function/class`), a default (`export default expr`, or a
+// function or class declaration that may be anonymous), a named list
+// (`export { a as b }`, with `from 'm'` a re-export), and a star
+// re-export (`export * from 'm'`, `export * as ns from 'm'`). The
+// exported names went into the Program's tables as they were parsed;
+// evaluating the node evaluates the declaration or the default expression
+// and nothing for the other two.
+struct ExportDeclaration : Statement {
+    ExportDeclaration()
+        : Statement(NodeType::ExportDeclaration)
+    {
+    }
+    enum class Kind : std::uint8_t { Declaration, Default, Named, Star };
+    Kind kind = Kind::Declaration;
+    Statement* declaration = nullptr; // Declaration; Default when a function or class declaration follows
+    Expression* expression = nullptr; // Default otherwise: the AssignmentExpression, bound to `*default*`
+    std::vector<ExportSpecifier> specifiers; // Named
+    JsString* specifier = nullptr; // Named with `from`, and Star: the module specifier
+    JsString* star_as = nullptr; // Star: the name of `export * as name from`; null for `export *`
+    std::vector<ImportAttribute> attributes;
 };
 
 struct ExpressionStatement : Statement {
@@ -830,6 +919,32 @@ struct WithStatement : Statement {
     Statement* body = nullptr;
 };
 
+// What a module asks of another (§16.2.1.3 ModuleRequest Record): the
+// specifier and its import attributes. Two requests with the same
+// specifier and the same attributes are one request.
+struct ModuleRequest {
+    JsString* specifier = nullptr;
+    std::vector<ImportAttribute> attributes;
+};
+
+// The import and export records of §16.2.1.6.1 (Tables 45 and 46), filled
+// by the parser at a module's end; `module_request` names the specifier,
+// `import_name` is "default", "*" (the whole namespace — a star export
+// leaves `export_name` null, `export * as ns` sets it) or a name, and a
+// null field is the specification's null.
+struct ImportEntryRecord {
+    JsString* module_request = nullptr;
+    JsString* import_name = nullptr;
+    JsString* local_name = nullptr;
+};
+
+struct ExportEntryRecord {
+    JsString* export_name = nullptr;
+    JsString* module_request = nullptr;
+    JsString* import_name = nullptr;
+    JsString* local_name = nullptr;
+};
+
 class Program {
 public:
     std::vector<Statement*> body;
@@ -837,6 +952,18 @@ public:
     bool is_strict = false;
     std::u16string source;
     std::string name; // where it came from, for error messages
+    // The Module goal (§16.2): strict throughout, its own environment,
+    // and the tables below for the module record built over it. Top-level
+    // function declarations are lexical here and sit in
+    // `declarations.functions` all the same; an import binding is in no
+    // list but `import_entries`.
+    bool is_module = false;
+    bool has_top_level_await = false; // an `await` outside every function: the body runs as an async one
+    std::vector<ModuleRequest> requested_modules; // in source order, each once
+    std::vector<ImportEntryRecord> import_entries;
+    std::vector<ExportEntryRecord> local_export_entries;
+    std::vector<ExportEntryRecord> indirect_export_entries;
+    std::vector<ExportEntryRecord> star_export_entries;
 
     template<typename T>
     T* make()

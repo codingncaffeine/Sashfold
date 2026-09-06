@@ -156,7 +156,9 @@ struct Token {
 
 class Lexer {
 public:
-    explicit Lexer(std::u16string_view source);
+    // `html_comments`: Annex B.1.1's `<!--` and `-->` comments, which
+    // script code takes and module code does not.
+    explicit Lexer(std::u16string_view source, bool html_comments = true);
 
     // The next token. A `/` starts a regular expression only where the
     // grammar allows one; the parser knows, the lexer does not.
@@ -183,6 +185,7 @@ public:
 private:
     std::u16string_view m_source;
     State m_state;
+    bool m_html_comments = true;
 };
 
 }

@@ -15,8 +15,10 @@
 // functions or features not written yet; what the engine cannot do, it does
 // not score.
 
+#include "js/Heap.h"
 #include "js/Interpreter.h"
 #include "js/Object.h"
+#include "js/Parser.h"
 #include "js/Strings.h"
 
 #include <algorithm>
@@ -305,6 +307,33 @@ RunResult run_one(std::filesystem::path const& root, std::string const& source, 
     return { true, "" };
 }
 
+// Module code, until the module records, their linking and their
+// evaluation are written: the Module goal's parse alone, which is the
+// whole of a test that expects a SyntaxError at the parse phase. Every
+// other module test is declined by name.
+RunResult run_module(std::string const& source, Metadata const& meta)
+{
+    js::Heap heap;
+    js::ParseOptions options;
+    options.module = true;
+    js::Parser parser(heap, js::utf16_from_utf8(source), options);
+    std::unique_ptr<js::Program> const program = parser.parse_program("test");
+    bool const expects_parse_error = !meta.negative_type.empty() && meta.negative_phase == "parse";
+    if (!program) {
+        std::string const message = parser.error() ? parser.error()->message : "parse failed";
+        if (!expects_parse_error)
+            return { false, "SyntaxError: " + message };
+        if (meta.negative_type != "SyntaxError")
+            return { false, "expected " + meta.negative_type + ", got SyntaxError: " + message };
+        if (message.find("not supported") != std::string::npos)
+            return { false, "the expected error came from an unsupported feature: " + message };
+        return { true, "" };
+    }
+    if (expects_parse_error)
+        return { false, "expected " + meta.negative_type + " (parse), parsed" };
+    return { false, "module code is not supported" };
+}
+
 struct Test {
     std::string rel;
     std::size_t directory = 0;
@@ -570,7 +599,7 @@ int main(int argc, char** argv)
             Metadata const meta = parse_metadata(*source);
             RunResult result;
             if (meta.module) {
-                result = { false, "module code is not supported" };
+                result = run_module(*source, meta);
             } else {
                 std::vector<Mode> modes;
                 if (meta.raw)

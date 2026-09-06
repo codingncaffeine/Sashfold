@@ -1168,8 +1168,6 @@ void test_classes()
 void test_unsupported_features()
 {
     CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
-    CHECK_EQ(parse("import x from 'y'"), "modules are not supported yet");
-    CHECK_EQ(parse("export var x"), "modules are not supported yet");
     CHECK_EQ(parse("x = 10n"), "BigInt literals are not supported");
     CHECK_EQ(parse("({a: 1}) = b"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("(a,)"), "Unexpected token ')'");
@@ -1341,6 +1339,277 @@ void test_function_constructor()
     CHECK_EQ(error.message, "Unexpected token '}'");
 }
 
+// The Module goal (§16.2): the dump of a module, or the error's message.
+std::string parse_module(std::string_view source)
+{
+    js::ParseOptions options;
+    options.module = true;
+    return parse(source, options);
+}
+
+std::string module_of(std::string_view items)
+{
+    return "(module " + std::string(items) + ")";
+}
+
+// The module's record tables (§16.2.1.6.1), one line: the requests, the
+// import entries as request.import>local, the local exports as
+// export=local, the indirect ones as export<request.import, the stars as
+// their requests.
+std::string tables_of(js::Program const& program)
+{
+    auto const text = [](js::JsString const* atom) { return atom ? atom->to_utf8() : std::string("-"); };
+    std::string out = "requested:";
+    for (js::ModuleRequest const& request : program.requested_modules)
+        out += ' ' + text(request.specifier);
+    out += " | imports:";
+    for (js::ImportEntryRecord const& entry : program.import_entries)
+        out += ' ' + text(entry.module_request) + '.' + text(entry.import_name) + '>' + text(entry.local_name);
+    out += " | local:";
+    for (js::ExportEntryRecord const& entry : program.local_export_entries)
+        out += ' ' + text(entry.export_name) + '=' + text(entry.local_name);
+    out += " | indirect:";
+    for (js::ExportEntryRecord const& entry : program.indirect_export_entries)
+        out += ' ' + text(entry.export_name) + '<' + text(entry.module_request) + '.' + text(entry.import_name);
+    out += " | star:";
+    for (js::ExportEntryRecord const& entry : program.star_export_entries)
+        out += ' ' + text(entry.module_request);
+    return out;
+}
+
+// Modules (§16.2): the import and export declarations, `import()` and
+// `import.meta`, the Module goal's own rules, and its early errors.
+void test_modules()
+{
+    // Imports, in every clause shape.
+    CHECK_EQ(parse_module("import 'm';"), module_of("(import \"m\")"));
+    CHECK_EQ(parse_module("import d from 'm'"), module_of("(import \"m\" (default d))"));
+    CHECK_EQ(parse_module("import * as ns from 'm';"), module_of("(import \"m\" (* ns))"));
+    CHECK_EQ(parse_module("import d, * as ns from 'm'"), module_of("(import \"m\" (default d) (* ns))"));
+    CHECK_EQ(parse_module("import { a, b as c, 'd' as e, default as f, if as g, } from 'm'"),
+        module_of("(import \"m\" (a a) (b c) (d e) (default f) (if g))"));
+    CHECK_EQ(parse_module("import d, { a } from 'm'"), module_of("(import \"m\" (default d) (a a))"));
+    CHECK_EQ(parse_module("import {} from 'm'"), module_of("(import \"m\")"));
+    CHECK_EQ(parse_module("import from from 'm'"), module_of("(import \"m\" (default from))"));
+    CHECK_EQ(parse_module("import json from './x.json' with { type: 'json' }"),
+        module_of("(import \"./x.json\" (default json) (with (type \"json\")))"));
+    CHECK_EQ(parse_module("import 'm'\nwith { 'a b': \"c\", type: 'json', }"), module_of("(import \"m\" (with (a b \"c\") (type \"json\")))"));
+    CHECK_EQ(parse_module("import 'm'\n1"), module_of("(import \"m\") (expr (number 1))"));
+    // Exports: declarations, defaults, named lists, re-exports.
+    CHECK_EQ(parse_module("export var x = 1, y;"), module_of("(export (var (x (number 1)) (y)))"));
+    CHECK_EQ(parse_module("export let [a, { b }] = c;"),
+        module_of("(export (let ((array-pattern (id a) (object-pattern (\"b\" (id b)))) (id c))))"));
+    CHECK_EQ(parse_module("export const k = 1"), module_of("(export (const (k (number 1))))"));
+    CHECK_EQ(parse_module("export function f() {}"), module_of("(export (function f ()))"));
+    CHECK_EQ(parse_module("export async function f() {}"), module_of("(export (async function f ()))"));
+    CHECK_EQ(parse_module("export function* g() {}"), module_of("(export (function* g ()))"));
+    CHECK_EQ(parse_module("export class C {}"), module_of("(export (class C))"));
+    CHECK_EQ(parse_module("export default 1 + 2;"), module_of("(export-default (binary + (number 1) (number 2)))"));
+    CHECK_EQ(parse_module("export default function () {}"), module_of("(export-default (function ()))"));
+    CHECK_EQ(parse_module("export default function f() {}"), module_of("(export-default (function f ()))"));
+    CHECK_EQ(parse_module("export default async function* g() {}"), module_of("(export-default (async function* g ()))"));
+    CHECK_EQ(parse_module("export default class {}"), module_of("(export-default (class))"));
+    CHECK_EQ(parse_module("export default class C extends B {}"), module_of("(export-default (class C (extends (id B))))"));
+    CHECK_EQ(parse_module("export default async () => 1"), module_of("(export-default (async arrow () (number 1)))"));
+    CHECK_EQ(parse_module("export default async\nfunction f() {}"), module_of("(export-default (id async)) (function f ())"));
+    CHECK_EQ(parse_module("export default function () {} 1"), module_of("(export-default (function ())) (expr (number 1))"));
+    CHECK_EQ(parse_module("export default (function () {})"), module_of("(export-default (function ()))"));
+    CHECK_EQ(parse_module("var a, b; export { a, b as c, a as 'd e', };"),
+        module_of("(var (a) (b)) (export-names (a a) (b c) (a d e))"));
+    CHECK_EQ(parse_module("export {}"), module_of("(export-names)"));
+    CHECK_EQ(parse_module("export\n{\n};"), module_of("(export-names)"));
+    CHECK_EQ(parse_module("export { a, b as c, default, if as d, 'x y' as z } from 'm';"),
+        module_of("(export-from \"m\" (a a) (b c) (default default) (if d) (x y z))"));
+    CHECK_EQ(parse_module("export {} from 'm' with { type: 'json' }"), module_of("(export-from \"m\" (with (type \"json\")))"));
+    CHECK_EQ(parse_module("export * from 'm';"), module_of("(export-star \"m\")"));
+    CHECK_EQ(parse_module("export * as ns from 'm'"), module_of("(export-star \"m\" ns)"));
+    CHECK_EQ(parse_module("export * as 'n s' from 'm'"), module_of("(export-star \"m\" n s)"));
+    CHECK_EQ(parse_module("export * as default from 'm'"), module_of("(export-star \"m\" default)"));
+    // The tables (§16.2.1.6.1): an export of an imported name is indirect,
+    // of a namespace local; a specifier is requested once.
+    {
+        js::ParseOptions options;
+        options.module = true;
+        Parsed parsed = parse_source("import { a, b as c } from 'm'; import * as ns from 'n'; import 'm';\n"
+                                     "export { a, c as d, ns }; export * from 'o'; export * as p from 'o';\n"
+                                     "export { q as r, s } from 'o'; var q; export { q }; export default 1; export let t;",
+            options);
+        CHECK(parsed.program != nullptr);
+        if (parsed.program) {
+            CHECK_EQ(tables_of(*parsed.program),
+                "requested: m n o | imports: m.a>a m.b>c n.*>ns | local: ns=ns q=q default=*default* t=t"
+                " | indirect: a<m.a d<m.b p<o.* r<o.q s<o.s | star: o");
+            CHECK(!parsed.program->has_top_level_await);
+            CHECK(parsed.program->is_module && parsed.program->is_strict);
+            CHECK_EQ(names(parsed.program->declarations.vars), "q");
+        }
+        parsed = parse_source("import 'm' with { type: 'json' }; import 'm'; export * from 'm' with { type: 'json' };", options);
+        CHECK(parsed.program != nullptr);
+        if (parsed.program)
+            CHECK_EQ(parsed.program->requested_modules.size(), std::size_t(2));
+        // A default export's function is anonymous in the tree and bound
+        // as `*default*`; top-level functions are lexical, listed all the same.
+        parsed = parse_source("export default function () {} export function f() {} function g() {}", options);
+        CHECK(parsed.program != nullptr);
+        if (parsed.program) {
+            CHECK_EQ(parsed.program->declarations.functions.size(), std::size_t(3));
+            CHECK(parsed.program->declarations.functions[0]->function->name == nullptr);
+            CHECK(parsed.program->declarations.functions[0]->is_default_export);
+            CHECK_EQ(tables_of(*parsed.program), "requested: | imports: | local: default=*default* f=f | indirect: | star:");
+        }
+        parsed = parse_source("await 1; for await (x of y) ;", options);
+        CHECK(parsed.program && parsed.program->has_top_level_await);
+        parsed = parse_source("async function f() { await 1 }", options);
+        CHECK(parsed.program && !parsed.program->has_top_level_await);
+    }
+    // import() in script and module code; import.meta in module code.
+    CHECK_EQ(parse("import('m')"), expression_of("(import-call (string \"m\"))"));
+    CHECK_EQ(parse("import('m', { with: { type: 'json' } })"),
+        expression_of("(import-call (string \"m\") (object (init \"with\" (object (init \"type\" (string \"json\"))))))"));
+    CHECK_EQ(parse("import('m',)"), expression_of("(import-call (string \"m\"))"));
+    CHECK_EQ(parse("import('m', {},)"), expression_of("(import-call (string \"m\") (object))"));
+    CHECK_EQ(parse("import('m').then(f)"), expression_of("(call (member (import-call (string \"m\")) then) (id f))"));
+    CHECK_EQ(parse("x = import(a)"), expression_of("(assign = (id x) (import-call (id a)))"));
+    CHECK_EQ(parse("import(import(a))"), expression_of("(import-call (import-call (id a)))"));
+    CHECK_EQ(parse("new (import('m'))"), expression_of("(new (import-call (string \"m\")))"));
+    CHECK_EQ(parse("import('m')``"), expression_of("(tagged (import-call (string \"m\")) (template (\"\") ()))"));
+    CHECK_EQ(parse_module("import('m')"), module_of("(expr (import-call (string \"m\")))"));
+    CHECK_EQ(parse_module("if (a) import('m')"), module_of("(if (id a) (expr (import-call (string \"m\"))))"));
+    CHECK_EQ(parse_module("import.meta"), module_of("(expr import.meta)"));
+    CHECK_EQ(parse_module("import.meta.url"), module_of("(expr (member import.meta url))"));
+    CHECK_EQ(parse_module("new import.meta()"), module_of("(expr (new import.meta))"));
+    CHECK_EQ(parse_module("function f() { return import.meta }"), module_of("(function f () (return import.meta))"));
+    // Module code is strict, `await` is a keyword throughout, and the top
+    // level is an async body.
+    CHECK_EQ(parse_module("await 1"), module_of("(expr (await (number 1)))"));
+    CHECK_EQ(parse_module("for await (x of y) ;"), module_of("(for-await-of (id x) (id y) (empty))"));
+    CHECK_EQ(parse_module("with (a) {}"), "Strict mode code may not include a with statement");
+    CHECK_EQ(parse_module("var public"), "Unexpected strict mode reserved word");
+    CHECK_EQ(parse_module("010"), "Octal literals are not allowed in strict mode");
+    CHECK_EQ(parse_module("yield"), "Unexpected strict mode reserved word");
+    CHECK_EQ(parse_module("function f() { await 1 }"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("function f() { await }"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("function f(await) {}"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("var await"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("(await) => 1"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("function f() { (await) => 1 }"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("await: 1"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("({ await })"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("new.target"), "new.target expression is not allowed here");
+    CHECK_EQ(parse_module("super.x"), "'super' keyword unexpected here");
+    CHECK_EQ(parse_module("return"), "Illegal return statement");
+    CHECK_EQ(parse_module("this.#x"), "Private field '#x' must be declared in an enclosing class");
+    // No HTML-like comments in module code (B.1.1).
+    CHECK_EQ(parse("<!-- x\n1"), expression_of("(number 1)"));
+    CHECK_EQ(parse_module("<!-- x\n1"), "Unexpected token '<'");
+    CHECK_EQ(parse_module("--> x\n1"), "Unexpected token '>'");
+    // Top-level function declarations are lexical (§16.2.1.1).
+    CHECK_EQ(parse_module("var f; function f() {}"), "Identifier 'f' has already been declared");
+    CHECK_EQ(parse_module("function f() {} var f"), "Identifier 'f' has already been declared");
+    CHECK_EQ(parse_module("function f() {} function f() {}"), "Identifier 'f' has already been declared");
+    CHECK_EQ(parse_module("function f() {} let f"), "Identifier 'f' has already been declared");
+    CHECK_EQ(parse_module("{ function f() {} function f() {} }"), "Identifier 'f' has already been declared");
+    // Import bindings are lexical names of the module.
+    CHECK_EQ(parse_module("import x from 'm'; import x from 'n'"), "Identifier 'x' has already been declared");
+    CHECK_EQ(parse_module("import x from 'm'; var x"), "Identifier 'x' has already been declared");
+    CHECK_EQ(parse_module("var x; import x from 'm'"), "Identifier 'x' has already been declared");
+    CHECK_EQ(parse_module("import x from 'm'; function x() {}"), "Identifier 'x' has already been declared");
+    CHECK_EQ(parse_module("import x from 'm'; { var x }"), "Identifier 'x' has already been declared");
+    CHECK_EQ(parse_module("import { a, a } from 'm'"), "Identifier 'a' has already been declared");
+    CHECK_EQ(parse_module("import a, { b as a } from 'm'"), "Identifier 'a' has already been declared");
+    CHECK_EQ(parse_module("import x from 'm'; { let x; }"), module_of("(import \"m\" (default x)) (block (let (x)))"));
+    // The import clause's early errors.
+    CHECK_EQ(parse_module("import { default } from 'm'"), "Unexpected token 'default'");
+    CHECK_EQ(parse_module("import { 'a' } from 'm'"), "Unexpected string");
+    CHECK_EQ(parse_module("import { a \\u0061s b } from 'm'"), "Unexpected identifier 'as'");
+    CHECK_EQ(parse_module("import * \\u0061s ns from 'm'"), "Unexpected identifier 'as'");
+    CHECK_EQ(parse_module("import x fr\\u006fm 'm'"), "Unexpected identifier 'from'");
+    CHECK_EQ(parse_module("import { d\\u0065fault as x } from 'm'"), module_of("(import \"m\" (default x))"));
+    CHECK_EQ(parse_module("import { eval } from 'm'"), "Unexpected eval or arguments in strict mode");
+    CHECK_EQ(parse_module("import { a as arguments } from 'm'"), "Unexpected eval or arguments in strict mode");
+    CHECK_EQ(parse_module("import { await } from 'm'"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("import { a as yield } from 'm'"), "Unexpected strict mode reserved word");
+    CHECK_EQ(parse_module("import { a as let } from 'm'"), "Unexpected strict mode reserved word");
+    CHECK_EQ(parse_module("import x, y from 'm'"), "Unexpected identifier 'y'");
+    CHECK_EQ(parse_module("import x * as ns from 'm'"), "Unexpected token '*'");
+    CHECK_EQ(parse_module("import x { a } from 'm'"), "Unexpected token '{'");
+    CHECK_EQ(parse_module("import x, from 'm'"), "Unexpected identifier 'from'");
+    CHECK_EQ(parse_module("import from 'm'"), "Unexpected string");
+    CHECK_EQ(parse_module("import 'm' 1"), "Unexpected number");
+    CHECK_EQ(parse_module("import { '\\uD800' as x } from 'm'"), "An export name must be well-formed Unicode");
+    CHECK_EQ(parse_module("import 'm' with { type: json }"), "Unexpected identifier 'json'");
+    CHECK_EQ(parse_module("import 'm' with { type: 'json', 'typ\\u0065': 'css' }"), "Import attribute 'type' is repeated");
+    CHECK_EQ(parse_module("import 'm' with { type: 'json' }; import 'm' with { type: 'json', other: '' }"),
+        module_of("(import \"m\" (with (type \"json\"))) (import \"m\" (with (type \"json\") (other \"\")))"));
+    // The export clause's early errors.
+    CHECK_EQ(parse_module("export { x }"), "Export 'x' is not defined in module");
+    CHECK_EQ(parse_module("export { x as y }; var z"), "Export 'x' is not defined in module");
+    CHECK_EQ(parse_module("export { x }; var x"), module_of("(export-names (x x)) (var (x))"));
+    CHECK_EQ(parse_module("export { x }; { var x }"), module_of("(export-names (x x)) (block (var (x)))"));
+    CHECK_EQ(parse_module("export { x }; function f() { var x }"), "Export 'x' is not defined in module");
+    CHECK_EQ(parse_module("export { x }; import x from 'm'"), module_of("(export-names (x x)) (import \"m\" (default x))"));
+    CHECK_EQ(parse_module("export { default }"), "Unexpected token 'default'");
+    CHECK_EQ(parse_module("export { if }"), "Unexpected token 'if'");
+    CHECK_EQ(parse_module("var x; export { 'x' }"), "A string export name needs a from clause");
+    CHECK_EQ(parse_module("export { let }"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("export { await }"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("export { \\u0069f }"), "Keyword must not contain escaped characters");
+    CHECK_EQ(parse_module("let x; export { x as y, x as y }"), "Duplicate export of 'y'");
+    CHECK_EQ(parse_module("export default 1; export default 2"), "Duplicate export of 'default'");
+    CHECK_EQ(parse_module("export var x; export { x }"), "Duplicate export of 'x'");
+    CHECK_EQ(parse_module("export function f() {} export class f {}"), "Identifier 'f' has already been declared");
+    CHECK_EQ(parse_module("var x; export { x as z }; export * as z from 'm'"), "Duplicate export of 'z'");
+    CHECK_EQ(parse_module("export { a as b } from 'm'; export { b } from 'n'"), "Duplicate export of 'b'");
+    CHECK_EQ(parse_module("export default var x"), "Unexpected token 'var'");
+    CHECK_EQ(parse_module("export default let x"), "Unexpected strict mode reserved word");
+    CHECK_EQ(parse_module("export default const x"), "Unexpected token 'const'");
+    CHECK_EQ(parse_module("export default 1, 2"), "Unexpected token ','");
+    CHECK_EQ(parse_module("export default function() {}()"), "Unexpected token ')'");
+    CHECK_EQ(parse_module("export default function await() {}"), "Unexpected reserved word");
+    CHECK_EQ(parse_module("export {} null"), "Unexpected token 'null'");
+    CHECK_EQ(parse_module("export * as ns 'm'"), "Unexpected string");
+    CHECK_EQ(parse_module("export * 'm'"), "Unexpected string");
+    CHECK_EQ(parse_module("export * from 'm' with { type: 'json', type: 'css' }"), "Import attribute 'type' is repeated");
+    CHECK_EQ(parse_module("export { 'a\\uD800' as b } from 'm'"), "An export name must be well-formed Unicode");
+    CHECK_EQ(parse_module("export * as '\\uDC00' from 'm'"), "An export name must be well-formed Unicode");
+    CHECK_EQ(parse_module("export { a as '\\uD83D\\uDE00' } from 'm'"), module_of("(export-from \"m\" (a \xF0\x9F\x98\x80))"));
+    CHECK_EQ(parse_module("export"), "Unexpected end of input");
+    CHECK_EQ(parse_module("export 1"), "Unexpected number");
+    // Declarations only at the top level (§16.2.1).
+    CHECK_EQ(parse_module("{ import x from 'm' }"), "An import declaration can only be used at the top level of a module");
+    CHECK_EQ(parse_module("if (a) export var x"), "An export declaration can only be used at the top level of a module");
+    CHECK_EQ(parse_module("function f() { import x from 'm' }"), "An import declaration can only be used at the top level of a module");
+    CHECK_EQ(parse_module("l: import x from 'm'"), "An import declaration can only be used at the top level of a module");
+    CHECK_EQ(parse_module("() => { export {} }"), "An export declaration can only be used at the top level of a module");
+    CHECK_EQ(parse_module("switch (a) { case 1: import 'm' }"), "An import declaration can only be used at the top level of a module");
+    // Outside a module.
+    CHECK_EQ(parse("import x from 'm'"), "Cannot use import statement outside a module");
+    CHECK_EQ(parse("export var x"), "Unexpected token 'export'");
+    CHECK_EQ(parse("import.meta"), "Cannot use 'import.meta' outside a module");
+    CHECK_EQ(parse("function f() { import.meta }"), "Cannot use 'import.meta' outside a module");
+    // The import() call's shape (§13.3.10).
+    CHECK_EQ(parse("import()"), "Unexpected token ')'");
+    CHECK_EQ(parse("import(...a)"), "Unexpected token '...'");
+    CHECK_EQ(parse("import(a, ...b)"), "Unexpected token '...'");
+    CHECK_EQ(parse("import(a, b, c)"), "Unexpected identifier 'c'");
+    CHECK_EQ(parse("new import('m')"), "Cannot use new with import");
+    CHECK_EQ(parse("new import('m').x"), "Cannot use new with import");
+    CHECK_EQ(parse("import?.('m')"), "Cannot use import statement outside a module");
+    CHECK_EQ(parse("x = import?.('m')"), "Unexpected token '?.'");
+    CHECK_EQ(parse("typeof import"), "Unexpected end of input");
+    CHECK_EQ(parse("import.source('m')"), "Unexpected identifier 'source'");
+    CHECK_EQ(parse("import.defer('m')"), "Unexpected identifier 'defer'");
+    CHECK_EQ(parse("import('m') = 1"), "Invalid left-hand side in assignment");
+    CHECK_EQ(parse("import('m')++"), "Invalid left-hand side expression in postfix operation");
+    CHECK_EQ(parse("[import('m')] = a"), "Invalid destructuring assignment target");
+    CHECK_EQ(parse("for (import('m') of a) ;"), "Invalid left-hand side in for-of loop");
+    CHECK_EQ(parse("im\\u0070ort('m')"), "Keyword must not contain escaped characters");
+    CHECK_EQ(parse_module("import.m\\u0065ta"), "Unexpected identifier 'meta'");
+    CHECK_EQ(parse_module("import.meta = 1"), "Invalid left-hand side in assignment");
+    CHECK_EQ(parse_module("import.meta++"), "Invalid left-hand side expression in postfix operation");
+    CHECK_EQ(parse_module("({ x: import.meta } = a)"), "Invalid destructuring assignment target");
+}
+
 } // namespace
 
 int main()
@@ -1368,5 +1637,6 @@ int main()
     test_classes();
     test_private_names();
     test_function_constructor();
+    test_modules();
     return sashfold::test::report("js_parser");
 }

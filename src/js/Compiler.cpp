@@ -1131,6 +1131,14 @@ private:
             emit(Opcode::Await);
             compile_resume_dispatch(false);
             return;
+        case NodeType::ImportCall:
+            // Not written yet: the call names itself rather than compiling
+            // to something that is not it.
+            fail("dynamic import() is not supported yet");
+            return;
+        case NodeType::ImportMeta:
+            fail("import.meta is not supported yet");
+            return;
         default:
             break;
         }

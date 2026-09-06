@@ -157,6 +157,54 @@ bool is_eval_or_arguments(std::u16string_view name)
     return name == u"eval" || name == u"arguments";
 }
 
+// IsStringWellFormedUnicode (§6.1.4.1): no lone surrogate. A module
+// export name spelled as a string must satisfy it (§16.2.2.1).
+bool is_well_formed_unicode(std::u16string_view text)
+{
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        char16_t const unit = text[i];
+        if (unit >= 0xD800 && unit <= 0xDBFF) {
+            if (i + 1 >= text.size() || text[i + 1] < 0xDC00 || text[i + 1] > 0xDFFF)
+                return false;
+            ++i;
+        } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// BoundNames of a binding target (§8.2.1): the name, or every name a
+// pattern binds, in source order.
+void bound_names_of(Expression const* target, std::vector<JsString*>& out)
+{
+    switch (target->type) {
+    case NodeType::Identifier:
+        out.push_back(static_cast<Identifier const*>(target)->name);
+        break;
+    case NodeType::ArrayPattern: {
+        auto const* pattern = static_cast<ArrayPattern const*>(target);
+        for (PatternElement const& element : pattern->elements) {
+            if (element.target)
+                bound_names_of(element.target, out);
+        }
+        if (pattern->rest)
+            bound_names_of(pattern->rest, out);
+        break;
+    }
+    case NodeType::ObjectPattern: {
+        auto const* pattern = static_cast<ObjectPattern const*>(target);
+        for (PatternProperty const& property : pattern->properties)
+            bound_names_of(property.target, out);
+        if (pattern->rest)
+            bound_names_of(pattern->rest, out);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 std::string describe_token(Token const& token)
 {
     switch (token.type) {
@@ -333,6 +381,7 @@ struct Scope {
     std::unordered_set<JsString*> var_names;
     int id = 0;
     bool is_function_top = false;
+    bool is_module_top = false; // §16.2.1.1: function declarations are lexical here, and imports bind here
     bool is_catch_parameter = false; // B.3.4: a `var` may redeclare the parameter
     bool is_catch_body = false; // its lexicals must not redeclare the parameter (§14.15.1)
 };
@@ -410,6 +459,13 @@ struct PrivateScope {
     std::vector<std::pair<JsString*, SourcePosition>> referenced;
 };
 
+// An export entry as it was parsed, before the module's end sorts it into
+// the local, indirect and star tables (§16.2.1.6.1 ParseModule).
+struct PendingExport {
+    ExportEntryRecord entry;
+    SourcePosition position;
+};
+
 } // namespace
 
 struct Parser::Impl {
@@ -433,7 +489,6 @@ struct Parser::Impl {
     bool consume_semicolon();
     bool fail(SourcePosition, std::string message);
     bool fail_unexpected();
-    bool fail_unsupported(std::string_view feature);
     bool enter();
     void leave() { --m_depth; }
 
@@ -454,6 +509,14 @@ struct Parser::Impl {
     bool reference_private(JsString* name, SourcePosition);
     bool close_private_scope();
     bool declare_function(FunctionDeclaration*, SourcePosition);
+    // Modules (§16.2): an import binding is a lexical name of the module
+    // scope listed in no Declarations; an export name is claimed once;
+    // finish_module checks every local export against the scope and sorts
+    // the entries into the Program's tables.
+    bool declare_module_binding(JsString* name, SourcePosition);
+    bool add_export_name(JsString* name, SourcePosition);
+    void request_module(JsString* specifier, std::vector<ImportAttribute> const&);
+    bool finish_module();
     std::unordered_set<JsString*> const* lexicals_of(int scope_id) const;
     void note_this();
     bool note_arguments();
@@ -506,11 +569,12 @@ struct Parser::Impl {
     Expression* parse_yield(bool allow_in);
     bool expression_follows_yield() const;
     Expression* parse_super();
+    Expression* parse_import_expression();
 
-    // Classes (§15.7).
-    ClassNode* parse_class(bool is_expression);
+    // Classes (§15.7). `allow_anonymous`: `export default class {}`.
+    ClassNode* parse_class(bool is_expression, bool allow_anonymous = false);
     Expression* parse_class_expression();
-    Statement* parse_class_declaration();
+    Statement* parse_class_declaration(bool default_export = false);
     bool parse_class_element(ClassNode&);
     bool parse_static_block(ClassNode&, SourcePosition start);
 
@@ -546,7 +610,17 @@ struct Parser::Impl {
     BlockStatement* parse_block(bool is_catch_body);
     Statement* parse_variable_statement();
     VariableDeclaration* parse_declaration_list(VariableDeclaration::Kind, bool allow_in, bool in_for_head);
-    Statement* parse_function_declaration(bool is_async);
+    Statement* parse_function_declaration(bool is_async, bool default_export = false);
+    // Modules (§16.2.2, §16.2.3).
+    Statement* parse_import_declaration();
+    bool parse_imported_binding(ImportDeclaration&, JsString* import_name);
+    bool parse_named_imports(ImportDeclaration&);
+    Statement* parse_export_declaration();
+    bool parse_named_exports(ExportDeclaration&, std::vector<Token>& local_tokens);
+    bool check_export_reference(Token const&);
+    JsString* parse_module_export_name();
+    bool parse_from_clause(JsString*& specifier);
+    bool parse_with_clause(std::vector<ImportAttribute>&);
     Statement* parse_if();
     Statement* parse_for();
     Statement* parse_while();
@@ -586,6 +660,10 @@ struct Parser::Impl {
     // Set by parse_binding_pattern when the pattern holds an initializer
     // or a computed key (ContainsExpression), for the parameter list.
     bool m_pattern_has_expression = false;
+    // The module's export names so far (each once, §16.2.1.1) and its
+    // export entries, sorted into the Program's tables by finish_module.
+    std::unordered_set<JsString*> m_export_names;
+    std::vector<PendingExport> m_export_entries;
 };
 
 Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
@@ -595,7 +673,7 @@ Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
     , m_options(options)
 {
     m_program->source = std::move(source);
-    m_lexer = Lexer(m_program->source);
+    m_lexer = Lexer(m_program->source, !m_options.module);
     m_current_start = m_lexer.save();
     m_current_regex_allowed = true;
     m_current = m_lexer.next(true);
@@ -716,11 +794,6 @@ bool Parser::Impl::fail_unexpected()
     return fail(m_current.position, describe_token(m_current));
 }
 
-bool Parser::Impl::fail_unsupported(std::string_view feature)
-{
-    return fail(m_current.position, std::string(feature) + " are not supported yet");
-}
-
 bool Parser::Impl::expect(Punctuator p)
 {
     if (!m_current.is(p))
@@ -760,7 +833,7 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
     context->node = node;
     context->declarations = declarations;
     context->is_arrow = is_arrow;
-    context->is_strict = m_functions.empty() ? m_options.strict : function().is_strict;
+    context->is_strict = m_functions.empty() ? (m_options.strict || m_options.module) : function().is_strict;
     if (node)
         node->is_strict = context->is_strict;
     if (m_functions.empty()) {
@@ -768,6 +841,8 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
         context->allow_super_property = m_options.allow_super_property;
         context->allow_super_call = m_options.allow_super_call;
         context->in_field_initializer = m_options.in_field_initializer;
+        // Module code is [+Await] at its top level (§16.2.1 ModuleItem).
+        context->in_async = m_options.module;
     } else if (is_arrow) {
         FunctionContext const& outer = function();
         context->allow_new_target = outer.allow_new_target;
@@ -895,9 +970,12 @@ bool Parser::Impl::declare_function(FunctionDeclaration* declaration, SourcePosi
 {
     FunctionContext& fn = function();
     Scope& s = scope();
-    JsString* name = declaration->function->name;
+    // An anonymous `export default function` binds `*default*` (§16.2.3.2).
+    JsString* name = declaration->function->name ? declaration->function->name : atom(u"*default*");
     std::string const text = utf8_from_utf16(name->view());
-    if (s.is_function_top) {
+    // At a module's top level a function declaration is lexical
+    // (§16.2.1.3 LexicallyDeclaredNames), so it takes the block rule below.
+    if (s.is_function_top && !s.is_module_top) {
         if (s.lexical_names.contains(name))
             return fail(position, "Identifier '" + text + "' has already been declared");
         s.var_names.insert(name);
@@ -927,6 +1005,83 @@ bool Parser::Impl::declare_function(FunctionDeclaration* declaration, SourcePosi
                 candidate.enclosing_scopes.push_back(fn.scopes[i]->id);
         }
         fn.annex_b.push_back(std::move(candidate));
+    }
+    return true;
+}
+
+// An import binding (§16.2.1.3: among the LexicallyDeclaredNames of the
+// module) goes into the module scope's lexical names, so a later var,
+// function, class or second import of the name is the early error, and
+// into no Declarations list: instantiation makes it from import_entries.
+bool Parser::Impl::declare_module_binding(JsString* name, SourcePosition position)
+{
+    Scope& s = scope();
+    if (s.lexical_names.contains(name) || s.var_names.contains(name))
+        return fail(position, "Identifier '" + utf8_from_utf16(name->view()) + "' has already been declared");
+    s.lexical_names.insert(name);
+    return true;
+}
+
+// ExportedNames must not repeat (§16.2.1.1).
+bool Parser::Impl::add_export_name(JsString* name, SourcePosition position)
+{
+    if (!m_export_names.insert(name).second)
+        return fail(position, "Duplicate export of '" + utf8_from_utf16(name->view()) + "'");
+    return true;
+}
+
+// ModuleRequests (§16.2.1.3): the specifier with its attributes, once.
+void Parser::Impl::request_module(JsString* specifier, std::vector<ImportAttribute> const& attributes)
+{
+    auto const same_attributes = [&](std::vector<ImportAttribute> const& other) {
+        if (other.size() != attributes.size())
+            return false;
+        // The keys are unique within a clause, so a set comparison is a
+        // search per entry.
+        for (ImportAttribute const& attribute : attributes) {
+            auto const match = std::find_if(other.begin(), other.end(), [&](ImportAttribute const& candidate) {
+                return candidate.key == attribute.key && candidate.value == attribute.value;
+            });
+            if (match == other.end())
+                return false;
+        }
+        return true;
+    };
+    for (ModuleRequest const& request : m_program->requested_modules) {
+        if (request.specifier == specifier && same_attributes(request.attributes))
+            return;
+    }
+    m_program->requested_modules.push_back(ModuleRequest { specifier, attributes });
+}
+
+// The module's end (§16.2.1.6.1 ParseModule steps 8–10): every locally
+// exported name must be declared — a var, a lexical, a function, a class
+// or an import (§16.2.1.1) — and the export entries sort into the three
+// tables: an export of an imported binding is an indirect export of the
+// other module's name, unless what was imported was a namespace.
+bool Parser::Impl::finish_module()
+{
+    Scope const& top = *function().scopes.front();
+    JsString* const star = atom(u"*");
+    for (PendingExport const& pending : m_export_entries) {
+        ExportEntryRecord const& entry = pending.entry;
+        if (entry.module_request) {
+            if (entry.import_name == star && !entry.export_name)
+                m_program->star_export_entries.push_back(entry);
+            else
+                m_program->indirect_export_entries.push_back(entry);
+            continue;
+        }
+        if (!top.lexical_names.contains(entry.local_name) && !top.var_names.contains(entry.local_name))
+            return fail(pending.position, "Export '" + utf8_from_utf16(entry.local_name->view()) + "' is not defined in module");
+        auto const imported = std::find_if(m_program->import_entries.begin(), m_program->import_entries.end(),
+            [&](ImportEntryRecord const& record) { return record.local_name == entry.local_name; });
+        if (imported != m_program->import_entries.end() && imported->import_name != star) {
+            m_program->indirect_export_entries.push_back(
+                ExportEntryRecord { entry.export_name, imported->module_request, imported->import_name, nullptr });
+        } else {
+            m_program->local_export_entries.push_back(entry);
+        }
     }
     return true;
 }
@@ -997,10 +1152,11 @@ bool Parser::Impl::check_binding_identifier(Token const& token, bool strict, boo
     }
     // `yield` binds nothing in a generator (§13.1.1: BindingIdentifier with
     // [Yield]); `await` binds nothing in async code, nor directly inside a
-    // class static block (§15.7.1).
+    // class static block (§15.7.1), nor anywhere in module code (§13.1.1:
+    // the goal symbol is Module).
     if (token.value == u"yield" && yield_reserved)
         return fail(token.position, "Unexpected identifier 'yield'");
-    if (token.value == u"await" && await_reserved)
+    if (token.value == u"await" && (await_reserved || m_options.module))
         return fail(token.position, "Unexpected reserved word");
     return true;
 }
@@ -1011,7 +1167,7 @@ bool Parser::Impl::check_reserved_reference(Token const& token)
 {
     if (token.value == u"yield" && function().in_generator)
         return fail(token.position, "Unexpected identifier 'yield'");
-    if (token.value == u"await" && (function().in_async || function().await_reserved))
+    if (token.value == u"await" && (function().in_async || function().await_reserved || m_options.module))
         return fail(token.position, "Unexpected reserved word");
     return true;
 }
@@ -1408,6 +1564,10 @@ Expression* Parser::Impl::parse_unary()
             if (!enter())
                 return nullptr;
             advance(); // await
+            // Top-level await (§16.2.1.5): the module's body will run as
+            // an async function body.
+            if (m_options.module && m_functions.size() == 1)
+                m_program->has_top_level_await = true;
             Expression* operand = parse_unary();
             leave();
             if (!operand)
@@ -1416,7 +1576,7 @@ Expression* Parser::Impl::parse_unary()
             await->argument = operand;
             return finish(await);
         }
-        if (function().await_reserved) {
+        if (function().await_reserved || m_options.module) {
             fail(start, "Unexpected reserved word");
             return nullptr;
         }
@@ -1472,6 +1632,14 @@ Expression* Parser::Impl::parse_new()
         advance();
         leave();
         return finish(make<NewTargetExpression>(start));
+    }
+    // An ImportCall is a CallExpression, never a MemberExpression
+    // (§13.3.10): `new import(x)` is a parse error; `new import.meta` is
+    // an ordinary NewExpression.
+    if (m_current.is(Keyword::Import) && peek().is(Punctuator::LeftParen)) {
+        leave();
+        fail(m_current.position, "Cannot use new with import");
+        return nullptr;
     }
     Expression* callee = m_current.is(Keyword::New) ? parse_new() : parse_primary();
     if (callee)
@@ -1692,8 +1860,7 @@ Expression* Parser::Impl::parse_primary()
         case Keyword::Super:
             return parse_super();
         case Keyword::Import:
-            fail_unsupported("modules");
-            return nullptr;
+            return parse_import_expression();
         default:
             fail_unexpected();
             return nullptr;
@@ -2370,11 +2537,76 @@ Expression* Parser::Impl::parse_super()
 
 // ---- classes ----------------------------------------------------------------
 
+// The two expressions that begin with `import` (§13.3.10, §13.3.12):
+// `import(specifier)` with an optional second argument of import
+// attributes and a trailing comma after either, in script and module code
+// alike; and `import.meta`, in a module only. The keyword spelled with an
+// escape never reaches here — it lexes as an identifier and fails there.
+// `import.source` and `import.defer` are proposals this parser does not
+// know, so they are the unexpected token they look like.
+Expression* Parser::Impl::parse_import_expression()
+{
+    SourcePosition const start = m_current.position;
+    advance(); // import
+    if (m_current.is(Punctuator::Dot)) {
+        advance();
+        if (!m_current.is_identifier(u"meta") || m_current.has_escape) {
+            fail_unexpected();
+            return nullptr;
+        }
+        if (!m_options.module) {
+            fail(start, "Cannot use 'import.meta' outside a module");
+            return nullptr;
+        }
+        advance();
+        return finish(make<ImportMeta>(start));
+    }
+    if (!m_current.is(Punctuator::LeftParen)) {
+        fail_unexpected();
+        return nullptr;
+    }
+    if (!enter())
+        return nullptr;
+    advance(); // (
+    auto* call = make<ImportCall>(start);
+    if (m_current.is(Punctuator::RightParen) || m_current.is(Punctuator::Ellipsis)) {
+        leave();
+        fail_unexpected();
+        return nullptr;
+    }
+    call->specifier = parse_assignment(true);
+    if (!call->specifier) {
+        leave();
+        return nullptr;
+    }
+    if (m_current.is(Punctuator::Comma)) {
+        advance();
+        if (!m_current.is(Punctuator::RightParen)) {
+            if (m_current.is(Punctuator::Ellipsis)) {
+                leave();
+                fail_unexpected();
+                return nullptr;
+            }
+            call->options = parse_assignment(true);
+            if (!call->options) {
+                leave();
+                return nullptr;
+            }
+            if (m_current.is(Punctuator::Comma))
+                advance();
+        }
+    }
+    leave();
+    if (!expect(Punctuator::RightParen))
+        return nullptr;
+    return finish(call);
+}
+
 // ClassDeclaration / ClassExpression (§15.7): the name, the heritage, and
 // the body's elements — every part strict code (§15.7.1). The constructor
 // keeps the class's own source span for Function.prototype.toString; a
 // class that writes none gets the default one synthesized.
-ClassNode* Parser::Impl::parse_class(bool is_expression)
+ClassNode* Parser::Impl::parse_class(bool is_expression, bool allow_anonymous)
 {
     SourcePosition const start = m_current.position;
     advance(); // class
@@ -2393,7 +2625,7 @@ ClassNode* Parser::Impl::parse_class(bool is_expression)
             return abandon();
         node->name = atom(m_current.value);
         advance();
-    } else if (!is_expression) {
+    } else if (!is_expression && !allow_anonymous) {
         fail_unexpected();
         return abandon();
     }
@@ -2463,16 +2695,17 @@ Expression* Parser::Impl::parse_class_expression()
 }
 
 // A class declaration binds its name like `let` in the enclosing scope
-// (§14.2.1, §15.7.16).
-Statement* Parser::Impl::parse_class_declaration()
+// (§14.2.1, §15.7.16); an anonymous default export binds `*default*`.
+Statement* Parser::Impl::parse_class_declaration(bool default_export)
 {
     SourcePosition const start = m_current.position;
-    ClassNode* node = parse_class(false);
+    ClassNode* node = parse_class(false, default_export);
     if (!node)
         return nullptr;
     auto* declaration = make<ClassDeclaration>(start);
     declaration->node = node;
-    if (!declare_lexical(node->name, false, node->position))
+    declaration->is_default_export = default_export;
+    if (!declare_lexical(node->name ? node->name : atom(u"*default*"), false, node->position))
         return nullptr;
     return finish(declaration);
 }
@@ -3151,8 +3384,10 @@ bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::v
 }
 
 // FunctionDeclaration and its generator and async forms (§15.2, §15.5,
-// §15.8, §15.6): `is_async` means the current token is the `async`.
-Statement* Parser::Impl::parse_function_declaration(bool is_async)
+// §15.8, §15.6): `is_async` means the current token is the `async`. A
+// default export's may have no name (§16.2.3: HoistableDeclaration with
+// [+Default]); it binds `*default*` then.
+Statement* Parser::Impl::parse_function_declaration(bool is_async, bool default_export)
 {
     SourcePosition const start = m_current.position;
     if (is_async)
@@ -3163,32 +3398,391 @@ Statement* Parser::Impl::parse_function_declaration(bool is_async)
         is_generator = true;
         advance();
     }
-    if (m_current.type != TokenType::Identifier) {
+    std::optional<Token> name_token;
+    if (m_current.type == TokenType::Identifier) {
+        name_token = m_current;
+        advance();
+    } else if (!default_export || !m_current.is(Punctuator::LeftParen)) {
         if (m_current.is(Punctuator::LeftParen))
             fail(m_current.position, "Function statements require a function name");
         else
             fail_unexpected();
         return nullptr;
     }
-    Token const name_token = m_current;
-    advance();
     FunctionNode* fn = m_program->make_function();
     fn->position = start;
     fn->source_start = start.offset;
-    fn->name = atom(name_token.value);
+    fn->name = name_token ? atom(name_token->value) : nullptr;
     fn->is_generator = is_generator;
     fn->is_async = is_async;
     if (is_generator || is_async)
         fn->is_constructable = false;
     auto* declaration = make<FunctionDeclaration>(start);
     declaration->function = fn;
+    declaration->is_default_export = default_export;
     // The name binds in the enclosing scope, which is still the current
     // one here.
-    if (!declare_function(declaration, name_token.position))
+    if (!declare_function(declaration, name_token ? name_token->position : start))
         return nullptr;
     if (!parse_function_rest(fn, FunctionKind::Declaration, name_token))
         return nullptr;
     return finish(declaration);
+}
+
+// ---- modules ----------------------------------------------------------------
+
+// ModuleExportName (§16.2.2): an IdentifierName — any word, reserved or
+// not, escapes decoded — or a string literal that is well-formed Unicode.
+JsString* Parser::Impl::parse_module_export_name()
+{
+    if (m_current.type == TokenType::String) {
+        if (!is_well_formed_unicode(m_current.value)) {
+            fail(m_current.position, "An export name must be well-formed Unicode");
+            return nullptr;
+        }
+    } else if (m_current.type != TokenType::Identifier && m_current.type != TokenType::Keyword) {
+        fail_unexpected();
+        return nullptr;
+    }
+    JsString* name = atom(m_current.value);
+    advance();
+    return name;
+}
+
+// FromClause: the contextual `from` (no escape) and the module specifier,
+// a string literal.
+bool Parser::Impl::parse_from_clause(JsString*& specifier)
+{
+    if (!m_current.is_identifier(u"from") || m_current.has_escape)
+        return fail_unexpected();
+    advance();
+    if (m_current.type != TokenType::String)
+        return fail_unexpected();
+    specifier = atom(m_current.value);
+    advance();
+    return true;
+}
+
+// WithClause (§16.2.2): `with { key: "value", … }`, the keys IdentifierNames
+// or strings, each once (§16.2.2.1), the values strings. A line terminator
+// before `with` is fine: `with` cannot begin a statement in module code.
+bool Parser::Impl::parse_with_clause(std::vector<ImportAttribute>& attributes)
+{
+    if (!m_current.is(Keyword::With))
+        return true;
+    advance(); // with
+    if (!expect(Punctuator::LeftBrace))
+        return false;
+    while (!m_current.is(Punctuator::RightBrace)) {
+        SourcePosition const key_position = m_current.position;
+        if (m_current.type != TokenType::Identifier && m_current.type != TokenType::Keyword && m_current.type != TokenType::String)
+            return fail_unexpected();
+        ImportAttribute attribute;
+        attribute.key = atom(m_current.value);
+        advance();
+        if (!expect(Punctuator::Colon))
+            return false;
+        if (m_current.type != TokenType::String)
+            return fail_unexpected();
+        attribute.value = atom(m_current.value);
+        advance();
+        for (ImportAttribute const& earlier : attributes) {
+            if (earlier.key == attribute.key)
+                return fail(key_position, "Import attribute '" + utf8_from_utf16(attribute.key->view()) + "' is repeated");
+        }
+        attributes.push_back(attribute);
+        if (m_current.is(Punctuator::Comma)) {
+            advance();
+            continue;
+        }
+        if (!m_current.is(Punctuator::RightBrace))
+            return fail_unexpected();
+    }
+    advance(); // }
+    return true;
+}
+
+// ImportedBinding: a BindingIdentifier of strict code, declared in the
+// module scope, recorded with the name it imports.
+bool Parser::Impl::parse_imported_binding(ImportDeclaration& declaration, JsString* import_name)
+{
+    if (!check_binding_identifier(m_current, true))
+        return false;
+    JsString* local = atom(m_current.value);
+    if (!declare_module_binding(local, m_current.position))
+        return false;
+    declaration.entries.push_back(ImportEntry { import_name, local });
+    advance();
+    return true;
+}
+
+// NamedImports (§16.2.2): `{ a, b as c, "d" as e, default as f, }` — a
+// bare entry is a BindingIdentifier, so a reserved word or a string must
+// be renamed with `as`.
+bool Parser::Impl::parse_named_imports(ImportDeclaration& declaration)
+{
+    advance(); // {
+    while (!m_current.is(Punctuator::RightBrace)) {
+        Token const first = m_current;
+        if (first.type == TokenType::String && !is_well_formed_unicode(first.value))
+            return fail(first.position, "An export name must be well-formed Unicode");
+        bool const renamed = (first.type == TokenType::Identifier || first.type == TokenType::Keyword || first.type == TokenType::String)
+            && peek().is_identifier(u"as") && !peek().has_escape;
+        if (renamed) {
+            advance(); // the exporter's name
+            advance(); // as
+        }
+        if (!parse_imported_binding(declaration, atom(first.value)))
+            return false;
+        if (m_current.is(Punctuator::Comma)) {
+            advance();
+            continue;
+        }
+        if (!m_current.is(Punctuator::RightBrace))
+            return fail_unexpected();
+    }
+    advance(); // }
+    return true;
+}
+
+// ImportDeclaration (§16.2.2): `import 'm'`, or an ImportClause — a
+// default binding, a namespace `* as ns`, a named list, or the default
+// followed by one of the other two — then `from 'm'`, an optional
+// WithClause, and `;`. The entries go to the Program's table with the
+// specifier once it is known.
+Statement* Parser::Impl::parse_import_declaration()
+{
+    SourcePosition const start = m_current.position;
+    advance(); // import
+    auto* declaration = make<ImportDeclaration>(start);
+    if (m_current.type == TokenType::String) {
+        declaration->specifier = atom(m_current.value);
+        advance();
+    } else {
+        bool have_clause = false;
+        bool more_clause = true; // a namespace or a named list may follow: at the start, or after `default,`
+        if (m_current.type == TokenType::Identifier) {
+            if (!parse_imported_binding(*declaration, atom(u"default")))
+                return nullptr;
+            have_clause = true;
+            more_clause = m_current.is(Punctuator::Comma);
+            if (more_clause) {
+                advance();
+                if (!m_current.is(Punctuator::Star) && !m_current.is(Punctuator::LeftBrace)) {
+                    fail_unexpected();
+                    return nullptr;
+                }
+            }
+        }
+        if (more_clause && m_current.is(Punctuator::Star)) {
+            advance();
+            if (!m_current.is_identifier(u"as") || m_current.has_escape) {
+                fail_unexpected();
+                return nullptr;
+            }
+            advance(); // as
+            if (!parse_imported_binding(*declaration, atom(u"*")))
+                return nullptr;
+            have_clause = true;
+        } else if (more_clause && m_current.is(Punctuator::LeftBrace)) {
+            if (!parse_named_imports(*declaration))
+                return nullptr;
+            have_clause = true;
+        }
+        if (!have_clause) {
+            fail_unexpected();
+            return nullptr;
+        }
+        if (!parse_from_clause(declaration->specifier))
+            return nullptr;
+    }
+    if (!parse_with_clause(declaration->attributes) || !consume_semicolon())
+        return nullptr;
+    request_module(declaration->specifier, declaration->attributes);
+    for (ImportEntry const& entry : declaration->entries)
+        m_program->import_entries.push_back(ImportEntryRecord { declaration->specifier, entry.import_name, entry.local_name });
+    return finish(declaration);
+}
+
+// The local side of `export { a }` and `export { a as b }` with no `from`
+// is an IdentifierReference of the module (§16.2.3.1 ReferencedBindings):
+// no string, and no reserved word — the strict ones included.
+bool Parser::Impl::check_export_reference(Token const& token)
+{
+    if (token.type == TokenType::String)
+        return fail(token.position, "A string export name needs a from clause");
+    if (token.type != TokenType::Identifier)
+        return fail(token.position, describe_token(token));
+    if (token.has_escape && Lexer::keyword_for(token.value))
+        return fail(token.position, "Keyword must not contain escaped characters");
+    if (token.value == u"await" || is_strict_reserved_word(token.value))
+        return fail(token.position, "Unexpected reserved word");
+    return true;
+}
+
+// NamedExports (§16.2.3): `{ a, b as c, "d" as "e", }`; both names are
+// ModuleExportNames here, and the caller judges the local side once it
+// knows whether a `from` follows.
+bool Parser::Impl::parse_named_exports(ExportDeclaration& node, std::vector<Token>& local_tokens)
+{
+    advance(); // {
+    while (!m_current.is(Punctuator::RightBrace)) {
+        Token const local_token = m_current;
+        JsString* local = parse_module_export_name();
+        if (!local)
+            return false;
+        JsString* exported = local;
+        if (m_current.is_identifier(u"as") && !m_current.has_escape) {
+            advance();
+            exported = parse_module_export_name();
+            if (!exported)
+                return false;
+        }
+        node.specifiers.push_back(ExportSpecifier { local, exported });
+        local_tokens.push_back(local_token);
+        if (m_current.is(Punctuator::Comma)) {
+            advance();
+            continue;
+        }
+        if (!m_current.is(Punctuator::RightBrace))
+            return fail_unexpected();
+    }
+    advance(); // }
+    return true;
+}
+
+// ExportDeclaration (§16.2.3): the star re-exports, the default in its
+// three shapes, the named list with or without `from`, and a declaration.
+// Each exported name is claimed as it is met (§16.2.1.1 forbids a second)
+// and each entry is queued for finish_module.
+Statement* Parser::Impl::parse_export_declaration()
+{
+    SourcePosition const start = m_current.position;
+    advance(); // export
+    auto* node = make<ExportDeclaration>(start);
+    JsString* const star = atom(u"*");
+    if (m_current.is(Punctuator::Star)) {
+        // export * from 'm'; export * as ns from 'm';
+        node->kind = ExportDeclaration::Kind::Star;
+        advance();
+        SourcePosition name_position = m_current.position;
+        if (m_current.is_identifier(u"as") && !m_current.has_escape) {
+            advance();
+            name_position = m_current.position;
+            node->star_as = parse_module_export_name();
+            if (!node->star_as)
+                return nullptr;
+        }
+        if (!parse_from_clause(node->specifier) || !parse_with_clause(node->attributes) || !consume_semicolon())
+            return nullptr;
+        request_module(node->specifier, node->attributes);
+        if (node->star_as && !add_export_name(node->star_as, name_position))
+            return nullptr;
+        m_export_entries.push_back({ ExportEntryRecord { node->star_as, node->specifier, star, nullptr }, name_position });
+        return finish(node);
+    }
+    if (m_current.is(Keyword::Default)) {
+        SourcePosition const default_position = m_current.position;
+        advance(); // default
+        node->kind = ExportDeclaration::Kind::Default;
+        JsString* const default_name = atom(u"default");
+        if (!add_export_name(default_name, default_position))
+            return nullptr;
+        JsString* local = nullptr;
+        bool const async_function = m_current.is_identifier(u"async") && !m_current.has_escape
+            && peek().is(Keyword::Function) && !peek().newline_before;
+        if (m_current.is(Keyword::Function) || async_function) {
+            node->declaration = parse_function_declaration(async_function, true);
+            if (!node->declaration)
+                return nullptr;
+            local = static_cast<FunctionDeclaration const*>(node->declaration)->function->name;
+        } else if (m_current.is(Keyword::Class)) {
+            node->declaration = parse_class_declaration(true);
+            if (!node->declaration)
+                return nullptr;
+            local = static_cast<ClassDeclaration const*>(node->declaration)->node->name;
+        } else {
+            // export default AssignmentExpression ; — bound to `*default*`
+            // when the module runs (§16.2.3.7).
+            node->expression = parse_assignment(true);
+            if (!node->expression || !consume_semicolon())
+                return nullptr;
+            if (!declare_lexical(atom(u"*default*"), false, default_position))
+                return nullptr;
+        }
+        m_export_entries.push_back({ ExportEntryRecord { default_name, nullptr, nullptr, local ? local : atom(u"*default*") }, default_position });
+        return finish(node);
+    }
+    if (m_current.is(Punctuator::LeftBrace)) {
+        node->kind = ExportDeclaration::Kind::Named;
+        std::vector<Token> local_tokens;
+        if (!parse_named_exports(*node, local_tokens))
+            return nullptr;
+        if (m_current.is_identifier(u"from") && !m_current.has_escape) {
+            if (!parse_from_clause(node->specifier) || !parse_with_clause(node->attributes))
+                return nullptr;
+            request_module(node->specifier, node->attributes);
+        }
+        if (!consume_semicolon())
+            return nullptr;
+        for (std::size_t i = 0; i < node->specifiers.size(); ++i) {
+            ExportSpecifier const& specifier = node->specifiers[i];
+            SourcePosition const position = local_tokens[i].position;
+            if (!add_export_name(specifier.export_name, position))
+                return nullptr;
+            if (node->specifier) {
+                m_export_entries.push_back({ ExportEntryRecord { specifier.export_name, node->specifier, specifier.local_name, nullptr }, position });
+            } else {
+                if (!check_export_reference(local_tokens[i]))
+                    return nullptr;
+                m_export_entries.push_back({ ExportEntryRecord { specifier.export_name, nullptr, nullptr, specifier.local_name }, position });
+            }
+        }
+        return finish(node);
+    }
+    // export VariableStatement / export Declaration: every bound name is
+    // exported under itself.
+    node->kind = ExportDeclaration::Kind::Declaration;
+    SourcePosition const declaration_position = m_current.position;
+    std::vector<JsString*> bound;
+    if (m_current.is(Keyword::Var) || m_current.is(Keyword::Const) || is_let_declaration_start()) {
+        VariableDeclaration::Kind const kind = m_current.is(Keyword::Var) ? VariableDeclaration::Kind::Var
+            : m_current.is(Keyword::Const)                                ? VariableDeclaration::Kind::Const
+                                                                          : VariableDeclaration::Kind::Let;
+        VariableDeclaration* declaration = parse_declaration_list(kind, true, false);
+        if (!declaration || !consume_semicolon())
+            return nullptr;
+        node->declaration = finish(declaration);
+        for (VariableDeclarator const& declarator : declaration->declarations) {
+            if (declarator.pattern)
+                bound_names_of(declarator.pattern, bound);
+            else
+                bound.push_back(declarator.name);
+        }
+    } else {
+        bool const async_function = m_current.is_identifier(u"async") && !m_current.has_escape
+            && peek().is(Keyword::Function) && !peek().newline_before;
+        if (m_current.is(Keyword::Function) || async_function) {
+            node->declaration = parse_function_declaration(async_function);
+            if (!node->declaration)
+                return nullptr;
+            bound.push_back(static_cast<FunctionDeclaration const*>(node->declaration)->function->name);
+        } else if (m_current.is(Keyword::Class)) {
+            node->declaration = parse_class_declaration();
+            if (!node->declaration)
+                return nullptr;
+            bound.push_back(static_cast<ClassDeclaration const*>(node->declaration)->node->name);
+        } else {
+            fail_unexpected();
+            return nullptr;
+        }
+    }
+    for (JsString* name : bound) {
+        if (!add_export_name(name, declaration_position))
+            return nullptr;
+        m_export_entries.push_back({ ExportEntryRecord { name, nullptr, nullptr, name }, declaration_position });
+    }
+    return finish(node);
 }
 
 // ---- statements -------------------------------------------------------------
@@ -3197,12 +3791,18 @@ bool Parser::Impl::parse_program_body()
 {
     push_function(nullptr, &m_program->declarations, false);
     m_program->is_strict = function().is_strict;
+    if (m_options.module) {
+        m_program->is_module = true;
+        scope().is_module_top = true;
+    }
     if (!parse_directive_prologue(m_program->body))
         return false;
     if (!parse_statement_list(m_program->body, false))
         return false;
     if (m_current.type != TokenType::EndOfInput)
         return fail_unexpected();
+    if (m_options.module && !finish_module())
+        return false;
     // Eval code inside a class: what its `#x`s referred to must be among
     // the names the caller's classes declared.
     if (!m_private_scopes.empty() && !close_private_scope())
@@ -3234,9 +3834,20 @@ bool Parser::Impl::is_let_declaration_start()
     return next.type == TokenType::Identifier || next.is(Punctuator::LeftBracket) || next.is(Punctuator::LeftBrace);
 }
 
-// StatementListItem: a Statement or a Declaration (§14).
+// StatementListItem: a Statement or a Declaration (§14), or at a module's
+// top level a ModuleItem (§16.2.1): an import or export declaration.
 Statement* Parser::Impl::parse_statement_list_item()
 {
+    if (m_options.module && m_functions.size() == 1 && function().scopes.size() == 1) {
+        if (m_current.is(Keyword::Export))
+            return parse_export_declaration();
+        // `import(` and `import.` begin expressions, in modules too.
+        if (m_current.is(Keyword::Import)) {
+            Token const next = peek();
+            if (!next.is(Punctuator::LeftParen) && !next.is(Punctuator::Dot))
+                return parse_import_declaration();
+        }
+    }
     if (m_current.is(Keyword::Function))
         return parse_function_declaration(false);
     if (m_current.is_identifier(u"async") && !m_current.has_escape) {
@@ -3331,9 +3942,20 @@ Statement* Parser::Impl::parse_statement_inner(bool is_body)
         case Keyword::Const:
             fail(start, "Lexical declaration cannot appear in a single-statement context");
             return nullptr;
-        case Keyword::Import:
+        case Keyword::Import: {
+            // `import(…)` and `import.meta` are expressions (§13.3.10,
+            // §13.3.12); the declaration stands at a module's top level
+            // only (§16.2.1), which parse_statement_list_item took.
+            Token const next = peek();
+            if (next.is(Punctuator::LeftParen) || next.is(Punctuator::Dot))
+                break;
+            fail(start, m_options.module ? "An import declaration can only be used at the top level of a module"
+                                         : "Cannot use import statement outside a module");
+            return nullptr;
+        }
         case Keyword::Export:
-            fail_unsupported("modules");
+            fail(start, m_options.module ? "An export declaration can only be used at the top level of a module"
+                                         : "Unexpected token 'export'");
             return nullptr;
         default:
             break;
@@ -3514,11 +4136,14 @@ Statement* Parser::Impl::parse_for()
     advance(); // for
     bool is_await = false;
     if (m_current.is_identifier(u"await") && !m_current.has_escape) {
-        // `for await (… of …)` (§14.7.5), in an async body only.
+        // `for await (… of …)` (§14.7.5), in an async body only — a
+        // module's top level is one.
         if (!function().in_async) {
             fail(m_current.position, "Unexpected reserved word");
             return nullptr;
         }
+        if (m_options.module && m_functions.size() == 1)
+            m_program->has_top_level_await = true;
         is_await = true;
         advance();
     }
@@ -4360,6 +4985,22 @@ struct Dumper {
         }
     }
 
+    // (with (key "value") …) after a module specifier, when there are any.
+    void attributes(std::vector<ImportAttribute> const& list)
+    {
+        if (list.empty())
+            return;
+        out += " (with";
+        for (ImportAttribute const& attribute : list) {
+            out += " (";
+            name(attribute.key);
+            out += ' ';
+            quoted(attribute.value->view());
+            out += ')';
+        }
+        out += ')';
+    }
+
     void expression(Expression const* e)
     {
         if (!descend())
@@ -4473,6 +5114,17 @@ struct Dumper {
             out += "(await ";
             expression(static_cast<AwaitExpression const*>(e)->argument);
             out += ')';
+            break;
+        case NodeType::ImportCall: {
+            auto const* call = static_cast<ImportCall const*>(e);
+            out += "(import-call ";
+            expression(call->specifier);
+            optional_expression(call->options);
+            out += ')';
+            break;
+        }
+        case NodeType::ImportMeta:
+            out += "import.meta";
             break;
         case NodeType::UnaryExpression: {
             auto const* unary = static_cast<UnaryExpression const*>(e);
@@ -4874,6 +5526,69 @@ struct Dumper {
             out += ')';
             break;
         }
+        case NodeType::ImportDeclaration: {
+            // (import "m" (import-name local)… (with …)?): the import name
+            // is default, * or the exporter's own.
+            auto const* import = static_cast<ImportDeclaration const*>(s);
+            out += "(import ";
+            quoted(import->specifier->view());
+            for (ImportEntry const& entry : import->entries) {
+                out += " (";
+                name(entry.import_name);
+                out += ' ';
+                name(entry.local_name);
+                out += ')';
+            }
+            attributes(import->attributes);
+            out += ')';
+            break;
+        }
+        case NodeType::ExportDeclaration: {
+            // (export decl) | (export-default expr-or-decl) |
+            // (export-names (local exported)…) | (export-from "m" (name
+            // exported)…) | (export-star "m" as?).
+            auto const* node = static_cast<ExportDeclaration const*>(s);
+            switch (node->kind) {
+            case ExportDeclaration::Kind::Declaration:
+                out += "(export ";
+                statement(node->declaration);
+                break;
+            case ExportDeclaration::Kind::Default:
+                out += "(export-default ";
+                if (node->declaration)
+                    statement(node->declaration);
+                else
+                    expression(node->expression);
+                break;
+            case ExportDeclaration::Kind::Named:
+                if (node->specifier) {
+                    out += "(export-from ";
+                    quoted(node->specifier->view());
+                } else {
+                    out += "(export-names";
+                }
+                for (ExportSpecifier const& specifier : node->specifiers) {
+                    out += " (";
+                    name(specifier.local_name);
+                    out += ' ';
+                    name(specifier.export_name);
+                    out += ')';
+                }
+                attributes(node->attributes);
+                break;
+            case ExportDeclaration::Kind::Star:
+                out += "(export-star ";
+                quoted(node->specifier->view());
+                if (node->star_as) {
+                    out += ' ';
+                    name(node->star_as);
+                }
+                attributes(node->attributes);
+                break;
+            }
+            out += ')';
+            break;
+        }
         default:
             out += "(?)";
             break;
@@ -4887,9 +5602,13 @@ struct Dumper {
 std::string dump_ast(Program const& program)
 {
     Dumper dumper;
-    dumper.out += "(program";
-    if (program.is_strict)
-        dumper.out += " strict";
+    if (program.is_module) {
+        dumper.out += "(module";
+    } else {
+        dumper.out += "(program";
+        if (program.is_strict)
+            dumper.out += " strict";
+    }
     dumper.statements(program.body);
     dumper.out += ')';
     std::string out = std::move(dumper.out);

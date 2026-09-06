@@ -161,7 +161,7 @@ struct Trivia {
 
 // Whitespace and comments before a token (§12.2–§12.4, and Annex B.1.1's
 // HTML-like comments, which script code — never a module — still allows).
-Trivia skip_trivia(Scanner& s)
+Trivia skip_trivia(Scanner& s, bool html_comments)
 {
     Trivia trivia;
     // `-->` is a comment only at the start of a line (B.1.1
@@ -211,11 +211,11 @@ Trivia skip_trivia(Scanner& s)
             }
             continue;
         }
-        if (c == U'<' && s.peek(1) == U'!' && s.peek(2) == U'-' && s.peek(3) == U'-') {
+        if (html_comments && c == U'<' && s.peek(1) == U'!' && s.peek(2) == U'-' && s.peek(3) == U'-') {
             skip_to_line_end(s); // SingleLineHTMLOpenComment, anywhere
             continue;
         }
-        if (c == U'-' && s.peek(1) == U'-' && s.peek(2) == U'>' && at_line_start) {
+        if (html_comments && c == U'-' && s.peek(1) == U'-' && s.peek(2) == U'>' && at_line_start) {
             skip_to_line_end(s);
             continue;
         }
@@ -1071,15 +1071,16 @@ Token scan_private_name(Scanner& s, Token token)
 
 } // namespace
 
-Lexer::Lexer(std::u16string_view source)
+Lexer::Lexer(std::u16string_view source, bool html_comments)
     : m_source(source)
+    , m_html_comments(html_comments)
 {
 }
 
 Token Lexer::next(bool regex_allowed)
 {
     Scanner scanner(m_source, m_state);
-    Trivia const trivia = skip_trivia(scanner);
+    Trivia const trivia = skip_trivia(scanner, m_html_comments);
     Token token;
     token.newline_before = trivia.newline;
     token.position = scanner.position();
