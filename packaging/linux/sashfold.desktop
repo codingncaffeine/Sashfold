@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Sashfold
+GenericName=Web Browser
+Comment=A web browser engine written from scratch
+Exec=sashfold %u
+Icon=sashfold
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=false
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=sashfold

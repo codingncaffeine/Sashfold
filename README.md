@@ -24,14 +24,14 @@ No telemetry. No sponsored tiles. No default-search auction. No account requirem
 
 ## What works today
 
-- **Browsing** the live web over HTTPS on Windows — URL parsing, HTTP/1.1 with persistent connections, SChannel TLS with revocation, third-party cookies blocked, a freshness-honoring cache, downloads never opened.
+- **Browsing** the live web over HTTPS on Windows and Linux — URL parsing, HTTP/1.1 with persistent connections, TLS through SChannel on Windows and through a TLS 1.3 client written here on Linux (certificates validated; the badssl matrix is not complete yet), third-party cookies blocked, a freshness-honoring cache, downloads never opened.
 - **Parsing** — the complete WHATWG HTML parser and encoding sniffing, at 100% on both html5lib suites.
 - **Styling** — CSS syntax, selectors, the cascade with `inherit`/`initial`/`unset`, custom properties, `calc()`, media queries, external stylesheets, `@font-face` (TrueType), generated content with counters, `::first-letter`, the flow-relative properties, every named color.
 - **Layout** — block and inline layout, margin collapsing, floats, flexbox, grid (tracks, `fr`, `repeat()`, areas, named lines, spans, alignment), tables (automatic and fixed widths, spans, captions, `vertical-align`, the presentational attributes, the collapsing border model), positioning with stacking contexts, inline-block, replaced boxes, percentage heights, `box-sizing`.
 - **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, with **Sashfold Mono** as the honest last fallback; PNG, GIF and JPEG decoders, `srcset` and `<picture>`; CSS background images and gradients (layers, position, size, repeat, clip), rounded corners.
 - **A shell** — tabs, history, forms, pages running their own scripts (the DOM, events, timers), selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, boxes that scroll under the wheel, the keyboard and their own scrollbars, chrome drawn from a theme file, and a `--script` mode that drives it for CI.
 
-Not written yet: the newer half of JavaScript — a JavaScript engine of our own runs a page's scripts against the DOM, with events, timers and an event loop (ES5 plus `let`/`const`, arrows, template literals, `?.`, `??`, destructuring, default and rest parameters, for-of and spread, classes with private members, Map and Set, promises and the job queue, generators and async functions, the standard library from Object to Date, a precise garbage collector, scored on test262 below), but async generators, modules, typed arrays, `fetch` and `XMLHttpRequest` are not written, so a page built by a bundle that needs them still arrives as its markup alone; also subgrid, shadows, outlines, WOFF fonts, windows and TLS on Linux and macOS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
+Not written yet: the newer half of JavaScript — a JavaScript engine of our own runs a page's scripts against the DOM, with events, timers and an event loop (ES5 plus `let`/`const`, arrows, template literals, `?.`, `??`, destructuring, default and rest parameters, for-of and spread, classes with private members, Map and Set, promises and the job queue, generators and async functions, the standard library from Object to Date, a precise garbage collector, scored on test262 below), but async generators, modules, typed arrays, `fetch` and `XMLHttpRequest` are not written, so a page built by a bundle that needs them still arrives as its markup alone; also subgrid, shadows, outlines, WOFF fonts, the macOS window and its TLS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
 
 ## Measured
 
@@ -61,12 +61,14 @@ ctest --test-dir build --output-on-failure
 ## Running
 
 ```
-sashfold                                    # the browser window (Windows for now)
+sashfold                                    # the browser window (Windows and Linux)
 sashfold https://example.org/               # ...opened on a page
 sashfold --render page.html -o out.png      # render a page headlessly
 sashfold --bench page.html                  # time parse, style, layout, paint
 sashfold --script tests/shell/live.script   # drive the shell from a text file
 ```
+
+On Linux the window is a Wayland client of its own, spoken over the compositor's socket with no toolkit and no libwayland (the pledge); `bash tools/install-desktop-linux.sh --desktop` puts it in the applications menu with its icon, and on the desktop.
 
 Every mode and flag is on [Running Sashfold](https://github.com/codingncaffeine/Sashfold/wiki/Running-Sashfold); the window's colors and sizes come from `themes/default.json` ([Themes](https://github.com/codingncaffeine/Sashfold/wiki/Themes)).
 
