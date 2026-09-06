@@ -488,11 +488,18 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
     // The write lands on the receiver: an existing data property there is
     // updated in place (only its value), a missing one is created as
     // assignment creates properties (CreateDataProperty), and an accessor
-    // or a read-only property on the receiver refuses. The define goes
-    // through the interpreter's wrapper, which converts what a receiver's
-    // [[DefineOwnProperty]] converts by running script — an array's length,
-    // a typed array's element.
+    // or a read-only property on the receiver refuses. A receiver whose
+    // [[DefineOwnProperty]] converts the value by running script — an
+    // array's length, a typed array's element — takes the interpreter's
+    // wrapper; an ordinary receiver takes the virtual directly, and needs
+    // no interpreter for it.
     Object* target = receiver.as_object();
+    bool const converts = target->class_id() == Class::TypedArray || (target->is_array() && is_length_key(key));
+    auto const define = [&](PropertyDescriptor const& desc) -> std::optional<bool> {
+        if (converts)
+            return interpreter.define_own_property(*target, key, desc);
+        return target->define_own_property(key, desc);
+    };
     std::optional<PropertyDescriptor> const existing = target->get_own_property(key);
     if (existing) {
         if (existing->is_accessor())
@@ -501,9 +508,9 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
             return false;
         PropertyDescriptor value_only;
         value_only.value = value;
-        return interpreter.define_own_property(*target, key, value_only);
+        return define(value_only);
     }
-    return interpreter.define_own_property(*target, key, PropertyDescriptor::data(value, default_attributes));
+    return define(PropertyDescriptor::data(value, default_attributes));
 }
 
 bool Object::delete_property(PropertyKey const& key)
