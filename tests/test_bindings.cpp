@@ -290,6 +290,29 @@ void test_attributes_classlist_style_dataset()
     CHECK_EQ(page->console, "");
 }
 
+void test_attribute_names_global_this_and_shadow_root()
+{
+    auto page = loaded(R"HTML(<!DOCTYPE html><div id=d onfocusin=t data-x=1 item=i></div>)HTML");
+    page->eval("var d = document.getElementById('d');");
+    // WebIDL's named properties on NamedNodeMap: jQuery 1.x reads `attributes[name].expando`.
+    CHECK_EQ(page->string("d.attributes['onfocusin'].value"), "t");
+    CHECK_EQ(page->string("d.attributes['data-x'].name"), "data-x");
+    CHECK(page->boolean("d.attributes['onfocusin'].expando === undefined"));
+    CHECK(page->boolean("d.attributes.nope === undefined"));
+    // A prototype name wins over an attribute of that name; nothing is enumerable but the indices.
+    CHECK(page->boolean("typeof d.attributes.item === 'function' && d.attributes.length === 4"));
+    CHECK_EQ(page->string("Object.keys(d.attributes).join()"), "0,1,2,3");
+    // A bare call on the global, or one through a saved reference: undefined `this` is the window.
+    page->eval("var hits = 0; addEventListener('ping', function () { hits++; }); dispatchEvent(new Event('ping')); var a = window.addEventListener; a('ping', function () { hits += 10; }); window.dispatchEvent(new Event('ping'));");
+    CHECK_EQ(page->number("hits"), 12);
+    CHECK(page->throws("EventTarget.prototype.addEventListener.call({}, 'x', function () {})").starts_with("TypeError"));
+    // ShadowRoot is an interface; nothing makes one yet.
+    CHECK(page->boolean("typeof ShadowRoot === 'function' && !(d instanceof ShadowRoot) && Object.getPrototypeOf(ShadowRoot.prototype) === DocumentFragment.prototype"));
+    CHECK(page->throws("new ShadowRoot()").starts_with("TypeError"));
+    CHECK(page->throws("d.attachShadow({ mode: 'open' })").starts_with("NotSupportedError"));
+    CHECK_EQ(page->console, "");
+}
+
 void test_event_dispatch_order_and_flags()
 {
     auto page = loaded(R"HTML(<!DOCTYPE html><div id=outer><span id=inner>x</span></div>)HTML");
@@ -718,6 +741,7 @@ int main()
     test_tree_mutation_and_serialization();
     test_selectors_and_collections();
     test_attributes_classlist_style_dataset();
+    test_attribute_names_global_this_and_shadow_root();
     test_event_dispatch_order_and_flags();
     test_timers_microtasks_and_the_clock();
     test_document_ready_states_and_load_events();

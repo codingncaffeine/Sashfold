@@ -512,6 +512,16 @@ js::Value attribute_map(Realm::Internals& in, dom::Element& element)
         attr->put(interpreter.key("specified"), js::Value::boolean(true), js::Enumerable);
         attr->put(interpreter.key("nodeType"), js::Value::number(2), js::Enumerable);
         attr->put(interpreter.key("ownerElement"), js::Value::object(in.wrap(element)), js::Enumerable);
+        // WebIDL's named properties: the attribute reachable by its name
+        // (jQuery 1.x reads `attributes[name].expando` in its support
+        // tests), unless the map or its prototype already has that name,
+        // and never as an index. Not enumerable, like every named property.
+        bool const looks_like_index = !name.empty() && name.find_first_not_of("0123456789") == std::string::npos;
+        if (!looks_like_index) {
+            js::PropertyKey const named = interpreter.key(name);
+            if (!map->has_property(named))
+                map->put(named, js::Value::object(attr), js::Configurable);
+        }
     }
     return js::Value::object(map);
 }
@@ -1402,6 +1412,10 @@ void install_nodes(Realm::Internals& in)
             return js::Value::object(internals.wrap(*internals.document.create<dom::DocumentFragment>()));
         });
     install_parent_node(in, *fragment);
+    // ShadowRoot: the interface object alone. attachShadow refuses with
+    // NotSupportedError, so no page gets one, but a library's
+    // `node instanceof ShadowRoot` must be a question, not a ReferenceError.
+    define_interface(in, "ShadowRoot", fragment);
     node_method(in, *fragment, "getElementById", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<std::string> const id = string_argument(internals, args, 0);
         if (!id)

@@ -575,10 +575,20 @@ void install_events(Realm::Internals& in)
     js::define_method(interpreter, *event_target, "removeEventListener", 2, remove_event_listener);
     js::define_method(interpreter, *event_target, "dispatchEvent", 1, dispatch_event_native);
     // The window is the global object, made before any of this: it gets
-    // the same methods by copy.
-    js::define_method(interpreter, *interpreter.global(), "addEventListener", 2, add_event_listener);
-    js::define_method(interpreter, *interpreter.global(), "removeEventListener", 2, remove_event_listener);
-    js::define_method(interpreter, *interpreter.global(), "dispatchEvent", 1, dispatch_event_native);
+    // the same methods, with an undefined or null `this` standing for the
+    // window itself, WebIDL's rule for a global's operations: a bare
+    // `addEventListener(...)` at top level, or one called through a
+    // saved reference, is one on the window.
+    auto const on_window = [](js::NativeFunction::Callback native) {
+        return [native](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            if (this_value.is_undefined() || this_value.is_null())
+                return native(interp, js::Value::object(interp.global()), args);
+            return native(interp, this_value, args);
+        };
+    };
+    js::define_method(interpreter, *interpreter.global(), "addEventListener", 2, on_window(add_event_listener));
+    js::define_method(interpreter, *interpreter.global(), "removeEventListener", 2, on_window(remove_event_listener));
+    js::define_method(interpreter, *interpreter.global(), "dispatchEvent", 1, on_window(dispatch_event_native));
 
     // Event.
     js::Object* event = define_interface(in, "Event", nullptr, event_constructor("Event"), 1);
