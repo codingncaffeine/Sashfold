@@ -82,6 +82,16 @@ add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.json)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The Wayland window's two halves that need no compositor: the wire
+  # client over a socketpair, and the xkb keymap parser over keymaps
+  # libxkbcommon compiled.
+  sashfold_test(test_wayland)
+  add_executable(test_xkb test_xkb.cpp)
+  target_link_libraries(test_xkb PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+  add_test(NAME test_xkb COMMAND test_xkb ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/xkb)
+endif()
+
 # The shell, driven headlessly by --script on every OS: chrome goldens are
 # byte-identical because every pixel is ours.
 add_test(NAME shell_smoke

@@ -1010,7 +1010,9 @@ std::string default_downloads_directory()
 
 // themes/default.json beside the executable, or beside its parent directory
 // (a build tree inside the repository), else the built-in defaults.
-std::string default_theme_path(char const* program)
+// A file that ships beside the executable or one directory up (a build
+// tree's parent is the repository): themes/default.json, assets/icon.png.
+std::string shipped_file_path(char const* program, std::filesystem::path const& relative)
 {
     std::error_code error;
     std::filesystem::path const exe = std::filesystem::absolute(program, error);
@@ -1018,11 +1020,27 @@ std::string default_theme_path(char const* program)
         return {};
     std::filesystem::path const dir = exe.parent_path();
     for (std::filesystem::path const& base : { dir, dir.parent_path() }) {
-        std::filesystem::path const candidate = base / "themes" / "default.json";
+        std::filesystem::path const candidate = base / relative;
         if (std::filesystem::exists(candidate, error))
             return candidate.string();
     }
     return {};
+}
+
+std::string default_theme_path(char const* program)
+{
+    return shipped_file_path(program, std::filesystem::path("themes") / "default.json");
+}
+
+// The window's icon, for the OSes that take one from the client.
+std::optional<Bitmap> load_window_icon(char const* program)
+{
+    std::string const path = shipped_file_path(program, std::filesystem::path("assets") / "icon.png");
+    if (path.empty())
+        return std::nullopt;
+    std::ifstream file(path, std::ios::binary);
+    std::vector<std::uint8_t> const bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return decode_png(bytes);
 }
 
 ui::Theme load_theme(std::string const& path)
@@ -1048,12 +1066,14 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
 }
 
 int run_window(std::string const& start_url, std::string const& theme_path,
-    std::string const& downloads)
+    std::string const& downloads, char const* program)
 {
-    std::unique_ptr<platform::Window> window = platform::Window::create("Sashfold", 1100, 760);
+    std::optional<Bitmap> const icon = load_window_icon(program);
+    std::unique_ptr<platform::Window> window
+        = platform::Window::create("Sashfold", 1100, 760, icon ? &*icon : nullptr);
     if (!window) {
-        std::cerr << "error: no window backend on this OS yet (the Wayland and AppKit shells are not written);\n"
-                     "       --render, --fetch, and --script work everywhere\n";
+        std::cerr << "error: could not open a window (the AppKit shell is not written; on Linux the\n"
+                     "       Wayland display must be reachable); --render, --fetch, and --script work everywhere\n";
         return 1;
     }
     ui::ShellLoader loader;
@@ -1279,5 +1299,5 @@ int main(int argc, char** argv)
         return font_list();
     if (mode == "--smoke")
         return smoke_scene(output);
-    return run_window(start_url, theme_path, downloads.value_or(default_downloads_directory()));
+    return run_window(start_url, theme_path, downloads.value_or(default_downloads_directory()), argv[0]);
 }

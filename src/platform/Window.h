@@ -1,10 +1,10 @@
 #pragma once
 
 // The window seam: open a window, pump its input into events, present a
-// Bitmap into it. Windows first; Wayland spoken directly over its socket and
-// AppKit through the Objective-C runtime are not written yet, so create()
-// returns null on those OSes and every headless mode keeps working — the
-// shell itself never sees an OS type.
+// Bitmap into it. Win32 on Windows, Wayland spoken directly over its socket
+// on Linux; AppKit through the Objective-C runtime is not written yet, so
+// create() returns null on macOS and every headless mode keeps working —
+// the shell itself never sees an OS type.
 
 #include "core/Bitmap.h"
 #include "platform/Input.h"
@@ -39,8 +39,11 @@ struct WindowEvent {
 
 class Window {
 public:
-    // Null when this OS has no window backend yet.
-    static std::unique_ptr<Window> create(std::string const& title, int width, int height);
+    // Null when this OS has no window backend yet, or the display cannot
+    // be reached (the reason goes to stderr). `icon` is the window's own
+    // icon where the OS takes one from the client; null leaves it to the OS.
+    static std::unique_ptr<Window> create(std::string const& title, int width, int height,
+        Bitmap const* icon = nullptr);
     virtual ~Window() = default;
 
     // Non-blocking: dequeues one event; false when none is pending.

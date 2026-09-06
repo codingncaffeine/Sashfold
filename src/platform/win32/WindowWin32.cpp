@@ -383,8 +383,9 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, int width, i
     return window;
 }
 
-std::unique_ptr<Window> Window::create(std::string const& title, int width, int height)
+std::unique_ptr<Window> Window::create(std::string const& title, int width, int height, Bitmap const*)
 {
+    // The icon comes from the executable's resources on Windows.
     return WindowWin32::open(title, width, height);
 }
 

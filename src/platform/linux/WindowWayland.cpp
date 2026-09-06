@@ -1,0 +1,1408 @@
+#include "platform/Window.h"
+
+// The Wayland window: the wire client in Wayland.cpp carries the requests
+// and events; this file knows the interfaces. wl_shm buffers in a memfd
+// carry the frame (the pixels are ours; the compositor only composites
+// them), xdg-shell places the toplevel, xdg-decoration asks the compositor
+// for its own title bar (KDE, sway and friends draw one; a compositor that
+// insists on client-side decorations gets a bare surface for now), the
+// seat's pointer and keyboard become WindowEvents with the keymap parsed
+// in Xkb.cpp, cursor-shape-v1 names the cursor instead of us loading a
+// cursor theme, toplevel-icon-v1 hands over the brand icon, and the data
+// device carries the clipboard. Opcodes and enum values are read off the
+// protocol XML files, named here exactly as the protocol names them.
+
+#include "platform/linux/Wayland.h"
+#include "platform/linux/WindowWayland.h"
+#include "platform/linux/Xkb.h"
+
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+namespace sashfold::platform {
+
+namespace {
+
+using wayland::Connection;
+using wayland::Message;
+using wayland::Request;
+
+// --- Protocol vocabulary ----------------------------------------------------
+
+namespace wl_display {
+    constexpr std::uint16_t get_registry = 1;
+}
+namespace wl_registry {
+    constexpr std::uint16_t bind = 0;
+    constexpr std::uint16_t event_global = 0;
+}
+namespace wl_compositor {
+    constexpr std::uint16_t create_surface = 0;
+}
+namespace wl_shm {
+    constexpr std::uint16_t create_pool = 0;
+    constexpr std::uint32_t format_argb8888 = 0;
+    constexpr std::uint32_t format_xrgb8888 = 1;
+}
+namespace wl_shm_pool {
+    constexpr std::uint16_t create_buffer = 0;
+    constexpr std::uint16_t destroy = 1;
+}
+namespace wl_buffer {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t event_release = 0;
+}
+namespace wl_surface {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t attach = 1;
+    constexpr std::uint16_t damage = 2;
+    constexpr std::uint16_t frame = 3;
+    constexpr std::uint16_t commit = 6;
+    constexpr std::uint16_t damage_buffer = 9; // since 4
+}
+namespace wl_seat {
+    constexpr std::uint16_t get_pointer = 0;
+    constexpr std::uint16_t get_keyboard = 1;
+    constexpr std::uint16_t event_capabilities = 0;
+    constexpr std::uint32_t capability_pointer = 1;
+    constexpr std::uint32_t capability_keyboard = 2;
+}
+namespace wl_pointer {
+    constexpr std::uint16_t event_enter = 0;
+    constexpr std::uint16_t event_leave = 1;
+    constexpr std::uint16_t event_motion = 2;
+    constexpr std::uint16_t event_button = 3;
+    constexpr std::uint16_t event_axis = 4;
+    constexpr std::uint16_t event_frame = 5;
+    constexpr std::uint16_t event_axis_discrete = 8;
+    constexpr std::uint16_t event_axis_value120 = 9;
+    constexpr std::uint32_t axis_vertical_scroll = 0;
+    constexpr std::uint32_t button_state_pressed = 1;
+    constexpr std::uint32_t btn_left = 0x110; // linux/input-event-codes.h
+    constexpr std::uint32_t btn_right = 0x111;
+    constexpr std::uint32_t btn_middle = 0x112;
+}
+namespace wl_keyboard {
+    constexpr std::uint16_t event_keymap = 0;
+    constexpr std::uint16_t event_enter = 1;
+    constexpr std::uint16_t event_leave = 2;
+    constexpr std::uint16_t event_key = 3;
+    constexpr std::uint16_t event_modifiers = 4;
+    constexpr std::uint16_t event_repeat_info = 5;
+    constexpr std::uint32_t keymap_format_xkb_v1 = 1;
+    constexpr std::uint32_t key_state_pressed = 1;
+}
+namespace wl_data_device_manager {
+    constexpr std::uint16_t create_data_source = 0;
+    constexpr std::uint16_t get_data_device = 1;
+}
+namespace wl_data_device {
+    constexpr std::uint16_t set_selection = 1;
+    constexpr std::uint16_t event_data_offer = 0;
+    constexpr std::uint16_t event_enter = 1;
+    constexpr std::uint16_t event_selection = 5;
+}
+namespace wl_data_offer {
+    constexpr std::uint16_t receive = 1;
+    constexpr std::uint16_t destroy = 2;
+    constexpr std::uint16_t event_offer = 0;
+}
+namespace wl_data_source {
+    constexpr std::uint16_t offer = 0;
+    constexpr std::uint16_t destroy = 1;
+    constexpr std::uint16_t event_send = 1;
+    constexpr std::uint16_t event_cancelled = 2;
+}
+namespace xdg_wm_base {
+    constexpr std::uint16_t get_xdg_surface = 2;
+    constexpr std::uint16_t pong = 3;
+    constexpr std::uint16_t event_ping = 0;
+}
+namespace xdg_surface {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t get_toplevel = 1;
+    constexpr std::uint16_t ack_configure = 4;
+    constexpr std::uint16_t event_configure = 0;
+}
+namespace xdg_toplevel {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t set_title = 2;
+    constexpr std::uint16_t set_app_id = 3;
+    constexpr std::uint16_t set_min_size = 8;
+    constexpr std::uint16_t event_configure = 0;
+    constexpr std::uint16_t event_close = 1;
+    constexpr std::uint16_t event_configure_bounds = 2; // since 4
+}
+namespace zxdg_decoration_manager_v1 {
+    constexpr std::uint16_t get_toplevel_decoration = 1;
+}
+namespace zxdg_toplevel_decoration_v1 {
+    constexpr std::uint16_t set_mode = 1;
+    constexpr std::uint16_t event_configure = 0;
+    constexpr std::uint32_t mode_server_side = 2;
+}
+namespace wp_cursor_shape_manager_v1 {
+    constexpr std::uint16_t get_pointer = 1;
+}
+namespace wp_cursor_shape_device_v1 {
+    constexpr std::uint16_t set_shape = 1;
+    constexpr std::uint32_t shape_default = 1;
+    constexpr std::uint32_t shape_pointer = 4;
+    constexpr std::uint32_t shape_text = 9;
+}
+namespace xdg_toplevel_icon_manager_v1 {
+    constexpr std::uint16_t create_icon = 1;
+    constexpr std::uint16_t set_icon = 2;
+    constexpr std::uint16_t event_icon_size = 0;
+}
+namespace xdg_toplevel_icon_v1 {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t set_name = 1;
+    constexpr std::uint16_t add_buffer = 2;
+}
+
+constexpr char const* app_id = "sashfold"; // matches sashfold.desktop: the icon and name the shell shows
+constexpr int icon_fallback_sizes[] = { 16, 32, 48, 64, 128, 256 };
+
+bool debug_enabled()
+{
+    static bool const enabled = [] {
+        char const* value = std::getenv("SASHFOLD_WAYLAND_DEBUG");
+        return value && *value && *value != '0';
+    }();
+    return enabled;
+}
+
+template<typename... Args>
+void debug(char const* format, Args... args)
+{
+    if (debug_enabled()) {
+        std::fprintf(stderr, "wayland: ");
+        std::fprintf(stderr, format, args...);
+        std::fputc('\n', stderr);
+    }
+}
+
+void* const mmap_failed = reinterpret_cast<void*>(static_cast<std::intptr_t>(-1));
+
+// A memfd the compositor maps too.
+struct SharedMemory {
+    int fd = -1;
+    std::uint8_t* map = nullptr;
+    std::size_t size = 0;
+
+    bool create(std::size_t bytes)
+    {
+        fd = memfd_create("sashfold-frame", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+        if (fd < 0)
+            return false;
+        if (ftruncate(fd, static_cast<off_t>(bytes)) != 0) {
+            release();
+            return false;
+        }
+        fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_SEAL); // a pool the compositor can trust not to shrink
+        void* const mapped = mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (mapped == mmap_failed) {
+            release();
+            return false;
+        }
+        map = static_cast<std::uint8_t*>(mapped);
+        size = bytes;
+        return true;
+    }
+
+    void release()
+    {
+        if (map)
+            munmap(map, size);
+        if (fd >= 0)
+            ::close(fd);
+        map = nullptr;
+        size = 0;
+        fd = -1;
+    }
+};
+
+Key named_key(std::uint32_t keysym)
+{
+    switch (keysym) {
+    case 0xff0d: // Return
+    case 0xff8d: // KP_Enter
+        return Key::Enter;
+    case 0xff1b: return Key::Escape;
+    case 0xff08: return Key::Backspace;
+    case 0xffff: // Delete
+    case 0xff9f: // KP_Delete
+        return Key::Delete;
+    case 0xff09: // Tab
+    case 0xfe20: // ISO_Left_Tab, what Shift+Tab produces
+        return Key::Tab;
+    case 0x0020: // space
+    case 0xff80: // KP_Space
+        return Key::Space;
+    case 0xff51: case 0xff96: return Key::Left;
+    case 0xff52: case 0xff97: return Key::Up;
+    case 0xff53: case 0xff98: return Key::Right;
+    case 0xff54: case 0xff99: return Key::Down;
+    case 0xff50: case 0xff95: return Key::Home;
+    case 0xff57: case 0xff9c: return Key::End;
+    case 0xff55: case 0xff9a: return Key::PageUp;
+    case 0xff56: case 0xff9b: return Key::PageDown;
+    case 0xffc2: return Key::F5;
+    case 0xffc9: return Key::F12;
+    default: return Key::None;
+    }
+}
+
+// The letter a shortcut is named by: the key's unshifted symbol when that
+// is a Latin letter or digit (Ctrl+L on any layout that has an L).
+char32_t shortcut_letter(std::uint32_t keysym)
+{
+    if (keysym >= 'a' && keysym <= 'z')
+        return static_cast<char32_t>(keysym - 'a' + 'A');
+    if ((keysym >= 'A' && keysym <= 'Z') || (keysym >= '0' && keysym <= '9'))
+        return static_cast<char32_t>(keysym);
+    return 0;
+}
+
+// The icon squared and box-filtered to `size`, premultiplied ARGB8888 as
+// wl_shm wants it (bytes B, G, R, A on a little-endian machine).
+std::vector<std::uint8_t> scaled_icon(Bitmap const& icon, int size)
+{
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4, 0);
+    int const side = std::max(icon.width(), icon.height());
+    if (side <= 0 || size <= 0)
+        return out;
+    int const offset_x = (side - icon.width()) / 2;
+    int const offset_y = (side - icon.height()) / 2;
+    std::vector<std::uint8_t> const& src = icon.pixels();
+    for (int y = 0; y < size; ++y) {
+        int const sy0 = y * side / size;
+        int const sy1 = std::max(sy0 + 1, (y + 1) * side / size);
+        for (int x = 0; x < size; ++x) {
+            int const sx0 = x * side / size;
+            int const sx1 = std::max(sx0 + 1, (x + 1) * side / size);
+            std::uint64_t r = 0, g = 0, b = 0, a = 0, count = 0;
+            for (int sy = sy0; sy < sy1; ++sy) {
+                for (int sx = sx0; sx < sx1; ++sx) {
+                    ++count;
+                    int const ix = sx - offset_x;
+                    int const iy = sy - offset_y;
+                    if (ix < 0 || iy < 0 || ix >= icon.width() || iy >= icon.height())
+                        continue; // the padding: transparent
+                    std::size_t const at = (static_cast<std::size_t>(iy) * static_cast<std::size_t>(icon.width())
+                                               + static_cast<std::size_t>(ix))
+                        * 4;
+                    std::uint64_t const alpha = src[at + 3];
+                    r += src[at + 0] * alpha;
+                    g += src[at + 1] * alpha;
+                    b += src[at + 2] * alpha;
+                    a += alpha * 255;
+                }
+            }
+            std::uint64_t const divisor = count * 255;
+            std::size_t const at = (static_cast<std::size_t>(y) * static_cast<std::size_t>(size)
+                                       + static_cast<std::size_t>(x))
+                * 4;
+            out[at + 0] = static_cast<std::uint8_t>(b / divisor);
+            out[at + 1] = static_cast<std::uint8_t>(g / divisor);
+            out[at + 2] = static_cast<std::uint8_t>(r / divisor);
+            out[at + 3] = static_cast<std::uint8_t>(a / divisor);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+class WaylandWindow final : public Window {
+public:
+    static std::unique_ptr<Window> open(std::string const& title, int width, int height, Bitmap const* icon);
+    ~WaylandWindow() override;
+
+    bool poll(WindowEvent& event) override;
+    void wait(int timeout_ms) override;
+    void present(Bitmap const& frame) override;
+    void set_title(std::string const& title) override;
+    void set_cursor(Cursor cursor) override;
+    int width() const override { return m_width; }
+    int height() const override { return m_height; }
+
+    bool write_clipboard(std::string const& utf8);
+    std::optional<std::string> read_clipboard();
+
+private:
+    struct Global {
+        std::uint32_t name = 0;
+        std::uint32_t version = 0;
+    };
+    struct FrameBuffer {
+        SharedMemory memory;
+        std::uint32_t pool = 0;
+        std::uint32_t buffer = 0;
+        int width = 0;
+        int height = 0;
+        bool busy = false; // attached, and the compositor has not released it
+    };
+
+    WaylandWindow(std::unique_ptr<Connection> connection, int width, int height);
+    bool setup(std::string const& title, Bitmap const* icon, std::string& error);
+    std::uint32_t bind(std::string const& interface, std::uint32_t version);
+    void send(Request& request) { m_connection->send(request); }
+    void pump(int timeout_ms);
+    void fail();
+    void push(WindowEvent const& event) { m_events.push_back(event); }
+
+    void listen_seat();
+    void listen_pointer();
+    void listen_keyboard();
+    void listen_data_device();
+    void upload_icon(Bitmap const& icon);
+    bool ensure_frame_buffer(FrameBuffer& frame, int width, int height);
+    void release_frame_buffer(FrameBuffer& frame);
+    void apply_cursor();
+    void emit_key(std::uint32_t keycode);
+    void repeat_keys();
+    void push_wheel();
+    void destroy_offer(std::uint32_t id);
+
+    std::unique_ptr<Connection> m_connection;
+    std::map<std::string, Global> m_globals;
+    std::uint32_t m_registry = 0;
+    std::uint32_t m_compositor = 0;
+    std::uint32_t m_compositor_version = 0;
+    std::uint32_t m_shm = 0;
+    std::uint32_t m_wm_base = 0;
+    std::uint32_t m_seat = 0;
+    std::uint32_t m_decoration_manager = 0;
+    std::uint32_t m_cursor_shape_manager = 0;
+    std::uint32_t m_icon_manager = 0;
+    std::uint32_t m_data_device_manager = 0;
+    std::uint32_t m_surface = 0;
+    std::uint32_t m_xdg_surface = 0;
+    std::uint32_t m_toplevel = 0;
+    std::uint32_t m_decoration = 0;
+    std::uint32_t m_pointer = 0;
+    std::uint32_t m_keyboard = 0;
+    std::uint32_t m_cursor_device = 0;
+    std::uint32_t m_data_device = 0;
+
+    int m_width;
+    int m_height;
+    int m_pending_width = 0;
+    int m_pending_height = 0;
+    bool m_configured = false;
+    bool m_closed = false;
+    std::deque<WindowEvent> m_events;
+
+    FrameBuffer m_frames[2];
+    bool m_frame_callback_pending = false;
+    SharedMemory m_icon_memory;
+    std::vector<std::uint32_t> m_icon_buffers;
+    std::vector<int> m_icon_sizes;
+
+    // Pointer
+    int m_pointer_x = 0;
+    int m_pointer_y = 0;
+    std::uint32_t m_pointer_enter_serial = 0;
+    bool m_pointer_inside = false;
+    Cursor m_cursor = Cursor::Arrow;
+    double m_axis_value = 0;
+    int m_axis_discrete = 0;
+    int m_axis_value120 = 0;
+    int m_wheel_remainder120 = 0;
+    double m_wheel_remainder = 0;
+
+    // Keyboard
+    std::optional<xkb::Keymap> m_keymap;
+    std::uint32_t m_alt_mask = xkb::mod1_mask;
+    std::uint32_t m_mods = 0;
+    std::uint32_t m_group = 0;
+    bool m_keyboard_focus = false;
+    int m_repeat_rate = 25;
+    int m_repeat_delay_ms = 600;
+    std::uint32_t m_repeat_keycode = 0;
+    std::chrono::steady_clock::time_point m_repeat_due;
+    std::uint32_t m_input_serial = 0; // the latest key or button: what set_selection wants
+
+    // Clipboard
+    std::uint32_t m_data_source = 0;
+    std::string m_clipboard_text;
+    bool m_selection_is_ours = false;
+    std::uint32_t m_selection_offer = 0;
+    std::map<std::uint32_t, std::vector<std::string>> m_offers; // id -> mime types
+};
+
+namespace {
+WaylandWindow* g_window = nullptr;
+}
+
+WaylandWindow* wayland_window()
+{
+    return g_window;
+}
+
+bool wayland_write_clipboard_text(WaylandWindow& window, std::string const& utf8)
+{
+    return window.write_clipboard(utf8);
+}
+
+std::optional<std::string> wayland_read_clipboard_text(WaylandWindow& window)
+{
+    return window.read_clipboard();
+}
+
+// --- Setup ------------------------------------------------------------------
+
+WaylandWindow::WaylandWindow(std::unique_ptr<Connection> connection, int width, int height)
+    : m_connection(std::move(connection))
+    , m_width(width)
+    , m_height(height)
+{
+}
+
+WaylandWindow::~WaylandWindow()
+{
+    if (g_window == this)
+        g_window = nullptr;
+    for (FrameBuffer& frame : m_frames)
+        release_frame_buffer(frame);
+    m_icon_memory.release();
+    if (!m_connection->failed()) {
+        if (m_toplevel) {
+            Request destroy(m_toplevel, xdg_toplevel::destroy);
+            send(destroy);
+        }
+        if (m_xdg_surface) {
+            Request destroy(m_xdg_surface, xdg_surface::destroy);
+            send(destroy);
+        }
+        if (m_surface) {
+            Request destroy(m_surface, wl_surface::destroy);
+            send(destroy);
+        }
+        m_connection->flush();
+    }
+}
+
+std::unique_ptr<Window> WaylandWindow::open(std::string const& title, int width, int height, Bitmap const* icon)
+{
+    std::string error;
+    std::unique_ptr<Connection> connection = Connection::connect(error);
+    if (!connection) {
+        std::fprintf(stderr, "sashfold: no Wayland display: %s\n", error.c_str());
+        return nullptr;
+    }
+    std::unique_ptr<WaylandWindow> window(new WaylandWindow(std::move(connection), width, height));
+    if (!window->setup(title, icon, error)) {
+        std::fprintf(stderr, "sashfold: cannot open a Wayland window: %s\n", error.c_str());
+        return nullptr;
+    }
+    g_window = window.get();
+    return window;
+}
+
+std::uint32_t WaylandWindow::bind(std::string const& interface, std::uint32_t version)
+{
+    auto const found = m_globals.find(interface);
+    if (found == m_globals.end())
+        return 0;
+    std::uint32_t const chosen = std::min(version, found->second.version);
+    std::uint32_t const id = m_connection->allocate_id();
+    Request request(m_registry, wl_registry::bind);
+    request.uint(found->second.name).string(interface).uint(chosen).new_id(id);
+    send(request);
+    debug("bound %s version %u as object %u", interface.c_str(), chosen, id);
+    return id;
+}
+
+bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::string& error)
+{
+    m_registry = m_connection->allocate_id();
+    m_connection->listen(m_registry, [this](std::uint16_t opcode, Message& message) {
+        if (opcode == wl_registry::event_global) {
+            std::uint32_t const name = message.uint();
+            std::string const interface = message.string();
+            std::uint32_t const version = message.uint();
+            if (!m_globals.contains(interface)) // the first of a kind is ours
+                m_globals[interface] = { name, version };
+        }
+    });
+    Request get_registry(Connection::display_id, wl_display::get_registry);
+    get_registry.new_id(m_registry);
+    send(get_registry);
+    if (!m_connection->roundtrip()) {
+        error = m_connection->error();
+        return false;
+    }
+
+    m_compositor = bind("wl_compositor", 4);
+    m_compositor_version = std::min(4u, m_globals["wl_compositor"].version);
+    m_shm = bind("wl_shm", 1);
+    m_wm_base = bind("xdg_wm_base", 6);
+    for (auto const& [required, id] : { std::pair("wl_compositor", m_compositor), std::pair("wl_shm", m_shm),
+             std::pair("xdg_wm_base", m_wm_base) }) {
+        if (id == 0) {
+            error = std::string("the compositor does not offer ") + required;
+            return false;
+        }
+    }
+    m_connection->listen(m_wm_base, [this](std::uint16_t opcode, Message& message) {
+        if (opcode == xdg_wm_base::event_ping) {
+            Request pong(m_wm_base, xdg_wm_base::pong);
+            pong.uint(message.uint());
+            send(pong);
+        }
+    });
+    m_seat = bind("wl_seat", 9);
+    if (m_seat)
+        listen_seat();
+    m_decoration_manager = bind("zxdg_decoration_manager_v1", 1);
+    m_cursor_shape_manager = bind("wp_cursor_shape_manager_v1", 1);
+    m_data_device_manager = bind("wl_data_device_manager", 3);
+    if (m_data_device_manager && m_seat)
+        listen_data_device();
+    m_icon_manager = bind("xdg_toplevel_icon_manager_v1", 1);
+    if (m_icon_manager) {
+        m_connection->listen(m_icon_manager, [this](std::uint16_t opcode, Message& message) {
+            if (opcode == xdg_toplevel_icon_manager_v1::event_icon_size)
+                m_icon_sizes.push_back(message.int_());
+        });
+    }
+
+    m_surface = m_connection->allocate_id();
+    Request create_surface(m_compositor, wl_compositor::create_surface);
+    create_surface.new_id(m_surface);
+    send(create_surface);
+
+    m_xdg_surface = m_connection->allocate_id();
+    Request get_xdg_surface(m_wm_base, xdg_wm_base::get_xdg_surface);
+    get_xdg_surface.new_id(m_xdg_surface).object(m_surface);
+    send(get_xdg_surface);
+    m_connection->listen(m_xdg_surface, [this](std::uint16_t opcode, Message& message) {
+        if (opcode != xdg_surface::event_configure)
+            return;
+        std::uint32_t const serial = message.uint();
+        Request ack(m_xdg_surface, xdg_surface::ack_configure);
+        ack.uint(serial);
+        send(ack);
+        if (m_pending_width > 0 && m_pending_height > 0
+            && (m_pending_width != m_width || m_pending_height != m_height)) {
+            m_width = m_pending_width;
+            m_height = m_pending_height;
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::Resize;
+            event.width = m_width;
+            event.height = m_height;
+            push(event);
+        }
+        m_pending_width = 0;
+        m_pending_height = 0;
+        debug("configure serial %u: %d x %d", serial, m_width, m_height);
+        m_configured = true;
+    });
+
+    m_toplevel = m_connection->allocate_id();
+    Request get_toplevel(m_xdg_surface, xdg_surface::get_toplevel);
+    get_toplevel.new_id(m_toplevel);
+    send(get_toplevel);
+    m_connection->listen(m_toplevel, [this](std::uint16_t opcode, Message& message) {
+        switch (opcode) {
+        case xdg_toplevel::event_configure: {
+            m_pending_width = message.int_();
+            m_pending_height = message.int_();
+            break; // the states array: nothing the shell asks about yet
+        }
+        case xdg_toplevel::event_close: {
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::Close;
+            push(event);
+            break;
+        }
+        case xdg_toplevel::event_configure_bounds: {
+            int const bound_width = message.int_();
+            int const bound_height = message.int_();
+            if (!m_configured && bound_width > 0 && bound_height > 0) {
+                m_width = std::min(m_width, bound_width);
+                m_height = std::min(m_height, bound_height);
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    });
+    set_title(title);
+    Request set_app_id(m_toplevel, xdg_toplevel::set_app_id);
+    set_app_id.string(app_id);
+    send(set_app_id);
+    Request set_min_size(m_toplevel, xdg_toplevel::set_min_size);
+    set_min_size.int_(320).int_(240);
+    send(set_min_size);
+
+    if (m_decoration_manager) {
+        m_decoration = m_connection->allocate_id();
+        Request get_decoration(m_decoration_manager, zxdg_decoration_manager_v1::get_toplevel_decoration);
+        get_decoration.new_id(m_decoration).object(m_toplevel);
+        send(get_decoration);
+        m_connection->listen(m_decoration, [](std::uint16_t opcode, Message& message) {
+            if (opcode == zxdg_toplevel_decoration_v1::event_configure)
+                debug("decoration mode %u (2 = the compositor's)", message.uint());
+        });
+        Request set_mode(m_decoration, zxdg_toplevel_decoration_v1::set_mode);
+        set_mode.uint(zxdg_toplevel_decoration_v1::mode_server_side);
+        send(set_mode);
+    }
+
+    // The seat's capabilities and the icon sizes arrive in this roundtrip.
+    if (!m_connection->roundtrip()) {
+        error = m_connection->error();
+        return false;
+    }
+    if (m_icon_manager && icon)
+        upload_icon(*icon);
+
+    // The initial commit carries no buffer; the compositor answers with the
+    // first configure, and only then may a frame be attached.
+    Request commit(m_surface, wl_surface::commit);
+    send(commit);
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!m_configured && !m_connection->failed() && std::chrono::steady_clock::now() < deadline)
+        m_connection->dispatch(100);
+    if (m_connection->failed()) {
+        error = m_connection->error();
+        return false;
+    }
+    if (!m_configured) {
+        error = "the compositor never configured the window";
+        return false;
+    }
+    return true;
+}
+
+void WaylandWindow::listen_seat()
+{
+    m_connection->listen(m_seat, [this](std::uint16_t opcode, Message& message) {
+        if (opcode != wl_seat::event_capabilities)
+            return;
+        std::uint32_t const capabilities = message.uint();
+        if ((capabilities & wl_seat::capability_pointer) && !m_pointer) {
+            m_pointer = m_connection->allocate_id();
+            Request get_pointer(m_seat, wl_seat::get_pointer);
+            get_pointer.new_id(m_pointer);
+            send(get_pointer);
+            listen_pointer();
+            if (m_cursor_shape_manager) {
+                m_cursor_device = m_connection->allocate_id();
+                Request get_device(m_cursor_shape_manager, wp_cursor_shape_manager_v1::get_pointer);
+                get_device.new_id(m_cursor_device).object(m_pointer);
+                send(get_device);
+            }
+        }
+        if ((capabilities & wl_seat::capability_keyboard) && !m_keyboard) {
+            m_keyboard = m_connection->allocate_id();
+            Request get_keyboard(m_seat, wl_seat::get_keyboard);
+            get_keyboard.new_id(m_keyboard);
+            send(get_keyboard);
+            listen_keyboard();
+        }
+    });
+}
+
+void WaylandWindow::listen_pointer()
+{
+    m_connection->listen(m_pointer, [this](std::uint16_t opcode, Message& message) {
+        switch (opcode) {
+        case wl_pointer::event_enter: {
+            m_pointer_enter_serial = message.uint();
+            message.object();
+            m_pointer_x = static_cast<int>(std::floor(message.fixed()));
+            m_pointer_y = static_cast<int>(std::floor(message.fixed()));
+            m_pointer_inside = true;
+            apply_cursor();
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::MouseMove;
+            event.x = m_pointer_x;
+            event.y = m_pointer_y;
+            push(event);
+            break;
+        }
+        case wl_pointer::event_leave:
+            m_pointer_inside = false;
+            break;
+        case wl_pointer::event_motion: {
+            message.uint(); // time
+            m_pointer_x = static_cast<int>(std::floor(message.fixed()));
+            m_pointer_y = static_cast<int>(std::floor(message.fixed()));
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::MouseMove;
+            event.x = m_pointer_x;
+            event.y = m_pointer_y;
+            push(event);
+            break;
+        }
+        case wl_pointer::event_button: {
+            m_input_serial = message.uint();
+            message.uint(); // time
+            std::uint32_t const button = message.uint();
+            std::uint32_t const state = message.uint();
+            int number = 0;
+            if (button == wl_pointer::btn_left)
+                number = 1;
+            else if (button == wl_pointer::btn_middle)
+                number = 2;
+            else if (button == wl_pointer::btn_right)
+                number = 3;
+            if (number == 0)
+                break;
+            WindowEvent event;
+            event.kind = state == wl_pointer::button_state_pressed ? WindowEvent::Kind::MouseDown
+                                                                   : WindowEvent::Kind::MouseUp;
+            event.x = m_pointer_x;
+            event.y = m_pointer_y;
+            event.button = number;
+            push(event);
+            break;
+        }
+        case wl_pointer::event_axis: {
+            message.uint(); // time
+            std::uint32_t const axis = message.uint();
+            double const value = message.fixed();
+            if (axis == wl_pointer::axis_vertical_scroll)
+                m_axis_value += value;
+            break;
+        }
+        case wl_pointer::event_axis_discrete: {
+            std::uint32_t const axis = message.uint();
+            std::int32_t const discrete = message.int_();
+            if (axis == wl_pointer::axis_vertical_scroll)
+                m_axis_discrete += discrete;
+            break;
+        }
+        case wl_pointer::event_axis_value120: {
+            std::uint32_t const axis = message.uint();
+            std::int32_t const value120 = message.int_();
+            if (axis == wl_pointer::axis_vertical_scroll)
+                m_axis_value120 += value120;
+            break;
+        }
+        case wl_pointer::event_frame:
+            push_wheel();
+            break;
+        default:
+            break; // axis_source, axis_stop, axis_relative_direction
+        }
+    });
+}
+
+// A wheel notch is 120 in value120 terms, one in discrete terms and 15
+// surface units on a continuous axis. Wayland's positive is toward the
+// bottom of the page; the shell's positive rolls away from the user.
+void WaylandWindow::push_wheel()
+{
+    int notches = 0;
+    if (m_axis_value120 != 0) {
+        m_wheel_remainder120 += m_axis_value120;
+        notches = m_wheel_remainder120 / 120;
+        m_wheel_remainder120 -= notches * 120;
+    } else if (m_axis_discrete != 0) {
+        notches = m_axis_discrete;
+    } else if (m_axis_value != 0) {
+        m_wheel_remainder += m_axis_value / 15.0;
+        notches = static_cast<int>(m_wheel_remainder);
+        m_wheel_remainder -= notches;
+    }
+    m_axis_value = 0;
+    m_axis_discrete = 0;
+    m_axis_value120 = 0;
+    if (notches == 0)
+        return;
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::Wheel;
+    event.x = m_pointer_x;
+    event.y = m_pointer_y;
+    event.wheel = -notches;
+    push(event);
+}
+
+void WaylandWindow::listen_keyboard()
+{
+    m_connection->listen(
+        m_keyboard,
+        [this](std::uint16_t opcode, Message& message) {
+            switch (opcode) {
+            case wl_keyboard::event_keymap: {
+                std::uint32_t const format = message.uint();
+                int const fd = message.fd();
+                std::uint32_t const size = message.uint();
+                if (fd < 0)
+                    break;
+                debug("keymap: format %u, %u bytes", format, size);
+                if (format == wl_keyboard::keymap_format_xkb_v1 && size > 0) {
+                    void* const mapped = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+                    if (mapped != mmap_failed) {
+                        char const* const text = static_cast<char const*>(mapped);
+                        std::string_view const keymap_text(text, strnlen(text, size));
+                        m_keymap = xkb::Keymap::parse(keymap_text);
+                        if (debug_enabled()) {
+                            // The instrument for a keymap the parser refuses: the text itself.
+                            char const* runtime = std::getenv("XDG_RUNTIME_DIR");
+                            std::string const path = std::string(runtime ? runtime : "/tmp") + "/sashfold-keymap.xkb";
+                            if (FILE* dump = std::fopen(path.c_str(), "wb")) {
+                                std::fwrite(keymap_text.data(), 1, keymap_text.size(), dump);
+                                std::fclose(dump);
+                                debug("keymap: text written to %s (parsed: %s)", path.c_str(), m_keymap ? "yes" : "NO");
+                            }
+                        }
+                        munmap(mapped, size);
+                    } else {
+                        debug("keymap: mmap failed: %s", std::strerror(errno));
+                    }
+                }
+                ::close(fd);
+                if (m_keymap) {
+                    m_alt_mask = xkb::mod1_mask | m_keymap->modifier_mask("Alt");
+                    debug("keymap: %zu keys, %zu types, alt mask 0x%x", m_keymap->key_count(),
+                        m_keymap->type_count(), m_alt_mask);
+                } else {
+                    std::fprintf(stderr, "sashfold: the compositor's keymap could not be read; keys will not type\n");
+                }
+                break;
+            }
+            case wl_keyboard::event_enter:
+                m_input_serial = message.uint();
+                m_keyboard_focus = true;
+                break;
+            case wl_keyboard::event_leave:
+                m_keyboard_focus = false;
+                m_repeat_keycode = 0;
+                break;
+            case wl_keyboard::event_key: {
+                m_input_serial = message.uint();
+                message.uint(); // time
+                std::uint32_t const keycode = message.uint() + 8; // evdev to xkb
+                std::uint32_t const state = message.uint();
+                if (state == wl_keyboard::key_state_pressed) {
+                    emit_key(keycode);
+                } else if (keycode == m_repeat_keycode) {
+                    m_repeat_keycode = 0;
+                }
+                break;
+            }
+            case wl_keyboard::event_modifiers: {
+                message.uint(); // serial
+                std::uint32_t const depressed = message.uint();
+                std::uint32_t const latched = message.uint();
+                std::uint32_t const locked = message.uint();
+                m_group = message.uint();
+                m_mods = depressed | latched | locked;
+                break;
+            }
+            case wl_keyboard::event_repeat_info:
+                m_repeat_rate = message.int_();
+                m_repeat_delay_ms = message.int_();
+                break;
+            default:
+                break;
+            }
+        },
+        { wl_keyboard::event_keymap });
+}
+
+void WaylandWindow::emit_key(std::uint32_t keycode)
+{
+    if (!m_keymap)
+        return;
+    std::uint32_t const keysym = m_keymap->keysym(keycode, m_mods, m_group);
+    WindowEvent key_event;
+    key_event.kind = WindowEvent::Kind::KeyDown;
+    key_event.key.ctrl = (m_mods & xkb::control_mask) != 0;
+    key_event.key.shift = (m_mods & xkb::shift_mask) != 0;
+    key_event.key.alt = (m_mods & m_alt_mask) != 0;
+    key_event.key.key = named_key(keysym);
+    if (key_event.key.key == Key::None) {
+        char32_t letter = shortcut_letter(m_keymap->keysym(keycode, 0, m_group));
+        if (letter == 0)
+            letter = shortcut_letter(m_keymap->keysym(keycode, 0, 0)); // the Latin group of a Cyrillic layout
+        if (letter != 0) {
+            key_event.key.key = Key::Letter;
+            key_event.key.letter = letter;
+        }
+    }
+    bool produced = false;
+    if (key_event.key.key != Key::None) {
+        push(key_event);
+        produced = true;
+    }
+    char32_t const code_point = xkb::keysym_code_point(keysym);
+    if (code_point >= 0x20 && code_point != 0x7f && !key_event.key.ctrl && !key_event.key.alt) {
+        WindowEvent text;
+        text.kind = WindowEvent::Kind::Text;
+        text.text = code_point;
+        push(text);
+        produced = true;
+    }
+    debug("key %u -> keysym 0x%x, mods 0x%x, group %u%s", keycode, keysym, m_mods, m_group,
+        produced ? "" : " (nothing for the shell)");
+    if (m_repeat_keycode != keycode) {
+        // A held key repeats after the delay, at the rate: the compositor
+        // tells both, the client does the repeating.
+        if (produced && !xkb::keysym_is_modifier(keysym) && m_repeat_rate > 0) {
+            m_repeat_keycode = keycode;
+            m_repeat_due = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_repeat_delay_ms);
+        } else {
+            m_repeat_keycode = 0;
+        }
+    }
+}
+
+void WaylandWindow::repeat_keys()
+{
+    if (m_repeat_keycode == 0 || !m_keyboard_focus || m_repeat_rate <= 0)
+        return;
+    auto const now = std::chrono::steady_clock::now();
+    if (now < m_repeat_due)
+        return;
+    std::uint32_t const keycode = m_repeat_keycode;
+    emit_key(keycode);
+    auto const interval = std::chrono::milliseconds(std::max(1, 1000 / m_repeat_rate));
+    m_repeat_due += interval;
+    if (m_repeat_due < now) // a long block: one repeat, then back on the clock
+        m_repeat_due = now + interval;
+}
+
+void WaylandWindow::listen_data_device()
+{
+    m_data_device = m_connection->allocate_id();
+    Request get_device(m_data_device_manager, wl_data_device_manager::get_data_device);
+    get_device.new_id(m_data_device).object(m_seat);
+    send(get_device);
+    m_connection->listen(m_data_device, [this](std::uint16_t opcode, Message& message) {
+        switch (opcode) {
+        case wl_data_device::event_data_offer: {
+            std::uint32_t const id = message.new_id();
+            m_offers[id] = {};
+            m_connection->listen(id, [this, id](std::uint16_t offer_opcode, Message& offer_message) {
+                if (offer_opcode == wl_data_offer::event_offer)
+                    m_offers[id].push_back(offer_message.string());
+            });
+            break;
+        }
+        case wl_data_device::event_enter: {
+            // A drag over the window: not accepted, so its offer goes at once.
+            message.uint(); // serial
+            message.object(); // surface
+            message.fixed();
+            message.fixed();
+            if (std::uint32_t const id = message.object())
+                destroy_offer(id);
+            break;
+        }
+        case wl_data_device::event_selection: {
+            std::uint32_t const id = message.object();
+            if (m_selection_offer && m_selection_offer != id)
+                destroy_offer(m_selection_offer);
+            m_selection_offer = id;
+            break;
+        }
+        default:
+            break;
+        }
+    });
+}
+
+void WaylandWindow::destroy_offer(std::uint32_t id)
+{
+    Request destroy(id, wl_data_offer::destroy);
+    send(destroy);
+    m_connection->forget(id);
+    m_offers.erase(id);
+    if (m_selection_offer == id)
+        m_selection_offer = 0;
+}
+
+bool WaylandWindow::write_clipboard(std::string const& utf8)
+{
+    if (!m_data_device || m_input_serial == 0 || m_connection->failed())
+        return false;
+    if (m_data_source) {
+        Request destroy(m_data_source, wl_data_source::destroy);
+        send(destroy);
+        m_connection->forget(m_data_source);
+    }
+    m_data_source = m_connection->allocate_id();
+    Request create(m_data_device_manager, wl_data_device_manager::create_data_source);
+    create.new_id(m_data_source);
+    send(create);
+    std::uint32_t const source = m_data_source;
+    m_connection->listen(
+        source,
+        [this, source](std::uint16_t opcode, Message& message) {
+            if (opcode == wl_data_source::event_send) {
+                message.string(); // the mime type: every one offered is text
+                int const fd = message.fd();
+                if (fd < 0)
+                    return;
+                fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+                std::size_t written = 0;
+                while (written < m_clipboard_text.size()) {
+                    ssize_t const count = ::write(fd, m_clipboard_text.data() + written, m_clipboard_text.size() - written);
+                    if (count > 0) {
+                        written += static_cast<std::size_t>(count);
+                        continue;
+                    }
+                    if (count < 0 && (errno == EAGAIN || errno == EINTR)) {
+                        pollfd waiter { fd, POLLOUT, 0 };
+                        if (::poll(&waiter, 1, 1000) <= 0)
+                            break; // a reader that stalled: give up on it
+                        continue;
+                    }
+                    break;
+                }
+                ::close(fd);
+            } else if (opcode == wl_data_source::event_cancelled) {
+                Request destroy(source, wl_data_source::destroy);
+                send(destroy);
+                m_connection->forget(source);
+                if (m_data_source == source) {
+                    m_data_source = 0;
+                    m_selection_is_ours = false;
+                }
+            }
+        },
+        { wl_data_source::event_send });
+    for (char const* mime : { "text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING" }) {
+        Request offer(m_data_source, wl_data_source::offer);
+        offer.string(mime);
+        send(offer);
+    }
+    Request set_selection(m_data_device, wl_data_device::set_selection);
+    set_selection.object(m_data_source).uint(m_input_serial);
+    send(set_selection);
+    m_clipboard_text = utf8;
+    m_selection_is_ours = true;
+    return m_connection->flush();
+}
+
+std::optional<std::string> WaylandWindow::read_clipboard()
+{
+    if (m_selection_is_ours)
+        return m_clipboard_text;
+    if (!m_selection_offer || m_connection->failed())
+        return std::nullopt;
+    std::vector<std::string> const& mimes = m_offers[m_selection_offer];
+    std::string chosen;
+    for (char const* wanted : { "text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "TEXT", "STRING" }) {
+        if (std::find(mimes.begin(), mimes.end(), wanted) != mimes.end()) {
+            chosen = wanted;
+            break;
+        }
+    }
+    if (chosen.empty())
+        return std::nullopt;
+    int pipe_fds[2];
+    if (pipe2(pipe_fds, O_CLOEXEC) != 0)
+        return std::nullopt;
+    Request receive(m_selection_offer, wl_data_offer::receive);
+    receive.string(chosen).fd(pipe_fds[1]);
+    send(receive);
+    ::close(pipe_fds[1]);
+    m_connection->roundtrip(); // the owner has the request now
+    std::string text;
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    for (;;) {
+        auto const now = std::chrono::steady_clock::now();
+        if (now >= deadline)
+            break;
+        int const remaining = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+        pollfd waiter { pipe_fds[0], POLLIN, 0 };
+        if (::poll(&waiter, 1, remaining) <= 0)
+            break;
+        char chunk[4096];
+        ssize_t const count = ::read(pipe_fds[0], chunk, sizeof chunk);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            break;
+        text.append(chunk, static_cast<std::size_t>(count));
+    }
+    ::close(pipe_fds[0]);
+    return text;
+}
+
+// --- Buffers ----------------------------------------------------------------
+
+bool WaylandWindow::ensure_frame_buffer(FrameBuffer& frame, int width, int height)
+{
+    if (frame.buffer && frame.width == width && frame.height == height)
+        return true;
+    release_frame_buffer(frame);
+    std::size_t const stride = static_cast<std::size_t>(width) * 4;
+    std::size_t const size = stride * static_cast<std::size_t>(height);
+    if (!frame.memory.create(size))
+        return false;
+    frame.pool = m_connection->allocate_id();
+    Request create_pool(m_shm, wl_shm::create_pool);
+    create_pool.new_id(frame.pool).fd(frame.memory.fd).int_(static_cast<std::int32_t>(size));
+    send(create_pool);
+    frame.buffer = m_connection->allocate_id();
+    Request create_buffer(frame.pool, wl_shm_pool::create_buffer);
+    create_buffer.new_id(frame.buffer)
+        .int_(0)
+        .int_(width)
+        .int_(height)
+        .int_(static_cast<std::int32_t>(stride))
+        .uint(wl_shm::format_xrgb8888);
+    send(create_buffer);
+    FrameBuffer* const slot = &frame;
+    m_connection->listen(frame.buffer, [slot](std::uint16_t opcode, Message&) {
+        if (opcode == wl_buffer::event_release)
+            slot->busy = false;
+    });
+    frame.width = width;
+    frame.height = height;
+    frame.busy = false;
+    return true;
+}
+
+void WaylandWindow::release_frame_buffer(FrameBuffer& frame)
+{
+    if (frame.buffer) {
+        Request destroy(frame.buffer, wl_buffer::destroy);
+        send(destroy);
+        m_connection->forget(frame.buffer);
+        frame.buffer = 0;
+    }
+    if (frame.pool) {
+        Request destroy(frame.pool, wl_shm_pool::destroy);
+        send(destroy);
+        m_connection->forget(frame.pool);
+        frame.pool = 0;
+    }
+    frame.memory.release();
+    frame.width = 0;
+    frame.height = 0;
+    frame.busy = false;
+}
+
+void WaylandWindow::upload_icon(Bitmap const& icon)
+{
+    std::vector<int> sizes = m_icon_sizes;
+    if (sizes.empty())
+        sizes.assign(std::begin(icon_fallback_sizes), std::end(icon_fallback_sizes));
+    std::sort(sizes.begin(), sizes.end());
+    sizes.erase(std::unique(sizes.begin(), sizes.end()), sizes.end());
+    std::size_t total = 0;
+    for (int const size : sizes)
+        total += static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4;
+    if (total == 0 || !m_icon_memory.create(total))
+        return;
+    std::uint32_t const pool = m_connection->allocate_id();
+    Request create_pool(m_shm, wl_shm::create_pool);
+    create_pool.new_id(pool).fd(m_icon_memory.fd).int_(static_cast<std::int32_t>(total));
+    send(create_pool);
+    std::uint32_t const icon_object = m_connection->allocate_id();
+    Request create_icon(m_icon_manager, xdg_toplevel_icon_manager_v1::create_icon);
+    create_icon.new_id(icon_object);
+    send(create_icon);
+    Request set_name(icon_object, xdg_toplevel_icon_v1::set_name);
+    set_name.string(app_id); // the installed theme icon, when there is one
+    send(set_name);
+    std::size_t offset = 0;
+    for (int const size : sizes) {
+        std::vector<std::uint8_t> const pixels = scaled_icon(icon, size);
+        std::memcpy(m_icon_memory.map + offset, pixels.data(), pixels.size());
+        std::uint32_t const buffer = m_connection->allocate_id();
+        Request create_buffer(pool, wl_shm_pool::create_buffer);
+        create_buffer.new_id(buffer)
+            .int_(static_cast<std::int32_t>(offset))
+            .int_(size)
+            .int_(size)
+            .int_(size * 4)
+            .uint(wl_shm::format_argb8888);
+        send(create_buffer);
+        Request add_buffer(icon_object, xdg_toplevel_icon_v1::add_buffer);
+        add_buffer.object(buffer).int_(1);
+        send(add_buffer);
+        m_icon_buffers.push_back(buffer); // kept for the window's life: the icon holds them
+        offset += pixels.size();
+    }
+    Request set_icon(m_icon_manager, xdg_toplevel_icon_manager_v1::set_icon);
+    set_icon.object(m_toplevel).object(icon_object);
+    send(set_icon);
+    Request destroy_icon(icon_object, xdg_toplevel_icon_v1::destroy);
+    send(destroy_icon);
+    Request destroy_pool(pool, wl_shm_pool::destroy);
+    send(destroy_pool); // the buffers keep the pool's pages alive
+    debug("icon: %zu sizes uploaded (%d .. %d)", sizes.size(), sizes.front(), sizes.back());
+}
+
+// --- The Window interface ---------------------------------------------------
+
+void WaylandWindow::pump(int timeout_ms)
+{
+    int const dispatched = m_connection->dispatch(timeout_ms);
+    if (dispatched < 0)
+        fail();
+    else if (dispatched > 0)
+        debug("dispatched %d events (waited up to %d ms)", dispatched, timeout_ms);
+    repeat_keys();
+}
+
+void WaylandWindow::fail()
+{
+    if (m_closed)
+        return;
+    m_closed = true;
+    std::fprintf(stderr, "sashfold: %s\n", m_connection->error().c_str());
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::Close;
+    push(event);
+}
+
+bool WaylandWindow::poll(WindowEvent& event)
+{
+    if (!m_closed)
+        pump(0);
+    if (m_events.empty())
+        return false;
+    event = m_events.front();
+    m_events.pop_front();
+    return true;
+}
+
+void WaylandWindow::wait(int timeout_ms)
+{
+    if (!m_events.empty() || m_closed)
+        return;
+    int timeout = timeout_ms;
+    if (m_repeat_keycode && m_keyboard_focus) {
+        auto const now = std::chrono::steady_clock::now();
+        int const until_repeat = m_repeat_due <= now
+            ? 0
+            : static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(m_repeat_due - now).count()) + 1;
+        timeout = timeout < 0 ? until_repeat : std::min(timeout, until_repeat);
+    }
+    pump(timeout);
+}
+
+void WaylandWindow::present(Bitmap const& frame)
+{
+    if (m_closed || frame.width() <= 0 || frame.height() <= 0)
+        return;
+    debug("present %d x %d", frame.width(), frame.height());
+    // One frame per display refresh: the callback of the last commit says
+    // the compositor has shown it. A window nobody can see gets no
+    // callbacks, so a short cap keeps the shell responsive there too.
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+    while (m_frame_callback_pending && !m_closed && std::chrono::steady_clock::now() < deadline)
+        pump(5);
+    FrameBuffer* chosen = nullptr;
+    for (auto attempt = 0; attempt < 20 && !chosen && !m_closed; ++attempt) {
+        for (FrameBuffer& candidate : m_frames) {
+            if (!candidate.busy) {
+                chosen = &candidate;
+                break;
+            }
+        }
+        if (!chosen)
+            pump(5); // both attached: the compositor releases one soon
+    }
+    if (!chosen)
+        chosen = &m_frames[0]; // a compositor that stopped releasing: draw anyway
+    if (!ensure_frame_buffer(*chosen, frame.width(), frame.height()))
+        return;
+    std::vector<std::uint8_t> const& rgba = frame.pixels();
+    std::uint8_t* out = chosen->memory.map;
+    for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
+        out[i + 0] = rgba[i + 2];
+        out[i + 1] = rgba[i + 1];
+        out[i + 2] = rgba[i + 0];
+        out[i + 3] = 0xff;
+    }
+    Request attach(m_surface, wl_surface::attach);
+    attach.object(chosen->buffer).int_(0).int_(0);
+    send(attach);
+    if (m_compositor_version >= 4) {
+        Request damage(m_surface, wl_surface::damage_buffer);
+        damage.int_(0).int_(0).int_(frame.width()).int_(frame.height());
+        send(damage);
+    } else {
+        Request damage(m_surface, wl_surface::damage);
+        damage.int_(0).int_(0).int_(frame.width()).int_(frame.height());
+        send(damage);
+    }
+    std::uint32_t const callback = m_connection->allocate_id();
+    Request frame_request(m_surface, wl_surface::frame);
+    frame_request.new_id(callback);
+    send(frame_request);
+    m_frame_callback_pending = true;
+    m_connection->listen(callback, [this, callback](std::uint16_t, Message&) {
+        m_frame_callback_pending = false;
+        m_connection->forget(callback);
+    });
+    Request commit(m_surface, wl_surface::commit);
+    send(commit);
+    chosen->busy = true;
+    if (!m_connection->flush())
+        fail();
+}
+
+void WaylandWindow::set_title(std::string const& title)
+{
+    Request request(m_toplevel, xdg_toplevel::set_title);
+    request.string(title);
+    send(request);
+    m_connection->flush();
+}
+
+void WaylandWindow::set_cursor(Cursor cursor)
+{
+    if (cursor == m_cursor)
+        return;
+    m_cursor = cursor;
+    if (m_pointer_inside) {
+        apply_cursor();
+        m_connection->flush();
+    }
+}
+
+void WaylandWindow::apply_cursor()
+{
+    if (!m_cursor_device || !m_pointer_inside)
+        return;
+    std::uint32_t shape = wp_cursor_shape_device_v1::shape_default;
+    switch (m_cursor) {
+    case Cursor::Hand: shape = wp_cursor_shape_device_v1::shape_pointer; break;
+    case Cursor::Text: shape = wp_cursor_shape_device_v1::shape_text; break;
+    case Cursor::Arrow: break;
+    }
+    Request set_shape(m_cursor_device, wp_cursor_shape_device_v1::set_shape);
+    set_shape.uint(m_pointer_enter_serial).uint(shape);
+    send(set_shape);
+}
+
+std::unique_ptr<Window> Window::create(std::string const& title, int width, int height, Bitmap const* icon)
+{
+    return WaylandWindow::open(title, width, height, icon);
+}
+
+}
