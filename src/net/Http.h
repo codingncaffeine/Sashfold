@@ -30,6 +30,19 @@ struct FetchResponse {
     std::vector<std::uint8_t> body; // after content decoding
     Url final_url; // where the redirect chain landed
     bool from_cache = false; // served by the MemoryCache, no network touched
+    bool redirected = false; // at least one redirect was followed on the way
+};
+
+// A request a page's script makes (fetch, XMLHttpRequest), as the loader
+// and the host hook carry it: the method, the headers the script set, the
+// body, whether cookies may flow, and whether a redirect is followed or
+// handed back as the response.
+struct ResourceRequest {
+    std::string method = "GET";
+    std::vector<Header> headers;
+    std::vector<std::uint8_t> body;
+    bool credentials = true;
+    bool follow_redirects = true;
 };
 
 class ConnectionPool;
@@ -56,6 +69,17 @@ struct FetchOptions {
     // is kept when the response leaves it reusable. Null means one
     // connection per request, closed after the response.
     ConnectionPool* pool = nullptr;
+    // The request beyond a plain GET: the method, headers the caller adds
+    // (each replacing the default of its name; Host, Content-Length,
+    // Connection, Accept-Encoding and Cookie stay the exchange's own), and
+    // a body sent with its length. A redirect keeps the method and body on
+    // 307 and 308 and turns a POST into a GET on 301, 302 and 303, as
+    // browsers do; with follow_redirects false a 3xx comes back as the
+    // response itself. Only a GET consults or feeds the cache.
+    std::string method = "GET";
+    std::vector<Header> headers;
+    std::vector<std::uint8_t> body;
+    bool follow_redirects = true;
 };
 
 struct FetchResult {
@@ -86,7 +110,7 @@ struct RawResponse {
 };
 std::optional<RawResponse> read_response(
     std::function<std::ptrdiff_t(std::uint8_t*, std::size_t)> const& read,
-    std::size_t max_body);
+    std::size_t max_body, bool head = false); // head: a HEAD's response carries no body
 
 // Exposed for tests: content decoding per Content-Encoding.
 std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encoding,

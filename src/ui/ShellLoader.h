@@ -17,6 +17,8 @@ public:
         bool bypass_cache) override;
     net::FetchResult load_subresource(net::Url const& url, net::Url const& first_party,
         std::string const& referrer) override;
+    net::FetchResult load_resource(net::Url const& url, net::Url const& first_party,
+        std::string const& referrer, net::ResourceRequest const& request) override;
     std::string cookies_for(net::Url const& url) override;
     void set_cookie(net::Url const& url, std::string_view set_cookie_line) override;
 

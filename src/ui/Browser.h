@@ -50,6 +50,19 @@ public:
         (void)referrer;
         return { std::nullopt, "this loader serves documents only" };
     }
+    // A request a page's script makes — fetch(), XMLHttpRequest — carried
+    // out on the page's behalf through the same session: the method, the
+    // headers and the body as given, cookies only when the request allows
+    // them, a redirect followed only when it asks.
+    virtual net::FetchResult load_resource(net::Url const& url, net::Url const& first_party,
+        std::string const& referrer, net::ResourceRequest const& request)
+    {
+        (void)url;
+        (void)first_party;
+        (void)referrer;
+        (void)request;
+        return { std::nullopt, "this loader serves documents only" };
+    }
     // document.cookie: the Cookie header the page would send, and a
     // Set-Cookie line a script wrote. A loader without a jar keeps none.
     virtual std::string cookies_for(net::Url const& url)

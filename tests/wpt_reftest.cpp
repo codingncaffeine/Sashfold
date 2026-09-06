@@ -419,6 +419,19 @@ private:
         if (lowercased(*source).find("<script") != std::string::npos) {
             bindings::HostHooks hooks;
             hooks.fetch_script = [this](net::Url const& target) { return read_url(target); };
+            hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request) -> net::FetchResult {
+                if (request.method != "GET")
+                    return { std::nullopt, "the reftest runner serves files only" };
+                std::optional<std::string> const text = read_url(target);
+                if (!text)
+                    return { std::nullopt, "not found" };
+                net::FetchResponse response;
+                response.status = 200;
+                response.status_text = "OK";
+                response.body.assign(text->begin(), text->end());
+                response.final_url = target;
+                return { std::move(response), "" };
+            };
             hooks.now = [&script_clock] { return script_clock; };
             auto const started = std::chrono::steady_clock::now();
             hooks.should_stop = [started] { return std::chrono::steady_clock::now() - started > std::chrono::seconds(5); };

@@ -112,6 +112,29 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url con
     return net::fetch(url, options);
 }
 
+net::FetchResult ShellLoader::load_resource(net::Url const& url, net::Url const& first_party,
+    std::string const& referrer, net::ResourceRequest const& request)
+{
+    if (url.scheme == "file") {
+        if (first_party.scheme != "file")
+            return { std::nullopt, "a web page cannot read local files" };
+        if (request.method != "GET" && request.method != "HEAD")
+            return { std::nullopt, "a local file takes no " + request.method };
+        return load_file(url);
+    }
+    net::FetchOptions options;
+    options.cookie_jar = request.credentials ? &m_cookies : nullptr;
+    options.first_party = &first_party;
+    options.referrer = referrer;
+    options.cache = &m_cache;
+    options.pool = &m_pool;
+    options.method = request.method;
+    options.headers = request.headers;
+    options.body = request.body;
+    options.follow_redirects = request.follow_redirects;
+    return net::fetch(url, options);
+}
+
 std::string ShellLoader::cookies_for(net::Url const& url)
 {
     using namespace std::chrono;

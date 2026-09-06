@@ -60,6 +60,34 @@ std::vector<std::uint8_t> read_file(std::filesystem::path const& path)
     return std::vector<std::uint8_t>(text.begin(), text.end());
 }
 
+// Serves one connection with a fixed response and keeps what the client
+// sent: the request head and, when a Content-Length says so, the body.
+void serve_capturing(platform::TcpListener& listener, std::string response, std::string& captured)
+{
+    auto client = listener.accept();
+    if (!client)
+        return;
+    std::uint8_t buffer[4096];
+    while (true) {
+        std::ptrdiff_t const got = client->receive(buffer, sizeof buffer);
+        if (got <= 0)
+            break;
+        captured.append(reinterpret_cast<char const*>(buffer), static_cast<std::size_t>(got));
+        std::size_t const head_end = captured.find("\r\n\r\n");
+        if (head_end == std::string::npos)
+            continue;
+        std::size_t length = 0;
+        std::string const head = captured.substr(0, head_end);
+        std::size_t const at = head.find("Content-Length: ");
+        if (at != std::string::npos)
+            length = static_cast<std::size_t>(std::stoul(head.substr(at + 16)));
+        if (captured.size() >= head_end + 4 + length)
+            break;
+    }
+    (void)client->send_all(reinterpret_cast<std::uint8_t const*>(response.data()), response.size());
+    client->close();
+}
+
 // Serves one connection with a fixed response, then exits.
 void serve_once(platform::TcpListener& listener, std::string response)
 {
@@ -199,6 +227,107 @@ int main(int argc, char** argv)
             }
             first_server.join();
             second_server.join();
+        }
+    }
+
+    // --- A POST with a body and headers, and the redirect that turns it ------
+    // into a GET: what a page's fetch() sends through the choke point.
+    {
+        std::string captured_first;
+        std::string captured_second;
+        auto second = platform::TcpListener::listen_loopback();
+        auto first = platform::TcpListener::listen_loopback();
+        CHECK(first.has_value() && second.has_value());
+        if (first && second) {
+            std::string const hop = "HTTP/1.1 303 See Other\r\nLocation: http://127.0.0.1:"
+                + std::to_string(second->port()) + "/next\r\nContent-Length: 0\r\n\r\n";
+            std::thread first_server(serve_capturing, std::ref(*first), hop, std::ref(captured_first));
+            std::thread second_server(serve_capturing, std::ref(*second),
+                std::string("HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndone"), std::ref(captured_second));
+            auto const url = net::parse_url(
+                "http://127.0.0.1:" + std::to_string(first->port()) + "/submit");
+            CHECK(url.has_value());
+            if (url) {
+                net::FetchOptions options;
+                options.method = "POST";
+                options.headers.push_back({ "X-Extra", "1" });
+                options.headers.push_back({ "Content-Type", "text/plain" });
+                options.headers.push_back({ "Host", "spoofed" }); // the exchange's own; never the caller's
+                std::string const body = "hello";
+                options.body.assign(body.begin(), body.end());
+                net::FetchResult const result = net::fetch(*url, options);
+                CHECK(result.response.has_value());
+                if (result.response) {
+                    CHECK_EQ(std::string(result.response->body.begin(), result.response->body.end()), "done");
+                    CHECK(result.response->redirected);
+                }
+            }
+            first_server.join();
+            second_server.join();
+            CHECK(captured_first.starts_with("POST /submit HTTP/1.1\r\n"));
+            CHECK(captured_first.find("X-Extra: 1\r\n") != std::string::npos);
+            CHECK(captured_first.find("Content-Type: text/plain\r\n") != std::string::npos);
+            CHECK(captured_first.find("Content-Length: 5\r\n") != std::string::npos);
+            CHECK(captured_first.find("Host: spoofed") == std::string::npos);
+            CHECK(captured_first.ends_with("\r\n\r\nhello"));
+            // After the 303: a GET, no body, the body's headers gone, the extra one kept.
+            CHECK(captured_second.starts_with("GET /next HTTP/1.1\r\n"));
+            CHECK(captured_second.find("Content-Type:") == std::string::npos);
+            CHECK(captured_second.find("Content-Length:") == std::string::npos);
+            CHECK(captured_second.find("X-Extra: 1\r\n") != std::string::npos);
+            CHECK(captured_second.ends_with("\r\n\r\n"));
+        }
+    }
+
+    // --- A HEAD answers with headers that describe a body that never comes --
+    {
+        std::string captured;
+        auto listener = platform::TcpListener::listen_loopback();
+        CHECK(listener.has_value());
+        if (listener) {
+            std::thread server(serve_capturing, std::ref(*listener),
+                std::string("HTTP/1.1 200 OK\r\nContent-Length: 999\r\nContent-Type: text/html\r\n\r\n"), std::ref(captured));
+            auto const url = net::parse_url("http://127.0.0.1:" + std::to_string(listener->port()) + "/head");
+            CHECK(url.has_value());
+            if (url) {
+                net::FetchOptions options;
+                options.method = "HEAD";
+                net::FetchResult const result = net::fetch(*url, options);
+                CHECK(result.response.has_value());
+                if (result.response) {
+                    CHECK_EQ(result.response->status, 200);
+                    CHECK(result.response->body.empty());
+                    std::string const* const type = net::find_header(result.response->headers, "content-type");
+                    CHECK(type && *type == "text/html");
+                }
+            }
+            server.join();
+            CHECK(captured.starts_with("HEAD /head HTTP/1.1\r\n"));
+        }
+    }
+
+    // --- A redirect handed back rather than followed --------------------------
+    {
+        auto listener = platform::TcpListener::listen_loopback();
+        CHECK(listener.has_value());
+        if (listener) {
+            std::thread server(serve_once, std::ref(*listener),
+                std::string("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/elsewhere\r\nContent-Length: 0\r\n\r\n"));
+            auto const url = net::parse_url("http://127.0.0.1:" + std::to_string(listener->port()) + "/stay");
+            CHECK(url.has_value());
+            if (url) {
+                net::FetchOptions options;
+                options.follow_redirects = false;
+                net::FetchResult const result = net::fetch(*url, options);
+                CHECK(result.response.has_value());
+                if (result.response) {
+                    CHECK_EQ(result.response->status, 302);
+                    CHECK(!result.response->redirected);
+                    std::string const* const location = net::find_header(result.response->headers, "location");
+                    CHECK(location && *location == "http://127.0.0.1:1/elsewhere");
+                }
+            }
+            server.join();
         }
     }
 

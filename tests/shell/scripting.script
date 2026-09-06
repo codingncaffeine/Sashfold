@@ -24,3 +24,13 @@ focus i
 type ab
 assert-text typed ab
 assert-value i ab
+
+# A page's own requests go through the shell's loader: a data: URL through
+# fetch and through XMLHttpRequest, each delivered on the next turn of the
+# event loop, so the page changes only once the loop has run.
+open data:text/html,<p id="r">waiting</p><script>fetch('data:text/plain,hello').then(function (r) { return r.text(); }).then(function (t) { document.getElementById('r').textContent = 'fetched ' + t; console.log('fetched ' + t); }); var x = new XMLHttpRequest(); x.open('GET', 'data:application/json,{"n":7}'); x.responseType = 'json'; x.onload = function () { console.log('xhr ' + x.status + ' ' + x.response.n); }; x.send(); console.log('sent ' + document.getElementById('r').textContent);</script>
+advance 1
+assert-text fetched hello
+assert-console log: sent waiting
+assert-console log: fetched hello
+assert-console log: xhr 200 7

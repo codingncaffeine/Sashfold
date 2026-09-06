@@ -6,6 +6,7 @@
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -30,6 +31,11 @@ struct Page {
     std::map<std::string, std::string> scripts; // URL → source, for <script src>
     std::vector<std::string> fetched;
     std::vector<net::Url> navigations;
+    // Canned responses for fetch() and XMLHttpRequest by URL, and the
+    // requests made: "METHOD url [body]" and every header sent.
+    std::map<std::string, net::FetchResponse> responses;
+    std::vector<std::string> requests;
+    std::vector<std::string> request_headers;
 
     explicit Page(std::string_view html, std::string const& url = "https://example.test/dir/page.html",
         bindings::HostHooks hooks = {})
@@ -44,6 +50,23 @@ struct Page {
             if (it == scripts.end())
                 return std::nullopt;
             return it->second;
+        };
+        hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request) -> net::FetchResult {
+            std::string line = request.method + " " + target.serialize();
+            if (!request.body.empty())
+                line += " " + std::string(request.body.begin(), request.body.end());
+            if (!request.credentials)
+                line += " (no credentials)";
+            requests.push_back(line);
+            for (net::Header const& header : request.headers)
+                request_headers.push_back(header.name + ": " + header.value);
+            auto const it = responses.find(target.serialize());
+            if (it == responses.end())
+                return { std::nullopt, "no such resource" };
+            net::FetchResponse response = it->second;
+            if (response.final_url.scheme.empty())
+                response.final_url = target;
+            return { std::move(response), "" };
         };
         hooks.navigate = [this](net::Url const& target) { navigations.push_back(target); };
         hooks.user_agent = "Mozilla/5.0 TestAgent Sashfold/0.0";
@@ -600,7 +623,7 @@ void test_window_location_url_storage_navigator()
     CHECK(page->boolean("navigator.userAgent === 'Mozilla/5.0 TestAgent Sashfold/0.0' && navigator.language === 'en-US' && navigator.languages.length === 2 && navigator.onLine && navigator.cookieEnabled && !('serviceWorker' in navigator)"));
     CHECK(page->boolean("innerWidth === 1024 && innerHeight === 768 && screen.width === 1024 && devicePixelRatio === 1"));
     CHECK(page->boolean("matchMedia('(min-width: 500px)').matches && !matchMedia('(max-width: 500px)').matches && matchMedia('screen').media === 'screen'"));
-    CHECK(page->boolean("typeof fetch === 'undefined' && typeof XMLHttpRequest === 'undefined' && typeof Promise === 'function'"));
+    CHECK(page->boolean("typeof fetch === 'function' && typeof XMLHttpRequest === 'function' && typeof Promise === 'function'"));
     // Promise reactions and queueMicrotask share the checkpoint's queue.
     page->eval("var order = []; Promise.resolve().then(function () { order.push('reaction'); }); queueMicrotask(function () { order.push('microtask'); }); order.push('sync');");
     CHECK_EQ(page->string("order.join(' ')"), "sync reaction microtask");
@@ -772,6 +795,221 @@ void test_binary_data()
     CHECK_EQ(page->console, "");
 }
 
+bool sent_header(Page const& page, std::string_view header)
+{
+    return std::find(page.request_headers.begin(), page.request_headers.end(), header) != page.request_headers.end();
+}
+
+void test_fetch_and_xhr()
+{
+    auto page = loaded("<!DOCTYPE html><form id=f><input name=a value=1><input name=b type=checkbox checked><input name=c type=checkbox>"
+                       "<textarea name=t>tt</textarea><input name=d disabled value=no><input type=submit name=go value=Go></form>");
+    net::FetchResponse json;
+    json.status = 200;
+    json.status_text = "OK";
+    json.headers.push_back({ "Content-Type", "application/json" });
+    json.headers.push_back({ "X-Custom", "yes" });
+    json.headers.push_back({ "Set-Cookie", "a=b" });
+    std::string const json_body = "{\"a\":1}";
+    json.body.assign(json_body.begin(), json_body.end());
+    page->responses["https://example.test/api"] = json;
+    page->responses["https://example.test/post"] = json;
+    page->responses["https://other.test/plain"] = json; // no Access-Control-Allow-Origin
+    net::FetchResponse allowed = json;
+    allowed.headers.push_back({ "Access-Control-Allow-Origin", "*" });
+    allowed.headers.push_back({ "Access-Control-Allow-Methods", "PUT" });
+    allowed.headers.push_back({ "Access-Control-Allow-Headers", "x-custom" });
+    page->responses["https://other.test/open"] = allowed;
+    net::FetchResponse exposed = allowed;
+    exposed.headers.push_back({ "Access-Control-Expose-Headers", "X-Custom" });
+    page->responses["https://other.test/exposed"] = exposed;
+    net::FetchResponse redirect;
+    redirect.status = 302;
+    redirect.status_text = "Found";
+    redirect.headers.push_back({ "Location", "/api" });
+    page->responses["https://example.test/r"] = redirect;
+
+    // fetch: a same-origin JSON response, delivered on the next task; the
+    // forbidden Set-Cookie never reaches the page.
+    page->eval("var out = []; fetch('/api').then(function (r) { out.push(r.status + ':' + r.ok + ':' + r.type + ':' + r.url + ':' + r.headers.get('content-type') + ':' + r.headers.get('x-custom') + ':' + r.headers.get('set-cookie') + ':' + r.bodyUsed); return r.json(); }).then(function (j) { out.push(j.a); });");
+    CHECK_EQ(page->number("out.length"), 0);
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join('|')"), "200:true:basic:https://example.test/api:application/json:yes:null:false|1");
+    CHECK_EQ(page->requests.back(), "GET https://example.test/api");
+    CHECK(sent_header(*page, "Accept: */*"));
+    // A POST: the method, the body, its Content-Type and the Origin reach
+    // the loader; a forbidden request header does not.
+    page->requests.clear();
+    page->request_headers.clear();
+    page->eval("out = []; fetch('/post', { method: 'post', headers: { 'X-Token': 'abc', cookie: 'no' }, body: 'hello' }).then(function (r) { out.push(r.status); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join()"), "200");
+    CHECK_EQ(page->requests.back(), "POST https://example.test/post hello");
+    CHECK(sent_header(*page, "x-token: abc"));
+    CHECK(sent_header(*page, "content-type: text/plain;charset=UTF-8"));
+    CHECK(sent_header(*page, "Origin: https://example.test"));
+    CHECK(!sent_header(*page, "cookie: no"));
+    // Cross-origin: no allow-origin is a network error; a star is a cors
+    // response showing the safelisted headers only, unless exposed.
+    page->eval("out = []; fetch('https://other.test/plain').then(function () { out.push('ok'); }, function (e) { out.push(e.name + ':' + e.message); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join()"), "TypeError:Failed to fetch");
+    page->eval("out = []; fetch('https://other.test/open').then(function (r) { out.push(r.type + ':' + r.headers.get('content-type') + ':' + r.headers.get('x-custom')); }); fetch('https://other.test/exposed').then(function (r) { out.push(r.headers.get('x-custom')); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join('|')"), "cors:application/json:null|yes");
+    page->eval("out = []; fetch('https://other.test/plain', { mode: 'no-cors' }).then(function (r) { out.push(r.type + ':' + r.status + ':' + r.ok + ':' + r.headers.get('content-type') + ':' + r.url); return r.text(); }).then(function (t) { out.push('[' + t + ']'); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join('|')"), "opaque:0:false:null:|[]");
+    page->requests.clear();
+    page->eval("out = []; fetch('https://other.test/open', { mode: 'same-origin' }).catch(function (e) { out.push(e.name); }); fetch('https://other.test/open', { credentials: 'include' }).catch(function (e) { out.push(e.name); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join()"), "TypeError,TypeError");
+    CHECK_EQ(page->requests.size(), 1u); // the same-origin refusal made no request; the credentialed one did and failed the check
+    // A preflight goes first for a PUT with a custom header.
+    page->requests.clear();
+    page->eval("out = []; fetch('https://other.test/open', { method: 'PUT', headers: { 'X-Custom': '1' }, body: 'b' }).then(function (r) { out.push(r.status); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join()"), "200");
+    CHECK_EQ(page->requests.size(), 2u);
+    if (page->requests.size() == 2) {
+        CHECK_EQ(page->requests[0], "OPTIONS https://other.test/open (no credentials)");
+        CHECK_EQ(page->requests[1], "PUT https://other.test/open b (no credentials)");
+    }
+    CHECK(sent_header(*page, "Access-Control-Request-Method: PUT"));
+    CHECK(sent_header(*page, "Access-Control-Request-Headers: x-custom"));
+    // The redirect modes.
+    page->eval("out = []; fetch('/r', { redirect: 'manual' }).then(function (r) { out.push(r.type + ':' + r.status); }); fetch('/r', { redirect: 'error' }).catch(function (e) { out.push(e.name); }); fetch('/r').then(function (r) { out.push(r.status); });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join('|')"), "opaqueredirect:0|TypeError|302");
+
+    // Headers.
+    CHECK(page->boolean("(function () { var h = new Headers({ 'Content-Type': 'text/plain', 'X-B': '1' }); h.append('x-b', '2'); h.append('Set-Cookie', 'a=1'); h.append('set-cookie', 'b=2'); return h.get('content-type') === 'text/plain' && h.get('X-B') === '1, 2' && h.has('x-b') && !h.has('nope') && h.get('nope') === null && h.getSetCookie().join('|') === 'a=1|b=2' && [...h.keys()].join() === 'content-type,set-cookie,set-cookie,x-b' && [...h].map(function (p) { return p.join('='); }).join('|') === 'content-type=text/plain|set-cookie=a=1|set-cookie=b=2|x-b=1, 2'; })()"));
+    CHECK(page->boolean("(function () { var h = new Headers([['a', '1'], ['A', '2']]); h.set('a', '3'); h.delete('zzz'); var seen = []; h.forEach(function (v, k) { seen.push(k + '=' + v); }); return h.get('a') === '3' && seen.join() === 'a=3' && new Headers(h).get('a') === '3' && new Headers().has('a') === false && Object.prototype.toString.call(h) === '[object Headers]'; })()"));
+    CHECK(page->throws("new Headers({ 'bad name': '1' })").starts_with("TypeError"));
+    CHECK(page->throws("new Headers({ ok: 'bad\\nvalue' })").starts_with("TypeError"));
+    CHECK(page->throws("new Headers([['only-one']])").starts_with("TypeError"));
+    CHECK(page->boolean("(function () { var r = new Request('/x', { headers: { Cookie: 'a=b', Accept: 'text/plain', 'Proxy-A': '1' } }); return r.headers.get('cookie') === null && r.headers.get('accept') === 'text/plain' && r.headers.get('proxy-a') === null; })()"));
+    page->eval("out = []; fetch('/api').then(function (r) { try { r.headers.set('a', 'b'); out.push('set'); } catch (e) { out.push(e.name); } });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join()"), "TypeError");
+
+    // Request and Response.
+    CHECK(page->boolean("(function () { var r = new Request('/x?q=1#frag', { method: 'post', body: 'b' }); return r.url === 'https://example.test/x?q=1' && r.method === 'POST' && r.mode === 'cors' && r.credentials === 'same-origin' && r.cache === 'default' && r.redirect === 'follow' && r.referrer === 'about:client' && r.headers.get('content-type') === 'text/plain;charset=UTF-8' && r.signal instanceof AbortSignal && !r.signal.aborted && r.bodyUsed === false && r.body === null && r.destination === '' && r.keepalive === false; })()"));
+    CHECK(page->boolean("(function () { var a = new Request('https://x.test/p', { method: 'PUT', body: 'z', mode: 'same-origin', credentials: 'include', redirect: 'manual' }); var b = new Request(a); var c = a.clone(); return b.url === a.url && b.method === 'PUT' && b.mode === 'same-origin' && b.credentials === 'include' && b.redirect === 'manual' && c.method === 'PUT' && new Request(a, { method: 'DELETE' }).method === 'DELETE'; })()"));
+    CHECK(page->throws("new Request('/x', { method: 'get', body: 'x' })").starts_with("TypeError"));
+    CHECK(page->throws("new Request('/x', { method: 'TRACE' })").starts_with("TypeError"));
+    CHECK(page->throws("new Request('/x', { mode: 'navigate' })").starts_with("TypeError"));
+    CHECK(page->throws("new Request('http://user:pw@x.test/')").starts_with("TypeError"));
+    CHECK(page->throws("new Request('https://')").starts_with("TypeError"));
+    CHECK(page->throws("new Request()").starts_with("TypeError"));
+    page->eval("out = []; var res = new Response('hi', { status: 201, statusText: 'Created', headers: { a: 'b' } }); out.push(res.status + ':' + res.ok + ':' + res.statusText + ':' + res.headers.get('a') + ':' + res.type + ':' + res.url + ':' + res.redirected + ':' + res.headers.get('content-type')); res.text().then(function (t) { out.push(t + ':' + res.bodyUsed); return res.text(); }).catch(function (e) { out.push(e.name); });");
+    CHECK_EQ(page->string("out.join('|')"), "201:true:Created:b:default::false:text/plain;charset=UTF-8|hi:true|TypeError");
+    CHECK(page->throws("new Response('x', { status: 204 })").starts_with("TypeError"));
+    CHECK(page->throws("new Response('x', { status: 199 })").starts_with("RangeError"));
+    CHECK(page->boolean("Response.error().type === 'error' && Response.error().status === 0 && Response.redirect('/y', 301).status === 301 && Response.redirect('/y').headers.get('location') === 'https://example.test/y' && Response.redirect('/y').status === 302"));
+    CHECK(page->throws("Response.redirect('/y', 200)").starts_with("RangeError"));
+    page->eval("out = []; var rj = Response.json({ a: [1, 2] }, { status: 202 }); out.push(rj.status + ':' + rj.headers.get('content-type')); rj.json().then(function (j) { out.push(j.a.join()); }); new Response('a=1&b=2', { headers: { 'content-type': 'application/x-www-form-urlencoded' } }).formData().then(function (f) { out.push(f.get('a') + f.get('b')); }); new Response(new Uint8Array([104, 105])).arrayBuffer().then(function (b) { out.push(b.byteLength); }); new Response('blob', { headers: { 'content-type': 'Text/X' } }).blob().then(function (b) { out.push(b.size + b.type); }); new Response('by').bytes().then(function (u) { out.push(u.length + u.constructor.name); }); new Response('{').json().catch(function (e) { out.push(e.name); });");
+    CHECK_EQ(page->string("out.join('|')"), "202:application/json|1,2|12|2|4text/x|2Uint8Array|SyntaxError");
+
+    // FormData: by hand and from a form; every body kind through fetch.
+    CHECK(page->boolean("(function () { var fd = new FormData(); fd.append('a', '1'); fd.append('a', '2'); fd.append('b', new Blob(['xy'], { type: 'text/plain' }), 'f.txt'); fd.set('c', 3); var f = fd.get('b'); return fd.get('a') === '1' && fd.getAll('a').join() === '1,2' && fd.has('c') && fd.get('c') === '3' && f instanceof File && f.name === 'f.txt' && f.size === 2 && [...fd.keys()].join() === 'a,a,b,c' && (fd.delete('a'), !fd.has('a')) && [...fd].length === 2; })()"));
+    CHECK_EQ(page->string("[...new FormData(document.getElementById('f'))].map(function (p) { return p.join('='); }).join('|')"), "a=1|b=on|t=tt");
+    CHECK(page->throws("new FormData(document.body)").starts_with("TypeError"));
+    page->requests.clear();
+    page->request_headers.clear();
+    page->eval("var fd2 = new FormData(); fd2.append('k', 'v'); fd2.append('file', new Blob(['zz'], { type: 'text/plain' }), 'z.txt'); fetch('/post', { method: 'POST', body: fd2 }); fetch('/post', { method: 'POST', body: new URLSearchParams('q=a b&r=1') }); fetch('/post', { method: 'POST', body: new Blob(['bl'], { type: 'application/x-bl' }) }); fetch('/post', { method: 'POST', body: new Uint8Array([65, 66]) });");
+    page->realm->run_pending();
+    CHECK_EQ(page->requests.size(), 4u);
+    if (page->requests.size() == 4) {
+        CHECK(page->requests[0].find("Content-Disposition: form-data; name=\"k\"\r\n\r\nv\r\n") != std::string::npos);
+        CHECK(page->requests[0].find("name=\"file\"; filename=\"z.txt\"\r\nContent-Type: text/plain\r\n\r\nzz\r\n") != std::string::npos);
+        CHECK_EQ(page->requests[1], "POST https://example.test/post q=a+b&r=1");
+        CHECK_EQ(page->requests[2], "POST https://example.test/post bl");
+        CHECK_EQ(page->requests[3], "POST https://example.test/post AB");
+    }
+    CHECK(std::any_of(page->request_headers.begin(), page->request_headers.end(), [](std::string const& h) { return h.starts_with("content-type: multipart/form-data; boundary=----SashfoldFormBoundary"); }));
+    if (!sent_header(*page, "content-type: application/x-www-form-urlencoded;charset=UTF-8")) {
+        std::string all;
+        for (std::string const& header : page->request_headers)
+            all += header + " ; ";
+        test::fail("urlencoded content-type not sent; headers were: " + all, __FILE__, __LINE__);
+    }
+    CHECK(sent_header(*page, "content-type: application/x-bl"));
+
+    // AbortController: the event, the reason, a fetch rejected on the
+    // next task, an already-aborted signal rejected with no request made.
+    page->eval("out = []; var ac = new AbortController(); ac.signal.addEventListener('abort', function (e) { out.push('event:' + e.type + ':' + ac.signal.aborted); }); fetch('/api', { signal: ac.signal }).catch(function (e) { out.push(e.name + ':' + (e === ac.signal.reason)); }); ac.abort();");
+    CHECK_EQ(page->string("out.join('|')"), "event:abort:true");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join('|')"), "event:abort:true|AbortError:true");
+    CHECK(page->boolean("(function () { var s = AbortSignal.abort('why'); var c2 = new AbortController(); c2.abort(); var ok = false; try { s.throwIfAborted(); } catch (e) { ok = e === 'why'; } return s.aborted && s.reason === 'why' && ok && c2.signal.reason.name === 'AbortError' && c2.signal.reason instanceof DOMException && new AbortController().signal.aborted === false; })()"));
+    page->requests.clear();
+    page->eval("out = []; fetch('/api', { signal: AbortSignal.abort() }).catch(function (e) { out.push(e.name); });");
+    CHECK_EQ(page->string("out.join()"), "AbortError");
+    CHECK(page->requests.empty());
+    page->eval("out = []; var ts = AbortSignal.timeout(50); ts.onabort = function () { out.push(ts.reason.name); };");
+    page->clock += 100;
+    page->realm->run_pending();
+    CHECK_EQ(page->string("out.join()"), "TimeoutError");
+
+    // XMLHttpRequest: the states and events of a GET, the headers combined
+    // and the forbidden one dropped, the response headers read back.
+    page->requests.clear();
+    page->request_headers.clear();
+    page->eval("var log = []; var x = new XMLHttpRequest(); x.onreadystatechange = function () { log.push('rs' + x.readyState); }; x.addEventListener('loadstart', function () { log.push('start'); }); x.onprogress = function (e) { log.push('progress:' + e.loaded + '/' + e.total + ':' + e.lengthComputable); }; x.onload = function () { log.push('load:' + x.status + ':' + x.statusText + ':' + x.responseText + ':' + x.getResponseHeader('Content-Type') + ':' + x.getResponseHeader('nope') + ':' + x.responseURL); }; x.onloadend = function () { log.push('end'); }; x.open('GET', '/api'); x.setRequestHeader('X-A', '1'); x.setRequestHeader('x-a', '2'); x.setRequestHeader('Cookie', 'no'); log.push('sent:' + x.readyState); x.send();");
+    CHECK_EQ(page->string("log.join('|')"), "rs1|sent:1|start");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("log.join('|')"), "rs1|sent:1|start|rs2|rs3|progress:7/7:true|rs4|load:200:OK:{\"a\":1}:application/json:null:https://example.test/api|end");
+    CHECK_EQ(page->requests.back(), "GET https://example.test/api");
+    CHECK(sent_header(*page, "x-a: 1, 2"));
+    CHECK(!sent_header(*page, "cookie: no"));
+    CHECK(page->boolean("x.getAllResponseHeaders() === 'content-type: application/json\\r\\nx-custom: yes\\r\\n' && x.readyState === 4 && XMLHttpRequest.DONE === 4 && x.DONE === 4 && x.UNSENT === 0 && x.upload instanceof XMLHttpRequestUpload && x instanceof XMLHttpRequestEventTarget && x.responseXML === null"));
+    CHECK(page->boolean("(function () { var s = new XMLHttpRequest(); s.open('GET', '/api', false); s.send(); return s.readyState === 4 && s.status === 200 && s.responseText === '{\"a\":1}'; })()"));
+    page->eval("log = []; var j = new XMLHttpRequest(); j.open('GET', '/api'); j.responseType = 'json'; j.onload = function () { log.push(j.response.a + ':' + (j.response === j.response)); }; j.send(); var ab = new XMLHttpRequest(); ab.open('GET', '/api'); ab.responseType = 'arraybuffer'; ab.onload = function () { log.push(ab.response.byteLength + ':' + (ab.response instanceof ArrayBuffer)); }; ab.send(); var bl = new XMLHttpRequest(); bl.open('GET', '/api'); bl.responseType = 'blob'; bl.onload = function () { log.push(bl.response.size + ':' + bl.response.type); }; bl.send();");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("log.join('|')"), "1:true|7:true|7:application/json");
+    CHECK(page->throws("(function () { var t = new XMLHttpRequest(); t.open('GET', '/api'); t.responseType = 'json'; return t.responseText; })()").starts_with("InvalidStateError"));
+    // A network error and an abort.
+    page->eval("log = []; var bad = new XMLHttpRequest(); bad.onerror = function () { log.push('error:' + bad.status + ':' + bad.readyState); }; bad.onloadend = function () { log.push('end'); }; bad.onload = function () { log.push('load'); }; bad.open('GET', '/missing'); bad.send(); var ab2 = new XMLHttpRequest(); ab2.onabort = function () { log.push('abort:' + ab2.readyState); }; ab2.open('GET', '/api'); ab2.send(); ab2.abort(); log.push('after:' + ab2.readyState);");
+    CHECK_EQ(page->string("log.join('|')"), "abort:4|after:0");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("log.join('|')"), "abort:4|after:0|error:0:4|end");
+    // Bodies and the method rules; the errors the states impose.
+    page->requests.clear();
+    page->request_headers.clear();
+    page->eval("var p = new XMLHttpRequest(); p.open('POST', '/post'); p.send(new URLSearchParams('a=1&b=2')); var q = new XMLHttpRequest(); q.open('POST', '/post'); q.setRequestHeader('Content-Type', 'text/x'); q.send('body'); var hd = new XMLHttpRequest(); hd.open('HEAD', '/api'); hd.send('ignored'); var fdx = new XMLHttpRequest(); fdx.open('POST', '/post'); var fd3 = new FormData(); fd3.append('m', '1'); fdx.send(fd3);");
+    page->realm->run_pending();
+    CHECK_EQ(page->requests.size(), 4u);
+    if (page->requests.size() == 4) {
+        CHECK_EQ(page->requests[0], "POST https://example.test/post a=1&b=2");
+        CHECK_EQ(page->requests[1], "POST https://example.test/post body");
+        CHECK_EQ(page->requests[2], "HEAD https://example.test/api");
+        CHECK(page->requests[3].find("name=\"m\"\r\n\r\n1\r\n") != std::string::npos);
+    }
+    CHECK(sent_header(*page, "content-type: application/x-www-form-urlencoded;charset=UTF-8"));
+    CHECK(sent_header(*page, "content-type: text/x"));
+    CHECK(page->throws("(function () { var u = new XMLHttpRequest(); u.setRequestHeader('a', 'b'); })()").starts_with("InvalidStateError"));
+    CHECK(page->throws("(function () { var u = new XMLHttpRequest(); u.open('TRACE', '/x'); })()").starts_with("SecurityError"));
+    CHECK(page->throws("(function () { var u = new XMLHttpRequest(); u.open('GET', 'https://'); })()").starts_with("SyntaxError"));
+    CHECK(page->throws("(function () { var u = new XMLHttpRequest(); u.open('GET', '/x'); u.send(); u.send(); })()").starts_with("InvalidStateError"));
+    CHECK(page->throws("(function () { var u = new XMLHttpRequest(); u.open('GET', '/x', false); u.responseType = 'json'; })()").starts_with("InvalidAccessError"));
+    page->requests.clear();
+    page->eval("var w = new XMLHttpRequest(); w.open('GET', 'https://other.test/open'); w.withCredentials = true; w.send();");
+    page->realm->run_pending();
+    CHECK_EQ(page->requests.back(), "GET https://other.test/open");
+
+    // MessageChannel and window.postMessage: delivered as tasks, in order.
+    page->eval("log = []; var ch = new MessageChannel(); ch.port1.onmessage = function (e) { log.push(e.data + ':' + (e instanceof MessageEvent) + ':' + e.origin + ':' + e.type); }; ch.port2.postMessage('hi'); ch.port2.postMessage({ n: 2 }); log.push('posted'); window.addEventListener('message', function (e) { log.push('win:' + e.data + ':' + e.origin + ':' + (e.source === window)); }); postMessage('x', '*'); window.postMessage('y', 'https://nope.test'); log.push('sync');");
+    CHECK_EQ(page->string("log.join('|')"), "posted|sync");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("log.join('|')"), "posted|sync|hi:true:https://example.test:message|[object Object]:true:https://example.test:message|win:x:https://example.test:true");
+    page->eval("log = []; var ch2 = new MessageChannel(); ch2.port1.postMessage('early'); ch2.port2.addEventListener('message', function (e) { log.push(e.data); }); ch2.port2.start(); var ch3 = new MessageChannel(); ch3.port2.onmessage = function () { log.push('never'); }; ch3.port2.close(); ch3.port1.postMessage('lost');");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("log.join('|')"), "early");
+    CHECK(page->boolean("(function () { var pe = new ProgressEvent('progress', { lengthComputable: true, loaded: 5, total: 10 }); var me = new MessageEvent('message', { data: 7, origin: 'o' }); return pe.lengthComputable && pe.loaded === 5 && pe.total === 10 && me.data === 7 && me.origin === 'o' && me.source === null && me.ports.length === 0 && me.lastEventId === ''; })()"));
+    CHECK(page->console.find("error:") == std::string::npos);
+}
+
 } // namespace
 
 int main()
@@ -795,5 +1033,6 @@ int main()
     test_form_controls_without_a_host();
     test_dom_parser_and_foreign_documents();
     test_binary_data();
+    test_fetch_and_xhr();
     return test::report("test_bindings");
 }

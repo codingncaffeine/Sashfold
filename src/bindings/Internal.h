@@ -133,6 +133,14 @@ public:
     // WheelEvent.
     double delta_x = 0;
     double delta_y = 0;
+    // ProgressEvent.
+    bool length_computable = false;
+    double loaded = 0;
+    double total = 0;
+    // MessageEvent: the data is detail_value; the origin, the source, the ports.
+    std::string origin;
+    js::Value source_value;
+    js::Value ports;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -236,6 +244,38 @@ public:
     void trace(js::Tracer& tracer) override;
 };
 
+// A Blob or a File (Binary.cpp): bytes with a type, and a File's name and
+// modification time.
+class BlobObject final : public js::Object {
+public:
+    explicit BlobObject(js::Object* prototype)
+        : Object(prototype, Class::Host)
+    {
+    }
+    std::vector<std::uint8_t> bytes;
+    std::string type;
+    bool is_file = false;
+    std::string name;
+    double last_modified = 0;
+    std::size_t size_in_bytes() const override { return sizeof(*this) + bytes.capacity(); }
+};
+
+// An AbortSignal (Tasks.cpp): whether it has fired and why.
+class AbortSignalObject final : public EventTargetObject {
+public:
+    explicit AbortSignalObject(js::Object* prototype)
+        : EventTargetObject(prototype)
+    {
+    }
+    bool aborted = false;
+    js::Value reason; // undefined until aborted
+    void trace(js::Tracer& tracer) override
+    {
+        EventTargetObject::trace(tracer);
+        tracer.visit(reason);
+    }
+};
+
 struct Timer {
     int id = 0;
     double due = 0; // on the hooks' clock
@@ -268,6 +308,11 @@ struct Realm::Internals {
     HandlerMap window_handlers;
 
     std::vector<Timer> timers;
+    // Tasks the page queued for the event loop's next turn — a response to
+    // deliver, a message to post: run before the timers at the next pump,
+    // oldest first, each holding what it needs through Persistents.
+    std::deque<std::pair<std::uint64_t, std::function<void()>>> tasks;
+    void post_task(std::function<void()> task);
     int next_timer_id = 1;
     std::uint64_t next_sequence = 1;
     std::uint64_t next_listener_id = 1;
@@ -347,6 +392,26 @@ inline Realm::Internals& internals_of(js::Interpreter& interpreter)
     return static_cast<Realm*>(interpreter.host)->internals();
 }
 
+// Binary data across the interfaces (Binary.cpp).
+// The bytes an ArrayBuffer, a typed array or a DataView holds right now —
+// empty once detached or out of bounds — or nothing for any other value.
+std::optional<std::span<std::uint8_t const>> buffer_source_bytes(js::Value const&);
+// The Encoding Standard's UTF-8 encoder: a lone surrogate becomes U+FFFD.
+std::string encode_utf8(std::u16string_view);
+// A fresh Uint8Array over a copy of the bytes.
+Native uint8_array_of(js::Interpreter&, std::span<std::uint8_t const>);
+// A promise already settled with the value or the reason.
+Native resolved_promise(js::Interpreter&, js::Value const&);
+Native rejected_promise(js::Interpreter&, js::Value const& reason);
+// A fresh Blob of these bytes and type.
+BlobObject* new_blob(Realm::Internals&, std::vector<std::uint8_t> bytes, std::string type);
+// AbortSignal (Tasks.cpp): a fresh signal, and aborting one — the flag,
+// the reason (an AbortError DOMException when undefined), the event.
+AbortSignalObject* new_abort_signal(Realm::Internals&);
+void signal_abort(Realm::Internals&, AbortSignalObject&, js::Value const& reason);
+// An AbortError DOMException as a value, for a rejection.
+js::Value abort_error(Realm::Internals&, std::string_view message);
+
 // The node behind `this`, or a TypeError "Illegal invocation".
 std::optional<dom::Node*> this_node(js::Interpreter&, js::Value const& this_value);
 std::optional<dom::Element*> this_element(js::Interpreter&, js::Value const& this_value);
@@ -361,6 +426,9 @@ void install_nodes(Realm::Internals&); // Node.cpp
 void install_style(Realm::Internals&); // Style.cpp
 void install_window(Realm::Internals&); // Window.cpp
 void install_binary(Realm::Internals&); // Binary.cpp: TextEncoder, TextDecoder, Blob, File
+void install_fetch(Realm::Internals&); // Fetch.cpp: Headers, Request, Response, FormData, fetch
+void install_xhr(Realm::Internals&); // Xhr.cpp: XMLHttpRequest
+void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSignal, MessageChannel, MessagePort, postMessage
 
 // Objects the style file makes for the node bindings.
 js::Value make_token_list(Realm::Internals&, dom::Element&, std::string attribute); // classList, relList

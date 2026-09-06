@@ -161,7 +161,7 @@ std::string_view user_agent()
 
 std::optional<RawResponse> read_response(
     std::function<std::ptrdiff_t(std::uint8_t*, std::size_t)> const& read,
-    std::size_t max_body)
+    std::size_t max_body, bool head)
 {
     ResponseReader reader(read);
     RawResponse response;
@@ -223,8 +223,8 @@ std::optional<RawResponse> read_response(
     bool delimited = true;
     std::string const* const transfer_encoding
         = find_header(response.headers, "transfer-encoding");
-    if (response.status == 204 || response.status == 304) {
-        // Nothing to read.
+    if (head || response.status == 204 || response.status == 304) {
+        // Nothing to read: a HEAD's headers describe a body that is not sent.
     } else if (transfer_encoding
         && ascii_ci_equals(trim_ows(*transfer_encoding), "chunked")) {
         while (true) {
@@ -364,6 +364,20 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
     }
 
     Url current = url;
+    // The method, headers and body of the hop in flight: a redirect may
+    // turn them into a plain GET.
+    std::string method = options.method.empty() ? std::string("GET") : options.method;
+    std::vector<Header> headers = options.headers;
+    std::vector<std::uint8_t> body = options.body;
+    bool redirected = false;
+    auto const lowered = [](std::string_view name) {
+        std::string out(name);
+        for (char& c : out) {
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+        }
+        return out;
+    };
     for (int hop = 0; hop <= options.max_redirects; ++hop) {
         bool const secure = current.scheme == "https";
         if (secure && !platform::TlsSocket::available())
@@ -377,9 +391,12 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
 
         // A fresh cached copy answers before any connection is made — on
         // every hop, so a redirect into a cached page costs one round trip.
-        if (options.cache) {
-            if (FetchResponse const* const hit = options.cache->lookup(current, unix_now()))
-                return { *hit, "" };
+        if (options.cache && method == "GET") {
+            if (FetchResponse const* const hit = options.cache->lookup(current, unix_now())) {
+                FetchResponse copy = *hit;
+                copy.redirected = redirected;
+                return { std::move(copy), "" };
+            }
         }
 
         std::uint16_t const port = current.port.value_or(secure ? 443 : 80);
@@ -406,7 +423,7 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
             target = "/";
         if (current.query)
             target += "?" + *current.query;
-        std::string request = "GET " + target + " HTTP/1.1\r\n";
+        std::string request = method + " " + target + " HTTP/1.1\r\n";
         request += "Host: " + current.serialize_host();
         if (current.port) {
             request += ':';
@@ -414,8 +431,17 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         }
         request += "\r\n";
         request += "User-Agent: " + std::string(user_agent()) + "\r\n";
-        request += "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
+        if (find_header(headers, "accept") == nullptr)
+            request += "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
         request += "Accept-Encoding: gzip, deflate\r\n";
+        // The caller's headers; the ones the exchange owns are never theirs.
+        for (Header const& header : headers) {
+            std::string const name = lowered(header.name);
+            if (name == "host" || name == "content-length" || name == "connection" || name == "accept-encoding"
+                || name == "cookie" || name == "transfer-encoding" || name == "user-agent")
+                continue;
+            request += header.name + ": " + header.value + "\r\n";
+        }
         if (!options.referrer.empty())
             request += "Referer: " + options.referrer + "\r\n";
         if (options.cookie_jar) {
@@ -424,7 +450,10 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
             if (!cookies.empty())
                 request += "Cookie: " + cookies + "\r\n";
         }
+        if (!body.empty() || method == "POST" || method == "PUT" || method == "PATCH")
+            request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
         request += options.pool ? "Connection: keep-alive\r\n\r\n" : "Connection: close\r\n\r\n";
+        request.append(body.begin(), body.end());
 
         // One request-response exchange over a connection; the returned
         // error is empty on success.
@@ -434,7 +463,7 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
             auto const read = [&over](std::uint8_t* buffer, std::size_t size) {
                 return over.receive(buffer, size);
             };
-            raw = read_response(read, options.max_body);
+            raw = read_response(read, options.max_body, method == "HEAD");
             if (!raw)
                 return "malformed HTTP response from " + current.serialize_host();
             return std::string();
@@ -464,13 +493,28 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         if (options.cookie_jar)
             options.cookie_jar->store(current, options.first_party, raw->headers, unix_now());
 
-        if (raw->status >= 300 && raw->status < 400) {
+        if (raw->status >= 300 && raw->status < 400 && options.follow_redirects) {
             if (std::string const* const location = find_header(raw->headers, "location")) {
                 std::optional<Url> const next = parse_url(*location, &current);
                 if (!next)
                     return { std::nullopt, "unparseable redirect Location: " + *location };
                 current = *next;
                 current.fragment.reset(); // fragments do not travel
+                redirected = true;
+                // A 303 turns any method into a GET, and a 301 or 302 turns
+                // a POST into one (Fetch §4.4 step 13); the body and the
+                // headers that described it go with it. 307 and 308 keep
+                // the request as it was.
+                bool const to_get = raw->status == 303 || ((raw->status == 301 || raw->status == 302) && method == "POST");
+                if (to_get && method != "GET" && method != "HEAD") {
+                    method = "GET";
+                    body.clear();
+                    std::erase_if(headers, [&](Header const& header) {
+                        std::string const name = lowered(header.name);
+                        return name == "content-type" || name == "content-length" || name == "content-encoding"
+                            || name == "content-language" || name == "content-location";
+                    });
+                }
                 continue;
             }
         }
@@ -487,7 +531,8 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         if (!decoded)
             return { std::nullopt, "could not decode response body" };
         response.body = std::move(*decoded);
-        if (options.cache && response.status == 200)
+        response.redirected = redirected;
+        if (options.cache && method == "GET" && response.status == 200)
             options.cache->store(current, response, unix_now());
         return { std::move(response), "" };
     }

@@ -344,6 +344,28 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
                 return std::nullopt;
             event->detail_value = *detail;
         }
+        if (interface == "ProgressEvent") {
+            std::optional<bool> const computable = init_flag(interpreter, init, "lengthComputable", false);
+            std::optional<double> const loaded = init_number(interpreter, init, "loaded", 0);
+            std::optional<double> const total = init_number(interpreter, init, "total", 0);
+            if (!computable || !loaded || !total)
+                return std::nullopt;
+            event->length_computable = *computable;
+            event->loaded = *loaded;
+            event->total = *total;
+        }
+        if (interface == "MessageEvent") {
+            std::optional<js::Value> const data = init_value(interpreter, init, "data");
+            std::optional<std::string> origin = init_string(interpreter, init, "origin");
+            std::optional<js::Value> const source = init_value(interpreter, init, "source");
+            std::optional<js::Value> const ports = init_value(interpreter, init, "ports");
+            if (!data || !origin || !source || !ports)
+                return std::nullopt;
+            event->detail_value = data->is_undefined() ? js::Value::null() : *data;
+            event->origin = std::move(*origin);
+            event->source_value = source->is_nullish() ? js::Value::null() : *source;
+            event->ports = ports->is_nullish() ? js::Value::undefined() : *ports;
+        }
         if (interface == "UIEvent" || interface == "MouseEvent" || interface == "KeyboardEvent" || interface == "InputEvent"
             || interface == "FocusEvent" || interface == "PointerEvent" || interface == "WheelEvent") {
             std::optional<double> const detail = init_number(interpreter, init, "detail", 0);
@@ -871,8 +893,21 @@ void install_events(Realm::Internals& in)
 
     define_interface(in, "TransitionEvent", event, event_constructor("TransitionEvent"), 1);
     define_interface(in, "AnimationEvent", event, event_constructor("AnimationEvent"), 1);
-    define_interface(in, "ProgressEvent", event, event_constructor("ProgressEvent"), 1);
+    js::Object* progress_event = define_interface(in, "ProgressEvent", event, event_constructor("ProgressEvent"), 1);
+    event_getter(in, *progress_event, "lengthComputable", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.length_computable); });
+    event_getter(in, *progress_event, "loaded", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.loaded); });
+    event_getter(in, *progress_event, "total", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.total); });
     define_interface(in, "HashChangeEvent", event, event_constructor("HashChangeEvent"), 1);
+
+    // MessageEvent (HTML §9.4.1): what a MessagePort or window.postMessage delivers.
+    js::Object* message_event = define_interface(in, "MessageEvent", event, event_constructor("MessageEvent"), 1);
+    event_getter(in, *message_event, "data", [](Realm::Internals&, EventObject& e) { return e.detail_value.is_undefined() ? js::Value::null() : e.detail_value; });
+    event_getter(in, *message_event, "origin", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.origin); });
+    event_getter(in, *message_event, "lastEventId", [](Realm::Internals& internals, EventObject&) { return internals.string(""); });
+    event_getter(in, *message_event, "source", [](Realm::Internals&, EventObject& e) { return e.source_value.is_undefined() ? js::Value::null() : e.source_value; });
+    event_getter(in, *message_event, "ports", [](Realm::Internals& internals, EventObject& e) {
+        return e.ports.is_nullish() ? js::Value::object(internals.interpreter.new_array()) : e.ports;
+    });
 }
 
 }

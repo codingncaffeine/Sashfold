@@ -19,6 +19,7 @@
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
 #include "js/Interpreter.h"
+#include "net/Http.h"
 #include "net/Url.h"
 
 #include <cstdint>
@@ -46,6 +47,12 @@ struct HostHooks {
     // A classic script's source for <script src=…>, fetched on the page's
     // behalf and decoded to UTF-8; nullopt when it cannot be had.
     std::function<std::optional<std::string>(net::Url const&)> fetch_script;
+    // A request a script makes — fetch(), XMLHttpRequest — carried out on
+    // the page's behalf: the method, headers and body as given, cookies
+    // only when the request allows them; the response with its status,
+    // headers, body and final URL, or the error. Without it every such
+    // request is a network error.
+    std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&)> fetch_resource;
     // The clock timers run on, in milliseconds. Wall time by default; the
     // replay and the tests give a virtual one so a timer fires when the
     // script says, deterministically.

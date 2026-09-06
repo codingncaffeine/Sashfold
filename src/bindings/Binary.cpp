@@ -22,8 +22,6 @@
 
 namespace sashfold::bindings {
 
-namespace {
-
 // A BufferSource (WebIDL): the bytes an ArrayBuffer, a typed array or a
 // DataView holds right now — none once detached or out of bounds — or
 // nothing for any other value.
@@ -83,12 +81,39 @@ Native uint8_array_of(js::Interpreter& interp, std::span<std::uint8_t const> byt
 
 // A promise already resolved with the value (PromiseResolve on the
 // realm's Promise): what Blob's reading methods answer with.
-Native resolved(js::Interpreter& interp, js::Value const& value)
+Native resolved_promise(js::Interpreter& interp, js::Value const& value)
 {
     js::Interpreter::Roots const roots(interp);
     interp.root(value);
     return js::promise_resolve(interp, js::Value::object(interp.intrinsics().promise_constructor), value);
 }
+
+// A promise already rejected with the reason.
+Native rejected_promise(js::Interpreter& interp, js::Value const& reason)
+{
+    js::Interpreter::Roots const roots(interp);
+    interp.root(reason);
+    std::optional<js::PromiseCapability> const capability
+        = js::new_promise_capability(interp, js::Value::object(interp.intrinsics().promise_constructor));
+    if (!capability)
+        return std::nullopt;
+    interp.root(capability->promise);
+    interp.root(capability->reject);
+    js::Value const arguments[1] = { reason };
+    if (!interp.call(capability->reject, js::Value::undefined(), arguments))
+        return std::nullopt;
+    return capability->promise;
+}
+
+BlobObject* new_blob(Realm::Internals& in, std::vector<std::uint8_t> bytes, std::string type)
+{
+    auto* blob = in.interpreter.heap().allocate<BlobObject>(in.prototype("Blob"));
+    blob->bytes = std::move(bytes);
+    blob->type = std::move(type);
+    return blob;
+}
+
+namespace {
 
 // --- TextEncoder / TextDecoder --------------------------------------------------------------
 
@@ -464,22 +489,6 @@ void install_text_coding(Realm::Internals& in)
 
 // --- Blob / File -------------------------------------------------------------------------
 
-class BlobObject final : public js::Object {
-public:
-    explicit BlobObject(js::Object* prototype)
-        : Object(prototype, Class::Host)
-    {
-    }
-
-    std::vector<std::uint8_t> bytes;
-    std::string type;
-    bool is_file = false;
-    std::string name;
-    double last_modified = 0;
-
-    std::size_t size_in_bytes() const override { return sizeof(*this) + bytes.capacity(); }
-};
-
 std::optional<BlobObject*> this_blob(js::Interpreter& interp, js::Value const& this_value)
 {
     if (this_value.is_object()) {
@@ -634,7 +643,7 @@ void install_blob(Realm::Internals& in)
         std::u16string text;
         for (char32_t const code_point : html::decode(bytes, html::Encoding::Utf8))
             js::append_code_point(text, code_point);
-        return resolved(interp, js::Value::string(interp.string(text)));
+        return resolved_promise(interp,js::Value::string(interp.string(text)));
     });
     js::define_method(interpreter, *blob, "arrayBuffer", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
@@ -645,7 +654,7 @@ void install_blob(Realm::Internals& in)
             return std::nullopt;
         if (!(*found)->bytes.empty())
             std::memcpy((*buffer)->data(), (*found)->bytes.data(), (*found)->bytes.size());
-        return resolved(interp, js::Value::object(*buffer));
+        return resolved_promise(interp,js::Value::object(*buffer));
     });
     js::define_method(interpreter, *blob, "bytes", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
@@ -654,7 +663,7 @@ void install_blob(Realm::Internals& in)
         Native const array = uint8_array_of(interp, (*found)->bytes);
         if (!array)
             return std::nullopt;
-        return resolved(interp, *array);
+        return resolved_promise(interp,*array);
     });
 
     // File: a Blob with a name and a modification time.

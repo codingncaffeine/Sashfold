@@ -56,6 +56,8 @@ void EventObject::trace(js::Tracer& tracer)
     tracer.visit(current_target);
     tracer.visit(related_target);
     tracer.visit(detail_value);
+    tracer.visit(source_value);
+    tracer.visit(ports);
 }
 
 void TokenListObject::trace(js::Tracer& tracer)
@@ -650,6 +652,14 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     install_style(in);
     install_window(in);
     install_binary(in);
+    install_fetch(in);
+    install_xhr(in);
+    install_tasks(in);
+}
+
+void Realm::Internals::post_task(std::function<void()> task)
+{
+    tasks.emplace_back(next_sequence++, std::move(task));
 }
 
 Realm::~Realm()
@@ -811,6 +821,16 @@ bool Realm::run_pending()
     // next pump, so a chain of zero-delay timers cannot hold the host.
     std::uint64_t const cutoff = in.next_sequence;
     bool ran = false;
+    // The tasks queued before this pump, oldest first; one a task queues
+    // waits for the next pump, like a timer.
+    while (!in.tasks.empty() && in.tasks.front().first < cutoff) {
+        std::function<void()> task = std::move(in.tasks.front().second);
+        in.tasks.pop_front();
+        task();
+        ran = true;
+        if (in.interpreter.terminated())
+            return ran;
+    }
     while (true) {
         std::size_t best = in.timers.size();
         for (std::size_t i = 0; i < in.timers.size(); ++i) {
@@ -855,6 +875,9 @@ bool Realm::run_pending()
 
 std::optional<double> Realm::next_timer_due() const
 {
+    // A queued task is due now.
+    if (!m_internals->tasks.empty())
+        return m_internals->now();
     std::optional<double> due;
     for (Timer const& timer : m_internals->timers) {
         if (!due || timer.due < *due)
@@ -865,7 +888,7 @@ std::optional<double> Realm::next_timer_due() const
 
 bool Realm::has_pending_timers() const
 {
-    return !m_internals->timers.empty();
+    return !m_internals->timers.empty() || !m_internals->tasks.empty();
 }
 
 void Realm::perform_microtask_checkpoint()

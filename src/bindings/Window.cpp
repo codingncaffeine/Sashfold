@@ -687,7 +687,7 @@ void install_window(Realm::Internals& in)
         internals.console("info", "prompt: " + *message + " (cancelled)");
         return js::Value::null();
     });
-    for (std::string_view const name : { "print", "close", "stop", "focus", "blur", "postMessage", "captureEvents", "releaseEvents", "moveTo",
+    for (std::string_view const name : { "print", "close", "stop", "focus", "blur", "captureEvents", "releaseEvents", "moveTo",
              "moveBy", "resizeTo", "resizeBy" })
         js::define_method(interpreter, *global, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     js::define_method(interpreter, *global, "open", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {

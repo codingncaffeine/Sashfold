@@ -987,6 +987,9 @@ struct Browser::Impl {
                 return std::nullopt;
             return std::string(result.response->body.begin(), result.response->body.end());
         };
+        hooks.fetch_resource = [this, page_url](net::Url const& target, net::ResourceRequest const& request) {
+            return loader.load_resource(target, page_url, referrer_for(&page_url, target), request);
+        };
         hooks.now = [this] { return script_now(); };
         hooks.should_stop = [this] {
             return std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);

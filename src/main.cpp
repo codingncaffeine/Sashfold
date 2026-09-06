@@ -657,6 +657,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
             }
             return std::string(result.response->body.begin(), result.response->body.end());
         };
+        hooks.fetch_resource = [&loaded](net::Url const& url, net::ResourceRequest const& request) {
+            return loaded.loader->load_resource(url, loaded.url, "", request);
+        };
         hooks.now = [&script_clock] { return script_clock; };
         hooks.should_stop = [started] { return clock::now() - started > std::chrono::seconds(30); };
         oracle.install(hooks);
