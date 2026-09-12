@@ -2,8 +2,12 @@ name: Pages
 
 # sashfold.com: the hand-written pages in docs/ plus the Sashfold 100
 # dashboard, which is rendered here — every night, on every push to main,
-# and on request — and never committed. The render runs on Windows: it is
-# the only OS whose TLS backend is written, and it has the fonts.
+# and on request — and never committed. The hundred are rendered twice:
+# by the Windows build, whose HTTPS goes through the platform's secure
+# channel, and by the Linux build, whose HTTPS goes through the engine's
+# own TLS client. The two dashboards are published side by side and point
+# at each other, so a page that one build renders and the other does not
+# is visible as such.
 
 on:
   push:
@@ -39,7 +43,7 @@ jobs:
             mingw-w64-x86_64-ninja
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --target sashfold sashfold100
-      - run: bash tools/sashfold100.sh build/sashfold.exe site/sashfold100 --jobs 4 --timeout 90
+      - run: bash tools/sashfold100.sh build/sashfold.exe site/sashfold100 --jobs 4 --timeout 90 --rendered-on "a Windows runner" --twin "the Linux render" linux/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sashfold100
@@ -47,8 +51,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  sashfold100-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build fonts-dejavu-core fonts-liberation fonts-noto-core
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --target sashfold sashfold100
+      - run: bash tools/sashfold100.sh build/sashfold site/sashfold100-linux --jobs 4 --timeout 90 --at sashfold100/linux --rendered-on "a Linux runner" --twin "the Windows render" ../
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sashfold100-linux
+          path: site/sashfold100-linux
+          if-no-files-found: error
+          retention-days: 14
+
   deploy:
-    needs: sashfold100
+    needs: [sashfold100, sashfold100-linux]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -60,7 +79,11 @@ jobs:
         with:
           name: sashfold100
           path: _site/sashfold100
-      - run: test -f _site/sashfold100/index.html
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sashfold100-linux
+          path: _site/sashfold100/linux
+      - run: test -f _site/sashfold100/index.html && test -f _site/sashfold100/linux/index.html
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:

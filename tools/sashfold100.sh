@@ -7,6 +7,12 @@
 #
 #   tools/sashfold100.sh <sashfold-exe> <out-dir> [--corpus <file>] [--jobs N]
 #                        [--timeout <seconds>] [--only <substring>]
+#                        [--at <site-dir>] [--rendered-on <text>] [--twin <label> <href>]
+#
+# The last three go to the generator: where under sashfold.com the
+# dashboard will be published (its links follow from that), which build
+# drew the pictures, and where the other build's copy of the same hundred
+# is, so the two dashboards point at each other.
 #
 # Each row leaves <id>.png (the page, cut at 2400 px), <id>-thumb.png (the
 # viewport's top at 320 px), <id>.json (the render's report) and <id>.log
@@ -25,6 +31,7 @@ only=""
 width=1024
 height=768
 max_height=2400
+generator_args=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,6 +39,8 @@ while [ $# -gt 0 ]; do
     --jobs) jobs="$2"; shift 2 ;;
     --timeout) limit="$2"; shift 2 ;;
     --only) only="$2"; shift 2 ;;
+    --at|--rendered-on) generator_args+=("$1" "$2"); shift 2 ;;
+    --twin) generator_args+=("$1" "$2" "$3"); shift 3 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *)
       if [ -z "$exe" ]; then exe="$1"; elif [ -z "$out" ]; then out="$1"; else echo "too many arguments" >&2; exit 2; fi
@@ -40,6 +49,7 @@ while [ $# -gt 0 ]; do
 done
 if [ -z "$exe" ] || [ -z "$out" ]; then
   echo "usage: tools/sashfold100.sh <sashfold-exe> <out-dir> [--corpus <file>] [--jobs N] [--timeout <seconds>] [--only <substring>]" >&2
+  echo "                            [--at <site-dir>] [--rendered-on <text>] [--twin <label> <href>]" >&2
   exit 2
 fi
 if [ ! -x "$exe" ]; then
@@ -93,4 +103,4 @@ done < <(grep -v '^#' "$corpus" | awk -F'\t' '$1 == "row" { print ++turn[$3] "\t
 wait
 echo "rendered $count page(s) in $(( $(date +%s) - started )) s"
 
-"$generator" "$corpus" "$out" --html "$out/index.html" --json "$out/sashfold100.json"
+"$generator" "$corpus" "$out" --html "$out/index.html" --json "$out/sashfold100.json" "${generator_args[@]}"

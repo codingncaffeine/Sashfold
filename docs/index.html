@@ -177,7 +177,7 @@ by baselines in CI that only ratchet upward.</p>
   <div class="stat"><span class="big">861,948</span><span class="what">Unicode bidi conformance cases — 100%</span></div>
   <div class="stat"><span class="big">8508 / 14616</span><span class="what"><a href="wpt.html">WPT CSS reference tests</a> — 58.2%, by directory</span></div>
   <div class="stat"><span class="big">34341 / 41714</span><span class="what"><a href="test262.html">test262, the ECMAScript conformance suite</a> — 82.3%, by directory</span></div>
-  <div class="stat"><span class="big">100 pages</span><span class="what"><a href="sashfold100/">the Sashfold 100</a> — the live web, rendered nightly, every picture published</span></div>
+  <div class="stat"><span class="big">100 pages</span><span class="what"><a href="sashfold100/">the Sashfold 100</a> — the live web, rendered nightly on Windows and <a href="sashfold100/linux/">on Linux</a>, every picture published</span></div>
   <div class="stat"><span class="big">3 OSes</span><span class="what">byte-identical rendering, proven in CI</span></div>
 </div>
 <p>The renderer is deterministic by construction — its own font, integer-only rasterization,
@@ -186,7 +186,8 @@ Reference screenshots are compared byte-for-byte on every commit, and so are scr
 decompresses, parses, and renders to pixels in about a quarter of a second, through Sashfold’s
 own URL parser, HTTP/1.1 client, and inflate. Every night the engine renders a hundred pages of
 the live web — drawn from the Tranco list of the most visited domains — and the pictures go up
-unretouched, each with what its load cost: <a href="sashfold100/">the Sashfold 100</a>.</p>
+unretouched, each with what its load cost: <a href="sashfold100/">the Sashfold 100</a>, rendered by the Windows build
+and, through the engine’s own TLS client, <a href="sashfold100/linux/">by the Linux build</a>.</p>
 
 <figure>
   <img src="first-light.png" alt="A page rendered by Sashfold: headings, wrapped paragraphs, bold, italic and linked text, a blockquote, bulleted and numbered lists, a bordered box, centered text and preformatted text" width="720">

@@ -4,6 +4,13 @@
 // landing page's manner, with no scripts: Sashfold renders it too.
 //
 //   sashfold100 <corpus.txt> <renders-dir> [--html <file>] [--json <file>]
+//               [--at <site-dir>] [--rendered-on <text>] [--twin <label> <href>]
+//
+// The dashboard is published at sashfold.com/<site-dir> (sashfold100 by
+// default): its links back to the site and its canonical URL follow from
+// that. --rendered-on names the build that drew the pictures on the
+// "last rendered" tile, and --twin links the same hundred rendered by the
+// other build, so the Windows and the Linux copies point at each other.
 //
 // The renders directory holds, per row, <id>.png, <id>-thumb.png and
 // <id>.json; tools/sashfold100.sh fills it and then runs this.
@@ -572,16 +579,36 @@ void write_card(std::ostream& out, Row const& row)
     out << "</div>\n";
 }
 
+// Where a copy of the dashboard is published and which build drew it. The
+// site's root is one "../" per segment of the directory away; the twin is
+// the same hundred rendered by the other build, when there is one.
+struct Placement {
+    std::string at = "sashfold100"; // the directory under sashfold.com, no slashes at the ends
+    std::string rendered_on; // "a Windows runner"; empty says nothing
+    std::string twin_label;
+    std::string twin_href;
+
+    std::string base() const
+    {
+        std::string up;
+        for (std::size_t segments = 1 + static_cast<std::size_t>(std::count(at.begin(), at.end(), '/')); segments > 0; --segments)
+            up += "../";
+        return up;
+    }
+    std::string canonical() const { return "https://sashfold.com/" + at + "/"; }
+};
+
 void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals const& totals,
-    std::string const& stamp)
+    std::string const& stamp, Placement const& placement)
 {
     std::ofstream out(path, std::ios::binary);
     out << "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
            "<title>Sashfold — The Sashfold 100</title>\n"
            "<meta name=\"description\" content=\"A hundred pages of the web, rendered every night by the Sashfold browser engine, with the picture and the numbers of each.\">\n"
-           "<link rel=\"icon\" type=\"image/png\" href=\"../icon-160.png\">\n"
-           "<link rel=\"canonical\" href=\"https://sashfold.com/sashfold100/\">\n"
+           "<link rel=\"icon\" type=\"image/png\" href=\""
+        << html_escaped(placement.base()) << "icon-160.png\">\n<link rel=\"canonical\" href=\""
+        << html_escaped(placement.canonical()) << "\">\n"
            "<style>\n"
            "  :root { --bg: #f7f9fc; --panel: #ffffff; --ink: #16233c; --muted: #4e5d78; --navy: #16305e;\n"
            "          --blue: #1e63c4; --sky: #37b6e8; --accent: #f49c3c; --line: #d8e1ee; --code-bg: #eef3fa;\n"
@@ -639,16 +666,22 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
            "  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted);\n"
            "           font-size: 0.92rem; text-align: center; }\n"
            "</style>\n</head>\n<body>\n<main>\n"
-           "<p><a href=\"../\">← sashfold.com</a></p>\n"
+           "<p><a href=\""
+        << html_escaped(placement.base()) << "\">← sashfold.com</a></p>\n"
            "<h1>The Sashfold 100</h1>\n"
            "<p>A hundred pages of the web, fetched and rendered every night by Sashfold itself — its own HTTP, TLS policy, "
-           "HTML and CSS parsers, layout, fonts and image decoders — at a 1024×768 viewport, with no scripts run because "
-           "none can be yet. Each card links to the full picture (cut at 2400 px) and says what the load cost. "
-           "The sites come from the <a href=\""
+           "HTML and CSS parsers, layout, fonts, image decoders and script engine — at a 1024×768 viewport, each page's "
+           "scripts run for three seconds of virtual time before the picture is taken. Each card links to the full "
+           "picture (cut at 2400 px) and says what the load cost. The sites come from the <a href=\""
         << html_escaped(corpus.list_url) << "\">Tranco list " << html_escaped(corpus.list_id) << "</a> of "
         << html_escaped(corpus.list_date)
         << ", the research ranking of the web's most visited domains; the number after each site is its rank there. "
-           "Nothing here is retouched: a page that arrives blank without scripts is shown blank.</p>\n";
+           "Nothing here is retouched: a page that arrives blank is shown blank.</p>\n";
+    if (!placement.rendered_on.empty() && !placement.twin_href.empty()) {
+        out << "<p class=\"muted\">This copy was rendered on " << html_escaped(placement.rendered_on)
+            << "; the same hundred pages drawn by the other build are at <a href=\"" << html_escaped(placement.twin_href)
+            << "\">" << html_escaped(placement.twin_label) << "</a>.</p>\n";
+    }
     out << "<div class=\"numbers\">\n"
         << "  <div class=\"stat\"><span class=\"big\">" << totals.loaded << " / " << totals.rows
         << "</span><span class=\"what\">pages answered 200 and rendered with text</span></div>\n"
@@ -657,7 +690,9 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
         << "  <div class=\"stat\"><span class=\"big\">" << totals.refused << " / " << totals.refusals_expected
         << "</span><span class=\"what\">bad certificates refused</span></div>\n"
         << "  <div class=\"stat\"><span class=\"big\">" << html_escaped(stamp)
-        << "</span><span class=\"what\">last rendered, on a Windows runner</span></div>\n"
+        << "</span><span class=\"what\">last rendered"
+        << (placement.rendered_on.empty() ? std::string() : ", on " + html_escaped(placement.rendered_on))
+        << "</span></div>\n"
         << "</div>\n";
     std::vector<FeatureTotal> const asked = feature_totals(corpus.rows);
     if (!asked.empty()) {
@@ -747,24 +782,39 @@ int main(int argc, char** argv)
     std::string renders;
     std::string html_path;
     std::string json_path;
+    Placement placement;
+    auto usage = [] {
+        std::cerr << "usage: sashfold100 <corpus.txt> <renders-dir> [--html <file>] [--json <file>]\n"
+                     "                   [--at <site-dir>] [--rendered-on <text>] [--twin <label> <href>]\n";
+        return 2;
+    };
     for (std::size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--html" && i + 1 < args.size())
             html_path = args[++i];
         else if (args[i] == "--json" && i + 1 < args.size())
             json_path = args[++i];
-        else if (corpus_path.empty())
+        else if (args[i] == "--at" && i + 1 < args.size())
+            placement.at = args[++i];
+        else if (args[i] == "--rendered-on" && i + 1 < args.size())
+            placement.rendered_on = args[++i];
+        else if (args[i] == "--twin" && i + 2 < args.size()) {
+            placement.twin_label = args[++i];
+            placement.twin_href = args[++i];
+        } else if (corpus_path.empty())
             corpus_path = args[i];
         else if (renders.empty())
             renders = args[i];
-        else {
-            std::cerr << "usage: sashfold100 <corpus.txt> <renders-dir> [--html <file>] [--json <file>]\n";
-            return 2;
-        }
+        else
+            return usage();
     }
-    if (corpus_path.empty() || renders.empty()) {
-        std::cerr << "usage: sashfold100 <corpus.txt> <renders-dir> [--html <file>] [--json <file>]\n";
-        return 2;
-    }
+    if (corpus_path.empty() || renders.empty())
+        return usage();
+    while (!placement.at.empty() && placement.at.front() == '/')
+        placement.at.erase(0, 1);
+    while (!placement.at.empty() && placement.at.back() == '/')
+        placement.at.pop_back();
+    if (placement.at.empty())
+        return usage();
     std::optional<Corpus> corpus = read_corpus(corpus_path);
     if (!corpus)
         return 1;
@@ -773,7 +823,7 @@ int main(int argc, char** argv)
         read_report(row, dir / (row.id + ".json"));
     Totals const totals = totals_of(corpus->rows);
     std::string const stamp = now_arizona();
-    write_html(html_path.empty() ? dir / "index.html" : std::filesystem::path(html_path), *corpus, totals, stamp);
+    write_html(html_path.empty() ? dir / "index.html" : std::filesystem::path(html_path), *corpus, totals, stamp, placement);
     write_json(json_path.empty() ? dir / "sashfold100.json" : std::filesystem::path(json_path), *corpus, totals, stamp);
     std::cout << "sashfold100: " << totals.loaded << " / " << totals.rows << " loaded, " << totals.refused << " / "
               << totals.refusals_expected << " bad certificates refused, median " << seconds(totals.median_ms)
