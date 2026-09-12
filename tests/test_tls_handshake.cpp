@@ -522,6 +522,13 @@ std::optional<platform::TcpSocket> connect_loopback(std::uint16_t port, int seco
 
 struct Exchange {
     bool connected = false;
+    // The plumbing got as far as the peer: the socket connected and our first
+    // flight went out. Without this, a refusal case cannot tell a client that
+    // refused from a server that never came up.
+    bool reached_peer = false;
+    // The engine ended the handshake, rather than the socket or the child
+    // process ending it for us.
+    bool engine_failed = false;
     int retries = 0;
     tls::CipherSuite suite = tls::CipherSuite::ChaCha20Poly1305Sha256;
     std::string response;
@@ -544,6 +551,7 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
         result.error = "the first flight did not go out";
         return result;
     }
+    result.reached_peer = true;
     std::uint8_t buffer[16384];
     while (!engine.connected() && engine.state() != tls::TlsState::Failed) {
         std::ptrdiff_t const received = socket->receive(buffer, sizeof buffer);
@@ -562,6 +570,7 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
     }
     result.retries = engine.hello_retry_requests();
     result.suite = engine.cipher_suite();
+    result.engine_failed = engine.state() == tls::TlsState::Failed;
     if (!engine.connected()) {
         if (!engine.error().empty())
             result.error = engine.error();
@@ -598,7 +607,8 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
 // One case: a server with the given options, our client with the given
 // configuration, and what both ends say about what happened.
 void live_case(std::string const& name, std::vector<std::string> const& server_options, tls::TlsConfig config,
-    bool expect_connected, tls::CipherSuite expected_suite, int expected_retries)
+    bool expect_connected, tls::CipherSuite expected_suite, int expected_retries,
+    char const* expected_refusal = nullptr)
 {
     std::uint16_t port = 0;
     if (!free_port(port)) {
@@ -625,7 +635,22 @@ void live_case(std::string const& name, std::vector<std::string> const& server_o
     std::string const server_said = read_file(log);
     if (!expect_connected) {
         CHECK(!result.connected);
-        CHECK(!result.error.empty());
+        // A refusal counts only if OUR client made it: the socket reached the
+        // server, our hello went out, and the engine is what stopped. Asserting
+        // a non-empty error alone passes on any infrastructure failure — both
+        // "no loopback connect in N attempts" and "the server went away during
+        // the handshake" satisfy it — so the case would go green on a machine
+        // where openssl never started, which is the opposite of a test.
+        CHECK(result.reached_peer);
+        CHECK(result.engine_failed);
+        CHECK(expected_refusal != nullptr);
+        bool const named = expected_refusal != nullptr && result.error.find(expected_refusal) != std::string::npos;
+        CHECK(named);
+        if (!result.reached_peer || !result.engine_failed || !named)
+            std::printf("  %s: refused, but not for the reason this case names: reached_peer=%d engine_failed=%d"
+                        " error=\"%s\" wanted=\"%s\"\n",
+                name.c_str(), result.reached_peer ? 1 : 0, result.engine_failed ? 1 : 0, result.error.c_str(),
+                expected_refusal != nullptr ? expected_refusal : "(none given)");
         if (result.connected)
             std::printf("  %s: expected no handshake, got one\n", name.c_str());
         std::remove(log.c_str());
@@ -706,8 +731,11 @@ void test_live_handshake()
     {
         tls::TlsConfig only_aes = test_config();
         only_aes.cipher_suites = { tls::CipherSuite::Aes128GcmSha256 };
+        // The server has nothing we offered, so it is the peer that refuses,
+        // with an alert our engine reports: that string, not merely "something
+        // went wrong", is what this case asserts.
         live_case("no-shared-suite", { "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, only_aes, false,
-            tls::CipherSuite::Aes128GcmSha256, 0);
+            tls::CipherSuite::Aes128GcmSha256, 0, "fatal alert");
     }
     // A client that offers only AES and a server that speaks it: the suite is
     // forced from our side, not chosen by the peer.
