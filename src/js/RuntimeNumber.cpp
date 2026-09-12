@@ -114,20 +114,21 @@ void install_number_library(Interpreter& in)
     NativeFunction* constructor = in.new_native(
         "Number", 1,
         [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
+            // §21.1.1.1: ToNumeric, a BigInt becoming the nearest Number.
             if (args.empty())
                 return Value::number(0);
-            std::optional<double> const number = interp.to_number(args[0]);
-            if (!number)
+            std::optional<Value> const numeric = interp.to_numeric(args[0]);
+            if (!numeric)
                 return std::nullopt;
-            return Value::number(*number);
+            return Value::number(numeric->is_bigint() ? numeric->as_bigint()->value().to_double() : numeric->as_number());
         },
         [](Interpreter& interp, Args args, Object* new_target) -> std::optional<Value> {
             double number = 0;
             if (!args.empty()) {
-                std::optional<double> const converted = interp.to_number(args[0]);
-                if (!converted)
+                std::optional<Value> const numeric = interp.to_numeric(args[0]);
+                if (!numeric)
                     return std::nullopt;
-                number = *converted;
+                number = numeric->is_bigint() ? numeric->as_bigint()->value().to_double() : numeric->as_number();
             }
             std::optional<Object*> const prototype = interp.get_prototype_from_constructor(new_target, interp.intrinsics().number_prototype);
             if (!prototype)

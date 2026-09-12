@@ -41,6 +41,8 @@ std::size_t CollectionTable::Hash::operator()(Value const& value) const
     }
     if (value.is_string())
         return value.as_string()->hash();
+    if (value.is_bigint())
+        return value.as_bigint()->value().hash();
     if (value.is_boolean())
         return value.as_boolean() ? 3 : 5;
     if (value.is_undefined())

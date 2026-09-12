@@ -42,6 +42,7 @@ test/built-ins/AsyncFunction
 test/built-ins/AsyncGeneratorFunction
 test/built-ins/AsyncGeneratorPrototype
 test/built-ins/AsyncIteratorPrototype
+test/built-ins/BigInt
 test/built-ins/Boolean
 test/built-ins/DataView
 test/built-ins/Date

@@ -1145,6 +1145,8 @@ void install_window(Realm::Internals& in)
         case js::ElementType::Uint16:
         case js::ElementType::Int32:
         case js::ElementType::Uint32:
+        case js::ElementType::BigInt64:
+        case js::ElementType::BigUint64:
             break;
         }
         std::size_t const byte_length = typed.byte_length();

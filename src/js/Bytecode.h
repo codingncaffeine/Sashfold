@@ -27,7 +27,7 @@ namespace sashfold::js {
 #define SASHFOLD_OPCODES(X)                                                                                        \
     /* stack */                                                                                                    \
     X(PushUndefined, 1) X(PushNull, 1) X(PushTrue, 1) X(PushFalse, 1) X(PushEmpty, 1)                              \
-    X(PushConstant, 1) /* a: constant */ X(PushInt, 1) /* a: the number */                                         \
+    X(PushConstant, 1) /* a: constant */ X(PushInt, 1) /* a: the number */ X(PushBigInt, 1) /* a: bigint */        \
     X(Pop, -1) X(Dup, 1) X(Over, 1) /* a copy of the second value */ X(Swap, 0)                                    \
     X(LoadReg, 1) /* a: register */ X(StoreReg, -1) /* a: register; pops */ X(StoreRegKeep, 0)                      \
     /* environments */                                                                                             \
@@ -129,11 +129,13 @@ struct Handler {
 };
 
 // One compiled function body. The pools hold what instructions refer to
-// by index; the constants are atoms and numbers, which need no tracing.
+// by index; the constants are atoms and numbers, which need no tracing,
+// and the BigInt literals are kept as integers and made cells when pushed.
 struct CodeBlock {
     FunctionNode const* function = nullptr;
     std::vector<Instruction> code;
     std::vector<Value> constants;
+    std::vector<BigInteger> bigints;
     std::vector<JsString*> names;
     std::vector<FunctionNode const*> functions;
     std::vector<ClassNode const*> classes;

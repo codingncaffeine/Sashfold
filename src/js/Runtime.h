@@ -22,6 +22,7 @@ void install_error(Interpreter&); // Error and the six native errors — Runtime
 void install_symbol(Interpreter&); // Symbol — RuntimeObject.cpp
 void install_boolean(Interpreter&); // Boolean — RuntimeNumber.cpp
 void install_number(Interpreter&); // Number — RuntimeNumber.cpp
+void install_bigint(Interpreter&); // BigInt — RuntimeBigInt.cpp
 void install_math(Interpreter&); // Math — RuntimeNumber.cpp
 void install_global_functions(Interpreter&); // eval, parseInt, parseFloat, isNaN, isFinite, the URI functions, globalThis — RuntimeNumber.cpp
 void install_array(Interpreter&); // Array — RuntimeArray.cpp
@@ -98,6 +99,9 @@ std::optional<ArrayBufferObject*> allocate_array_buffer(Interpreter&, Object* ne
 // AllocateTypedArray with a length (§23.2.5.1.1): `length` zero elements
 // over a fresh buffer, with the kind's own prototype.
 std::optional<TypedArrayObject*> new_typed_array(Interpreter&, ElementType, double length);
+// A value converted for a kind's elements: ToBigInt for the BigInt kinds
+// (a Number is a TypeError there), ToNumber for the rest. May run script.
+std::optional<Value> to_element_value(Interpreter&, ElementType, Value const&);
 // ValidateTypedArray (§23.2.4.4): a typed array in bounds, or a TypeError
 // naming the caller.
 std::optional<TypedArrayObject*> validate_typed_array(Interpreter&, Value const&, std::string_view method);

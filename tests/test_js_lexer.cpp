@@ -39,6 +39,7 @@ char const* type_name(TokenType type)
     case TokenType::Keyword: return "kw";
     case TokenType::Punctuator: return "punct";
     case TokenType::Number: return "number";
+    case TokenType::BigInt: return "bigint";
     case TokenType::String: return "string";
     case TokenType::Template: return "template";
     case TokenType::RegExp: return "regexp";
@@ -725,10 +726,9 @@ void test_invalid()
         { u"0x", "Missing hexadecimal digits after 0x" },
         { u"1e", "Missing exponent digits" },
         { u"1e+", "Missing exponent digits" },
-        { u"10n", "BigInt literals are not supported" },
-        { u"0x1Fn", "BigInt literals are not supported" },
-        { u"0n", "BigInt literals are not supported" },
         { u"1.5n", "Identifier directly after number" },
+        { u"1e3n", "Identifier directly after number" },
+        { u"10nn", "Identifier directly after number" },
         { u"017n", "Identifier directly after number" },
         { u"3in", "Identifier directly after number" },
         { u"1\\u0061", "Identifier directly after number" },
@@ -751,7 +751,11 @@ void test_invalid()
         test::check_eq(type_name(token.type), std::string("invalid"), label.c_str(), "invalid", __FILE__, __LINE__);
         test::check_eq(token.message, std::string(c.message), label.c_str(), c.message, __FILE__, __LINE__);
     }
-    CHECK(first(u"10n").message.find("BigInt") != std::string::npos);
+    // BigInt literals: the digits and their base, the suffix consumed.
+    CHECK(first(u"10n").type == TokenType::BigInt && ascii(first(u"10n").value) == "10" && first(u"10n").radix == 10);
+    CHECK(first(u"0x1Fn").type == TokenType::BigInt && ascii(first(u"0x1Fn").value) == "1F" && first(u"0x1Fn").radix == 16);
+    CHECK(first(u"0o17n").radix == 8 && first(u"0b101n").radix == 2 && ascii(first(u"1_000n").value) == "1000");
+    CHECK(first(u"0n").type == TokenType::BigInt && ascii(first(u"0n").value) == "0");
     // The lexer stays well-defined past an error: every token consumed
     // something, and the state is at the end of what it read.
     Lexer lexer(u"@ b");

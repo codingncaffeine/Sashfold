@@ -251,6 +251,9 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         case Opcode::PushConstant:
             frame.push(code.constants[ins.a]);
             break;
+        case Opcode::PushBigInt:
+            frame.push(self.bigint(code.bigints[ins.a]));
+            break;
         case Opcode::PushInt:
             frame.push(Value::number(static_cast<double>(ins.a)));
             break;
@@ -535,12 +538,13 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 operand = Value::boolean(!to_boolean(operand));
                 break;
             case UnaryOp::Minus: {
-                std::optional<double> const number = self.to_number(operand);
-                if (!number) {
+                std::optional<Value> const numeric = self.to_numeric(operand);
+                if (!numeric) {
                     ok = false;
                     break;
                 }
-                operand = Value::number(-*number);
+                operand = numeric->is_bigint() ? self.bigint(numeric->as_bigint()->value().negated())
+                                               : Value::number(-numeric->as_number());
                 break;
             }
             case UnaryOp::Plus: {
@@ -553,12 +557,14 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 break;
             }
             case UnaryOp::BitwiseNot: {
-                std::optional<std::int32_t> const number = self.to_int32(operand);
-                if (!number) {
+                std::optional<Value> const numeric = self.to_numeric(operand);
+                if (!numeric) {
                     ok = false;
                     break;
                 }
-                operand = Value::number(static_cast<double>(~*number));
+                operand = numeric->is_bigint()
+                    ? self.bigint(numeric->as_bigint()->value().bitwise_not())
+                    : Value::number(static_cast<double>(~Interpreter::double_to_int32(numeric->as_number())));
                 break;
             }
             case UnaryOp::Typeof:
@@ -570,20 +576,27 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::ToNumeric: {
-            std::optional<double> const number = self.to_number(frame.top());
-            if (!number) {
+            std::optional<Value> const numeric = self.to_numeric(frame.top());
+            if (!numeric) {
                 ok = false;
                 break;
             }
-            frame.top() = Value::number(*number);
+            frame.top() = *numeric;
             break;
         }
         case Opcode::Inc:
-            frame.top() = Value::number(frame.top().as_number() + 1);
+        case Opcode::Dec: {
+            // The operand is numeric already (ToNumeric went before).
+            Value const& operand = frame.top();
+            if (operand.is_bigint()) {
+                BigInteger const one = BigInteger::from_int64(1);
+                BigInteger const& old = operand.as_bigint()->value();
+                frame.top() = self.bigint(ins.op == Opcode::Inc ? old + one : old - one);
+            } else {
+                frame.top() = Value::number(operand.as_number() + (ins.op == Opcode::Inc ? 1 : -1));
+            }
             break;
-        case Opcode::Dec:
-            frame.top() = Value::number(frame.top().as_number() - 1);
-            break;
+        }
         case Opcode::ToPropertyKey: {
             std::optional<PropertyKey> const key = self.to_property_key(frame.top());
             if (!key) {

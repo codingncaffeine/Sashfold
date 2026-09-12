@@ -16,6 +16,7 @@ class Cell;
 class JsString;
 class Object;
 class Symbol;
+class BigInt;
 
 class Value {
 public:
@@ -27,6 +28,7 @@ public:
         String,
         Object,
         Symbol,
+        BigInt,
         Empty, // never observable from a script
     };
 
@@ -80,6 +82,13 @@ public:
         v.m_cell = reinterpret_cast<Cell*>(s);
         return v;
     }
+    static Value bigint(BigInt* b) // b must not be null
+    {
+        Value v;
+        v.m_type = Type::BigInt;
+        v.m_cell = reinterpret_cast<Cell*>(b);
+        return v;
+    }
 
     Type type() const { return m_type; }
     bool is_undefined() const { return m_type == Type::Undefined; }
@@ -90,14 +99,19 @@ public:
     bool is_string() const { return m_type == Type::String; }
     bool is_object() const { return m_type == Type::Object; }
     bool is_symbol() const { return m_type == Type::Symbol; }
+    bool is_bigint() const { return m_type == Type::BigInt; }
     bool is_empty() const { return m_type == Type::Empty; }
-    bool is_cell() const { return m_type == Type::String || m_type == Type::Object || m_type == Type::Symbol; }
+    bool is_cell() const
+    {
+        return m_type == Type::String || m_type == Type::Object || m_type == Type::Symbol || m_type == Type::BigInt;
+    }
 
     bool as_boolean() const { return m_boolean; }
     double as_number() const { return m_number; }
     JsString* as_string() const { return reinterpret_cast<JsString*>(m_cell); }
     Object* as_object() const { return reinterpret_cast<Object*>(m_cell); }
     Symbol* as_symbol() const { return reinterpret_cast<Symbol*>(m_cell); }
+    BigInt* as_bigint() const { return reinterpret_cast<BigInt*>(m_cell); }
     // The cell behind a string, object or symbol; null for the rest. What
     // the collector traces.
     Cell* as_cell() const { return is_cell() ? m_cell : nullptr; }
@@ -117,6 +131,7 @@ public:
         case Type::String:
         case Type::Object:
         case Type::Symbol:
+        case Type::BigInt:
             return m_cell == other.m_cell;
         default:
             return true;

@@ -322,6 +322,7 @@ void Heap::intern_well_known()
     a.string = atom(std::string_view("string"));
     a.boolean = atom(std::string_view("boolean"));
     a.symbol = atom(std::string_view("symbol"));
+    a.bigint = atom(std::string_view("bigint"));
     a.nan = atom(std::string_view("NaN"));
     a.infinity = atom(std::string_view("Infinity"));
     a.negative_infinity = atom(std::string_view("-Infinity"));

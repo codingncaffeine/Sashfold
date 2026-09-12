@@ -1939,6 +1939,8 @@ std::optional<Value> Interpreter::Impl::evaluate(Expression const* expression, C
     }
     case NodeType::NumberLiteral:
         return Value::number(static_cast<NumberLiteral const*>(expression)->value);
+    case NodeType::BigIntLiteral:
+        return self.bigint(static_cast<BigIntLiteral const*>(expression)->value);
     case NodeType::StringLiteral:
         return Value::string(static_cast<StringLiteral const*>(expression)->value);
     case NodeType::BooleanLiteral:
@@ -2581,10 +2583,12 @@ std::optional<Value> Interpreter::Impl::evaluate_unary(UnaryExpression const& un
     case UnaryOp::Not:
         return Value::boolean(!to_boolean(*operand));
     case UnaryOp::Minus: {
-        std::optional<double> const number = self.to_number(*operand);
-        if (!number)
+        std::optional<Value> const numeric = self.to_numeric(*operand);
+        if (!numeric)
             return std::nullopt;
-        return Value::number(-*number);
+        if (numeric->is_bigint())
+            return self.bigint(numeric->as_bigint()->value().negated());
+        return Value::number(-numeric->as_number());
     }
     case UnaryOp::Plus: {
         std::optional<double> const number = self.to_number(*operand);
@@ -2593,10 +2597,12 @@ std::optional<Value> Interpreter::Impl::evaluate_unary(UnaryExpression const& un
         return Value::number(*number);
     }
     case UnaryOp::BitwiseNot: {
-        std::optional<std::int32_t> const number = self.to_int32(*operand);
-        if (!number)
+        std::optional<Value> const numeric = self.to_numeric(*operand);
+        if (!numeric)
             return std::nullopt;
-        return Value::number(static_cast<double>(~*number));
+        if (numeric->is_bigint())
+            return self.bigint(numeric->as_bigint()->value().bitwise_not());
+        return Value::number(static_cast<double>(~Interpreter::double_to_int32(numeric->as_number())));
     }
     default:
         break;
@@ -2674,13 +2680,21 @@ std::optional<Value> Interpreter::Impl::evaluate_update(UpdateExpression const& 
     if (!old_value)
         return std::nullopt;
     self.root(*old_value);
-    std::optional<double> const old_number = self.to_number(*old_value);
-    if (!old_number)
+    std::optional<Value> const old_numeric = self.to_numeric(*old_value);
+    if (!old_numeric)
         return std::nullopt;
-    double const new_number = update.increment ? *old_number + 1 : *old_number - 1;
-    if (!put_value(*reference, Value::number(new_number), cx))
+    self.root(*old_numeric);
+    Value new_value;
+    if (old_numeric->is_bigint()) {
+        BigInteger const& old = old_numeric->as_bigint()->value();
+        new_value = self.bigint(update.increment ? old + BigInteger::from_int64(1) : old - BigInteger::from_int64(1));
+    } else {
+        new_value = Value::number(update.increment ? old_numeric->as_number() + 1 : old_numeric->as_number() - 1);
+    }
+    self.root(new_value);
+    if (!put_value(*reference, new_value, cx))
         return std::nullopt;
-    return Value::number(update.prefix ? new_number : *old_number);
+    return update.prefix ? new_value : *old_numeric;
 }
 
 
@@ -2721,36 +2735,73 @@ std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& l
             joined += (*rstr)->view();
             return Value::string(heap().string(std::move(joined)));
         }
-        std::optional<double> const lnum = self.to_number(*lprim);
+        std::optional<Value> const lnum = self.to_numeric(*lprim);
         if (!lnum)
             return std::nullopt;
-        std::optional<double> const rnum = self.to_number(*rprim);
+        self.root(*lnum);
+        std::optional<Value> const rnum = self.to_numeric(*rprim);
         if (!rnum)
             return std::nullopt;
-        return Value::number(*lnum + *rnum);
+        if (lnum->is_bigint() != rnum->is_bigint())
+            return self.throw_type_error("Cannot mix BigInt and other types, use explicit conversions");
+        if (lnum->is_bigint())
+            return self.bigint(lnum->as_bigint()->value() + rnum->as_bigint()->value());
+        return Value::number(lnum->as_number() + rnum->as_number());
     }
     case BinaryOp::Subtract:
     case BinaryOp::Multiply:
     case BinaryOp::Divide:
     case BinaryOp::Remainder:
     case BinaryOp::Exponent: {
-        std::optional<double> const lnum = self.to_number(left);
+        std::optional<Value> const lnum = self.to_numeric(left);
         if (!lnum)
             return std::nullopt;
-        std::optional<double> const rnum = self.to_number(right);
+        self.root(*lnum);
+        std::optional<Value> const rnum = self.to_numeric(right);
         if (!rnum)
             return std::nullopt;
+        if (lnum->is_bigint() != rnum->is_bigint())
+            return self.throw_type_error("Cannot mix BigInt and other types, use explicit conversions");
+        if (lnum->is_bigint()) {
+            // §6.1.6.2: exact, with the two errors the integers can raise.
+            BigInteger const& a = lnum->as_bigint()->value();
+            BigInteger const& b = rnum->as_bigint()->value();
+            switch (op) {
+            case BinaryOp::Subtract:
+                return self.bigint(a - b);
+            case BinaryOp::Multiply:
+                return self.bigint(a * b);
+            case BinaryOp::Divide:
+            case BinaryOp::Remainder: {
+                std::optional<BigInteger> result
+                    = op == BinaryOp::Divide ? BigInteger::divide(a, b) : BigInteger::remainder(a, b);
+                if (!result)
+                    return self.throw_range_error("Division by zero");
+                return self.bigint(std::move(*result));
+            }
+            default: {
+                BigInteger::Power power = BigInteger::power(a, b);
+                if (power.negative_exponent)
+                    return self.throw_range_error("Exponent must be non-negative");
+                if (power.too_large)
+                    return self.throw_range_error("Maximum BigInt size exceeded");
+                return self.bigint(std::move(*power.value));
+            }
+            }
+        }
+        double const l = lnum->as_number();
+        double const r = rnum->as_number();
         switch (op) {
         case BinaryOp::Subtract:
-            return Value::number(*lnum - *rnum);
+            return Value::number(l - r);
         case BinaryOp::Multiply:
-            return Value::number(*lnum * *rnum);
+            return Value::number(l * r);
         case BinaryOp::Divide:
-            return Value::number(*lnum / *rnum);
+            return Value::number(l / r);
         case BinaryOp::Remainder:
-            return Value::number(std::fmod(*lnum, *rnum));
+            return Value::number(std::fmod(l, r));
         default:
-            return Value::number(number_exponentiate(*lnum, *rnum));
+            return Value::number(number_exponentiate(l, r));
         }
     }
     case BinaryOp::LeftShift:
@@ -2759,12 +2810,41 @@ std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& l
     case BinaryOp::BitwiseAnd:
     case BinaryOp::BitwiseOr:
     case BinaryOp::BitwiseXor: {
-        std::optional<std::int32_t> const lnum = self.to_int32(left);
-        if (!lnum)
+        std::optional<Value> const lval = self.to_numeric(left);
+        if (!lval)
             return std::nullopt;
-        std::optional<std::uint32_t> const rnum = self.to_uint32(right);
-        if (!rnum)
+        self.root(*lval);
+        std::optional<Value> const rval = self.to_numeric(right);
+        if (!rval)
             return std::nullopt;
+        if (lval->is_bigint() != rval->is_bigint())
+            return self.throw_type_error("Cannot mix BigInt and other types, use explicit conversions");
+        if (lval->is_bigint()) {
+            BigInteger const& a = lval->as_bigint()->value();
+            BigInteger const& b = rval->as_bigint()->value();
+            switch (op) {
+            case BinaryOp::LeftShift:
+            case BinaryOp::RightShift: {
+                std::optional<BigInteger> result
+                    = op == BinaryOp::LeftShift ? BigInteger::shift_left(a, b) : BigInteger::shift_right(a, b);
+                if (!result)
+                    return self.throw_range_error("Maximum BigInt size exceeded");
+                return self.bigint(std::move(*result));
+            }
+            case BinaryOp::UnsignedRightShift:
+                return self.throw_type_error("BigInts have no unsigned right shift, use >> instead");
+            case BinaryOp::BitwiseAnd:
+                return self.bigint(a & b);
+            case BinaryOp::BitwiseOr:
+                return self.bigint(a | b);
+            default:
+                return self.bigint(a ^ b);
+            }
+        }
+        std::int32_t const lnum_value = Interpreter::double_to_int32(lval->as_number());
+        std::uint32_t const rnum_value = Interpreter::double_to_uint32(rval->as_number());
+        std::optional<std::int32_t> const lnum = lnum_value;
+        std::optional<std::uint32_t> const rnum = rnum_value;
         auto const lbits = static_cast<std::uint32_t>(*lnum);
         std::uint32_t const shift = *rnum & 31u;
         switch (op) {
@@ -3773,6 +3853,7 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.number_prototype);
     tracer.visit(i.boolean_prototype);
     tracer.visit(i.symbol_prototype);
+    tracer.visit(i.bigint_prototype);
     tracer.visit(i.error_prototype);
     for (Object* prototype : i.error_prototypes)
         tracer.visit(prototype);
@@ -3786,6 +3867,7 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.number_constructor);
     tracer.visit(i.boolean_constructor);
     tracer.visit(i.symbol_constructor);
+    tracer.visit(i.bigint_constructor);
     tracer.visit(i.error_constructor);
     for (Function* constructor : i.error_constructors)
         tracer.visit(constructor);

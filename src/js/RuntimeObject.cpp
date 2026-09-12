@@ -1630,6 +1630,7 @@ void install_intrinsics(Interpreter& in)
     install_symbol(in);
     install_boolean(in);
     install_number(in);
+    install_bigint(in);
     install_math(in);
     install_global_functions(in);
     install_array(in);

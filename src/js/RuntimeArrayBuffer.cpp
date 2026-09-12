@@ -131,28 +131,32 @@ std::uint64_t load_bits(std::uint8_t const* in, std::size_t size, bool little_en
     return bits;
 }
 
-// ToNumber without the interpreter, for the one path that has none: a
-// [[DefineOwnProperty]] called directly with a value the interpreter's
-// wrapper has not converted. Every caller in the engine converts first,
-// so an object here is unreachable; it becomes NaN rather than a call.
-double number_without_script(Value const& value)
+// The conversion for an element without the interpreter, for the one path
+// that has none: a [[DefineOwnProperty]] called directly with a value the
+// interpreter's wrapper has not converted. Every caller in the engine
+// converts first, so an object here is unreachable; it becomes NaN (or a
+// zero BigInt) rather than a call.
+Value element_without_script(Heap& heap, ElementType type, Value const& value)
 {
+    if (is_bigint_element(type))
+        return value.is_bigint() ? value : Value::bigint(heap.bigint(BigInteger()));
     switch (value.type()) {
     case Value::Type::Number:
-        return value.as_number();
+        return value;
     case Value::Type::Null:
-        return 0;
+        return Value::number(0);
     case Value::Type::Boolean:
-        return value.as_boolean() ? 1 : 0;
+        return Value::number(value.as_boolean() ? 1 : 0);
     case Value::Type::String:
-        return string_to_number(value.as_string()->view());
+        return Value::number(string_to_number(value.as_string()->view()));
     case Value::Type::Undefined:
     case Value::Type::Empty:
     case Value::Type::Object:
     case Value::Type::Symbol:
+    case Value::Type::BigInt:
         break;
     }
-    return std::numeric_limits<double>::quiet_NaN();
+    return Value::number(std::numeric_limits<double>::quiet_NaN());
 }
 
 bool is_integral(double number)
@@ -249,7 +253,7 @@ std::optional<Value> get_view_value(Interpreter& in, Value const& this_value, Va
     if (*get_index + size > view_size)
         return in.throw_range_error("Offset is outside the bounds of the DataView");
     std::size_t const buffer_index = static_cast<std::size_t>(*get_index) + view.byte_offset();
-    return Value::number(read_element(type, view.buffer()->data() + buffer_index, little_endian));
+    return read_element_value(in.heap(), type, view.buffer()->data() + buffer_index, little_endian);
 }
 
 // SetViewValue (§25.3.1.6): the value is converted before the view is
@@ -267,9 +271,10 @@ std::optional<Value> set_view_value(Interpreter& in, Value const& this_value, Va
     std::optional<double> const get_index = in.to_index(request_index);
     if (!get_index)
         return std::nullopt;
-    std::optional<double> const number = in.to_number(value);
-    if (!number)
+    std::optional<Value> const numeric = to_element_value(in, type, value);
+    if (!numeric)
         return std::nullopt;
+    in.root(*numeric);
     bool const little_endian = Interpreter::to_boolean(little_endian_value);
     if (view.is_out_of_bounds())
         return in.throw_type_error("Cannot perform DataView.prototype." + std::string(method) + " on a detached or out-of-bounds DataView");
@@ -278,7 +283,7 @@ std::optional<Value> set_view_value(Interpreter& in, Value const& this_value, Va
     if (*get_index + size > view_size)
         return in.throw_range_error("Offset is outside the bounds of the DataView");
     std::size_t const buffer_index = static_cast<std::size_t>(*get_index) + view.byte_offset();
-    write_element(type, view.buffer()->data() + buffer_index, *number, little_endian);
+    write_element_value(type, view.buffer()->data() + buffer_index, *numeric, little_endian);
     return Value::undefined();
 }
 
@@ -299,8 +304,46 @@ std::string_view element_type_name(ElementType type)
     case ElementType::Float16: return "Float16Array";
     case ElementType::Float32: return "Float32Array";
     case ElementType::Float64: return "Float64Array";
+    case ElementType::BigInt64: return "BigInt64Array";
+    case ElementType::BigUint64: return "BigUint64Array";
     }
     return "Int8Array";
+}
+
+std::optional<Value> to_element_value(Interpreter& in, ElementType type, Value const& value)
+{
+    // The conversion an element's kind asks for: ToBigInt for the BigInt
+    // kinds (a Number is a TypeError there), ToNumber for the rest.
+    if (is_bigint_element(type)) {
+        std::optional<BigInt*> const big = in.to_bigint(value);
+        if (!big)
+            return std::nullopt;
+        return Value::bigint(*big);
+    }
+    std::optional<double> const number = in.to_number(value);
+    if (!number)
+        return std::nullopt;
+    return Value::number(*number);
+}
+
+void write_element_value(ElementType type, std::uint8_t* out, Value const& numeric, bool little_endian)
+{
+    if (is_bigint_element(type)) {
+        // ToBigInt64 and ToBigUint64 (§7.1.15, §7.1.16): the low 64 bits.
+        std::uint64_t const bits = numeric.is_bigint() ? numeric.as_bigint()->value().to_uint64_wrapping() : 0;
+        store_bits(out, bits, 8, little_endian);
+        return;
+    }
+    write_element(type, out, numeric.is_number() ? numeric.as_number() : std::numeric_limits<double>::quiet_NaN(), little_endian);
+}
+
+Value read_element_value(Heap& heap, ElementType type, std::uint8_t const* in, bool little_endian)
+{
+    if (type == ElementType::BigInt64)
+        return Value::bigint(heap.bigint(BigInteger::from_int64(static_cast<std::int64_t>(load_bits(in, 8, little_endian)))));
+    if (type == ElementType::BigUint64)
+        return Value::bigint(heap.bigint(BigInteger::from_uint64(load_bits(in, 8, little_endian))));
+    return Value::number(read_element(type, in, little_endian));
 }
 
 void write_element(ElementType type, std::uint8_t* out, double number, bool little_endian)
@@ -336,6 +379,11 @@ void write_element(ElementType type, std::uint8_t* out, double number, bool litt
         store_bits(out, bits, 8, little_endian);
         return;
     }
+    case ElementType::BigInt64:
+    case ElementType::BigUint64:
+        // A Number never reaches a BigInt kind (write_element_value converts first).
+        store_bits(out, 0, 8, little_endian);
+        return;
     }
 }
 
@@ -370,6 +418,10 @@ double read_element(ElementType type, std::uint8_t const* in, bool little_endian
         std::memcpy(&number, &bits, sizeof number);
         return number;
     }
+    case ElementType::BigInt64:
+        return static_cast<double>(static_cast<std::int64_t>(load_bits(in, 8, little_endian)));
+    case ElementType::BigUint64:
+        return static_cast<double>(load_bits(in, 8, little_endian));
     }
     return 0;
 }
@@ -430,12 +482,12 @@ bool TypedArrayObject::is_valid_index(double index) const
 
 Value TypedArrayObject::get_element(std::size_t index) const
 {
-    return Value::number(read_element(m_type, m_buffer->data() + m_byte_offset + index * element_size(), true));
+    return read_element_value(*heap(), m_type, m_buffer->data() + m_byte_offset + index * element_size(), true);
 }
 
-void TypedArrayObject::set_element(std::size_t index, double number)
+void TypedArrayObject::set_element(std::size_t index, Value const& numeric)
 {
-    write_element(m_type, m_buffer->data() + m_byte_offset + index * element_size(), number, true);
+    write_element_value(m_type, m_buffer->data() + m_byte_offset + index * element_size(), numeric, true);
 }
 
 std::optional<double> TypedArrayObject::numeric_index(PropertyKey const& key)
@@ -481,11 +533,11 @@ std::optional<bool> TypedArrayObject::define_numeric(Interpreter& in, double ind
     if (desc.value) {
         Interpreter::Roots const roots(in);
         in.root(Value::object(this));
-        std::optional<double> const number = in.to_number(*desc.value);
-        if (!number)
+        std::optional<Value> const numeric = to_element_value(in, m_type, *desc.value);
+        if (!numeric)
             return std::nullopt;
         if (is_valid_index(index))
-            set_element(static_cast<std::size_t>(index), *number);
+            set_element(static_cast<std::size_t>(index), *numeric);
     }
     return true;
 }
@@ -519,7 +571,7 @@ bool TypedArrayObject::define_own_property(PropertyKey const& key, PropertyDescr
         if (desc.writable && !*desc.writable)
             return false;
         if (desc.value)
-            set_element(static_cast<std::size_t>(*index), number_without_script(*desc.value));
+            set_element(static_cast<std::size_t>(*index), element_without_script(*heap(), m_type, *desc.value));
         return true;
     }
     return Object::define_own_property(key, desc);
@@ -557,11 +609,11 @@ std::optional<bool> TypedArrayObject::set(Interpreter& interpreter, PropertyKey 
         if (receiver.is_object() && receiver.as_object() == this) {
             Interpreter::Roots const roots(interpreter);
             interpreter.root(Value::object(this));
-            std::optional<double> const number = interpreter.to_number(value);
-            if (!number)
+            std::optional<Value> const numeric = to_element_value(interpreter, m_type, value);
+            if (!numeric)
                 return std::nullopt;
             if (is_valid_index(*index))
-                set_element(static_cast<std::size_t>(*index), *number);
+                set_element(static_cast<std::size_t>(*index), *numeric);
             return true;
         }
         if (!is_valid_index(*index))
@@ -940,6 +992,8 @@ void install_data_view(Interpreter& in)
         { "Float16", ElementType::Float16 },
         { "Float32", ElementType::Float32 },
         { "Float64", ElementType::Float64 },
+        { "BigInt64", ElementType::BigInt64 },
+        { "BigUint64", ElementType::BigUint64 },
     };
     for (ViewMethod const& method : view_methods) {
         ElementType const type = method.type;

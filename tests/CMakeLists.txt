@@ -80,6 +80,7 @@ sashfold_test(test_js_async)
 sashfold_test(test_js_typed_array)
 sashfold_test(test_js_module)
 sashfold_test(test_js_proxy)
+sashfold_test(test_js_bigint)
 sashfold_test(test_crypto)
 sashfold_test(test_bindings)
 

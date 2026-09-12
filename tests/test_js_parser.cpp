@@ -1168,7 +1168,8 @@ void test_classes()
 void test_unsupported_features()
 {
     CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
-    CHECK_EQ(parse("x = 10n"), "BigInt literals are not supported");
+    CHECK_EQ(parse("x = 10n"), expression_of("(assign = (id x) (bigint 10n))"));
+    CHECK_EQ(parse("x = 0x1Fn"), expression_of("(assign = (id x) (bigint 31n))"));
     CHECK_EQ(parse("({a: 1}) = b"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("(a,)"), "Unexpected token ')'");
     CHECK_EQ(parse("(a, b,)"), "Unexpected token ')'");

@@ -99,6 +99,7 @@ public:
         Number,
         String,
         Symbol,
+        BigInt,
         Date,
         RegExp,
         Arguments,
@@ -759,8 +760,8 @@ private:
 // ----------------------------------------------- ArrayBuffer and its views
 
 // The element types a typed array or a DataView reads and writes (§23.2,
-// Table 71): the integer widths, the clamped byte and the three float
-// widths. The two BigInt kinds join when BigInt does.
+// Table 71): the integer widths, the clamped byte, the three float widths
+// and the two BigInt widths.
 enum class ElementType : std::uint8_t {
     Int8,
     Uint8,
@@ -772,8 +773,10 @@ enum class ElementType : std::uint8_t {
     Float16,
     Float32,
     Float64,
+    BigInt64,
+    BigUint64,
 };
-inline constexpr int element_type_count = 10;
+inline constexpr int element_type_count = 12;
 constexpr std::size_t element_size(ElementType type)
 {
     switch (type) {
@@ -790,16 +793,29 @@ constexpr std::size_t element_size(ElementType type)
     case ElementType::Float32:
         return 4;
     case ElementType::Float64:
+    case ElementType::BigInt64:
+    case ElementType::BigUint64:
         return 8;
     }
     return 1;
 }
-// "Int8Array" … "Float64Array": the constructor's name and the tag.
+// IsBigIntElementType (§10.4.5.x): the kinds whose elements are BigInts;
+// a typed array's content type, which never mixes with the other.
+constexpr bool is_bigint_element(ElementType type)
+{
+    return type == ElementType::BigInt64 || type == ElementType::BigUint64;
+}
+// "Int8Array" … "BigUint64Array": the constructor's name and the tag.
 std::string_view element_type_name(ElementType);
 // NumericToRawBytes and RawBytesToNumeric (§25.1.3.16–.17): one element,
-// in the byte order asked for. Defined in RuntimeArrayBuffer.cpp.
+// in the byte order asked for. Defined in RuntimeArrayBuffer.cpp. The
+// double forms serve the Number kinds; the Value forms serve every kind,
+// a BigInt element being made on the heap as it is read and taken as
+// its low sixty-four bits as it is written.
 void write_element(ElementType, std::uint8_t* out, double, bool little_endian);
 double read_element(ElementType, std::uint8_t const* in, bool little_endian);
+void write_element_value(ElementType, std::uint8_t* out, Value const& numeric, bool little_endian);
+Value read_element_value(Heap&, ElementType, std::uint8_t const* in, bool little_endian);
 
 // An ArrayBuffer (§25.1): a block of bytes, fixed in length or resizable
 // up to a maximum decided when it was made, and detachable — after which
@@ -869,10 +885,12 @@ public:
     // IsValidIntegerIndex (§10.4.5.15).
     bool is_valid_index(double) const;
     // The storage half of TypedArrayGetElement and TypedArraySetElement:
-    // the index must be valid, and the value is a Number already
-    // converted by ToNumber. Neither runs script.
+    // the index must be valid, and the value is a Number or a BigInt
+    // already converted for the kind (ToNumber, or ToBigInt for the BigInt
+    // kinds). Neither runs script; a read of a BigInt kind makes a cell.
     Value get_element(std::size_t index) const;
-    void set_element(std::size_t index, double number);
+    void set_element(std::size_t index, Value const& numeric);
+    void set_element(std::size_t index, double number) { set_element(index, Value::number(number)); }
     // The numeric index a key names (CanonicalNumericIndexString, §7.1.21),
     // or none for an ordinary name or a symbol.
     static std::optional<double> numeric_index(PropertyKey const&);

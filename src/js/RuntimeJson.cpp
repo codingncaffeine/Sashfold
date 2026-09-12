@@ -449,12 +449,15 @@ struct Stringifier {
                 break;
             }
             case Object::Class::Boolean:
+            case Object::Class::BigInt:
                 value = static_cast<PrimitiveObject*>(object)->primitive();
                 break;
             default:
                 break;
             }
         }
+        if (value->is_bigint())
+            return in.throw_type_error("Do not know how to serialize a BigInt");
         if (value->is_null())
             return std::optional<std::u16string>(u"null");
         if (value->is_boolean())

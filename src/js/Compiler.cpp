@@ -274,6 +274,7 @@ private:
         return static_cast<std::uint32_t>(pool.size() - 1);
     }
     std::uint32_t constant(Value const& value) { return pooled(m_code->constants, value); }
+    std::uint32_t bigint(BigInteger const& value) { return pooled(m_code->bigints, value); }
     std::uint32_t name(JsString* atom) { return pooled(m_code->names, atom); }
     std::uint32_t name_of(std::u16string_view text) { return name(m_heap.atom(text)); }
     std::uint32_t constant_string(std::u16string_view text) { return constant(Value::string(m_heap.atom(text))); }
@@ -1031,6 +1032,9 @@ private:
             return;
         case NodeType::NumberLiteral:
             emit(Opcode::PushConstant, constant(Value::number(static_cast<NumberLiteral const*>(expression)->value)));
+            return;
+        case NodeType::BigIntLiteral:
+            emit(Opcode::PushBigInt, bigint(static_cast<BigIntLiteral const*>(expression)->value));
             return;
         case NodeType::StringLiteral:
             emit(Opcode::PushConstant, constant(Value::string(static_cast<StringLiteral const*>(expression)->value)));

@@ -13,6 +13,7 @@
 // A NoCollect scope defers collection for a native that builds several
 // cells before it can root them.
 
+#include "js/BigInteger.h"
 #include "js/Value.h"
 
 #include <cstddef>
@@ -128,6 +129,21 @@ private:
     bool m_private;
 };
 
+// A BigInt value (§6.1.6.2): immutable, compared by its integer, made
+// fresh by every operation that yields one.
+class BigInt : public Cell {
+public:
+    explicit BigInt(BigInteger value)
+        : m_value(std::move(value))
+    {
+    }
+    BigInteger const& value() const { return m_value; }
+    std::size_t size_in_bytes() const override { return sizeof(*this) + m_value.limb_count() * 4; }
+
+private:
+    BigInteger m_value;
+};
+
 // Something outside the heap that holds cells and must say so at every
 // collection: the interpreter (its root stack), the bindings (the
 // connected tree's wrappers).
@@ -178,6 +194,7 @@ struct WellKnownAtoms {
     JsString* string = nullptr;
     JsString* boolean = nullptr;
     JsString* symbol = nullptr;
+    JsString* bigint = nullptr;
     JsString* nan = nullptr; // "NaN"
     JsString* infinity = nullptr; // "Infinity"
     JsString* negative_infinity = nullptr; // "-Infinity"
@@ -253,6 +270,7 @@ public:
 
     Symbol* symbol(JsString* description);
     Symbol* private_symbol(JsString* description); // a Private Name, described as "#x"
+    BigInt* bigint(BigInteger value) { return allocate<BigInt>(std::move(value)); }
 
     WellKnownAtoms const& atoms() const { return m_well_known; }
 

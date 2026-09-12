@@ -43,6 +43,8 @@ constexpr ElementType element_types[element_type_count] = {
     ElementType::Float16,
     ElementType::Float32,
     ElementType::Float64,
+    ElementType::BigInt64,
+    ElementType::BigUint64,
 };
 
 std::size_t type_index(ElementType type)
@@ -101,26 +103,27 @@ Value element_at(TypedArrayObject const& array, double index)
     return array.get_element(static_cast<std::size_t>(index));
 }
 
-// The Number an element holds, or NaN for the undefined an invalid index
-// answers — what ToNumber makes of it on the way back in.
-double number_of(Value const& element)
-{
-    return element.is_number() ? element.as_number() : std::numeric_limits<double>::quiet_NaN();
-}
-
 // TypedArraySetElement (§10.4.5.17), which Set(O, k, v, true) on a typed
-// array comes down to: the value converted first, stored if the index is
-// still valid, never an error.
+// array comes down to: the value converted first (ToNumber, or ToBigInt
+// for a BigInt kind), stored if the index is still valid, never an error.
 std::optional<bool> set_element_at(Interpreter& in, TypedArrayObject& array, double index, Value const& value)
 {
     Interpreter::Roots const roots(in);
     in.root(Value::object(&array));
-    std::optional<double> const number = in.to_number(value);
-    if (!number)
+    in.root(value);
+    std::optional<Value> const numeric = to_element_value(in, array.element_type(), value);
+    if (!numeric)
         return std::nullopt;
     if (array.is_valid_index(index))
-        array.set_element(static_cast<std::size_t>(index), *number);
+        array.set_element(static_cast<std::size_t>(index), *numeric);
     return true;
+}
+
+// The two content types never mix (§23.2.4.1 and the constructors): a
+// BigInt kind takes from a BigInt kind only.
+bool same_content_type(TypedArrayObject const& a, TypedArrayObject const& b)
+{
+    return is_bigint_element(a.element_type()) == is_bigint_element(b.element_type());
 }
 
 // A relative index argument (§23.2.3.6 step 5 and friends): negative
@@ -180,16 +183,20 @@ std::optional<TypedArrayObject*> create_from_constructor(Interpreter& in, Value 
     return *array;
 }
 
-// TypedArraySpeciesCreate (§23.2.4.1). Every kind here holds Numbers, so
-// the content-type check the specification adds has nothing to compare
-// until the BigInt kinds arrive.
+// TypedArraySpeciesCreate (§23.2.4.1): the species' array, which must hold
+// the exemplar's content type.
 std::optional<TypedArrayObject*> species_create(Interpreter& in, TypedArrayObject& exemplar, Args arguments)
 {
     Function* default_constructor = in.intrinsics().typed_array_constructors[type_index(exemplar.element_type())];
     std::optional<Value> const constructor = in.species_constructor(exemplar, default_constructor);
     if (!constructor)
         return std::nullopt;
-    return create_from_constructor(in, *constructor, arguments);
+    std::optional<TypedArrayObject*> const made = create_from_constructor(in, *constructor, arguments);
+    if (!made)
+        return std::nullopt;
+    if (!same_content_type(**made, exemplar))
+        return in.throw_type_error("The species constructor made a TypedArray of the other content type");
+    return made;
 }
 
 // TypedArrayCreateSameType (§23.2.4.3).
@@ -225,6 +232,8 @@ std::optional<bool> initialize_from_typed_array(Interpreter& in, TypedArrayObjec
     // and converted element by element when they do not.
     if (source.is_out_of_bounds())
         return in.throw_type_error("Cannot construct a TypedArray from a detached or out-of-bounds TypedArray");
+    if (!same_content_type(target, source))
+        return in.throw_type_error("Cannot mix BigInt and other types, use explicit conversions");
     std::size_t const length = source.length();
     std::size_t const size = target.element_size();
     Interpreter::Roots const roots(in);
@@ -239,7 +248,7 @@ std::optional<bool> initialize_from_typed_array(Interpreter& in, TypedArrayObjec
             std::memcpy((*buffer)->data(), source.buffer()->data() + source.byte_offset(), length * size);
     } else {
         for (std::size_t k = 0; k < length; ++k)
-            target.set_element(k, source.get_element(k).as_number());
+            target.set_element(k, source.get_element(k));
     }
     return true;
 }
@@ -563,9 +572,13 @@ std::optional<Value> search_elements(Interpreter& in, Value const& this_value, A
 }
 
 // TypedArraySortCompare (§23.2.3.29.1) with no comparator: numeric order,
-// −0 before +0, NaN last.
-int default_compare(double x, double y)
+// −0 before +0, NaN last; two BigInts by their integers.
+int default_compare(Value const& a, Value const& b)
 {
+    if (a.is_bigint() && b.is_bigint())
+        return compare(a.as_bigint()->value(), b.as_bigint()->value());
+    double const x = a.is_number() ? a.as_number() : std::numeric_limits<double>::quiet_NaN();
+    double const y = b.is_number() ? b.as_number() : std::numeric_limits<double>::quiet_NaN();
     bool const x_nan = std::isnan(x);
     bool const y_nan = std::isnan(y);
     if (x_nan && y_nan)
@@ -589,7 +602,7 @@ int default_compare(double x, double y)
 
 // A stable merge sort whose comparator may throw; false = abandoned.
 template<typename Compare>
-bool merge_sort(std::vector<double>& values, std::vector<double>& scratch, std::size_t begin, std::size_t end, Compare const& compare)
+bool merge_sort(std::vector<Value>& values, std::vector<Value>& scratch, std::size_t begin, std::size_t end, Compare const& compare)
 {
     if (end - begin < 2)
         return true;
@@ -617,18 +630,22 @@ bool merge_sort(std::vector<double>& values, std::vector<double>& scratch, std::
 // SortIndexedProperties (§23.1.3.30.1) over a typed array, read-through-
 // holes: every element is read before the first comparison, so a
 // comparator that detaches the buffer changes nothing about the order.
-std::optional<std::vector<double>> sorted_elements(Interpreter& in, TypedArrayObject& array, std::size_t length, Value const& comparefn)
+std::optional<std::vector<Value>> sorted_elements(Interpreter& in, TypedArrayObject& array, std::size_t length, Value const& comparefn)
 {
-    std::vector<double> values(length);
-    for (std::size_t k = 0; k < length; ++k)
-        values[k] = number_of(element_at(array, static_cast<double>(k)));
-    std::vector<double> scratch(length);
+    // The elements are rooted in the caller's scope: a BigInt kind's are
+    // fresh cells, and the comparator runs script.
+    std::vector<Value> values(length);
+    for (std::size_t k = 0; k < length; ++k) {
+        values[k] = element_at(array, static_cast<double>(k));
+        in.root(values[k]);
+    }
+    std::vector<Value> scratch(length);
     bool sorted = false;
     if (comparefn.is_undefined()) {
-        sorted = merge_sort(values, scratch, 0, length, [](double x, double y) -> std::optional<int> { return default_compare(x, y); });
+        sorted = merge_sort(values, scratch, 0, length, [](Value const& x, Value const& y) -> std::optional<int> { return default_compare(x, y); });
     } else {
-        sorted = merge_sort(values, scratch, 0, length, [&](double x, double y) -> std::optional<int> {
-            Value const arguments[2] = { Value::number(x), Value::number(y) };
+        sorted = merge_sort(values, scratch, 0, length, [&](Value const& x, Value const& y) -> std::optional<int> {
+            Value const arguments[2] = { x, y };
             std::optional<Value> const result = in.call(comparefn, Value::undefined(), arguments);
             if (!result)
                 return std::nullopt;
@@ -668,13 +685,15 @@ std::optional<Value> set_from_typed_array(Interpreter& in, TypedArrayObject& tar
             std::memmove(destination, origin, source_length * size);
         return Value::undefined();
     }
+    if (!same_content_type(target, source))
+        return in.throw_type_error("Cannot mix BigInt and other types, use explicit conversions");
     std::vector<std::uint8_t> clone;
     if (source.buffer() == target.buffer()) {
         clone.assign(origin, origin + source_length * source.element_size());
         origin = clone.data();
     }
     for (std::size_t k = 0; k < source_length; ++k)
-        target.set_element(offset + k, read_element(source.element_type(), origin + k * source.element_size(), true));
+        target.set_element(offset + k, read_element_value(in.heap(), source.element_type(), origin + k * source.element_size(), true));
     return Value::undefined();
 }
 
@@ -942,9 +961,10 @@ void install_prototype(Interpreter& in, Object& prototype)
         double length = static_cast<double>(array.length());
         Interpreter::Roots const roots(interp);
         interp.root(this_value);
-        std::optional<double> const number = interp.to_number(argument(args, 0));
-        if (!number)
+        std::optional<Value> const numeric = to_element_value(interp, array.element_type(), argument(args, 0));
+        if (!numeric)
             return std::nullopt;
+        interp.root(*numeric);
         std::optional<double> const start = relative_index(interp, argument(args, 1), length, 0);
         if (!start)
             return std::nullopt;
@@ -956,7 +976,7 @@ void install_prototype(Interpreter& in, Object& prototype)
         length = static_cast<double>(array.length());
         double const stop = std::min(*end, length);
         for (double k = *start; k < stop; k += 1)
-            array.set_element(static_cast<std::size_t>(k), *number);
+            array.set_element(static_cast<std::size_t>(k), *numeric);
         return this_value;
     });
     define_method(in, prototype, "filter", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
@@ -975,15 +995,16 @@ void install_prototype(Interpreter& in, Object& prototype)
         interp.root(this_value);
         interp.root(*callback);
         interp.root(this_argument);
-        std::vector<double> kept;
+        std::vector<Value> kept;
         for (double k = 0; k < length; k += 1) {
             Value const element = element_at(array, k);
+            interp.root(element);
             Value const arguments[3] = { element, Value::number(k), this_value };
             std::optional<Value> const result = interp.call(*callback, this_argument, arguments);
             if (!result)
                 return std::nullopt;
             if (Interpreter::to_boolean(*result))
-                kept.push_back(number_of(element));
+                kept.push_back(element);
         }
         Value const count[1] = { Value::number(static_cast<double>(kept.size())) };
         std::optional<TypedArrayObject*> const target = species_create(interp, array, count);
@@ -1038,8 +1059,12 @@ void install_prototype(Interpreter& in, Object& prototype)
             if (k > 0)
                 result += separator;
             Value const element = element_at(array, k);
-            if (!element.is_undefined())
+            if (element.is_bigint()) {
+                std::string const digits = element.as_bigint()->value().to_string();
+                result.append(digits.begin(), digits.end());
+            } else if (!element.is_undefined()) {
                 result += number_to_string(element.as_number());
+            }
         }
         return Value::string(interp.heap().string(std::move(result)));
     });
@@ -1094,12 +1119,14 @@ void install_prototype(Interpreter& in, Object& prototype)
             return std::nullopt;
         TypedArrayObject& array = **found;
         std::size_t const length = array.length();
+        // The bytes themselves change places: reading a BigInt kind's
+        // element would make a cell, and a second read could collect it.
+        std::size_t const size = array.element_size();
+        std::uint8_t* const bytes = array.buffer()->data() + array.byte_offset();
         for (std::size_t lower = 0; lower < length / 2; ++lower) {
             std::size_t const upper = length - 1 - lower;
-            double const lower_value = array.get_element(lower).as_number();
-            double const upper_value = array.get_element(upper).as_number();
-            array.set_element(lower, upper_value);
-            array.set_element(upper, lower_value);
+            for (std::size_t b = 0; b < size; ++b)
+                std::swap(bytes[lower * size + b], bytes[upper * size + b]);
         }
         return this_value;
     });
@@ -1166,8 +1193,8 @@ void install_prototype(Interpreter& in, Object& prototype)
             } else {
                 double n = 0;
                 for (double k = *start; k < *end; k += 1, n += 1) {
-                    if (target.is_valid_index(n))
-                        target.set_element(static_cast<std::size_t>(n), number_of(element_at(array, k)));
+                    if (!set_element_at(interp, target, n, element_at(array, k)))
+                        return std::nullopt;
                 }
             }
         }
@@ -1191,7 +1218,7 @@ void install_prototype(Interpreter& in, Object& prototype)
         Interpreter::Roots const roots(interp);
         interp.root(this_value);
         interp.root(comparefn);
-        std::optional<std::vector<double>> const sorted = sorted_elements(interp, array, length, comparefn);
+        std::optional<std::vector<Value>> const sorted = sorted_elements(interp, array, length, comparefn);
         if (!sorted)
             return std::nullopt;
         for (std::size_t j = 0; j < length; ++j) {
@@ -1275,9 +1302,10 @@ void install_prototype(Interpreter& in, Object& prototype)
         std::optional<TypedArrayObject*> const target = create_same_type(interp, array, count);
         if (!target)
             return std::nullopt;
+        interp.root(Value::object(*target)); // reading a BigInt kind's element makes a cell
         for (double k = 0; k < length; k += 1) {
-            if ((*target)->is_valid_index(k))
-                (*target)->set_element(static_cast<std::size_t>(k), number_of(element_at(array, length - 1 - k)));
+            if (!set_element_at(interp, **target, k, element_at(array, length - 1 - k)))
+                return std::nullopt;
         }
         return Value::object(*target);
     });
@@ -1299,7 +1327,7 @@ void install_prototype(Interpreter& in, Object& prototype)
         if (!target)
             return std::nullopt;
         interp.root(Value::object(*target));
-        std::optional<std::vector<double>> const sorted = sorted_elements(interp, array, length, comparefn);
+        std::optional<std::vector<Value>> const sorted = sorted_elements(interp, array, length, comparefn);
         if (!sorted)
             return std::nullopt;
         for (std::size_t j = 0; j < length; ++j) {
@@ -1325,18 +1353,20 @@ void install_prototype(Interpreter& in, Object& prototype)
         if (!relative)
             return std::nullopt;
         double const actual = *relative >= 0 ? *relative : length + *relative;
-        std::optional<double> const number = interp.to_number(argument(args, 1));
-        if (!number)
+        std::optional<Value> const numeric = to_element_value(interp, array.element_type(), argument(args, 1));
+        if (!numeric)
             return std::nullopt;
+        interp.root(*numeric);
         if (!array.is_valid_index(actual))
             return interp.throw_range_error("Invalid typed array index");
         Value const count[1] = { Value::number(length) };
         std::optional<TypedArrayObject*> const target = create_same_type(interp, array, count);
         if (!target)
             return std::nullopt;
+        interp.root(Value::object(*target)); // reading a BigInt kind's element makes a cell
         for (double k = 0; k < length; k += 1) {
-            if ((*target)->is_valid_index(k))
-                (*target)->set_element(static_cast<std::size_t>(k), k == actual ? *number : number_of(element_at(array, k)));
+            if (!set_element_at(interp, **target, k, k == actual ? *numeric : element_at(array, k)))
+                return std::nullopt;
         }
         return Value::object(*target);
     });

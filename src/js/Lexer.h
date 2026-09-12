@@ -24,6 +24,7 @@ enum class TokenType : std::uint8_t {
     Keyword, // the always-reserved words
     Punctuator,
     Number,
+    BigInt, // an integer spelling with the n suffix: value keeps the digits, radix their base
     String,
     Template, // one span of a template: see Token::template_tail
     RegExp,
@@ -140,6 +141,7 @@ struct Token {
     // Template: the raw text of this span. RegExp: the flags.
     std::u16string raw;
     double number = 0;
+    int radix = 10; // BigInt: the base of the digits in `value`
     SourcePosition position;
     std::uint32_t end_offset = 0;
     bool newline_before = false; // a line terminator precedes it: ASI, restricted productions

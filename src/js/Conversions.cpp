@@ -61,6 +61,7 @@ std::string class_name(Object const& object)
     case Object::Class::Number: return "Number";
     case Object::Class::String: return "String";
     case Object::Class::Symbol: return "Symbol";
+    case Object::Class::BigInt: return "BigInt";
     case Object::Class::Date: return "Date";
     case Object::Class::RegExp: return "RegExp";
     case Object::Class::Arguments: return "Arguments";
@@ -216,6 +217,8 @@ JsString* Interpreter::type_of(Value const& value)
         return atoms().string;
     case Value::Type::Symbol:
         return atoms().symbol;
+    case Value::Type::BigInt:
+        return atoms().bigint;
     case Value::Type::Object:
         return value.as_object()->is_callable() ? atoms().function : atoms().object;
     case Value::Type::Empty:
@@ -241,6 +244,8 @@ bool Interpreter::to_boolean(Value const& value)
         return value.as_number() != 0 && !std::isnan(value.as_number());
     case Value::Type::String:
         return !value.as_string()->is_empty();
+    case Value::Type::BigInt:
+        return !value.as_bigint()->value().is_zero();
     case Value::Type::Symbol:
     case Value::Type::Object:
         return true;
@@ -318,6 +323,8 @@ std::optional<double> Interpreter::to_number(Value const& value)
         return string_to_number(value.as_string()->view());
     case Value::Type::Symbol:
         return throw_type_error("Cannot convert a Symbol value to a number");
+    case Value::Type::BigInt:
+        return throw_type_error("Cannot convert a BigInt value to a number");
     case Value::Type::Object: {
         std::optional<Value> const primitive = to_primitive(value, PreferredType::Number);
         if (!primitive)
@@ -326,6 +333,56 @@ std::optional<double> Interpreter::to_number(Value const& value)
     }
     }
     return std::numeric_limits<double>::quiet_NaN();
+}
+
+std::optional<Value> Interpreter::to_numeric(Value const& value)
+{
+    // §7.1.3: the primitive, kept when it is a BigInt, a Number otherwise.
+    std::optional<Value> const primitive = to_primitive(value, PreferredType::Number);
+    if (!primitive)
+        return std::nullopt;
+    if (primitive->is_bigint())
+        return *primitive;
+    std::optional<double> const number = to_number(*primitive);
+    if (!number)
+        return std::nullopt;
+    return Value::number(*number);
+}
+
+std::optional<BigInt*> Interpreter::to_bigint(Value const& value)
+{
+    // §7.1.13.
+    std::optional<Value> const primitive = to_primitive(value, PreferredType::Number);
+    if (!primitive)
+        return std::nullopt;
+    switch (primitive->type()) {
+    case Value::Type::Undefined:
+    case Value::Type::Null:
+    case Value::Type::Empty:
+        return throw_type_error("Cannot convert " + std::string(primitive->is_null() ? "null" : "undefined") + " to a BigInt");
+    case Value::Type::Boolean:
+        return m_heap->bigint(BigInteger::from_int64(primitive->as_boolean() ? 1 : 0));
+    case Value::Type::BigInt:
+        return primitive->as_bigint();
+    case Value::Type::Number:
+        return throw_type_error("Cannot convert " + number_to_utf8(primitive->as_number()) + " to a BigInt");
+    case Value::Type::String: {
+        std::optional<BigInteger> parsed = BigInteger::from_string(primitive->as_string()->view());
+        if (!parsed)
+            return throw_syntax_error("Cannot convert " + primitive->as_string()->to_utf8() + " to a BigInt");
+        return m_heap->bigint(std::move(*parsed));
+    }
+    case Value::Type::Symbol:
+        return throw_type_error("Cannot convert a Symbol value to a BigInt");
+    case Value::Type::Object:
+        break;
+    }
+    return throw_type_error("Cannot convert object to a BigInt");
+}
+
+Value Interpreter::bigint(BigInteger value)
+{
+    return Value::bigint(m_heap->bigint(std::move(value)));
 }
 
 double Interpreter::to_integer_or_infinity(double number)
@@ -438,6 +495,8 @@ std::optional<JsString*> Interpreter::to_string(Value const& value)
         return value.as_string();
     case Value::Type::Symbol:
         return throw_type_error("Cannot convert a Symbol value to a string");
+    case Value::Type::BigInt:
+        return m_heap->string(std::string_view(value.as_bigint()->value().to_string()));
     case Value::Type::Object: {
         std::optional<Value> const primitive = to_primitive(value, PreferredType::String);
         if (!primitive)
@@ -465,6 +524,8 @@ std::optional<Object*> Interpreter::to_object(Value const& value)
         return m_heap->allocate<StringObject>(m_intrinsics.string_prototype, value.as_string());
     case Value::Type::Symbol:
         return m_heap->allocate<PrimitiveObject>(m_intrinsics.symbol_prototype, Object::Class::Symbol, value);
+    case Value::Type::BigInt:
+        return m_heap->allocate<PrimitiveObject>(m_intrinsics.bigint_prototype, Object::Class::BigInt, value);
     case Value::Type::Object:
         return value.as_object();
     }
@@ -482,6 +543,8 @@ std::optional<PropertyKey> Interpreter::to_property_key(Value const& value)
         return PropertyKey::symbol(value.as_symbol());
     case Value::Type::Number:
         return m_heap->key(value.as_number());
+    case Value::Type::BigInt:
+        return m_heap->key(std::string_view(value.as_bigint()->value().to_string()));
     default:
         break;
     }
@@ -526,6 +589,8 @@ std::optional<Value> Interpreter::get(Value const& base, PropertyKey const& key)
         return m_intrinsics.boolean_prototype->get(*this, key, base);
     case Value::Type::Symbol:
         return m_intrinsics.symbol_prototype->get(*this, key, base);
+    case Value::Type::BigInt:
+        return m_intrinsics.bigint_prototype->get(*this, key, base);
     }
     return Value::undefined();
 }
@@ -917,6 +982,8 @@ bool Interpreter::strict_equals(Value const& a, Value const& b)
         return a.as_number() == b.as_number();
     if (a.is_string())
         return a.as_string()->equals(*b.as_string());
+    if (a.is_bigint())
+        return a.as_bigint()->value() == b.as_bigint()->value();
     return a == b;
 }
 
@@ -934,6 +1001,8 @@ bool Interpreter::same_value(Value const& a, Value const& b)
     }
     if (a.is_string())
         return a.as_string()->equals(*b.as_string());
+    if (a.is_bigint())
+        return a.as_bigint()->value() == b.as_bigint()->value();
     return a == b;
 }
 
@@ -966,11 +1035,24 @@ std::optional<bool> Interpreter::loose_equals(Value const& x, Value const& y)
         return x.as_number() == string_to_number(y.as_string()->view());
     if (x.is_string() && y.is_number())
         return string_to_number(x.as_string()->view()) == y.as_number();
+    // A BigInt against a string spells the string as an integer; against a
+    // number, the two compare as mathematical values (a NaN or an infinity
+    // equals no integer).
+    if (x.is_bigint() && y.is_string()) {
+        std::optional<BigInteger> const parsed = BigInteger::from_string(y.as_string()->view());
+        return parsed && *parsed == x.as_bigint()->value();
+    }
+    if (x.is_string() && y.is_bigint())
+        return loose_equals(y, x);
     if (x.is_boolean())
         return loose_equals(Value::number(x.as_boolean() ? 1.0 : 0.0), y);
     if (y.is_boolean())
         return loose_equals(x, Value::number(y.as_boolean() ? 1.0 : 0.0));
-    if ((x.is_string() || x.is_number() || x.is_symbol()) && y.is_object()) {
+    if (x.is_bigint() && y.is_number())
+        return std::isfinite(y.as_number()) && x.as_bigint()->value().compare_double(y.as_number()) == 0;
+    if (x.is_number() && y.is_bigint())
+        return loose_equals(y, x);
+    if ((x.is_string() || x.is_number() || x.is_symbol() || x.is_bigint()) && y.is_object()) {
         Roots const roots(*this);
         root(x);
         std::optional<Value> const primitive = to_primitive(y);
@@ -978,7 +1060,7 @@ std::optional<bool> Interpreter::loose_equals(Value const& x, Value const& y)
             return std::nullopt;
         return loose_equals(x, *primitive);
     }
-    if (x.is_object() && (y.is_string() || y.is_number() || y.is_symbol())) {
+    if (x.is_object() && (y.is_string() || y.is_number() || y.is_symbol() || y.is_bigint())) {
         Roots const roots(*this);
         root(y);
         std::optional<Value> const primitive = to_primitive(x);
@@ -1022,15 +1104,40 @@ std::optional<std::optional<bool>> Interpreter::less_than(Value const& left, Val
     }
     if (px.is_string() && py.is_string())
         return std::optional<bool>(px.as_string()->view() < py.as_string()->view());
-    std::optional<double> const nx = to_number(px);
+    // A BigInt against a string: the string as an integer, or no answer.
+    if (px.is_bigint() && py.is_string()) {
+        std::optional<BigInteger> const parsed = BigInteger::from_string(py.as_string()->view());
+        if (!parsed)
+            return std::optional<bool>();
+        return std::optional<bool>(compare(px.as_bigint()->value(), *parsed) < 0);
+    }
+    if (px.is_string() && py.is_bigint()) {
+        std::optional<BigInteger> const parsed = BigInteger::from_string(px.as_string()->view());
+        if (!parsed)
+            return std::optional<bool>();
+        return std::optional<bool>(compare(*parsed, py.as_bigint()->value()) < 0);
+    }
+    std::optional<Value> const nx = to_numeric(px);
     if (!nx)
         return std::nullopt;
-    std::optional<double> const ny = to_number(py);
+    root(*nx);
+    std::optional<Value> const ny = to_numeric(py);
     if (!ny)
         return std::nullopt;
-    if (std::isnan(*nx) || std::isnan(*ny))
+    if (nx->is_bigint() && ny->is_bigint())
+        return std::optional<bool>(compare(nx->as_bigint()->value(), ny->as_bigint()->value()) < 0);
+    if (nx->is_bigint() || ny->is_bigint()) {
+        // One of each: no answer against a NaN; an infinity is beyond every integer.
+        double const number = nx->is_bigint() ? ny->as_number() : nx->as_number();
+        if (std::isnan(number))
+            return std::optional<bool>();
+        int const c = std::isinf(number) ? (number > 0 ? -1 : 1) : (nx->is_bigint() ? nx : ny)->as_bigint()->value().compare_double(number);
+        // c is the integer's standing against the number: below (-1), equal, above.
+        return std::optional<bool>(nx->is_bigint() ? c < 0 : c > 0);
+    }
+    if (std::isnan(nx->as_number()) || std::isnan(ny->as_number()))
         return std::optional<bool>();
-    return std::optional<bool>(*nx < *ny);
+    return std::optional<bool>(nx->as_number() < ny->as_number());
 }
 
 std::optional<bool> Interpreter::is_regexp(Value const& value)
@@ -1102,6 +1209,8 @@ std::string Interpreter::describe(Value const& value)
         JsString const* description = value.as_symbol()->description();
         return "Symbol(" + (description ? description->to_utf8() : std::string()) + ")";
     }
+    case Value::Type::BigInt:
+        return value.as_bigint()->value().to_string() + "n";
     case Value::Type::Object:
         break;
     }

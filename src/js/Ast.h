@@ -15,6 +15,7 @@
 // Module goal's import and export declarations with the record tables
 // their linking reads.
 
+#include "js/BigInteger.h"
 #include "js/Value.h"
 
 #include <cstdint>
@@ -38,6 +39,7 @@ enum class NodeType : std::uint8_t {
     // expressions
     Identifier,
     NumberLiteral,
+    BigIntLiteral,
     StringLiteral,
     BooleanLiteral,
     NullLiteral,
@@ -156,6 +158,14 @@ struct NumberLiteral : Expression {
     {
     }
     double value = 0;
+};
+
+struct BigIntLiteral : Expression {
+    BigIntLiteral()
+        : Expression(NodeType::BigIntLiteral)
+    {
+    }
+    BigInteger value;
 };
 
 struct StringLiteral : Expression {

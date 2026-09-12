@@ -515,10 +515,13 @@ Token scan_number(Scanner& s, Token token)
         value = decimal_value(integer, fraction, exponent);
     }
 
-    // A BigInt suffix is grammatical only on an integer spelling; the
-    // engine has no BigInt (the parser names the gap).
-    if (s.peek() == U'n' && bigint_allowed)
-        return invalid(std::move(token), "BigInt literals are not supported");
+    // A BigInt suffix is grammatical only on an integer spelling (§12.9.3
+    // NumericLiteralSeparator aside, the digits are what `integer` kept).
+    bool is_bigint = false;
+    if (s.peek() == U'n' && bigint_allowed) {
+        s.advance();
+        is_bigint = true;
+    }
     // §12.9.3: "The SourceCharacter immediately following a NumericLiteral
     // must not be an IdentifierStart or DecimalDigit."
     std::size_t units = 0;
@@ -526,6 +529,12 @@ Token scan_number(Scanner& s, Token token)
     if (following == U'\\' || is_decimal_digit(following) || Lexer::is_identifier_start(following))
         return invalid(std::move(token), "Identifier directly after number");
 
+    if (is_bigint) {
+        token.type = TokenType::BigInt;
+        token.value = std::u16string(integer.begin(), integer.end());
+        token.radix = hex ? 16 : octal ? 8 : binary ? 2 : 10;
+        return token;
+    }
     token.type = TokenType::Number;
     token.value = std::u16string(s.source().substr(start, s.offset() - start));
     token.number = value;

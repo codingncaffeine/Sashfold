@@ -56,6 +56,7 @@ struct Intrinsics {
     Object* number_prototype = nullptr;
     Object* boolean_prototype = nullptr;
     Object* symbol_prototype = nullptr;
+    Object* bigint_prototype = nullptr;
     Object* error_prototype = nullptr;
     Object* error_prototypes[7] = {}; // by ErrorType
     Object* date_prototype = nullptr;
@@ -69,6 +70,7 @@ struct Intrinsics {
     Function* number_constructor = nullptr;
     Function* boolean_constructor = nullptr;
     Function* symbol_constructor = nullptr;
+    Function* bigint_constructor = nullptr;
     Function* error_constructor = nullptr;
     Function* error_constructors[7] = {};
     Function* date_constructor = nullptr;
@@ -314,6 +316,14 @@ public:
     std::optional<bool> ordinary_has_instance(Value const& constructor, Value const&);
     std::optional<Value> species_constructor(Object&, Function* default_constructor);
     std::optional<Object*> get_prototype_from_constructor(Object* new_target, Object* default_prototype);
+
+    // ToNumeric (§7.1.3): a Number or a BigInt. ToBigInt (§7.1.13): a
+    // TypeError for a Number, undefined, null or a symbol, a SyntaxError
+    // for a string that spells no integer.
+    std::optional<Value> to_numeric(Value const&);
+    std::optional<BigInt*> to_bigint(Value const&);
+    // A BigInt cell for an integer; the arithmetic's results come through here.
+    Value bigint(BigInteger value);
 
     // Equality (§7.2.13–§7.2.16).
     static bool strict_equals(Value const&, Value const&);

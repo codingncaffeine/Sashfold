@@ -219,6 +219,7 @@ std::string describe_token(Token const& token)
     case TokenType::Punctuator:
         return "Unexpected token '" + utf8_from_utf16(punctuator_text(token.punctuator)) + "'";
     case TokenType::Number:
+    case TokenType::BigInt:
         return "Unexpected number";
     case TokenType::String:
         return "Unexpected string";
@@ -242,6 +243,7 @@ bool ends_expression(Token const& token)
     case TokenType::Identifier:
     case TokenType::PrivateName:
     case TokenType::Number:
+    case TokenType::BigInt:
     case TokenType::String:
     case TokenType::RegExp:
     case TokenType::EndOfInput:
@@ -1880,6 +1882,13 @@ Expression* Parser::Impl::parse_primary()
         advance();
         return finish(literal);
     }
+    case TokenType::BigInt: {
+        auto* literal = make<BigIntLiteral>(start);
+        std::optional<BigInteger> value = BigInteger::parse_digits(utf8_from_utf16(m_current.value), m_current.radix);
+        literal->value = value ? std::move(*value) : BigInteger();
+        advance();
+        return finish(literal);
+    }
     case TokenType::String: {
         if (m_current.legacy_octal && is_strict()) {
             fail(start, "Octal escape sequences are not allowed in strict mode");
@@ -2086,6 +2095,14 @@ bool Parser::Impl::parse_property_key(PropertyDefinition& property, Token* key_t
         property.key = atom(m_current.value);
         advance();
         return true;
+    case TokenType::BigInt: {
+        // A BigInt literal names the property its decimal spelling does (§13.2.5.4).
+        std::optional<BigInteger> const value = BigInteger::parse_digits(utf8_from_utf16(m_current.value), m_current.radix);
+        std::string const text = value ? value->to_string() : std::string("0");
+        property.key = atom(std::u16string(text.begin(), text.end()));
+        advance();
+        return true;
+    }
     case TokenType::Number:
         if (m_current.legacy_octal && is_strict())
             return fail(m_current.position, "Octal literals are not allowed in strict mode");
@@ -2154,7 +2171,8 @@ Expression* Parser::Impl::parse_object_literal()
             Token const next = peek();
             bool const key_follows = !next.newline_before
                 && (next.type == TokenType::Identifier || next.type == TokenType::Keyword || next.type == TokenType::String
-                    || next.type == TokenType::Number || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star));
+                    || next.type == TokenType::Number || next.type == TokenType::BigInt || next.is(Punctuator::LeftBracket)
+                    || next.is(Punctuator::Star));
             if (key_follows) {
                 is_async = true;
                 advance();
@@ -2169,7 +2187,7 @@ Expression* Parser::Impl::parse_object_literal()
             && (m_current.value == u"get" || m_current.value == u"set")) {
             Token const next = peek();
             bool const key_follows = next.type == TokenType::Identifier || next.type == TokenType::Keyword
-                || next.type == TokenType::String || next.type == TokenType::Number
+                || next.type == TokenType::String || next.type == TokenType::Number || next.type == TokenType::BigInt
                 || next.is(Punctuator::LeftBracket);
             if (key_follows) {
                 accessor = true;
@@ -2741,7 +2759,7 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
         Token const next = peek();
         bool const key_follows = !next.newline_before
             && (next.type == TokenType::Identifier || next.type == TokenType::Keyword || next.type == TokenType::PrivateName
-                || next.type == TokenType::String || next.type == TokenType::Number
+                || next.type == TokenType::String || next.type == TokenType::Number || next.type == TokenType::BigInt
                 || next.is(Punctuator::LeftBracket) || next.is(Punctuator::Star) || next.type == TokenType::Invalid);
         if (key_follows) {
             is_async = true;
@@ -2758,7 +2776,7 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
         Token const next = peek();
         bool const key_follows = next.type == TokenType::Identifier || next.type == TokenType::Keyword
             || next.type == TokenType::PrivateName
-            || next.type == TokenType::String || next.type == TokenType::Number
+            || next.type == TokenType::String || next.type == TokenType::Number || next.type == TokenType::BigInt
             || next.is(Punctuator::LeftBracket) || next.type == TokenType::Invalid;
         if (key_follows) {
             accessor = true;
@@ -5018,6 +5036,9 @@ struct Dumper {
             break;
         case NodeType::NumberLiteral:
             out += "(number " + number_to_utf8(static_cast<NumberLiteral const*>(e)->value) + ")";
+            break;
+        case NodeType::BigIntLiteral:
+            out += "(bigint " + static_cast<BigIntLiteral const*>(e)->value.to_string() + "n)";
             break;
         case NodeType::StringLiteral:
             out += "(string ";

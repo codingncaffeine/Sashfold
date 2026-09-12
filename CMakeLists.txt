@@ -126,6 +126,7 @@ add_library(sashfold_core STATIC
   src/html/Tokenizer.cpp
   src/html/TreeBuilder.cpp
   src/html/TreeDump.cpp
+  src/js/BigInteger.cpp
   src/js/Compiler.cpp
   src/js/Conversions.cpp
   src/js/Heap.cpp
@@ -137,6 +138,7 @@ add_library(sashfold_core STATIC
   src/js/Regex.cpp
   src/js/RuntimeArray.cpp
   src/js/RuntimeArrayBuffer.cpp
+  src/js/RuntimeBigInt.cpp
   src/js/RuntimeCollections.cpp
   src/js/RuntimeDate.cpp
   src/js/RuntimeGenerator.cpp
