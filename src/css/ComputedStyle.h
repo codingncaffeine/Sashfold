@@ -222,6 +222,24 @@ constexpr bool is_block_container_display(Display display)
         || display == Display::TableCell || display == Display::TableCaption;
 }
 
+// What an SVG shape is filled or stroked with (SVG 2 §13.2): nothing, a
+// color, the element's own `color`, or a paint server named by its id — a
+// gradient in its <defs>. A reference keeps a fallback color for when the
+// id names nothing.
+struct SvgPaint {
+    enum class Kind : std::uint8_t { None, Color, CurrentColor, Reference };
+    Kind kind = Kind::Color;
+    Color color = Color::rgb(0, 0, 0);
+    std::string reference; // the id, without its #
+    bool has_fallback = false; // a color after the url(): what to use when the id resolves to nothing
+
+    static SvgPaint none() { return SvgPaint { Kind::None, {}, {}, false }; }
+};
+
+enum class FillRule : std::uint8_t { NonZero, EvenOdd };
+enum class StrokeLineCap : std::uint8_t { Butt, Round, Square };
+enum class StrokeLineJoin : std::uint8_t { Miter, Round, Bevel };
+
 enum class BorderCollapse : std::uint8_t {
     Separate,
     Collapse,
@@ -956,6 +974,23 @@ struct ComputedStyle {
     // written, var() references already substituted): inherited, shared
     // with the parent until an element declares one of its own.
     std::shared_ptr<CustomProperties const> custom;
+
+    // SVG's painting properties (SVG 2 §13), all inherited but the two
+    // gradient-stop ones. They apply to the shapes inside an <svg> and
+    // are read by the SVG renderer; on an HTML box they do nothing.
+    SvgPaint fill;
+    SvgPaint stroke = SvgPaint::none();
+    float fill_opacity = 1;
+    float stroke_opacity = 1;
+    LengthPercent stroke_width = LengthPercent::px(1);
+    FillRule fill_rule = FillRule::NonZero;
+    StrokeLineCap stroke_linecap = StrokeLineCap::Butt;
+    StrokeLineJoin stroke_linejoin = StrokeLineJoin::Miter;
+    float stroke_miterlimit = 4;
+    std::shared_ptr<std::vector<float> const> stroke_dasharray; // null: solid
+    float stroke_dashoffset = 0;
+    Color stop_color = Color::rgb(0, 0, 0); // not inherited
+    float stop_opacity = 1; // not inherited
 
     bool bold() const { return font_weight >= 600; }
     float line_height_px() const

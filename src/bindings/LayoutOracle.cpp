@@ -92,7 +92,7 @@ std::string sheet_signature(dom::Node const& node)
     std::string signature;
     if (node.is_element()) {
         auto const& element = static_cast<dom::Element const&>(node);
-        if (element.is_html("style")) {
+        if (element.is_html("style") || element.is_svg("style")) {
             signature += "s" + std::to_string(reinterpret_cast<std::uintptr_t>(&element)) + ":";
             for (dom::Node const* child : element.children()) {
                 if (child->is_text())

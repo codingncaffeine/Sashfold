@@ -1034,7 +1034,7 @@ struct Browser::Impl {
         std::string signature;
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
-            if (element.is_html("style")) {
+            if (element.is_html("style") || element.is_svg("style")) {
                 signature += "s" + std::to_string(reinterpret_cast<std::uintptr_t>(&element)) + ":";
                 for (dom::Node const* child : element.children()) {
                     if (child->is_text())
@@ -1771,7 +1771,7 @@ struct Browser::Impl {
             for (char& c : extension)
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".gif"
-                || extension == ".bmp")
+                || extension == ".bmp" || extension == ".svg")
                 files.push_back(entry.path());
         }
         if (files.empty())

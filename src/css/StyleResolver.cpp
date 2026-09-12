@@ -267,8 +267,45 @@ std::u32string auto_direction_text(dom::Element const& element)
 // declarations: sizes and colors of tables, cells, images and rules; the
 // alignment attributes; a table's cellspacing, cellpadding and border,
 // the last two reaching its cells.
+// SVG's presentation attributes (SVG 2 §15.2): each is the property of
+// the same name, as an author declaration of the lowest precedence, so a
+// stylesheet rule wins over it. The value goes in as written; a value the
+// property's grammar rejects is dropped there, as any declaration is.
+std::string svg_presentational_hints(dom::Element const& element)
+{
+    static constexpr std::string_view names[] = { "fill", "stroke", "stroke-width", "fill-opacity",
+        "stroke-opacity", "fill-rule", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
+        "stroke-dasharray", "stroke-dashoffset", "opacity", "color", "stop-color", "stop-opacity",
+        "display", "visibility", "font-size", "font-family", "font-weight", "font-style", "overflow" };
+    std::string css;
+    for (dom::Attr const& attribute : element.attributes()) {
+        if (!attribute.prefix.empty() || attribute.value.empty())
+            continue;
+        bool known = false;
+        for (std::string_view const name : names) {
+            if (attribute.local_name == name) {
+                known = true;
+                break;
+            }
+        }
+        if (!known)
+            continue;
+        // A stray brace or semicolon would end the declaration early and
+        // start another: neither belongs in any of these values.
+        if (attribute.value.find_first_of(";{}") != std::string::npos)
+            continue;
+        css += attribute.local_name;
+        css += ':';
+        css += attribute.value;
+        css += ';';
+    }
+    return css;
+}
+
 std::string presentational_hints(dom::Element const& element)
 {
+    if (element.namespace_uri() == dom::ns::svg)
+        return svg_presentational_hints(element);
     if (!element.is_html())
         return {};
     std::string css;
@@ -2645,6 +2682,23 @@ struct Resolver {
             { "z-index", false, [](S& to, S const& from) { to.z_index = from.z_index; }, 0 },
             { "visibility", true, [](S& to, S const& from) { to.visibility = from.visibility; }, 0 },
             { "opacity", false, [](S& to, S const& from) { to.opacity = from.opacity; }, 0 },
+            // SVG's painting properties.
+            { "fill", true, [](S& to, S const& from) { to.fill = from.fill; }, 0 },
+            { "stroke", true, [](S& to, S const& from) { to.stroke = from.stroke; }, 0 },
+            { "fill-opacity", true, [](S& to, S const& from) { to.fill_opacity = from.fill_opacity; }, 0 },
+            { "stroke-opacity", true, [](S& to, S const& from) { to.stroke_opacity = from.stroke_opacity; }, 0 },
+            { "stroke-width", true, [](S& to, S const& from) { to.stroke_width = from.stroke_width; }, 0 },
+            { "fill-rule", true, [](S& to, S const& from) { to.fill_rule = from.fill_rule; }, 0 },
+            { "stroke-linecap", true, [](S& to, S const& from) { to.stroke_linecap = from.stroke_linecap; }, 0 },
+            { "stroke-linejoin", true, [](S& to, S const& from) { to.stroke_linejoin = from.stroke_linejoin; }, 0 },
+            { "stroke-miterlimit", true,
+                [](S& to, S const& from) { to.stroke_miterlimit = from.stroke_miterlimit; }, 0 },
+            { "stroke-dasharray", true, [](S& to, S const& from) { to.stroke_dasharray = from.stroke_dasharray; },
+                0 },
+            { "stroke-dashoffset", true,
+                [](S& to, S const& from) { to.stroke_dashoffset = from.stroke_dashoffset; }, 0 },
+            { "stop-color", false, [](S& to, S const& from) { to.stop_color = from.stop_color; }, 0 },
+            { "stop-opacity", false, [](S& to, S const& from) { to.stop_opacity = from.stop_opacity; }, 0 },
             { "transform", false,
                 [](S& to, S const& from) {
                     to.translate_x = from.translate_x;
@@ -3883,6 +3937,169 @@ struct Resolver {
             else
                 return;
             style.opacity = static_cast<float>(std::clamp(amount, 0.0, 1.0));
+            return;
+        }
+        // --- SVG's painting properties (SVG 2 §13) ---------------------------------
+        if (name == "fill" || name == "stroke") {
+            // none | currentColor | <color> | url(#id) [none | <color>]
+            SvgPaint paint;
+            ComponentValue const& first = *values[0];
+            if (first.is_token(Token::Type::Ident) && ascii_ci_equals(first.token().value, "none")) {
+                if (values.size() != 1)
+                    return;
+                paint = SvgPaint::none();
+            } else if (first.is_token(Token::Type::Ident) && ascii_ci_equals(first.token().value, "currentcolor")) {
+                if (values.size() != 1)
+                    return;
+                paint.kind = SvgPaint::Kind::CurrentColor;
+            } else if (std::optional<std::string> const url = url_of(first)) {
+                if (values.size() > 2 || url->empty() || url->front() != '#')
+                    return;
+                paint.kind = SvgPaint::Kind::Reference;
+                paint.reference = url->substr(1);
+                if (values.size() == 2) {
+                    ComponentValue const& fallback = *values[1];
+                    if (fallback.is_token(Token::Type::Ident) && ascii_ci_equals(fallback.token().value, "none")) {
+                        paint.has_fallback = false;
+                    } else if (std::optional<Color> const color = parse_color_component(fallback, style.color)) {
+                        paint.has_fallback = true;
+                        paint.color = *color;
+                    } else {
+                        return;
+                    }
+                }
+            } else if (values.size() == 1) {
+                std::optional<Color> const color = parse_color_component(first, style.color);
+                if (!color)
+                    return;
+                paint.kind = SvgPaint::Kind::Color;
+                paint.color = *color;
+            } else {
+                return;
+            }
+            (name == "fill" ? style.fill : style.stroke) = std::move(paint);
+            return;
+        }
+        if (name == "fill-opacity" || name == "stroke-opacity" || name == "stop-opacity") {
+            if (values.size() != 1 || !values[0]->is_token())
+                return;
+            Token const& token = values[0]->token();
+            double amount;
+            if (token.type == Token::Type::Number)
+                amount = token.numeric_value;
+            else if (token.type == Token::Type::Percentage)
+                amount = token.numeric_value / 100.0;
+            else
+                return;
+            float const value = static_cast<float>(std::clamp(amount, 0.0, 1.0));
+            if (name == "fill-opacity")
+                style.fill_opacity = value;
+            else if (name == "stroke-opacity")
+                style.stroke_opacity = value;
+            else
+                style.stop_opacity = value;
+            return;
+        }
+        if (name == "stroke-width") {
+            if (values.size() != 1)
+                return;
+            // A bare number is a length in user units, which are px.
+            if (values[0]->is_token(Token::Type::Number)) {
+                double const number = values[0]->token().numeric_value;
+                if (number >= 0)
+                    style.stroke_width = LengthPercent::px(static_cast<float>(number));
+                return;
+            }
+            if (std::optional<LengthPercent> const length = parse_length_percent(*values[0], context, false)) {
+                if (length->value >= 0)
+                    style.stroke_width = *length;
+            }
+            return;
+        }
+        if (name == "stroke-miterlimit") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Number))
+                return;
+            double const number = values[0]->token().numeric_value;
+            if (number >= 1)
+                style.stroke_miterlimit = static_cast<float>(number);
+            return;
+        }
+        if (name == "stroke-dashoffset") {
+            if (values.size() != 1)
+                return;
+            if (values[0]->is_token(Token::Type::Number)) {
+                style.stroke_dashoffset = static_cast<float>(values[0]->token().numeric_value);
+                return;
+            }
+            if (std::optional<LengthPercent> const length = parse_length_percent(*values[0], context, false, false))
+                style.stroke_dashoffset = length->value;
+            return;
+        }
+        if (name == "stroke-dasharray") {
+            // none | a list of lengths and numbers, commas or spaces between
+            if (values.size() == 1 && values[0]->is_token(Token::Type::Ident)
+                && ascii_ci_equals(values[0]->token().value, "none")) {
+                style.stroke_dasharray = nullptr;
+                return;
+            }
+            std::vector<float> dashes;
+            for (ComponentValue const* const value : values) {
+                if (value->is_token(Token::Type::Comma))
+                    continue;
+                if (value->is_token(Token::Type::Number)) {
+                    double const number = value->token().numeric_value;
+                    if (number < 0)
+                        return;
+                    dashes.push_back(static_cast<float>(number));
+                    continue;
+                }
+                std::optional<LengthPercent> const length = parse_length_percent(*value, context, false, false);
+                if (!length || length->value < 0)
+                    return;
+                dashes.push_back(length->value);
+            }
+            if (dashes.empty())
+                return;
+            style.stroke_dasharray = std::make_shared<std::vector<float> const>(std::move(dashes));
+            return;
+        }
+        if (name == "fill-rule") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "nonzero"))
+                style.fill_rule = FillRule::NonZero;
+            else if (ascii_ci_equals(keyword, "evenodd"))
+                style.fill_rule = FillRule::EvenOdd;
+            return;
+        }
+        if (name == "stroke-linecap") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "butt"))
+                style.stroke_linecap = StrokeLineCap::Butt;
+            else if (ascii_ci_equals(keyword, "round"))
+                style.stroke_linecap = StrokeLineCap::Round;
+            else if (ascii_ci_equals(keyword, "square"))
+                style.stroke_linecap = StrokeLineCap::Square;
+            return;
+        }
+        if (name == "stroke-linejoin") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "miter") || ascii_ci_equals(keyword, "miter-clip")
+                || ascii_ci_equals(keyword, "arcs"))
+                style.stroke_linejoin = StrokeLineJoin::Miter;
+            else if (ascii_ci_equals(keyword, "round"))
+                style.stroke_linejoin = StrokeLineJoin::Round;
+            else if (ascii_ci_equals(keyword, "bevel"))
+                style.stroke_linejoin = StrokeLineJoin::Bevel;
+            return;
+        }
+        if (name == "stop-color") {
+            (void)one_color(style.stop_color);
             return;
         }
         if (name == "position") {

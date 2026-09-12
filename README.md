@@ -40,7 +40,7 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 | html5lib tokenizer / tree construction | **7032 / 7032** and **1784 / 1784** (100%) |
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
-| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **8522 / 14616 (58.3%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **8642 / 14616 (59.1%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
 | test262, the ECMAScript conformance suite, 41,791 tests over 86 directories | **40121 / 41791 (96.0%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night by the Windows build and by the Linux build, and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 

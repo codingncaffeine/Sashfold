@@ -26,10 +26,14 @@ namespace sashfold::ui {
 using ImageFetcher = std::function<std::optional<std::vector<std::uint8_t>>(net::Url const&)>;
 
 // The picture the bytes hold, told by what they begin with (PNG, GIF, JPEG,
-// BMP, ICO), never by what the transport claimed; an ICO gives the entry
-// nearest `icon_size` wide, or its largest for zero. Nullopt when no decoder
-// here reads them.
-std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size = 0);
+// BMP, ICO, SVG), never by what the transport claimed; an ICO gives the
+// entry nearest `icon_size` wide, or its largest for zero. Nullopt when no
+// decoder here reads them. With `density` given, a small SVG is drawn at
+// several times its declared size and the factor is written there: its
+// pixels per CSS px, which layout divides out, so a vector picture shown
+// large keeps its edges.
+std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size = 0,
+    float* density = nullptr);
 
 // `media` is the viewport the sources are chosen for.
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="50">
+<defs><linearGradient id="g" x2="1" y2="1" gradientTransform="rotate(45)"><stop offset="0" stop-color="red"/><stop offset="50%" stop-color="#0f0" stop-opacity="0.5"/></linearGradient>
+<radialGradient id="r" fx="0.3" fy="0.3" spreadMethod="reflect"><stop offset="0" stop-color="blue"/><stop offset="1" stop-color="white"/></radialGradient>
+<clipPath id="c" clipPathUnits="objectBoundingBox"><circle cx="0.5" cy="0.5" r="0.5"/></clipPath>
+<symbol id="s" viewBox="0 0 10 10"><path d="M0 0 L10 10 M10 0 L0 10" stroke="black"/></symbol></defs>
+<style>.a { fill: url(#g) } rect:hover { fill: red }</style>
+<rect class="a" x="5" y="5" width="40" height="40" rx="8" clip-path="url(#c)" transform="rotate(10 25 25)"/>
+<ellipse cx="70" cy="30" rx="20" ry="10" fill="url(#r)" stroke="currentColor" stroke-width="2%" color="navy"/>
+<polyline points="10,90 30,60 50,90 70,60" fill="none" stroke="#333" stroke-linejoin="round" stroke-dasharray="4 2 1" stroke-dashoffset="3"/>
+<path d="M60 60 c 10 -20 30 -20 40 0 s 10 20 -20 30 q -5 -5 -10 0 t -10 0 a 5 5 30 1 0 10 10 z" fill="none" stroke="green" stroke-linecap="square" fill-rule="evenodd"/>
+<use href="#s" x="80" y="80" width="15" height="15"/>
+<g opacity="0.5" transform="translate(5 5) scale(0.5) skewX(10)"><line x1="0" y1="0" x2="100" y2="100" stroke="purple" stroke-width="4"/></g>
+<text x="50" y="98" font-size="8" text-anchor="middle" fill="url(#g) black">label <tspan dy="-2" font-weight="bold">bold</tspan></text>
+<image x="80" y="5" width="10" height="10" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='red'/%3E%3C/svg%3E"/>
+<svg x="0" y="0" width="20" height="20" viewBox="-10 -10 20 20" preserveAspectRatio="xMaxYMin slice"><circle r="8" fill="orange"/></svg>
+</svg>

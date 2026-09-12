@@ -106,7 +106,8 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
 {
     if (node.is_element()) {
         auto const& element = static_cast<dom::Element const&>(node);
-        if (element.is_html("style")) {
+        // An SVG <style> is a stylesheet of the document too (SVG 2 §6.2).
+        if (element.is_html("style") || element.is_svg("style")) {
             if (!media_query_matches(attribute(element, "media"), collector.media))
                 return;
             std::string text;

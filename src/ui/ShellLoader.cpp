@@ -56,6 +56,8 @@ std::string content_type_for(std::string const& path)
         return "image/bmp";
     if (extension == "ico")
         return "image/x-icon";
+    if (extension == "svg")
+        return "image/svg+xml";
     return "application/octet-stream";
 }
 

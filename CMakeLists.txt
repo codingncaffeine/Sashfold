@@ -104,6 +104,8 @@ add_library(sashfold_core STATIC
   src/net/tls/X509.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
+  src/svg/Raster.cpp
+  src/svg/Svg.cpp
   src/text/Face.cpp
   src/text/FontManager.cpp
   src/text/Rasterizer.cpp
@@ -221,4 +223,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(gif)
   sashfold_fuzzer(jpeg)
   sashfold_fuzzer(bmp)
+  sashfold_fuzzer(svg)
 endif()

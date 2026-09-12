@@ -5,6 +5,7 @@
 #include "core/Jpeg.h"
 #include "core/Png.h"
 #include "dom/Dom.h"
+#include "svg/Svg.h"
 #include "ui/SourceSet.h"
 
 #include <map>
@@ -23,6 +24,7 @@ struct Collector {
     ImageFetcher const& fetch;
     layout::ImageMap& out;
     std::map<std::string, std::shared_ptr<Bitmap const>> by_url; // one fetch per URL
+    std::map<std::string, float> by_url_density; // the factor an SVG was drawn at
     std::size_t fetched = 0;
 
     void visit(dom::Node const& node)
@@ -47,28 +49,32 @@ struct Collector {
         std::string const key = url.serialize(true);
         if (auto const it = by_url.find(key); it != by_url.end()) {
             if (it->second)
-                out.emplace(&element, layout::PageImage { it->second, source->density });
+                out.emplace(&element, layout::PageImage { it->second, source->density * by_url_density[key] });
             return;
         }
         std::shared_ptr<Bitmap const> image;
+        float drawn_at = 1; // an SVG drawn larger than its size reports the factor
         if (fetched < max_images_per_page && fetch) {
             ++fetched;
             if (std::optional<std::vector<std::uint8_t>> bytes = fetch(url);
                 bytes && bytes->size() <= max_image_bytes) {
-                if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes))
+                if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes, 0, &drawn_at))
                     image = std::make_shared<Bitmap const>(std::move(*decoded));
             }
         }
         by_url.emplace(key, image);
+        by_url_density[key] = drawn_at;
         if (image)
-            out.emplace(&element, layout::PageImage { std::move(image), source->density });
+            out.emplace(&element, layout::PageImage { std::move(image), source->density * drawn_at });
     }
 };
 
 } // namespace
 
-std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size)
+std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size, float* density)
 {
+    if (density)
+        *density = 1;
     // The bytes say what they are; the transport's claim does not.
     if (looks_like_png(bytes))
         return decode_png(bytes);
@@ -80,6 +86,11 @@ std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes,
         return decode_bmp(bytes);
     if (looks_like_ico(bytes))
         return decode_ico(bytes, icon_size);
+    // A vector picture: drawn at its own size — or, for a page's picture,
+    // larger, with the factor reported as its density — and scaled like
+    // any other from there.
+    if (svg::looks_like_svg(bytes))
+        return svg::decode_svg(bytes, 16u << 20, density);
     return std::nullopt;
 }
 
@@ -87,7 +98,7 @@ layout::ImageMap collect_images(dom::Document const& document, net::Url const* b
     ImageFetcher const& fetch, css::MediaContext const& media)
 {
     layout::ImageMap images;
-    Collector collector { base, media, fetch, images, {}, 0 };
+    Collector collector { base, media, fetch, images, {}, {}, 0 };
     collector.visit(document);
     return images;
 }

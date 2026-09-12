@@ -334,8 +334,9 @@ bool supports_image_type(std::string_view type)
         essence.remove_suffix(1);
     if (essence.empty())
         return true;
-    for (char const* known : { "image/png", "image/x-png", "image/jpeg", "image/jpg",
-             "image/pjpeg", "image/gif", "image/bmp", "image/x-ms-bmp", "image/x-icon", "image/vnd.microsoft.icon" }) {
+    for (char const* known : { "image/png", "image/x-png", "image/jpeg", "image/jpg", "image/pjpeg",
+             "image/gif", "image/bmp", "image/x-ms-bmp", "image/x-icon", "image/vnd.microsoft.icon",
+             "image/svg+xml" }) {
         if (ascii_ci_equals(essence, known))
             return true;
     }

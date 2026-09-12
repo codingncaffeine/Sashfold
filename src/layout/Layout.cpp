@@ -8,6 +8,7 @@
 #include "layout/TableBorders.h"
 #include "layout/TableStructure.h"
 #include "layout/TableWidths.h"
+#include "svg/Svg.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
@@ -429,27 +430,35 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
     return ReplacedSize { std::max(0.0f, *used_width), std::max(0.0f, *used_height) };
 }
 
-// A replaced element: a picture, or one of the embedded kinds that lay out
-// as a box of their own and show none of their children (an iframe, a
-// canvas, a video, an embed or an object).
+// A replaced element: a picture, an inline <svg> — a box of its own,
+// drawn from its content — or one of the embedded kinds that lay out as a
+// box of their own and show none of their children (an iframe, a canvas,
+// a video, an embed or an object).
 bool is_replaced(dom::Element const& element)
 {
     return element.is_html("img") || element.is_html("iframe") || element.is_html("canvas")
-        || element.is_html("video") || element.is_html("embed") || element.is_html("object");
+        || element.is_html("video") || element.is_html("embed") || element.is_html("object")
+        || element.is_svg("svg");
 }
 
-// A replaced element with an intrinsic ratio: a picture, or a canvas
-// (whose size is its own). An iframe, an embed, an object or a video
-// without a picture has a default size but no ratio: one written
-// dimension leaves the other at its default.
+// A replaced element with an intrinsic ratio: a picture, a canvas (whose
+// size is its own), or an <svg> with a viewBox. An iframe, an embed, an
+// object or a video without a picture has a default size but no ratio:
+// one written dimension leaves the other at its default.
 bool keeps_ratio(dom::Element const& element)
 {
+    if (element.is_svg("svg"))
+        return svg::intrinsic_size(element).ratio.has_value();
     return element.is_html("img") || element.is_html("canvas");
 }
 
 // An image box: the picture's pixels over the density its source was
 // chosen at give the intrinsic size. An embedded element with no picture
-// of its own has none, and CSS 2.1 §10.3.2 gives it 300 by 150.
+// of its own has none, and CSS 2.1 §10.3.2 gives it 300 by 150. An <svg>
+// has what its attributes say: an absolute width and height, else the
+// ratio of its viewBox — and with only a ratio, no size of its own, so it
+// takes the width it has and follows the ratio down (§10.3.2's
+// suggestion, which is what every engine does with a responsive picture).
 std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
     Bitmap const* image, float density, float containing_width,
     std::optional<float> containing_height = std::nullopt)
@@ -459,6 +468,20 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
         float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
         intrinsic = ReplacedSize { static_cast<float>(image->width()) * px_per_pixel,
             static_cast<float>(image->height()) * px_per_pixel };
+    } else if (element.is_svg("svg")) {
+        svg::IntrinsicSize const own = svg::intrinsic_size(element);
+        if (own.width && own.height)
+            intrinsic = ReplacedSize { *own.width, *own.height };
+        else if (own.ratio && *own.ratio > 0) {
+            if (own.width)
+                intrinsic = ReplacedSize { *own.width, *own.width / *own.ratio };
+            else if (own.height)
+                intrinsic = ReplacedSize { *own.height * *own.ratio, *own.height };
+            else
+                intrinsic = ReplacedSize { containing_width, containing_width / *own.ratio };
+        } else {
+            intrinsic = ReplacedSize { own.width.value_or(300), own.height.value_or(150) };
+        }
     } else if (!element.is_html("img") && is_replaced(element)) {
         intrinsic = ReplacedSize { 300, 150 };
     }
@@ -1275,6 +1298,35 @@ struct Layouter {
             return {};
         auto const it = images->find(&element);
         return it == images->end() ? PageImage {} : it->second;
+    }
+
+    // The picture a replaced box shows: the one fetched for it — or, for
+    // an <svg>, its content drawn at the box's size, once per size, since
+    // the intrinsic passes lay a box out more than once before the flow
+    // places it.
+    struct SvgPicture {
+        int width;
+        int height;
+        std::shared_ptr<Bitmap const> bitmap;
+    };
+    mutable std::unordered_map<dom::Element const*, SvgPicture> svg_pictures;
+    std::shared_ptr<Bitmap const> picture_for(dom::Element const& element,
+        std::shared_ptr<Bitmap const> bitmap, float width, float height) const
+    {
+        if (!element.is_svg("svg"))
+            return bitmap;
+        if (!std::isfinite(width) || !std::isfinite(height))
+            return nullptr;
+        int const w = static_cast<int>(std::lround(width));
+        int const h = static_cast<int>(std::lround(height));
+        if (w <= 0 || h <= 0 || static_cast<long long>(w) * h > 32'000'000)
+            return nullptr;
+        if (auto const it = svg_pictures.find(&element);
+            it != svg_pictures.end() && it->second.width == w && it->second.height == h)
+            return it->second.bitmap;
+        auto picture = std::make_shared<Bitmap const>(svg::render(element, styles, static_cast<float>(w), static_cast<float>(h)));
+        svg_pictures[&element] = SvgPicture { w, h, picture };
+        return picture;
     }
 
     // An <img> becomes an image item when a picture or a size is known;
@@ -2792,8 +2844,10 @@ struct Layouter {
                     if (placed.control)
                         fill_control(box, *placed.control, *placed.style);
                     else
-                        box.image = Fragment::ImageBox { placed.image, box.x + e.left, box.y + e.top,
-                            placed.content_width, placed.content_height };
+                        box.image = Fragment::ImageBox {
+                            picture_for(*placed.element, placed.image, placed.content_width, placed.content_height),
+                            box.x + e.left, box.y + e.top, placed.content_width, placed.content_height
+                        };
                     // An atomic inline box is positioned like any other: its
                     // own offsets move it off the line it was placed on, and
                     // a z-index or an opacity makes it a stacking context.
@@ -3841,8 +3895,8 @@ struct Layouter {
                 if (style.width.is_auto() || (settled && options.content_width))
                     fragment.width = width + border_left + border_right + padding_left + padding_right;
                 fragment.height = height + border_top + border_bottom + padding_top + padding_bottom;
-                fragment.image = Fragment::ImageBox { std::move(image.bitmap), content_x, content_y, width,
-                    height };
+                fragment.image = Fragment::ImageBox { picture_for(element, std::move(image.bitmap), width, height),
+                    content_x, content_y, width, height };
                 return fragment;
             }
         }
@@ -7228,7 +7282,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         return result;
 
     Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {}, {},
-        css::WritingMode::HorizontalTb, 0, 0, {}, {} };
+        css::WritingMode::HorizontalTb, 0, 0, {}, {}, {} };
     // The whole page is laid out in the root's own writing mode — which the
     // resolver has already taken from body where there is one — so the
     // frame is settled before a single style is read: everything after this
