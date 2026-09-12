@@ -1,5 +1,6 @@
 #include "ui/PageImages.h"
 
+#include "core/Bmp.h"
 #include "core/Gif.h"
 #include "core/Jpeg.h"
 #include "core/Png.h"
@@ -54,15 +55,7 @@ struct Collector {
             ++fetched;
             if (std::optional<std::vector<std::uint8_t>> bytes = fetch(url);
                 bytes && bytes->size() <= max_image_bytes) {
-                // The bytes say what they are; the transport's claim does not.
-                std::optional<Bitmap> decoded;
-                if (looks_like_png(*bytes))
-                    decoded = decode_png(*bytes);
-                else if (looks_like_gif(*bytes))
-                    decoded = decode_gif(*bytes);
-                else if (looks_like_jpeg(*bytes))
-                    decoded = decode_jpeg(*bytes);
-                if (decoded)
+                if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes))
                     image = std::make_shared<Bitmap const>(std::move(*decoded));
             }
         }
@@ -73,6 +66,22 @@ struct Collector {
 };
 
 } // namespace
+
+std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size)
+{
+    // The bytes say what they are; the transport's claim does not.
+    if (looks_like_png(bytes))
+        return decode_png(bytes);
+    if (looks_like_gif(bytes))
+        return decode_gif(bytes);
+    if (looks_like_jpeg(bytes))
+        return decode_jpeg(bytes);
+    if (looks_like_bmp(bytes))
+        return decode_bmp(bytes);
+    if (looks_like_ico(bytes))
+        return decode_ico(bytes, icon_size);
+    return std::nullopt;
+}
 
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
     ImageFetcher const& fetch, css::MediaContext const& media)
@@ -99,14 +108,7 @@ layout::BackgroundImages collect_background_images(css::StyleMap const& styles, 
                 ++fetched;
                 if (std::optional<std::vector<std::uint8_t>> bytes = fetch(*url);
                     bytes && bytes->size() <= max_image_bytes) {
-                    std::optional<Bitmap> decoded;
-                    if (looks_like_png(*bytes))
-                        decoded = decode_png(*bytes);
-                    else if (looks_like_gif(*bytes))
-                        decoded = decode_gif(*bytes);
-                    else if (looks_like_jpeg(*bytes))
-                        decoded = decode_jpeg(*bytes);
-                    if (decoded)
+                    if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes))
                         bitmap = std::make_shared<Bitmap const>(std::move(*decoded));
                 }
             }

@@ -1,0 +1,20 @@
+# A page's icon: the <link rel=icon> a page names is fetched through the
+# same loader as its pictures, decoded by what its bytes are (an ICO here,
+# read at the tab's icon size) and drawn in the tab before the title. A
+# page naming none, or one whose icon cannot be read, paints as it always
+# did: no icon, the title where it was. Everything is a data: URL.
+resize 800 500
+open data:text/html,<title>Iconed</title><link rel="shortcut icon" href="data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAABMLAAATCwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8AAAAAAAAAAAAAAAAAAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/AAAAAAAAAAAcjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAHIzy/xyM8v8cjPL/HIzy/xyM8v9aLh7/Wi4e/1ouHv9aLh7/HIzy/xyM8v8cjPL/HIzy/xyM8v8AAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/Wi4e/1ouHv9aLh7/Wi4e/xyM8v8cjPL/HIzy/xyM8v8cjPL/AAAAAAAAAAAcjPL/HIzy/xyM8v8cjPL/HIzy/1ouHv9aLh7/Wi4e/1ouHv8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAHIzy/xyM8v8cjPL/HIzy/xyM8v9aLh7/Wi4e/1ouHv9aLh7/HIzy/xyM8v8cjPL/HIzy/xyM8v8AAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/AAAAAAAAAAAcjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAAAAAAByM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAAAAAAAAAAAAAAAAAHIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcjPL/HIzy/xyM8v8cjPL/HIzy/xyM8v8cjPL/HIzy/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="><h1>With an icon</h1>
+assert-title Iconed
+assert-text With an icon
+assert-golden goldens/favicon.png
+
+# An icon that is not one: the title stays put, nothing else changes.
+open data:text/html,<title>Broken icon</title><link rel="icon" href="data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAAA=="><p>Still here</p>
+assert-title Broken icon
+assert-text Still here
+
+# A page naming none.
+open data:text/html,<title>Plain</title><p>No icon</p>
+assert-title Plain
+assert-text No icon

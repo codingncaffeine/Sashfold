@@ -97,6 +97,7 @@ jobs:
       - run: ./build/fuzz_x509 -max_total_time=30 -timeout=5 fuzz/corpus/x509
       - run: ./build/fuzz_gif -max_total_time=30 -timeout=5 fuzz/corpus/gif
       - run: ./build/fuzz_jpeg -max_total_time=30 -timeout=5 fuzz/corpus/jpeg
+      - run: ./build/fuzz_bmp -max_total_time=30 -timeout=5 fuzz/corpus/bmp
 
   windows-mingw:
     runs-on: windows-latest

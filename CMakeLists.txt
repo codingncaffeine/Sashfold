@@ -28,6 +28,20 @@ if(MINGW)
   add_link_options(-Wl,--stack,8388608)
 endif()
 
+# The fuzzing lane (see fuzz/README.md): only on request, and only clang
+# carries libFuzzer. Every object in the build gets the coverage hooks and
+# both sanitizers, so a harness sees and checks the code it drives rather
+# than its own file alone; the programs that are not harnesses link the
+# same runtimes without libFuzzer's main.
+option(SASHFOLD_FUZZ "Build libFuzzer harnesses (requires clang)" OFF)
+if(SASHFOLD_FUZZ)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "SASHFOLD_FUZZ requires a clang toolchain")
+  endif()
+  add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all -g -O1)
+  add_link_options(-fsanitize=fuzzer-no-link,address,undefined)
+endif()
+
 add_library(sashfold_core STATIC
   src/bindings/Binary.cpp
   src/bindings/Document.cpp
@@ -44,6 +58,7 @@ add_library(sashfold_core STATIC
   src/core/Base64.cpp
   src/core/Bidi.cpp
   src/core/Bitmap.cpp
+  src/core/Bmp.cpp
   src/core/Gif.cpp
   src/core/Inflate.cpp
   src/core/Jpeg.cpp
@@ -181,18 +196,14 @@ target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 enable_testing()
 add_subdirectory(tests)
 
-# Fuzzing lane: every parser gets a harness (see fuzz/README.md). Only built
-# on request, and only clang carries libFuzzer.
-option(SASHFOLD_FUZZ "Build libFuzzer harnesses (requires clang)" OFF)
+# Every parser gets a harness (see fuzz/README.md), each libFuzzer's main
+# over the instrumented build above.
 if(SASHFOLD_FUZZ)
-  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message(FATAL_ERROR "SASHFOLD_FUZZ requires a clang toolchain")
-  endif()
   function(sashfold_fuzzer stem)
-    add_executable(fuzz_${stem} fuzz/${stem}.cpp)
+    add_executable(fuzz_${stem} fuzz/${stem}.cpp fuzz/Options.cpp)
     target_link_libraries(fuzz_${stem} PRIVATE sashfold_core)
-    target_compile_options(fuzz_${stem} PRIVATE -fsanitize=fuzzer,address,undefined -g -O1)
-    target_link_options(fuzz_${stem} PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_compile_options(fuzz_${stem} PRIVATE -fsanitize=fuzzer)
+    target_link_options(fuzz_${stem} PRIVATE -fsanitize=fuzzer)
   endfunction()
   sashfold_fuzzer(html_tokenizer)
   sashfold_fuzzer(html_tree)
@@ -206,4 +217,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(png)
   sashfold_fuzzer(gif)
   sashfold_fuzzer(jpeg)
+  sashfold_fuzzer(bmp)
 endif()

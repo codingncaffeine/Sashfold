@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <memory>
 #include <utility>
 
 namespace sashfold::ui {
@@ -44,6 +45,10 @@ constexpr char32_t glyph_reader = 0x00B6; // the pilcrow: reader mode
 
 constexpr float font_ascent_ratio = 25.0f / 32.0f;
 constexpr float font_descent_ratio = 7.0f / 32.0f;
+
+// The most a page's icon may weigh: an icon is a few kilobytes, and a
+// server answering the icon's URL with a page is not one to decode.
+constexpr std::size_t max_icon_bytes = 1024u * 1024u;
 
 float text_width(std::u32string_view text, float size)
 {
@@ -149,6 +154,42 @@ std::string find_title(dom::Node const& node)
             return title;
     }
     return {};
+}
+
+// The href of the page's icon: the last <link> whose rel tokens include
+// "icon" and that has an href (§4.6.6.1 makes the last of the equally
+// appropriate ones the one to use); empty when the page names none.
+std::string find_icon_href(dom::Node const& node)
+{
+    std::string found;
+    if (node.is_element()) {
+        auto const& element = static_cast<dom::Element const&>(node);
+        if (element.is_html("link")) {
+            dom::Attr const* const rel = element.find_attribute("rel");
+            dom::Attr const* const href = element.find_attribute("href");
+            if (rel != nullptr && href != nullptr && !href->value.empty()) {
+                std::string token;
+                bool is_icon = false;
+                for (char const c : rel->value + " ") {
+                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f') {
+                        if (ascii_ci_equals(token, "icon"))
+                            is_icon = true;
+                        token.clear();
+                    } else {
+                        token += c;
+                    }
+                }
+                if (is_icon)
+                    return href->value;
+            }
+        }
+    }
+    for (dom::Node const* child : node.children()) {
+        std::string const href = find_icon_href(*child);
+        if (!href.empty())
+            found = href;
+    }
+    return found;
 }
 
 dom::Element const* find_anchor_target(dom::Node const& node, std::string_view id)
@@ -332,6 +373,10 @@ struct Browser::Impl {
         // or a scrollbar to. Null means the page itself.
         dom::Element const* scroller = nullptr;
         std::string status;
+        // The page's icon, drawn in the tab, and the URL it came from, so a
+        // page that changes without changing its icon fetches it once.
+        std::shared_ptr<Bitmap const> favicon;
+        std::string favicon_key;
 
         Tab() = default;
         Tab(Tab&&) = default;
@@ -1146,6 +1191,27 @@ struct Browser::Impl {
         }
         tab.backgrounds = collect_background_images(tab.styles, fetch_image);
         entry->title = find_title(*tab.document);
+        // The page's icon: the last <link rel=icon>, else /favicon.ico on a
+        // web scheme; fetched once per URL through the same loader, decoded
+        // by what its bytes say, an ICO at the tab's size. A page with none,
+        // or one whose icon fails, draws no icon and its title stays put.
+        std::optional<net::Url> icon_url;
+        if (std::string const href = find_icon_href(*tab.document); !href.empty())
+            icon_url = net::parse_url(href, &page_url);
+        else if (is_web_scheme(page_url.scheme))
+            icon_url = net::parse_url("/favicon.ico", &page_url);
+        std::string const icon_key = icon_url ? icon_url->serialize() : std::string();
+        if (icon_key != tab.favicon_key) {
+            tab.favicon_key = icon_key;
+            tab.favicon.reset();
+            if (icon_url) {
+                if (std::optional<std::vector<std::uint8_t>> const bytes = fetch_image(*icon_url);
+                    bytes && bytes->size() <= max_icon_bytes) {
+                    if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes, theme.tab_icon_size))
+                        tab.favicon = std::make_shared<Bitmap const>(std::move(*decoded));
+                }
+            }
+        }
         relayout(tab);
         tab.page_mutations = tab.realm ? tab.realm->mutation_count() : 0;
     }
@@ -3459,7 +3525,15 @@ struct Browser::Impl {
                     t.tab_corner_radius, background);
             }
             Rect const close = c.tab_close_buttons[i];
-            float const text_x = static_cast<float>(rect.x + t.padding + 2);
+            float text_x = static_cast<float>(rect.x + t.padding + 2);
+            if (tabs[i].favicon) {
+                // The icon before the title, which moves over only when one
+                // decoded, so a page without one paints as it always did.
+                int const size = t.tab_icon_size;
+                Rect const icon { rect.x + t.padding + 2, rect.y + (rect.height - size) / 2, size, size };
+                frame.draw_scaled(*tabs[i].favicon, icon);
+                text_x += static_cast<float>(size + t.padding);
+            }
             float const max_width = static_cast<float>(close.x - t.padding) - text_x;
             std::u32string const title
                 = ellipsize(decode_utf8(tab_title(tabs[i])), max_width, t.tab_font_size);

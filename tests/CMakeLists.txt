@@ -10,6 +10,7 @@ endfunction()
 sashfold_test(test_bitmap)
 sashfold_test(test_font)
 sashfold_test(test_gif)
+sashfold_test(test_bmp)
 add_executable(test_jpeg test_jpeg.cpp)
 target_link_libraries(test_jpeg PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_jpeg COMMAND test_jpeg)
@@ -123,6 +124,9 @@ add_test(NAME shell_scroll
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_scripting
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/scripting.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_favicon
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/favicon.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed

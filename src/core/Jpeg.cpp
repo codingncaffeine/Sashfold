@@ -170,15 +170,21 @@ int extend(int value, int size)
 
 // The inverse DCT in 12-bit fixed point: the AAN-derived even/odd
 // decomposition every decoder uses, one pass down the columns and one
-// across the rows, rounded and level-shifted at the end. Integer only.
-constexpr int f2f(double value) { return static_cast<int>(value * 4096 + (value >= 0 ? 0.5 : -0.5)); }
+// across the rows, rounded and level-shifted at the end. Integer only,
+// and sixty-four bits wide: a hostile stream's dequantized coefficients
+// reach the edge of thirty-two, and the products here are fourteen bits
+// wider than their inputs. A well-formed picture never nears either
+// limit and comes out the same to the byte.
+using Wide = std::int64_t;
 
-void idct_1d(int s0, int s1, int s2, int s3, int s4, int s5, int s6, int s7, int& x0, int& x1, int& x2, int& x3,
-    int& t0, int& t1, int& t2, int& t3)
+constexpr Wide f2f(double value) { return static_cast<Wide>(value * 4096 + (value >= 0 ? 0.5 : -0.5)); }
+
+void idct_1d(Wide s0, Wide s1, Wide s2, Wide s3, Wide s4, Wide s5, Wide s6, Wide s7, Wide& x0, Wide& x1,
+    Wide& x2, Wide& x3, Wide& t0, Wide& t1, Wide& t2, Wide& t3)
 {
-    int p2 = s2;
-    int p3 = s6;
-    int p1 = (p2 + p3) * f2f(0.5411961);
+    Wide p2 = s2;
+    Wide p3 = s6;
+    Wide p1 = (p2 + p3) * f2f(0.5411961);
     t2 = p1 + p3 * f2f(-1.847759065);
     t3 = p1 + p2 * f2f(0.765366865);
     p2 = s0;
@@ -194,10 +200,10 @@ void idct_1d(int s0, int s1, int s2, int s3, int s4, int s5, int s6, int s7, int
     t2 = s3;
     t3 = s1;
     p3 = t0 + t2;
-    int p4 = t1 + t3;
+    Wide p4 = t1 + t3;
     p1 = t0 + t3;
     p2 = t1 + t2;
-    int const p5 = (p3 + p4) * f2f(1.175875602);
+    Wide const p5 = (p3 + p4) * f2f(1.175875602);
     t0 = t0 * f2f(0.298631336);
     t1 = t1 * f2f(2.053119869);
     t2 = t2 * f2f(3.072711026);
@@ -212,24 +218,24 @@ void idct_1d(int s0, int s1, int s2, int s3, int s4, int s5, int s6, int s7, int
     t0 += p1 + p3;
 }
 
-std::uint8_t clamp_sample(int value)
+std::uint8_t clamp_sample(Wide value)
 {
-    return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
+    return static_cast<std::uint8_t>(std::clamp<Wide>(value, 0, 255));
 }
 
 // Dequantized coefficients in natural order -> 8x8 samples at `out` with the given stride.
 void idct_block(std::array<int, 64> const& in, std::uint8_t* out, int stride)
 {
-    std::array<int, 64> v {};
+    std::array<Wide, 64> v {};
     for (int i = 0; i < 8; ++i) {
         if (in[8 + i] == 0 && in[16 + i] == 0 && in[24 + i] == 0 && in[32 + i] == 0 && in[40 + i] == 0
             && in[48 + i] == 0 && in[56 + i] == 0) {
-            int const dc = in[i] * 4;
+            Wide const dc = Wide(in[i]) * 4;
             for (int row = 0; row < 8; ++row)
                 v[static_cast<std::size_t>(row * 8 + i)] = dc;
             continue;
         }
-        int x0, x1, x2, x3, t0, t1, t2, t3;
+        Wide x0, x1, x2, x3, t0, t1, t2, t3;
         idct_1d(in[i], in[8 + i], in[16 + i], in[24 + i], in[32 + i], in[40 + i], in[48 + i], in[56 + i], x0, x1, x2,
             x3, t0, t1, t2, t3);
         x0 += 512;
@@ -246,11 +252,11 @@ void idct_block(std::array<int, 64> const& in, std::uint8_t* out, int stride)
         v[static_cast<std::size_t>(4 * 8 + i)] = (x3 - t0) >> 10;
     }
     for (int row = 0; row < 8; ++row) {
-        int const* r = &v[static_cast<std::size_t>(row * 8)];
-        int x0, x1, x2, x3, t0, t1, t2, t3;
+        Wide const* r = &v[static_cast<std::size_t>(row * 8)];
+        Wide x0, x1, x2, x3, t0, t1, t2, t3;
         idct_1d(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], x0, x1, x2, x3, t0, t1, t2, t3);
         // Round at 17 fractional bits and add the 128 level shift.
-        int const bias = 65536 + (128 << 17);
+        Wide const bias = 65536 + (128 << 17);
         x0 += bias;
         x1 += bias;
         x2 += bias;
@@ -512,7 +518,10 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                         if (!dc_size || *dc_size > 11)
                             return false;
                         int const diff = extend(*dc_size ? reader.bits(*dc_size) : 0, *dc_size);
-                        component.dc_prediction += diff;
+                        // A DC value is twelve bits in any well-formed stream; a hostile
+                        // one that keeps adding is held at sixteen, where every product
+                        // it feeds still fits.
+                        component.dc_prediction = std::clamp(component.dc_prediction + diff, -32768, 32767);
                         block[0] = static_cast<std::int16_t>(component.dc_prediction * (1 << al));
                     } else if (reader.bit()) {
                         block[0] = static_cast<std::int16_t>(block[0] | (1 << al));
@@ -610,7 +619,7 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                 if (!dc_size || *dc_size > 11)
                     return false;
                 int const diff = extend(*dc_size ? reader.bits(*dc_size) : 0, *dc_size);
-                component.dc_prediction += diff;
+                component.dc_prediction = std::clamp(component.dc_prediction + diff, -32768, 32767); // as above
                 coefficients[0] = component.dc_prediction * q[0];
                 for (int k = 1; k < 64;) {
                     std::optional<int> const symbol

@@ -62,6 +62,7 @@ struct Theme {
     int find_height = 36;
     int devtools_height = 220;
     int scroll_step = 60;
+    int tab_icon_size = 16; // a page's icon in its tab, drawn before the title
 
     // Type, px.
     float font_size = 14;

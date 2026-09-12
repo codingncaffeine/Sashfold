@@ -42,7 +42,8 @@
     "status-height": 22,
     "find-height": 36,
     "devtools-height": 220,
-    "scroll-step": 60
+    "scroll-step": 60,
+    "tab-icon-size": 16
   },
   "type": {
     "font-size": 14,

@@ -25,6 +25,12 @@ namespace sashfold::ui {
 // Fetches one image's bytes on the page's behalf; nullopt when it cannot be had.
 using ImageFetcher = std::function<std::optional<std::vector<std::uint8_t>>(net::Url const&)>;
 
+// The picture the bytes hold, told by what they begin with (PNG, GIF, JPEG,
+// BMP, ICO), never by what the transport claimed; an ICO gives the entry
+// nearest `icon_size` wide, or its largest for zero. Nullopt when no decoder
+// here reads them.
+std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size = 0);
+
 // `media` is the viewport the sources are chosen for.
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
     ImageFetcher const& fetch, css::MediaContext const& media = {});

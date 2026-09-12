@@ -335,7 +335,7 @@ bool supports_image_type(std::string_view type)
     if (essence.empty())
         return true;
     for (char const* known : { "image/png", "image/x-png", "image/jpeg", "image/jpg",
-             "image/pjpeg", "image/gif" }) {
+             "image/pjpeg", "image/gif", "image/bmp", "image/x-ms-bmp", "image/x-icon", "image/vnd.microsoft.icon" }) {
         if (ascii_ci_equals(essence, known))
             return true;
     }

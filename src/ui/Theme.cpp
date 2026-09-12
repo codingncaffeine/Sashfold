@@ -60,6 +60,7 @@ constexpr Token<int> metric_tokens[] = {
     { "find-height", &Theme::find_height },
     { "devtools-height", &Theme::devtools_height },
     { "scroll-step", &Theme::scroll_step },
+    { "tab-icon-size", &Theme::tab_icon_size },
 };
 
 constexpr Token<float> type_tokens[] = {

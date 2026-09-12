@@ -8,6 +8,21 @@ Build with `-DSASHFOLD_FUZZ=ON` on a clang toolchain, then e.g.:
 
     ./build/fuzz_html_tokenizer -timeout=5 fuzz/corpus/html_tokenizer
 
+That build is instrumented end to end — the coverage hooks, AddressSanitizer
+and UndefinedBehaviorSanitizer on every object, not only the harness — so a
+harness sees and checks the code it drives. A run's `cov:` count is the
+proof: a harness over a real decoder reports hundreds of edges, and one
+reporting a dozen is looking at its own file. Undefined behaviour is fatal
+in this build, so a signed overflow is a crash with an artifact, not a line
+in the log.
+
+`Options.cpp`, linked into every harness, turns off one AddressSanitizer
+check, the allocator/deallocator match: libFuzzer's runtime on some
+toolchains brings its own operator new and delete into the link, which
+reach malloc and free directly and make a nothrow allocation freed through
+them read as a mismatch in correct code. The sanitizer lane, with no
+libFuzzer in the link, keeps that check.
+
 Harnesses:
 
 - `html_tokenizer.cpp` — the HTML tokenizer (seed corpus in
@@ -29,5 +44,8 @@ Harnesses:
 - `jpeg.cpp` — the JPEG decoder: markers, tables, the entropy decoder, the
   IDCT (seed: a tiny baseline file written by the test encoder); smoke run
   in CI.
+- `bmp.cpp` — the BMP and ICO decoders: the DIB headers, palettes, masks,
+  the run-length forms, the icon directory and its AND mask (seeds: a
+  24-bit and an RLE8 bitmap, a 16-pixel icon); smoke run in CI.
 
 Still to come, one per parser as each lands: xkb, tls_records, js_lexer.
