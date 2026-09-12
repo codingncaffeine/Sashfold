@@ -2,16 +2,18 @@
 // itself says — the state it stopped in and error(), which Connection::open
 // throws away in favour of one message for every cause.
 //
-//   tls_probe <host> [port] [--suite aes128gcm|chacha20] [--insecure] [--stall <seconds>]
+//   tls_probe <host> [port] [--suite aes128gcm|chacha20] [--insecure] [--stall <seconds>] [--tls12]
 //
 // --stall sleeps inside the chain verification, where the real client spends
 // its time between the server's flight and its own Finished, and then sends
 // a GET and reports whether the server still answers: the way to measure how
-// long a server waits for a slow client before hanging up.
+// long a server waits for a slow client before hanging up. --tls12 offers
+// TLS 1.2 alone, to drive that path against a server that would take 1.3.
 //
 // Dev-only, not a CMake target: it links libsashfold_core.a, so RELINK it after
 // every core build or it runs old code.
 
+#include "net/Http.h"
 #include "net/tls/Tls13.h"
 #include "platform/Net.h"
 #include "platform/Random.h"
@@ -29,13 +31,17 @@ using namespace sashfold;
 int main(int argc, char** argv)
 {
     if (argc < 2) {
-        std::printf("usage: tls_probe <host> [port] [--suite aes128gcm|chacha20] [--insecure] [--stall <seconds>]\n");
+        std::printf("usage: tls_probe <host> [port] [--suite aes128gcm|chacha20] [--insecure] [--stall <seconds>] [--tls12]\n");
         return 2;
     }
+    // A diagnostic's lines must reach the pipe as they happen: a probe that
+    // hangs has to show its last step, not swallow it in a buffer.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::string const host = argv[1];
     std::uint16_t port = 443;
     std::string suite;
     bool insecure = false;
+    bool tls12_only = false;
     int stall = 0;
     for (int i = 2; i < argc; ++i) {
         std::string const arg = argv[i];
@@ -43,6 +49,8 @@ int main(int argc, char** argv)
             suite = argv[++i];
         else if (arg == "--insecure")
             insecure = true;
+        else if (arg == "--tls12")
+            tls12_only = true;
         else if (arg == "--stall" && i + 1 < argc)
             stall = std::atoi(argv[++i]);
         else
@@ -51,9 +59,11 @@ int main(int argc, char** argv)
 
     tls::TlsConfig config;
     config.server_name = host;
+    config.offer_tls13 = !tls12_only;
     platform::fill_random(std::span<std::uint8_t>(config.client_random.data(), config.client_random.size()));
     platform::fill_random(std::span<std::uint8_t>(config.session_id.data(), config.session_id.size()));
     platform::fill_random(std::span<std::uint8_t>(config.private_key.data(), config.private_key.size()));
+    platform::fill_random(std::span<std::uint8_t>(config.p256_private_key.data(), config.p256_private_key.size()));
     if (suite == "aes128gcm")
         config.cipher_suites = { tls::CipherSuite::Aes128GcmSha256 };
     else if (suite == "chacha20")
@@ -104,14 +114,20 @@ int main(int argc, char** argv)
         if (!ok)
             break;
     }
-    std::printf("RESULT %s state=%d retries=%d suite=%s error=\"%s\"\n",
-        engine.connected() ? "connected" : "failed", static_cast<int>(engine.state()), engine.hello_retry_requests(),
+    std::printf("RESULT %s state=%d version=%s retries=%d suite=%s error=\"%s\"\n",
+        engine.connected() ? "connected" : "failed", static_cast<int>(engine.state()),
+        engine.version() == 0x0304 ? "1.3" : engine.version() == 0x0303 ? "1.2" : "none", engine.hello_retry_requests(),
         tls::cipher_suite_name(engine.cipher_suite()), engine.error().c_str());
     if (!engine.connected())
         return 1;
     // A request over the connection, and what comes back: the status line,
-    // or nothing at all when the server has already hung up.
-    std::string const request = "GET / HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n";
+    // or nothing at all when the server has already hung up. The request
+    // carries the browser's own headers: an edge with a bot wall holds one
+    // that does not look like a browser's (an Akamai front held a bare GET,
+    // and one with a User-Agent alone, for minutes), and a probe should be
+    // answered the way the browser is.
+    std::string const request = "GET / HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: " + std::string(net::user_agent())
+        + "\r\nAccept: text/html,application/xhtml+xml,*/*;q=0.8\r\nAccept-Encoding: gzip, deflate\r\nConnection: close\r\n\r\n";
     std::vector<std::uint8_t> const sealed = engine.seal(std::span<std::uint8_t const>(
         reinterpret_cast<std::uint8_t const*>(request.data()), request.size()));
     if (!tcp->send_all(sealed.data(), sealed.size())) {

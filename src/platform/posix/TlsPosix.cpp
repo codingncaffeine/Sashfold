@@ -14,11 +14,12 @@
 #include <string>
 #include <vector>
 
-// The Linux TLS backend: our own TLS 1.3 client (src/net/tls) driven over
-// a TcpSocket. Certificate validation runs against the system trust store
-// (net/tls/Validate); until it has passed the badssl matrix, HTTPS is off
-// unless SASHFOLD_TLS_INSECURE=1 is set, which accepts any chain and says
-// so loudly. macOS gets Network.framework with its shell.
+// The Linux TLS backend: our own TLS 1.3 and 1.2 client (src/net/tls)
+// driven over a TcpSocket. Certificate validation runs against the system
+// trust store (net/tls/Validate); SASHFOLD_TLS_INSECURE=1 accepts any chain
+// and says so loudly, SASHFOLD_TLS_SUITE narrows the hello to one suite and
+// SASHFOLD_TLS_VERSION to one version, to drive a path end to end against a
+// real server. macOS gets Network.framework with its shell.
 
 namespace sashfold::platform {
 
@@ -43,11 +44,38 @@ void apply_suite_request(tls::TlsConfig& config)
         config.cipher_suites = { tls::CipherSuite::Aes128GcmSha256 };
     else if (name == "chacha20" || name == "TLS_CHACHA20_POLY1305_SHA256")
         config.cipher_suites = { tls::CipherSuite::ChaCha20Poly1305Sha256 };
+    else if (name == "ecdhe-rsa-aes128gcm" || name == "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256")
+        config.cipher_suites = { tls::CipherSuite::EcdheRsaAes128GcmSha256 };
+    else if (name == "ecdhe-ecdsa-aes128gcm" || name == "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256")
+        config.cipher_suites = { tls::CipherSuite::EcdheEcdsaAes128GcmSha256 };
+    else if (name == "ecdhe-rsa-chacha20" || name == "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256")
+        config.cipher_suites = { tls::CipherSuite::EcdheRsaChaCha20Poly1305Sha256 };
+    else if (name == "ecdhe-ecdsa-chacha20" || name == "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256")
+        config.cipher_suites = { tls::CipherSuite::EcdheEcdsaChaCha20Poly1305Sha256 };
     else {
         std::fprintf(stderr, "sashfold: SASHFOLD_TLS_SUITE names no suite this client has (%s)\n", value);
         return;
     }
     std::fprintf(stderr, "sashfold: offering only %s\n", tls::cipher_suite_name(config.cipher_suites.front()));
+}
+
+// A version named in the environment narrows the hello to it, so the 1.2
+// path can be driven against a server that would rather speak 1.3.
+void apply_version_request(tls::TlsConfig& config)
+{
+    char const* const value = std::getenv("SASHFOLD_TLS_VERSION");
+    if (value == nullptr || value[0] == '\0')
+        return;
+    std::string const name(value);
+    if (name == "1.2")
+        config.offer_tls13 = false;
+    else if (name == "1.3")
+        config.offer_tls12 = false;
+    else {
+        std::fprintf(stderr, "sashfold: SASHFOLD_TLS_VERSION names no version this client has (%s)\n", value);
+        return;
+    }
+    std::fprintf(stderr, "sashfold: offering only TLS %s\n", name.c_str());
 }
 
 }
@@ -126,9 +154,11 @@ std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const&
     if (!is_ip)
         config.server_name = host;
     fill_random(config.private_key);
+    fill_random(config.p256_private_key);
     fill_random(config.client_random);
     fill_random(config.session_id);
     apply_suite_request(config);
+    apply_version_request(config);
 
     bool const insecure = insecure_requested();
     std::string const host_copy = host;

@@ -401,6 +401,49 @@ void test_ecdsa()
     CHECK(ms < 1000.0);
 }
 
+void test_ecdh()
+{
+    // ECDH over P-256 as a TLS 1.2 key exchange uses it: the generator for
+    // a scalar of one, the shared secret the same from both ends, a point
+    // off the curve refused, and the two scalars the reduction leaves at
+    // zero refused. The live handshake test is the check against another
+    // implementation; this is the check against itself.
+    using crypto::BigInt;
+    crypto::Curve const& c = crypto::curve(crypto::CurveId::P256);
+    std::vector<std::uint8_t> one(32, 0);
+    one.back() = 1;
+    std::optional<crypto::EcPoint> const g = crypto::ec_public_point(crypto::CurveId::P256, one);
+    CHECK(g.has_value());
+    CHECK(g->x == c.gx && g->y == c.gy);
+    CHECK_EQ(hex(crypto::ec_encode_point(crypto::CurveId::P256, *g)).substr(0, 10), "046b17d1f2");
+    std::vector<std::uint8_t> a(32);
+    std::vector<std::uint8_t> b(32);
+    for (std::size_t i = 0; i < 32; ++i) {
+        a[i] = static_cast<std::uint8_t>(i * 7 + 3);
+        b[i] = static_cast<std::uint8_t>(255 - i * 5);
+    }
+    std::optional<crypto::EcPoint> const pa = crypto::ec_public_point(crypto::CurveId::P256, a);
+    std::optional<crypto::EcPoint> const pb = crypto::ec_public_point(crypto::CurveId::P256, b);
+    CHECK(pa.has_value() && pb.has_value());
+    // Round trip through the wire form.
+    std::optional<crypto::EcPoint> const decoded = crypto::ec_decode_point(crypto::CurveId::P256, crypto::ec_encode_point(crypto::CurveId::P256, *pa));
+    CHECK(decoded.has_value() && decoded->x == pa->x && decoded->y == pa->y);
+    std::optional<std::vector<std::uint8_t>> const ab = crypto::ecdh_shared_x(crypto::CurveId::P256, a, *pb);
+    std::optional<std::vector<std::uint8_t>> const ba = crypto::ecdh_shared_x(crypto::CurveId::P256, b, *pa);
+    CHECK(ab.has_value() && ba.has_value());
+    CHECK(ab.has_value() && ba.has_value() && *ab == *ba && ab->size() == 32);
+    // The ladder agrees with the public double-and-add through the signature
+    // path: k·G for the same k reached both ways is the same point.
+    std::optional<std::vector<std::uint8_t>> const via_generator = crypto::ecdh_shared_x(crypto::CurveId::P256, a, *g);
+    CHECK(via_generator.has_value() && *via_generator == *pa->x.to_bytes(32));
+    crypto::EcPoint off { pb->x, pb->y.add(BigInt::from_u64(1)) };
+    CHECK(!crypto::ecdh_shared_x(crypto::CurveId::P256, a, off).has_value());
+    std::vector<std::uint8_t> const zero(32, 0);
+    CHECK(!crypto::ec_public_point(crypto::CurveId::P256, zero).has_value());
+    CHECK(!crypto::ec_public_point(crypto::CurveId::P256, *c.n.to_bytes(32)).has_value());
+    CHECK(!crypto::ec_public_point(crypto::CurveId::P256, std::vector<std::uint8_t>(31, 1)).has_value());
+}
+
 
 // AES-128 (FIPS 197) and AES-128-GCM (SP 800-38D), the record protection of
 // TLS_AES_128_GCM_SHA256: the block cipher's known answers first, then the
@@ -539,5 +582,6 @@ int main()
     test_bigint();
     test_rsa();
     test_ecdsa();
+    test_ecdh();
     return sashfold::test::report("crypto");
 }

@@ -110,6 +110,39 @@ Jacobian ec_multiply(Curve const& c, Jacobian const& q, BigInt const& k)
     return result;
 }
 
+// The Montgomery ladder: R0 and R1 always differ by q, and every bit costs
+// one addition and one doubling whichever way it falls, so the sequence of
+// operations does not spell out the scalar. Secret scalars only.
+Jacobian ec_multiply_ladder(Curve const& c, Jacobian const& q, BigInt const& k)
+{
+    Jacobian r0 = jacobian_infinity();
+    Jacobian r1 = q;
+    for (std::size_t i = c.n.bit_length(); i-- > 0;) {
+        if (k.bit(i)) {
+            r0 = ec_add(c, r0, r1);
+            r1 = ec_double(c, r1);
+        } else {
+            r1 = ec_add(c, r0, r1);
+            r0 = ec_double(c, r0);
+        }
+    }
+    return r0;
+}
+
+// A scalar in [1, n − 1] from the bytes a key exchange drew.
+std::optional<BigInt> ecdh_scalar(Curve const& c, std::span<std::uint8_t const> scalar)
+{
+    if (scalar.size() != c.field_bytes)
+        return std::nullopt;
+    std::optional<BigInt> k = BigInt::from_bytes(scalar);
+    if (!k)
+        return std::nullopt;
+    BigInt const reduced = k->mod(c.n);
+    if (reduced.is_zero())
+        return std::nullopt;
+    return reduced;
+}
+
 std::optional<EcPoint> to_affine(Curve const& c, Jacobian const& q)
 {
     if (q.infinity())
@@ -178,6 +211,42 @@ bool ecdsa_verify(CurveId id, EcPoint const& public_key, std::span<std::uint8_t 
     if (!point)
         return false;
     return point->x.mod(c.n) == r;
+}
+
+std::vector<std::uint8_t> ec_encode_point(CurveId id, EcPoint const& point)
+{
+    Curve const& c = curve(id);
+    std::vector<std::uint8_t> out;
+    out.push_back(0x04);
+    std::vector<std::uint8_t> const x = *point.x.to_bytes(c.field_bytes);
+    std::vector<std::uint8_t> const y = *point.y.to_bytes(c.field_bytes);
+    out.insert(out.end(), x.begin(), x.end());
+    out.insert(out.end(), y.begin(), y.end());
+    return out;
+}
+
+std::optional<EcPoint> ec_public_point(CurveId id, std::span<std::uint8_t const> scalar)
+{
+    Curve const& c = curve(id);
+    std::optional<BigInt> const k = ecdh_scalar(c, scalar);
+    if (!k)
+        return std::nullopt;
+    Jacobian const generator { c.gx, c.gy, BigInt::from_u64(1) };
+    return to_affine(c, ec_multiply_ladder(c, generator, *k));
+}
+
+std::optional<std::vector<std::uint8_t>> ecdh_shared_x(CurveId id, std::span<std::uint8_t const> scalar, EcPoint const& peer)
+{
+    Curve const& c = curve(id);
+    if (!on_curve(c, peer))
+        return std::nullopt;
+    std::optional<BigInt> const k = ecdh_scalar(c, scalar);
+    if (!k)
+        return std::nullopt;
+    std::optional<EcPoint> const product = to_affine(c, ec_multiply_ladder(c, to_jacobian(peer), *k));
+    if (!product)
+        return std::nullopt;
+    return product->x.to_bytes(c.field_bytes);
 }
 
 }

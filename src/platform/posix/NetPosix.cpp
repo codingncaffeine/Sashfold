@@ -4,8 +4,10 @@
 #include <cerrno>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -18,6 +20,33 @@ constexpr std::uintptr_t invalid_handle = static_cast<std::uintptr_t>(-1);
 int fd_of(std::uintptr_t handle)
 {
     return static_cast<int>(handle);
+}
+
+// Each address gets this long to answer the SYN. A route that swallows it
+// — an IPv6 address on a machine with an IPv6 address of its own but no
+// way out is the everyday case — would otherwise hold the connect for the
+// kernel's minutes before the next address, usually the IPv4 one, got its
+// turn. One address at a time, in the resolver's order: the spirit of
+// RFC 8305 without the race.
+constexpr int connect_timeout_ms = 5000;
+
+bool connect_with_deadline(int handle, sockaddr const* address, socklen_t length)
+{
+    int const flags = ::fcntl(handle, F_GETFL, 0);
+    if (flags < 0 || ::fcntl(handle, F_SETFL, flags | O_NONBLOCK) < 0)
+        return ::connect(handle, address, length) == 0;
+    if (::connect(handle, address, length) != 0) {
+        if (errno != EINPROGRESS)
+            return false;
+        pollfd waiter { handle, POLLOUT, 0 };
+        if (::poll(&waiter, 1, connect_timeout_ms) <= 0)
+            return false;
+        int error = 0;
+        socklen_t error_size = sizeof error;
+        if (::getsockopt(handle, SOL_SOCKET, SO_ERROR, &error, &error_size) < 0 || error != 0)
+            return false;
+    }
+    return ::fcntl(handle, F_SETFL, flags) >= 0;
 }
 
 } // namespace
@@ -37,7 +66,7 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
         handle = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
         if (handle < 0)
             continue;
-        if (::connect(handle, entry->ai_addr, entry->ai_addrlen) == 0)
+        if (connect_with_deadline(handle, entry->ai_addr, entry->ai_addrlen))
             break;
         ::close(handle);
         handle = -1;

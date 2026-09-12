@@ -162,6 +162,37 @@ Bytes server_hello(Bytes const& session_id, std::uint16_t suite, Bytes const& ex
     return record;
 }
 
+// A 1.2 ServerHello: no supported_versions among its extensions, and, when
+// asked, the downgrade sentinel of RFC 8446 §4.1.3 in the last eight bytes
+// of its random.
+Bytes server_hello_12(Bytes const& session_id, std::uint16_t suite, Bytes const& extensions, bool downgrade_sentinel)
+{
+    static constexpr std::uint8_t sentinel[8] = { 0x44, 0x4f, 0x57, 0x4e, 0x47, 0x52, 0x44, 0x01 };
+    Bytes body;
+    put16(body, 0x0303);
+    for (std::size_t i = 0; i < 32; ++i)
+        body.push_back(downgrade_sentinel && i >= 24 ? sentinel[i - 24] : static_cast<std::uint8_t>(0x30 + i));
+    body.push_back(static_cast<std::uint8_t>(session_id.size()));
+    append(body, session_id);
+    put16(body, suite);
+    body.push_back(0);
+    put16(body, static_cast<std::uint16_t>(extensions.size()));
+    append(body, extensions);
+
+    Bytes message;
+    message.push_back(2);
+    message.push_back(0);
+    put16(message, static_cast<std::uint16_t>(body.size()));
+    append(message, body);
+
+    Bytes record;
+    record.push_back(record_handshake);
+    put16(record, 0x0303);
+    put16(record, static_cast<std::uint16_t>(message.size()));
+    append(record, message);
+    return record;
+}
+
 struct Hello {
     Bytes random;
     Bytes session_id;
@@ -279,6 +310,8 @@ tls::TlsConfig test_config()
     config.server_name = "localhost";
     for (std::size_t i = 0; i < config.private_key.size(); ++i)
         config.private_key[i] = static_cast<std::uint8_t>(0x40 + i);
+    for (std::size_t i = 0; i < config.p256_private_key.size(); ++i)
+        config.p256_private_key[i] = static_cast<std::uint8_t>(0x60 + i);
     for (std::size_t i = 0; i < config.client_random.size(); ++i)
         config.client_random[i] = static_cast<std::uint8_t>(0x10 + i);
     for (std::size_t i = 0; i < config.session_id.size(); ++i)
@@ -371,11 +404,26 @@ void test_retry_request()
         append(extensions, key_share(group_x25519));
         CHECK_EQ(refusal(extensions, suite_chacha20), 47);
     }
-    // A group that was never offered.
+    // A group that was never offered: secp384r1, which no hello of ours lists.
     {
         Bytes extensions = supported_versions();
-        append(extensions, key_share(group_secp256r1));
+        append(extensions, key_share(0x0018));
         CHECK_EQ(refusal(extensions, suite_chacha20), 47);
+    }
+    // The second group offered, secp256r1, asked for by a retry: the next
+    // hello carries a P-256 share in its place, 65 bytes, uncompressed.
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        Bytes extensions = supported_versions();
+        append(extensions, key_share(group_secp256r1));
+        tls::TlsOutput out;
+        CHECK(engine.feed(retry_request(session_id, suite_chacha20, extensions), out));
+        CHECK_EQ(engine.hello_retry_requests(), 1);
+        Hello second;
+        CHECK(parse_hello(client_hello_body(out.to_send), second));
+        CHECK_EQ(second.data(51).size(), std::size_t(2 + 2 + 2 + 65));
+        CHECK_EQ(hex(second.data(51)).substr(0, 14), std::string("00450017004104"));
     }
     // No version at all, and an extension that was never offered.
     CHECK_EQ(refusal(extension(44, cookie_value("no-version")), suite_chacha20), 109);
@@ -421,6 +469,81 @@ void test_retry_request()
     }
 }
 
+// ---- the choice of version, against crafted answers
+
+void test_version_choice()
+{
+    tls::TlsConfig const config = test_config();
+    Bytes const session_id = session_id_of(config);
+    Bytes const renegotiation = extension(0xff01, Bytes { 0x00 });
+    // The hello offers both versions: its suites are the 1.3 ones and then
+    // the 1.2 ones, and its extensions carry the 1.2 extras.
+    {
+        tls::TlsEngine engine(config);
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(engine.start()), hello));
+        CHECK_EQ(hello.suites.size(), std::size_t(6));
+        CHECK_EQ(hex(hello.data(43)), std::string("0403040303"));
+        CHECK(hello.has(11) && hello.has(23) && hello.has(0xff01));
+        CHECK_EQ(hex(hello.data(10)), std::string("0004001d0017"));
+    }
+    // A 1.2 answer — no supported_versions — is taken as TLS 1.2.
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello_12(session_id, 0xc02f, renegotiation, false), out));
+        CHECK_EQ(engine.version(), std::uint16_t(0x0303));
+        CHECK(engine.state() == tls::TlsState::WaitCertificate);
+        CHECK(out.to_send.empty());
+    }
+    // The same answer whose random carries the downgrade sentinel: a server
+    // that could have spoken 1.3 chose not to, which is refused (§4.1.3).
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session_id, 0xc02f, renegotiation, true), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+        CHECK(engine.error().find("downgrade") != std::string::npos);
+    }
+    // A 1.2 answer naming a 1.3 suite is malformed.
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session_id, 0x1303, renegotiation, false), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+    }
+    // A hello for 1.3 alone carries no 1.2 extras, and a 1.2 answer to it is
+    // refused as the wrong version.
+    {
+        tls::TlsConfig only13 = config;
+        only13.offer_tls12 = false;
+        tls::TlsEngine engine(only13);
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(engine.start()), hello));
+        CHECK_EQ(hello.suites.size(), std::size_t(2));
+        CHECK_EQ(hex(hello.data(43)), std::string("020304"));
+        CHECK(!hello.has(11) && !hello.has(23) && !hello.has(0xff01));
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session_id, 0x1303, {}, false), out));
+        CHECK_EQ(alert_description(out.to_send), 70);
+    }
+    // A hello for 1.2 alone carries no key share and no 1.3 modes.
+    {
+        tls::TlsConfig only12 = config;
+        only12.offer_tls13 = false;
+        tls::TlsEngine engine(only12);
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(engine.start()), hello));
+        CHECK_EQ(hello.suites.size(), std::size_t(4));
+        CHECK_EQ(hex(hello.data(43)), std::string("020303"));
+        CHECK(!hello.has(51) && !hello.has(45));
+        CHECK(hello.has(11) && hello.has(23));
+    }
+}
+
 // ---- a whole handshake against openssl s_server
 
 #ifndef _WIN32
@@ -429,7 +552,27 @@ std::string g_openssl;
 std::string g_directory;
 std::string g_certificate;
 std::string g_key;
+std::string g_ec_certificate;
+std::string g_ec_key;
 std::string g_setup_log;
+
+// The name openssl prints for a suite on its -www page: the IANA name for
+// 1.3, its own for 1.2.
+std::string openssl_name(tls::CipherSuite suite)
+{
+    switch (suite) {
+    case tls::CipherSuite::EcdheEcdsaAes128GcmSha256:
+        return "ECDHE-ECDSA-AES128-GCM-SHA256";
+    case tls::CipherSuite::EcdheRsaAes128GcmSha256:
+        return "ECDHE-RSA-AES128-GCM-SHA256";
+    case tls::CipherSuite::EcdheRsaChaCha20Poly1305Sha256:
+        return "ECDHE-RSA-CHACHA20-POLY1305";
+    case tls::CipherSuite::EcdheEcdsaChaCha20Poly1305Sha256:
+        return "ECDHE-ECDSA-CHACHA20-POLY1305";
+    default:
+        return tls::cipher_suite_name(suite);
+    }
+}
 
 void on_alarm(int)
 {
@@ -530,6 +673,7 @@ struct Exchange {
     // process ending it for us.
     bool engine_failed = false;
     int retries = 0;
+    std::uint16_t version = 0;
     tls::CipherSuite suite = tls::CipherSuite::ChaCha20Poly1305Sha256;
     std::string response;
     std::string error;
@@ -569,6 +713,7 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
             break;
     }
     result.retries = engine.hello_retry_requests();
+    result.version = engine.version();
     result.suite = engine.cipher_suite();
     result.engine_failed = engine.state() == tls::TlsState::Failed;
     if (!engine.connected()) {
@@ -604,11 +749,13 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
     return result;
 }
 
-// One case: a server with the given options, our client with the given
-// configuration, and what both ends say about what happened.
+// One case: a server with the given options (its versions among them),
+// our client with the given configuration, and what both ends say about
+// what happened — the version and suite the server believes it spoke are
+// read off its own page, not our bookkeeping.
 void live_case(std::string const& name, std::vector<std::string> const& server_options, tls::TlsConfig config,
     bool expect_connected, tls::CipherSuite expected_suite, int expected_retries,
-    char const* expected_refusal = nullptr)
+    char const* expected_refusal = nullptr, std::uint16_t expected_version = 0x0304, bool ecdsa_server = false)
 {
     std::uint16_t port = 0;
     if (!free_port(port)) {
@@ -617,7 +764,7 @@ void live_case(std::string const& name, std::vector<std::string> const& server_o
     }
     std::string const log = g_directory + "/server-" + std::to_string(port) + ".log";
     std::vector<std::string> args = { g_openssl, "s_server", "-accept", "127.0.0.1:" + std::to_string(port),
-        "-cert", g_certificate, "-key", g_key, "-tls1_3", "-naccept", "1", "-www" };
+        "-cert", ecdsa_server ? g_ec_certificate : g_certificate, "-key", ecdsa_server ? g_ec_key : g_key, "-naccept", "1", "-www" };
     args.insert(args.end(), server_options.begin(), server_options.end());
     pid_t const server = spawn(args, log);
     if (server < 0) {
@@ -664,18 +811,24 @@ void live_case(std::string const& name, std::vector<std::string> const& server_o
     }
     CHECK(result.connected);
     CHECK_EQ(result.retries, expected_retries);
+    CHECK_EQ(result.version, expected_version);
     CHECK_EQ(std::string(tls::cipher_suite_name(result.suite)), std::string(tls::cipher_suite_name(expected_suite)));
     // Application data went both ways over protected records.
     CHECK(result.response.rfind("HTTP/1.0 200", 0) == 0);
     CHECK(result.response.find("</HTML>") != std::string::npos);
-    // The page the server serves names the suite it believes it negotiated,
-    // which is not our own bookkeeping: it has to be the one we think we
-    // protected the records with, and not the other one.
-    std::string const other = expected_suite == tls::CipherSuite::Aes128GcmSha256
-        ? tls::cipher_suite_name(tls::CipherSuite::ChaCha20Poly1305Sha256)
-        : tls::cipher_suite_name(tls::CipherSuite::Aes128GcmSha256);
-    CHECK(result.response.find(std::string("Cipher is ") + tls::cipher_suite_name(expected_suite)) != std::string::npos);
-    CHECK(result.response.find(std::string("Cipher is ") + other) == std::string::npos);
+    // The page the server serves names the version and the suite it believes
+    // it negotiated, which is not our own bookkeeping: they have to be the
+    // ones we think we protected the records with, and not another suite.
+    std::string const version_name = expected_version == 0x0304 ? "TLSv1.3" : "TLSv1.2";
+    CHECK(result.response.find("New, " + version_name + ", Cipher is " + openssl_name(expected_suite)) != std::string::npos);
+    if (result.response.find("New, " + version_name + ", Cipher is " + openssl_name(expected_suite)) == std::string::npos)
+        std::printf("  %s: the server's page does not name %s with %s\n", name.c_str(), version_name.c_str(), openssl_name(expected_suite).c_str());
+    std::string const other = expected_suite == tls::CipherSuite::Aes128GcmSha256 || expected_suite == tls::CipherSuite::EcdheRsaAes128GcmSha256
+            || expected_suite == tls::CipherSuite::EcdheEcdsaAes128GcmSha256
+        ? "CHACHA20"
+        : "AES";
+    CHECK(result.response.find("Cipher is " + other) == std::string::npos && result.response.find("Cipher is ECDHE-RSA-" + other) == std::string::npos
+        && result.response.find("Cipher is ECDHE-ECDSA-" + other) == std::string::npos && result.response.find("Cipher is TLS_" + other) == std::string::npos);
     std::remove(log.c_str());
 }
 
@@ -693,12 +846,18 @@ bool live_setup()
     g_directory = buffer.data();
     g_certificate = g_directory + "/server.pem";
     g_key = g_directory + "/server.key";
+    g_ec_certificate = g_directory + "/server-ec.pem";
+    g_ec_key = g_directory + "/server-ec.key";
     g_setup_log = g_directory + "/setup.log";
-    // A throwaway key and a self-signed certificate for the child, made here
-    // so that no private key is ever committed. The chain is not what this
-    // test judges; the signature over the transcript is.
+    // Throwaway keys and self-signed certificates for the child — one RSA,
+    // one P-256 for the suites that name ECDSA — made here so that no
+    // private key is ever committed. The chain is not what this test
+    // judges; the signature over the handshake is.
     if (!run({ g_openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=localhost",
                  "-keyout", g_key, "-out", g_certificate },
+            90)
+        || !run({ g_openssl, "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-days", "2",
+                    "-subj", "/CN=localhost", "-keyout", g_ec_key, "-out", g_ec_certificate },
             90)) {
         std::printf("SKIP test_tls_handshake: openssl could not make a certificate:\n%s\n",
             read_file(g_setup_log).c_str());
@@ -712,6 +871,8 @@ void live_teardown()
     // By name, one at a time.
     std::remove(g_certificate.c_str());
     std::remove(g_key.c_str());
+    std::remove(g_ec_certificate.c_str());
+    std::remove(g_ec_key.c_str());
     std::remove(g_setup_log.c_str());
     ::rmdir(g_directory.c_str());
 }
@@ -720,11 +881,11 @@ void test_live_handshake()
 {
     if (!live_setup())
         return;
-    // AES-128-GCM, the suite this lane adds: the server will speak nothing else.
-    live_case("aes-128-gcm", { "-ciphersuites", "TLS_AES_128_GCM_SHA256" }, test_config(), true,
+    // AES-128-GCM in 1.3: the server will speak nothing else.
+    live_case("aes-128-gcm", { "-tls1_3", "-ciphersuites", "TLS_AES_128_GCM_SHA256" }, test_config(), true,
         tls::CipherSuite::Aes128GcmSha256, 0);
     // ChaCha20-Poly1305, which the client has always had.
-    live_case("chacha20-poly1305", { "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, test_config(), true,
+    live_case("chacha20-poly1305", { "-tls1_3", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, test_config(), true,
         tls::CipherSuite::ChaCha20Poly1305Sha256, 0);
     // The negotiation is real: a client that offers only AES cannot talk to a
     // server that offers only ChaCha.
@@ -734,7 +895,7 @@ void test_live_handshake()
         // The server has nothing we offered, so it is the peer that refuses,
         // with an alert our engine reports: that string, not merely "something
         // went wrong", is what this case asserts.
-        live_case("no-shared-suite", { "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, only_aes, false,
+        live_case("no-shared-suite", { "-tls1_3", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, only_aes, false,
             tls::CipherSuite::Aes128GcmSha256, 0, "fatal alert");
     }
     // A client that offers only AES and a server that speaks it: the suite is
@@ -742,7 +903,7 @@ void test_live_handshake()
     {
         tls::TlsConfig only_aes = test_config();
         only_aes.cipher_suites = { tls::CipherSuite::Aes128GcmSha256 };
-        live_case("aes-only-client", {}, only_aes, true, tls::CipherSuite::Aes128GcmSha256, 0);
+        live_case("aes-only-client", { "-tls1_3" }, only_aes, true, tls::CipherSuite::Aes128GcmSha256, 0);
     }
     // A hello with no key share: the server answers with a retry request, and
     // the handshake finishes through it — transcript substitution and all.
@@ -750,13 +911,68 @@ void test_live_handshake()
         tls::TlsConfig retry = test_config();
         retry.empty_key_share = true;
         retry.cipher_suites = { tls::CipherSuite::Aes128GcmSha256 };
-        live_case("retry-then-aes", {}, retry, true, tls::CipherSuite::Aes128GcmSha256, 1);
+        live_case("retry-then-aes", { "-tls1_3" }, retry, true, tls::CipherSuite::Aes128GcmSha256, 1);
     }
     {
         tls::TlsConfig retry = test_config();
         retry.empty_key_share = true;
         retry.cipher_suites = { tls::CipherSuite::ChaCha20Poly1305Sha256 };
-        live_case("retry-then-chacha", {}, retry, true, tls::CipherSuite::ChaCha20Poly1305Sha256, 1);
+        live_case("retry-then-chacha", { "-tls1_3" }, retry, true, tls::CipherSuite::ChaCha20Poly1305Sha256, 1);
+    }
+    // A 1.3 server that will only exchange keys over P-256: the retry names
+    // the group, and the second hello carries the P-256 share.
+    {
+        tls::TlsConfig retry = test_config();
+        retry.cipher_suites = { tls::CipherSuite::ChaCha20Poly1305Sha256 };
+        live_case("retry-to-p256", { "-tls1_3", "-groups", "P-256" }, retry, true, tls::CipherSuite::ChaCha20Poly1305Sha256, 1);
+    }
+
+    // ---- TLS 1.2, against a server that speaks nothing newer.
+    // ECDHE-RSA with AES-128-GCM: the RSA signature over the key exchange,
+    // the extended master secret the server offers, and the 1.2 record
+    // layer with its explicit nonces.
+    live_case("tls12-ecdhe-rsa-aes128gcm", { "-tls1_2", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256" }, test_config(), true,
+        tls::CipherSuite::EcdheRsaAes128GcmSha256, 0, nullptr, 0x0303);
+    // ChaCha20-Poly1305 in 1.2: the same AEAD, the 1.3-shaped nonce.
+    live_case("tls12-ecdhe-rsa-chacha20", { "-tls1_2", "-cipher", "ECDHE-RSA-CHACHA20-POLY1305" }, test_config(), true,
+        tls::CipherSuite::EcdheRsaChaCha20Poly1305Sha256, 0, nullptr, 0x0303);
+    // An ECDSA server: the suites that name it, and its signature.
+    live_case("tls12-ecdhe-ecdsa-aes128gcm", { "-tls1_2", "-cipher", "ECDHE-ECDSA-AES128-GCM-SHA256" }, test_config(), true,
+        tls::CipherSuite::EcdheEcdsaAes128GcmSha256, 0, nullptr, 0x0303, true);
+    live_case("tls12-ecdhe-ecdsa-chacha20", { "-tls1_2", "-cipher", "ECDHE-ECDSA-CHACHA20-POLY1305" }, test_config(), true,
+        tls::CipherSuite::EcdheEcdsaChaCha20Poly1305Sha256, 0, nullptr, 0x0303, true);
+    // The key exchange over each group the hello offers, the server allowing
+    // one at a time.
+    live_case("tls12-x25519", { "-tls1_2", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256", "-groups", "X25519" }, test_config(), true,
+        tls::CipherSuite::EcdheRsaAes128GcmSha256, 0, nullptr, 0x0303);
+    live_case("tls12-p256", { "-tls1_2", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256", "-groups", "P-256" }, test_config(), true,
+        tls::CipherSuite::EcdheRsaAes128GcmSha256, 0, nullptr, 0x0303);
+    // A server that speaks both takes 1.3 from a hello that offers both, and
+    // the 1.2 extras in that hello change nothing.
+    live_case("both-offered-server-takes-1.3", { "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, test_config(), true,
+        tls::CipherSuite::ChaCha20Poly1305Sha256, 0, nullptr, 0x0304);
+    // A hello for 1.2 alone against that server: 1.2, from its 1.2 list.
+    {
+        tls::TlsConfig only12 = test_config();
+        only12.offer_tls13 = false;
+        live_case("client-1.2-only", { "-cipher", "ECDHE-RSA-AES128-GCM-SHA256" }, only12, true,
+            tls::CipherSuite::EcdheRsaAes128GcmSha256, 0, nullptr, 0x0303);
+    }
+    // ... and against a server that speaks 1.3 alone, the server refuses
+    // with an alert the engine reports.
+    {
+        tls::TlsConfig only12 = test_config();
+        only12.offer_tls13 = false;
+        live_case("client-1.2-only-server-1.3-only", { "-tls1_3" }, only12, false,
+            tls::CipherSuite::EcdheRsaAes128GcmSha256, 0, "fatal alert", 0x0303);
+    }
+    // A hello for 1.3 alone against a server that speaks 1.2 alone: the
+    // server finds no version in common and says so.
+    {
+        tls::TlsConfig only13 = test_config();
+        only13.offer_tls12 = false;
+        live_case("client-1.3-only-server-1.2-only", { "-tls1_2" }, only13, false,
+            tls::CipherSuite::ChaCha20Poly1305Sha256, 0, "fatal alert", 0x0304);
     }
     live_teardown();
 }
@@ -768,6 +984,7 @@ void test_live_handshake()
 int main(int argc, char** argv)
 {
     test_retry_request();
+    test_version_choice();
 #ifndef _WIN32
     ::signal(SIGALRM, on_alarm);
     ::signal(SIGPIPE, SIG_IGN); // a peer that leaves early is a failed check, not a dead test
