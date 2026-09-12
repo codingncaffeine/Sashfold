@@ -102,8 +102,10 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url con
     std::string const& referrer)
 {
     if (url.scheme == "file") {
-        // A local page may reference local files; a remote one may not.
-        if (first_party.scheme != "file")
+        // A local page may reference local files, and so may the shell's
+        // own about: pages (the new-tab page shows the theme's pictures);
+        // a remote one may not.
+        if (first_party.scheme != "file" && first_party.scheme != "about")
             return { std::nullopt, "a web page cannot read local files" };
         return load_file(url);
     }

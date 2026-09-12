@@ -1,0 +1,32 @@
+# The new-tab page: a new tab opens on a page of the shell's own — a clock,
+# a greeting by the hour and the date, over a gradient of the theme's
+# colors when the theme names no pictures — with the address bar empty and
+# focused, so typing goes straight to it. The replay's local time is fixed
+# at a Monday morning, so the page is the same on every machine, and its
+# clock ticks on the page's timers, which the virtual clock drives.
+resize 800 500
+key ctrl+t
+assert-tabs 2
+assert-focus address
+assert-address
+assert-title New Tab
+assert-text 09:41
+assert-text Good morning
+assert-text Monday, 5 January
+assert-golden goldens/newtab.png
+advance 39000
+assert-text 09:41
+advance 1000
+assert-text 09:42
+assert-no-text 09:41
+
+# The page by its address, and back to it: the time is the time now.
+open about:newtab
+assert-address
+assert-title New Tab
+assert-text 09:41
+open data:text/html,<title>Elsewhere</title><p>Away
+assert-title Elsewhere
+back
+assert-title New Tab
+assert-text Good morning

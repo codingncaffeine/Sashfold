@@ -53,5 +53,8 @@
   "timings": {
     "tab-hover": 120,
     "tab-switch": 160
+  },
+  "new-tab": {
+    "rotate": 20000
   }
 }

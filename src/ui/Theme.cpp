@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Json.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -204,10 +205,34 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
         },
         theme, problems);
 
+    // The new-tab section holds a path and a duration, so it is read by hand.
+    if (JsonValue const* const section = root->get("new-tab")) {
+        if (!section->is_object()) {
+            if (problems)
+                problems->push_back("theme: new-tab: expected an object");
+        } else {
+            for (auto const& [key, value] : section->as_object()) {
+                if (key == "backgrounds") {
+                    if (value.is_string())
+                        theme.new_tab_backgrounds = value.as_string();
+                    else if (problems)
+                        problems->push_back("theme: new-tab.backgrounds: expected a folder path");
+                } else if (key == "rotate") {
+                    if (std::optional<int> const ms = integer_in(value, 0, 3600000))
+                        theme.new_tab_rotate_ms = *ms;
+                    else if (problems)
+                        problems->push_back("theme: new-tab.rotate: expected a whole number of milliseconds, 0 to 3600000");
+                } else if (problems) {
+                    problems->push_back("theme: new-tab." + key + ": unknown token");
+                }
+            }
+        }
+    }
+
     for (auto const& [key, value] : root->as_object()) {
         (void)value;
         if (key != "name" && key != "colors" && key != "metrics" && key != "type"
-            && key != "timings" && problems)
+            && key != "timings" && key != "new-tab" && problems)
             problems->push_back("theme: " + key + ": unknown section");
     }
     return theme;
@@ -223,7 +248,17 @@ std::optional<Theme> Theme::load(std::string const& path, std::vector<std::strin
     }
     std::ostringstream stream;
     stream << file.rdbuf();
-    return from_json(std::move(stream).str(), problems);
+    Theme theme = from_json(std::move(stream).str(), problems);
+    // The pictures folder is named relative to the theme file it belongs to.
+    if (!theme.new_tab_backgrounds.empty()) {
+        std::filesystem::path const folder(theme.new_tab_backgrounds);
+        if (folder.is_relative()) {
+            std::error_code error;
+            std::filesystem::path const base = std::filesystem::absolute(path, error).parent_path();
+            theme.new_tab_backgrounds = (base / folder).lexically_normal().string();
+        }
+    }
+    return theme;
 }
 
 }

@@ -6,6 +6,8 @@
 // ordinary HTML rendered by the engine, so they look the same on every OS
 // and need nothing the engine cannot already do.
 
+#include "core/Bitmap.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -17,6 +19,28 @@ namespace sashfold::ui {
 inline constexpr std::string_view version_string = "0.3 (preview)";
 
 std::string html_escape(std::string_view text);
+
+// What the new-tab page is drawn from: the local time it opens at and the
+// milliseconds until the next minute (its clock ticks from there on the
+// page's own timers), the date in words, the pictures it rotates through as
+// file: URLs with the one to show first at the front, how long each stays
+// (0 never rotates), and the theme's colors — the page belongs to the chrome.
+struct NewTabPage {
+    int hour = 0;
+    int minute = 0;
+    int next_minute_ms = 60000;
+    std::string date;
+    std::vector<std::string> pictures;
+    int rotate_ms = 20000;
+    Color background;
+    Color background_end;
+    Color text;
+    Color text_muted;
+};
+
+// A clock, a greeting by the hour and the date over the theme's pictures,
+// or over a gradient of the theme's colors when it names none. Zero network.
+std::string new_tab_page(NewTabPage const& page);
 
 // A load that failed before any document arrived.
 std::string error_page(std::string_view heading, std::string_view detail, std::string_view url);

@@ -128,6 +128,13 @@ add_test(NAME shell_scripting
 add_test(NAME shell_favicon
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/favicon.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_newtab
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_newtab_pictures
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-pictures.script
+    --theme ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-theme.json
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed
 # baseline, ratchet it upward as the tokenizer grows.

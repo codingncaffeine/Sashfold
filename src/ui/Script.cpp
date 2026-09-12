@@ -387,11 +387,19 @@ struct Runner {
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
         } else if (command == "advance") {
+            // `advance <ms> [<times>]`: the clock moves and the timers due
+            // run, `times` over, so a chain of timers each set by the last
+            // (a fade in steps) runs through as it would in a window.
             auto const ms = int_arg(0);
             if (!ms || *ms < 0)
                 return fail("advance: needs a number of milliseconds");
-            clock_ms += *ms;
-            settle();
+            auto const times = args.size() > 1 ? int_arg(1) : std::optional<int> { 1 };
+            if (!times || *times < 1)
+                return fail("advance: the second number is how many times to advance");
+            for (int i = 0; i < *times; ++i) {
+                clock_ms += *ms;
+                settle();
+            }
         } else if (command == "assert-console") {
             if (browser.console_text().find(argument) == std::string::npos)
                 fail("assert-console: \"" + argument + "\" not found in:\n" + browser.console_text());
@@ -416,6 +424,8 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
         return runner.result;
     }
     browser.set_clock([&runner] { return runner.clock_ms; });
+    // The new-tab page's time: a Monday morning, the same on every machine.
+    browser.set_wall_clock([] { return WallTime { 2026, 1, 5, 1, 9, 41, 20 }; });
     std::string line;
     while (std::getline(file, line)) {
         ++runner.line_number;

@@ -20,9 +20,12 @@
 #include "ui/Reader.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <ctime>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -284,6 +287,32 @@ bool is_about_blank(net::Url const& url)
     return url.scheme == "about" && url.serialize_path() == "blank";
 }
 
+bool is_about_newtab(net::Url const& url)
+{
+    return url.scheme == "about" && url.serialize_path() == "newtab";
+}
+
+Color mix(Color a, Color b, float amount)
+{
+    auto const channel = [amount](std::uint8_t x, std::uint8_t y) {
+        return static_cast<std::uint8_t>(std::lround(x + (static_cast<float>(y) - x) * amount));
+    };
+    return Color::rgb(channel(a.r, b.r), channel(a.g, b.g), channel(a.b, b.b));
+}
+
+WallTime local_now()
+{
+    std::time_t const now = std::time(nullptr);
+    std::tm local {};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    return WallTime { local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_wday, local.tm_hour,
+        local.tm_min, local.tm_sec };
+}
+
 std::string trim(std::string const& text)
 {
     std::size_t start = 0;
@@ -468,6 +497,11 @@ struct Browser::Impl {
     // for the slow-script stop.
     std::function<double()> clock;
     std::chrono::steady_clock::time_point script_started = std::chrono::steady_clock::now();
+    // The local time the new-tab page opens on; the OS's unless the replay
+    // fixes one. And how many new-tab pages have been made, for which of
+    // the theme's pictures the next one opens on.
+    std::function<WallTime()> wall_clock;
+    std::size_t new_tabs_opened = 0;
 
     Bitmap frame;
     bool dirty = true;
@@ -513,7 +547,7 @@ struct Browser::Impl {
 
     std::string display_url(HistoryEntry const& entry) const
     {
-        if (is_about_blank(entry.url))
+        if (is_about_blank(entry.url) || is_about_newtab(entry.url))
             return {};
         if (entry.internal && !entry.error.empty())
             return entry.url.serialize();
@@ -1229,6 +1263,10 @@ struct Browser::Impl {
             tab.scroller = nullptr;
             return;
         }
+        // The new-tab page is of the moment it is shown, not of its first
+        // opening: coming back to it gets the time now and the next picture.
+        if (is_about_newtab(entry->url))
+            set_document(*entry, new_tab_document());
         std::string const& type = entry->content_type;
         std::string generated;
         std::string_view source = bytes_view(entry->bytes);
@@ -1488,6 +1526,10 @@ struct Browser::Impl {
             set_document(entry, about_sashfold_page());
             entry.internal = true;
             entry.status = 200;
+        } else if (is_about_newtab(load.url)) {
+            set_document(entry, new_tab_document());
+            entry.internal = true;
+            entry.status = 200;
         } else if (load.url.scheme == "view-source") {
             std::optional<net::Url> const inner = net::parse_url(load.url.serialize_path());
             if (!inner) {
@@ -1663,12 +1705,80 @@ struct Browser::Impl {
         queue(active, entry->url, Mode::Reload);
     }
 
+    // A new tab opens on the new-tab page, the address bar empty and
+    // focused: the blank entry becomes the page, in place.
     void new_tab()
     {
         blur_address();
         add_blank_tab();
+        if (HistoryEntry* const entry = tabs[active].current()) {
+            entry->url = *net::parse_url("about:newtab");
+            entry->final_url = entry->url;
+            entry->internal = true;
+            render(tabs[active]);
+            sync_address();
+        }
         focus_address(false);
         refresh_hover();
+    }
+
+    // The pictures the theme's folder holds, as file: URLs in name order,
+    // begun at the one whose turn it is: each new tab opens on the next
+    // picture, and the page cycles from there.
+    std::vector<std::string> new_tab_pictures()
+    {
+        std::vector<std::string> urls;
+        if (theme.new_tab_backgrounds.empty())
+            return urls;
+        std::error_code error;
+        std::vector<std::filesystem::path> files;
+        for (std::filesystem::directory_entry const& entry :
+            std::filesystem::directory_iterator(theme.new_tab_backgrounds, error)) {
+            if (!entry.is_regular_file(error))
+                continue;
+            std::string extension = entry.path().extension().string();
+            for (char& c : extension)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".gif"
+                || extension == ".bmp")
+                files.push_back(entry.path());
+        }
+        if (files.empty())
+            return urls;
+        std::sort(files.begin(), files.end());
+        std::size_t const first = new_tabs_opened++ % files.size();
+        for (std::size_t i = 0; i < files.size(); ++i) {
+            std::string generic = files[(first + i) % files.size()].generic_string();
+            if (!generic.starts_with("/"))
+                generic = "/" + generic; // file:///C:/... on Windows
+            if (std::optional<net::Url> const url = net::parse_url("file://" + generic))
+                urls.push_back(url->serialize());
+        }
+        return urls;
+    }
+
+    // The new-tab page as of this moment: the local time, the date in
+    // words, the theme's colors and its pictures.
+    std::string new_tab_document()
+    {
+        static constexpr char const* weekdays[]
+            = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+        static constexpr char const* months[] = { "January", "February", "March", "April", "May", "June", "July",
+            "August", "September", "October", "November", "December" };
+        WallTime const now = wall_clock ? wall_clock() : local_now();
+        NewTabPage page;
+        page.hour = std::clamp(now.hour, 0, 23);
+        page.minute = std::clamp(now.minute, 0, 59);
+        page.next_minute_ms = (60 - std::clamp(now.second, 0, 59)) * 1000;
+        page.date = std::string(weekdays[std::clamp(now.weekday, 0, 6)]) + ", " + std::to_string(now.day) + " "
+            + months[std::clamp(now.month, 1, 12) - 1];
+        page.pictures = new_tab_pictures();
+        page.rotate_ms = theme.new_tab_rotate_ms;
+        page.background = theme.chrome_background;
+        page.background_end = mix(theme.tab_active_background, theme.accent, 0.35f);
+        page.text = theme.chrome_text;
+        page.text_muted = theme.chrome_text_muted;
+        return new_tab_page(page);
     }
 
     void close_tab(std::size_t index)
@@ -3912,6 +4022,7 @@ std::optional<double> Browser::next_timer_ms() const
 }
 
 void Browser::set_clock(std::function<double()> now) { m_impl->clock = std::move(now); }
+void Browser::set_wall_clock(std::function<WallTime()> now) { m_impl->wall_clock = std::move(now); }
 
 std::string Browser::console_text() const
 {

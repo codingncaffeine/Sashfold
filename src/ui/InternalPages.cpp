@@ -104,6 +104,125 @@ std::string about_sashfold_page()
     return wrap("About Sashfold", body);
 }
 
+namespace {
+
+std::string hex(Color color)
+{
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string out = "#";
+    for (std::uint8_t const value : { color.r, color.g, color.b }) {
+        out += digits[value >> 4];
+        out += digits[value & 15];
+    }
+    return out;
+}
+
+// A JavaScript string literal that is also safe inside a <script> element.
+std::string js_string(std::string_view text)
+{
+    std::string out = "\"";
+    for (unsigned char const c : text) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += static_cast<char>(c);
+        } else if (c == '<') {
+            out += "\\x3c";
+        } else if (c == '>') {
+            out += "\\x3e";
+        } else if (c == '&') {
+            out += "\\x26";
+        } else if (c < 0x20) {
+            static constexpr char digits[] = "0123456789abcdef";
+            out += "\\u00";
+            out += digits[c >> 4];
+            out += digits[c & 15];
+        } else {
+            out += static_cast<char>(c);
+        }
+    }
+    out += '"';
+    return out;
+}
+
+std::string greeting_for(int hour)
+{
+    if (hour < 5)
+        return "Good night";
+    if (hour < 12)
+        return "Good morning";
+    if (hour < 18)
+        return "Good afternoon";
+    if (hour < 22)
+        return "Good evening";
+    return "Good night";
+}
+
+std::string two_digits(int value)
+{
+    return (value < 10 ? "0" : "") + std::to_string(value);
+}
+
+} // namespace
+
+std::string new_tab_page(NewTabPage const& page)
+{
+    std::string html = "<!doctype html><html><head><meta charset=utf-8><title>New Tab</title><style>\n";
+    html += "html, body { margin: 0; height: 100% }\n";
+    html += "body { background-color: " + hex(page.background) + "; background-image: linear-gradient(160deg, "
+        + hex(page.background) + ", " + hex(page.background_end) + "); color: " + hex(page.text)
+        + "; font-family: sans-serif; overflow: hidden }\n";
+    html += ".bg { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-size: cover; "
+            "background-position: center; background-repeat: no-repeat }\n";
+    html += "#b1 { opacity: 0 }\n";
+    html += ".scrim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.25) }\n";
+    html += ".center { position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; "
+            "align-items: center; justify-content: center; text-align: center }\n";
+    html += ".clock { font-size: 96px; font-weight: bold; letter-spacing: 2px; line-height: 1 }\n";
+    html += ".greeting { font-size: 28px; margin-top: 18px }\n";
+    html += ".date { font-size: 16px; color: " + hex(page.text_muted) + "; margin-top: 8px }\n";
+    html += "</style></head><body data-hour=\"" + std::to_string(page.hour) + "\" data-minute=\""
+        + std::to_string(page.minute) + "\" data-next-minute-ms=\"" + std::to_string(page.next_minute_ms) + "\">";
+    if (!page.pictures.empty()) {
+        // Two picture layers — the next one fades in over the one showing —
+        // and a scrim so the words read over any picture.
+        html += "<div class=bg id=b0 style=\"background-image: url(&quot;" + html_escape(page.pictures.front())
+            + "&quot;)\"></div><div class=bg id=b1></div><div class=scrim></div>";
+    }
+    html += "<div class=center><div class=clock id=clock>" + two_digits(page.hour) + ":" + two_digits(page.minute)
+        + "</div><div class=greeting id=greeting>" + greeting_for(page.hour) + "</div><div class=date>"
+        + html_escape(page.date) + "</div></div>";
+    // The page keeps its own time from the minute it opened, on the page's
+    // timers: no Date, so the replay's virtual clock drives it too.
+    html += "<script>(function () {\n"
+            "var body = document.body, hour = Number(body.getAttribute('data-hour')), minute = Number(body.getAttribute('data-minute'));\n"
+            "var clock = document.getElementById('clock'), greeting = document.getElementById('greeting');\n"
+            "function pad(n) { return (n < 10 ? '0' : '') + n; }\n"
+            "function greet(h) { return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Good night'; }\n"
+            "function tick() { minute += 1; if (minute === 60) { minute = 0; hour = (hour + 1) % 24; } "
+            "clock.textContent = pad(hour) + ':' + pad(minute); greeting.textContent = greet(hour); setTimeout(tick, 60000); }\n"
+            "setTimeout(tick, Number(body.getAttribute('data-next-minute-ms')));\n";
+    if (page.pictures.size() > 1 && page.rotate_ms > 0) {
+        html += "var pictures = [";
+        for (std::size_t i = 0; i < page.pictures.size(); ++i)
+            html += (i == 0 ? "" : ", ") + js_string(page.pictures[i]);
+        html += "], next = 1, under = document.getElementById('b0'), over = document.getElementById('b1');\n"
+                "function css(url, opacity) { return 'background-image: url(\"' + url + '\"); opacity: ' + opacity; }\n"
+                // Twenty-five steps of forty milliseconds: a second's crossfade
+                // on the top layer, then the bottom layer takes the picture
+                // over and the top one clears for the next.
+                "function rotate() { var url = pictures[next]; next = (next + 1) % pictures.length; var step = 0;\n"
+                "  function fade() { step += 1; over.setAttribute('style', css(url, step / 25));\n"
+                "    if (step < 25) { setTimeout(fade, 40); } else { under.setAttribute('style', css(url, 1)); "
+                "over.setAttribute('style', css(url, 0)); setTimeout(rotate, "
+            + std::to_string(page.rotate_ms) + "); } }\n"
+                                               "  setTimeout(fade, 40); }\n"
+                                               "setTimeout(rotate, "
+            + std::to_string(page.rotate_ms) + ");\n";
+    }
+    html += "})();</script></body></html>";
+    return html;
+}
+
 std::string source_page(std::string_view url, std::vector<std::uint8_t> const& bytes)
 {
     std::string body = "<p class=url>view-source: " + html_escape(url) + "</p>";

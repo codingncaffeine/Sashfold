@@ -74,6 +74,14 @@ struct Theme {
     int tab_hover_ms = 120;
     int tab_switch_ms = 160;
 
+    // The new-tab page: a folder of pictures it rotates through — a path
+    // written relative to the theme file and resolved when the file is
+    // loaded; empty, and the page draws a gradient from the colors above —
+    // and how long each picture stays before the next fades in (ms; 0
+    // never rotates).
+    std::string new_tab_backgrounds;
+    int new_tab_rotate_ms = 20000;
+
     // Parses a theme file's text over the defaults. Every problem — a bad
     // color, a wrong type, an unknown token, malformed JSON — is reported
     // and leaves that token at its default.

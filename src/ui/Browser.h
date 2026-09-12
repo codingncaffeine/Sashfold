@@ -110,6 +110,17 @@ struct ChromeLayout {
     std::vector<Rect> tab_close_buttons;
 };
 
+// A moment of local time, as the new-tab page shows it.
+struct WallTime {
+    int year = 1970;
+    int month = 1; // 1 to 12
+    int day = 1; // 1 to 31
+    int weekday = 4; // 0 is Sunday
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+};
+
 class Browser {
 public:
     Browser(Loader& loader, Theme theme, int width, int height);
@@ -162,6 +173,9 @@ public:
     // The clock the pages' timers run on, in ms; wall time unless set. The
     // replay gives a virtual one so a timer fires when the script says.
     void set_clock(std::function<double()> now);
+    // The local time the new-tab page opens on; the OS's unless set. The
+    // replay gives a fixed one so the page is the same on every machine.
+    void set_wall_clock(std::function<WallTime()> now);
     // The active page's console output, one line per call, oldest first.
     std::string console_text() const;
 

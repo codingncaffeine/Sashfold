@@ -1,0 +1,18 @@
+# The new-tab page over a theme's pictures: the theme names a folder
+# beside itself, the page opens on the folder's first picture with the
+# words over a scrim, the next picture fades in after the theme's interval
+# (a second's crossfade in twenty-five steps of forty milliseconds, each a
+# timer of its own, so the clock advances in those steps), and the next new
+# tab opens on the next picture in turn. The pictures are two flat colors
+# scaled to cover the page, so the goldens are the fields they paint.
+resize 800 500
+key ctrl+t
+assert-tabs 2
+assert-text 09:41
+assert-golden goldens/newtab-picture-one.png
+advance 5000
+advance 40 25
+assert-golden goldens/newtab-picture-two.png
+key ctrl+t
+assert-tabs 3
+assert-golden goldens/newtab-picture-next-tab.png
