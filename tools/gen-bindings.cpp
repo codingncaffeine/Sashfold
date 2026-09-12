@@ -436,7 +436,11 @@ int main(int argc, char** argv)
     std::string const text = generate(interfaces, "idl/" + source_name);
     std::string const output_path = argv[3];
     if (std::string_view(argv[2]) == "--check") {
-        std::optional<std::string> const existing = read_file(output_path);
+        std::optional<std::string> existing = read_file(output_path);
+        // A checkout on Windows may have given the file CRLF line endings;
+        // the comparison is of the text, not of the line endings.
+        if (existing)
+            std::erase(*existing, '\r');
         if (!existing || *existing != text) {
             std::cerr << "gen-bindings: " << output_path << " is not what " << input_path
                       << " generates; run the bindings-regen target and commit the result\n";
