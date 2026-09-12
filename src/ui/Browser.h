@@ -117,6 +117,12 @@ struct ChromeLayout {
     Rect devtools_styles;
     std::vector<Rect> tabs;
     std::vector<Rect> tab_close_buttons;
+    // The window's own controls at the tab strip's right end, drawn only
+    // where the compositor leaves the frame to the client.
+    bool window_controls = false;
+    Rect minimize_button;
+    Rect maximize_button;
+    Rect close_button;
 };
 
 // A moment of local time, as the new-tab page shows it.
@@ -145,14 +151,56 @@ public:
     void resize(int width, int height);
     int width() const;
     int height() const;
+    // The display's device px per CSS px. The window's sizes and every
+    // coordinate the shell takes are device px; the chrome draws from the
+    // theme scaled by this and pages lay out with it. 1 until the window
+    // says otherwise.
+    void set_scale(float scale);
+    float scale() const;
 
     // --- Input, window coordinates ------------------------------------------
     void mouse_move(int x, int y);
     void mouse_down(int x, int y, int button); // 1 left, 2 middle, 3 right
     void mouse_up(int x, int y, int button);
     void wheel(int x, int y, int notches); // positive scrolls the content up
+    // The content under (x, y) moves by dx, dy device px: a finger's drag,
+    // a touchpad's swipe. Positive dy brings what is below into view.
+    void scroll_pixels(int x, int y, int dx, int dy);
     void key_down(platform::KeyEvent const& key);
     void text_input(char32_t code_point);
+    // An input method's composing text (UTF-8): shown at the caret of the
+    // focused field, underlined, until text arrives or focus moves; empty
+    // clears it.
+    void preedit(std::string const& text);
+    // The caret's box in the focused field, window coordinates, for an
+    // input method to compose beside; nothing when no field has focus.
+    std::optional<Rect> text_input_area() const;
+
+    // --- The window's frame, where the shell draws it ---------------------
+    // On a display whose compositor draws no title bar (GNOME's, say) the
+    // shell carries the window's controls itself: minimize, maximize and
+    // close at the tab strip's right end, the empty tab strip as the
+    // handle that moves the window, and a band along the edges that
+    // resizes it. What the reader asks of the window comes out here for
+    // the window to do, one request at a time.
+    enum class WindowRequest {
+        None,
+        Move,
+        Minimize,
+        ToggleMaximize,
+        Close,
+        ResizeTop,
+        ResizeBottom,
+        ResizeLeft,
+        ResizeRight,
+        ResizeTopLeft,
+        ResizeTopRight,
+        ResizeBottomLeft,
+        ResizeBottomRight,
+    };
+    void set_window_controls(bool shown);
+    bool window_controls() const;
+    WindowRequest take_window_request();
 
     // --- Navigation ---------------------------------------------------------
     // Address-bar semantics: a URL, or a bare host that tries https first.

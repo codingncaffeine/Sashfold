@@ -1070,6 +1070,9 @@ struct LengthContext {
     // the face does not say — the fallback the specification names.
     float ex_size = 8;
     float ch_size = 8;
+    // Device px per CSS px: what an absolute length is multiplied by. The
+    // relative units above are already in device px.
+    float device_scale = 1;
 };
 
 // How much of a font size one `ex` and one `ch` are, for a face: ratios, not
@@ -1304,25 +1307,27 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
         return std::nullopt;
     double const number = token.numeric_value;
     std::string_view const unit = token.unit;
+    // The absolute units, anchored to 96 CSS px per inch, land in device
+    // px through the context's scale; the relative ones are already there.
+    double const scale = static_cast<double>(context.device_scale);
     if (ascii_ci_equals(unit, "px"))
-        return LengthPercent::px(static_cast<float>(number));
+        return LengthPercent::px(static_cast<float>(number * scale));
     if (ascii_ci_equals(unit, "em"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.font_size)));
     if (ascii_ci_equals(unit, "rem"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.root_font_size)));
     if (ascii_ci_equals(unit, "pt"))
-        return LengthPercent::px(static_cast<float>(number * 4.0 / 3.0));
-    // The absolute units, anchored to 96 px per inch.
+        return LengthPercent::px(static_cast<float>(number * 4.0 / 3.0 * scale));
     if (ascii_ci_equals(unit, "in"))
-        return LengthPercent::px(static_cast<float>(number * 96.0));
+        return LengthPercent::px(static_cast<float>(number * 96.0 * scale));
     if (ascii_ci_equals(unit, "cm"))
-        return LengthPercent::px(static_cast<float>(number * 96.0 / 2.54));
+        return LengthPercent::px(static_cast<float>(number * 96.0 / 2.54 * scale));
     if (ascii_ci_equals(unit, "mm"))
-        return LengthPercent::px(static_cast<float>(number * 96.0 / 25.4));
+        return LengthPercent::px(static_cast<float>(number * 96.0 / 25.4 * scale));
     if (ascii_ci_equals(unit, "q"))
-        return LengthPercent::px(static_cast<float>(number * 96.0 / 101.6));
+        return LengthPercent::px(static_cast<float>(number * 96.0 / 101.6 * scale));
     if (ascii_ci_equals(unit, "pc"))
-        return LengthPercent::px(static_cast<float>(number * 16.0));
+        return LengthPercent::px(static_cast<float>(number * 16.0 * scale));
     // The font-relative pair: `ex` is the face's x-height, `ch` the advance
     // of its "0".
     if (ascii_ci_equals(unit, "ex"))
@@ -1346,11 +1351,11 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
 std::optional<float> parse_border_width(ComponentValue const& value, LengthContext const& context)
 {
     if (is_ident(&value, "thin"))
-        return 1.0f;
+        return 1.0f * context.device_scale;
     if (is_ident(&value, "medium"))
-        return 3.0f;
+        return 3.0f * context.device_scale;
     if (is_ident(&value, "thick"))
-        return 5.0f;
+        return 5.0f * context.device_scale;
     auto length = parse_length_percent(value, context, false, false);
     if (length && length->kind == LengthPercent::Kind::Px && length->value >= 0)
         return length->value; // a negative width is no width at all: the declaration is ignored
@@ -1980,6 +1985,7 @@ struct Resolver {
     RuleSet const& set;
     StyleMap map;
     float root_font_size = 16;
+    float initial_font_size = 16; // `medium`, in device px
     // Rules are matched for four targets at once — the element itself, its
     // ::before, its ::after and its ::first-letter — since one selector walk
     // serves all four. Per target and rule: the element (stamp) it last
@@ -2136,12 +2142,15 @@ struct Resolver {
     LengthContext length_context(ComputedStyle const& style, FontRatios const& ratios) const
     {
         return LengthContext { style.font_size, root_font_size, set.media.width, set.media.height,
-            style.font_size * ratios.ex, style.font_size * ratios.ch };
+            style.font_size * ratios.ex, style.font_size * ratios.ch, set.media.device_scale };
     }
 
     explicit Resolver(RuleSet const& the_set)
         : set(the_set)
     {
+        // `medium`, the initial font size: 16 CSS px, in device px.
+        initial_font_size = 16.0f * set.media.device_scale;
+        root_font_size = initial_font_size;
         for (int target = 0; target < target_count; ++target) {
             rule_stamp[static_cast<std::size_t>(target)].assign(the_set.rules.size(), 0);
             rule_best[static_cast<std::size_t>(target)].assign(the_set.rules.size(), Specificity {});
@@ -3310,7 +3319,7 @@ struct Resolver {
                 if (is_font_size || is_font || is_all) {
                     // A CSS-wide keyword: the parent's size, or medium.
                     if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
-                        style.font_size = *wide == Wide::Initial ? 16.0f : parent.font_size;
+                        style.font_size = *wide == Wide::Initial ? initial_font_size : parent.font_size;
                         return;
                     }
                 }
@@ -3523,7 +3532,7 @@ struct Resolver {
             };
             for (Keyword const& keyword : keywords) {
                 if (ascii_ci_equals(name, keyword.name)) {
-                    style.font_size = 16.0f * keyword.factor;
+                    style.font_size = initial_font_size * keyword.factor;
                     return;
                 }
             }
@@ -5670,6 +5679,7 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
 {
     Resolver resolver(*set.m_rules);
     ComputedStyle initial;
+    initial.font_size = resolver.initial_font_size;
     resolver.resolve_tree(document, initial);
     resolver.hand_down_first_letters(document);
     // CSS 2.1 §11.1.1: the root's overflow applies to the viewport, and when

@@ -238,6 +238,61 @@ int main()
     css::MediaContext const narrow { 400, 700 };
     auto const wide_says = [&](char const* query) { return css::media_query_matches(query, wide); };
     auto const narrow_says = [&](char const* query) { return css::media_query_matches(query, narrow); };
+    // A scaled display: the viewport is 800 device px, which is 400 CSS px
+    // at a scale of two, and a query's lengths are CSS px.
+    {
+        css::MediaContext const scaled { 800, 600, 2 };
+        auto const scaled_says = [&](char const* query) { return css::media_query_matches(query, scaled); };
+        CHECK(scaled_says("(max-width: 400px)"));
+        CHECK(!scaled_says("(min-width: 401px)"));
+        CHECK(scaled_says("(min-width: 25em)"));
+        CHECK(!scaled_says("(min-width: 26em)"));
+        CHECK(scaled_says("(width: 100vw)"));
+        CHECK(scaled_says("(min-resolution: 2dppx)"));
+        CHECK(scaled_says("(resolution: 192dpi)"));
+        CHECK(!scaled_says("(min-resolution: 3x)"));
+        CHECK(scaled_says("(-webkit-min-device-pixel-ratio: 2)"));
+        CHECK(!css::media_query_matches("(min-resolution: 2dppx)", wide));
+    }
+    // Styles resolved for that display land in device px: every absolute
+    // length doubled, the initial font size with them, and the relative
+    // units off those; a query in a sheet judged in CSS px.
+    {
+        auto const scaled_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  p { width: 100px; font-size: 1em; margin-left: 1in; border-top: medium solid; padding-left: 2rem }
+  h1 { font-size: x-large; line-height: 3ex }
+  #vw { width: 50vw }
+  @media (max-width: 400px) { #q { color: rgb(9, 0, 0) } }
+  @media (max-width: 399px) { #q { color: rgb(1, 0, 0) } }
+</style></head><body><p id="p">p</p><h1 id="h">h</h1><div id="vw">v</div><div id="q">q</div></body></html>)"));
+        std::vector<css::SheetSource> const scaled_sheets = css::collect_stylesheets(*scaled_document, nullptr, {});
+        css::StyleMap const styles = css::resolve_styles(*scaled_document, scaled_sheets, css::MediaContext { 800, 600, 2 });
+        auto const style_of = [&](std::string_view id) -> css::ComputedStyle const* {
+            dom::Element const* element = find_by_id(*scaled_document, id);
+            auto const it = element ? styles.find(element) : styles.end();
+            return it == styles.end() ? nullptr : &it->second;
+        };
+        css::ComputedStyle const* p = style_of("p");
+        css::ComputedStyle const* h = style_of("h");
+        css::ComputedStyle const* vw = style_of("vw");
+        CHECK(p && h && vw);
+        if (p && h && vw) {
+            CHECK_EQ(p->width.value, 200.0f);
+            CHECK_EQ(p->font_size, 32.0f);
+            CHECK_EQ(p->margin_left.value, 192.0f);
+            CHECK_EQ(p->border_top.width, 6.0f);
+            CHECK_EQ(p->padding_left.value, 64.0f);
+            CHECK_EQ(h->font_size, 48.0f);
+            CHECK_EQ(vw->width.value, 400.0f);
+        }
+        CHECK_EQ(red_of(styles, *scaled_document, "q"), 9);
+        // The same sheets at scale one: the written numbers.
+        css::StyleMap const plain = css::resolve_styles(*scaled_document, scaled_sheets, css::MediaContext { 800, 600, 1 });
+        auto const plain_it = plain.find(find_by_id(*scaled_document, "p"));
+        CHECK(plain_it != plain.end() && plain_it->second.width.value == 100.0f && plain_it->second.font_size == 16.0f);
+        CHECK_EQ(red_of(plain, *scaled_document, "q"), 0); // 800 CSS px: neither query holds, the color stays black
+    }
     CHECK(wide_says(""));
     CHECK(wide_says("screen"));
     CHECK(wide_says("all"));

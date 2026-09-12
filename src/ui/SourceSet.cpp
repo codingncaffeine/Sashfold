@@ -106,13 +106,16 @@ std::optional<float> source_size_length(css::ComponentValue const& value,
         return std::nullopt;
     double const number = token.numeric_value;
     std::string_view const unit = token.unit;
+    // In the engine's device px: the absolute units through the scale, the
+    // viewport ones off the viewport, which is already in device px.
+    double const scale = static_cast<double>(media.device_scale);
     double px = 0;
     if (ascii_ci_equals(unit, "px"))
-        px = number;
+        px = number * scale;
     else if (ascii_ci_equals(unit, "em") || ascii_ci_equals(unit, "rem"))
-        px = number * 16; // the initial font size: sizes has no element to inherit from
+        px = number * 16 * scale; // the initial font size: sizes has no element to inherit from
     else if (ascii_ci_equals(unit, "ex") || ascii_ci_equals(unit, "ch"))
-        px = number * 8;
+        px = number * 8 * scale;
     else if (ascii_ci_equals(unit, "vw"))
         px = number * static_cast<double>(media.width) / 100;
     else if (ascii_ci_equals(unit, "vh"))
@@ -122,17 +125,17 @@ std::optional<float> source_size_length(css::ComponentValue const& value,
     else if (ascii_ci_equals(unit, "vmax"))
         px = number * static_cast<double>(std::max(media.width, media.height)) / 100;
     else if (ascii_ci_equals(unit, "pt"))
-        px = number * 4 / 3;
+        px = number * 4 / 3 * scale;
     else if (ascii_ci_equals(unit, "pc"))
-        px = number * 16;
+        px = number * 16 * scale;
     else if (ascii_ci_equals(unit, "in"))
-        px = number * 96;
+        px = number * 96 * scale;
     else if (ascii_ci_equals(unit, "cm"))
-        px = number * 96 / 2.54;
+        px = number * 96 / 2.54 * scale;
     else if (ascii_ci_equals(unit, "mm"))
-        px = number * 96 / 25.4;
+        px = number * 96 / 25.4 * scale;
     else if (ascii_ci_equals(unit, "q"))
-        px = number * 96 / 101.6;
+        px = number * 96 / 101.6 * scale;
     else
         return std::nullopt;
     return static_cast<float>(px);
@@ -140,10 +143,16 @@ std::optional<float> source_size_length(css::ComponentValue const& value,
 
 // The candidates' densities settled against the source size, duplicates of
 // an earlier density dropped, then the smallest density at or above the
-// device's — 1 — or the largest when none reaches it.
+// device's, or the largest when none reaches it. A width descriptor's
+// density is the picture's pixels over the slot in CSS px — the source
+// size is in device px, so it is brought back first.
 std::optional<ImageSource> select_from(std::vector<ImageCandidate> const& candidates,
-    float source_size)
+    float source_size, float device_scale)
 {
+    if (device_scale > 0)
+        source_size /= device_scale;
+    else
+        device_scale = 1;
     std::vector<ImageSource> sources;
     for (ImageCandidate const& candidate : candidates) {
         float density = 1;
@@ -159,7 +168,7 @@ std::optional<ImageSource> select_from(std::vector<ImageCandidate> const& candid
     }
     ImageSource const* best = nullptr;
     for (ImageSource const& source : sources) {
-        if (source.density >= 1 && (!best || source.density < best->density))
+        if (source.density >= device_scale && (!best || source.density < best->density))
             best = &source;
     }
     if (!best) {
@@ -372,7 +381,7 @@ std::optional<ImageSource> select_image_source(dom::Element const& img, net::Url
                 type && !supports_image_type(type->value))
                 continue;
             dom::Attr const* sizes = source.find_attribute("sizes");
-            return select_from(candidates, parse_sizes(sizes ? sizes->value : "", media));
+            return select_from(candidates, parse_sizes(sizes ? sizes->value : "", media), media.device_scale);
         }
     }
 
@@ -392,7 +401,7 @@ std::optional<ImageSource> select_image_source(dom::Element const& img, net::Url
         }
     }
     dom::Attr const* sizes = img.find_attribute("sizes");
-    return select_from(candidates, parse_sizes(sizes ? sizes->value : "", media));
+    return select_from(candidates, parse_sizes(sizes ? sizes->value : "", media), media.device_scale);
 }
 
 }

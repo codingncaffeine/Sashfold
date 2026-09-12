@@ -385,7 +385,9 @@ void update_owner(SearchParamsObject& params)
 
 css::MediaContext media_context(Realm::Internals& in)
 {
-    return css::MediaContext { in.hooks.viewport_width, in.hooks.viewport_height };
+    // The hooks speak CSS px; the evaluator's context is in device px.
+    float const scale = in.hooks.device_scale > 0 ? in.hooks.device_scale : 1.0f;
+    return css::MediaContext { in.hooks.viewport_width * scale, in.hooks.viewport_height * scale, scale };
 }
 
 // --- Observers ---------------------------------------------------------------------------------
@@ -599,7 +601,10 @@ void install_window(Realm::Internals& in)
     define_getter(in, *global, "innerHeight", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_height)); });
     define_getter(in, *global, "outerWidth", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_width)); });
     define_getter(in, *global, "outerHeight", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_height + 80)); });
-    define_getter(in, *global, "devicePixelRatio", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(1); });
+    define_getter(in, *global, "devicePixelRatio", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        float const scale = internals_of(interp).hooks.device_scale;
+        return js::Value::number(scale > 0 ? static_cast<double>(scale) : 1.0);
+    });
     for (std::string_view const name : { "screenX", "screenY", "screenLeft", "screenTop" })
         define_getter(in, *global, name, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
     for (std::string_view const name : { "scrollX", "pageXOffset" }) {

@@ -233,6 +233,50 @@ struct Runner {
             if (!x || !y || !notches)
                 return fail("wheel-at: needs x y notches");
             browser.wheel(*x, *y, *notches);
+        } else if (command == "scroll-pixels") {
+            // `scroll-pixels <dy>`: the content moves by that many device px
+            // at the content's center, as a finger's drag moves it.
+            auto const dy = int_arg(0);
+            if (!dy)
+                return fail("scroll-pixels: needs a pixel count");
+            Rect const content = browser.chrome_layout().content;
+            browser.scroll_pixels(content.x + content.width / 2, content.y + content.height / 2, 0, *dy);
+        } else if (command == "preedit") {
+            // `preedit <text>`: an input method's composing text at the
+            // caret, as the window would relay it; no text clears it.
+            browser.preedit(argument);
+        } else if (command == "assert-text-input") {
+            // `assert-text-input on|off`: whether a field has the caret an
+            // input method would be told about.
+            expect_equal("assert-text-input", browser.text_input_area() ? "on" : "off", argument);
+        } else if (command == "window-controls") {
+            // `window-controls on|off`: the frame is the shell's to draw, as
+            // on a compositor without server-side decorations.
+            if (argument != "on" && argument != "off")
+                return fail("window-controls: on or off");
+            browser.set_window_controls(argument == "on");
+        } else if (command == "assert-window-request") {
+            // `assert-window-request <what>`: what the last press asked of
+            // the window — none, move, minimize, maximize, close, or
+            // resize-<edge> — and takes it.
+            using Request = Browser::WindowRequest;
+            char const* name = "none";
+            switch (browser.take_window_request()) {
+            case Request::None: name = "none"; break;
+            case Request::Move: name = "move"; break;
+            case Request::Minimize: name = "minimize"; break;
+            case Request::ToggleMaximize: name = "maximize"; break;
+            case Request::Close: name = "close"; break;
+            case Request::ResizeTop: name = "resize-top"; break;
+            case Request::ResizeBottom: name = "resize-bottom"; break;
+            case Request::ResizeLeft: name = "resize-left"; break;
+            case Request::ResizeRight: name = "resize-right"; break;
+            case Request::ResizeTopLeft: name = "resize-top-left"; break;
+            case Request::ResizeTopRight: name = "resize-top-right"; break;
+            case Request::ResizeBottomLeft: name = "resize-bottom-left"; break;
+            case Request::ResizeBottomRight: name = "resize-bottom-right"; break;
+            }
+            expect_equal("assert-window-request", name, argument);
         } else if (command == "assert-box-scroll") {
             auto const x = int_arg(0);
             auto const y = int_arg(1);
@@ -279,6 +323,14 @@ struct Runner {
             if (!width || !height)
                 return fail("resize: needs width height");
             browser.resize(*width, *height);
+        } else if (command == "scale") {
+            // `scale <factor>`: the display's device px per CSS px from here
+            // on, as a window on a scaled display would report it.
+            char* end = nullptr;
+            double const factor = std::strtod(argument.c_str(), &end);
+            if (argument.empty() || end == argument.c_str() || *end != '\0' || !(factor > 0))
+                return fail("scale: needs a factor above zero");
+            browser.set_scale(static_cast<float>(factor));
         } else if (command == "screenshot") {
             if (!write_file(resolve(argument), encode_png(browser.frame())))
                 fail("screenshot: cannot write " + argument);

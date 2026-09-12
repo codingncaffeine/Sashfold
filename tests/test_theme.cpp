@@ -127,5 +127,32 @@ int main(int argc, char** argv)
         CHECK(!Theme::load("themes/does-not-exist.json", &problems).has_value());
     }
 
+    // --- The theme scaled to a display ---------------------------------------
+    {
+        Theme const one = Theme {}.scaled(1);
+        CHECK(one == Theme {});
+        Theme const two = Theme {}.scaled(2);
+        CHECK_EQ(two.tab_strip_height, 72);
+        CHECK_EQ(two.toolbar_height, 80);
+        CHECK_EQ(two.border_width, 2);
+        CHECK_EQ(two.tab_icon_size, 32);
+        CHECK_EQ(two.scroll_step, 120);
+        CHECK_EQ(two.font_size, 28.0f);
+        CHECK_EQ(two.status_font_size, 24.0f);
+        CHECK(two.chrome_background == Theme {}.chrome_background);
+        CHECK_EQ(two.tab_hover_ms, Theme {}.tab_hover_ms);
+        CHECK_EQ(two.new_tab_rotate_ms, Theme {}.new_tab_rotate_ms);
+        // A fraction rounds, and a border never vanishes.
+        Theme const half = Theme {}.scaled(0.5f);
+        CHECK_EQ(half.tab_strip_height, 18);
+        CHECK_EQ(half.border_width, 1);
+        Theme const one_and_a_half = Theme {}.scaled(1.5f);
+        CHECK_EQ(one_and_a_half.address_height, 42);
+        CHECK_EQ(one_and_a_half.tab_font_size, 19.5f);
+        // Nonsense leaves the theme as it is.
+        CHECK(Theme {}.scaled(0) == Theme {});
+        CHECK(Theme {}.scaled(-2) == Theme {});
+    }
+
     return sashfold::test::report("theme");
 }

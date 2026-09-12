@@ -47,9 +47,12 @@ struct Collector {
             return;
         net::Url const& url = source->url;
         std::string const key = url.serialize(true);
+        // A picture's density to the layout is its pixels per device px:
+        // the source's pixels per CSS px, over the device's scale.
+        float const scale = media.device_scale > 0 ? media.device_scale : 1.0f;
         if (auto const it = by_url.find(key); it != by_url.end()) {
             if (it->second)
-                out.emplace(&element, layout::PageImage { it->second, source->density * by_url_density[key] });
+                out.emplace(&element, layout::PageImage { it->second, source->density * by_url_density[key] / scale });
             return;
         }
         std::shared_ptr<Bitmap const> image;
@@ -65,7 +68,7 @@ struct Collector {
         by_url.emplace(key, image);
         by_url_density[key] = drawn_at;
         if (image)
-            out.emplace(&element, layout::PageImage { std::move(image), source->density * drawn_at });
+            out.emplace(&element, layout::PageImage { std::move(image), source->density * drawn_at / scale });
     }
 };
 

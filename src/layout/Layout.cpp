@@ -461,8 +461,11 @@ bool keeps_ratio(dom::Element const& element)
 // suggestion, which is what every engine does with a responsive picture).
 std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
     Bitmap const* image, float density, float containing_width,
-    std::optional<float> containing_height = std::nullopt)
+    std::optional<float> containing_height = std::nullopt, float device_scale = 1)
 {
+    // The sizes an element states for itself are CSS px; the layout's are
+    // device px.
+    float const scale = device_scale > 0 ? device_scale : 1.0f;
     std::optional<ReplacedSize> intrinsic;
     if (image) {
         float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
@@ -471,19 +474,19 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
     } else if (element.is_svg("svg")) {
         svg::IntrinsicSize const own = svg::intrinsic_size(element);
         if (own.width && own.height)
-            intrinsic = ReplacedSize { *own.width, *own.height };
+            intrinsic = ReplacedSize { *own.width * scale, *own.height * scale };
         else if (own.ratio && *own.ratio > 0) {
             if (own.width)
-                intrinsic = ReplacedSize { *own.width, *own.width / *own.ratio };
+                intrinsic = ReplacedSize { *own.width * scale, *own.width * scale / *own.ratio };
             else if (own.height)
-                intrinsic = ReplacedSize { *own.height * *own.ratio, *own.height };
+                intrinsic = ReplacedSize { *own.height * scale * *own.ratio, *own.height * scale };
             else
                 intrinsic = ReplacedSize { containing_width, containing_width / *own.ratio };
         } else {
-            intrinsic = ReplacedSize { own.width.value_or(300), own.height.value_or(150) };
+            intrinsic = ReplacedSize { own.width.value_or(300) * scale, own.height.value_or(150) * scale };
         }
     } else if (!element.is_html("img") && is_replaced(element)) {
-        intrinsic = ReplacedSize { 300, 150 };
+        intrinsic = ReplacedSize { 300 * scale, 150 * scale };
     }
     return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element), containing_height);
 }
@@ -634,6 +637,7 @@ struct Layouter {
     mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
     ImageMap const* images = nullptr;
     ControlStates const* controls = nullptr;
+    float device_scale = 1; // device px per CSS px, for the sizes layout owns
     // A flex item's content height at a width, remembered: an item is
     // measured before it is placed, and an item that is itself a flex
     // container measures its own items each time, so without this a chain
@@ -2041,6 +2045,8 @@ struct Layouter {
         std::size_t caret = 0; // an index into `shown`
         bool caret_visible = false;
         bool centered = false; // buttons center their caption
+        std::size_t preedit_from = 0; // an input method's composing text within `shown`
+        std::size_t preedit_length = 0;
     };
 
     ControlSpec control_spec(dom::Element const& element, ComputedStyle const& style,
@@ -2055,7 +2061,8 @@ struct Layouter {
         ControlState const* state = controls ? controls->find(element) : nullptr;
         float const glyph = measure(style, U"0");
         float const line = line_height_of(style);
-        float const edges = 6; // a 1px border and 2px of padding each side
+        float const scale = device_scale > 0 ? device_scale : 1.0f;
+        float const edges = 6 * scale; // a 1px border and 2px of padding each side
         ReplacedSize intrinsic { 0, line + edges };
         std::u32string text = decode_utf8(control_caption(element, controls));
         switch (kind) {
@@ -2077,18 +2084,18 @@ struct Layouter {
         case ControlKind::Submit:
         case ControlKind::Button:
         case ControlKind::File:
-            intrinsic.width = measure(style, text) + 18; // 8px of padding and the border each side
+            intrinsic.width = measure(style, text) + 18 * scale; // 8px of padding and the border each side
             spec.centered = true;
             break;
         case ControlKind::Checkbox:
         case ControlKind::Radio:
-            intrinsic = ReplacedSize { 13, 13 };
+            intrinsic = ReplacedSize { 13 * scale, 13 * scale };
             break;
         case ControlKind::Select: {
             float widest = 0;
             for (std::string const& label : select_options(element, controls).labels)
                 widest = std::max(widest, measure(style, decode_utf8(label)));
-            intrinsic.width = widest + 20 + edges; // room for the arrow
+            intrinsic.width = widest + 20 * scale + edges; // room for the arrow
             break;
         }
         case ControlKind::Hidden:
@@ -2121,6 +2128,16 @@ struct Layouter {
         spec.shown = std::move(text);
         spec.caret = std::min(caret > dropped ? caret - dropped : 0, spec.shown.size());
         spec.caret_visible = spec.box.focused && is_text_kind(kind) && !spec.box.disabled;
+        // An input method's composing text sits at the caret: part of what
+        // is shown, none of the value, and the caret moves past it.
+        if (controls && controls->preedit_owner == &element && !controls->preedit.empty() && is_text_kind(kind)
+            && !spec.box.disabled) {
+            std::u32string const composing = decode_utf8(controls->preedit);
+            spec.shown.insert(spec.caret, composing);
+            spec.preedit_from = spec.caret;
+            spec.preedit_length = composing.size();
+            spec.caret += composing.size();
+        }
         return spec;
     }
 
@@ -2166,6 +2183,13 @@ struct Layouter {
             if (spec.caret_visible)
                 control.caret_x = text_x
                     + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+            if (spec.preedit_length > 0) {
+                std::u32string_view const shown(spec.shown);
+                control.preedit_span = std::pair<float, float> {
+                    text_x + measure(style, shown.substr(0, spec.preedit_from)),
+                    text_x + measure(style, shown.substr(0, spec.preedit_from + spec.preedit_length))
+                };
+            }
         }
         box.control = control;
     }
@@ -3320,7 +3344,7 @@ struct Layouter {
             }
             if (item.kind == InlineItem::Kind::Image) {
                 std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
-                    item.image.get(), item.image_density, content_width, containing_height);
+                    item.image.get(), item.image_density, content_width, containing_height, device_scale);
                 if (!size)
                     continue;
                 // The margin box is what the line holds; the bottom margin
@@ -3878,7 +3902,7 @@ struct Layouter {
             // shrinks to the room this box has.
             std::optional<ReplacedSize> const size = replaced_size(element, style, image.bitmap.get(),
                 image.density, style.width.is_auto() ? content_width : containing_width,
-                options.containing_height);
+                options.containing_height, device_scale);
             if (size) {
                 bool const settled = !keeps_ratio(element);
                 float width = settled ? options.content_width.value_or(size->width) : size->width;
@@ -4611,7 +4635,7 @@ struct Layouter {
                 break;
             case InlineItem::Kind::Image: {
                 std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
-                    item.image.get(), item.image_density, 0);
+                    item.image.get(), item.image_density, 0, std::nullopt, device_scale);
                 InlineEdges const edges = inline_edges(*item.style, 0);
                 float const width = size
                     ? edges.margin_left + edges.left + size->width + edges.right + edges.margin_right
@@ -4708,7 +4732,7 @@ struct Layouter {
         if (is_replaced(element)) {
             PageImage const image = image_for(element);
             std::optional<ReplacedSize> const size
-                = replaced_size(element, style, image.bitmap.get(), image.density, 0);
+                = replaced_size(element, style, image.bitmap.get(), image.density, 0, std::nullopt, device_scale);
             float const width = size ? size->width : 0;
             return { width, width };
         }
@@ -7268,10 +7292,12 @@ struct Layouter {
 } // namespace
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
-    float viewport_width, ImageMap const* images, ControlStates const* controls, float viewport_height)
+    float viewport_width, ImageMap const* images, ControlStates const* controls, float viewport_height,
+    float device_scale)
 {
     LayoutResult result;
     result.canvas_background = Color::rgb(255, 255, 255);
+    result.device_scale = device_scale > 0 ? device_scale : 1.0f;
 
     dom::Element const* html = nullptr;
     for (dom::Node const* child : document.children()) {
@@ -7281,7 +7307,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, {}, {}, {}, 0, {}, {},
+    Layouter layouter { styles, {}, images, controls, device_scale > 0 ? device_scale : 1.0f, {}, {}, {}, 0, {}, {},
         css::WritingMode::HorizontalTb, 0, 0, {}, {}, {} };
     // The whole page is laid out in the root's own writing mode — which the
     // resolver has already taken from body where there is one — so the

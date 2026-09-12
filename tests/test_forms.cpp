@@ -1,6 +1,7 @@
 #include "Test.h"
 
 #include "css/StyleResolver.h"
+#include "css/Stylesheets.h"
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
 #include "layout/Controls.h"
@@ -258,6 +259,35 @@ b</textarea></body></html>)HTML";
             CHECK(focused->control->caret_x.has_value());
             if (focused->control->caret_x)
                 CHECK(near(*focused->control->caret_x, focused->x + 4 + 13.333f * 0.625f)); // after "h"
+        }
+    }
+
+    // --- The same controls on a display of two device px per CSS px ----------
+    // The styles resolve at the scale (the control face is 13.333 CSS px, so
+    // 26.667 device px) and the edges layout owns double with them.
+    {
+        constexpr std::string_view html = R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+</style></head><body><p><input id="q" name="q"> <input id="c" type="checkbox"> <button id="go">Go</button></p></body></html>)HTML";
+        auto const document = parse(html);
+        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, nullptr, {});
+        css::StyleMap const styles = css::resolve_styles(*document, sheets, css::MediaContext { 800, 600, 2 });
+        layout::LayoutResult const page = layout::layout_document(*document, styles, 800, nullptr, nullptr, 0, 2);
+        layout::Fragment const* q = find_box(page.root, "q");
+        layout::Fragment const* c = find_box(page.root, "c");
+        layout::Fragment const* go = find_box(page.root, "go");
+        CHECK(q != nullptr);
+        CHECK(c != nullptr);
+        CHECK(go != nullptr);
+        if (q && c && go) {
+            float const glyph = 26.667f * 0.625f;
+            text::FaceMetrics const metrics = text::builtin_face().metrics(26.667f);
+            float const line = metrics.ascent + metrics.descent + metrics.line_gap;
+            CHECK(near(q->width, 20 * glyph + 12));
+            CHECK(near(q->height, line + 12));
+            CHECK(near(c->width, 26));
+            CHECK(near(c->height, 26));
+            CHECK(near(go->width, 2 * glyph + 36)); // "Go", then 8px of padding and the border each side, doubled
         }
     }
 

@@ -642,6 +642,10 @@ FeatureCensus feature_census(std::vector<css::SheetSource> const& sheets)
     return census;
 }
 
+// --scale: the display the headless modes render for, in device px per CSS
+// px; the viewport they are given is in device px, as a window's is.
+float g_device_scale = 1.0f;
+
 int render_page(std::string const& path, std::string const& output, int viewport_width,
     int viewport_height, RenderExtras const& extras)
 {
@@ -652,7 +656,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         return 1;
     LoadedPage const& loaded = load->page;
     css::MediaContext const media { static_cast<float>(viewport_width),
-        static_cast<float>(viewport_height) };
+        static_cast<float>(viewport_height), g_device_scale };
     auto const t0 = clock::now();
     int sheet_failures = 0;
     int image_failures = 0;
@@ -683,8 +687,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
         hooks.console = [](std::string_view level, std::string_view message) {
             std::cerr << "console." << level << ": " << message << "\n";
         };
-        hooks.viewport_width = media.width;
-        hooks.viewport_height = media.height;
+        hooks.viewport_width = media.width / g_device_scale;
+        hooks.viewport_height = media.height / g_device_scale;
+        hooks.device_scale = g_device_scale;
         hooks.user_agent = std::string(net::user_agent());
         realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));
         oracle.set_realm(realm.get());
@@ -719,7 +724,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures));
     auto const t4 = clock::now();
     layout::LayoutResult const page = layout::layout_document(*document, styles,
-        static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
+        static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale);
     auto const t5 = clock::now();
     if (extras.dump_layout) {
         std::cout << "layout " << viewport_width << "x" << viewport_height << ", page height "
@@ -930,7 +935,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         return 1;
     double const page_ms = ms(clock::now() - page_started).count();
     css::MediaContext const media { static_cast<float>(viewport_width),
-        static_cast<float>(viewport_height) };
+        static_cast<float>(viewport_height), g_device_scale };
     // The sheets are fetched once, outside the timed runs: the network is
     // not what the phases measure — what it cost is reported on its own line.
     auto const sheets_started = clock::now();
@@ -979,7 +984,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         if (run == 0)
             images_ms = ms(t2b - t2).count();
         layout::LayoutResult const page = layout::layout_document(*document, styles,
-            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
+            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale);
         auto const t3 = clock::now();
         Bitmap canvas(viewport_width, 1000, page.canvas_background);
         paint::paint_page(canvas, page, 0, 0, &backgrounds);
@@ -1129,6 +1134,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     ui::ShellLoader loader;
     loader.set_blocklists(load_blocklists(blocklists_path));
     ui::Browser browser(loader, load_theme(theme_path), window->width(), window->height());
+    browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
     browser.navigate(start_url.empty() ? "about:sashfold" : start_url);
 
@@ -1138,6 +1144,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         theme_stamp = std::filesystem::last_write_time(theme_path, error);
     auto last_theme_check = std::chrono::steady_clock::now();
     std::string last_title;
+    std::optional<Rect> last_caret;
 
     bool running = true;
     while (running) {
@@ -1147,17 +1154,51 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             switch (event.kind) {
             case Kind::Close: running = false; break;
             case Kind::Resize: browser.resize(event.width, event.height); break;
+            case Kind::Scale: browser.set_scale(event.scale); break;
             case Kind::MouseMove: browser.mouse_move(event.x, event.y); break;
             case Kind::MouseDown: browser.mouse_down(event.x, event.y, event.button); break;
             case Kind::MouseUp: browser.mouse_up(event.x, event.y, event.button); break;
             case Kind::Wheel: browser.wheel(event.x, event.y, event.wheel); break;
+            case Kind::Scroll: browser.scroll_pixels(event.x, event.y, event.scroll_x, event.scroll_y); break;
             case Kind::KeyDown: browser.key_down(event.key); break;
             case Kind::Text: browser.text_input(event.text); break;
+            case Kind::Preedit: browser.preedit(event.preedit); break;
             case Kind::None: break;
             }
         }
         if (!running)
             break;
+        // The input method follows the caret: told where it is whenever
+        // that changes, and that there is none when no field has focus.
+        if (std::optional<Rect> const caret = browser.text_input_area(); caret != last_caret) {
+            window->set_text_input(caret);
+            last_caret = caret;
+        }
+        // The frame: the shell's where the system draws none, and what the
+        // reader asked of it through that frame.
+        if (window->wants_client_decorations() != browser.window_controls())
+            browser.set_window_controls(window->wants_client_decorations());
+        {
+            using Request = ui::Browser::WindowRequest;
+            using Edge = platform::WindowEdge;
+            switch (browser.take_window_request()) {
+            case Request::None: break;
+            case Request::Move: window->begin_move(); break;
+            case Request::Minimize: window->minimize(); break;
+            case Request::ToggleMaximize: window->toggle_maximize(); break;
+            case Request::Close: running = false; break;
+            case Request::ResizeTop: window->begin_resize(Edge::Top); break;
+            case Request::ResizeBottom: window->begin_resize(Edge::Bottom); break;
+            case Request::ResizeLeft: window->begin_resize(Edge::Left); break;
+            case Request::ResizeRight: window->begin_resize(Edge::Right); break;
+            case Request::ResizeTopLeft: window->begin_resize(Edge::TopLeft); break;
+            case Request::ResizeTopRight: window->begin_resize(Edge::TopRight); break;
+            case Request::ResizeBottomLeft: window->begin_resize(Edge::BottomLeft); break;
+            case Request::ResizeBottomRight: window->begin_resize(Edge::BottomRight); break;
+            }
+            if (!running)
+                break;
+        }
 
         if (browser.has_pending_load()) {
             window->present(browser.frame()); // the "Loading" frame, before the synchronous fetch
@@ -1286,6 +1327,14 @@ int main(int argc, char** argv)
             if (!value_after(i, text))
                 return usage(argv[0]);
             (arg == "--width" ? width : height) = std::max(64, std::atoi(text.c_str()));
+        } else if (arg == "--scale") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            double const factor = std::atof(text.c_str());
+            if (!(factor >= 0.5 && factor <= 8))
+                return usage(argv[0]);
+            g_device_scale = static_cast<float>(factor);
         } else if (arg == "-o" || arg == "--output") {
             if (!value_after(i, output))
                 return usage(argv[0]);

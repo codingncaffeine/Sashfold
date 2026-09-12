@@ -3,6 +3,8 @@
 #include "core/Ascii.h"
 #include "core/Json.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -259,6 +261,25 @@ std::optional<Theme> Theme::load(std::string const& path, std::vector<std::strin
         }
     }
     return theme;
+}
+
+Theme Theme::scaled(float factor) const
+{
+    Theme out = *this;
+    if (!(factor > 0) || factor == 1)
+        return out;
+    auto const metric = [factor](int value) { return static_cast<int>(std::lround(static_cast<float>(value) * factor)); };
+    for (int Theme::* const member : { &Theme::tab_strip_height, &Theme::tab_height, &Theme::tab_max_width,
+             &Theme::tab_min_width, &Theme::tab_corner_radius, &Theme::tab_gap, &Theme::toolbar_height,
+             &Theme::address_height, &Theme::address_corner_radius, &Theme::button_size,
+             &Theme::button_corner_radius, &Theme::padding, &Theme::status_height, &Theme::find_height,
+             &Theme::devtools_height, &Theme::scroll_step, &Theme::tab_icon_size })
+        out.*member = metric(this->*member);
+    out.border_width = std::max(1, metric(border_width));
+    out.font_size = font_size * factor;
+    out.tab_font_size = tab_font_size * factor;
+    out.status_font_size = status_font_size * factor;
+    return out;
 }
 
 }

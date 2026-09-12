@@ -111,6 +111,18 @@ int main()
         CHECK_EQ(ui::parse_sizes("300px", wide), 300.0f);
         CHECK_EQ(ui::parse_sizes("50vw", wide), 400.0f);
         CHECK_EQ(ui::parse_sizes("10em", wide), 160.0f);
+        // On a display of two device px per CSS px the slot comes back in
+        // device px: absolute lengths doubled, the viewport ones as they
+        // are, and a media condition judged in CSS px.
+        {
+            css::MediaContext const twice { 800, 600, 2 };
+            CHECK_EQ(ui::parse_sizes("300px", twice), 600.0f);
+            CHECK_EQ(ui::parse_sizes("50vw", twice), 400.0f);
+            CHECK_EQ(ui::parse_sizes("10em", twice), 320.0f);
+            CHECK_EQ(ui::parse_sizes("1in", twice), 192.0f);
+            CHECK_EQ(ui::parse_sizes("(max-width: 600px) 100vw, 300px", twice), 800.0f);
+            CHECK_EQ(ui::parse_sizes("(max-width: 300px) 100vw, 300px", twice), 600.0f);
+        }
         CHECK_EQ(ui::parse_sizes("(max-width: 600px) 100vw, 300px", wide), 300.0f);
         CHECK_EQ(ui::parse_sizes("(max-width: 600px) 100vw, 300px", narrow), 500.0f);
         CHECK_EQ(ui::parse_sizes("(min-width: 30em) 40vw, 90vw", wide), 320.0f);
@@ -186,6 +198,20 @@ int main()
         CHECK(s8 && path_of(s8->url) == "/dir/own.png");
         auto const s9 = select("i9", wide); // a repeated density is dropped
         CHECK(s9 && path_of(s9->url) == "/dir/one.png" && s9->density == 1.0f);
+        // On a display of two device px per CSS px the 2x candidate is the
+        // one at or above the device's density, and a width descriptor's
+        // density is judged against the slot in CSS px.
+        {
+            css::MediaContext const wide_twice { 800, 600, 2 };
+            auto const t2 = select("i2", wide_twice);
+            CHECK(t2 && path_of(t2->url) == "/dir/b.png" && t2->density == 2.0f);
+            auto const t9 = select("i9", wide_twice);
+            CHECK(t9 && path_of(t9->url) == "/dir/dup1.png" && t9->density == 2.0f);
+            // 800 device px is 400 CSS px, so the condition holds and the
+            // slot is 100vw = 400 CSS px: densities .75, 1.5, 3.
+            auto const t6 = select("i6", wide_twice);
+            CHECK(t6 && path_of(t6->url) == "/dir/z.png" && t6->density == 3.0f);
+        }
         auto const s10 = select("i10", wide); // no 1x on offer: the largest is taken
         CHECK(s10 && path_of(s10->url) == "/dir/wide.png" && s10->density == 2.0f);
         auto const s10_narrow = select("i10", narrow);

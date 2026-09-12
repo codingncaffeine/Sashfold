@@ -40,6 +40,7 @@ struct Rect {
     {
         return px >= x && py >= y && px < right() && py < bottom();
     }
+    friend constexpr bool operator==(Rect const&, Rect const&) = default;
 };
 
 // A rectangle whose four corners are quarter ellipses — the shape

@@ -51,6 +51,11 @@ struct ControlState {
 struct ControlStates {
     std::unordered_map<dom::Element const*, ControlState> states;
     dom::Element const* focused = nullptr;
+    // An input method's composing text at a control's caret: shown there,
+    // underlined, and not yet part of the value (UTF-8); the control it
+    // belongs to, which is the focused one when it was set.
+    std::string preedit;
+    dom::Element const* preedit_owner = nullptr;
 
     ControlState const* find(dom::Element const& element) const;
 };

@@ -739,10 +739,11 @@ private:
             return std::nullopt;
         std::string const unit = lowercased(token.unit);
         double const value = token.numeric_value;
+        double const scale = static_cast<double>(m_media.device_scale);
         if (unit == "px")
-            return value;
+            return value * scale;
         if (unit == "em" || unit == "rem")
-            return value * 16;
+            return value * 16 * scale;
         if (unit == "vw")
             return value * static_cast<double>(m_media.width) / 100;
         if (unit == "vh")
@@ -792,7 +793,7 @@ private:
         if (name == "aspect-ratio" || name == "device-aspect-ratio")
             return static_cast<double>(m_media.width) / static_cast<double>(m_media.height);
         if (name == "resolution" || name == "-webkit-device-pixel-ratio")
-            return 1;
+            return static_cast<double>(m_media.device_scale);
         if (name == "color")
             return 8;
         if (name == "monochrome")

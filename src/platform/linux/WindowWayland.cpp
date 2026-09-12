@@ -15,6 +15,7 @@
 #include "platform/linux/Wayland.h"
 #include "platform/linux/WindowWayland.h"
 #include "platform/linux/Xkb.h"
+#include "platform/Touch.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -75,14 +76,62 @@ namespace wl_surface {
     constexpr std::uint16_t damage = 2;
     constexpr std::uint16_t frame = 3;
     constexpr std::uint16_t commit = 6;
+    constexpr std::uint16_t set_buffer_scale = 8; // since 3
     constexpr std::uint16_t damage_buffer = 9; // since 4
+    constexpr std::uint16_t event_enter = 0;
+    constexpr std::uint16_t event_leave = 1;
+    constexpr std::uint16_t event_preferred_buffer_scale = 2; // since 6
+}
+namespace wl_output {
+    constexpr std::uint16_t event_scale = 3; // since 2
+}
+namespace wp_viewporter {
+    constexpr std::uint16_t get_viewport = 1;
+}
+namespace wp_viewport {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t set_destination = 2;
+}
+namespace wp_fractional_scale_manager_v1 {
+    constexpr std::uint16_t get_fractional_scale = 1;
+}
+namespace wp_fractional_scale_v1 {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t event_preferred_scale = 0; // the scale, times 120
 }
 namespace wl_seat {
     constexpr std::uint16_t get_pointer = 0;
     constexpr std::uint16_t get_keyboard = 1;
+    constexpr std::uint16_t get_touch = 2;
     constexpr std::uint16_t event_capabilities = 0;
     constexpr std::uint32_t capability_pointer = 1;
     constexpr std::uint32_t capability_keyboard = 2;
+    constexpr std::uint32_t capability_touch = 4;
+}
+namespace wl_touch {
+    constexpr std::uint16_t event_down = 0;
+    constexpr std::uint16_t event_up = 1;
+    constexpr std::uint16_t event_motion = 2;
+    constexpr std::uint16_t event_cancel = 4;
+}
+namespace zwp_text_input_manager_v3 {
+    constexpr std::uint16_t get_text_input = 1;
+}
+namespace zwp_text_input_v3 {
+    constexpr std::uint16_t destroy = 0;
+    constexpr std::uint16_t enable = 1;
+    constexpr std::uint16_t disable = 2;
+    constexpr std::uint16_t set_content_type = 5;
+    constexpr std::uint16_t set_cursor_rectangle = 6;
+    constexpr std::uint16_t commit = 7;
+    constexpr std::uint16_t event_enter = 0;
+    constexpr std::uint16_t event_leave = 1;
+    constexpr std::uint16_t event_preedit_string = 2;
+    constexpr std::uint16_t event_commit_string = 3;
+    constexpr std::uint16_t event_delete_surrounding_text = 4;
+    constexpr std::uint16_t event_done = 5;
+    constexpr std::uint32_t content_hint_none = 0;
+    constexpr std::uint32_t content_purpose_normal = 0;
 }
 namespace wl_pointer {
     constexpr std::uint16_t event_enter = 0;
@@ -145,10 +194,20 @@ namespace xdg_toplevel {
     constexpr std::uint16_t destroy = 0;
     constexpr std::uint16_t set_title = 2;
     constexpr std::uint16_t set_app_id = 3;
+    constexpr std::uint16_t move = 5;
+    constexpr std::uint16_t resize = 6;
     constexpr std::uint16_t set_min_size = 8;
+    constexpr std::uint16_t set_maximized = 9;
+    constexpr std::uint16_t unset_maximized = 10;
+    constexpr std::uint16_t set_minimized = 12;
     constexpr std::uint16_t event_configure = 0;
     constexpr std::uint16_t event_close = 1;
     constexpr std::uint16_t event_configure_bounds = 2; // since 4
+    constexpr std::uint32_t state_maximized = 1;
+    constexpr std::uint32_t edge_top = 1;
+    constexpr std::uint32_t edge_bottom = 2;
+    constexpr std::uint32_t edge_left = 4;
+    constexpr std::uint32_t edge_right = 8;
 }
 namespace zxdg_decoration_manager_v1 {
     constexpr std::uint16_t get_toplevel_decoration = 1;
@@ -156,6 +215,7 @@ namespace zxdg_decoration_manager_v1 {
 namespace zxdg_toplevel_decoration_v1 {
     constexpr std::uint16_t set_mode = 1;
     constexpr std::uint16_t event_configure = 0;
+    constexpr std::uint32_t mode_client_side = 1;
     constexpr std::uint32_t mode_server_side = 2;
 }
 namespace wp_cursor_shape_manager_v1 {
@@ -195,7 +255,10 @@ void debug(char const* format, Args... args)
 {
     if (debug_enabled()) {
         std::fprintf(stderr, "wayland: ");
-        std::fprintf(stderr, format, args...);
+        if constexpr (sizeof...(Args) == 0)
+            std::fputs(format, stderr); // a line with nothing to format is printed as it is
+        else
+            std::fprintf(stderr, format, args...);
         std::fputc('\n', stderr);
     }
 }
@@ -342,8 +405,17 @@ public:
     void present(Bitmap const& frame) override;
     void set_title(std::string const& title) override;
     void set_cursor(Cursor cursor) override;
-    int width() const override { return m_width; }
-    int height() const override { return m_height; }
+    void set_text_input(std::optional<Rect> const& caret) override;
+    bool wants_client_decorations() const override { return m_client_decorations; }
+    void begin_move() override;
+    void begin_resize(WindowEdge edge) override;
+    void minimize() override;
+    void toggle_maximize() override;
+    // The buffer's size: the logical size the compositor configured, at the
+    // display's scale.
+    int width() const override { return m_buffer_width; }
+    int height() const override { return m_buffer_height; }
+    float scale() const override { return static_cast<float>(m_scale); }
 
     bool write_clipboard(std::string const& utf8);
     std::optional<std::string> read_clipboard();
@@ -373,7 +445,16 @@ private:
     void listen_seat();
     void listen_pointer();
     void listen_keyboard();
+    void listen_touch();
     void listen_data_device();
+    void listen_text_input();
+    void sync_text_input();
+    void apply_text_input_done();
+    void listen_surface();
+    void bind_outputs();
+    void output_scale_changed();
+    void apply_scale(double scale);
+    void size_changed();
     void upload_icon(Bitmap const& icon);
     bool ensure_frame_buffer(FrameBuffer& frame, int width, int height);
     void release_frame_buffer(FrameBuffer& frame);
@@ -401,15 +482,51 @@ private:
     std::uint32_t m_decoration = 0;
     std::uint32_t m_pointer = 0;
     std::uint32_t m_keyboard = 0;
+    std::uint32_t m_touch = 0;
+    TouchGestures m_fingers; // a touchscreen's fingers, as pointer and scroll events
     std::uint32_t m_cursor_device = 0;
+    // The input method (text-input-v3): enabled while the shell has a
+    // caret to compose at, told where that caret is; what the method sends
+    // is gathered and applied at its `done`.
+    std::uint32_t m_text_input_manager = 0;
+    std::uint32_t m_text_input = 0;
+    bool m_text_input_entered = false; // the method's focus is on this surface
+    bool m_text_input_enabled = false;
+    std::optional<Rect> m_text_caret; // buffer pixels
+    std::uint32_t m_text_input_serial = 0; // commits sent, which `done` echoes
+    std::string m_pending_preedit;
+    bool m_pending_preedit_set = false;
+    std::string m_pending_commit;
     std::uint32_t m_data_device = 0;
+    std::uint32_t m_viewporter = 0;
+    std::uint32_t m_viewport = 0;
+    std::uint32_t m_fractional_scale_manager = 0;
+    std::uint32_t m_fractional_scale = 0;
+    std::vector<std::uint32_t> m_output_names; // every wl_output the registry announced
+    std::map<std::uint32_t, int> m_output_scales; // by bound object: the output's whole-number scale
+    std::uint32_t m_entered_output = 0; // the output the surface was last told it is on
 
+    // The logical size the compositor configured, in surface units, and the
+    // display's scale: the buffer is the one times the other, and every
+    // pointer position is scaled the same way before the shell sees it.
+    // With the viewporter the buffer may be any size and the surface stays
+    // at the logical one (a fractional scale needs that); without it the
+    // whole-number scale goes on the surface and the buffer is that many
+    // times the logical size.
     int m_width;
     int m_height;
+    double m_scale = 1;
+    int m_buffer_width;
+    int m_buffer_height;
+    int m_buffer_scale = 1; // the whole-number scale on the surface, without a viewport
     int m_pending_width = 0;
     int m_pending_height = 0;
     bool m_configured = false;
     bool m_closed = false;
+    // The frame: the compositor's through xdg-decoration where it offers
+    // one and agrees to draw it, else the shell's.
+    bool m_client_decorations = false;
+    bool m_maximized = false; // from the toplevel's configure states
     std::deque<WindowEvent> m_events;
 
     FrameBuffer m_frames[2];
@@ -475,6 +592,8 @@ WaylandWindow::WaylandWindow(std::unique_ptr<Connection> connection, int width, 
     : m_connection(std::move(connection))
     , m_width(width)
     , m_height(height)
+    , m_buffer_width(width)
+    , m_buffer_height(height)
 {
 }
 
@@ -486,6 +605,18 @@ WaylandWindow::~WaylandWindow()
         release_frame_buffer(frame);
     m_icon_memory.release();
     if (!m_connection->failed()) {
+        if (m_text_input) {
+            Request destroy(m_text_input, zwp_text_input_v3::destroy);
+            send(destroy);
+        }
+        if (m_fractional_scale) {
+            Request destroy(m_fractional_scale, wp_fractional_scale_v1::destroy);
+            send(destroy);
+        }
+        if (m_viewport) {
+            Request destroy(m_viewport, wp_viewport::destroy);
+            send(destroy);
+        }
         if (m_toplevel) {
             Request destroy(m_toplevel, xdg_toplevel::destroy);
             send(destroy);
@@ -543,6 +674,8 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
             std::uint32_t const version = message.uint();
             if (!m_globals.contains(interface)) // the first of a kind is ours
                 m_globals[interface] = { name, version };
+            if (interface == "wl_output" && version >= 2)
+                m_output_names.push_back(name); // every output: the window may land on any
         }
     });
     Request get_registry(Connection::display_id, wl_display::get_registry);
@@ -553,8 +686,8 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
         return false;
     }
 
-    m_compositor = bind("wl_compositor", 4);
-    m_compositor_version = std::min(4u, m_globals["wl_compositor"].version);
+    m_compositor = bind("wl_compositor", 6);
+    m_compositor_version = std::min(6u, m_globals["wl_compositor"].version);
     m_shm = bind("wl_shm", 1);
     m_wm_base = bind("xdg_wm_base", 6);
     for (auto const& [required, id] : { std::pair("wl_compositor", m_compositor), std::pair("wl_shm", m_shm),
@@ -574,7 +707,19 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
     m_seat = bind("wl_seat", 9);
     if (m_seat)
         listen_seat();
-    m_decoration_manager = bind("zxdg_decoration_manager_v1", 1);
+    m_text_input_manager = bind("zwp_text_input_manager_v3", 1);
+    if (m_text_input_manager && m_seat) {
+        m_text_input = m_connection->allocate_id();
+        Request get_text_input(m_text_input_manager, zwp_text_input_manager_v3::get_text_input);
+        get_text_input.new_id(m_text_input).object(m_seat);
+        send(get_text_input);
+        listen_text_input();
+    }
+    // SASHFOLD_WAYLAND_CSD leaves the compositor's title bar unasked for, to
+    // see the shell's own frame on a compositor that would draw one.
+    char const* const force_client_frame = std::getenv("SASHFOLD_WAYLAND_CSD");
+    bool const client_frame_wanted = force_client_frame && *force_client_frame && *force_client_frame != '0';
+    m_decoration_manager = client_frame_wanted ? 0 : bind("zxdg_decoration_manager_v1", 1);
     m_cursor_shape_manager = bind("wp_cursor_shape_manager_v1", 1);
     m_data_device_manager = bind("wl_data_device_manager", 3);
     if (m_data_device_manager && m_seat)
@@ -586,11 +731,35 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
                 m_icon_sizes.push_back(message.int_());
         });
     }
+    // The display's scale: fractional-scale-v1 with the viewporter names it
+    // exactly (1.5 on a laptop panel, say); a compositor without them but
+    // with wl_compositor 6 says a whole number through the surface; older
+    // ones leave the window at 1.
+    m_viewporter = bind("wp_viewporter", 1);
+    m_fractional_scale_manager = m_viewporter ? bind("wp_fractional_scale_manager_v1", 1) : 0;
+    bind_outputs();
 
     m_surface = m_connection->allocate_id();
     Request create_surface(m_compositor, wl_compositor::create_surface);
     create_surface.new_id(m_surface);
     send(create_surface);
+    listen_surface();
+    if (m_viewporter) {
+        m_viewport = m_connection->allocate_id();
+        Request get_viewport(m_viewporter, wp_viewporter::get_viewport);
+        get_viewport.new_id(m_viewport).object(m_surface);
+        send(get_viewport);
+    }
+    if (m_fractional_scale_manager) {
+        m_fractional_scale = m_connection->allocate_id();
+        Request get_scale(m_fractional_scale_manager, wp_fractional_scale_manager_v1::get_fractional_scale);
+        get_scale.new_id(m_fractional_scale).object(m_surface);
+        send(get_scale);
+        m_connection->listen(m_fractional_scale, [this](std::uint16_t opcode, Message& message) {
+            if (opcode == wp_fractional_scale_v1::event_preferred_scale)
+                apply_scale(static_cast<double>(message.uint()) / 120.0);
+        });
+    }
 
     m_xdg_surface = m_connection->allocate_id();
     Request get_xdg_surface(m_wm_base, xdg_wm_base::get_xdg_surface);
@@ -607,15 +776,12 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
             && (m_pending_width != m_width || m_pending_height != m_height)) {
             m_width = m_pending_width;
             m_height = m_pending_height;
-            WindowEvent event;
-            event.kind = WindowEvent::Kind::Resize;
-            event.width = m_width;
-            event.height = m_height;
-            push(event);
+            size_changed();
         }
         m_pending_width = 0;
         m_pending_height = 0;
-        debug("configure serial %u: %d x %d", serial, m_width, m_height);
+        debug("configure serial %u: %d x %d at scale %.3f (buffer %d x %d)", serial, m_width, m_height, m_scale,
+            m_buffer_width, m_buffer_height);
         m_configured = true;
     });
 
@@ -628,7 +794,18 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
         case xdg_toplevel::event_configure: {
             m_pending_width = message.int_();
             m_pending_height = message.int_();
-            break; // the states array: nothing the shell asks about yet
+            // The states: whether the window is maximized is what the
+            // shell's own maximize button toggles against.
+            std::span<std::uint8_t const> const states = message.array();
+            bool maximized = false;
+            for (std::size_t i = 0; i + 4 <= states.size(); i += 4) {
+                std::uint32_t const state = static_cast<std::uint32_t>(states[i]) | (static_cast<std::uint32_t>(states[i + 1]) << 8)
+                    | (static_cast<std::uint32_t>(states[i + 2]) << 16) | (static_cast<std::uint32_t>(states[i + 3]) << 24);
+                if (state == xdg_toplevel::state_maximized)
+                    maximized = true;
+            }
+            m_maximized = maximized;
+            break;
         }
         case xdg_toplevel::event_close: {
             WindowEvent event;
@@ -639,9 +816,11 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
         case xdg_toplevel::event_configure_bounds: {
             int const bound_width = message.int_();
             int const bound_height = message.int_();
-            if (!m_configured && bound_width > 0 && bound_height > 0) {
+            if (!m_configured && bound_width > 0 && bound_height > 0
+                && (bound_width < m_width || bound_height < m_height)) {
                 m_width = std::min(m_width, bound_width);
                 m_height = std::min(m_height, bound_height);
+                size_changed(); // the buffer and the viewport follow the smaller window
             }
             break;
         }
@@ -657,14 +836,21 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
     set_min_size.int_(320).int_(240);
     send(set_min_size);
 
+    // The frame: the compositor's where it offers xdg-decoration and agrees
+    // to draw it; the shell's on a compositor without the protocol (GNOME),
+    // or one that answers client-side.
+    m_client_decorations = m_decoration_manager == 0;
     if (m_decoration_manager) {
         m_decoration = m_connection->allocate_id();
         Request get_decoration(m_decoration_manager, zxdg_decoration_manager_v1::get_toplevel_decoration);
         get_decoration.new_id(m_decoration).object(m_toplevel);
         send(get_decoration);
-        m_connection->listen(m_decoration, [](std::uint16_t opcode, Message& message) {
-            if (opcode == zxdg_toplevel_decoration_v1::event_configure)
-                debug("decoration mode %u (2 = the compositor's)", message.uint());
+        m_connection->listen(m_decoration, [this](std::uint16_t opcode, Message& message) {
+            if (opcode != zxdg_toplevel_decoration_v1::event_configure)
+                return;
+            std::uint32_t const mode = message.uint();
+            m_client_decorations = mode == zxdg_toplevel_decoration_v1::mode_client_side;
+            debug("decoration mode %u (2 = the compositor's, 1 = the shell's)", mode);
         });
         Request set_mode(m_decoration, zxdg_toplevel_decoration_v1::set_mode);
         set_mode.uint(zxdg_toplevel_decoration_v1::mode_server_side);
@@ -697,6 +883,106 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
     return true;
 }
 
+// The surface's own events: a whole-number preferred scale (wl_compositor
+// 6) stands in when the fractional protocol is not offered, and the output
+// the surface enters is the last resort, its own scale.
+void WaylandWindow::listen_surface()
+{
+    m_connection->listen(m_surface, [this](std::uint16_t opcode, Message& message) {
+        if (opcode == wl_surface::event_preferred_buffer_scale) {
+            int const preferred = message.int_();
+            debug("the compositor prefers buffer scale %d", preferred);
+            if (!m_fractional_scale)
+                apply_scale(static_cast<double>(preferred));
+        } else if (opcode == wl_surface::event_enter) {
+            m_entered_output = message.object();
+            auto const known = m_output_scales.find(m_entered_output);
+            debug("entered output %u (scale %d)", m_entered_output, known == m_output_scales.end() ? 0 : known->second);
+            output_scale_changed();
+        } else if (opcode == wl_surface::event_leave) {
+            if (message.object() == m_entered_output)
+                m_entered_output = 0;
+        }
+    });
+}
+
+// Every output the registry announced, bound for its scale event: what
+// the window is scaled by when the compositor offers neither the
+// fractional protocol nor a preferred buffer scale, and what the debug
+// log says about the display either way.
+void WaylandWindow::bind_outputs()
+{
+    for (std::uint32_t const name : m_output_names) {
+        std::uint32_t const id = m_connection->allocate_id();
+        Request request(m_registry, wl_registry::bind);
+        request.uint(name).string("wl_output").uint(2).new_id(id);
+        send(request);
+        m_output_scales[id] = 1;
+        m_connection->listen(id, [this, id](std::uint16_t opcode, Message& message) {
+            if (opcode != wl_output::event_scale)
+                return;
+            m_output_scales[id] = message.int_();
+            debug("output %u has scale %d", id, m_output_scales[id]);
+            if (m_entered_output == id)
+                output_scale_changed();
+        });
+    }
+}
+
+void WaylandWindow::output_scale_changed()
+{
+    if (m_fractional_scale || m_compositor_version >= 6)
+        return; // a better source speaks for the display
+    auto const known = m_output_scales.find(m_entered_output);
+    if (known != m_output_scales.end() && known->second >= 1)
+        apply_scale(static_cast<double>(known->second));
+}
+
+// The display's scale from here on: the buffer follows the logical size
+// at it, the shell hears the new scale and then the new size.
+void WaylandWindow::apply_scale(double scale)
+{
+    if (!(scale > 0) || scale > 8 || scale == m_scale)
+        return;
+    m_scale = scale;
+    debug("scale %.3f", m_scale);
+    m_fingers.set_slop(static_cast<int>(std::lround(10 * m_scale)));
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::Scale;
+    event.scale = static_cast<float>(m_scale);
+    push(event);
+    size_changed();
+}
+
+// The logical size or the scale changed: the buffer size follows, the
+// surface is told how the buffer maps onto it, and the shell hears the
+// size the next frame must have.
+void WaylandWindow::size_changed()
+{
+    if (m_viewport) {
+        m_buffer_width = std::max(1, static_cast<int>(std::lround(m_width * m_scale)));
+        m_buffer_height = std::max(1, static_cast<int>(std::lround(m_height * m_scale)));
+        Request destination(m_viewport, wp_viewport::set_destination);
+        destination.int_(m_width).int_(m_height);
+        send(destination);
+    } else {
+        int const whole = std::clamp(static_cast<int>(std::lround(m_scale)), 1, 8);
+        if (whole != m_buffer_scale && m_compositor_version >= 3) {
+            m_buffer_scale = whole;
+            Request set_scale(m_surface, wl_surface::set_buffer_scale);
+            set_scale.int_(whole);
+            send(set_scale);
+        }
+        m_buffer_width = m_width * m_buffer_scale;
+        m_buffer_height = m_height * m_buffer_scale;
+    }
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::Resize;
+    event.width = m_buffer_width;
+    event.height = m_buffer_height;
+    push(event);
+}
+
 void WaylandWindow::listen_seat()
 {
     m_connection->listen(m_seat, [this](std::uint16_t opcode, Message& message) {
@@ -723,7 +1009,239 @@ void WaylandWindow::listen_seat()
             send(get_keyboard);
             listen_keyboard();
         }
+        if ((capabilities & wl_seat::capability_touch) && !m_touch) {
+            m_touch = m_connection->allocate_id();
+            Request get_touch(m_seat, wl_seat::get_touch);
+            get_touch.new_id(m_touch);
+            send(get_touch);
+            listen_touch();
+        }
     });
+}
+
+// A touchscreen: each finger's position in surface units, scaled to buffer
+// pixels and told to the gesture reader, whose events go out at the frame.
+void WaylandWindow::listen_touch()
+{
+    m_fingers.set_slop(static_cast<int>(std::lround(10 * m_scale)));
+    m_connection->listen(m_touch, [this](std::uint16_t opcode, Message& message) {
+        std::vector<WindowEvent> out;
+        switch (opcode) {
+        case wl_touch::event_down: {
+            m_input_serial = message.uint();
+            message.uint(); // time
+            message.object(); // the surface: ours, the only one
+            int const id = message.int_();
+            int const x = static_cast<int>(std::floor(message.fixed() * m_scale));
+            int const y = static_cast<int>(std::floor(message.fixed() * m_scale));
+            m_fingers.down(id, x, y, out);
+            break;
+        }
+        case wl_touch::event_up: {
+            m_input_serial = message.uint();
+            message.uint(); // time
+            m_fingers.up(message.int_(), out);
+            break;
+        }
+        case wl_touch::event_motion: {
+            message.uint(); // time
+            int const id = message.int_();
+            int const x = static_cast<int>(std::floor(message.fixed() * m_scale));
+            int const y = static_cast<int>(std::floor(message.fixed() * m_scale));
+            m_fingers.motion(id, x, y, out);
+            break;
+        }
+        case wl_touch::event_cancel:
+            m_fingers.cancel(out);
+            break;
+        default:
+            break; // frame, shape, orientation
+        }
+        for (WindowEvent const& event : out)
+            push(event);
+    });
+}
+
+// The input method, text-input-v3: while the shell has a caret to compose
+// at, the method is enabled and told where the caret is; what it sends —
+// composing text, text to commit — is gathered and applied at its `done`.
+// Surrounding text is never offered, so a request to delete some has
+// nothing to refer to and is read past.
+void WaylandWindow::listen_text_input()
+{
+    m_connection->listen(m_text_input, [this](std::uint16_t opcode, Message& message) {
+        switch (opcode) {
+        case zwp_text_input_v3::event_enter:
+            message.object(); // the surface: ours
+            m_text_input_entered = true;
+            m_text_input_enabled = false;
+            debug("text input: the input method is here");
+            sync_text_input();
+            break;
+        case zwp_text_input_v3::event_leave:
+            message.object();
+            m_text_input_entered = false;
+            m_text_input_enabled = false;
+            debug("text input: the input method left");
+            break;
+        case zwp_text_input_v3::event_preedit_string:
+            m_pending_preedit = message.string();
+            message.int_(); // cursor_begin
+            message.int_(); // cursor_end
+            m_pending_preedit_set = true;
+            break;
+        case zwp_text_input_v3::event_commit_string:
+            m_pending_commit = message.string();
+            break;
+        case zwp_text_input_v3::event_delete_surrounding_text:
+            message.uint(); // before
+            message.uint(); // after: nothing was offered to delete
+            break;
+        case zwp_text_input_v3::event_done: {
+            std::uint32_t const serial = message.uint();
+            debug("text input: done %u (commit %zu bytes, preedit %s)", serial, m_pending_commit.size(),
+                m_pending_preedit_set ? "set" : "unchanged");
+            apply_text_input_done();
+            break;
+        }
+        default:
+            break;
+        }
+    });
+}
+
+// The method's answer, in the order the protocol names: the text to
+// commit becomes typed text, then the composing text is shown (or, when
+// the method sent none, cleared, since a commit ends a composition).
+void WaylandWindow::apply_text_input_done()
+{
+    if (!m_pending_commit.empty()) {
+        std::string const& text = m_pending_commit;
+        std::size_t i = 0;
+        while (i < text.size()) {
+            unsigned char const lead = static_cast<unsigned char>(text[i]);
+            std::size_t const length = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xe ? 3 : (lead >> 3) == 0x1e ? 4 : 1;
+            char32_t code_point = length == 1 ? lead : static_cast<char32_t>(lead & (0xff >> (length + 1)));
+            for (std::size_t k = 1; k < length && i + k < text.size(); ++k)
+                code_point = (code_point << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3f);
+            i += length;
+            if (code_point < 0x20 || code_point == 0x7f)
+                continue;
+            WindowEvent typed;
+            typed.kind = WindowEvent::Kind::Text;
+            typed.text = code_point;
+            push(typed);
+        }
+    }
+    if (m_pending_preedit_set || !m_pending_commit.empty()) {
+        WindowEvent composing;
+        composing.kind = WindowEvent::Kind::Preedit;
+        composing.preedit = m_pending_preedit_set ? m_pending_preedit : std::string();
+        push(composing);
+    }
+    m_pending_commit.clear();
+    m_pending_preedit.clear();
+    m_pending_preedit_set = false;
+}
+
+// Tells the method whether there is a caret and where: enabled with its
+// content type and rectangle when a field has focus, disabled when none
+// has; every change is one commit, whose serial `done` echoes.
+void WaylandWindow::sync_text_input()
+{
+    if (!m_text_input || !m_text_input_entered)
+        return;
+    if (m_text_caret) {
+        if (!m_text_input_enabled) {
+            Request enable(m_text_input, zwp_text_input_v3::enable);
+            send(enable);
+            Request content(m_text_input, zwp_text_input_v3::set_content_type);
+            content.uint(zwp_text_input_v3::content_hint_none).uint(zwp_text_input_v3::content_purpose_normal);
+            send(content);
+            m_text_input_enabled = true;
+        }
+        // Buffer pixels to surface units.
+        double const s = m_scale > 0 ? m_scale : 1;
+        Request rectangle(m_text_input, zwp_text_input_v3::set_cursor_rectangle);
+        rectangle.int_(static_cast<std::int32_t>(std::lround(m_text_caret->x / s)))
+            .int_(static_cast<std::int32_t>(std::lround(m_text_caret->y / s)))
+            .int_(std::max(1, static_cast<int>(std::lround(m_text_caret->width / s))))
+            .int_(std::max(1, static_cast<int>(std::lround(m_text_caret->height / s))));
+        send(rectangle);
+    } else {
+        if (!m_text_input_enabled)
+            return;
+        Request disable(m_text_input, zwp_text_input_v3::disable);
+        send(disable);
+        m_text_input_enabled = false;
+    }
+    Request commit(m_text_input, zwp_text_input_v3::commit);
+    send(commit);
+    ++m_text_input_serial;
+    m_connection->flush();
+}
+
+void WaylandWindow::set_text_input(std::optional<Rect> const& caret)
+{
+    if (caret == m_text_caret)
+        return;
+    m_text_caret = caret;
+    sync_text_input();
+}
+
+// The frame's requests, each on the serial of the press that made it: the
+// compositor moves or resizes the window along with the pointer from here.
+void WaylandWindow::begin_move()
+{
+    if (!m_toplevel || !m_seat || m_input_serial == 0)
+        return;
+    debug("move on serial %u", m_input_serial);
+    Request move(m_toplevel, xdg_toplevel::move);
+    move.object(m_seat).uint(m_input_serial);
+    send(move);
+    m_connection->flush();
+}
+
+void WaylandWindow::begin_resize(WindowEdge edge)
+{
+    if (!m_toplevel || !m_seat || m_input_serial == 0)
+        return;
+    std::uint32_t edges = 0;
+    switch (edge) {
+    case WindowEdge::Top: edges = xdg_toplevel::edge_top; break;
+    case WindowEdge::Bottom: edges = xdg_toplevel::edge_bottom; break;
+    case WindowEdge::Left: edges = xdg_toplevel::edge_left; break;
+    case WindowEdge::Right: edges = xdg_toplevel::edge_right; break;
+    case WindowEdge::TopLeft: edges = xdg_toplevel::edge_top | xdg_toplevel::edge_left; break;
+    case WindowEdge::TopRight: edges = xdg_toplevel::edge_top | xdg_toplevel::edge_right; break;
+    case WindowEdge::BottomLeft: edges = xdg_toplevel::edge_bottom | xdg_toplevel::edge_left; break;
+    case WindowEdge::BottomRight: edges = xdg_toplevel::edge_bottom | xdg_toplevel::edge_right; break;
+    }
+    debug("resize edges %u on serial %u", edges, m_input_serial);
+    Request resize(m_toplevel, xdg_toplevel::resize);
+    resize.object(m_seat).uint(m_input_serial).uint(edges);
+    send(resize);
+    m_connection->flush();
+}
+
+void WaylandWindow::minimize()
+{
+    if (!m_toplevel)
+        return;
+    debug("minimize");
+    Request request(m_toplevel, xdg_toplevel::set_minimized);
+    send(request);
+    m_connection->flush();
+}
+
+void WaylandWindow::toggle_maximize()
+{
+    if (!m_toplevel)
+        return;
+    debug("%s", m_maximized ? "unmaximize" : "maximize");
+    Request request(m_toplevel, m_maximized ? xdg_toplevel::unset_maximized : xdg_toplevel::set_maximized);
+    send(request);
+    m_connection->flush();
 }
 
 void WaylandWindow::listen_pointer()
@@ -733,8 +1251,8 @@ void WaylandWindow::listen_pointer()
         case wl_pointer::event_enter: {
             m_pointer_enter_serial = message.uint();
             message.object();
-            m_pointer_x = static_cast<int>(std::floor(message.fixed()));
-            m_pointer_y = static_cast<int>(std::floor(message.fixed()));
+            m_pointer_x = static_cast<int>(std::floor(message.fixed() * m_scale));
+            m_pointer_y = static_cast<int>(std::floor(message.fixed() * m_scale));
             m_pointer_inside = true;
             apply_cursor();
             WindowEvent event;
@@ -749,8 +1267,9 @@ void WaylandWindow::listen_pointer()
             break;
         case wl_pointer::event_motion: {
             message.uint(); // time
-            m_pointer_x = static_cast<int>(std::floor(message.fixed()));
-            m_pointer_y = static_cast<int>(std::floor(message.fixed()));
+            // Surface units to buffer pixels: the shell's coordinates.
+            m_pointer_x = static_cast<int>(std::floor(message.fixed() * m_scale));
+            m_pointer_y = static_cast<int>(std::floor(message.fixed() * m_scale));
             WindowEvent event;
             event.kind = WindowEvent::Kind::MouseMove;
             event.x = m_pointer_x;
@@ -1346,8 +1865,9 @@ void WaylandWindow::present(Bitmap const& frame)
         damage.int_(0).int_(0).int_(frame.width()).int_(frame.height());
         send(damage);
     } else {
+        // Surface coordinates: the whole surface, whatever the buffer's size.
         Request damage(m_surface, wl_surface::damage);
-        damage.int_(0).int_(0).int_(frame.width()).int_(frame.height());
+        damage.int_(0).int_(0).int_(m_width).int_(m_height);
         send(damage);
     }
     std::uint32_t const callback = m_connection->allocate_id();

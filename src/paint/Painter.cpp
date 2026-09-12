@@ -32,6 +32,8 @@ struct Context {
     // every scrollport at its origin, which is what a single render of a
     // page shows.
     layout::ScrollOffsets const* scrolls = nullptr;
+    // Device px per CSS px, for the shapes the painter draws on its own.
+    float device_scale = 1;
 };
 
 int round_px(float value)
@@ -739,28 +741,33 @@ void paint_control(Context& context, Fragment const& fragment)
     Color const white = Color::rgb(0xff, 0xff, 0xff);
     Color const gray = Color::rgb(0xef, 0xef, 0xef);
     Color const ink = control.disabled ? Color::rgb(0x8d, 0x8d, 0x8d) : Color::rgb(0x1a, 0x1a, 0x1a);
+    // The built-in shapes are drawn in CSS px, scaled to the display: a
+    // one-px line is `px` device px wide, an inset of n is n of them.
+    float const scale = context.device_scale > 0 ? context.device_scale : 1.0f;
+    auto const px = [scale](int css) { return std::max(1, static_cast<int>(std::lround(static_cast<float>(css) * scale))); };
+    int const line = px(1);
     auto const frame = [&](Rect const& r, Color color) {
-        context.target.fill_rect(Rect { r.x, r.y, r.width, 1 }, color);
-        context.target.fill_rect(Rect { r.x, r.y + r.height - 1, r.width, 1 }, color);
-        context.target.fill_rect(Rect { r.x, r.y, 1, r.height }, color);
-        context.target.fill_rect(Rect { r.x + r.width - 1, r.y, 1, r.height }, color);
+        context.target.fill_rect(Rect { r.x, r.y, r.width, line }, color);
+        context.target.fill_rect(Rect { r.x, r.y + r.height - line, r.width, line }, color);
+        context.target.fill_rect(Rect { r.x, r.y, line, r.height }, color);
+        context.target.fill_rect(Rect { r.x + r.width - line, r.y, line, r.height }, color);
     };
     auto const inset = [](Rect const& r, int by) {
         return Rect { r.x + by, r.y + by, r.width - 2 * by, r.height - 2 * by };
     };
     switch (control.kind) {
     case ControlKind::Checkbox:
-        context.target.fill_round_rect(rect, 2, border);
-        context.target.fill_round_rect(inset(rect, 1), 2, control.disabled ? gray : white);
+        context.target.fill_round_rect(rect, px(2), border);
+        context.target.fill_round_rect(inset(rect, px(1)), px(2), control.disabled ? gray : white);
         if (control.checked)
-            context.target.fill_rect(inset(rect, 3), ink);
+            context.target.fill_rect(inset(rect, px(3)), ink);
         break;
     case ControlKind::Radio: {
         int const radius = rect.width / 2;
         context.target.fill_round_rect(rect, radius, border);
-        context.target.fill_round_rect(inset(rect, 1), radius - 1, control.disabled ? gray : white);
+        context.target.fill_round_rect(inset(rect, px(1)), radius - px(1), control.disabled ? gray : white);
         if (control.checked)
-            context.target.fill_round_rect(inset(rect, 4), radius - 4, ink);
+            context.target.fill_round_rect(inset(rect, px(4)), radius - px(4), ink);
         break;
     }
     default: {
@@ -771,11 +778,14 @@ void paint_control(Context& context, Fragment const& fragment)
             frame(rect, border);
         }
         if (control.kind == ControlKind::Select) {
-            // A small triangle pointing down, near the right edge.
-            int const tip_x = rect.x + rect.width - 12;
-            int const top = rect.y + rect.height / 2 - 2;
-            for (int row = 0; row < 4; ++row)
-                context.target.fill_rect(Rect { tip_x - 3 + row, top + row, 7 - 2 * row, 1 }, ink);
+            // A small triangle pointing down, near the right edge: four
+            // rows of 7, 5, 3 and 1 CSS px, each row `line` device px tall.
+            int const tip_x = rect.x + rect.width - px(12);
+            int const top = rect.y + rect.height / 2 - px(2);
+            for (int row = 0; row < 4; ++row) {
+                int const half = static_cast<int>(std::lround(static_cast<float>(3 - row) * scale));
+                context.target.fill_rect(Rect { tip_x - half, top + row * line, 2 * half + line, line }, ink);
+            }
         }
         break;
     }
@@ -783,10 +793,16 @@ void paint_control(Context& context, Fragment const& fragment)
     if (control.focused) {
         Color const accent = Color::rgb(0x00, 0x60, 0xdf);
         frame(rect, accent);
-        frame(inset(rect, 1), accent);
+        frame(inset(rect, line), accent);
     }
     if (control.caret_x)
-        context.target.fill_rect(snap(*control.caret_x + context.dx, y + 4, 1, control.height - 8), ink);
+        context.target.fill_rect(snap(*control.caret_x + context.dx, y + px(4), line, control.height - 2 * px(4)), ink);
+    if (control.preedit_span && control.preedit_span->second > control.preedit_span->first) {
+        // The composing text is underlined, as every editor shows it.
+        context.target.fill_rect(snap(control.preedit_span->first + context.dx, y + control.height - px(5),
+                                     control.preedit_span->second - control.preedit_span->first, line),
+            ink);
+    }
 }
 
 void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner);
@@ -1395,7 +1411,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
     Fragment const* const owner = canvas_background_owner(page);
-    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls };
+    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale };
     // The canvas takes the whole background of the box that owns it, its
     // pictures included: they cover the surface, sized and placed against
     // the root element's box whichever box they came from.

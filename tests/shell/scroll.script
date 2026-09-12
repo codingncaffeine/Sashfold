@@ -14,6 +14,13 @@ assert-title Panes
 assert-scroll 0
 assert-box-scroll 200 160 0 0
 
+# A finger's drag moves the content under its landing point by the pixels
+# it travelled: at the content's center that is the page, and back again.
+scroll-pixels 25
+assert-scroll 25
+scroll-pixels -25
+assert-scroll 0
+
 # A notch over the pane moves the pane, and leaves the page where it was.
 wheel-at 200 160 -1
 assert-box-scroll 200 160 0 60

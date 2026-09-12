@@ -1,0 +1,20 @@
+# A display of two device px per CSS px: the chrome draws at twice its
+# metrics, a page lays out at twice its lengths in the same window, and a
+# script in the page sees CSS px. The window is 800 by 500 device px, so
+# the page has 400 CSS px across.
+resize 800 500
+scale 2
+open data:text/html,<title>Scaled</title><style>body{margin:8px;font:16px monospace}%23box{width:100px;height:40px;background:%23c33;color:%23fff}</style><h1 style="font-size:24px;margin:0">Two by two</h1><div id="box">box</div><p id="out">pending</p><script>document.getElementById('out').textContent=[innerWidth,devicePixelRatio,document.getElementById('box').getBoundingClientRect().width,matchMedia('(max-width: 400px)').matches].join(' ');</script>
+assert-title Scaled
+assert-text Two by two
+assert-text 400 2 100 true
+assert-golden goldens/hidpi.png
+
+# Back to a plain display: the page keeps what its script wrote, as it
+# would in a window carried to another screen; loaded again, it sees the
+# plain display and draws at its written sizes.
+scale 1
+assert-text 400 2 100 true
+reload
+assert-text 800 1 100 false
+assert-golden goldens/hidpi-plain.png

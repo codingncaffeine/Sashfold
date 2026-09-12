@@ -93,6 +93,10 @@ struct HostHooks {
 
     float viewport_width = 1024; // CSS px, for innerWidth and matchMedia
     float viewport_height = 768;
+    // Device px per CSS px: devicePixelRatio, and the scale matchMedia's
+    // context carries. Every box and position the hooks above answer with
+    // is in CSS px; the host divides its device px by this before answering.
+    float device_scale = 1;
     std::string user_agent; // navigator.userAgent
 };
 

@@ -91,6 +91,12 @@ struct Theme {
     static std::optional<Theme> load(std::string const& path,
         std::vector<std::string>* problems = nullptr);
 
+    // This theme for a display of `factor` device px per CSS px: every
+    // metric and type size multiplied (a border stays at least one px),
+    // colors, timings and the new-tab settings as they are. The shell
+    // keeps the theme as written and draws with the scaled one.
+    Theme scaled(float factor) const;
+
     friend bool operator==(Theme const&, Theme const&) = default;
 };
 

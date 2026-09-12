@@ -68,7 +68,7 @@ sashfold --bench page.html                  # time parse, style, layout, paint
 sashfold --script tests/shell/live.script   # drive the shell from a text file
 ```
 
-On Linux the window is a Wayland client of its own, spoken over the compositor's socket with no toolkit and no libwayland (the pledge); `bash tools/install-desktop-linux.sh --desktop` puts it in the applications menu with its icon, and on the desktop.
+On Linux the window is a Wayland client of its own, spoken over the compositor's socket with no toolkit and no libwayland (the pledge), it draws at the display's scale, fractions included, takes a touchscreen's taps and drags, composes with an input method at the caret, and draws its own frame where the compositor draws none; `bash tools/install-desktop-linux.sh --desktop` puts it in the applications menu with its icon, and on the desktop. On Windows the window is per-monitor DPI aware. Every headless mode takes `--scale <factor>` to render for a scaled display.
 
 Every mode and flag is on [Running Sashfold](https://github.com/codingncaffeine/Sashfold/wiki/Running-Sashfold); the window's colors and sizes come from `themes/default.json` ([Themes](https://github.com/codingncaffeine/Sashfold/wiki/Themes)).
 

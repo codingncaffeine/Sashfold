@@ -93,6 +93,7 @@ sashfold_test(test_bindings)
 add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.json)
+sashfold_test(test_touch)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The Wayland window's two halves that need no compositor: the wire
@@ -146,6 +147,15 @@ add_test(NAME shell_newtab_pictures
 add_test(NAME shell_blocking
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/blocking.script
     --blocklists ${CMAKE_CURRENT_SOURCE_DIR}/shell/blocklists
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_hidpi
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_ime
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/ime.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_decorations
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/decorations.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed

@@ -83,6 +83,9 @@ struct Fragment {
         bool focused = false;
         bool disabled = false;
         std::optional<float> caret_x; // the caret's page x, when focused and editable
+        // The page x range of an input method's composing text, shown in
+        // the control's own run and underlined by the painter.
+        std::optional<std::pair<float, float>> preedit_span;
     };
     std::optional<ControlBox> control;
 
@@ -154,6 +157,9 @@ struct LayoutResult {
     // so a pass that reads the styles' physical offsets against them — the
     // sticky pass — is only right before the turn.
     bool vertical = false;
+    // Device px per CSS px the page was laid out at: what the painter draws
+    // its own built-in shapes (a control's check mark, a caret) with.
+    float device_scale = 1;
     // The styles of the anonymous boxes layout made (a table around loose
     // cells, an inline-table in a line): fragments point at them, so they
     // live as long as the result does.
@@ -226,10 +232,13 @@ using BackgroundImages = std::unordered_map<std::string, std::shared_ptr<Bitmap 
 // `controls` is the live state of the page's form controls (values typed,
 // boxes checked, the focused one); without it the markup's defaults show.
 // `viewport_height` sizes the initial containing block for absolutely and
-// fixed positioned boxes; zero means the page's own height.
+// fixed positioned boxes; zero means the page's own height. Every length
+// is in device px; `device_scale` is how many of them a CSS px is, for the
+// few sizes layout owns itself (a control's edges, an embedded box with no
+// size of its own) — the styles arrive already scaled.
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
     float viewport_width, ImageMap const* images = nullptr,
-    ControlStates const* controls = nullptr, float viewport_height = 0);
+    ControlStates const* controls = nullptr, float viewport_height = 0, float device_scale = 1);
 
 
 // Faults in a finished fragment tree that no reference picture can show:

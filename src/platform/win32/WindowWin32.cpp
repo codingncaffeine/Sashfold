@@ -34,6 +34,7 @@ constexpr unsigned idc_arrow = 32512;
 constexpr unsigned idc_ibeam = 32513;
 constexpr unsigned idc_hand = 32649;
 constexpr DWORD rop_source_copy = 0x00CC0020;
+constexpr UINT wm_dpi_changed = 0x02E0; // WM_DPICHANGED: the high word of wparam is the new DPI
 
 std::wstring to_wide(std::string const& utf8)
 {
@@ -160,6 +161,7 @@ public:
 
     int width() const override { return m_width; }
     int height() const override { return m_height; }
+    float scale() const override { return m_scale; }
 
 private:
     WindowWin32() = default;
@@ -235,6 +237,23 @@ private:
             event.width = m_width;
             event.height = m_height;
             push(event);
+            return 0;
+        }
+        case wm_dpi_changed: {
+            // The window moved to a display of another scale: the system
+            // suggests the rectangle that keeps its size on screen; taking
+            // it brings the WM_SIZE with the new client size.
+            UINT const dpi = static_cast<UINT>(wparam) >> 16;
+            if (dpi > 0)
+                m_scale = static_cast<float>(dpi) / 96.0f;
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::Scale;
+            event.scale = m_scale;
+            push(event);
+            if (RECT const* const suggested = reinterpret_cast<RECT const*>(lparam)) {
+                SetWindowPos(m_hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                    suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
             return 0;
         }
         case WM_PAINT:
@@ -331,6 +350,7 @@ private:
     HWND m_hwnd = nullptr;
     int m_width = 0;
     int m_height = 0;
+    float m_scale = 1; // the display's DPI over 96
     std::deque<WindowEvent> m_events;
     std::vector<std::uint8_t> m_bgra;
     int m_frame_width = 0;
@@ -357,6 +377,25 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, int width, i
         registered = true;
     }
 
+    // Per-monitor DPI awareness, asked for through the user32 entry points
+    // that exist from Windows 10 1703 on (looked up by name so an older
+    // system still opens the window, at scale 1 and scaled by the system):
+    // the client sizes and every coordinate are then device pixels, and a
+    // move between displays brings a WM_DPICHANGED.
+    HMODULE const user32 = GetModuleHandleW(L"user32.dll");
+    using SetAwareness = BOOL(WINAPI*)(HANDLE);
+    using DpiForSystem = UINT(WINAPI*)();
+    using DpiForWindow = UINT(WINAPI*)(HWND);
+    auto const set_awareness = user32 ? reinterpret_cast<SetAwareness>(reinterpret_cast<void*>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"))) : nullptr;
+    auto const dpi_for_system = user32 ? reinterpret_cast<DpiForSystem>(reinterpret_cast<void*>(GetProcAddress(user32, "GetDpiForSystem"))) : nullptr;
+    auto const dpi_for_window = user32 ? reinterpret_cast<DpiForWindow>(reinterpret_cast<void*>(GetProcAddress(user32, "GetDpiForWindow"))) : nullptr;
+    if (set_awareness)
+        set_awareness(reinterpret_cast<HANDLE>(static_cast<std::intptr_t>(-4))); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    UINT const system_dpi = dpi_for_system ? dpi_for_system() : 96;
+    // The size asked for is in CSS px; the window opens at it on this display.
+    width = MulDiv(width, static_cast<int>(system_dpi), 96);
+    height = MulDiv(height, static_cast<int>(system_dpi), 96);
+
     RECT frame { 0, 0, width, height };
     DWORD const style = WS_OVERLAPPEDWINDOW;
     AdjustWindowRect(&frame, style, FALSE);
@@ -375,6 +414,11 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, int width, i
     if (!hwnd)
         return nullptr;
     window->m_hwnd = hwnd;
+    if (dpi_for_window) {
+        UINT const dpi = dpi_for_window(hwnd);
+        if (dpi > 0)
+            window->m_scale = static_cast<float>(dpi) / 96.0f;
+    }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window.get()));
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);

@@ -1,0 +1,39 @@
+# An input method's composing text: shown underlined at the caret of the
+# focused field — a page's control, the address bar, the find box — and
+# part of nothing until the method commits it as typed text. The window
+# tells the method where the caret is only while a field has focus.
+resize 800 500
+open data:text/html,<title>Composing</title><style>body{margin:8px;font:16px monospace}</style><p><input name="name" value="compos"> <input name="other"></p><p>Type here.</p>
+assert-text-input off
+
+# A control: the composing text joins what is shown, the value stays.
+focus name
+assert-text-input on
+key end
+preedit ing
+assert-value name compos
+assert-golden goldens/ime-control.png
+type e
+assert-value name compose
+assert-golden goldens/ime-control-typed.png
+
+# Focus moving to another control ends the composition.
+preedit xyz
+focus other
+assert-value other
+key tab
+assert-text-input on
+
+# The address bar (its selection replaced by what is typed first), and
+# then no field at all: the page's control keeps its focus past Escape,
+# so the caret is gone only once the page itself is clicked.
+key ctrl+l
+assert-text-input on
+type sash
+preedit fold
+assert-golden goldens/ime-address.png
+type fold
+key escape
+assert-text-input on
+click-text Type
+assert-text-input off

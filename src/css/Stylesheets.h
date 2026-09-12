@@ -41,8 +41,15 @@ using SheetFetcher = std::function<std::optional<FetchedSheet>(net::Url const&)>
 // What media queries are answered against: a screen of this size, with a
 // fine pointer that hovers, a light color scheme, and no scripting.
 struct MediaContext {
-    float width = 1024; // CSS px
+    // The viewport in the engine's px, which are device px: a CSS px is
+    // one of these over device_scale.
+    float width = 1024;
     float height = 768;
+    // Device px per CSS px. The engine lays out in device px, so every
+    // CSS length is multiplied by this as it is resolved — a query's
+    // lengths, a sizes attribute's and a style's alike — and a picture's
+    // own pixels count for one over it. 1 is the classic screen.
+    float device_scale = 1;
 };
 
 // Relative references resolve against `base` (the document's URL); with no

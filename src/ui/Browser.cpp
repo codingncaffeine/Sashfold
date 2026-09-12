@@ -443,11 +443,20 @@ struct Browser::Impl {
         FindBox,
         DevtoolsTree,
         DevtoolsStyles,
-        Content
+        Content,
+        Minimize,
+        Maximize,
+        WindowClose,
+        DragHandle,
     };
 
     Loader& loader;
-    Theme theme;
+    // The window's frame, when the shell draws it (see Browser::WindowRequest).
+    bool window_controls = false;
+    Browser::WindowRequest window_request = Browser::WindowRequest::None;
+    Theme theme; // the theme drawn with: base_theme scaled to the display
+    Theme base_theme; // the theme as written
+    float scale = 1; // device px per CSS px; the window's sizes and coordinates are device px
     std::string downloads_directory;
     int width;
     int height;
@@ -459,6 +468,10 @@ struct Browser::Impl {
     bool address_focus = false;
     bool select_all = false;
     std::size_t caret = 0;
+    // An input method's composing text in the shell's own fields (a
+    // control's lives in its tab's ControlStates), and which field it is in.
+    std::string preedit;
+    enum class PreeditOwner { None, Address, Find } preedit_owner = PreeditOwner::None;
 
     int mouse_x = -1;
     int mouse_y = -1;
@@ -511,6 +524,7 @@ struct Browser::Impl {
     Impl(Loader& the_loader, Theme the_theme, int the_width, int the_height)
         : loader(the_loader)
         , theme(std::move(the_theme))
+        , base_theme(theme)
         , width(std::max(the_width, 1))
         , height(std::max(the_height, 1))
         , frame(width, height, theme.chrome_background)
@@ -628,8 +642,19 @@ struct Browser::Impl {
                 std::max(0, width - tree_width - 2 * t.padding), panel - t.border_width };
         }
 
+        // The window's controls, when the shell draws the frame: three
+        // buttons at the strip's right end, which the tabs make room for.
+        int reserved = 0;
+        c.window_controls = window_controls;
+        if (window_controls) {
+            int const button_y = (t.tab_strip_height - t.button_size) / 2;
+            c.close_button = Rect { width - t.padding - t.button_size, button_y, t.button_size, t.button_size };
+            c.maximize_button = Rect { c.close_button.x - t.padding - t.button_size, button_y, t.button_size, t.button_size };
+            c.minimize_button = Rect { c.maximize_button.x - t.padding - t.button_size, button_y, t.button_size, t.button_size };
+            reserved = 3 * (t.button_size + t.padding);
+        }
         int const count = static_cast<int>(tabs.size());
-        int const available = width - 3 * t.padding - t.button_size;
+        int const available = width - 3 * t.padding - t.button_size - reserved;
         int tab_width = count > 0 ? (available - (count - 1) * t.tab_gap) / count : t.tab_max_width;
         tab_width = std::clamp(tab_width, t.tab_min_width, t.tab_max_width);
         int const tab_y = t.tab_strip_height - t.tab_height;
@@ -642,7 +667,7 @@ struct Browser::Impl {
                 tab.y + (tab.height - close_size) / 2, close_size, close_size });
             x += tab_width + t.tab_gap;
         }
-        int const new_tab_x = std::min(x + t.padding / 2, width - t.padding - t.button_size);
+        int const new_tab_x = std::min(x + t.padding / 2, width - t.padding - t.button_size - reserved);
         c.new_tab_button = Rect { new_tab_x, tab_y + (t.tab_height - t.button_size) / 2,
             t.button_size, t.button_size };
 
@@ -945,8 +970,12 @@ struct Browser::Impl {
     {
         ChromeLayout const c = layout_chrome();
         return css::MediaContext { static_cast<float>(std::max(1, c.content.width)),
-            static_cast<float>(std::max(1, c.content.height)) };
+            static_cast<float>(std::max(1, c.content.height)), scale };
     }
+
+    // Device px to the CSS px a page's script sees, and back.
+    float to_css_px(float device_px) const { return device_px / scale; }
+    int to_device_px(double css_px) const { return static_cast<int>(std::lround(css_px * static_cast<double>(scale))); }
 
     // Styles depend on the viewport through media queries: computed when a
     // page arrives and again when the content area changes size.
@@ -957,7 +986,7 @@ struct Browser::Impl {
         text::FontManager::instance().set_page_fonts(tab.fonts);
         css::MediaContext const media = media_context();
         if (!tab.style_set || tab.style_media.width != media.width
-            || tab.style_media.height != media.height) {
+            || tab.style_media.height != media.height || tab.style_media.device_scale != media.device_scale) {
             net::Url const* const page_url
                 = tab.index < tab.history.size() ? &tab.history[tab.index].final_url : nullptr;
             tab.style_set.emplace(tab.sheets, media, page_url);
@@ -976,7 +1005,7 @@ struct Browser::Impl {
         ChromeLayout const c = layout_chrome();
         tab.layout = layout::layout_document(*tab.document, tab.styles,
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
-            static_cast<float>(std::max(1, c.content.height)));
+            static_cast<float>(std::max(1, c.content.height)), scale);
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
         // A page laid out again is at every scrollport's origin: what the
         // reader had moved is put back on, held inside whatever the new
@@ -1097,7 +1126,14 @@ struct Browser::Impl {
             if (!owner)
                 return std::nullopt;
             ensure_fresh(*owner);
-            return bindings::find_element_box(owner->layout.root, element);
+            std::optional<bindings::LayoutBox> box = bindings::find_element_box(owner->layout.root, element);
+            if (box && scale != 1) {
+                box->x = static_cast<float>(to_css_px(box->x));
+                box->y = static_cast<float>(to_css_px(box->y));
+                box->width = static_cast<float>(to_css_px(box->width));
+                box->height = static_cast<float>(to_css_px(box->height));
+            }
+            return box;
         };
         hooks.computed_style = [this, document](dom::Element const& element) -> css::ComputedStyle const* {
             Tab* const owner = tab_of(document);
@@ -1114,12 +1150,12 @@ struct Browser::Impl {
         hooks.scroll_to = [this, document](int, int y) {
             if (Tab* const owner = tab_of(document)) {
                 ensure_fresh(*owner);
-                set_scroll(*owner, y);
+                set_scroll(*owner, to_device_px(y));
             }
         };
         hooks.scroll_position = [this, document]() -> std::pair<int, int> {
             Tab* const owner = tab_of(document);
-            return { 0, owner ? owner->scroll_y : 0 };
+            return { 0, owner ? static_cast<int>(std::lround(to_css_px(owner->scroll_y))) : 0 };
         };
         hooks.cookie_get = [this, page_url] { return loader.cookies_for(page_url); };
         hooks.cookie_set = [this, page_url](std::string_view line) { loader.set_cookie(page_url, line); };
@@ -1170,7 +1206,8 @@ struct Browser::Impl {
             auto const it = owner->images.find(&element);
             if (it == owner->images.end() || !it->second.bitmap)
                 return std::nullopt;
-            float const density = it->second.density > 0 ? it->second.density : 1.0f;
+            // The picture's density is per device px; naturalWidth is CSS px.
+            float const density = (it->second.density > 0 ? it->second.density : 1.0f) * scale;
             return std::pair<int, int> { static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->width()) / density)),
                 static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->height()) / density)) };
         };
@@ -1195,8 +1232,9 @@ struct Browser::Impl {
                 std::fprintf(stderr, "[page] %s\n", line.c_str());
         };
         css::MediaContext const media = media_context();
-        hooks.viewport_width = media.width;
-        hooks.viewport_height = media.height;
+        hooks.viewport_width = static_cast<float>(to_css_px(media.width));
+        hooks.viewport_height = static_cast<float>(to_css_px(media.height));
+        hooks.device_scale = scale;
         hooks.user_agent = std::string(net::user_agent());
         return std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
     }
@@ -2056,6 +2094,14 @@ struct Browser::Impl {
         if (next == Hover::None) {
             if (c.new_tab_button.contains(x, y))
                 next = Hover::NewTab;
+            else if (c.window_controls && c.close_button.contains(x, y))
+                next = Hover::WindowClose;
+            else if (c.window_controls && c.maximize_button.contains(x, y))
+                next = Hover::Maximize;
+            else if (c.window_controls && c.minimize_button.contains(x, y))
+                next = Hover::Minimize;
+            else if (c.window_controls && c.tab_strip.contains(x, y))
+                next = Hover::DragHandle; // the strip's empty part moves the window
             else if (c.back_button.contains(x, y))
                 next = Hover::Back;
             else if (c.forward_button.contains(x, y))
@@ -3289,10 +3335,22 @@ struct Browser::Impl {
     {
         update_hover(x, y);
         if (button == 1) {
+            // The frame the shell draws: a press in the band along the
+            // window's edges resizes it, before anything under the band.
+            if (window_controls) {
+                if (Browser::WindowRequest const edge = resize_edge_at(x, y); edge != Browser::WindowRequest::None) {
+                    window_request = edge;
+                    return;
+                }
+            }
             switch (hover) {
             case Hover::TabClose: close_tab(hover_index); break;
             case Hover::Tab: select_tab(hover_index); break;
             case Hover::NewTab: new_tab(); break;
+            case Hover::Minimize: window_request = Browser::WindowRequest::Minimize; break;
+            case Hover::Maximize: window_request = Browser::WindowRequest::ToggleMaximize; break;
+            case Hover::WindowClose: window_request = Browser::WindowRequest::Close; break;
+            case Hover::DragHandle: window_request = Browser::WindowRequest::Move; break;
             case Hover::Back: go(-1); break;
             case Hover::Forward: go(+1); break;
             case Hover::Reload: reload(); break;
@@ -3340,8 +3398,8 @@ struct Browser::Impl {
                     if (dom::Element const* const target = element_under(*tab, x, y)) {
                         ChromeLayout const chrome = layout_chrome();
                         bindings::MouseInit init;
-                        init.client_x = x - chrome.content.x;
-                        init.client_y = y - chrome.content.y;
+                        init.client_x = static_cast<int>(std::lround(to_css_px(x - chrome.content.x)));
+                        init.client_y = static_cast<int>(std::lround(to_css_px(y - chrome.content.y)));
                         dom::Element& element = const_cast<dom::Element&>(*target);
                         script_started = std::chrono::steady_clock::now();
                         tab->realm->dispatch_mouse_event(element, "mousedown", init);
@@ -3416,7 +3474,16 @@ struct Browser::Impl {
     // moves from here.
     void wheel_at(int x, int y, int notches)
     {
-        int const delta = -notches * theme.scroll_step;
+        scroll_pixels_at(x, y, -notches * theme.scroll_step);
+    }
+
+    // The content under the point moves by `delta` device px, positive
+    // bringing what is below into view: the scrolling box under the point
+    // takes what it can, else the page.
+    void scroll_pixels_at(int x, int y, int delta)
+    {
+        if (delta == 0)
+            return;
         Tab* const tab = active_tab();
         std::optional<std::pair<float, float>> const point = page_point(x, y);
         if (tab && point) {
@@ -3436,6 +3503,7 @@ struct Browser::Impl {
 
     void key_down(KeyEvent const& key)
     {
+        clear_preedit();
         if (hints_active) {
             hint_key(key);
             return;
@@ -3607,10 +3675,133 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // --- An input method's composing text -------------------------------------
+
+    // Shown at the focused field's caret, underlined, and part of nothing
+    // until the method commits it as text; empty clears it.
+    void set_preedit(std::string const& text)
+    {
+        if (find_focus) {
+            preedit = text;
+            preedit_owner = PreeditOwner::Find;
+        } else if (address_focus) {
+            preedit = text;
+            preedit_owner = PreeditOwner::Address;
+        } else if (Tab* const tab = tab_with_focused_control()) {
+            if (tab->controls.preedit == text && tab->controls.preedit_owner == tab->controls.focused)
+                return;
+            tab->controls.preedit = text;
+            tab->controls.preedit_owner = tab->controls.focused;
+            relayout(*tab);
+        } else {
+            return;
+        }
+        dirty = true;
+    }
+
+    // Text or a key arrived, or focus moved: whatever was composing is over
+    // (a method commits what it composed before anything else is typed).
+    void clear_preedit()
+    {
+        if (!preedit.empty()) {
+            preedit.clear();
+            dirty = true;
+        }
+        preedit_owner = PreeditOwner::None;
+        for (Tab& tab : tabs) {
+            if (!tab.controls.preedit.empty() || tab.controls.preedit_owner) {
+                tab.controls.preedit.clear();
+                tab.controls.preedit_owner = nullptr;
+                relayout(tab);
+                dirty = true;
+            }
+        }
+    }
+
+    // The band along the window's edges that resizes it, when the shell
+    // draws the frame: which edge or corner a point is in, or none.
+    Browser::WindowRequest resize_edge_at(int x, int y) const
+    {
+        using Request = Browser::WindowRequest;
+        int const band = std::max(4, static_cast<int>(std::lround(6 * scale)));
+        bool const left = x < band;
+        bool const right = x >= width - band;
+        bool const top = y < band;
+        bool const bottom = y >= height - band;
+        if (top && left)
+            return Request::ResizeTopLeft;
+        if (top && right)
+            return Request::ResizeTopRight;
+        if (bottom && left)
+            return Request::ResizeBottomLeft;
+        if (bottom && right)
+            return Request::ResizeBottomRight;
+        if (top)
+            return Request::ResizeTop;
+        if (bottom)
+            return Request::ResizeBottom;
+        if (left)
+            return Request::ResizeLeft;
+        if (right)
+            return Request::ResizeRight;
+        return Request::None;
+    }
+
+    // Composing text belongs to the field that had focus when it was set:
+    // once focus has moved on, it is over.
+    void drop_stale_preedit()
+    {
+        bool const stale = (preedit_owner == PreeditOwner::Address && !address_focus)
+            || (preedit_owner == PreeditOwner::Find && !find_focus);
+        if (stale) {
+            preedit.clear();
+            preedit_owner = PreeditOwner::None;
+            dirty = true;
+        }
+        for (Tab& tab : tabs) {
+            if (tab.controls.preedit_owner && tab.controls.preedit_owner != tab.controls.focused) {
+                tab.controls.preedit.clear();
+                tab.controls.preedit_owner = nullptr;
+                relayout(tab);
+                dirty = true;
+            }
+        }
+    }
+
+    // The caret's box of the focused field, window coordinates: where an
+    // input method composes.
+    std::optional<Rect> text_input_area()
+    {
+        drop_stale_preedit();
+        ChromeLayout const c = layout_chrome();
+        Theme const& t = theme;
+        auto const caret_in = [&](Rect const& box, int text_left, std::string const& text, std::size_t at) {
+            Rect const inner { box.x + t.border_width, box.y + t.border_width, box.width - 2 * t.border_width,
+                box.height - 2 * t.border_width };
+            std::size_t const index = decode_utf8(text.substr(0, std::min(at, text.size()))).size();
+            int const x = text_left + static_cast<int>(static_cast<float>(index) * text::SashfoldMono::advance(t.font_size) + 0.5f);
+            return Rect { std::min(x, inner.right()), inner.y, 1, std::max(1, inner.height) };
+        };
+        if (find_focus && find_open)
+            return caret_in(c.find_box, c.find_box.x + t.border_width + t.padding, find_query, find_caret);
+        if (address_focus)
+            return caret_in(c.address, c.address.x + t.border_width + t.padding + 2, address, caret);
+        Tab* const tab = tab_with_focused_control();
+        if (!tab)
+            return std::nullopt;
+        layout::Fragment const* const box = fragment_for(tab->layout.root, tab->controls.focused);
+        if (!box || !box->control || !box->control->caret_x)
+            return std::nullopt;
+        return Rect { c.content.x + static_cast<int>(std::lround(*box->control->caret_x)),
+            c.content.y + static_cast<int>(std::lround(box->control->y)) - tab->scroll_y, 1,
+            std::max(1, static_cast<int>(std::lround(box->control->height))) };
+    }
+
     void text_input(char32_t code_point)
     {
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
+        clear_preedit();
         if (find_focus) {
             type_into_find(code_point);
             return;
@@ -3653,6 +3844,7 @@ struct Browser::Impl {
 
     void paint()
     {
+        drop_stale_preedit();
         Theme const& t = theme;
         ChromeLayout const c = layout_chrome();
         Tab const* const tab = active_tab();
@@ -3696,6 +3888,28 @@ struct Browser::Impl {
         if (hover == Hover::NewTab)
             frame.fill_round_rect(c.new_tab_button, t.button_corner_radius, t.button_hover_background);
         draw_glyph_centered(frame, glyph_plus, c.new_tab_button, t.font_size * 1.15f, t.chrome_text);
+        if (c.window_controls) {
+            // The window's own controls: a line, a square, a cross.
+            int const stroke = std::max(1, t.border_width);
+            auto const button = [&](Rect const& rect, Hover which) {
+                if (hover == which)
+                    frame.fill_round_rect(rect, t.button_corner_radius, t.button_hover_background);
+            };
+            button(c.minimize_button, Hover::Minimize);
+            frame.fill_rect(Rect { c.minimize_button.x + c.minimize_button.width / 4,
+                               c.minimize_button.y + c.minimize_button.height / 2, c.minimize_button.width / 2, stroke },
+                t.chrome_text);
+            button(c.maximize_button, Hover::Maximize);
+            Rect const square { c.maximize_button.x + c.maximize_button.width / 4,
+                c.maximize_button.y + c.maximize_button.height / 4, c.maximize_button.width / 2,
+                c.maximize_button.height / 2 };
+            frame.fill_rect(Rect { square.x, square.y, square.width, stroke }, t.chrome_text);
+            frame.fill_rect(Rect { square.x, square.bottom() - stroke, square.width, stroke }, t.chrome_text);
+            frame.fill_rect(Rect { square.x, square.y, stroke, square.height }, t.chrome_text);
+            frame.fill_rect(Rect { square.right() - stroke, square.y, stroke, square.height }, t.chrome_text);
+            button(c.close_button, Hover::WindowClose);
+            draw_glyph_centered(frame, glyph_close, c.close_button, t.font_size * 1.15f, t.chrome_text);
+        }
 
         // Toolbar.
         frame.fill_rect(c.toolbar, t.tab_active_background);
@@ -3725,18 +3939,28 @@ struct Browser::Impl {
             inner.height };
         if (!text_area.is_empty()) {
             Bitmap strip(text_area.width, text_area.height, t.address_background);
-            std::u32string const text = decode_utf8(address);
+            // The composing text of an input method sits at the caret,
+            // underlined, and the caret stands after it.
+            std::u32string const composing
+                = address_focus && preedit_owner == PreeditOwner::Address ? decode_utf8(preedit) : std::u32string();
+            std::size_t const caret_index = decode_utf8(address.substr(0, caret)).size();
+            std::u32string text = decode_utf8(address);
+            text.insert(std::min(caret_index, text.size()), composing);
             Rect const local { 0, 0, text_area.width, text_area.height };
             float const baseline = centered_baseline(local, t.font_size);
+            float const advance = text::SashfoldMono::advance(t.font_size);
             if (address_focus && select_all && !text.empty())
                 strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(text, t.font_size) + 0.5f),
                                     text_area.height - 4 },
                     t.selection);
             draw_text(strip, text, 0, baseline, t.font_size, t.address_text);
+            if (!composing.empty()) {
+                int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
+                int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
+                strip.fill_rect(Rect { from, text_area.height - 6, to - from, 1 }, t.address_text);
+            }
             if (address_focus) {
-                std::size_t const index = decode_utf8(address.substr(0, caret)).size();
-                int const caret_x = static_cast<int>(
-                    static_cast<float>(index) * text::SashfoldMono::advance(t.font_size) + 0.5f);
+                int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
                 strip.fill_rect(Rect { caret_x, 4, 1, text_area.height - 8 }, t.accent);
             }
             frame.blit(strip, text_area.x, text_area.y);
@@ -3757,19 +3981,27 @@ struct Browser::Impl {
                 std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
             if (!box_text.is_empty()) {
                 Bitmap strip(box_text.width, box_text.height, t.address_background);
-                std::u32string const query = decode_utf8(find_query);
+                std::u32string const composing
+                    = find_focus && preedit_owner == PreeditOwner::Find ? decode_utf8(preedit) : std::u32string();
+                std::size_t const caret_index = decode_utf8(find_query.substr(0, find_caret)).size();
+                std::u32string query = decode_utf8(find_query);
+                query.insert(std::min(caret_index, query.size()), composing);
                 Rect const local { 0, 0, box_text.width, box_text.height };
                 float const baseline = centered_baseline(local, t.font_size);
+                float const advance = text::SashfoldMono::advance(t.font_size);
                 if (find_focus && find_select_all && !query.empty())
                     strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f),
                                         box_text.height - 4 },
                         t.selection);
                 draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0,
                     baseline, t.font_size, t.address_text);
+                if (!composing.empty()) {
+                    int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
+                    int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
+                    strip.fill_rect(Rect { from, box_text.height - 6, to - from, 1 }, t.address_text);
+                }
                 if (find_focus) {
-                    std::size_t const index = decode_utf8(find_query.substr(0, find_caret)).size();
-                    int const caret_x = static_cast<int>(
-                        static_cast<float>(index) * text::SashfoldMono::advance(t.font_size) + 0.5f);
+                    int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
                     strip.fill_rect(Rect { caret_x, 4, 1, box_text.height - 8 }, t.accent);
                 }
                 frame.blit(strip, box_text.x, box_text.y);
@@ -3961,7 +4193,8 @@ Browser::~Browser() = default;
 
 void Browser::set_theme(Theme theme)
 {
-    m_impl->theme = std::move(theme);
+    m_impl->base_theme = std::move(theme);
+    m_impl->theme = m_impl->base_theme.scaled(m_impl->scale);
     for (Impl::Tab& tab : m_impl->tabs)
         m_impl->relayout(tab);
     m_impl->refresh_hover();
@@ -3969,6 +4202,24 @@ void Browser::set_theme(Theme theme)
 }
 
 Theme const& Browser::theme() const { return m_impl->theme; }
+
+void Browser::set_scale(float scale)
+{
+    float const clamped = std::clamp(scale, 0.5f, 8.0f);
+    if (!(scale > 0) || clamped == m_impl->scale)
+        return;
+    m_impl->scale = clamped;
+    m_impl->theme = m_impl->base_theme.scaled(clamped);
+    m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
+    for (Impl::Tab& tab : m_impl->tabs) {
+        m_impl->restyle(tab);
+        m_impl->relayout(tab);
+    }
+    m_impl->refresh_hover();
+    m_impl->dirty = true;
+}
+
+float Browser::scale() const { return m_impl->scale; }
 
 void Browser::set_downloads_directory(std::string directory)
 {
@@ -4003,8 +4254,37 @@ void Browser::wheel(int x, int y, int notches)
     m_impl->refresh_hover();
 }
 
+void Browser::scroll_pixels(int x, int y, int dx, int dy)
+{
+    static_cast<void>(dx); // the page scrolls vertically only, as the wheel does
+    m_impl->update_hover(x, y);
+    if (m_impl->layout_chrome().content.contains(x, y))
+        m_impl->scroll_pixels_at(x, y, dy);
+    m_impl->refresh_hover();
+}
+
 void Browser::key_down(platform::KeyEvent const& key) { m_impl->key_down(key); }
 void Browser::text_input(char32_t code_point) { m_impl->text_input(code_point); }
+void Browser::preedit(std::string const& text) { m_impl->set_preedit(text); }
+std::optional<Rect> Browser::text_input_area() const { return m_impl->text_input_area(); }
+
+void Browser::set_window_controls(bool shown)
+{
+    if (m_impl->window_controls == shown)
+        return;
+    m_impl->window_controls = shown;
+    m_impl->refresh_hover();
+    m_impl->dirty = true;
+}
+
+bool Browser::window_controls() const { return m_impl->window_controls; }
+
+Browser::WindowRequest Browser::take_window_request()
+{
+    WindowRequest const request = m_impl->window_request;
+    m_impl->window_request = WindowRequest::None;
+    return request;
+}
 
 void Browser::navigate(std::string const& typed) { m_impl->navigate(typed); }
 void Browser::open(net::Url const& url) { m_impl->open(url); }

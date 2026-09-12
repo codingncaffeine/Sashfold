@@ -1,0 +1,48 @@
+# The frame the shell draws where the compositor draws none: minimize,
+# maximize and close at the tab strip's right end, the strip's empty part as
+# the handle that moves the window, and the band along the edges that
+# resizes it. The window is 800 by 500; the buttons are 28 wide with 6 of
+# padding, so close spans x 766 to 794, maximize 732 to 760, minimize 698 to
+# 726, all at y 4 to 32.
+resize 800 500
+open data:text/html,<title>Framed</title><p>A page under a frame of the shell's own.</p>
+assert-window-request none
+window-controls on
+assert-golden goldens/decorations.png
+
+click 780 18
+assert-window-request close
+click 746 18
+assert-window-request maximize
+click 712 18
+assert-window-request minimize
+
+# The strip beside the tabs moves the window; a tab is still a tab.
+click 500 18
+assert-window-request move
+assert-tabs 1
+click 100 18
+assert-window-request none
+assert-tabs 1
+
+# The edges and corners.
+click 799 250
+assert-window-request resize-right
+click 400 499
+assert-window-request resize-bottom
+click 2 250
+assert-window-request resize-left
+click 400 1
+assert-window-request resize-top
+click 798 498
+assert-window-request resize-bottom-right
+click 1 1
+assert-window-request resize-top-left
+
+# Without the frame the same presses are the page's and the strip's.
+window-controls off
+click 780 18
+assert-window-request none
+click 799 250
+assert-window-request none
+assert-golden goldens/decorations-off.png

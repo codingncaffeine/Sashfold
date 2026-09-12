@@ -797,6 +797,24 @@ void test_layout_and_style_hooks()
     CHECK(page.boolean("scrollY === 30 && pageYOffset === 30 && scrollX === 0"));
     CHECK(page.boolean("(function () { var r = document.getElementById('p').getBoundingClientRect(); return JSON.stringify(r.toJSON()).indexOf('\"width\":300') > 0; })()"));
     CHECK_EQ(page.console, "");
+
+    // A display of two device px per CSS px: the host answers in CSS px
+    // already, the page sees the ratio, and matchMedia judges in CSS px.
+    bindings::HostHooks scaled_hooks;
+    scaled_hooks.device_scale = 2;
+    scaled_hooks.viewport_width = 512;
+    scaled_hooks.viewport_height = 384;
+    scaled_hooks.layout_box = [](dom::Element const& element) -> std::optional<bindings::LayoutBox> {
+        if (element.is_html("p"))
+            return bindings::LayoutBox { 4, 20, 150, 10 };
+        return std::nullopt;
+    };
+    Page scaled("<!DOCTYPE html><body><p id=p>text</p></body>", "https://example.test/", std::move(scaled_hooks));
+    scaled.load();
+    CHECK(scaled.boolean("devicePixelRatio === 2 && innerWidth === 512 && innerHeight === 384 && screen.width === 512"));
+    CHECK(scaled.boolean("matchMedia('(max-width: 512px)').matches && !matchMedia('(min-width: 513px)').matches && matchMedia('(min-resolution: 2dppx)').matches"));
+    CHECK_EQ(scaled.string("(function () { var r = document.getElementById('p').getBoundingClientRect(); return [r.x, r.y, r.width, r.height].join(); })()"), "4,20,150,10");
+    CHECK_EQ(scaled.console, "");
 }
 
 void test_form_controls_without_a_host()
