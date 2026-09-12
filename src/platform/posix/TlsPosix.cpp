@@ -7,6 +7,7 @@
 #include "platform/Random.h"
 
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -27,6 +28,26 @@ bool insecure_requested()
 {
     char const* const value = std::getenv("SASHFOLD_TLS_INSECURE");
     return value != nullptr && value[0] == '1';
+}
+
+// A suite named in the environment narrows what the hello offers to that one
+// alone, so either record protection can be driven end to end against a real
+// server rather than only in a test.
+void apply_suite_request(tls::TlsConfig& config)
+{
+    char const* const value = std::getenv("SASHFOLD_TLS_SUITE");
+    if (value == nullptr || value[0] == '\0')
+        return;
+    std::string const name(value);
+    if (name == "aes128gcm" || name == "TLS_AES_128_GCM_SHA256")
+        config.cipher_suites = { tls::CipherSuite::Aes128GcmSha256 };
+    else if (name == "chacha20" || name == "TLS_CHACHA20_POLY1305_SHA256")
+        config.cipher_suites = { tls::CipherSuite::ChaCha20Poly1305Sha256 };
+    else {
+        std::fprintf(stderr, "sashfold: SASHFOLD_TLS_SUITE names no suite this client has (%s)\n", value);
+        return;
+    }
+    std::fprintf(stderr, "sashfold: offering only %s\n", tls::cipher_suite_name(config.cipher_suites.front()));
 }
 
 }
@@ -107,6 +128,7 @@ std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const&
     fill_random(config.private_key);
     fill_random(config.client_random);
     fill_random(config.session_id);
+    apply_suite_request(config);
 
     bool const insecure = insecure_requested();
     std::string const host_copy = host;

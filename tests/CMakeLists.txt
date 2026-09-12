@@ -215,3 +215,17 @@ add_test(NAME test_x509 COMMAND test_x509 ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/x
 add_executable(test_validate test_validate.cpp)
 target_link_libraries(test_validate PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_validate COMMAND test_validate ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/x509)
+
+# A whole TLS 1.3 handshake against the openssl command's own server on the
+# loopback interface, when the configure step finds an openssl: a development
+# tool, never linked, and the test SKIPs its live half without one. The
+# crafted retry-request cases in the same file run everywhere.
+add_executable(test_tls_handshake test_tls_handshake.cpp)
+target_link_libraries(test_tls_handshake PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+find_program(SASHFOLD_OPENSSL openssl)
+if(SASHFOLD_OPENSSL)
+  add_test(NAME test_tls_handshake COMMAND test_tls_handshake ${SASHFOLD_OPENSSL})
+else()
+  add_test(NAME test_tls_handshake COMMAND test_tls_handshake)
+endif()
+set_tests_properties(test_tls_handshake PROPERTIES TIMEOUT 300)

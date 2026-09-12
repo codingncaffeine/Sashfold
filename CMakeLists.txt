@@ -52,6 +52,8 @@ add_library(sashfold_core STATIC
   src/core/Png.cpp
   src/core/RoundRect.cpp
   src/core/Unicode.cpp
+  src/crypto/Aes.cpp
+  src/crypto/AesGcm.cpp
   src/crypto/BigInt.cpp
   src/crypto/ChaCha20Poly1305.cpp
   src/crypto/Ec.cpp

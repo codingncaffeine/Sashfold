@@ -1,10 +1,13 @@
 // The primitives under src/crypto against the vectors their standards
 // publish: FIPS 180-4 (SHA-2), RFC 4231 (HMAC), RFC 5869 (HKDF), RFC 8439
-// (ChaCha20-Poly1305), RFC 7748 (X25519), RFC 6979 (ECDSA), RFC 8017
-// (RSA, with a key and signatures made by OpenSSL). A vector that fails
-// is a wrong implementation, never a wrong vector.
+// (ChaCha20-Poly1305), FIPS 197 and SP 800-38A/38D (AES-128 and AES-128-GCM),
+// RFC 7748 (X25519), RFC 6979 (ECDSA), RFC 8017 (RSA, with a key and
+// signatures made by OpenSSL). A vector that fails is a wrong
+// implementation, never a wrong vector.
 #include "Test.h"
 
+#include "crypto/Aes.h"
+#include "crypto/AesGcm.h"
 #include "crypto/BigInt.h"
 #include "crypto/ChaCha20Poly1305.h"
 #include "crypto/Ec.h"
@@ -327,12 +330,139 @@ void test_ecdsa()
 }
 
 
+// AES-128 (FIPS 197) and AES-128-GCM (SP 800-38D), the record protection of
+// TLS_AES_128_GCM_SHA256: the block cipher's known answers first, then the
+// mode's own test cases — an empty message, whole blocks, a partial final
+// block with additional data — and the shape the TLS record layer uses.
+void test_aes_gcm()
+{
+    auto encrypt_block = [](std::string_view key_hex, std::string_view plaintext_hex) {
+        std::vector<std::uint8_t> const key_bytes = from_hex(key_hex);
+        std::vector<std::uint8_t> const plaintext_bytes = from_hex(plaintext_hex);
+        crypto::AesKey key {};
+        crypto::AesBlock block {};
+        std::copy(key_bytes.begin(), key_bytes.end(), key.begin());
+        std::copy(plaintext_bytes.begin(), plaintext_bytes.end(), block.begin());
+        crypto::Aes128 const aes(key);
+        return hex(aes.encrypt(block));
+    };
+    // FIPS 197 §C.1, then the four AES-128 blocks of SP 800-38A §F.1.1.
+    CHECK_EQ(encrypt_block("000102030405060708090a0b0c0d0e0f", "00112233445566778899aabbccddeeff"),
+        "69c4e0d86a7b0430d8cdb78070b4c55a");
+    CHECK_EQ(encrypt_block("2b7e151628aed2a6abf7158809cf4f3c", "6bc1bee22e409f96e93d7e117393172a"),
+        "3ad77bb40d7a3660a89ecaf32466ef97");
+    CHECK_EQ(encrypt_block("2b7e151628aed2a6abf7158809cf4f3c", "ae2d8a571e03ac9c9eb76fac45af8e51"),
+        "f5d3d58503b9699de785895a96fdbaaf");
+    CHECK_EQ(encrypt_block("2b7e151628aed2a6abf7158809cf4f3c", "30c81c46a35ce411e5fbc1191a0a52ef"),
+        "43b1cd7f598ece23881b00e3ed030688");
+    CHECK_EQ(encrypt_block("2b7e151628aed2a6abf7158809cf4f3c", "f69f2445df4f9b17ad2b417be66c3710"),
+        "7b0c785e27e8ad3f8223207104725dd4");
+
+    struct GcmCase {
+        char const* key;
+        char const* nonce;
+        char const* aad;
+        char const* plaintext;
+        char const* ciphertext;
+        char const* tag;
+    };
+    GcmCase const cases[] = {
+        { "00000000000000000000000000000000", "000000000000000000000000", "", "", "",
+            "58e2fccefa7e3061367f1d57a4e7455a" },
+        { "00000000000000000000000000000000", "000000000000000000000000", "",
+            "00000000000000000000000000000000", "0388dace60b6a392f328c2b971b2fe78",
+            "ab6e47d42cec13bdf53a67b21257bddf" },
+        { "feffe9928665731c6d6a8f9467308308", "cafebabefacedbaddecaf888", "",
+            "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a72"
+            "1c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255",
+            "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e"
+            "21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985",
+            "4d5c2af327cd64a62cf35abd2ba6fab4" },
+        { "feffe9928665731c6d6a8f9467308308", "cafebabefacedbaddecaf888",
+            "feedfacedeadbeeffeedfacedeadbeefabaddad2",
+            "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a72"
+            "1c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39",
+            "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e"
+            "21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091",
+            "5bc94fbc3221a5db94fae95ae7121a47" },
+        // A record the TLS layer's shape: the 5-byte header as additional
+        // data over a short body.
+        { "000102030405060708090a0b0c0d0e0f", "0c0b0a090807060504030201", "1703030021",
+            "48656c6c6f2c20544c5321", "2e5e020b1e1cd60768432b",
+            "50584895ee2bc99255a11b9957c2c076" },
+    };
+    for (GcmCase const& test_case : cases) {
+        std::vector<std::uint8_t> const key_bytes = from_hex(test_case.key);
+        std::vector<std::uint8_t> const nonce_bytes = from_hex(test_case.nonce);
+        crypto::AesKey key {};
+        crypto::GcmNonce nonce {};
+        std::copy(key_bytes.begin(), key_bytes.end(), key.begin());
+        std::copy(nonce_bytes.begin(), nonce_bytes.end(), nonce.begin());
+        std::vector<std::uint8_t> const aad = from_hex(test_case.aad);
+        std::vector<std::uint8_t> const plaintext = from_hex(test_case.plaintext);
+        std::vector<std::uint8_t> ciphertext(plaintext.size(), 0);
+        crypto::GcmTag const tag = crypto::aes128_gcm_seal(key, nonce, aad, plaintext, ciphertext);
+        CHECK_EQ(hex(ciphertext), std::string(test_case.ciphertext));
+        CHECK_EQ(hex(tag), std::string(test_case.tag));
+
+        std::vector<std::uint8_t> opened(ciphertext.size(), 0xaa);
+        CHECK(crypto::aes128_gcm_open(key, nonce, aad, ciphertext, tag, opened));
+        CHECK_EQ(hex(opened), std::string(test_case.plaintext));
+
+        // A flipped bit anywhere the tag covers is refused, and a refused
+        // record leaves the caller's buffer exactly as it was.
+        std::vector<std::uint8_t> const untouched(ciphertext.size(), 0xaa);
+        std::vector<std::uint8_t> scratch = untouched;
+        crypto::GcmTag wrong_tag = tag;
+        wrong_tag[0] = static_cast<std::uint8_t>(wrong_tag[0] ^ 1);
+        CHECK(!crypto::aes128_gcm_open(key, nonce, aad, ciphertext, wrong_tag, scratch));
+        crypto::AesKey wrong_key = key;
+        wrong_key[0] = static_cast<std::uint8_t>(wrong_key[0] ^ 1);
+        CHECK(!crypto::aes128_gcm_open(wrong_key, nonce, aad, ciphertext, tag, scratch));
+        crypto::GcmNonce wrong_nonce = nonce;
+        wrong_nonce[11] = static_cast<std::uint8_t>(wrong_nonce[11] ^ 1);
+        CHECK(!crypto::aes128_gcm_open(key, wrong_nonce, aad, ciphertext, tag, scratch));
+        if (!aad.empty()) {
+            std::vector<std::uint8_t> wrong_aad = aad;
+            wrong_aad[0] = static_cast<std::uint8_t>(wrong_aad[0] ^ 1);
+            CHECK(!crypto::aes128_gcm_open(key, nonce, wrong_aad, ciphertext, tag, scratch));
+        }
+        if (!ciphertext.empty()) {
+            std::vector<std::uint8_t> wrong_ciphertext = ciphertext;
+            wrong_ciphertext[0] = static_cast<std::uint8_t>(wrong_ciphertext[0] ^ 1);
+            CHECK(!crypto::aes128_gcm_open(key, nonce, aad, wrong_ciphertext, tag, scratch));
+        }
+        CHECK_EQ(hex(scratch), hex(untouched));
+    }
+
+    // Every length a final block can have, sealed and opened in one buffer:
+    // the record layer hands the same memory to both directions.
+    crypto::AesKey key {};
+    crypto::GcmNonce nonce {};
+    for (std::size_t i = 0; i < key.size(); ++i)
+        key[i] = static_cast<std::uint8_t>(0x40 + i);
+    for (std::size_t i = 0; i < nonce.size(); ++i)
+        nonce[i] = static_cast<std::uint8_t>(0x90 + i);
+    std::vector<std::uint8_t> const aad = from_hex("1703030013");
+    for (std::size_t length = 0; length <= 33; ++length) {
+        std::vector<std::uint8_t> original(length, 0);
+        for (std::size_t i = 0; i < length; ++i)
+            original[i] = static_cast<std::uint8_t>(7 * length + i);
+        std::vector<std::uint8_t> buffer = original;
+        crypto::GcmTag const tag = crypto::aes128_gcm_seal(key, nonce, aad, buffer, buffer);
+        CHECK(length == 0 || hex(buffer) != hex(original)); // it really did encrypt
+        CHECK(crypto::aes128_gcm_open(key, nonce, aad, buffer, tag, buffer));
+        CHECK_EQ(hex(buffer), hex(original));
+    }
+}
+
 int main()
 {
     test_sha2();
     test_hmac();
     test_hkdf();
     test_chacha20_poly1305();
+    test_aes_gcm();
     test_x25519();
     test_bigint();
     test_rsa();

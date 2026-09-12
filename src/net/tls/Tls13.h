@@ -3,9 +3,10 @@
 // moves bytes between it and a socket and hands it what it needs from the
 // world — the ephemeral key, the client random, the verdict on the
 // server's chain — so a transcript with a known key reproduces byte for
-// byte (RFC 8448 §3 is the test). One cipher suite,
-// TLS_CHACHA20_POLY1305_SHA256; one group, x25519; no resumption, no
-// early data, no client certificates (an empty one answers a request).
+// byte. Two cipher suites, TLS_CHACHA20_POLY1305_SHA256 and
+// TLS_AES_128_GCM_SHA256; one group, x25519; no resumption, no early
+// data, no client certificates (an empty one answers a request). A server
+// that will not take the key share offered asks for another hello (§4.1.4).
 // The engine checks the CertificateVerify signature under the leaf's key
 // and the Finished MAC itself; whether the chain is trusted is the
 // verdict of the callback the caller installs (the validator's, or the
@@ -36,6 +37,15 @@ enum class TlsState : std::uint8_t {
     Failed,
 };
 
+// The suites a record can be protected with (§B.4). Both key the schedule
+// with SHA-256, so the transcript hash does not turn on the choice.
+enum class CipherSuite : std::uint16_t {
+    Aes128GcmSha256 = 0x1301,
+    ChaCha20Poly1305Sha256 = 0x1303,
+};
+
+char const* cipher_suite_name(CipherSuite suite);
+
 struct TlsConfig {
     std::string server_name; // the SNI host; empty for an IP literal, which sends none
     crypto::X25519Key private_key {}; // the ephemeral scalar: platform::fill_random, or a test's
@@ -49,6 +59,15 @@ struct TlsConfig {
     // it holds the leaf's key; false fails the handshake with an alert and
     // the reason lands in error().
     std::function<bool(std::vector<Certificate> const& chain, std::string& reason)> verify_chain;
+    // The suites to offer, in the order the server reads them; empty means
+    // both, ChaCha20-Poly1305 first — the AES beside it is software, so on a
+    // machine with no instructions for AES it is the slower of the two.
+    std::vector<CipherSuite> cipher_suites;
+    // §4.2.8: a ClientHello may carry no key share at all, which asks the
+    // server to name the group it wants in a HelloRetryRequest. It costs a
+    // round trip; with one group implemented it is also the only hello a
+    // server can legally ask us to retry.
+    bool empty_key_share = false;
 };
 
 // What one call produced: bytes for the socket and plaintext for the caller.
@@ -93,6 +112,8 @@ public:
     std::string const& error() const;
     std::vector<Certificate> const& peer_chain() const;
     std::string const& alpn() const; // the protocol the server chose, or empty
+    CipherSuite cipher_suite() const; // the suite the server chose
+    int hello_retry_requests() const; // the retries the server asked for; a second is fatal
     TlsSecrets const& secrets() const;
 
 private:

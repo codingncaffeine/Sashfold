@@ -1,5 +1,6 @@
 #include "net/tls/Tls13.h"
 
+#include "crypto/AesGcm.h"
 #include "crypto/ChaCha20Poly1305.h"
 #include "crypto/Hkdf.h"
 #include "crypto/Hmac.h"
@@ -28,6 +29,7 @@ enum HandshakeType : std::uint8_t {
     certificate_verify = 15,
     finished = 20,
     key_update = 24,
+    message_hash = 254, // §4.4.1: the synthetic message a retry leaves behind
 };
 enum Extension : std::uint16_t {
     ext_server_name = 0,
@@ -37,6 +39,7 @@ enum Extension : std::uint16_t {
     ext_pre_shared_key = 41,
     ext_early_data = 42,
     ext_supported_versions = 43,
+    ext_cookie = 44,
     ext_psk_key_exchange_modes = 45,
     ext_key_share = 51,
 };
@@ -58,8 +61,14 @@ enum Alert : std::uint8_t {
     no_application_protocol = 120,
 };
 
-constexpr std::uint16_t suite_chacha20_poly1305_sha256 = 0x1303;
+// ChaCha20-Poly1305 first: the AES beside it is software, and a client that
+// cannot reach for the instructions should say which it would rather have.
+constexpr CipherSuite default_suites[] = { CipherSuite::ChaCha20Poly1305Sha256, CipherSuite::Aes128GcmSha256 };
 constexpr std::uint16_t group_x25519 = 0x001d;
+// The groups a key exchange can happen over. A hello that carries shares
+// carries one for every group it offers, so §4.2.8 leaves a retry request
+// either a cookie or a group for the hello that carried no share at all.
+constexpr std::uint16_t offered_groups[] = { group_x25519 };
 constexpr std::uint16_t version_tls13 = 0x0304;
 constexpr std::size_t max_plaintext = 16384;
 constexpr std::size_t max_ciphertext = max_plaintext + 256;
@@ -171,33 +180,65 @@ Bytes hkdf_extract(View salt, View ikm)
     return Bytes(prk.begin(), prk.end());
 }
 
-// One direction's record protection: the key and IV of §7.3 and the
-// sequence number that makes each nonce (§5.3).
+// One direction's record protection: the suite that says which AEAD holds
+// it, the key and IV of §7.3, and the sequence number that makes each
+// nonce (§5.3). Both suites take a 12-byte IV and leave a 16-byte tag, so
+// only the key length and the call differ.
 struct TrafficKeys {
-    crypto::ChaChaKey key {};
-    crypto::ChaChaNonce iv {};
+    CipherSuite suite = CipherSuite::ChaCha20Poly1305Sha256;
+    std::array<std::uint8_t, 32> key {};
+    std::size_t key_size = 0;
+    std::array<std::uint8_t, 12> iv {};
     std::uint64_t sequence = 0;
     bool active = false;
 
-    static TrafficKeys from_secret(View secret)
+    static TrafficKeys from_secret(CipherSuite suite, View secret)
     {
         TrafficKeys keys;
-        Bytes const key = hkdf_expand_label(secret, "key", {}, 32);
-        Bytes const iv = hkdf_expand_label(secret, "iv", {}, 12);
+        keys.suite = suite;
+        keys.key_size = suite == CipherSuite::Aes128GcmSha256 ? 16 : 32;
+        Bytes const key = hkdf_expand_label(secret, "key", {}, keys.key_size);
+        Bytes const iv = hkdf_expand_label(secret, "iv", {}, keys.iv.size());
         std::copy(key.begin(), key.end(), keys.key.begin());
         std::copy(iv.begin(), iv.end(), keys.iv.begin());
         keys.active = true;
         return keys;
     }
 
-    crypto::ChaChaNonce nonce() const
+    std::array<std::uint8_t, 12> nonce() const
     {
-        crypto::ChaChaNonce n = iv;
+        std::array<std::uint8_t, 12> n = iv;
         for (int i = 0; i < 8; ++i)
             n[4 + i] = static_cast<std::uint8_t>(n[4 + i] ^ static_cast<std::uint8_t>(sequence >> (8 * (7 - i))));
         return n;
     }
 };
+
+using Tag = std::array<std::uint8_t, 16>;
+
+Tag aead_seal(TrafficKeys const& keys, View aad, View plaintext, std::span<std::uint8_t> ciphertext)
+{
+    if (keys.suite == CipherSuite::Aes128GcmSha256) {
+        crypto::AesKey key {};
+        std::copy_n(keys.key.begin(), key.size(), key.begin());
+        return crypto::aes128_gcm_seal(key, keys.nonce(), aad, plaintext, ciphertext);
+    }
+    crypto::ChaChaKey key {};
+    std::copy_n(keys.key.begin(), key.size(), key.begin());
+    return crypto::chacha20_poly1305_seal(key, keys.nonce(), aad, plaintext, ciphertext);
+}
+
+bool aead_open(TrafficKeys const& keys, View aad, View ciphertext, Tag const& tag, std::span<std::uint8_t> plaintext)
+{
+    if (keys.suite == CipherSuite::Aes128GcmSha256) {
+        crypto::AesKey key {};
+        std::copy_n(keys.key.begin(), key.size(), key.begin());
+        return crypto::aes128_gcm_open(key, keys.nonce(), aad, ciphertext, tag, plaintext);
+    }
+    crypto::ChaChaKey key {};
+    std::copy_n(keys.key.begin(), key.size(), key.begin());
+    return crypto::chacha20_poly1305_open(key, keys.nonce(), aad, ciphertext, tag, plaintext);
+}
 
 // §5.2: a protected record is the content with its true type appended,
 // sealed under the header as additional data.
@@ -211,7 +252,7 @@ Bytes seal_record(TrafficKeys& keys, std::uint8_t type, View content)
     put16(record, static_cast<std::uint16_t>(inner.size() + 16));
     View const header(record);
     Bytes ciphertext(inner.size());
-    crypto::Poly1305Tag const tag = crypto::chacha20_poly1305_seal(keys.key, keys.nonce(), header, inner, ciphertext);
+    Tag const tag = aead_seal(keys, header, inner, ciphertext);
     keys.sequence += 1;
     put_bytes(record, ciphertext);
     put_bytes(record, tag);
@@ -225,10 +266,10 @@ bool open_record(TrafficKeys& keys, View header, View body, Bytes& plaintext, st
     if (body.size() < 16)
         return false;
     View const ciphertext = body.subspan(0, body.size() - 16);
-    crypto::Poly1305Tag tag;
+    Tag tag;
     std::copy(body.end() - 16, body.end(), tag.begin());
     plaintext.assign(ciphertext.size(), 0);
-    if (!crypto::chacha20_poly1305_open(keys.key, keys.nonce(), header, ciphertext, tag, plaintext))
+    if (!aead_open(keys, header, ciphertext, tag, plaintext))
         return false;
     keys.sequence += 1;
     while (!plaintext.empty() && plaintext.back() == 0)
@@ -275,6 +316,12 @@ struct TlsEngine::Impl {
     Bytes handshake_buffer; // handshake bytes not yet a whole message
     Hash transcript;
     Bytes session_id_sent;
+    std::vector<CipherSuite> offered_suites;
+    CipherSuite negotiated_suite = CipherSuite::ChaCha20Poly1305Sha256;
+    int retries = 0; // the retry requests seen; §4.1.4 allows one
+    Bytes cookie; // the server's cookie, echoed in the second hello
+    bool share_sent = true; // whether the hello carried a key share at all
+    std::uint16_t share_group = group_x25519;
     TrafficKeys read_keys;
     TrafficKeys write_keys;
     Bytes shared_secret;
@@ -286,12 +333,24 @@ struct TlsEngine::Impl {
     explicit Impl(TlsConfig c)
         : config(std::move(c))
     {
+        offered_suites = config.cipher_suites;
+        if (offered_suites.empty())
+            offered_suites.assign(std::begin(default_suites), std::end(default_suites));
+        share_sent = !config.empty_key_share;
     }
 
     Hash::Digest transcript_hash() const
     {
         Hash copy = transcript;
         return copy.finish();
+    }
+
+    bool was_offered(std::uint16_t suite) const
+    {
+        for (CipherSuite const candidate : offered_suites)
+            if (static_cast<std::uint16_t>(candidate) == suite)
+                return true;
+        return false;
     }
 
     // A fatal alert under whatever keys are current, and the failed state.
@@ -320,8 +379,9 @@ struct TlsEngine::Impl {
             session_id_sent.assign(config.session_id.begin(), config.session_id.end());
         put8(body, static_cast<std::uint8_t>(session_id_sent.size()));
         put_bytes(body, session_id_sent);
-        put16(body, 2);
-        put16(body, suite_chacha20_poly1305_sha256);
+        put16(body, static_cast<std::uint16_t>(2 * offered_suites.size()));
+        for (CipherSuite const suite : offered_suites)
+            put16(body, static_cast<std::uint16_t>(suite));
         put8(body, 1);
         put8(body, 0);
 
@@ -341,8 +401,9 @@ struct TlsEngine::Impl {
         }
         {
             Bytes groups;
-            put16(groups, 2);
-            put16(groups, group_x25519);
+            put16(groups, static_cast<std::uint16_t>(2 * std::size(offered_groups)));
+            for (std::uint16_t const group : offered_groups)
+                put16(groups, group);
             extension(ext_supported_groups, groups);
         }
         {
@@ -366,12 +427,18 @@ struct TlsEngine::Impl {
             extension(ext_psk_key_exchange_modes, modes);
         }
         {
-            crypto::X25519Key const public_key = crypto::x25519_public(config.private_key);
+            // §4.2.8: a share for the group in hand, or an empty list, which
+            // asks the server to name the group it wants instead.
             Bytes shares;
-            put16(shares, 32 + 4);
-            put16(shares, group_x25519);
-            put16(shares, 32);
-            put_bytes(shares, public_key);
+            if (share_sent) {
+                crypto::X25519Key const public_key = crypto::x25519_public(config.private_key);
+                put16(shares, 32 + 4);
+                put16(shares, share_group);
+                put16(shares, 32);
+                put_bytes(shares, public_key);
+            } else {
+                put16(shares, 0);
+            }
             extension(ext_key_share, shares);
         }
         {
@@ -381,6 +448,13 @@ struct TlsEngine::Impl {
             put8(alpn_list, static_cast<std::uint8_t>(http11.size()));
             alpn_list.insert(alpn_list.end(), http11.begin(), http11.end());
             extension(ext_alpn, alpn_list);
+        }
+        if (!cookie.empty()) {
+            // §4.2.2: a cookie comes back exactly as the retry request gave it.
+            Bytes echoed;
+            put16(echoed, static_cast<std::uint16_t>(cookie.size()));
+            put_bytes(echoed, cookie);
+            extension(ext_cookie, echoed);
         }
         put16(body, static_cast<std::uint16_t>(extensions.size()));
         put_bytes(body, extensions);
@@ -396,7 +470,105 @@ struct TlsEngine::Impl {
 
     // ---- ServerHello (§4.1.3) and the handshake keys (§7.1)
 
-    bool on_server_hello(View body, TlsOutput& out)
+    // §4.1.4: a ServerHello whose random is the special value is a request
+    // for another hello rather than a hello. The first one stands in the
+    // transcript from here on as a synthetic message_hash message (§4.4.1),
+    // so both sides go on hashing the same bytes; the second hello carries
+    // the group the server named and the cookie it sent, and nothing else
+    // changes.
+    bool on_hello_retry_request(View raw_message, View extensions, std::uint16_t suite, TlsOutput& out)
+    {
+        if (retries > 0) {
+            fail(out, unexpected_message, "the server asked for a second hello retry");
+            return false;
+        }
+        bool saw_version = false;
+        bool saw_group = false;
+        std::uint16_t selected_group = 0;
+        Bytes new_cookie;
+        Reader e { extensions };
+        while (!e.done()) {
+            std::uint16_t type = 0;
+            View data;
+            if (!e.u16(type) || !e.vector16(data)) {
+                fail(out, decode_error, "a hello retry request did not decode");
+                return false;
+            }
+            Reader d { data };
+            if (type == ext_supported_versions) {
+                std::uint16_t chosen = 0;
+                if (!d.u16(chosen) || !d.done() || chosen != version_tls13) {
+                    fail(out, illegal_parameter, "a hello retry request named a version other than TLS 1.3");
+                    return false;
+                }
+                saw_version = true;
+            } else if (type == ext_key_share) {
+                if (!d.u16(selected_group) || !d.done()) {
+                    fail(out, decode_error, "a hello retry request's key share did not decode");
+                    return false;
+                }
+                saw_group = true;
+            } else if (type == ext_cookie) {
+                View value;
+                if (!d.vector16(value) || !d.done() || value.empty()) {
+                    fail(out, decode_error, "a hello retry request's cookie did not decode");
+                    return false;
+                }
+                new_cookie.assign(value.begin(), value.end());
+            } else {
+                fail(out, unsupported_extension, "a hello retry request carried an extension that was not offered");
+                return false;
+            }
+        }
+        if (!saw_version) {
+            fail(out, missing_extension, "a hello retry request did not negotiate TLS 1.3");
+            return false;
+        }
+        // A retry that would leave the hello exactly as it was is forbidden.
+        if (!saw_group && new_cookie.empty()) {
+            fail(out, illegal_parameter, "a hello retry request asked for no change");
+            return false;
+        }
+        if (saw_group) {
+            // §4.2.8: the group has to be one this client offered and did not
+            // already send a share for.
+            bool const known = std::find(std::begin(offered_groups), std::end(offered_groups), selected_group) != std::end(offered_groups);
+            if (!known) {
+                fail(out, illegal_parameter, "the server asked for a key-share group that was not offered");
+                return false;
+            }
+            if (share_sent && selected_group == share_group) {
+                fail(out, illegal_parameter, "the server asked again for the group it already had a share for");
+                return false;
+            }
+            share_group = selected_group;
+            share_sent = true;
+        }
+        if (!share_sent) {
+            fail(out, illegal_parameter, "the server asked for another hello without naming a group");
+            return false;
+        }
+        Hash::Digest const first_hello = transcript_hash();
+        Bytes synthetic;
+        put8(synthetic, message_hash);
+        put24(synthetic, static_cast<std::uint32_t>(first_hello.size()));
+        put_bytes(synthetic, first_hello);
+        transcript = Hash();
+        transcript.update(synthetic);
+        transcript.update(raw_message);
+        retries += 1;
+        negotiated_suite = static_cast<CipherSuite>(suite);
+        cookie = std::move(new_cookie);
+        // §D.4: the dummy record goes out before the second flight.
+        if (config.compatibility_mode) {
+            std::uint8_t const one = 1;
+            put_bytes(out.to_send, plain_record(change_cipher_spec, View(&one, 1)));
+        }
+        put_bytes(out.to_send, send_client_hello(build_client_hello()));
+        return true;
+    }
+
+    bool on_server_hello(View body, View raw_message, TlsOutput& out)
     {
         Reader r { body };
         std::uint16_t version = 0;
@@ -409,10 +581,6 @@ struct TlsEngine::Impl {
             fail(out, decode_error, "ServerHello did not decode");
             return false;
         }
-        if (std::equal(random.begin(), random.end(), hello_retry_request_random)) {
-            fail(out, handshake_failure, "the server asked for a HelloRetryRequest, which is not supported yet");
-            return false;
-        }
         if (version != 0x0303 || compression != 0) {
             fail(out, illegal_parameter, "ServerHello carried a legacy version or a compression method");
             return false;
@@ -421,10 +589,19 @@ struct TlsEngine::Impl {
             fail(out, illegal_parameter, "ServerHello did not echo the session id");
             return false;
         }
-        if (suite != suite_chacha20_poly1305_sha256) {
+        if (!was_offered(suite)) {
             fail(out, illegal_parameter, "the server chose a cipher suite that was not offered");
             return false;
         }
+        if (std::equal(random.begin(), random.end(), hello_retry_request_random))
+            return on_hello_retry_request(raw_message, extensions, suite, out);
+        // §4.1.4: the hello that follows a retry must keep the suite it named.
+        if (retries > 0 && static_cast<std::uint16_t>(negotiated_suite) != suite) {
+            fail(out, illegal_parameter, "the server changed cipher suite after asking for another hello");
+            return false;
+        }
+        negotiated_suite = static_cast<CipherSuite>(suite);
+        transcript.update(raw_message);
         bool saw_version = false;
         bool saw_key_share = false;
         crypto::X25519Key server_key {};
@@ -447,7 +624,7 @@ struct TlsEngine::Impl {
             } else if (type == ext_key_share) {
                 std::uint16_t group = 0;
                 View key;
-                if (!d.u16(group) || !d.vector16(key) || !d.done() || group != group_x25519 || key.size() != 32) {
+                if (!d.u16(group) || !d.vector16(key) || !d.done() || group != share_group || key.size() != 32) {
                     fail(out, illegal_parameter, "the server's key share is not an x25519 key");
                     return false;
                 }
@@ -486,8 +663,8 @@ struct TlsEngine::Impl {
         Hash::Digest const hello_hash = transcript_hash();
         secrets.client_handshake_traffic = derive_secret(secrets.handshake_secret, "c hs traffic", hello_hash);
         secrets.server_handshake_traffic = derive_secret(secrets.handshake_secret, "s hs traffic", hello_hash);
-        read_keys = TrafficKeys::from_secret(secrets.server_handshake_traffic);
-        write_keys = TrafficKeys::from_secret(secrets.client_handshake_traffic);
+        read_keys = TrafficKeys::from_secret(negotiated_suite, secrets.server_handshake_traffic);
+        write_keys = TrafficKeys::from_secret(negotiated_suite, secrets.client_handshake_traffic);
         state = TlsState::WaitEncryptedExtensions;
         return true;
     }
@@ -703,8 +880,8 @@ struct TlsEngine::Impl {
         put_bytes(flight, message);
         put_bytes(out.to_send, seal_record(write_keys, handshake, flight));
 
-        read_keys = TrafficKeys::from_secret(secrets.server_application_traffic);
-        write_keys = TrafficKeys::from_secret(secrets.client_application_traffic);
+        read_keys = TrafficKeys::from_secret(negotiated_suite, secrets.server_application_traffic);
+        write_keys = TrafficKeys::from_secret(negotiated_suite, secrets.client_application_traffic);
         state = TlsState::Connected;
         return true;
     }
@@ -718,13 +895,13 @@ struct TlsEngine::Impl {
             return false;
         }
         secrets.server_application_traffic = hkdf_expand_label(secrets.server_application_traffic, "traffic upd", {}, Hash::digest_size);
-        read_keys = TrafficKeys::from_secret(secrets.server_application_traffic);
+        read_keys = TrafficKeys::from_secret(negotiated_suite, secrets.server_application_traffic);
         if (body[0] == 1) {
             std::uint8_t const update_not_requested = 0;
             Bytes const message = handshake_message(key_update, View(&update_not_requested, 1));
             put_bytes(out.to_send, seal_record(write_keys, handshake, message));
             secrets.client_application_traffic = hkdf_expand_label(secrets.client_application_traffic, "traffic upd", {}, Hash::digest_size);
-            write_keys = TrafficKeys::from_secret(secrets.client_application_traffic);
+            write_keys = TrafficKeys::from_secret(negotiated_suite, secrets.client_application_traffic);
         }
         return true;
     }
@@ -735,8 +912,9 @@ struct TlsEngine::Impl {
         case TlsState::WaitServerHello:
             if (type != server_hello)
                 break;
-            transcript.update(raw_message);
-            return on_server_hello(body, out);
+            // The transcript is written inside: a retry request has to replace
+            // the first hello with its hash before hashing itself (§4.4.1).
+            return on_server_hello(body, raw_message, out);
         case TlsState::WaitEncryptedExtensions:
             if (type != encrypted_extensions)
                 break;
@@ -949,6 +1127,13 @@ TlsState TlsEngine::state() const { return m_impl->state; }
 std::string const& TlsEngine::error() const { return m_impl->error; }
 std::vector<Certificate> const& TlsEngine::peer_chain() const { return m_impl->chain; }
 std::string const& TlsEngine::alpn() const { return m_impl->alpn; }
+CipherSuite TlsEngine::cipher_suite() const { return m_impl->negotiated_suite; }
+int TlsEngine::hello_retry_requests() const { return m_impl->retries; }
 TlsSecrets const& TlsEngine::secrets() const { return m_impl->secrets; }
+
+char const* cipher_suite_name(CipherSuite suite)
+{
+    return suite == CipherSuite::Aes128GcmSha256 ? "TLS_AES_128_GCM_SHA256" : "TLS_CHACHA20_POLY1305_SHA256";
+}
 
 }
