@@ -1,11 +1,17 @@
 #include "crypto/BigInt.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstdio>
 
 namespace sashfold::crypto {
 
 __extension__ typedef unsigned __int128 u128;
+
+// Every walk below stops at the limbs in use rather than at the capacity:
+// a 384-bit field element lives in six limbs of the 128, and the curve
+// arithmetic runs these operations tens of thousands of times per
+// signature.
 
 BigInt BigInt::from_u64(std::uint64_t value)
 {
@@ -123,7 +129,11 @@ std::string BigInt::to_hex() const
 
 int BigInt::compare(BigInt const& other) const
 {
-    for (std::size_t i = limb_count; i-- > 0;) {
+    std::size_t const n = used();
+    std::size_t const m = other.used();
+    if (n != m)
+        return n < m ? -1 : 1;
+    for (std::size_t i = n; i-- > 0;) {
         if (m_limbs[i] != other.m_limbs[i])
             return m_limbs[i] < other.m_limbs[i] ? -1 : 1;
     }
@@ -133,20 +143,24 @@ int BigInt::compare(BigInt const& other) const
 BigInt BigInt::add(BigInt const& other) const
 {
     BigInt result;
+    std::size_t const n = std::max(used(), other.used());
     std::uint64_t carry = 0;
-    for (std::size_t i = 0; i < limb_count; ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
         u128 const sum = u128(m_limbs[i]) + other.m_limbs[i] + carry;
         result.m_limbs[i] = std::uint64_t(sum);
         carry = std::uint64_t(sum >> 64);
     }
+    if (carry != 0 && n < limb_count)
+        result.m_limbs[n] = carry;
     return result;
 }
 
 BigInt BigInt::sub(BigInt const& other) const
 {
     BigInt result;
+    std::size_t const n = used(); // *this >= other, so other has no limbs above these
     std::uint64_t borrow = 0;
-    for (std::size_t i = 0; i < limb_count; ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
         u128 const a = m_limbs[i];
         u128 const b = u128(other.m_limbs[i]) + borrow;
         if (a >= b) {
@@ -186,8 +200,14 @@ BigInt BigInt::shift_left(std::size_t bits) const
     BigInt result;
     std::size_t const limbs = bits / 64;
     std::size_t const rest = bits % 64;
-    for (std::size_t i = limb_count; i-- > limbs;) {
-        std::uint64_t value = m_limbs[i - limbs] << rest;
+    std::size_t const n = used();
+    if (n == 0 || limbs >= limb_count)
+        return result;
+    // The limbs in use land at [limbs, limbs + n], the last one only when
+    // the odd bits spill over; anything past the capacity is truncated.
+    std::size_t const top = std::min(limb_count - 1, n + limbs);
+    for (std::size_t i = top + 1; i-- > limbs;) {
+        std::uint64_t value = i - limbs < n ? m_limbs[i - limbs] << rest : 0;
         if (rest != 0 && i - limbs > 0)
             value |= m_limbs[i - limbs - 1] >> (64 - rest);
         result.m_limbs[i] = value;
@@ -200,40 +220,114 @@ BigInt BigInt::shift_right(std::size_t bits) const
     BigInt result;
     std::size_t const limbs = bits / 64;
     std::size_t const rest = bits % 64;
-    for (std::size_t i = 0; i + limbs < limb_count; ++i) {
+    std::size_t const n = used();
+    for (std::size_t i = 0; i + limbs < n; ++i) {
         std::uint64_t value = m_limbs[i + limbs] >> rest;
-        if (rest != 0 && i + limbs + 1 < limb_count)
+        if (rest != 0 && i + limbs + 1 < n)
             value |= m_limbs[i + limbs + 1] << (64 - rest);
         result.m_limbs[i] = value;
     }
     return result;
 }
 
-// Binary long division: the divisor is aligned under the dividend's top
-// bit and subtracted wherever it fits while it walks down. Bounded by
-// the dividend's bit length times the divisor's limbs.
+// Long division, Knuth's Algorithm D (TAOCP 4.3.1) in base 2^64: the
+// divisor normalised so its top limb has its high bit set, then one trial
+// quotient limb per step from the top two limbs of what is left, corrected
+// at most twice before the multiply-and-subtract and once after it. A
+// 768-bit product divided by a 384-bit prime — the field multiplication of
+// P-384 — is seven such steps of six limbs each.
 void BigInt::divmod(BigInt const& divisor, BigInt& quotient, BigInt& remainder) const
 {
     quotient = BigInt();
     remainder = *this;
-    if (divisor.is_zero())
+    std::size_t const n = divisor.used();
+    if (n == 0)
         return;
-    std::size_t const dividend_bits = bit_length();
-    std::size_t const divisor_bits = divisor.bit_length();
-    if (dividend_bits < divisor_bits)
+    if (compare(divisor) < 0)
         return;
-    std::size_t shift = dividend_bits - divisor_bits;
-    BigInt shifted = divisor.shift_left(shift);
-    for (;;) {
-        if (remainder.compare(shifted) >= 0) {
-            remainder = remainder.sub(shifted);
-            quotient.m_limbs[shift / 64] |= std::uint64_t(1) << (shift % 64);
+    std::size_t const total = used(); // >= n
+    if (n == 1) {
+        // One limb: the schoolbook step with a 128-bit running remainder.
+        std::uint64_t const d = divisor.m_limbs[0];
+        u128 rest = 0;
+        for (std::size_t i = total; i-- > 0;) {
+            u128 const current = (rest << 64) | m_limbs[i];
+            quotient.m_limbs[i] = std::uint64_t(current / d);
+            rest = current % d;
         }
-        if (shift == 0)
-            break;
-        --shift;
-        shifted = shifted.shift_right(1);
+        remainder = from_u64(std::uint64_t(rest));
+        return;
     }
+    std::size_t const m = total - n; // the quotient has m + 1 limbs
+    int const shift = std::countl_zero(divisor.m_limbs[n - 1]);
+    // v: the normalised divisor; u: the normalised dividend with one more
+    // limb on top for what the shift pushes out.
+    std::uint64_t v[limb_count];
+    std::uint64_t u[limb_count + 1];
+    for (std::size_t i = 0; i < n; ++i) {
+        v[i] = divisor.m_limbs[i] << shift;
+        if (shift != 0 && i > 0)
+            v[i] |= divisor.m_limbs[i - 1] >> (64 - shift);
+    }
+    u[total] = shift != 0 ? m_limbs[total - 1] >> (64 - shift) : 0;
+    for (std::size_t i = total; i-- > 0;) {
+        u[i] = m_limbs[i] << shift;
+        if (shift != 0 && i > 0)
+            u[i] |= m_limbs[i - 1] >> (64 - shift);
+    }
+    u128 const base = u128(1) << 64;
+    for (std::size_t j = m + 1; j-- > 0;) {
+        // The trial quotient from the top two limbs against the divisor's
+        // top limb, pulled down while the next limb shows it too large.
+        u128 const top = (u128(u[j + n]) << 64) | u[j + n - 1];
+        u128 qhat = top / v[n - 1];
+        u128 rhat = top % v[n - 1];
+        while (qhat >= base || qhat * v[n - 2] > ((rhat << 64) | u[j + n - 2])) {
+            --qhat;
+            rhat += v[n - 1];
+            if (rhat >= base)
+                break;
+        }
+        // u[j .. j + n] -= qhat * v, with a borrow that says the trial was
+        // still one too large.
+        std::uint64_t carry = 0;
+        std::uint64_t borrow = 0;
+        for (std::size_t i = 0; i < n; ++i) {
+            u128 const product = qhat * v[i] + carry;
+            carry = std::uint64_t(product >> 64);
+            u128 const need = u128(std::uint64_t(product)) + borrow;
+            std::uint64_t const have = u[i + j];
+            borrow = have < need ? 1 : 0;
+            u[i + j] = std::uint64_t(u128(have) - need);
+        }
+        {
+            u128 const need = u128(carry) + borrow;
+            std::uint64_t const have = u[j + n];
+            borrow = have < need ? 1 : 0;
+            u[j + n] = std::uint64_t(u128(have) - need);
+        }
+        if (borrow != 0) {
+            --qhat;
+            std::uint64_t add_carry = 0;
+            for (std::size_t i = 0; i < n; ++i) {
+                u128 const sum = u128(u[i + j]) + v[i] + add_carry;
+                u[i + j] = std::uint64_t(sum);
+                add_carry = std::uint64_t(sum >> 64);
+            }
+            u[j + n] += add_carry; // wraps, cancelling the borrow
+        }
+        quotient.m_limbs[j] = std::uint64_t(qhat);
+    }
+    // The remainder is u[0 .. n), shifted back.
+    remainder = BigInt();
+    for (std::size_t i = 0; i < n; ++i) {
+        std::uint64_t value = u[i] >> shift;
+        if (shift != 0 && i + 1 < n + 1)
+            value |= u[i + 1] << (64 - shift);
+        remainder.m_limbs[i] = value;
+    }
+    if (shift != 0)
+        remainder.m_limbs[n - 1] &= ~std::uint64_t(0) >> shift; // u[n] holds nothing of the remainder
 }
 
 BigInt BigInt::mod(BigInt const& m) const

@@ -18,6 +18,7 @@
 #include "crypto/X25519.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <optional>
@@ -260,6 +261,70 @@ void test_bigint()
     CHECK(BigInt::from_bytes(std::vector<std::uint8_t>(1024, 1)).has_value());
     CHECK_EQ(hex(*BigInt::from_u64(258).to_bytes(4)), "00000102");
     CHECK(!BigInt::from_u64(258).to_bytes(1));
+
+    // The division held to its own identity — quotient × divisor + remainder
+    // is the dividend and the remainder is below the divisor — over operands
+    // shaped to reach every branch of the long division: limbs of all ones,
+    // a lone top bit, a top limb of one or two (the full normalisation), and
+    // random limbs, at every size the curves and RSA use and at the capacity.
+    std::uint64_t seed = 0x9E3779B97F4A7C15ull;
+    auto next = [&seed] {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        return seed;
+    };
+    auto shaped = [&next](std::size_t limbs) {
+        std::vector<std::uint8_t> bytes(limbs * 8);
+        std::uint64_t const shape = next() % 5;
+        for (std::size_t i = 0; i < limbs; ++i) {
+            std::uint64_t limb = next();
+            if (shape == 1)
+                limb = ~std::uint64_t(0);
+            else if (shape == 2)
+                limb = std::uint64_t(1) << 63;
+            else if (shape == 3 && i + 1 == limbs)
+                limb = 1 + next() % 2;
+            else if (shape == 4 && i % 2 == 0)
+                limb = 0;
+            for (std::size_t b = 0; b < 8; ++b)
+                bytes[(limbs - 1 - i) * 8 + (7 - b)] = static_cast<std::uint8_t>(limb >> (8 * b));
+        }
+        return *BigInt::from_bytes(bytes);
+    };
+    auto holds = [](BigInt const& u, BigInt const& v) {
+        BigInt q, r;
+        u.divmod(v, q, r);
+        return r < v && q.mul(v).add(r) == u;
+    };
+    int identity_failures = 0;
+    for (int round = 0; round < 4000; ++round) {
+        std::size_t const divisor_limbs = 1 + next() % 8;
+        std::size_t const dividend_limbs = divisor_limbs + next() % 9;
+        BigInt const u = shaped(dividend_limbs);
+        BigInt v = shaped(divisor_limbs);
+        if (v.is_zero())
+            v = BigInt::from_u64(1 + next());
+        if (!holds(u, v))
+            ++identity_failures;
+    }
+    CHECK_EQ(identity_failures, 0);
+    BigInt const full = *BigInt::from_bytes(std::vector<std::uint8_t>(1024, 0xFF));
+    CHECK(holds(full, BigInt::from_u64(3)));
+    CHECK(holds(full, *BigInt::from_bytes(std::vector<std::uint8_t>(512, 0x80))));
+    CHECK(holds(full, full.shift_right(1).add(BigInt::from_u64(7))));
+    CHECK(holds(full, full));
+    CHECK(holds(BigInt::from_u64(5), BigInt::from_u64(9)));
+    CHECK(holds(BigInt(), BigInt::from_u64(9)));
+    // A divisor with a lone top bit above a dividend limb of all ones is the
+    // case whose trial quotient starts one too large.
+    CHECK(holds(*BigInt::from_hex("7fffffffffffffffffffffffffffffffffffffffffffffff"), *BigInt::from_hex("800000000000000000000000000000000000000000000001")));
+    CHECK(holds(*BigInt::from_hex("ffffffffffffffff0000000000000000ffffffffffffffff"), *BigInt::from_hex("ffffffffffffffff0000000000000001")));
+    // A prime field's multiplication, the way the curves use it.
+    BigInt const p384 = *BigInt::from_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff");
+    BigInt const a = p384.sub(BigInt::from_u64(1));
+    CHECK_EQ(a.mod_mul(a, p384).to_hex(), "01"); // (p − 1)² ≡ 1
+    CHECK_EQ(a.mod_inverse_prime(p384).to_hex(), a.to_hex()); // p − 1 is its own inverse
 }
 
 void test_rsa()
@@ -321,12 +386,19 @@ void test_ecdsa()
         "EC3A4E415B4E19A4568618029F427FA5DA9A8BC4AE92E02E06AAE5286B300C64DEF8F0EA9055866064A254515480BC13",
         "8015D9B72D7D57244EA8EF9AC0C621896708A59367F9DFB9F54CA84B3F1C9DB1288B231C3AE0D4FE7344FD2533264720");
     CHECK(p384.has_value());
-    CHECK(crypto::ecdsa_verify(crypto::CurveId::P384, *p384, crypto::Sha384::hash(ascii("sample")),
-        *BigInt::from_hex("94EDBB92A5ECB8AAD4736E56C691916B3F88140666CE9FA73D64C4EA95AD133C81A648152E44ACF96E36DD1E80FABE46"),
-        *BigInt::from_hex("99EF4AEB15F178CEA1FE40DB2603138F130E740A19624526203B6351D0A3A94FA329C145786E679E7B82C71A38628AC8")));
-    CHECK(!crypto::ecdsa_verify(crypto::CurveId::P384, *p384, crypto::Sha384::hash(ascii("test")),
-        *BigInt::from_hex("94EDBB92A5ECB8AAD4736E56C691916B3F88140666CE9FA73D64C4EA95AD133C81A648152E44ACF96E36DD1E80FABE46"),
-        *BigInt::from_hex("99EF4AEB15F178CEA1FE40DB2603138F130E740A19624526203B6351D0A3A94FA329C145786E679E7B82C71A38628AC8")));
+    BigInt const r384 = *BigInt::from_hex("94EDBB92A5ECB8AAD4736E56C691916B3F88140666CE9FA73D64C4EA95AD133C81A648152E44ACF96E36DD1E80FABE46");
+    BigInt const s384 = *BigInt::from_hex("99EF4AEB15F178CEA1FE40DB2603138F130E740A19624526203B6351D0A3A94FA329C145786E679E7B82C71A38628AC8");
+    CHECK(crypto::ecdsa_verify(crypto::CurveId::P384, *p384, crypto::Sha384::hash(ascii("sample")), r384, s384));
+    CHECK(!crypto::ecdsa_verify(crypto::CurveId::P384, *p384, crypto::Sha384::hash(ascii("test")), r384, s384));
+    // The cost is held as well as the answer: a P-384 verification stays
+    // under a second even under the sanitizers. With the reduction written
+    // as bit-by-bit long division it took 570 ms without them, and a
+    // certificate chain costs two of these before a page can start.
+    auto const start = std::chrono::steady_clock::now();
+    for (int i = 0; i < 3; ++i)
+        CHECK(crypto::ecdsa_verify(crypto::CurveId::P384, *p384, crypto::Sha384::hash(ascii("sample")), r384, s384));
+    double const ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count() / 3;
+    CHECK(ms < 1000.0);
 }
 
 
