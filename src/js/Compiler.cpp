@@ -356,17 +356,25 @@ private:
 
     void emit_exit(Deferred::Kind kind, JsString* label) { emit_exit_from(m_scopes.size(), kind, label); }
 
+    // The body being compiled is an async generator's: yields and returns
+    // await their values, and yield* speaks the async iterator protocol.
+    bool in_async_generator() const { return m_code->is_async && m_code->is_generator; }
+
     // IteratorClose on a normal exit from a loop: return() runs, and its
     // failure is the outcome. An async iterator's answer is awaited and
     // must be an object (AsyncIteratorClose, §7.4.13).
     void emit_iterator_close(Scope const& scope)
     {
-        if (!scope.async_iterator) {
+        if (scope.async_iterator)
+            emit_async_iterator_close(scope.iterator_reg);
+        else
             emit(Opcode::IteratorClose, scope.iterator_reg);
-            return;
-        }
+    }
+
+    void emit_async_iterator_close(std::uint32_t iterator_reg)
+    {
         Label skip;
-        emit(Opcode::IteratorReturnCall, scope.iterator_reg);
+        emit(Opcode::IteratorReturnCall, iterator_reg);
         emit(Opcode::Dup);
         jump(Opcode::JumpIfEmpty, skip);
         emit(Opcode::Await);
@@ -486,10 +494,16 @@ private:
             return;
         case NodeType::ReturnStatement: {
             auto const& ret = *static_cast<ReturnStatement const*>(statement);
-            if (ret.argument)
+            if (ret.argument) {
                 compile_expression(ret.argument);
-            else
+                if (in_async_generator()) {
+                    // §15.6 / §14.10.1: an async generator awaits what it returns.
+                    emit(Opcode::Await);
+                    compile_resume_dispatch(false);
+                }
+            } else {
                 emit(Opcode::PushUndefined);
+            }
             emit_exit(Deferred::Kind::Return, nullptr);
             return;
         }
@@ -1249,6 +1263,13 @@ private:
             jump(Opcode::JumpIfResumeReturn, ret);
             emit(Opcode::Throw);
             bind(ret);
+            if (in_async_generator()) {
+                // AsyncGeneratorUnwrapYieldResumption (§27.6.3.7): the
+                // value a return resumption carries is awaited first, and a
+                // rejection is the throw instead.
+                emit(Opcode::Await);
+                compile_resume_dispatch(false);
+            }
             emit_exit(Deferred::Kind::Return, nullptr);
         } else {
             emit(Opcode::Throw);
@@ -1262,6 +1283,12 @@ private:
             compile_expression(yield.argument);
         else
             emit(Opcode::PushUndefined);
+        if (in_async_generator()) {
+            // AsyncGeneratorYield (§27.6.3.8): the value is awaited before
+            // it goes out.
+            emit(Opcode::Await);
+            compile_resume_dispatch(false);
+        }
         emit(Opcode::Yield);
         compile_resume_dispatch(true);
     }
@@ -1279,7 +1306,17 @@ private:
         std::uint32_t const received_kind = new_register(); // 0 normal, 1 throw, 2 return
         std::uint32_t const received_value = new_register();
         std::uint32_t const node = node_index(yield.argument);
-        emit(Opcode::GetIterator);
+        bool const async = in_async_generator();
+        // In an async generator every inner answer is awaited and must then
+        // be an iterator result (§27.5.3.8's generatorKind async arms).
+        auto const await_inner_result = [&] {
+            if (!async)
+                return;
+            emit(Opcode::Await);
+            compile_resume_dispatch(false);
+            emit(Opcode::RequireIterResult);
+        };
+        emit(async ? Opcode::GetAsyncIterator : Opcode::GetIterator);
         emit(Opcode::StoreReg, iterator + 1);
         emit(Opcode::StoreReg, iterator);
         emit(Opcode::PushUndefined);
@@ -1303,6 +1340,7 @@ private:
         emit(Opcode::LoadReg, received_value);
         emit(Opcode::Call, 1, node);
         adjust(-2);
+        await_inner_result();
         jump(Opcode::Jump, got_result);
         bind(not_normal);
         emit(Opcode::LoadReg, received_kind);
@@ -1321,10 +1359,14 @@ private:
             emit(Opcode::LoadReg, received_value);
             emit(Opcode::Call, 1, node);
             adjust(-2);
+            await_inner_result();
             jump(Opcode::Jump, got_result);
             bind(no_method);
             emit(Opcode::Pop);
-            emit(Opcode::IteratorClose, iterator);
+            if (async)
+                emit_async_iterator_close(iterator);
+            else
+                emit(Opcode::IteratorClose, iterator);
             emit(Opcode::ThrowTypeErrorConst, constant_string(u"The iterator does not provide a 'throw' method"));
         }
         bind(is_return);
@@ -1341,14 +1383,23 @@ private:
             emit(Opcode::LoadReg, received_value);
             emit(Opcode::Call, 1, node);
             adjust(-2);
+            await_inner_result();
             emit(Opcode::Dup);
             emit(Opcode::IteratorResultDone);
             jump(Opcode::JumpIfFalse, yield_it);
             emit(Opcode::IteratorResultValue);
+            if (async) {
+                emit(Opcode::Await);
+                compile_resume_dispatch(false);
+            }
             emit_exit(Deferred::Kind::Return, nullptr);
             bind(no_method);
             emit(Opcode::Pop);
             emit(Opcode::LoadReg, received_value);
+            if (async) {
+                emit(Opcode::Await);
+                compile_resume_dispatch(false);
+            }
             emit_exit(Deferred::Kind::Return, nullptr);
         }
         bind(got_result);
@@ -1356,7 +1407,14 @@ private:
         emit(Opcode::IteratorResultDone);
         jump(Opcode::JumpIfTrue, done_exit);
         bind(yield_it);
-        emit(Opcode::Yield, 0, 0, 1);
+        if (async) {
+            // AsyncGeneratorYield over the inner result's value — which,
+            // unlike a `yield v`, is not awaited first (§27.5.3.8 step 7.a.vi).
+            emit(Opcode::IteratorResultValue);
+            emit(Opcode::Yield);
+        } else {
+            emit(Opcode::Yield, 0, 0, 1);
+        }
         {
             Label resumed_normal;
             Label resumed_return;
@@ -1367,6 +1425,18 @@ private:
             emit(Opcode::StoreReg, received_kind);
             jump(Opcode::Jump, loop);
             bind(resumed_return);
+            if (async) {
+                // AsyncGeneratorUnwrapYieldResumption: the return value is
+                // awaited; a rejection is a throw handed to the inner iterator.
+                Label awaited;
+                emit(Opcode::Await);
+                jump(Opcode::JumpIfResumeNormal, awaited);
+                emit(Opcode::StoreReg, received_value);
+                emit(Opcode::PushInt, 1);
+                emit(Opcode::StoreReg, received_kind);
+                jump(Opcode::Jump, loop);
+                bind(awaited);
+            }
             emit(Opcode::StoreReg, received_value);
             emit(Opcode::PushInt, 2);
             emit(Opcode::StoreReg, received_kind);

@@ -107,6 +107,45 @@ void install_generators(Interpreter& in)
     i.async_function_prototype = in.new_object(i.function_prototype);
     i.async_function_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("AsyncFunction")), Configurable);
     i.async_function = dynamic_function_constructor(in, "AsyncFunction", *i.async_function_prototype, DynamicFunctionKind::Async);
+
+    // %AsyncGeneratorFunction.prototype% (§27.4.3), %AsyncGeneratorPrototype%
+    // (§27.6.1) — off %AsyncIteratorPrototype% — and %AsyncGeneratorFunction%
+    // (§27.4.1). The three methods answer a promise whatever the receiver: one
+    // that is not an async generator rejects it.
+    i.async_generator_function_prototype = in.new_object(i.function_prototype);
+    i.async_generator_function_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("AsyncGeneratorFunction")), Configurable);
+    i.async_generator_prototype = in.new_object(i.async_iterator_prototype);
+    i.async_generator_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("AsyncGenerator")), Configurable);
+    i.async_generator_prototype->put(PropertyKey::atom(atoms.constructor), Value::object(i.async_generator_function_prototype), Configurable);
+    i.async_generator_function_prototype->put(PropertyKey::atom(atoms.prototype), Value::object(i.async_generator_prototype), Configurable);
+    struct Method {
+        char const* name;
+        ResumeKind kind;
+    };
+    for (Method const method : { Method { "next", ResumeKind::Normal }, Method { "return", ResumeKind::Return }, Method { "throw", ResumeKind::Throw } }) {
+        ResumeKind const kind = method.kind;
+        define_method(in, *i.async_generator_prototype, method.name, 1, [kind](Interpreter& interp, Value const& this_value, Args arguments) -> std::optional<Value> {
+            Interpreter::Roots const roots(interp);
+            interp.root(this_value);
+            std::optional<PromiseCapability> const capability = new_promise_capability(interp, Value::object(interp.intrinsics().promise_constructor));
+            if (!capability)
+                return std::nullopt;
+            interp.root(capability->promise);
+            interp.root(capability->resolve);
+            interp.root(capability->reject);
+            if (!this_value.is_object() || this_value.as_object()->class_id() != Object::Class::AsyncGenerator) {
+                interp.throw_type_error("AsyncGenerator method called on incompatible receiver " + interp.describe(this_value));
+                Value const thrown = interp.take_exception();
+                interp.root(thrown);
+                Value const reject_arguments[1] = { thrown };
+                if (!interp.call(capability->reject, Value::undefined(), reject_arguments))
+                    return std::nullopt;
+                return capability->promise;
+            }
+            return interp.impl().async_generator_enqueue(*static_cast<AsyncGeneratorObject*>(this_value.as_object()), kind, argument(arguments, 0), *capability);
+        });
+    }
+    i.async_generator_function = dynamic_function_constructor(in, "AsyncGeneratorFunction", *i.async_generator_function_prototype, DynamicFunctionKind::AsyncGenerator);
 }
 
 }

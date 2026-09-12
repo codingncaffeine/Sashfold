@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <vector>
 
 namespace sashfold::js {
@@ -122,6 +123,48 @@ private:
     Value m_promise;
     Value m_resolve;
     Value m_reject;
+};
+
+// An async generator (§27.6): its frame, where in its life it stands, and
+// the queue of requests — next, return or throw, each with the promise it
+// was answered with — that the body serves one at a time.
+class AsyncGeneratorObject : public Object {
+public:
+    enum class State : std::uint8_t { SuspendedStart, SuspendedYield, Executing, AwaitingReturn, Completed };
+    struct Request {
+        ResumeKind kind;
+        Value value;
+        PromiseCapability capability;
+    };
+
+    AsyncGeneratorObject(Object* prototype, Frame* frame)
+        : Object(prototype, Class::AsyncGenerator)
+        , m_frame(frame)
+    {
+    }
+
+    Frame* frame() const { return m_frame; }
+    void release_frame() { m_frame = nullptr; }
+    State state() const { return m_state; }
+    void set_state(State state) { m_state = state; }
+    std::deque<Request>& queue() { return m_queue; }
+
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_frame);
+        for (Request const& request : m_queue) {
+            tracer.visit(request.value);
+            tracer.visit(request.capability.promise);
+            tracer.visit(request.capability.resolve);
+            tracer.visit(request.capability.reject);
+        }
+    }
+
+private:
+    Frame* m_frame;
+    State m_state = State::SuspendedStart;
+    std::deque<Request> m_queue;
 };
 
 // An async-from-sync iterator (§27.1.6): the sync iterator a `for await`

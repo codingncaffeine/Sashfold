@@ -1090,6 +1090,12 @@ public:
     void set_function(Function* function) { m_function = function; }
     Object* new_target() const { return m_new_target; }
     void set_new_target(Object* target) { m_new_target = target; }
+    // A record that is a VariableEnvironment without being a function's
+    // own: the vars of a body whose parameters have expressions
+    // (FunctionDeclarationInstantiation step 28), where a direct eval's
+    // vars land and past which its conflict scan does not look.
+    bool is_var_scope() const { return m_var_scope; }
+    void set_var_scope() { m_var_scope = true; }
 
     void trace(Tracer&) override;
     std::size_t size_in_bytes() const override { return sizeof(*this) + m_bindings.size() * sizeof(Binding); }
@@ -1101,6 +1107,7 @@ private:
     Value m_this;
     Function* m_function = nullptr;
     Object* m_new_target = nullptr;
+    bool m_var_scope = false;
     bool m_has_this = false;
     bool m_this_initialized = true;
     bool m_with = false;

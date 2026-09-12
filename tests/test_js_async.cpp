@@ -116,8 +116,39 @@ void test_for_await()
     // A close whose return() answers something that is not an object is a
     // TypeError on a normal exit; on a throw the throw still wins.
     CHECK_EQ(settled(in, "var out = []; function bad() { return { [Symbol.asyncIterator]() { return { next() { return { value: 1, done: false }; }, return() { return 7; } }; } }; } async function f() { try { for await (const v of bad()) break; } catch (e) { out.push(e instanceof TypeError); } try { for await (const v of bad()) throw new Error('mine'); } catch (e) { out.push(e.message); } } f();"), "true mine");
-    CHECK_JS_TRUE(in, "typeof Object.getPrototypeOf(async function* () {}) !== 'undefined' || true");
     CHECK_JS_THROWS(in, "function f() { for await (const x of []) {} }", "SyntaxError");
+}
+
+// Async generators (§27.6): requests queued and answered one at a time, a
+// request that arrives while the body runs resuming it at once, yield and
+// return awaiting their values, yield* over async and sync iterables, the
+// prototypes, and the dynamic constructor.
+void test_async_generators()
+{
+    js::Interpreter& in = fresh();
+    CHECK_EQ(settled(in, "var out = []; async function* g() { yield 1; yield await Promise.resolve(2); return 3; } var it = g(); it.next().then(r => { out.push(r.value, r.done); return it.next(); }).then(r => { out.push(r.value, r.done); return it.next(); }).then(r => { out.push(r.value, r.done); return it.next(); }).then(r => out.push(String(r.value), r.done));"), "1 false 2 false 3 true undefined true");
+    // yield awaits its value, so the body suspends before the caller's next
+    // statement; the queued next() resumes it at once when the yield completes.
+    CHECK_EQ(settled(in, "var out = []; async function* g() { out.push('a'); const x = yield 1; out.push('got ' + x); yield 2; } var it = g(); it.next('x').then(r => out.push(r.value)); it.next('y').then(r => out.push(r.value)); it.next('z').then(r => out.push(r.value + ':' + r.done)); out.push('sync');"), "a sync got y 1 2 undefined:true");
+    // return before the body ran: the value awaited, no finally run.
+    CHECK_EQ(settled(in, "var out = []; async function* g() { try { yield 1; } finally { out.push('fin'); } } var a = g(); a.return(Promise.resolve('early')).then(r => out.push(r.value, r.done));"), "early true");
+    // return at a yield: through the finally, the value awaited.
+    CHECK_EQ(settled(in, "var out = []; async function* g() { try { yield 1; } finally { out.push('fin'); } } var b = g(); b.next().then(() => b.return('later')).then(r => out.push(r.value, r.done));"), "fin later true");
+    // throw before the body ran rejects; throw at a yield is caught inside.
+    CHECK_EQ(settled(in, "var out = []; async function* g() { try { yield 1; } catch (e) { out.push('caught ' + e); yield 2; } } var c = g(); c.throw(new Error('boom')).catch(e => out.push(e.message)); var it = g(); it.next().then(() => it.throw('t')).then(r => out.push(r.value)).then(() => it.next()).then(r => out.push(r.done));"), "boom caught t 2 true");
+    CHECK_EQ(settled(in, "var out = []; async function* inner() { yield 'i1'; yield 'i2'; return 'ret'; } async function* g() { const r = yield* inner(); out.push('r=' + r); yield* [Promise.resolve('s1'), 's2']; } (async () => { for await (const v of g()) out.push(v); })();"), "i1 i2 r=ret s1 s2");
+    CHECK_EQ(settled(in, "var out = []; async function* g() { yield 1; yield 2; } (async () => { for await (const v of g()) out.push(v); var it2 = g(); out.push(it2[Symbol.asyncIterator]() === it2); })();"), "1 2 true");
+    CHECK_EQ(settled(in, "var out = []; async function* g() { return Promise.resolve('awaited'); } g().next().then(r => out.push(r.value, r.done));"), "awaited true");
+    // Once done: next is done, return awaits its value, throw rejects.
+    CHECK_EQ(settled(in, "var out = []; async function* g() { yield 1; } var it = g(); it.next().then(() => it.next()).then(() => Promise.all([it.next(), it.return('x'), it.throw(new Error('e')).catch(e => e.message)])).then(rs => out.push(rs[0].done, rs[1].value, rs[2]));"), "true x e");
+    // yield* forwards a throw to the inner iterator; a break out of for
+    // await returns through the delegation.
+    CHECK_EQ(settled(in, "var out = []; async function* inner() { try { yield 1; yield 2; } finally { out.push('inner-fin'); } } async function* g() { yield* inner(); } (async () => { for await (const v of g()) { out.push(v); break; } })();"), "1 inner-fin");
+    CHECK_JS_TRUE(in, "typeof (async function* () {}).prototype === 'object' && Object.getPrototypeOf(async function* () {})[Symbol.toStringTag] === 'AsyncGeneratorFunction' && Object.getPrototypeOf(async function* () {}.prototype)[Symbol.toStringTag] === 'AsyncGenerator' && Object.getPrototypeOf(Object.getPrototypeOf(async function* () {}.prototype)) === Object.getPrototypeOf(Object.getPrototypeOf(Object.getPrototypeOf((async function* () {})())))");
+    CHECK_JS_TRUE(in, "(async function* () {})().next() instanceof Promise && Object.getPrototypeOf(async function* () {}).constructor.name === 'AsyncGeneratorFunction' && typeof Object.getPrototypeOf(Object.getPrototypeOf(async function* () {}.prototype))[Symbol.asyncIterator] === 'function'");
+    CHECK_EQ(settled(in, "var out = []; var AGF = Object.getPrototypeOf(async function* () {}).constructor; var g2 = new AGF('a', 'yield a * 2;'); g2(21).next().then(r => out.push(r.value));"), "42");
+    CHECK_JS_THROWS(in, "new (async function* () {})()", "TypeError");
+    CHECK_EQ(settled(in, "var out = []; var proto = Object.getPrototypeOf(async function* () {}.prototype); proto.next.call({}).catch(e => out.push(e instanceof TypeError));"), "true");
 }
 
 }
@@ -129,5 +160,6 @@ int main()
     test_throws_and_rejections();
     test_own_name_and_scopes();
     test_for_await();
+    test_async_generators();
     return sashfold::test::report("js_async");
 }

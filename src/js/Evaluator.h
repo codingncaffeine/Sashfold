@@ -32,6 +32,7 @@ namespace sashfold::js {
 class Frame;
 class GeneratorObject;
 class AsyncContextObject;
+class AsyncGeneratorObject;
 
 // A completion record (§6.2.4). The value is `empty` when the statement
 // produced none, which UpdateEmpty resolves at the statement above.
@@ -326,6 +327,19 @@ struct Interpreter::Impl {
     // InitializeEnvironment has — the body is all that runs here.
     std::optional<Value> start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability);
     void async_step(AsyncContextObject& context);
+    // Async generators (§27.6): the object, the request queue's operations
+    // — next/return/throw past validation, AsyncGeneratorCompleteStep,
+    // AsyncGeneratorAwaitReturn, AsyncGeneratorDrainQueue — and the body's
+    // driver, which is AsyncGeneratorStart's closure, AsyncGeneratorYield's
+    // completing-and-resuming, and Await in one loop.
+    std::optional<Value> start_async_generator(ScriptFunction& function, Context const& cx);
+    std::optional<Value> async_generator_enqueue(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value,
+        PromiseCapability const& capability);
+    void async_generator_resume(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value);
+    void async_generator_step(AsyncGeneratorObject& generator);
+    void async_generator_complete_step(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value, bool done);
+    void async_generator_await_return(AsyncGeneratorObject& generator);
+    void async_generator_drain_queue(AsyncGeneratorObject& generator);
     // [[ModuleAsyncEvaluationCount]] (§16.2.1.5.3.1 step 12): the order
     // in which pending modules were found to evaluate asynchronously,
     // which is the order their importers run in once they finish.

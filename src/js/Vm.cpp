@@ -1441,4 +1441,242 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
     }
 }
 
+// ---- async generators (§27.6) ------------------------------------------------
+
+std::optional<Value> Interpreter::Impl::start_async_generator(ScriptFunction& function, Context const& cx)
+{
+    // §27.6.3.2 AsyncGeneratorStart: the frame waits for the first request.
+    CodeBlock const* code = compiled_body(function.node());
+    if (code == nullptr)
+        return std::nullopt;
+    Roots const roots(self);
+    std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, self.intrinsics().async_generator_prototype);
+    if (!prototype)
+        return std::nullopt;
+    self.root(Value::object(*prototype));
+    Heap::NoCollect const guard(heap());
+    Frame* frame = new_frame(*code, cx);
+    auto* generator = heap().allocate<AsyncGeneratorObject>(*prototype, frame);
+    return Value::object(generator);
+}
+
+// AsyncGeneratorCompleteStep (§27.6.3.3): the front request settled, with
+// an iterator result or the throw.
+void Interpreter::Impl::async_generator_complete_step(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value, bool done)
+{
+    Roots const roots(self);
+    self.root(Value::object(&generator));
+    self.root(value);
+    AsyncGeneratorObject::Request const request = generator.queue().front();
+    generator.queue().pop_front();
+    self.root(request.capability.promise);
+    self.root(request.capability.resolve);
+    self.root(request.capability.reject);
+    if (kind == ResumeKind::Throw) {
+        Value const arguments[1] = { value };
+        self.call(request.capability.reject, Value::undefined(), arguments);
+        return;
+    }
+    Object* result = self.create_iter_result(value, done);
+    Value const arguments[1] = { Value::object(result) };
+    self.call(request.capability.resolve, Value::undefined(), arguments);
+}
+
+// AsyncGeneratorAwaitReturn (§27.6.3.7): a return request's value is
+// awaited, then the generator completes with it — or with its rejection.
+void Interpreter::Impl::async_generator_await_return(AsyncGeneratorObject& generator)
+{
+    Roots const roots(self);
+    self.root(Value::object(&generator));
+    Value const value = generator.queue().front().value;
+    self.root(value);
+    std::optional<Value> const promise = promise_resolve(self, Value::object(self.intrinsics().promise_constructor), value);
+    if (!promise) {
+        if (self.m_terminated)
+            return;
+        generator.set_state(AsyncGeneratorObject::State::Completed);
+        Value const thrown = self.take_exception();
+        self.root(thrown);
+        async_generator_complete_step(generator, ResumeKind::Throw, thrown, true);
+        async_generator_drain_queue(generator);
+        return;
+    }
+    self.root(*promise);
+    auto settle = [](ResumeKind kind) {
+        return [kind](Interpreter& in, ClosureFunction& self_function, Value const&, Args arguments) -> std::optional<Value> {
+            auto* target = static_cast<AsyncGeneratorObject*>(self_function.slot(0).as_object());
+            target->set_state(AsyncGeneratorObject::State::Completed);
+            in.impl().async_generator_complete_step(*target, kind, argument(arguments, 0), true);
+            in.impl().async_generator_drain_queue(*target);
+            return Value::undefined();
+        };
+    };
+    ClosureFunction* on_fulfilled = self.new_closure("", 1, { Value::object(&generator) }, settle(ResumeKind::Normal));
+    self.root(Value::object(on_fulfilled));
+    ClosureFunction* on_rejected = self.new_closure("", 1, { Value::object(&generator) }, settle(ResumeKind::Throw));
+    self.root(Value::object(on_rejected));
+    perform_then(self, *static_cast<PromiseObject*>(promise->as_object()), Value::object(on_fulfilled), Value::object(on_rejected), std::nullopt);
+}
+
+// AsyncGeneratorDrainQueue (§27.6.3.8): once the body is done, every
+// waiting request is answered — done, with its throw, or, for a return,
+// after its value has been awaited (which stops the drain until then).
+void Interpreter::Impl::async_generator_drain_queue(AsyncGeneratorObject& generator)
+{
+    Roots const roots(self);
+    self.root(Value::object(&generator));
+    while (!generator.queue().empty()) {
+        AsyncGeneratorObject::Request const& request = generator.queue().front();
+        if (request.kind == ResumeKind::Return) {
+            generator.set_state(AsyncGeneratorObject::State::AwaitingReturn);
+            async_generator_await_return(generator);
+            return;
+        }
+        ResumeKind const kind = request.kind;
+        Value const value = request.value;
+        self.root(value);
+        async_generator_complete_step(generator, kind, kind == ResumeKind::Throw ? value : Value::undefined(), true);
+    }
+}
+
+// The body run to its next yield, its end, a throw or an await
+// (AsyncGeneratorStart's closure, §27.6.3.2; AsyncGeneratorYield's
+// completing and immediate resumption, §27.6.3.8; Await, §27.7.5.3).
+void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
+{
+    Roots const roots(self);
+    self.root(Value::object(&generator));
+    Frame* frame = generator.frame();
+    if (frame == nullptr)
+        return;
+    while (true) {
+        RunStatus const status = vm_run(*frame);
+        if (status == RunStatus::Yielded) {
+            Value const value = frame->result;
+            frame->result = Value::empty();
+            self.root(value);
+            async_generator_complete_step(generator, ResumeKind::Normal, value, false);
+            if (generator.queue().empty()) {
+                generator.set_state(AsyncGeneratorObject::State::SuspendedYield);
+                return;
+            }
+            // A request that arrived while the body ran resumes it at once
+            // (the resumption's return value is awaited by the body itself).
+            AsyncGeneratorObject::Request const& next = generator.queue().front();
+            frame->resume_kind = next.kind;
+            frame->resume_value = next.value;
+            continue;
+        }
+        if (status == RunStatus::Completed) {
+            generator.set_state(AsyncGeneratorObject::State::Completed);
+            Value const result = frame->result;
+            self.root(result);
+            generator.release_frame();
+            async_generator_complete_step(generator, ResumeKind::Normal, result, true);
+            async_generator_drain_queue(generator);
+            return;
+        }
+        if (status == RunStatus::Threw) {
+            generator.set_state(AsyncGeneratorObject::State::Completed);
+            generator.release_frame();
+            if (self.m_terminated)
+                return;
+            Value const thrown = self.take_exception();
+            self.root(thrown);
+            async_generator_complete_step(generator, ResumeKind::Throw, thrown, true);
+            async_generator_drain_queue(generator);
+            return;
+        }
+        // Awaiting, as an async function does.
+        Value const awaited = frame->result;
+        frame->result = Value::empty();
+        self.root(awaited);
+        std::optional<Value> const promise = promise_resolve(self, Value::object(self.intrinsics().promise_constructor), awaited);
+        if (!promise) {
+            if (self.m_terminated) {
+                generator.set_state(AsyncGeneratorObject::State::Completed);
+                generator.release_frame();
+                return;
+            }
+            frame->resume_kind = ResumeKind::Throw;
+            frame->resume_value = self.take_exception();
+            continue;
+        }
+        self.root(*promise);
+        auto resume = [](ResumeKind kind) {
+            return [kind](Interpreter& in, ClosureFunction& self_function, Value const&, Args arguments) -> std::optional<Value> {
+                auto* target = static_cast<AsyncGeneratorObject*>(self_function.slot(0).as_object());
+                if (Frame* resumed = target->frame()) {
+                    resumed->resume_kind = kind;
+                    resumed->resume_value = argument(arguments, 0);
+                    in.impl().async_generator_step(*target);
+                }
+                return Value::undefined();
+            };
+        };
+        ClosureFunction* on_fulfilled = self.new_closure("", 1, { Value::object(&generator) }, resume(ResumeKind::Normal));
+        self.root(Value::object(on_fulfilled));
+        ClosureFunction* on_rejected = self.new_closure("", 1, { Value::object(&generator) }, resume(ResumeKind::Throw));
+        self.root(Value::object(on_rejected));
+        perform_then(self, *static_cast<PromiseObject*>(promise->as_object()), Value::object(on_fulfilled), Value::object(on_rejected), std::nullopt);
+        return;
+    }
+}
+
+// AsyncGeneratorResume (§27.6.3.4).
+void Interpreter::Impl::async_generator_resume(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value)
+{
+    Frame* frame = generator.frame();
+    if (frame == nullptr)
+        return;
+    generator.set_state(AsyncGeneratorObject::State::Executing);
+    frame->resume_kind = kind;
+    frame->resume_value = value;
+    async_generator_step(generator);
+}
+
+// %AsyncGeneratorPrototype%.next, return and throw past their validation
+// (§27.6.1.2–.4): a generator that is done answers at once; otherwise the
+// request is queued and, by the generator's state, run now, awaited now
+// (a return before the body ever ran), or left for its turn.
+std::optional<Value> Interpreter::Impl::async_generator_enqueue(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value,
+    PromiseCapability const& capability)
+{
+    using State = AsyncGeneratorObject::State;
+    Roots const roots(self);
+    self.root(Value::object(&generator));
+    self.root(value);
+    self.root(capability.promise);
+    self.root(capability.resolve);
+    self.root(capability.reject);
+    State state = generator.state();
+    if (kind == ResumeKind::Normal && state == State::Completed) {
+        Object* result = self.create_iter_result(Value::undefined(), true);
+        Value const arguments[1] = { Value::object(result) };
+        if (!self.call(capability.resolve, Value::undefined(), arguments))
+            return std::nullopt;
+        return capability.promise;
+    }
+    if (kind == ResumeKind::Throw && state == State::SuspendedStart) {
+        generator.set_state(State::Completed);
+        generator.release_frame();
+        state = State::Completed;
+    }
+    if (kind == ResumeKind::Throw && state == State::Completed) {
+        Value const arguments[1] = { value };
+        if (!self.call(capability.reject, Value::undefined(), arguments))
+            return std::nullopt;
+        return capability.promise;
+    }
+    generator.queue().push_back(AsyncGeneratorObject::Request { kind, value, capability });
+    if (kind == ResumeKind::Return && (state == State::SuspendedStart || state == State::Completed)) {
+        generator.set_state(State::AwaitingReturn);
+        generator.release_frame();
+        async_generator_await_return(generator);
+    } else if (state == State::SuspendedStart || state == State::SuspendedYield) {
+        async_generator_resume(generator, kind, value);
+    }
+    return capability.promise;
+}
+
 }

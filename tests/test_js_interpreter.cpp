@@ -331,6 +331,17 @@ void test_arguments_object()
     CHECK_JS_NUMBER(in, "(function () { return Object.keys(arguments).length; })(1, 2)", 2);
     CHECK_JS_FALSE(in, "(function () { return Object.getOwnPropertyDescriptor(arguments, 'length').enumerable; })(1)");
     CHECK_JS_NUMBER(in, "(function (a, b) { arguments.length = 7; return arguments.length; })(1, 2)", 7);
+    // A direct eval in a default parameter sees the parameters' own
+    // record (FunctionDeclarationInstantiation step 20): a var named like
+    // one, or like the arguments object bound there, is a SyntaxError,
+    // while any other lands beneath and the body reads it. A body eval's
+    // var scope is the body's, so it may redeclare a parameter's name.
+    CHECK_JS_THROWS(in, "(function (a = eval('var a = 1')) {})()", "SyntaxError");
+    CHECK_JS_THROWS(in, "(function (p = eval('var arguments')) {})()", "SyntaxError");
+    CHECK_JS_THROWS(in, "(function (p = eval('var arguments')) { function arguments() {} })()", "SyntaxError");
+    CHECK_JS_NUMBER(in, "(function (p = eval('var q = 2')) { return q; })()", 2);
+    CHECK_JS_NUMBER(in, "(function (a = 1) { eval('var a = 5'); return a; })()", 5);
+    CHECK_JS_NUMBER(in, "(function () { 'use strict'; return (function (a = 1) { return eval('var a = 5; a') + a; })(); })()", 6);
 }
 
 void test_control_flow()

@@ -567,9 +567,7 @@ std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& fun
     std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key)
 {
     FunctionNode const& node = function.node();
-    if (node.is_async && node.is_generator)
-        return self.throw_syntax_error("async generators are not supported yet");
-    if (node.is_async)
+    if (node.is_async && !node.is_generator)
         return call_async_function(function, this_argument, arguments);
     return run_script_function(function, this_argument, arguments, new_target, field_key, nullptr);
 }
@@ -625,6 +623,16 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     // binds them in order once the arguments object exists.
     std::vector<JsString*> parameter_names;
     collect_parameter_names(node, parameter_names);
+    // Sloppy code with parameter expressions binds them in a record of
+    // their own (step 20), so that a direct eval in a default declares
+    // its vars in the callee's record beneath and finds the parameters
+    // in between — a var named like one is its SyntaxError
+    // (EvalDeclarationInstantiation step 3.d).
+    Environment* parameter_env = variable;
+    if (node.has_parameter_expressions && !node.is_strict) {
+        parameter_env = new_environment(variable);
+        cx.lexical = parameter_env;
+    }
     if (node.has_simple_parameter_list) {
         for (std::size_t i = 0; i < node.parameters.size(); ++i) {
             Value const value = i < arguments.size() ? arguments[i] : Value::undefined();
@@ -635,29 +643,32 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
         }
     } else {
         for (JsString* name : parameter_names)
-            variable->declare(name, Value::undefined(), true, false);
+            parameter_env->declare(name, Value::undefined(), true, false);
     }
 
     // The arguments object, when the body can reach it and nothing of
-    // its own shadows it; mapped only for a sloppy simple list.
+    // its own shadows it — a body declaration only does so without
+    // parameter expressions (step 18); mapped only for a sloppy simple list.
     if (!node.is_arrow && (node.uses_arguments || node.has_direct_eval)) {
         bool shadowed = contains(parameter_names, atoms().arguments);
-        for (FunctionDeclaration const* declaration : node.declarations.functions) {
-            if (declaration->function->name == atoms().arguments)
-                shadowed = true;
-        }
-        for (auto const& [name, is_const] : node.declarations.lexicals) {
-            if (name == atoms().arguments)
-                shadowed = true;
+        if (!node.has_parameter_expressions) {
+            for (FunctionDeclaration const* declaration : node.declarations.functions) {
+                if (declaration->function->name == atoms().arguments)
+                    shadowed = true;
+            }
+            for (auto const& [name, is_const] : node.declarations.lexicals) {
+                if (name == atoms().arguments)
+                    shadowed = true;
+            }
         }
         if (!shadowed) {
             bool const mapped = !node.is_strict && node.has_simple_parameter_list && !node.has_duplicate_parameters;
-            Object* arguments_object = make_arguments_object(function, variable, arguments, mapped);
-            variable->declare(atoms().arguments, Value::object(arguments_object), !node.is_strict, true);
+            Object* arguments_object = make_arguments_object(function, parameter_env, arguments, mapped);
+            parameter_env->declare(atoms().arguments, Value::object(arguments_object), !node.is_strict, true);
         }
     }
 
-    if (!node.has_simple_parameter_list && !bind_parameters(node, variable, arguments, cx))
+    if (!node.has_simple_parameter_list && !bind_parameters(node, parameter_env, arguments, cx))
         return std::nullopt;
 
     // Vars (steps 27–28): in the parameters' record unless a default
@@ -666,12 +677,13 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     // a var named like a parameter starts with the parameter's value.
     Environment* var_env = variable;
     if (node.has_parameter_expressions) {
-        var_env = new_environment(variable);
+        var_env = new_environment(parameter_env);
+        var_env->set_var_scope();
         cx.variable = var_env;
         for (JsString* name : node.declarations.vars) {
             if (var_env->find(name))
                 continue;
-            Environment::Binding const* parameter = variable->find(name);
+            Environment::Binding const* parameter = parameter_env->find(name);
             var_env->declare(name, parameter ? parameter->value : Value::undefined());
         }
     } else {
@@ -699,10 +711,11 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
         lexical->declare(name, Value::undefined(), !is_const, false);
 
     // A body that can suspend runs on the bytecode tier: a generator's
-    // waits for its first next() (§15.5.2), an async function's runs to
-    // its first await (§15.8.4) — both with this call's environments.
+    // waits for its first next() (§15.5.2, §15.6.2 for the async kind), an
+    // async function's runs to its first await (§15.8.4) — each with this
+    // call's environments.
     if (node.is_generator)
-        return start_generator(function, cx);
+        return node.is_async ? start_async_generator(function, cx) : start_generator(function, cx);
     if (async_capability != nullptr)
         return start_async(node, cx, *async_capability);
 
@@ -1850,7 +1863,7 @@ bool Interpreter::Impl::eval_declaration_instantiation(Program const& program, E
 Environment* Interpreter::Impl::variable_environment_of(Environment* environment)
 {
     for (Environment* e = environment; e != nullptr; e = e->outer()) {
-        if (e->function() != nullptr)
+        if (e->function() != nullptr || e->is_var_scope())
             return e;
         if (e->is_object_environment() && !e->is_with_environment())
             return e;
