@@ -321,8 +321,15 @@ struct Interpreter::Impl {
     std::optional<Value> start_generator(ScriptFunction& function, Context const& cx);
     std::optional<Value> generator_resume(GeneratorObject& generator, ResumeKind kind, Value const& value);
     std::optional<Value> call_async_function(ScriptFunction& function, Value const& this_argument, std::span<Value const> arguments);
-    std::optional<Value> start_async(ScriptFunction& function, Context const& cx, PromiseCapability const& capability);
+    // AsyncFunctionStart / AsyncBlockStart over `node`'s body: a call's
+    // prologue has already made the environments in `cx`, or a module's
+    // InitializeEnvironment has — the body is all that runs here.
+    std::optional<Value> start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability);
     void async_step(AsyncContextObject& context);
+    // [[ModuleAsyncEvaluationCount]] (§16.2.1.5.3.1 step 12): the order
+    // in which pending modules were found to evaluate asynchronously,
+    // which is the order their importers run in once they finish.
+    std::uint64_t module_async_evaluation_count = 0;
 
     // ---- tracing
     void trace(Tracer& tracer);

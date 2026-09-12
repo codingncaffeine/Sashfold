@@ -1286,11 +1286,11 @@ std::optional<Value> Interpreter::Impl::call_async_function(ScriptFunction& func
     return capability->promise;
 }
 
-// AsyncFunctionStart (§27.7.5.1): the body runs to its first await, its
-// end or a throw.
-std::optional<Value> Interpreter::Impl::start_async(ScriptFunction& function, Context const& cx, PromiseCapability const& capability)
+// AsyncFunctionStart (§27.7.5.1) and AsyncBlockStart (§27.7.5.2): the body
+// runs to its first await, its end or a throw.
+std::optional<Value> Interpreter::Impl::start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability)
 {
-    CodeBlock const* code = compiled_body(function.node());
+    CodeBlock const* code = compiled_body(node);
     if (code == nullptr)
         return std::nullopt;
     Roots const roots(self);

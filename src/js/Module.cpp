@@ -1,9 +1,10 @@
 // Module records and the module namespace exotic object: §16.2.1.5–§16.2.1.10
-// and §10.4.6, ported with the specification's names and step order. The
-// synchronous half of evaluation runs a module's body on the tree-walker
-// under a context whose lexical and variable environments are both the
-// module environment; the asynchronous half (top-level await) is refused
-// by name until it is written.
+// and §10.4.6, ported with the specification's names and step order. A
+// module without a top-level await runs its body on the tree-walker under
+// a context whose lexical and variable environments are both the module
+// environment; one with a top-level await runs the same statements as an
+// async function body on the bytecode tier, and its importers wait for
+// it through the asynchronous half of InnerModuleEvaluation.
 
 #include "js/Module.h"
 
@@ -346,7 +347,12 @@ std::optional<Value> ModuleRecord::evaluate(Interpreter& in)
             return std::nullopt;
         return capability->promise;
     }
-    if (!module->m_async_evaluation) {
+    // A module evaluated by now — a graph with nothing asynchronous in it,
+    // or one whose asynchronous evaluation finished under an earlier root
+    // — settles the promise here; one still evaluating asynchronously
+    // settles it from AsyncModuleExecutionFulfilled or -Rejected, which
+    // read the capability when they run.
+    if (module->m_status == Status::Evaluated) {
         Value const resolve_arguments[1] = { Value::undefined() };
         if (!in.call(capability->resolve, Value::undefined(), resolve_arguments))
             return std::nullopt;
@@ -390,22 +396,27 @@ std::optional<std::size_t> ModuleRecord::inner_evaluation(Interpreter& in, std::
             if (!required->m_evaluation_error.is_empty())
                 return in.throw_value(required->m_evaluation_error);
         }
-        if (required->m_async_evaluation) {
+        if (required->m_async_evaluation == AsyncEvaluation::Pending) {
             ++m_pending_async_dependencies;
             required->m_async_parent_modules.push_back(this);
         }
     }
     if (m_pending_async_dependencies > 0 || has_top_level_await()) {
-        // ExecuteAsyncModule (§16.2.1.5.3.2) is not written.
-        return in.throw_syntax_error("top-level await is not supported yet");
-    }
-    if (!execute_module(in))
+        // The module evaluates asynchronously: ordered now against every
+        // other pending module, started at once when nothing it needs is
+        // still pending, else started by the last dependency to finish.
+        m_async_evaluation = AsyncEvaluation::Pending;
+        m_async_evaluation_order = in.impl().module_async_evaluation_count++;
+        if (m_pending_async_dependencies == 0 && !execute_async_module(in))
+            return std::nullopt;
+    } else if (!execute_module(in)) {
         return std::nullopt;
+    }
     if (m_dfs_ancestor_index == m_dfs_index) {
         while (true) {
             ModuleRecord* module = stack.back();
             stack.pop_back();
-            module->m_status = module->m_async_evaluation ? Status::EvaluatingAsync : Status::Evaluated;
+            module->m_status = module->m_async_evaluation == AsyncEvaluation::Unset ? Status::Evaluated : Status::EvaluatingAsync;
             module->m_cycle_root = this;
             if (module == this)
                 break;
@@ -414,15 +425,171 @@ std::optional<std::size_t> ModuleRecord::inner_evaluation(Interpreter& in, std::
     return index;
 }
 
-// ExecuteModule (§16.2.1.6.5), the synchronous case: the body under a
-// context whose environments are both the module environment, strict,
-// with no function and so no `this`.
-bool ModuleRecord::execute_module(Interpreter& in)
+// ExecuteModule (§16.2.1.6.5): the body under a context whose environments
+// are both the module environment, strict, with no function and so no
+// `this` of its own. Without a top-level await it runs to its end on the
+// tree-walker; with one it is AsyncBlockStart (§27.7.5.2) over the same
+// statements — the module is the one async function it contains, and it
+// runs to its first await here and settles the capability when it ends.
+bool ModuleRecord::execute_module(Interpreter& in, PromiseCapability const* capability)
 {
     Interpreter::Impl& impl = in.impl();
-    Interpreter::Impl::ContextScope scope(impl, Context { m_environment, m_environment, m_program.get(), nullptr, true, nullptr });
-    Completion const completion = impl.execute_list(m_program->body, scope.context());
-    return completion.type != Completion::Type::Throw;
+    Context const context { m_environment, m_environment, m_program.get(), nullptr, true, nullptr };
+    if (!has_top_level_await()) {
+        Interpreter::Impl::ContextScope scope(impl, context);
+        Completion const completion = impl.execute_list(m_program->body, scope.context());
+        return completion.type != Completion::Type::Throw;
+    }
+    if (capability == nullptr) {
+        in.throw_type_error("internal: a module with a top-level await executed without a capability");
+        return false;
+    }
+    if (m_async_body == nullptr) {
+        // The environment already holds every declaration of the body
+        // (InitializeEnvironment did what a call's prologue does), so the
+        // function is the statement list and nothing else.
+        FunctionNode* body = m_program->make_function();
+        body->is_async = true;
+        body->is_strict = true;
+        body->is_constructable = false;
+        body->body = m_program->body;
+        body->declarations = m_program->declarations;
+        m_async_body = body;
+    }
+    return impl.start_async(*m_async_body, context, *capability).has_value();
+}
+
+// ExecuteAsyncModule (§16.2.1.5.3.2): a fresh capability for the body's
+// own promise, the module's two continuations as its reactions, then the
+// body started. The closures hold the record by pointer: the module map
+// keeps every record for the realm's life, so nothing here dangles.
+bool ModuleRecord::execute_async_module(Interpreter& in)
+{
+    Interpreter::Roots const roots(in);
+    std::optional<PromiseCapability> const capability = new_promise_capability(in, Value::object(in.intrinsics().promise_constructor));
+    if (!capability)
+        return false;
+    in.root(capability->promise);
+    in.root(capability->resolve);
+    in.root(capability->reject);
+    ModuleRecord* const module = this;
+    ClosureFunction* on_fulfilled = in.new_closure("", 0, {},
+        [module](Interpreter& interpreter, ClosureFunction&, Value const&, std::span<Value const>) -> std::optional<Value> {
+            if (!async_module_execution_fulfilled(interpreter, *module))
+                return std::nullopt;
+            return Value::undefined();
+        });
+    in.root(Value::object(on_fulfilled));
+    ClosureFunction* on_rejected = in.new_closure("", 1, {},
+        [module](Interpreter& interpreter, ClosureFunction&, Value const&, std::span<Value const> arguments) -> std::optional<Value> {
+            Value const error = arguments.empty() ? Value::undefined() : arguments[0];
+            if (!async_module_execution_rejected(interpreter, *module, error))
+                return std::nullopt;
+            return Value::undefined();
+        });
+    in.root(Value::object(on_rejected));
+    perform_then(in, *static_cast<PromiseObject*>(capability->promise.as_object()), Value::object(on_fulfilled),
+        Value::object(on_rejected), std::nullopt);
+    return execute_module(in, &*capability);
+}
+
+// GatherAvailableAncestors (§16.2.1.5.3.3): every importer that was
+// waiting on this module and now waits on nothing, and — through an
+// importer with no await of its own, which will run synchronously — the
+// importers waiting on that one, and so on up. An importer whose cycle
+// already failed is left where it is.
+void ModuleRecord::gather_available_ancestors(std::vector<ModuleRecord*>& exec_list)
+{
+    for (ModuleRecord* m : m_async_parent_modules) {
+        if (std::find(exec_list.begin(), exec_list.end(), m) != exec_list.end())
+            continue;
+        ModuleRecord const* root = m->m_cycle_root != nullptr ? m->m_cycle_root : m;
+        if (!root->m_evaluation_error.is_empty())
+            continue;
+        if (m->m_status != Status::EvaluatingAsync || m->m_pending_async_dependencies == 0)
+            continue;
+        --m->m_pending_async_dependencies;
+        if (m->m_pending_async_dependencies == 0) {
+            exec_list.push_back(m);
+            if (!m->has_top_level_await())
+                m->gather_available_ancestors(exec_list);
+        }
+    }
+}
+
+// AsyncModuleExecutionFulfilled (§16.2.1.5.3.4): the module is done and
+// its own promise, when it is a root somebody asked to evaluate, settles;
+// then every importer that waited only on it runs, in the order they were
+// found to be asynchronous — a body with an await of its own started as
+// an async one, any other run to its end here and finished likewise.
+bool ModuleRecord::async_module_execution_fulfilled(Interpreter& in, ModuleRecord& module)
+{
+    if (module.m_status == Status::Evaluated)
+        return true; // a rejection reached it first (§16.2.1.5.3.5 step 9)
+    module.m_async_evaluation = AsyncEvaluation::Done;
+    module.m_status = Status::Evaluated;
+    if (module.m_top_level_capability) {
+        Value const arguments[1] = { Value::undefined() };
+        if (!in.call(module.m_top_level_capability->resolve, Value::undefined(), arguments))
+            return false;
+    }
+    std::vector<ModuleRecord*> exec_list;
+    module.gather_available_ancestors(exec_list);
+    std::sort(exec_list.begin(), exec_list.end(),
+        [](ModuleRecord const* a, ModuleRecord const* b) { return a->m_async_evaluation_order < b->m_async_evaluation_order; });
+    for (ModuleRecord* m : exec_list) {
+        if (m->m_status == Status::Evaluated)
+            continue; // failed meanwhile, through an ancestor handled above
+        bool started = false;
+        if (m->has_top_level_await())
+            started = m->execute_async_module(in);
+        else
+            started = m->execute_module(in);
+        if (!started) {
+            if (in.terminated())
+                return false;
+            Interpreter::Roots const roots(in);
+            Value const error = in.take_exception();
+            in.root(error);
+            if (!async_module_execution_rejected(in, *m, error))
+                return false;
+            continue;
+        }
+        if (m->has_top_level_await())
+            continue; // its own continuation will finish it
+        m->m_async_evaluation = AsyncEvaluation::Done;
+        m->m_status = Status::Evaluated;
+        if (m->m_top_level_capability) {
+            Value const arguments[1] = { Value::undefined() };
+            if (!in.call(m->m_top_level_capability->resolve, Value::undefined(), arguments))
+                return false;
+        }
+    }
+    return true;
+}
+
+// AsyncModuleExecutionRejected (§16.2.1.5.3.5): the module fails with
+// the error, its own promise first and then every importer waiting on
+// it — leaf to root, as fulfilment settles them — and every later
+// request for any of them answers the same error.
+bool ModuleRecord::async_module_execution_rejected(Interpreter& in, ModuleRecord& module, Value const& error)
+{
+    if (module.m_status == Status::Evaluated)
+        return true; // already failed through another dependency
+    module.m_evaluation_error = error;
+    module.m_status = Status::Evaluated;
+    module.m_async_evaluation = AsyncEvaluation::Done;
+    if (module.m_top_level_capability) {
+        Value const arguments[1] = { error };
+        if (!in.call(module.m_top_level_capability->reject, Value::undefined(), arguments))
+            return false;
+    }
+    std::vector<ModuleRecord*> const parents = module.m_async_parent_modules;
+    for (ModuleRecord* parent : parents) {
+        if (!async_module_execution_rejected(in, *parent, error))
+            return false;
+    }
+    return true;
 }
 
 void ModuleRecord::trace(Tracer& tracer)

@@ -60,6 +60,18 @@ struct ModuleRealm {
     // answers "" for a fulfilled evaluation, else "<phase>: <error>".
     std::string run(std::string const& key)
     {
+        std::string const started = start(key);
+        if (!evaluated)
+            return started;
+        return settle();
+    }
+
+    // The first half of run(): everything up to Evaluate, and the state
+    // of the evaluation promise before a single job has run — "pending"
+    // for a graph with a top-level await in it, "" for one without.
+    std::string start(std::string const& key)
+    {
+        evaluated = false;
         auto const found = files.find(key);
         if (found == files.end())
             return "no such file";
@@ -73,16 +85,34 @@ struct ModuleRealm {
         std::optional<js::Value> const promise = interpreter.evaluate_module(*record);
         if (!promise)
             return "evaluate: " + interpreter.describe(interpreter.take_exception());
-        js::Interpreter::Roots const roots(interpreter);
+        // Rooted for the realm's life: no Roots scope is open here, so the
+        // push outlives every scope the engine opens later.
         interpreter.root(*promise);
+        last_promise = *promise;
+        evaluated = true;
+        return state();
+    }
+
+    // The second half: the queue drained, then the state of the last
+    // promise start() made.
+    std::string settle()
+    {
         interpreter.run_jobs([this](js::Value const& thrown) { console += "job threw " + interpreter.describe(thrown) + "\n"; });
-        auto const* state = static_cast<js::PromiseObject const*>(promise->as_object());
-        if (state->state() == js::PromiseObject::State::Rejected)
-            return "rejected: " + interpreter.describe(state->result());
-        if (state->state() == js::PromiseObject::State::Pending)
+        return state();
+    }
+
+    std::string state()
+    {
+        auto const* promise = static_cast<js::PromiseObject const*>(last_promise.as_object());
+        if (promise->state() == js::PromiseObject::State::Rejected)
+            return "rejected: " + interpreter.describe(promise->result());
+        if (promise->state() == js::PromiseObject::State::Pending)
             return "pending";
         return "";
     }
+
+    js::Value last_promise; // the evaluation promise start() made, rooted there
+    bool evaluated = false; // start() got as far as Evaluate
 
     // Runs `source` as a classic script under `name` — the referrer an
     // import() in it resolves against — and drains the job queue.
@@ -260,12 +290,170 @@ void test_evaluation_errors()
     realm.files["other"] = "import 'thrower';";
     CHECK_EQ(realm.run("other"), "rejected: RangeError: boom");
     CHECK_JS_NUMBER(realm.interpreter, "ran", 1);
-    // A module that awaits at its top level is refused by name, for now.
-    realm.files["tla"] = "export const v = await 1;";
-    CHECK_EQ(realm.run("tla"), "rejected: SyntaxError: top-level await is not supported yet");
     // The evaluation promise settles through the job queue like any other.
     realm.files["fine"] = "export const ok = true;";
     CHECK_EQ(realm.run("fine"), "");
+}
+
+void test_top_level_await()
+{
+    // The body runs as an async function: nothing after the first await
+    // has run when Evaluate returns, the promise is pending until the
+    // jobs have run, and the exports are what the awaits produced. An
+    // importer in the same graph runs after the whole body, and its own
+    // promise settles after the dependency's.
+    ModuleRealm realm;
+    realm.files["tla"] = "globalThis.log = ['start']; export const a = await Promise.resolve(1); log.push('a=' + a);\n"
+                         "export let b = await 2; log.push('b=' + b); export default await new Promise(function (r) { r('d') });\n"
+                         "export function f() { return a + b } log.push('end');";
+    realm.files["main"] = "import d, { a, b, f } from 'tla'; log.push('main:' + [a, b, d, f(), this].join('/'));";
+    CHECK_EQ(realm.start("main"), "pending");
+    CHECK_JS_STRING(realm.interpreter, "log.join()", "start");
+    CHECK_EQ(realm.settle(), "");
+    CHECK_JS_STRING(realm.interpreter, "log.join()", "start,a=1,b=2,end,main:1/2/d/3/");
+    // Done is done: a later graph that imports it runs synchronously, and
+    // the module's own promise is the one it always had.
+    realm.files["later"] = "import { a } from 'tla'; log.push('later:' + a);";
+    CHECK_EQ(realm.start("later"), "");
+    CHECK_EQ(realm.run("tla"), "");
+    CHECK_JS_STRING(realm.interpreter, "log.join()", "start,a=1,b=2,end,main:1/2/d/3/,later:1");
+    CHECK_EQ(realm.console, "");
+
+    // Await ticks interleave with promise reactions one for one, as in an
+    // async function (§27.7.5.3: one job per await of a native promise).
+    ModuleRealm ticks;
+    ticks.files["main"] = "globalThis.actual = [];\n"
+                          "Promise.resolve(0).then(function () { actual.push('tick 1') }).then(function () { actual.push('tick 2') })\n"
+                          "  .then(function () { actual.push('tick 3') });\n"
+                          "await 1; actual.push('await 1'); await 2; actual.push('await 2'); await 3; actual.push('await 3');";
+    CHECK_EQ(ticks.run("main"), "");
+    CHECK_JS_STRING(ticks.interpreter, "actual.join()", "tick 1,await 1,tick 2,await 2,tick 3,await 3");
+
+    // A rejected await rejects the module, its importers never run, and
+    // every later request answers the same error. A throw before the
+    // first await is a rejection too, through the jobs, never a throw
+    // out of Evaluate.
+    ModuleRealm failing;
+    failing.files["bad"] = "globalThis.ran = (globalThis.ran || 0) + 1; export const x = 1; await Promise.reject(new RangeError('async boom')); export const y = 2;";
+    failing.files["importer"] = "import { x } from 'bad'; globalThis.reached = true;";
+    CHECK_EQ(failing.run("importer"), "rejected: RangeError: async boom");
+    CHECK_JS_TRUE(failing.interpreter, "globalThis.reached === undefined && ran === 1");
+    CHECK_EQ(failing.run("importer"), "rejected: RangeError: async boom");
+    CHECK_EQ(failing.run("bad"), "rejected: RangeError: async boom");
+    failing.files["other"] = "import 'bad';";
+    CHECK_EQ(failing.run("other"), "rejected: RangeError: async boom");
+    CHECK_JS_NUMBER(failing.interpreter, "ran", 1);
+    failing.files["early"] = "throw new TypeError('early'); await 1;";
+    CHECK_EQ(failing.start("early"), "pending");
+    CHECK_EQ(failing.settle(), "rejected: TypeError: early");
+    // Each evaluation promise rejected with nobody handling it is reported
+    // once, as a synchronous module's is; the second request for
+    // `importer` answered the promise that already had been.
+    CHECK_EQ(failing.console,
+        "Uncaught (in promise) RangeError: async boom\nUncaught (in promise) RangeError: async boom\n"
+        "Uncaught (in promise) RangeError: async boom\nUncaught (in promise) TypeError: early\n");
+
+    // While one dependency waits, its siblings run; the importer runs when
+    // the last pending dependency has finished, synchronously in that
+    // dependency's continuation, and a chain of importers without awaits
+    // of their own runs in the same job.
+    ModuleRealm siblings;
+    siblings.files["setup"] = "globalThis.order = []; globalThis.release = null;";
+    siblings.files["slow"] = "import 'setup'; order.push('slow-start'); await new Promise(function (r) { globalThis.release = r }); order.push('slow-end');";
+    siblings.files["quick"] = "import 'setup'; order.push('quick'); export const sawSlowEnd = order.indexOf('slow-end') >= 0;";
+    siblings.files["mid"] = "import 'slow'; order.push('mid');";
+    siblings.files["main"] = "import 'setup'; import 'slow'; import { sawSlowEnd } from 'quick'; import 'mid'; order.push('main:' + sawSlowEnd);";
+    CHECK_EQ(siblings.start("main"), "pending");
+    CHECK_JS_STRING(siblings.interpreter, "order.join()", "slow-start,quick");
+    CHECK_EQ(siblings.settle(), "pending");
+    CHECK_JS_STRING(siblings.interpreter, "order.join()", "slow-start,quick");
+    CHECK_EQ(siblings.run_script("release();", "script"), "");
+    CHECK_EQ(siblings.state(), "");
+    CHECK_JS_STRING(siblings.interpreter, "order.join()", "slow-start,quick,slow-end,mid,main:false");
+
+    // Two pending dependencies finish in the order the world settles
+    // them, not the order they were imported; the importer runs after
+    // the later one. Evaluate on a module already evaluating answers the
+    // same pending promise.
+    ModuleRealm order;
+    order.files["setup"] = "globalThis.order = []; globalThis.releases = {};";
+    order.files["first"] = "import 'setup'; order.push('first-start'); await new Promise(function (r) { releases.first = r }); order.push('first-end');";
+    order.files["second"] = "import 'setup'; order.push('second-start'); await new Promise(function (r) { releases.second = r }); order.push('second-end');";
+    order.files["main"] = "import 'setup'; import 'first'; import 'second'; order.push('main');";
+    CHECK_EQ(order.start("main"), "pending");
+    CHECK_EQ(order.start("main"), "pending");
+    CHECK_EQ(order.run_script("releases.second();", "script"), "");
+    CHECK_JS_STRING(order.interpreter, "order.join()", "first-start,second-start,second-end");
+    CHECK_EQ(order.state(), "pending");
+    CHECK_EQ(order.run_script("releases.first();", "script"), "");
+    CHECK_EQ(order.state(), "");
+    CHECK_JS_STRING(order.interpreter, "order.join()", "first-start,second-start,second-end,first-end,main");
+
+    // A cycle with an await in it: the dependency entered second runs
+    // first and finishes first, the other waits for it, and the root
+    // waits for both — nothing hangs and nothing runs twice.
+    ModuleRealm cycle;
+    cycle.files["setup"] = "globalThis.order = [];";
+    cycle.files["a"] = "import 'setup'; import 'b'; order.push('a'); await 0; order.push('a-after');";
+    cycle.files["b"] = "import 'setup'; import 'a'; order.push('b'); await 0; order.push('b-after');";
+    cycle.files["main"] = "import 'setup'; import 'a'; order.push('main');";
+    CHECK_EQ(cycle.run("main"), "");
+    CHECK_JS_STRING(cycle.interpreter, "order.join()", "b,b-after,a,a-after,main");
+    CHECK_EQ(cycle.run("b"), "");
+    CHECK_JS_STRING(cycle.interpreter, "order.join()", "b,b-after,a,a-after,main");
+
+    // An importer without an await that throws once its dependency has
+    // finished rejects its own graph and leaves the dependency evaluated.
+    ModuleRealm late;
+    late.files["top"] = "await 0; export const t = 't';";
+    late.files["mid"] = "import { t } from 'top'; throw new Error('mid saw ' + t);";
+    late.files["main"] = "import 'mid'; globalThis.reached = true;";
+    CHECK_EQ(late.run("main"), "rejected: Error: mid saw t");
+    CHECK_JS_TRUE(late.interpreter, "globalThis.reached === undefined");
+    CHECK_EQ(late.run("top"), "");
+    CHECK_EQ(late.run("mid"), "rejected: Error: mid saw t");
+
+    // import() of a module still waiting resolves with its namespace when
+    // it finishes, however many times it is asked; asked again once it
+    // is done, at once with the same object.
+    ModuleRealm dynamic;
+    dynamic.files["waiting"] = "globalThis.started = (globalThis.started || 0) + 1; await new Promise(function (r) { globalThis.go = r }); export const v = 'v';";
+    CHECK_EQ(dynamic.run_script("globalThis.out = []; var p1 = import('waiting'); p1.then(function (ns) { out.push('p1:' + ns.v) });", "script"), "");
+    CHECK_EQ(dynamic.run_script("var p2 = import('waiting'); p2.then(function (ns) { out.push('p2:' + ns.v) }); out.push('started:' + started);", "script"), "");
+    CHECK_JS_STRING(dynamic.interpreter, "out.join()", "started:1");
+    CHECK_EQ(dynamic.run_script("go();", "script"), "");
+    CHECK_JS_STRING(dynamic.interpreter, "out.join()", "started:1,p1:v,p2:v");
+    CHECK_EQ(dynamic.run_script("import('waiting').then(function (ns) { out.push('again:' + (ns.v) + ':' + started) });", "script"), "");
+    CHECK_JS_STRING(dynamic.interpreter, "out.join()", "started:1,p1:v,p2:v,again:v:1");
+
+    // The body runs on the bytecode tier, so what only module code has
+    // must work there: `this` undefined, import.meta the record's one
+    // object, import() resolved against the module, and every export
+    // form — the default's name "default" for an anonymous class, a
+    // function or an arrow, and untouched for anything named.
+    ModuleRealm forms;
+    forms.files["dep"] = "export const fromDep = 'dep';";
+    forms.files["d1"] = "await 0; export default class { static who() { return 'class' } }";
+    forms.files["d2"] = "await 0; export default function () { return 'function' }";
+    forms.files["d3"] = "await 0; export default () => 'arrow';";
+    forms.files["d4"] = "await 0; var o = { named() { return 'named' } }; export default o.named;";
+    forms.files["d5"] = "export const meta = [this === undefined, typeof import.meta, import.meta === import.meta].join('/');\n"
+                        "export const ns = await import('dep'); export class K { m() { return 'k' } } export let x = 1; export { x as y };\n"
+                        "export * from 'dep'; export function f() { return 'f' } export var v = await Promise.resolve('v'); x = 2;";
+    forms.files["main"] = "import d1 from 'd1'; import d2 from 'd2'; import d3 from 'd3'; import d4 from 'd4';\n"
+                          "import { meta, ns, K, x, y, fromDep, f, v } from 'd5';\n"
+                          "globalThis.out = [d1.name, d1.who(), d2.name, d2(), d3.name, d3(), d4.name, d4(),\n"
+                          "  meta, ns.fromDep, new K().m(), x, y, fromDep, f(), v].join();";
+    CHECK_EQ(forms.run("main"), "");
+    CHECK_JS_STRING(forms.interpreter, "out",
+        "default,class,default,function,default,arrow,named,named,true/object/true,dep,k,2,2,dep,f,v");
+    CHECK_EQ(forms.console, "");
+
+    // `for await` at the top level is a body the bytecode tier declines
+    // by name, for now: a rejection, never a hang.
+    ModuleRealm declined;
+    declined.files["fa"] = "for await (const x of [1]) {}";
+    CHECK_EQ(declined.run("fa"), "rejected: SyntaxError: for await is not supported yet");
 }
 
 void test_default_exports()
@@ -365,7 +553,6 @@ void test_dynamic_import_failures()
     realm.files["dep"] = "export const v = 1;";
     realm.files["broken"] = "export var = 1;";
     realm.files["thrower"] = "throw new RangeError('boom');";
-    realm.files["tla"] = "export const v = await 1;";
     realm.files["main"] = "globalThis.out = [];\n"
                           "function watch(tag, p) {\n"
                           "  return p.then(function () { out.push(tag + ':resolved') }, function (e) { out.push(tag + ':' + e.name) });\n"
@@ -376,7 +563,6 @@ void test_dynamic_import_failures()
                           "watch('symbol', import(Symbol('s')));\n"
                           "watch('parse', import('broken'));\n"
                           "watch('evaluation', import('thrower'));\n"
-                          "watch('tla', import('tla'));\n"
                           "watch('options', import('dep', 5));\n"
                           "watch('with', import('dep', { with: 5 }));\n"
                           "watch('type', import('dep', { with: { type: 'json' } }));\n"
@@ -392,7 +578,7 @@ void test_dynamic_import_failures()
     CHECK_EQ(realm.run("main"), "");
     CHECK_JS_STRING(realm.interpreter, "out.slice().sort().join('|')",
         "both:TypeError|evaluation:RangeError|missing:TypeError|options:TypeError|parse:SyntaxError|symbol:TypeError"
-        "|tla:SyntaxError|tostring:TypeError|type:TypeError|unknown:TypeError|value:TypeError|with:TypeError");
+        "|tostring:TypeError|type:TypeError|unknown:TypeError|value:TypeError|with:TypeError");
     // A module type is refused by name, the way a static import's is.
     CHECK_JS_STRING(realm.interpreter, "typeMessage",
         "Cannot import 'dep' as a module of type 'json': modules of that type are not supported yet");
@@ -406,11 +592,11 @@ void test_dynamic_import_failures()
     // request carrying both is refused for the unsupported key.
     CHECK_JS_STRING(realm.interpreter, "bothMessage",
         "Cannot import 'dep' with the import attribute 'other': that attribute is not supported");
-    // What the loader was asked to resolve: only the four requests that got
-    // that far. A bad options argument, a bad attribute value, a module
-    // type and an unsupported attribute key are all refused before the
-    // resolver, so none of them named a module to the host.
-    CHECK_EQ(realm.resolutions, "main|nowhere\nmain|broken\nmain|thrower\nmain|tla\n");
+    // What the loader was asked to resolve: only the three requests that
+    // got that far. A bad options argument, a bad attribute value, a
+    // module type and an unsupported attribute key are all refused before
+    // the resolver, so none of them named a module to the host.
+    CHECK_EQ(realm.resolutions, "main|nowhere\nmain|broken\nmain|thrower\n");
     // Every rejection had a handler, so nothing was reported unhandled.
     CHECK_EQ(realm.console, "");
 }
@@ -576,6 +762,7 @@ int main()
     test_link_errors();
     test_evaluation_order_and_cycles();
     test_evaluation_errors();
+    test_top_level_await();
     test_default_exports();
     test_module_code_semantics();
     test_import_and_export_of_index_names();

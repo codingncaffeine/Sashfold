@@ -704,7 +704,7 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     if (node.is_generator)
         return start_generator(function, cx);
     if (async_capability != nullptr)
-        return start_async(function, cx, *async_capability);
+        return start_async(node, cx, *async_capability);
 
     // The body. A field initializer is its expression, named after
     // the field when it is an anonymous function; a default derived

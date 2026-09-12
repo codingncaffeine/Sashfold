@@ -93,7 +93,19 @@ private:
     std::optional<std::size_t> inner_linking(Interpreter&, std::vector<ModuleRecord*>& stack, std::size_t index);
     bool initialize_environment(Interpreter&);
     std::optional<std::size_t> inner_evaluation(Interpreter&, std::vector<ModuleRecord*>& stack, std::size_t index);
-    bool execute_module(Interpreter&);
+    // ExecuteModule (§16.2.1.6.5): without a capability the body runs to
+    // its end on the tree-walker; with one — a module with a top-level
+    // await — it starts as an async function body that settles the
+    // capability, and runs only to its first await here.
+    bool execute_module(Interpreter&, PromiseCapability const* capability = nullptr);
+    // ExecuteAsyncModule (§16.2.1.5.3.2), the two continuations it hooks
+    // onto the body's promise (§16.2.1.5.3.4, §16.2.1.5.3.5) and
+    // GatherAvailableAncestors (§16.2.1.5.3.3). False from any of them
+    // means the realm was terminated or a settling call itself failed.
+    bool execute_async_module(Interpreter&);
+    static bool async_module_execution_fulfilled(Interpreter&, ModuleRecord&);
+    static bool async_module_execution_rejected(Interpreter&, ModuleRecord&, Value const& error);
+    void gather_available_ancestors(std::vector<ModuleRecord*>& exec_list);
 
     std::string m_key;
     std::unique_ptr<Program> m_program;
@@ -103,15 +115,23 @@ private:
     Status m_status = Status::Unlinked;
     Value m_evaluation_error = Value::empty();
     std::optional<PromiseCapability> m_top_level_capability; // [[TopLevelCapability]]
-    // [[AsyncEvaluation]] and its order, [[AsyncParentModules]],
-    // [[PendingAsyncDependencies]], [[CycleRoot]]: the async half of
-    // InnerModuleEvaluation keeps them; a module with a top-level await
-    // is refused by name until that half is written.
-    bool m_async_evaluation = false;
+    // [[AsyncEvaluationOrder]] (§16.2.1.5): unset until the module is
+    // found to evaluate asynchronously — a top-level await of its own, or
+    // a dependency still pending — then the integer that orders it
+    // against every other pending module, then done once its body has
+    // finished. Only a pending module counts as an asynchronous
+    // dependency of the modules that import it.
+    enum class AsyncEvaluation : std::uint8_t { Unset, Pending, Done };
+    AsyncEvaluation m_async_evaluation = AsyncEvaluation::Unset;
     std::uint64_t m_async_evaluation_order = 0;
+    // [[AsyncParentModules]], [[PendingAsyncDependencies]], [[CycleRoot]].
     std::vector<ModuleRecord*> m_async_parent_modules;
     std::size_t m_pending_async_dependencies = 0;
     ModuleRecord* m_cycle_root = nullptr;
+    // The body of a module with a top-level await as the async function
+    // it runs as (§16.2.1.6.5 step 12): made once, over the program's own
+    // statement list, when the body first runs; owned by the program.
+    FunctionNode const* m_async_body = nullptr;
     std::optional<std::size_t> m_dfs_index; // [[DFSIndex]], [[DFSAncestorIndex]]: EMPTY = nullopt
     std::optional<std::size_t> m_dfs_ancestor_index;
     std::vector<std::pair<JsString*, ModuleRecord*>> m_loaded_modules;

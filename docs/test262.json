@@ -1,7 +1,7 @@
 {
   "revision": "419d3e0a2273ba01a3bfcbec423f2801425b8e93",
   "date": "2026-09-12",
-  "passed": 34135,
+  "passed": 34341,
   "total": 41714,
   "directories": [
     { "path": "test/language/arguments-object", "passed": 201, "total": 263 },
@@ -13,7 +13,7 @@
     { "path": "test/language/directive-prologue", "passed": 62, "total": 62 },
     { "path": "test/language/eval-code", "passed": 254, "total": 347 },
     { "path": "test/language/export", "passed": 3, "total": 3 },
-    { "path": "test/language/expressions", "passed": 8887, "total": 11102 },
+    { "path": "test/language/expressions", "passed": 8889, "total": 11102 },
     { "path": "test/language/function-code", "passed": 217, "total": 217 },
     { "path": "test/language/future-reserved-words", "passed": 55, "total": 55 },
     { "path": "test/language/global-code", "passed": 41, "total": 42 },
@@ -23,7 +23,7 @@
     { "path": "test/language/keywords", "passed": 25, "total": 25 },
     { "path": "test/language/line-terminators", "passed": 41, "total": 41 },
     { "path": "test/language/literals", "passed": 500, "total": 536 },
-    { "path": "test/language/module-code", "passed": 354, "total": 599 },
+    { "path": "test/language/module-code", "passed": 558, "total": 599 },
     { "path": "test/language/punctuators", "passed": 11, "total": 11 },
     { "path": "test/language/reserved-words", "passed": 27, "total": 27 },
     { "path": "test/language/rest-parameters", "passed": 11, "total": 11 },

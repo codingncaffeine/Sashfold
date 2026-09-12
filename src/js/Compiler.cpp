@@ -362,6 +362,34 @@ private:
             compile_statement(statement, {});
     }
 
+    // ExportDeclaration evaluation (§16.2.3.7), as the tree-walker has it:
+    // a declaration is compiled as itself, a default expression is
+    // compiled — named "default" when it is an anonymous function or
+    // class — and bound to `*default*`, a default function was
+    // instantiated when the module was linked, and the named and star
+    // forms did their work then too. Only a module body with a top-level
+    // await reaches here: it is the one module code the VM runs.
+    void compile_export(ExportDeclaration const& declaration)
+    {
+        switch (declaration.kind) {
+        case ExportDeclaration::Kind::Declaration:
+            compile_statement(declaration.declaration, {});
+            return;
+        case ExportDeclaration::Kind::Default:
+            if (declaration.declaration != nullptr) {
+                if (declaration.declaration->type != NodeType::FunctionDeclaration)
+                    compile_statement(declaration.declaration, {});
+                return;
+            }
+            compile_named_value(declaration.expression, m_heap.atom(u"default"));
+            emit(Opcode::InitializeBinding, name(m_heap.atom(u"*default*")));
+            return;
+        case ExportDeclaration::Kind::Named:
+        case ExportDeclaration::Kind::Star:
+            return;
+        }
+    }
+
     void compile_statement(Statement const* statement, std::vector<JsString*> labels)
     {
         if (!m_error.empty())
@@ -378,10 +406,20 @@ private:
         }
         case NodeType::ClassDeclaration: {
             auto const& declaration = *static_cast<ClassDeclaration const*>(statement);
-            emit(Opcode::MakeClass, class_node(declaration.node), None);
-            emit(Opcode::InitializeBinding, name(declaration.node->name));
+            // An anonymous `export default class` is named "default" and
+            // binds `*default*` (§16.2.3.7), as execute_class_declaration
+            // has it.
+            bool const anonymous = declaration.node->name == nullptr;
+            emit(Opcode::MakeClass, class_node(declaration.node), anonymous ? name(m_heap.atom(u"default")) : None);
+            emit(Opcode::InitializeBinding, name(anonymous ? m_heap.atom(u"*default*") : declaration.node->name));
             return;
         }
+        case NodeType::ImportDeclaration:
+            // §16.2.2.7: the bindings were made when the module was linked.
+            return;
+        case NodeType::ExportDeclaration:
+            compile_export(*static_cast<ExportDeclaration const*>(statement));
+            return;
         case NodeType::ExpressionStatement:
             compile_expression(static_cast<ExpressionStatement const*>(statement)->expression);
             emit(Opcode::Pop);
