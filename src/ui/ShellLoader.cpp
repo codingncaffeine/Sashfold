@@ -84,9 +84,24 @@ net::FetchResult load_file(net::Url const& url)
 
 } // namespace
 
+std::optional<std::string> ShellLoader::refusal(net::Url const& url, net::Url const* first_party,
+    net::ResourceKind kind)
+{
+    if (m_blocklists.empty())
+        return std::nullopt;
+    std::optional<net::Blocklists::Block> const block
+        = m_blocklists.blocks(net::FilterRequest { &url, first_party, kind });
+    if (!block)
+        return std::nullopt;
+    ++m_blocked;
+    return (block->nefarious ? "kept off by " : "blocked by ") + block->list + ": " + block->rule;
+}
+
 net::FetchResult ShellLoader::load(net::Url const& url, std::string const& referrer,
     bool bypass_cache)
 {
+    if (std::optional<std::string> refused = refusal(url, nullptr, net::ResourceKind::Document))
+        return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file")
         return load_file(url);
     net::FetchOptions options;
@@ -99,8 +114,10 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
 }
 
 net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url const& first_party,
-    std::string const& referrer)
+    std::string const& referrer, net::ResourceKind kind)
 {
+    if (std::optional<std::string> refused = refusal(url, &first_party, kind))
+        return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file") {
         // A local page may reference local files, and so may the shell's
         // own about: pages (the new-tab page shows the theme's pictures);
@@ -121,6 +138,9 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url con
 net::FetchResult ShellLoader::load_resource(net::Url const& url, net::Url const& first_party,
     std::string const& referrer, net::ResourceRequest const& request)
 {
+    if (std::optional<std::string> refused = refusal(url, &first_party,
+            request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr))
+        return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file") {
         if (first_party.scheme != "file")
             return { std::nullopt, "a web page cannot read local files" };

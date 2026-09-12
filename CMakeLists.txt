@@ -93,6 +93,7 @@ add_library(sashfold_core STATIC
   src/net/Connections.cpp
   src/net/Cookies.cpp
   src/net/DataUrl.cpp
+  src/net/Filters.cpp
   src/net/Http.cpp
   src/net/Idna.cpp
   src/net/Url.cpp

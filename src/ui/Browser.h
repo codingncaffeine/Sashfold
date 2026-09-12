@@ -12,6 +12,7 @@
 // integration of fetch arrives with the multi-process split.
 
 #include "core/Bitmap.h"
+#include "net/Filters.h"
 #include "net/Http.h"
 #include "net/Url.h"
 #include "platform/Input.h"
@@ -39,15 +40,18 @@ public:
     virtual net::FetchResult load(net::Url const& url, std::string const& referrer,
         bool bypass_cache)
         = 0;
-    // A resource a page asks for — its stylesheets — fetched on the page's
-    // behalf: the same session, with `first_party` (the page's URL) keeping
-    // third-party cookies out. A loader that serves only documents says so.
+    // A resource a page asks for — a stylesheet, a picture, a script, a
+    // font — fetched on the page's behalf: the same session, with
+    // `first_party` (the page's URL) keeping third-party cookies out, and
+    // `kind` for the content-blocking rules to judge by. A loader that
+    // serves only documents says so.
     virtual net::FetchResult load_subresource(net::Url const& url, net::Url const& first_party,
-        std::string const& referrer)
+        std::string const& referrer, net::ResourceKind kind = net::ResourceKind::Other)
     {
         (void)url;
         (void)first_party;
         (void)referrer;
+        (void)kind;
         return { std::nullopt, "this loader serves documents only" };
     }
     // A request a page's script makes — fetch(), XMLHttpRequest — carried
@@ -75,6 +79,8 @@ public:
         (void)url;
         (void)set_cookie_line;
     }
+    // How many requests the session's blocklists have refused so far.
+    virtual std::size_t blocked_requests() const { return 0; }
 };
 
 struct HistoryEntry {
@@ -197,6 +203,7 @@ public:
     std::string status_text() const;
     std::string page_title() const;
     std::string page_text() const; // the laid-out text, runs joined by spaces
+    std::size_t blocked_requests() const; // refused by the loader's blocklists, this session
     int scroll_y() const;
     // How far the innermost box that scrolls under a window point has had
     // its content moved, in CSS px; zero when the point is in no such box.

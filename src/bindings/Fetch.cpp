@@ -1270,6 +1270,7 @@ FetchOutcome perform_fetch(Realm::Internals& in, PageRequest const& page_request
         request.body = *page_request.body;
     request.credentials = credentials;
     request.follow_redirects = page_request.redirect == FetchRedirect::Follow;
+    request.destination = page_request.destination;
     net::FetchResult result = in.hooks.fetch_resource(page_request.url, request);
     if (!result.response) {
         outcome.error = result.error;

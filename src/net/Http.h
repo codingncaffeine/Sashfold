@@ -43,6 +43,9 @@ struct ResourceRequest {
     std::vector<std::uint8_t> body;
     bool credentials = true;
     bool follow_redirects = true;
+    // What the response is for — "script" for a module script; empty for
+    // fetch() and XMLHttpRequest — so the content-blocking rules can judge.
+    std::string destination;
 };
 
 class ConnectionPool;

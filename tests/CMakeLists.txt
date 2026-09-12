@@ -11,6 +11,7 @@ sashfold_test(test_bitmap)
 sashfold_test(test_font)
 sashfold_test(test_gif)
 sashfold_test(test_bmp)
+sashfold_test(test_filters)
 add_executable(test_jpeg test_jpeg.cpp)
 target_link_libraries(test_jpeg PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_jpeg COMMAND test_jpeg)
@@ -134,6 +135,10 @@ add_test(NAME shell_newtab
 add_test(NAME shell_newtab_pictures
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-pictures.script
     --theme ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-theme.json
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_blocking
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/blocking.script
+    --blocklists ${CMAKE_CURRENT_SOURCE_DIR}/shell/blocklists
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 
 # html5lib conformance: score against the fixtures, hold the committed

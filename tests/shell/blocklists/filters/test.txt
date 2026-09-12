@@ -1,0 +1,8 @@
+[Adblock Plus 2.0]
+! A filter list for the shell test: hosts that never answer, so a request
+! that got through would be a network error, and one refused costs nothing.
+||ads.test^
+||tracker.test^$script,third-party
+||walled.test^$document
+@@||ads.test/allowed^$image
+tracker.test##.banner

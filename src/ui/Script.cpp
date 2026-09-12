@@ -386,6 +386,8 @@ struct Runner {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
+        } else if (command == "assert-blocked") {
+            expect_equal("assert-blocked", std::to_string(browser.blocked_requests()), argument);
         } else if (command == "advance") {
             // `advance <ms> [<times>]`: the clock moves and the timers due
             // run, `times` over, so a chain of timers each set by the last

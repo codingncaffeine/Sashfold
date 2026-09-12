@@ -696,6 +696,7 @@ std::optional<std::string> Realm::Internals::fetch_module_source(std::string con
     request.url = *target;
     request.mode = FetchMode::Cors;
     request.credentials = include_credentials ? FetchCredentials::Include : FetchCredentials::SameOrigin;
+    request.destination = "script";
     FetchOutcome const outcome = perform_fetch(*this, request);
     if (!outcome.ok) {
         error = outcome.error.empty() ? std::string("it could not be fetched") : outcome.error;

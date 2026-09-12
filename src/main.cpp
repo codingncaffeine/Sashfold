@@ -49,7 +49,7 @@ namespace {
 
 int usage(char const* program)
 {
-    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--downloads <dir>]\n"
+    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>]\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
@@ -68,6 +68,9 @@ int usage(char const* program)
               << "  --theme applies a theme file to the window and to --script; the default is\n"
               << "          themes/default.json beside the executable or its parent, reloaded\n"
               << "          whenever the file changes while the window is open.\n"
+              << "  --blocklists is the folder of content-blocking lists (filters/*.txt in\n"
+              << "          Adblock syntax, nefarious/*.txt sites to keep off), read at start;\n"
+              << "          the default is blocklists/ beside the executable or its parent.\n"
               << "  --downloads is where downloads are saved (the window defaults to your\n"
               << "          Downloads folder; --script saves nothing unless told where).\n"
               << "  --script replays a shell script headlessly and checks its assertions.\n"
@@ -186,6 +189,19 @@ struct LoadedPage {
     std::unique_ptr<ui::ShellLoader> loader; // fetches the page's stylesheets with the same session
 };
 
+// The blocklists folder the render and bench modes' loaders read, set from
+// the command line before either runs; empty reads none.
+std::string render_blocklists_path;
+
+net::Blocklists load_blocklists(std::string const& path);
+
+std::unique_ptr<ui::ShellLoader> make_render_loader()
+{
+    auto loader = std::make_unique<ui::ShellLoader>();
+    loader->set_blocklists(load_blocklists(render_blocklists_path));
+    return loader;
+}
+
 // A --render / --bench input as a URL: one as typed, anything else as a
 // local file.
 std::optional<net::Url> input_url(std::string const& source)
@@ -212,7 +228,7 @@ std::optional<LoadedPage> load_page(std::string const& source)
     std::optional<net::Url> const url = input_url(source);
     if (!url)
         return std::nullopt;
-    auto loader = std::make_unique<ui::ShellLoader>();
+    auto loader = make_render_loader();
     net::FetchResult result = loader->load(*url, "", false);
     if (!result.response) {
         std::cerr << "error: " << result.error << "\n";
@@ -342,7 +358,7 @@ std::optional<RenderLoad> load_for_render(std::string const& source)
         return std::nullopt;
     RenderLoad load;
     load.page.url = *url;
-    load.page.loader = std::make_unique<ui::ShellLoader>();
+    load.page.loader = make_render_loader();
     auto const started = clock::now();
     net::FetchResult result = load.page.loader->load(*url, "", false);
     load.fetch_ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
@@ -758,7 +774,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << " },\n"
             << "  \"images\": { \"count\": " << images.size() << ", \"failed\": " << image_failures
             << " },\n"
-            << "  \"fonts\": " << fonts.size() << ",\n";
+            << "  \"fonts\": " << fonts.size() << ",\n"
+            << "  \"blocked\": " << loaded.loader->blocked_requests() << ",\n";
         if (realm) {
             bindings::ScriptStats const& scripts = realm->stats();
             out << "  \"scripts\": { \"run\": " << scripts.scripts_run << ", \"modules\": " << scripts.modules_run << ", \"failed\": " << scripts.scripts_failed
@@ -1057,10 +1074,30 @@ ui::Theme load_theme(std::string const& path)
     return theme.value_or(ui::Theme {});
 }
 
+// The blocklists folder: `--blocklists`, else blocklists/ beside the
+// executable or its parent (the repository's, which ships no lists).
+std::string default_blocklists_path(char const* program)
+{
+    return shipped_file_path(program, std::filesystem::path("blocklists"));
+}
+
+net::Blocklists load_blocklists(std::string const& path)
+{
+    net::Blocklists lists;
+    if (path.empty())
+        return lists;
+    std::vector<std::string> problems;
+    lists.load_directory(path, &problems);
+    for (std::string const& problem : problems)
+        std::cerr << problem << "\n";
+    return lists;
+}
+
 int run_script_mode(std::string const& script, bool update_goldens, int width, int height,
-    std::string const& theme_path, std::string const& downloads)
+    std::string const& theme_path, std::string const& blocklists_path, std::string const& downloads)
 {
     ui::ShellLoader loader;
+    loader.set_blocklists(load_blocklists(blocklists_path));
     ui::Browser browser(loader, load_theme(theme_path), width, height);
     platform::use_process_clipboard(true); // a script never touches the real clipboard
     browser.set_downloads_directory(downloads);
@@ -1069,7 +1106,7 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
 }
 
 int run_window(std::string const& start_url, std::string const& theme_path,
-    std::string const& downloads, char const* program)
+    std::string const& blocklists_path, std::string const& downloads, char const* program)
 {
     std::optional<Bitmap> const icon = load_window_icon(program);
     std::unique_ptr<platform::Window> window
@@ -1080,6 +1117,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         return 1;
     }
     ui::ShellLoader loader;
+    loader.set_blocklists(load_blocklists(blocklists_path));
     ui::Browser browser(loader, load_theme(theme_path), window->width(), window->height());
     browser.set_downloads_directory(downloads);
     browser.navigate(start_url.empty() ? "about:sashfold" : start_url);
@@ -1161,6 +1199,7 @@ int main(int argc, char** argv)
     std::string output = "sashfold-out.png";
     std::string start_url;
     std::string theme_path = default_theme_path(argv[0]);
+    std::string blocklists_path = default_blocklists_path(argv[0]);
     std::optional<std::string> downloads;
     std::string font_path;
     // Files named on the command line, installed as if the machine had them:
@@ -1185,6 +1224,9 @@ int main(int argc, char** argv)
         std::string const& arg = args[i];
         if (arg == "--theme") {
             if (!value_after(i, theme_path))
+                return usage(argv[0]);
+        } else if (arg == "--blocklists") {
+            if (!value_after(i, blocklists_path))
                 return usage(argv[0]);
         } else if (arg == "--downloads") {
             std::string directory;
@@ -1283,9 +1325,10 @@ int main(int argc, char** argv)
         text::FontManager::instance().add_font_file(file);
     }
 
+    render_blocklists_path = blocklists_path;
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
-            theme_path, downloads.value_or(""));
+            theme_path, blocklists_path, downloads.value_or(""));
     if (mode == "--render")
         return render_page(input, output, width ? width : 800, height ? height : 720, extras);
     if (mode == "--bench")
@@ -1302,5 +1345,6 @@ int main(int argc, char** argv)
         return font_list();
     if (mode == "--smoke")
         return smoke_scene(output);
-    return run_window(start_url, theme_path, downloads.value_or(default_downloads_directory()), argv[0]);
+    return run_window(start_url, theme_path, blocklists_path, downloads.value_or(default_downloads_directory()),
+        argv[0]);
 }

@@ -1,0 +1,4 @@
+# Sites to keep away from, in the three forms such lists come in.
+phish.test
+https://evil.test/login
+0.0.0.0 malware.test

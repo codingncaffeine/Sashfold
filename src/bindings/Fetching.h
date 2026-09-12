@@ -30,6 +30,7 @@ struct PageRequest {
     FetchMode mode = FetchMode::Cors;
     FetchCredentials credentials = FetchCredentials::SameOrigin;
     FetchRedirect redirect = FetchRedirect::Follow;
+    std::string destination; // "script" for a module script; empty for the page's own fetches
 };
 
 struct FetchOutcome {

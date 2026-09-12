@@ -1,0 +1,33 @@
+# Content blocking: the session's lists are asked before any request
+# leaves. A page's pictures and scripts that a filter list names are
+# refused and counted, a navigation a filter list names as a page is
+# refused with a page saying which list and rule, and a site a nefarious
+# list names is kept off with no way through. Every host here is one that
+# never answers, so a request that slipped through would be a network
+# error, not a false pass.
+resize 800 500
+open data:text/html,<title>Ads</title><p>Page</p><img src="http://ads.test/banner.png" alt="one"><img src="http://ads.test/other.png" alt="two"><script src="http://tracker.test/t.js"></script>
+assert-title Ads
+assert-text Page
+assert-blocked 3
+
+navigate http://walled.test/
+assert-title Sashfold blocked this page
+assert-text walled.test
+assert-text ||walled.test^$document
+assert-blocked 4
+
+navigate http://phish.test/login
+assert-title Sashfold kept you off this site
+assert-text phish.test
+assert-text way through from this page
+assert-blocked 5
+
+navigate https://evil.test/login?next=1
+assert-title Sashfold kept you off this site
+assert-blocked 6
+
+navigate http://malware.test/
+assert-title Sashfold kept you off this site
+assert-text 0.0.0.0 malware.test
+assert-blocked 7

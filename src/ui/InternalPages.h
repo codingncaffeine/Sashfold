@@ -48,6 +48,11 @@ std::string error_page(std::string_view heading, std::string_view detail, std::s
 // Certificate validation failed: scary, specific, and final — no override.
 std::string certificate_error_page(std::string_view host, std::string_view url);
 
+// A navigation one of the session's blocklists refused: which list, which
+// rule, and where the lists live. A site named as nefarious gets no way
+// through; a filter list's `$document` rule is reported the same way.
+std::string blocked_page(std::string_view url, std::string_view list, std::string_view rule, bool nefarious);
+
 std::string about_sashfold_page();
 
 // The raw bytes of a document as escaped, preformatted text.

@@ -1061,7 +1061,8 @@ struct Browser::Impl {
         net::Url const page_url = url;
         bindings::HostHooks hooks;
         hooks.fetch_script = [this, page_url](net::Url const& target) -> std::optional<std::string> {
-            net::FetchResult result = loader.load_subresource(target, page_url, referrer_for(&page_url, target));
+            net::FetchResult result = loader.load_subresource(target, page_url, referrer_for(&page_url, target),
+                net::ResourceKind::Script);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
             return std::string(result.response->body.begin(), result.response->body.end());
@@ -1193,24 +1194,28 @@ struct Browser::Impl {
         // first party and the usual referrer policy; a sheet that fails to
         // load is simply absent.
         net::Url const& page_url = entry->final_url;
-        auto const fetch_sheet = [&](net::Url const& url) -> std::optional<css::FetchedSheet> {
-            net::FetchResult result = loader.load_subresource(url, page_url,
-                referrer_for(&page_url, url));
-            if (!result.response || result.response->status != 200)
-                return std::nullopt;
-            std::string const* header = net::find_header(result.response->headers, "content-type");
-            return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+        auto const fetch_kind = [&](net::ResourceKind kind) {
+            return [&, kind](net::Url const& url) -> std::optional<css::FetchedSheet> {
+                net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url), kind);
+                if (!result.response || result.response->status != 200)
+                    return std::nullopt;
+                std::string const* header = net::find_header(result.response->headers, "content-type");
+                return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+            };
         };
+        auto const fetch_sheet = fetch_kind(net::ResourceKind::Stylesheet);
+        auto const fetch_font = fetch_kind(net::ResourceKind::Font);
         std::string const signature = sheet_signature(*tab.document);
         if (signature != tab.sheet_signature || !tab.style_set) {
             tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
-            tab.fonts = css::collect_page_fonts(tab.sheets, fetch_sheet, media_context());
+            tab.fonts = css::collect_page_fonts(tab.sheets, fetch_font, media_context());
             tab.style_set.reset();
             tab.sheet_signature = signature;
         }
         restyle(tab);
         auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
-            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url));
+            net::FetchResult result
+                = loader.load_subresource(url, page_url, referrer_for(&page_url, url), net::ResourceKind::Image);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
             return std::move(result.response->body);
@@ -1232,8 +1237,8 @@ struct Browser::Impl {
         std::optional<net::Url> icon_url;
         if (std::string const href = find_icon_href(*tab.document); !href.empty())
             icon_url = net::parse_url(href, &page_url);
-        else if (is_web_scheme(page_url.scheme))
-            icon_url = net::parse_url("/favicon.ico", &page_url);
+        else if (is_web_scheme(page_url.scheme) && !entry->internal)
+            icon_url = net::parse_url("/favicon.ico", &page_url); // not for an error page: no request to a site that failed or was refused
         std::string const icon_key = icon_url ? icon_url->serialize() : std::string();
         if (icon_key != tab.favicon_key) {
             tab.favicon_key = icon_key;
@@ -1448,6 +1453,15 @@ struct Browser::Impl {
         if (error.find("certificate validation failed") != std::string::npos) {
             set_document(entry, certificate_error_page(host, url.serialize()));
             entry.error = "Certificate validation failed for " + host;
+        } else if (error.starts_with("kept off by ") || error.starts_with("blocked by ")) {
+            // The loader's blocklists refused the navigation: "<why> <list>: <rule>".
+            bool const nefarious = error.starts_with("kept off by ");
+            std::string const rest = error.substr(nefarious ? 12 : 11);
+            std::size_t const colon = rest.find(": ");
+            std::string const list = colon == std::string::npos ? rest : rest.substr(0, colon);
+            std::string const rule = colon == std::string::npos ? std::string() : rest.substr(colon + 2);
+            set_document(entry, blocked_page(url.serialize(), list, rule, nefarious));
+            entry.error = (nefarious ? "Kept off " : "Blocked ") + host + " (" + list + ")";
         } else {
             set_document(entry, error_page("Sashfold can't reach " + host, error, url.serialize()));
         }
@@ -4023,6 +4037,7 @@ std::optional<double> Browser::next_timer_ms() const
 
 void Browser::set_clock(std::function<double()> now) { m_impl->clock = std::move(now); }
 void Browser::set_wall_clock(std::function<WallTime()> now) { m_impl->wall_clock = std::move(now); }
+std::size_t Browser::blocked_requests() const { return m_impl->loader.blocked_requests(); }
 
 std::string Browser::console_text() const
 {

@@ -104,6 +104,26 @@ std::string about_sashfold_page()
     return wrap("About Sashfold", body);
 }
 
+std::string blocked_page(std::string_view url, std::string_view list, std::string_view rule, bool nefarious)
+{
+    std::string body = nefarious ? "<h1>Sashfold kept you off this site</h1>" : "<h1>Sashfold blocked this page</h1>";
+    body += "<p class=url>" + html_escape(url) + "</p>";
+    if (nefarious) {
+        body += "<div class=warn><p>A list of phishing and malware sites on this computer names it: <b>"
+            + html_escape(list) + "</b>, the line <code>" + html_escape(rule)
+            + "</code>. Sashfold consulted no service to decide this; the list is a file of yours, "
+              "read here, and nothing about this visit left the machine.</p></div>";
+        body += "<p>If the list is wrong, remove the line from the file in the blocklists folder's "
+                "<code>nefarious</code> directory and try again. There is no way through from this page.</p>";
+    } else {
+        body += "<div class=box><p>A filter list on this computer blocks it as a page: <b>" + html_escape(list)
+            + "</b>, the rule <code>" + html_escape(rule) + "</code>.</p></div>";
+        body += "<p>Filter lists live in the blocklists folder's <code>filters</code> directory; edit or "
+                "remove the list and try again.</p>";
+    }
+    return wrap(nefarious ? "Sashfold kept you off this site" : "Sashfold blocked this page", body);
+}
+
 namespace {
 
 std::string hex(Color color)
