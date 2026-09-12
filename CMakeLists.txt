@@ -106,6 +106,7 @@ add_library(sashfold_core STATIC
   src/platform/Clipboard.cpp
   src/svg/Raster.cpp
   src/svg/Svg.cpp
+  src/text/Cff.cpp
   src/text/Face.cpp
   src/text/FontManager.cpp
   src/text/Rasterizer.cpp

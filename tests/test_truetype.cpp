@@ -1,5 +1,6 @@
 #include "Test.h"
 
+#include "text/Rasterizer.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 #include "text/TrueTypeWriter.h"
@@ -293,6 +294,311 @@ int main(int argc, char** argv)
     }
     CHECK(true); // reached: the corruptions above crashed nothing
 
+    // --- CFF: a font built by hand, byte by byte ---------------------------------------------
+    // Five glyphs in Type 2 charstrings: .notdef; a square drawn with the
+    // line operators; the same square through a local subroutine; a curve;
+    // and an accented letter composed by endchar from two others through
+    // the charset and the Standard Encoding.
+    {
+        auto const u16 = [](std::vector<std::uint8_t>& out, unsigned v) {
+            out.push_back(static_cast<std::uint8_t>(v >> 8));
+            out.push_back(static_cast<std::uint8_t>(v & 0xFF));
+        };
+        auto const u32 = [](std::vector<std::uint8_t>& out, unsigned long v) {
+            for (int shift = 24; shift >= 0; shift -= 8)
+                out.push_back(static_cast<std::uint8_t>((v >> shift) & 0xFF));
+        };
+        // A charstring number: the one-, two- and three-byte forms.
+        auto const number = [](std::vector<std::uint8_t>& out, int v) {
+            if (v >= -107 && v <= 107) {
+                out.push_back(static_cast<std::uint8_t>(v + 139));
+            } else if (v >= 108 && v <= 1131) {
+                out.push_back(static_cast<std::uint8_t>((v - 108) / 256 + 247));
+                out.push_back(static_cast<std::uint8_t>((v - 108) % 256));
+            } else if (v >= -1131 && v <= -108) {
+                out.push_back(static_cast<std::uint8_t>((-v - 108) / 256 + 251));
+                out.push_back(static_cast<std::uint8_t>((-v - 108) % 256));
+            } else {
+                out.push_back(28);
+                out.push_back(static_cast<std::uint8_t>((v >> 8) & 0xFF));
+                out.push_back(static_cast<std::uint8_t>(v & 0xFF));
+            }
+        };
+        // An INDEX of the given items, with two-byte offsets.
+        auto const index = [&](std::vector<std::vector<std::uint8_t>> const& items) {
+            std::vector<std::uint8_t> out;
+            u16(out, static_cast<unsigned>(items.size()));
+            if (items.empty())
+                return out;
+            out.push_back(2);
+            unsigned offset = 1;
+            u16(out, offset);
+            for (auto const& item : items) {
+                offset += static_cast<unsigned>(item.size());
+                u16(out, offset);
+            }
+            for (auto const& item : items)
+                out.insert(out.end(), item.begin(), item.end());
+            return out;
+        };
+        // A DICT integer in the five-byte form, so every layout below is fixed.
+        auto const dict_int = [](std::vector<std::uint8_t>& out, long v) {
+            out.push_back(29);
+            for (int shift = 24; shift >= 0; shift -= 8)
+                out.push_back(static_cast<std::uint8_t>((static_cast<unsigned long>(v) >> shift) & 0xFF));
+        };
+        std::vector<std::uint8_t> square; // 100 100 rmoveto 600 hlineto 600 vlineto -600 hlineto endchar
+        number(square, 100);
+        number(square, 100);
+        square.push_back(21);
+        number(square, 600);
+        square.push_back(6);
+        number(square, 600);
+        square.push_back(7);
+        number(square, -600);
+        square.push_back(6);
+        square.push_back(14);
+        std::vector<std::uint8_t> via_subr; // 100 100 rmoveto (subr 0: 600 hlineto) 600 vlineto -600 hlineto endchar
+        number(via_subr, 100);
+        number(via_subr, 100);
+        via_subr.push_back(21);
+        number(via_subr, -107); // subroutine 0, biased by 107
+        via_subr.push_back(10);
+        number(via_subr, 600);
+        via_subr.push_back(7);
+        number(via_subr, -600);
+        via_subr.push_back(6);
+        via_subr.push_back(14);
+        std::vector<std::uint8_t> subr0;
+        number(subr0, 600);
+        subr0.push_back(6);
+        subr0.push_back(11); // return
+        std::vector<std::uint8_t> curve; // 300 700 rmoveto 50 50 100 50 100 0 rrcurveto endchar
+        number(curve, 300);
+        number(curve, 700);
+        curve.push_back(21);
+        for (int v : { 50, 50, 100, 50, 100, 0 })
+            number(curve, v);
+        curve.push_back(8);
+        curve.push_back(14);
+        std::vector<std::uint8_t> composed; // 0 0 101 194 endchar: e (code 101) with acute (code 194) at (0, 0)
+        number(composed, 0);
+        number(composed, 0);
+        number(composed, 101);
+        number(composed, 194);
+        composed.push_back(14);
+        std::vector<std::uint8_t> const notdef { 14 };
+        std::vector<std::uint8_t> const charstrings = index({ notdef, square, via_subr, curve, composed });
+        std::vector<std::uint8_t> const local_subrs = index({ subr0 });
+        // charset format 0: the SIDs of glyphs 1..4 — A, e, acute, eacute.
+        std::vector<std::uint8_t> charset { 0 };
+        for (unsigned sid : { 34u, 70u, 125u, 207u })
+            u16(charset, sid);
+        // The private dict: Subrs at offset 0 from its own start... which
+        // is the local subrs placed right after it, so the offset is its
+        // own length: 6 bytes (a five-byte integer and the operator).
+        std::vector<std::uint8_t> private_dict;
+        dict_int(private_dict, 6);
+        private_dict.push_back(19);
+        // The top dict: charset, CharStrings and Private offsets, filled in
+        // once the layout is known. Four five-byte integers and three
+        // operators: 4 * 5 + 3 = 23 bytes.
+        std::vector<std::uint8_t> const header { 1, 0, 4, 1 };
+        std::vector<std::uint8_t> const names = index({ { 'T', 'e', 's', 't' } });
+        std::size_t const top_size = 23;
+        std::vector<std::uint8_t> const top_index_head = [&] {
+            std::vector<std::uint8_t> out;
+            u16(out, 1);
+            out.push_back(1);
+            out.push_back(1);
+            out.push_back(static_cast<std::uint8_t>(1 + top_size));
+            return out;
+        }();
+        std::vector<std::uint8_t> const strings = index({});
+        std::vector<std::uint8_t> const global_subrs = index({});
+        std::size_t const after_dicts = header.size() + names.size() + top_index_head.size() + top_size
+            + strings.size() + global_subrs.size();
+        std::size_t const charset_at = after_dicts;
+        std::size_t const charstrings_at = charset_at + charset.size();
+        std::size_t const private_at = charstrings_at + charstrings.size();
+        std::vector<std::uint8_t> top;
+        dict_int(top, static_cast<long>(charset_at));
+        top.push_back(15);
+        dict_int(top, static_cast<long>(charstrings_at));
+        top.push_back(17);
+        dict_int(top, static_cast<long>(private_dict.size()));
+        dict_int(top, static_cast<long>(private_at));
+        top.push_back(18);
+        CHECK_EQ(top.size(), top_size);
+        std::vector<std::uint8_t> cff;
+        std::vector<std::vector<std::uint8_t> const*> const parts { &header, &names, &top_index_head, &top, &strings,
+            &global_subrs, &charset, &charstrings, &private_dict, &local_subrs };
+        for (std::vector<std::uint8_t> const* part : parts)
+            cff.insert(cff.end(), part->begin(), part->end());
+
+        // The OpenType wrapper: head, hhea, maxp, hmtx, cmap (format 4) and
+        // the CFF table, in a directory of six.
+        std::vector<std::uint8_t> head(54, 0);
+        head[0] = 0;
+        head[1] = 1; // version 1.0
+        head[12] = 0x5F;
+        head[13] = 0x0F;
+        head[14] = 0x3C;
+        head[15] = 0xF5; // the magic number
+        head[18] = 0x03;
+        head[19] = 0xE8; // 1000 units per em
+        std::vector<std::uint8_t> hhea(36, 0);
+        hhea[0] = 0;
+        hhea[1] = 1;
+        hhea[4] = 0x03;
+        hhea[5] = 0x20; // ascender 800
+        hhea[6] = 0xFF;
+        hhea[7] = 0x38; // descender -200
+        hhea[34] = 0;
+        hhea[35] = 5; // five metrics
+        std::vector<std::uint8_t> maxp;
+        u32(maxp, 0x00005000);
+        u16(maxp, 5);
+        std::vector<std::uint8_t> hmtx;
+        for (int i = 0; i < 5; ++i) {
+            u16(hmtx, 800);
+            u16(hmtx, 0);
+        }
+        // cmap: one format 4 subtable mapping A, e, acute (U+00B4) and
+        // eacute (U+00E9) to glyphs 1 to 4 — four one-code segments and
+        // the terminal one.
+        std::vector<std::uint8_t> cmap;
+        u16(cmap, 0);
+        u16(cmap, 1);
+        u16(cmap, 3);
+        u16(cmap, 1);
+        u32(cmap, 12);
+        std::vector<std::pair<unsigned, unsigned>> const mappings { { 0x41, 1 }, { 0x65, 2 }, { 0xB4, 3 }, { 0xE9, 4 } };
+        unsigned const segments = static_cast<unsigned>(mappings.size()) + 1;
+        u16(cmap, 4);
+        u16(cmap, 16 + segments * 8); // length
+        u16(cmap, 0);
+        u16(cmap, segments * 2);
+        u16(cmap, 8); // searchRange, entrySelector, rangeShift: unread
+        u16(cmap, 2);
+        u16(cmap, 0);
+        for (auto const& [code, glyph] : mappings)
+            u16(cmap, code);
+        u16(cmap, 0xFFFF);
+        u16(cmap, 0); // reservedPad
+        for (auto const& [code, glyph] : mappings)
+            u16(cmap, code);
+        u16(cmap, 0xFFFF);
+        for (auto const& [code, glyph] : mappings)
+            u16(cmap, (glyph - code) & 0xFFFF); // idDelta
+        u16(cmap, 1);
+        for (std::size_t i = 0; i < segments; ++i)
+            u16(cmap, 0); // idRangeOffset
+        struct TableEntry {
+            char const* tag;
+            std::vector<std::uint8_t> const* bytes;
+        };
+        std::vector<TableEntry> const tables { { "CFF ", &cff }, { "cmap", &cmap }, { "head", &head },
+            { "hhea", &hhea }, { "hmtx", &hmtx }, { "maxp", &maxp } };
+        std::vector<std::uint8_t> otf;
+        u32(otf, 0x4F54544Ful); // OTTO
+        u16(otf, static_cast<unsigned>(tables.size()));
+        u16(otf, 0);
+        u16(otf, 0);
+        u16(otf, 0);
+        std::size_t offset = 12 + tables.size() * 16;
+        for (TableEntry const& table : tables) {
+            for (int i = 0; i < 4; ++i)
+                otf.push_back(static_cast<std::uint8_t>(table.tag[i]));
+            u32(otf, 0);
+            u32(otf, static_cast<unsigned long>(offset));
+            u32(otf, static_cast<unsigned long>(table.bytes->size()));
+            offset += (table.bytes->size() + 3) & ~std::size_t(3);
+        }
+        for (TableEntry const& table : tables) {
+            otf.insert(otf.end(), table.bytes->begin(), table.bytes->end());
+            while (otf.size() % 4 != 0)
+                otf.push_back(0);
+        }
+
+        std::optional<TrueTypeFont> const font = TrueTypeFont::parse(otf);
+        if (CHECK(font.has_value())) {
+            CHECK(font->has_cff());
+            CHECK(font->has_outlines());
+            CHECK_EQ(font->glyph_count(), std::uint16_t(5));
+            CHECK_EQ(font->glyph_index(U'A'), std::uint16_t(1));
+            CHECK_EQ(font->glyph_index(U'\u00E9'), std::uint16_t(4));
+            // The square: one contour of four on-curve points, 100 to 700.
+            auto const square_outline = font->outline(1);
+            if (CHECK(square_outline.has_value())) {
+                CHECK_EQ(square_outline->contour_ends.size(), std::size_t(1));
+                CHECK_EQ(square_outline->points.size(), std::size_t(4));
+                CHECK_EQ(square_outline->x_min, std::int16_t(100));
+                CHECK_EQ(square_outline->x_max, std::int16_t(700));
+                CHECK_EQ(square_outline->y_min, std::int16_t(100));
+                CHECK_EQ(square_outline->y_max, std::int16_t(700));
+                CHECK(std::all_of(square_outline->points.begin(), square_outline->points.end(),
+                    [](text::GlyphPoint const& p) { return p.on_curve; }));
+            }
+            // Through the subroutine: the same square.
+            auto const subr_outline = font->outline(2);
+            if (CHECK(subr_outline.has_value()) && square_outline) {
+                CHECK_EQ(subr_outline->points.size(), std::size_t(4));
+                CHECK(same_points(*subr_outline, 0, *square_outline, 4, 0));
+            }
+            // The curve: a cubic rewritten as quadratics — off-curve control
+            // points between on-curve ends, staying inside the curve's hull.
+            auto const acute_outline = font->outline(3);
+            if (CHECK(acute_outline.has_value())) {
+                CHECK_EQ(acute_outline->contour_ends.size(), std::size_t(1));
+                CHECK(acute_outline->points.size() >= 3);
+                bool any_off = false;
+                for (text::GlyphPoint const& p : acute_outline->points) {
+                    any_off = any_off || !p.on_curve;
+                    CHECK(p.x >= 300 && p.x <= 550 && p.y >= 700 && p.y <= 800);
+                }
+                CHECK(any_off);
+                CHECK_EQ(acute_outline->points.front().x, std::int16_t(300));
+                CHECK_EQ(acute_outline->points.front().y, std::int16_t(700));
+            }
+            // The accent composition: the letter's contour and the accent's.
+            auto const eacute_outline = font->outline(4);
+            if (CHECK(eacute_outline.has_value()) && subr_outline && acute_outline) {
+                CHECK_EQ(eacute_outline->contour_ends.size(), std::size_t(2));
+                CHECK_EQ(eacute_outline->points.size(), subr_outline->points.size() + acute_outline->points.size());
+                CHECK(same_points(*eacute_outline, 0, *subr_outline, subr_outline->points.size(), 0));
+            }
+            CHECK(font->outline(0).has_value()); // .notdef: an empty outline, not a fault
+            CHECK(font->outline(0)->points.empty());
+            // The square rasterized at 32 px: 600 units of 1000 is 19.2 px a
+            // side, about 369 pixels of ink.
+            if (square_outline) {
+                text::GlyphMask const mask = text::rasterize(*square_outline, font->units_per_em(), 32 * 4);
+                long ink = 0;
+                for (std::uint8_t const alpha : mask.alpha)
+                    ink += alpha;
+                CHECK(ink / 255 > 340 && ink / 255 < 400);
+            }
+        }
+        // Hostile bytes: truncations and flips of the built font crash nothing.
+        for (std::size_t length = otf.size(); length > 7; length -= 7) {
+            std::vector<std::uint8_t> const truncated(otf.begin(), otf.begin() + static_cast<std::ptrdiff_t>(length));
+            if (std::optional<TrueTypeFont> const f = TrueTypeFont::parse(truncated))
+                exercise(*f, 8);
+        }
+        std::uint32_t cff_seed = 0x1234ABCDu;
+        for (int round = 0; round < 400; ++round) {
+            std::vector<std::uint8_t> corrupted = otf;
+            for (int flip = 0; flip < 3; ++flip) {
+                cff_seed = cff_seed * 1664525u + 1013904223u;
+                corrupted[(cff_seed >> 8) % corrupted.size()] ^= static_cast<std::uint8_t>(1u << ((cff_seed >> 3) & 7));
+            }
+            if (std::optional<TrueTypeFont> const f = TrueTypeFont::parse(corrupted))
+                exercise(*f, 8);
+        }
+        CHECK(true);
+    }
+
     // --- The world's fonts, when the machine has them -------------------------------------
     for (char const* path : { "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/times.ttf",
              "C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/msgothic.ttc",
@@ -300,7 +606,12 @@ int main(int argc, char** argv)
              "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
              "/usr/share/fonts/TTF/DejaVuSans.ttf",
              "/System/Library/Fonts/Supplemental/Arial.ttf",
-             "/System/Library/Fonts/Supplemental/Times New Roman.ttf" }) {
+             "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+             // CFF-flavored OpenType, plain and CID-keyed.
+             "/usr/share/fonts/gsfonts/NimbusSans-Regular.otf", "/usr/share/fonts/gsfonts/URWBookman-Light.otf",
+             "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf",
+             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+             "/System/Library/Fonts/Supplemental/Songti.ttc" }) {
         std::vector<std::uint8_t> const bytes = read_file(path);
         if (bytes.empty())
             continue;

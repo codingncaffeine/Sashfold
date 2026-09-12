@@ -1,21 +1,24 @@
 #pragma once
 
-// TrueType: a reader for TTF and TTC files — the tables that turn a code
-// point into an outline and an advance: head, maxp, hhea, hmtx, loca, glyf
-// (simple and composite), cmap (formats 0, 4, 6, 12), name, OS/2. Fonts are
-// attacker-controlled data: every offset is bounds-checked, a malformed glyph
-// fails alone instead of taking the face with it, and a harness fuzzes the
-// parser. CFF-flavored OpenType is recognized and declined until the CFF
-// interpreter exists: its metrics and cmap load, its outlines do not.
+// TrueType: a reader for TTF, OTF and TTC files — the tables that turn a
+// code point into an outline and an advance: head, maxp, hhea, hmtx, loca,
+// glyf (simple and composite), cmap (formats 0, 4, 6, 12), name, OS/2 —
+// and, for CFF-flavored OpenType, the `CFF ` table's charstrings through
+// the interpreter in Cff.h. Fonts are attacker-controlled data: every
+// offset is bounds-checked, a malformed glyph fails alone instead of
+// taking the face with it, and a harness fuzzes the parser.
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace sashfold::text {
+
+class CffFont;
 
 // The OS/2 ulUnicodeRange bit that covers a code point, when one does:
 // what a font claims before anyone reads its cmap.
@@ -45,7 +48,7 @@ struct FaceInfo {
     std::string subfamily;
     std::uint16_t weight_class = 400;
     bool italic = false;
-    bool has_outlines = true; // false for CFF-flavored OpenType
+    bool has_outlines = true; // a glyf table or a CFF table with charstrings
     std::array<std::uint32_t, 4> unicode_ranges { 0, 0, 0, 0 }; // OS/2 ulUnicodeRange1-4; all zero when unsaid
 
     bool claims(char32_t code_point) const
@@ -85,8 +88,8 @@ public:
     std::uint16_t weight_class() const { return m_weight_class; } // 400 regular, 700 bold
     bool is_italic() const { return m_italic; }
     bool is_bold() const { return m_weight_class >= 600; }
-    // False for CFF-flavored OpenType: metrics and cmap still work, outlines do not.
-    bool has_outlines() const { return m_has_glyf; }
+    // Whether the face can draw: a glyf table, or a CFF table that parsed.
+    bool has_outlines() const { return m_has_glyf || m_cff != nullptr; }
     bool has_cff() const { return m_has_cff; }
     std::string const& family_name() const { return m_family; }
     std::string const& subfamily_name() const { return m_subfamily; }
@@ -98,8 +101,9 @@ public:
     std::size_t mapped_code_points() const;
     std::uint16_t advance_width(std::uint16_t glyph) const; // font units
     std::int16_t left_side_bearing(std::uint16_t glyph) const;
-    // Composites are flattened; nullopt for a malformed glyph or a CFF font.
-    // An empty outline (no contours) is a valid result: spaces.
+    // Composites are flattened, and a CFF charstring's cubic curves are
+    // rewritten as quadratics; nullopt for a malformed glyph. An empty
+    // outline (no contours) is a valid result: spaces.
     std::optional<GlyphOutline> outline(std::uint16_t glyph) const;
 
 private:
@@ -133,9 +137,12 @@ private:
     std::string name_string(std::uint16_t name_id) const;
 
     std::vector<std::uint8_t> m_bytes;
-    Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2;
+    Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2, m_cff_table;
     bool m_has_glyf = false;
     bool m_has_cff = false;
+    // The CFF font's tables, parsed once; null when there are none or they
+    // did not parse. Shared, so a copy of the face costs nothing here.
+    std::shared_ptr<CffFont const> m_cff;
     bool m_long_loca = false;
     std::uint16_t m_mac_style = 0;
     std::uint16_t m_units_per_em = 1000;

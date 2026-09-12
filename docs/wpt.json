@@ -2,7 +2,7 @@
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-12",
   "viewport": [800, 600],
-  "passed": 8642,
+  "passed": 8660,
   "total": 14616,
   "directories": [
     { "path": "css/CSS2", "passed": 5054, "total": 6169 },
@@ -12,7 +12,7 @@
     { "path": "css/css-color", "passed": 128, "total": 307 },
     { "path": "css/css-display", "passed": 56, "total": 213 },
     { "path": "css/css-flexbox", "passed": 617, "total": 1003 },
-    { "path": "css/css-fonts", "passed": 148, "total": 371 },
+    { "path": "css/css-fonts", "passed": 160, "total": 371 },
     { "path": "css/css-grid", "passed": 590, "total": 1643 },
     { "path": "css/css-overflow", "passed": 172, "total": 596 },
     { "path": "css/css-position", "passed": 90, "total": 248 },
@@ -21,6 +21,6 @@
     { "path": "css/css-values", "passed": 90, "total": 211 },
     { "path": "css/selectors", "passed": 79, "total": 226 },
     { "path": "css/css-variables", "passed": 91, "total": 182 },
-    { "path": "css/css-writing-modes", "passed": 591, "total": 1139 }
+    { "path": "css/css-writing-modes", "passed": 597, "total": 1139 }
   ]
 }

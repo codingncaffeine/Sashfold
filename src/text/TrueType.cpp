@@ -1,8 +1,11 @@
 #include "text/TrueType.h"
 
+#include "text/Cff.h"
+
 #include "core/Unicode.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <utility>
 
@@ -276,8 +279,8 @@ std::vector<FaceInfo> TrueTypeFont::scan_file(std::string const& path)
             std::uint32_t const tag = records_reader.u32(i * 16);
             std::uint32_t const offset = records_reader.u32(i * 16 + 8);
             std::uint32_t const length = records_reader.u32(i * 16 + 12);
-            if (tag == tag_glyf)
-                has_glyf = length != 0;
+            if (tag == tag_glyf || tag == tag_cff)
+                has_glyf = has_glyf || length != 0;
             if (tag != tag_head && tag != tag_name && tag != tag_os2)
                 continue;
             if (length == 0 || length > 1u << 20)
@@ -397,6 +400,11 @@ bool TrueTypeFont::load(std::size_t face_index)
         return false;
     load_names();
     load_os2();
+    // CFF outlines, when there is no glyf table to draw from.
+    if (!m_has_glyf && m_has_cff) {
+        if (std::optional<CffFont> cff = CffFont::parse(m_bytes, m_cff_table.offset, m_cff_table.length))
+            m_cff = std::make_shared<CffFont const>(std::move(*cff));
+    }
     return true;
 }
 
@@ -430,7 +438,10 @@ bool TrueTypeFont::load_directory(std::uint32_t offset)
         case tag_cmap: m_cmap = table; break;
         case tag_name: m_name = table; break;
         case tag_os2: m_os2 = table; break;
-        case tag_cff: m_has_cff = true; break;
+        case tag_cff:
+            m_cff_table = table;
+            m_has_cff = true;
+            break;
         default: break;
         }
     }
@@ -794,8 +805,20 @@ bool TrueTypeFont::glyph_span(std::uint16_t glyph, std::uint32_t& offset, std::u
 std::optional<GlyphOutline> TrueTypeFont::outline(std::uint16_t glyph) const
 {
     GlyphOutline out;
-    if (!outline_into(glyph, out, 0))
+    if (!m_has_glyf && m_cff) {
+        if (glyph >= m_glyph_count || !m_cff->outline(m_bytes, glyph, out))
+            return std::nullopt;
+        // Charstring units are the font's own unless the matrix says not.
+        float const scale = m_cff->units_scale(m_units_per_em);
+        if (scale != 1.0f) {
+            for (GlyphPoint& point : out.points) {
+                point.x = static_cast<std::int16_t>(std::clamp(std::lround(point.x * scale), -32768L, 32767L));
+                point.y = static_cast<std::int16_t>(std::clamp(std::lround(point.y * scale), -32768L, 32767L));
+            }
+        }
+    } else if (!outline_into(glyph, out, 0)) {
         return std::nullopt;
+    }
     if (!out.points.empty()) {
         out.x_min = out.x_max = out.points[0].x;
         out.y_min = out.y_max = out.points[0].y;

@@ -134,7 +134,7 @@ int font_info(std::string const& path)
                   << ", x-height " << font->x_height() << ", cap height " << font->cap_height()
                   << "\n"
                   << "  weight " << font->weight_class() << (font->is_italic() ? ", italic" : "")
-                  << (font->has_cff() ? ", CFF outlines (declined)" : "") << "\n"
+                  << (font->has_cff() ? ", CFF outlines" : "") << "\n"
                   << "  glyphs " << font->glyph_count() << ": " << outlined << " with outlines, "
                   << empty << " empty, " << malformed << " malformed; " << points << " points\n"
                   << "  cmap: " << font->mapped_code_points() << " code points; 'A' -> glyph " << a

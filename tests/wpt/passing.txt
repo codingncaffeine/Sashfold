@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8642 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8660 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -6269,7 +6269,6 @@ css/css-fonts/font-face-stretch-default-variable.html
 css/css-fonts/font-face-style-auto-static.html
 css/css-fonts/font-face-style-auto-variable.html
 css/css-fonts/font-face-style-default-variable.html
-css/css-fonts/font-face-unicode-range-2.html
 css/css-fonts/font-face-weight-auto-static.html
 css/css-fonts/font-family-name-016.xht
 css/css-fonts/font-family-name-017.xht
@@ -6281,6 +6280,8 @@ css/css-fonts/font-family-name-023.xht
 css/css-fonts/font-family-name-025.html
 css/css-fonts/font-feature-settings-descriptor-02.html
 css/css-fonts/font-feature-settings-descriptor-binary.html
+css/css-fonts/font-kerning-04.html
+css/css-fonts/font-kerning-05.html
 css/css-fonts/font-language-override-01.html
 css/css-fonts/font-language-override-02.html
 css/css-fonts/font-language-override-03.html
@@ -6341,6 +6342,7 @@ css/css-fonts/font-stretch-16.html
 css/css-fonts/font-stretch-17.html
 css/css-fonts/font-stretch-18.html
 css/css-fonts/font-synthesis-05.html
+css/css-fonts/font-synthesis-06.html
 css/css-fonts/font-synthesis-07.html
 css/css-fonts/font-synthesis-position-001.html
 css/css-fonts/font-synthesis-small-caps-first-letter.html
@@ -6350,9 +6352,19 @@ css/css-fonts/font-synthesis-small-caps.html
 css/css-fonts/font-synthesis-style-first-line.html
 css/css-fonts/font-synthesis-weight-first-line.html
 css/css-fonts/font-synthesis-weight-webfont-bold.html
+css/css-fonts/font-variant-alternates-01.html
+css/css-fonts/font-variant-caps-01.html
 css/css-fonts/font-variant-caps-invalidation-container-sizing.html
+css/css-fonts/font-variant-east-asian-01.html
 css/css-fonts/font-variant-emoji-2.html
+css/css-fonts/font-variant-ligatures-02.html
+css/css-fonts/font-variant-ligatures-04.html
+css/css-fonts/font-variant-ligatures-06.html
+css/css-fonts/font-variant-ligatures-08.html
+css/css-fonts/font-variant-ligatures-10.html
 css/css-fonts/font-variant-ligatures-11.optional.html
+css/css-fonts/font-variant-numeric-01.html
+css/css-fonts/font-variant-position-01.html
 css/css-fonts/font-variation-settings-descriptor-01.html
 css/css-fonts/font-variation-settings-descriptor-02.html
 css/css-fonts/font-variation-settings-descriptor-03.html
@@ -7539,7 +7551,6 @@ css/css-text/text-spacing-trim/text-spacing-trim-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-colon-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-dot-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-dynamic-001.html
-css/css-text/text-spacing-trim/text-spacing-trim-end-span-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-fallback-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-fallback-002.html
 css/css-text/text-spacing-trim/text-spacing-trim-feature-001.html
@@ -7547,6 +7558,7 @@ css/css-text/text-spacing-trim/text-spacing-trim-narrow-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-quote-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-space-all-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-span-001.html
+css/css-text/text-spacing-trim/text-spacing-trim-start-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-start-oof-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-subset-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-trim-all-001.html
@@ -8521,8 +8533,14 @@ css/css-writing-modes/text-orientation-020.html
 css/css-writing-modes/text-orientation-021.html
 css/css-writing-modes/text-orientation-initial.html
 css/css-writing-modes/text-orientation-mixed-srl-016.xht
+css/css-writing-modes/text-orientation-mixed-vlr-100.html
+css/css-writing-modes/text-orientation-mixed-vrl-100.html
+css/css-writing-modes/text-orientation-sideways-vlr-100.html
+css/css-writing-modes/text-orientation-sideways-vrl-100.html
 css/css-writing-modes/text-orientation-upright-directionality-001.html
 css/css-writing-modes/text-orientation-upright-srl-018.xht
+css/css-writing-modes/text-orientation-upright-vlr-100.html
+css/css-writing-modes/text-orientation-upright-vrl-100.html
 css/css-writing-modes/text-shadow-orientation-upright-001.html
 css/css-writing-modes/vertical-alignment-004.xht
 css/css-writing-modes/vertical-alignment-005.xht
