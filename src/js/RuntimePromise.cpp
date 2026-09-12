@@ -700,16 +700,29 @@ void install_promise(Interpreter& in)
                     error->put(PropertyKey::atom(interp.atoms().message), Value::string(*text), builtin_attributes);
                 }
                 Value const options = argument(args, 2);
-                if (options.is_object() && options.as_object()->has_property(PropertyKey::atom(interp.atoms().cause))) {
-                    std::optional<Value> const cause = interp.get(*options.as_object(), PropertyKey::atom(interp.atoms().cause));
-                    if (!cause)
+                if (options.is_object()) {
+                    // InstallErrorCause (§20.5.8.1) asks HasProperty, which a
+                    // proxy traps — and whose trap may throw.
+                    std::optional<bool> const has = interp.has_property(*options.as_object(), PropertyKey::atom(interp.atoms().cause));
+                    if (!has)
                         return std::nullopt;
-                    error->put(PropertyKey::atom(interp.atoms().cause), *cause, builtin_attributes);
+                    if (*has) {
+                        std::optional<Value> const cause = interp.get(*options.as_object(), PropertyKey::atom(interp.atoms().cause));
+                        if (!cause)
+                            return std::nullopt;
+                        error->put(PropertyKey::atom(interp.atoms().cause), *cause, builtin_attributes);
+                    }
                 }
                 std::optional<std::vector<Value>> const errors = interp.iterable_to_list(argument(args, 0));
                 if (!errors)
                     return std::nullopt;
+                // The list is the caller's to root: the iterator's own scope
+                // has closed, and both the array that holds the values and
+                // the atom for its key are allocations that may collect.
+                for (Value const& thrown : *errors)
+                    interp.root(thrown);
                 ArrayObject* array = interp.new_array(*errors);
+                interp.root(Value::object(array));
                 error->put(interp.key("errors"), Value::object(array), builtin_attributes);
                 std::string const line = interp.describe(Value::object(error));
                 static_cast<ErrorObject*>(error)->set_stack(interp.string(std::string_view(line)));

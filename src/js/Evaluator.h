@@ -296,7 +296,9 @@ struct Interpreter::Impl {
         std::size_t next = 0;
         std::unordered_set<JsString*> visited;
     };
-    void enumerator_load(Enumerator& enumerator);
+    // false with an exception pending: a proxy's ownKeys or getPrototypeOf
+    // trap threw while the object's keys were being taken.
+    bool enumerator_load(Enumerator& enumerator);
     JsString* enumerator_next(Enumerator& enumerator);
     bool bind_loop_head(VariableDeclaration const* declaration, Expression const* target, std::vector<JsString*> const& names,
         Value const& value, Environment* saved, Context& cx);

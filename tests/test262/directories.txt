@@ -64,6 +64,8 @@ test/built-ins/Object
 test/built-ins/parseFloat
 test/built-ins/parseInt
 test/built-ins/Promise
+test/built-ins/Proxy
+test/built-ins/Reflect
 test/built-ins/RegExp
 test/built-ins/Set
 test/built-ins/SetIteratorPrototype

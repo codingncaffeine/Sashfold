@@ -122,6 +122,7 @@ public:
         TypedArray, // an Integer-Indexed exotic object (§10.4.5): a view of one element type over a buffer
         DataView, // §25.3
         ModuleNamespace, // a module namespace exotic object (§10.4.6): a module's exports as live properties
+        Proxy, // a proxy exotic object (§10.5): every internal method is a call to a handler's trap
     };
 
     explicit Object(Object* prototype, Class class_id = Class::Object)
@@ -157,6 +158,10 @@ public:
     // OrdinaryOwnPropertyKeys order: indices ascending, then strings and
     // then symbols each in creation order.
     virtual std::vector<PropertyKey> own_keys() const;
+    // Is this object a proxy? The chain walks in get() and set() hand over
+    // to one they meet above themselves, since only a proxy's own internal
+    // method can run its trap.
+    bool is_proxy() const { return m_class == Class::Proxy; }
 
     // Shortcuts that never run script.
     Property const* find_own(PropertyKey const&) const;
@@ -189,6 +194,15 @@ protected:
     Class m_class;
     bool m_extensible = true;
 };
+
+// IsCompatiblePropertyDescriptor (§10.1.6.2): may `desc` be applied over
+// `current` — absent when the property does not exist — on an object of
+// this extensibility? Steps 2 through 5 of
+// ValidateAndApplyPropertyDescriptor, with nothing changed; a proxy's
+// [[GetOwnProperty]] and [[DefineOwnProperty]] need the test on its own,
+// against a descriptor a trap invented. Defined in Objects.cpp.
+bool is_compatible_property_descriptor(bool extensible, PropertyDescriptor const& desc,
+    std::optional<PropertyDescriptor> const& current);
 
 // An Array exotic object (§10.4.2). Indices below dense_size() live in a
 // vector, holes as Value::empty(); anything sparse beyond it is an ordinary
@@ -902,6 +916,92 @@ private:
     ArrayBufferObject* m_buffer;
     std::size_t m_byte_offset;
     std::optional<std::size_t> m_byte_length; // [[ByteLength]]; absent = auto
+};
+
+// A proxy exotic object (§10.5): [[ProxyTarget]] and [[ProxyHandler]], and
+// every essential internal method a call to the handler's trap of that
+// name — falling through to the target when the handler has no such trap,
+// and checked afterwards against what the target itself reports. Those
+// invariant checks are the whole point of the object: a target may have
+// committed to a non-configurable property, to a prototype, or to being
+// non-extensible, and no trap may contradict a commitment already made.
+//
+// A trap runs script, so the real internal methods all take the
+// interpreter. Seven of them have a non-throwing virtual on Object that
+// cannot: each is overridden here to answer what the TARGET answers with
+// no trap run, and `Interpreter`'s wrappers route a proxy to the throwing
+// method beside it — the same shape ModuleNamespaceObject uses for its
+// one throwing [[GetOwnProperty]]. A site that reads the virtual sees the
+// target through the proxy rather than a trap's answer.
+//
+// It derives from Function so that a proxy of a callable target can be
+// called at all; `is_callable` and `is_constructor` answer for the target
+// as it was when the proxy was made, so a proxy of a plain object is not
+// callable anywhere. Defined in RuntimeProxy.cpp.
+class ProxyObject : public Function {
+public:
+    ProxyObject(Object* target, Object* handler)
+        : Function(nullptr, Class::Proxy)
+        , m_target(target)
+        , m_handler(handler)
+        , m_callable(target->is_callable())
+        , m_constructable(target->is_constructor())
+    {
+    }
+
+    Object* target() const { return m_target; } // [[ProxyTarget]]; null once revoked
+    Object* handler() const { return m_handler; } // [[ProxyHandler]]; null once revoked
+    bool is_revoked() const { return m_handler == nullptr; }
+    // §10.5.15: both slots let go at once. The methods stay present — a
+    // revoked callable proxy is still callable, and throws when called.
+    void revoke()
+    {
+        m_target = nullptr;
+        m_handler = nullptr;
+    }
+
+    bool is_callable() const override { return m_callable; }
+    bool is_constructor() const override { return m_constructable; }
+
+    // The essential internal methods, as §10.5 has them: the trap, the
+    // fall-through to the target, then the invariant checks. nullopt is a
+    // throw throughout; for get_own_property the inner optional is "no
+    // such property", and for get_prototype_of a contained null is the
+    // null prototype.
+    std::optional<Object*> get_prototype_of(Interpreter&);
+    std::optional<bool> set_prototype_of(Interpreter&, Object* prototype);
+    std::optional<bool> is_extensible(Interpreter&);
+    std::optional<bool> prevent_extensions(Interpreter&);
+    std::optional<std::optional<PropertyDescriptor>> get_own_property(Interpreter&, PropertyKey const&);
+    std::optional<bool> define_own_property(Interpreter&, PropertyKey const&, PropertyDescriptor const&);
+    std::optional<bool> has_property(Interpreter&, PropertyKey const&);
+    std::optional<bool> delete_property(Interpreter&, PropertyKey const&);
+    std::optional<std::vector<PropertyKey>> own_keys(Interpreter&);
+
+    // [[Get]], [[Set]], [[Call]] and [[Construct]] already take the
+    // interpreter on Object and Function, so the override IS the trap.
+    std::optional<Value> get(Interpreter&, PropertyKey const&, Value const& receiver) override;
+    std::optional<bool> set(Interpreter&, PropertyKey const&, Value const&, Value const& receiver) override;
+    std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
+    std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
+
+    // The non-throwing twins: the target's answer, no trap run. The base
+    // names stay reachable for code holding a ProxyObject directly.
+    using Object::is_extensible;
+    using Object::prevent_extensions;
+    std::optional<PropertyDescriptor> get_own_property(PropertyKey const&) const override;
+    bool define_own_property(PropertyKey const&, PropertyDescriptor const&) override;
+    bool has_property(PropertyKey const&) const override;
+    bool delete_property(PropertyKey const&) override;
+    std::vector<PropertyKey> own_keys() const override;
+
+    void trace(Tracer&) override;
+
+private:
+    Object* m_target;
+    Object* m_handler;
+    bool m_callable;
+    bool m_constructable;
 };
 
 // A scope (§9.1): the bindings a block, function or script declares, or —

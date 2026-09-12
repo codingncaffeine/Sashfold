@@ -112,6 +112,11 @@ std::optional<Object*> require_object(Interpreter& in, Value const& value, std::
     return value.as_object();
 }
 
+} // namespace
+
+// The three descriptor helpers are shared with RuntimeProxy.cpp, whose
+// traps hand a descriptor to script and take one back (Runtime.h).
+
 // ToPropertyDescriptor (§6.2.6.5): the fields read through the chain,
 // getters included, with the accessor/data conflict refused.
 std::optional<PropertyDescriptor> to_property_descriptor(Interpreter& in, Value const& value)
@@ -124,7 +129,10 @@ std::optional<PropertyDescriptor> to_property_descriptor(Interpreter& in, Value 
     PropertyDescriptor desc;
     auto const field = [&](JsString* name, auto&& apply) -> bool {
         PropertyKey const key = PropertyKey::atom(name);
-        if (!object.has_property(key))
+        std::optional<bool> const has = in.has_property(object, key);
+        if (!has)
+            return false;
+        if (!*has)
             return true;
         std::optional<Value> const field_value = in.get(object, key);
         if (!field_value)
@@ -204,19 +212,29 @@ Value key_to_value(Interpreter& in, PropertyKey const& key)
     return Value::string(in.heap().key_to_string(key));
 }
 
+namespace {
+
 // SetIntegrityLevel (§7.3.15): sealed = nothing configurable, frozen =
-// nothing writable either.
+// nothing writable either. Every step is an internal method a proxy traps.
 std::optional<bool> set_integrity_level(Interpreter& in, Object& object, bool frozen)
 {
-    object.prevent_extensions();
-    for (PropertyKey const& key : object.own_keys()) {
+    Interpreter::Roots const roots(in);
+    in.root(Value::object(&object));
+    if (!in.prevent_extensions(object))
+        return std::nullopt;
+    std::optional<std::vector<PropertyKey>> const keys = in.own_keys(object);
+    if (!keys)
+        return std::nullopt;
+    for (PropertyKey const& key : *keys) {
         PropertyDescriptor desc;
         desc.configurable = false;
         if (frozen) {
-            std::optional<PropertyDescriptor> const current = object.get_own_property(key);
+            std::optional<std::optional<PropertyDescriptor>> const current = in.get_own_property(object, key);
             if (!current)
+                return std::nullopt;
+            if (!*current)
                 continue;
-            if (current->is_data())
+            if ((*current)->is_data())
                 desc.writable = false;
         }
         if (!in.define_property_or_throw(object, key, desc))
@@ -226,17 +244,27 @@ std::optional<bool> set_integrity_level(Interpreter& in, Object& object, bool fr
 }
 
 // TestIntegrityLevel (§7.3.16).
-bool test_integrity_level(Object const& object, bool frozen)
+std::optional<bool> test_integrity_level(Interpreter& in, Object& object, bool frozen)
 {
-    if (object.is_extensible())
+    Interpreter::Roots const roots(in);
+    in.root(Value::object(&object));
+    std::optional<bool> const extensible = in.is_extensible(object);
+    if (!extensible)
+        return std::nullopt;
+    if (*extensible)
         return false;
-    for (PropertyKey const& key : object.own_keys()) {
-        std::optional<PropertyDescriptor> const current = object.get_own_property(key);
+    std::optional<std::vector<PropertyKey>> const keys = in.own_keys(object);
+    if (!keys)
+        return std::nullopt;
+    for (PropertyKey const& key : *keys) {
+        std::optional<std::optional<PropertyDescriptor>> const current = in.get_own_property(object, key);
         if (!current)
+            return std::nullopt;
+        if (!*current)
             continue;
-        if (current->configurable.value_or(false))
+        if ((*current)->configurable.value_or(false))
             return false;
-        if (frozen && current->is_data() && current->writable.value_or(false))
+        if (frozen && (*current)->is_data() && (*current)->writable.value_or(false))
             return false;
     }
     return true;
@@ -252,9 +280,14 @@ std::optional<bool> object_define_properties(Interpreter& in, Object& object, Va
         return std::nullopt;
     in.root(Value::object(*props));
     std::vector<std::pair<PropertyKey, PropertyDescriptor>> descriptors;
-    for (PropertyKey const& key : (*props)->own_keys()) {
-        std::optional<PropertyDescriptor> const own = (*props)->get_own_property(key);
-        if (!own || !own->enumerable.value_or(false))
+    std::optional<std::vector<PropertyKey>> const keys = in.own_keys(**props);
+    if (!keys)
+        return std::nullopt;
+    for (PropertyKey const& key : *keys) {
+        std::optional<std::optional<PropertyDescriptor>> const own = in.get_own_property(**props, key);
+        if (!own)
+            return std::nullopt;
+        if (!*own || !(*own)->enumerable.value_or(false))
             continue;
         std::optional<Value> const descriptor_object = in.get(**props, key);
         if (!descriptor_object)
@@ -289,7 +322,10 @@ std::optional<Value> enumerable_own_properties(Interpreter& in, Object& object, 
     in.root(Value::object(&object));
     ArrayObject* result = in.new_array();
     in.root(Value::object(result));
-    for (PropertyKey const& key : object.own_keys()) {
+    std::optional<std::vector<PropertyKey>> const keys = in.own_keys(object);
+    if (!keys)
+        return std::nullopt;
+    for (PropertyKey const& key : *keys) {
         if (key.is_symbol())
             continue;
         std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
@@ -330,6 +366,22 @@ Object* ordinary_create_from_constructor(Interpreter& in, Object* new_target, Ob
 
 // --------------------------------------------------------------- Object
 
+// Why a [[SetPrototypeOf]] refusal was a refusal, for the two places that
+// turn a false answer into a TypeError: Object.setPrototypeOf (§20.1.2.21
+// step 4) and the __proto__ setter (B.2.2.1.2 step 4). An ordinary object
+// refuses for one of two reasons (§10.1.2.1): it is not extensible, or the
+// chain offered runs back into it. A proxy's refusal is its trap's answer
+// and neither of those, so it is named for what it is. Runs no script —
+// the extensibility read here is the object's own flag, not a trap.
+std::string prototype_refusal(Object& object)
+{
+    if (object.is_proxy())
+        return "'setPrototypeOf' on proxy: trap returned falsish";
+    if (!object.is_extensible())
+        return "#<Object> is not extensible";
+    return "Cyclic __proto__ value";
+}
+
 void install_object_statics(Interpreter& in, Object& constructor)
 {
     define_method(in, constructor, "assign", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
@@ -347,7 +399,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
             if (!from)
                 return std::nullopt;
             interp.root(Value::object(*from));
-            for (PropertyKey const& key : (*from)->own_keys()) {
+            std::optional<std::vector<PropertyKey>> const keys = interp.own_keys(**from);
+            if (!keys)
+                return std::nullopt;
+            for (PropertyKey const& key : *keys) {
                 std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**from, key);
                 if (!desc)
                     return std::nullopt;
@@ -495,7 +550,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
         interp.root(Value::object(*object));
         Object* result = interp.new_object();
         interp.root(Value::object(result));
-        for (PropertyKey const& key : (*object)->own_keys()) {
+        std::optional<std::vector<PropertyKey>> const keys = interp.own_keys(**object);
+        if (!keys)
+            return std::nullopt;
+        for (PropertyKey const& key : *keys) {
             std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, key);
             if (!desc)
                 return std::nullopt;
@@ -515,7 +573,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
         interp.root(Value::object(*object));
         ArrayObject* result = interp.new_array();
         interp.root(Value::object(result));
-        for (PropertyKey const& key : (*object)->own_keys()) {
+        std::optional<std::vector<PropertyKey>> const keys = interp.own_keys(**object);
+        if (!keys)
+            return std::nullopt;
+        for (PropertyKey const& key : *keys) {
             if (!key.is_symbol())
                 result->push(key_to_value(interp, key));
         }
@@ -529,7 +590,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
         interp.root(Value::object(*object));
         ArrayObject* result = interp.new_array();
         interp.root(Value::object(result));
-        for (PropertyKey const& key : (*object)->own_keys()) {
+        std::optional<std::vector<PropertyKey>> const keys = interp.own_keys(**object);
+        if (!keys)
+            return std::nullopt;
+        for (PropertyKey const& key : *keys) {
             if (key.is_symbol())
                 result->push(key_to_value(interp, key));
         }
@@ -539,8 +603,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
         std::optional<Object*> const object = interp.to_object(argument(args, 0));
         if (!object)
             return std::nullopt;
-        Object* prototype = (*object)->prototype();
-        return prototype ? Value::object(prototype) : Value::null();
+        std::optional<Object*> const prototype = interp.get_prototype_of(**object);
+        if (!prototype)
+            return std::nullopt;
+        return *prototype ? Value::object(*prototype) : Value::null();
     });
     define_method(in, constructor, "hasOwn", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         Interpreter::Roots const roots(interp);
@@ -559,17 +625,32 @@ void install_object_statics(Interpreter& in, Object& constructor)
     define_method(in, constructor, "is", 2, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
         return Value::boolean(Interpreter::same_value(argument(args, 0), argument(args, 1)));
     });
-    define_method(in, constructor, "isExtensible", 1, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
+    define_method(in, constructor, "isExtensible", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         Value const value = argument(args, 0);
-        return Value::boolean(value.is_object() && value.as_object()->is_extensible());
+        if (!value.is_object())
+            return Value::boolean(false);
+        std::optional<bool> const extensible = interp.is_extensible(*value.as_object());
+        if (!extensible)
+            return std::nullopt;
+        return Value::boolean(*extensible);
     });
-    define_method(in, constructor, "isFrozen", 1, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
+    define_method(in, constructor, "isFrozen", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         Value const value = argument(args, 0);
-        return Value::boolean(!value.is_object() || test_integrity_level(*value.as_object(), true));
+        if (!value.is_object())
+            return Value::boolean(true);
+        std::optional<bool> const frozen = test_integrity_level(interp, *value.as_object(), true);
+        if (!frozen)
+            return std::nullopt;
+        return Value::boolean(*frozen);
     });
-    define_method(in, constructor, "isSealed", 1, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
+    define_method(in, constructor, "isSealed", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         Value const value = argument(args, 0);
-        return Value::boolean(!value.is_object() || test_integrity_level(*value.as_object(), false));
+        if (!value.is_object())
+            return Value::boolean(true);
+        std::optional<bool> const sealed = test_integrity_level(interp, *value.as_object(), false);
+        if (!sealed)
+            return std::nullopt;
+        return Value::boolean(*sealed);
     });
     define_method(in, constructor, "keys", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = interp.to_object(argument(args, 0));
@@ -577,10 +658,17 @@ void install_object_statics(Interpreter& in, Object& constructor)
             return std::nullopt;
         return enumerable_own_properties(interp, **object, OwnKind::Keys);
     });
-    define_method(in, constructor, "preventExtensions", 1, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
+    define_method(in, constructor, "preventExtensions", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
+        // §20.1.2.18: a proxy whose trap refuses is a TypeError here, where
+        // Reflect.preventExtensions answers false instead.
         Value const value = argument(args, 0);
-        if (value.is_object())
-            value.as_object()->prevent_extensions();
+        if (!value.is_object())
+            return value;
+        std::optional<bool> const prevented = interp.prevent_extensions(*value.as_object());
+        if (!prevented)
+            return std::nullopt;
+        if (!*prevented)
+            return interp.throw_type_error("Cannot prevent extensions");
         return value;
     });
     define_method(in, constructor, "seal", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
@@ -600,11 +688,11 @@ void install_object_statics(Interpreter& in, Object& constructor)
             return interp.throw_type_error("Object prototype may only be an Object or null: " + interp.describe(proto));
         if (!value.is_object())
             return value;
-        if (!value.as_object()->set_prototype(proto.is_null() ? nullptr : proto.as_object())) {
-            if (!value.as_object()->is_extensible())
-                return interp.throw_type_error("#<Object> is not extensible");
-            return interp.throw_type_error("Cyclic __proto__ value");
-        }
+        std::optional<bool> const set = interp.set_prototype_of(*value.as_object(), proto.is_null() ? nullptr : proto.as_object());
+        if (!set)
+            return std::nullopt;
+        if (!*set)
+            return interp.throw_type_error(prototype_refusal(*value.as_object()));
         return value;
     });
     define_method(in, constructor, "values", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
@@ -637,14 +725,28 @@ void install_object_prototype(Interpreter& in, Object& prototype)
         Value const value = argument(args, 0);
         if (!value.is_object())
             return Value::boolean(false);
+        Interpreter::Roots const roots(interp);
+        interp.root(value);
         std::optional<Object*> const object = interp.to_object(this_value);
         if (!object)
             return std::nullopt;
-        for (Object const* link = value.as_object()->prototype(); link != nullptr; link = link->prototype()) {
-            if (link == *object)
+        interp.root(Value::object(*object));
+        // §20.1.3.4 walks with [[GetPrototypeOf]], so a proxy in the chain
+        // answers from its trap; the link being walked is held in one root
+        // reused each hop.
+        Object* link = value.as_object();
+        Value& held = interp.root(Value::object(link));
+        while (true) {
+            std::optional<Object*> const next = interp.get_prototype_of(*link);
+            if (!next)
+                return std::nullopt;
+            if (*next == nullptr)
+                return Value::boolean(false);
+            if (*next == *object)
                 return Value::boolean(true);
+            link = *next;
+            held = Value::object(link);
         }
-        return Value::boolean(false);
     });
     define_method(in, prototype, "propertyIsEnumerable", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
         Interpreter::Roots const roots(interp);
@@ -676,17 +778,22 @@ void install_object_prototype(Interpreter& in, Object& prototype)
         if (!object)
             return std::nullopt;
         interp.root(Value::object(*object));
-        std::string tag;
-        switch ((*object)->class_id()) {
-        case Object::Class::Array: tag = "Array"; break;
-        case Object::Class::Arguments: tag = "Arguments"; break;
-        case Object::Class::Error: tag = "Error"; break;
-        case Object::Class::Boolean: tag = "Boolean"; break;
-        case Object::Class::Number: tag = "Number"; break;
-        case Object::Class::String: tag = "String"; break;
-        case Object::Class::Date: tag = "Date"; break;
-        case Object::Class::RegExp: tag = "RegExp"; break;
-        default: tag = (*object)->is_callable() ? "Function" : "Object"; break;
+        // Step 4 asks IsArray, which sees through a proxy to its target.
+        std::optional<bool> const array = interp.is_array(**object);
+        if (!array)
+            return std::nullopt;
+        std::string tag = "Array";
+        if (!*array) {
+            switch ((*object)->class_id()) {
+            case Object::Class::Arguments: tag = "Arguments"; break;
+            case Object::Class::Error: tag = "Error"; break;
+            case Object::Class::Boolean: tag = "Boolean"; break;
+            case Object::Class::Number: tag = "Number"; break;
+            case Object::Class::String: tag = "String"; break;
+            case Object::Class::Date: tag = "Date"; break;
+            case Object::Class::RegExp: tag = "RegExp"; break;
+            default: tag = (*object)->is_callable() ? "Function" : "Object"; break;
+            }
         }
         std::optional<Value> const explicit_tag = interp.get(**object, PropertyKey::symbol(interp.atoms().symbol_to_string_tag));
         if (!explicit_tag)
@@ -708,8 +815,10 @@ void install_object_prototype(Interpreter& in, Object& prototype)
             std::optional<Object*> const object = interp.to_object(this_value);
             if (!object)
                 return std::nullopt;
-            Object* proto = (*object)->prototype();
-            return proto ? Value::object(proto) : Value::null();
+            std::optional<Object*> const proto = interp.get_prototype_of(**object);
+            if (!proto)
+                return std::nullopt;
+            return *proto ? Value::object(*proto) : Value::null();
         },
         [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
             if (this_value.is_nullish())
@@ -719,11 +828,11 @@ void install_object_prototype(Interpreter& in, Object& prototype)
                 return Value::undefined();
             if (!this_value.is_object())
                 return Value::undefined();
-            if (!this_value.as_object()->set_prototype(proto.is_null() ? nullptr : proto.as_object())) {
-                if (!this_value.as_object()->is_extensible())
-                    return interp.throw_type_error("#<Object> is not extensible");
-                return interp.throw_type_error("Cyclic __proto__ value");
-            }
+            std::optional<bool> const set = interp.set_prototype_of(*this_value.as_object(), proto.is_null() ? nullptr : proto.as_object());
+            if (!set)
+                return std::nullopt;
+            if (!*set)
+                return interp.throw_type_error(prototype_refusal(*this_value.as_object()));
             return Value::undefined();
         });
     // Annex B.2.2.2–5: the legacy accessor definers and lookups.
@@ -834,11 +943,17 @@ std::optional<Value> construct_error(Interpreter& interp, ErrorType type, Args a
         error->put(PropertyKey::atom(interp.atoms().message), Value::string(*text), builtin_attributes);
     }
     Value const options = argument(args, 1);
-    if (options.is_object() && options.as_object()->has_property(PropertyKey::atom(interp.atoms().cause))) {
-        std::optional<Value> const cause = interp.get(*options.as_object(), PropertyKey::atom(interp.atoms().cause));
-        if (!cause)
+    if (options.is_object()) {
+        // InstallErrorCause (§20.5.8.1) asks HasProperty, which a proxy traps.
+        std::optional<bool> const has = interp.has_property(*options.as_object(), PropertyKey::atom(interp.atoms().cause));
+        if (!has)
             return std::nullopt;
-        error->put(PropertyKey::atom(interp.atoms().cause), *cause, builtin_attributes);
+        if (*has) {
+            std::optional<Value> const cause = interp.get(*options.as_object(), PropertyKey::atom(interp.atoms().cause));
+            if (!cause)
+                return std::nullopt;
+            error->put(PropertyKey::atom(interp.atoms().cause), *cause, builtin_attributes);
+        }
     }
     std::string const line = interp.describe(Value::object(error));
     error->set_stack(interp.string(std::string_view(line)));
@@ -924,7 +1039,10 @@ void install_reflect(Interpreter& in)
         std::optional<PropertyKey> const key = interp.to_property_key(argument(args, 1));
         if (!key)
             return std::nullopt;
-        return Value::boolean((*object)->delete_property(*key));
+        std::optional<bool> const deleted = interp.delete_property(**object, *key);
+        if (!deleted)
+            return std::nullopt;
+        return Value::boolean(*deleted);
     });
     define_method(in, *reflect, "get", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.get");
@@ -958,8 +1076,10 @@ void install_reflect(Interpreter& in)
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.getPrototypeOf");
         if (!object)
             return std::nullopt;
-        Object* prototype = (*object)->prototype();
-        return prototype ? Value::object(prototype) : Value::null();
+        std::optional<Object*> const prototype = interp.get_prototype_of(**object);
+        if (!prototype)
+            return std::nullopt;
+        return *prototype ? Value::object(*prototype) : Value::null();
     });
     define_method(in, *reflect, "has", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.has");
@@ -968,22 +1088,31 @@ void install_reflect(Interpreter& in)
         std::optional<PropertyKey> const key = interp.to_property_key(argument(args, 1));
         if (!key)
             return std::nullopt;
-        return Value::boolean((*object)->has_property(*key));
+        std::optional<bool> const has = interp.has_property(**object, *key);
+        if (!has)
+            return std::nullopt;
+        return Value::boolean(*has);
     });
     define_method(in, *reflect, "isExtensible", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.isExtensible");
         if (!object)
             return std::nullopt;
-        return Value::boolean((*object)->is_extensible());
+        std::optional<bool> const extensible = interp.is_extensible(**object);
+        if (!extensible)
+            return std::nullopt;
+        return Value::boolean(*extensible);
     });
     define_method(in, *reflect, "ownKeys", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.ownKeys");
         if (!object)
             return std::nullopt;
         Interpreter::Roots const roots(interp);
+        std::optional<std::vector<PropertyKey>> const keys = interp.own_keys(**object);
+        if (!keys)
+            return std::nullopt;
         ArrayObject* result = interp.new_array();
         interp.root(Value::object(result));
-        for (PropertyKey const& key : (*object)->own_keys())
+        for (PropertyKey const& key : *keys)
             result->push(key_to_value(interp, key));
         return Value::object(result);
     });
@@ -991,8 +1120,10 @@ void install_reflect(Interpreter& in)
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.preventExtensions");
         if (!object)
             return std::nullopt;
-        (*object)->prevent_extensions();
-        return Value::boolean(true);
+        std::optional<bool> const prevented = interp.prevent_extensions(**object);
+        if (!prevented)
+            return std::nullopt;
+        return Value::boolean(*prevented);
     });
     define_method(in, *reflect, "set", 3, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         std::optional<Object*> const object = require_object(interp, argument(args, 0), "Reflect.set");
@@ -1017,7 +1148,10 @@ void install_reflect(Interpreter& in)
         Value const proto = argument(args, 1);
         if (!proto.is_object() && !proto.is_null())
             return interp.throw_type_error("Object prototype may only be an Object or null: " + interp.describe(proto));
-        return Value::boolean((*object)->set_prototype(proto.is_null() ? nullptr : proto.as_object()));
+        std::optional<bool> const set = interp.set_prototype_of(**object, proto.is_null() ? nullptr : proto.as_object());
+        if (!set)
+            return std::nullopt;
+        return Value::boolean(*set);
     });
 }
 
@@ -1153,15 +1287,29 @@ void install_function(Interpreter& in)
         Interpreter::Roots const roots(interp);
         interp.root(this_value);
         auto* target = static_cast<Function*>(this_value.as_object());
+        // BoundFunctionCreate (§10.4.1.3 step 1) takes the new function's
+        // [[Prototype]] from the target's [[GetPrototypeOf]], which over a
+        // proxy is the trap — the Function base of a proxy is built with a
+        // null prototype, so the virtual would answer null here.
+        std::optional<Object*> const proto = interp.get_prototype_of(*target);
+        if (!proto)
+            return std::nullopt;
+        if (*proto != nullptr)
+            interp.root(Value::object(*proto));
         std::vector<Value> bound_arguments;
         for (std::size_t k = 1; k < args.size(); ++k) {
             interp.root(args[k]);
             bound_arguments.push_back(args[k]);
         }
-        auto* bound = interp.heap().allocate<BoundFunction>(target->prototype(), target, argument(args, 0), std::move(bound_arguments));
+        auto* bound = interp.heap().allocate<BoundFunction>(*proto, target, argument(args, 0), std::move(bound_arguments));
         interp.root(Value::object(bound));
         double length = 0;
-        if (target->get_own_property(PropertyKey::atom(interp.atoms().length))) {
+        // HasOwnProperty (§20.2.3.2 step 5) — a proxy target traps it.
+        std::optional<std::optional<PropertyDescriptor>> const own_length
+            = interp.get_own_property(*target, PropertyKey::atom(interp.atoms().length));
+        if (!own_length)
+            return std::nullopt;
+        if (own_length->has_value()) {
             std::optional<Value> const target_length = interp.get(*target, PropertyKey::atom(interp.atoms().length));
             if (!target_length)
                 return std::nullopt;
@@ -1497,6 +1645,7 @@ void install_intrinsics(Interpreter& in)
     install_promise(in);
     install_generators(in);
     install_reflect(in);
+    install_proxy(in);
     install_console(in);
 }
 

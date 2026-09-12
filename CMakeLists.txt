@@ -129,6 +129,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimeNumber.cpp
   src/js/RuntimeObject.cpp
   src/js/RuntimePromise.cpp
+  src/js/RuntimeProxy.cpp
   src/js/RuntimeString.cpp
   src/js/RuntimeTypedArray.cpp
   src/js/Strings.cpp

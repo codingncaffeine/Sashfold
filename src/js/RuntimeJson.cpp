@@ -300,7 +300,10 @@ std::optional<Value> internalize(Interpreter& in, Object& holder, PropertyKey co
     in.root(*value);
     if (value->is_object()) {
         Object& object = *value->as_object();
-        if (Interpreter::is_array(*value)) {
+        std::optional<bool> const is_array = in.is_array(object);
+        if (!is_array)
+            return std::nullopt;
+        if (*is_array) {
             std::optional<double> const length = in.length_of_array_like(object);
             if (!length)
                 return std::nullopt;
@@ -310,18 +313,24 @@ std::optional<Value> internalize(Interpreter& in, Object& holder, PropertyKey co
                 if (!element)
                     return std::nullopt;
                 if (element->is_undefined()) {
-                    object.delete_property(key);
+                    if (!in.delete_property(object, key))
+                        return std::nullopt;
                 } else if (!in.create_data_property(object, key, *element, false)) {
                     return std::nullopt;
                 }
             }
         } else {
             std::vector<PropertyKey> keys;
-            for (PropertyKey const& key : object.own_keys()) {
+            std::optional<std::vector<PropertyKey>> const own = in.own_keys(object);
+            if (!own)
+                return std::nullopt;
+            for (PropertyKey const& key : *own) {
                 if (key.is_symbol())
                     continue;
-                std::optional<PropertyDescriptor> const desc = object.get_own_property(key);
-                if (desc && desc->enumerable.value_or(false))
+                std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
+                if (!desc)
+                    return std::nullopt;
+                if (*desc && (*desc)->enumerable.value_or(false))
                     keys.push_back(key);
             }
             for (PropertyKey const& key : keys) {
@@ -329,7 +338,8 @@ std::optional<Value> internalize(Interpreter& in, Object& holder, PropertyKey co
                 if (!element)
                     return std::nullopt;
                 if (element->is_undefined()) {
-                    object.delete_property(key);
+                    if (!in.delete_property(object, key))
+                        return std::nullopt;
                 } else if (!in.create_data_property(object, key, *element, false)) {
                     return std::nullopt;
                 }
@@ -457,7 +467,12 @@ struct Stringifier {
             return std::optional<std::u16string>(number_to_string(value->as_number()));
         }
         if (value->is_object() && !value->as_object()->is_callable()) {
-            if (Interpreter::is_array(*value))
+            // SerializeJSONProperty step 10 asks IsArray, which sees
+            // through a proxy to its target.
+            std::optional<bool> const is_array = in.is_array(*value->as_object());
+            if (!is_array)
+                return std::nullopt;
+            if (*is_array)
                 return serialize_array(*value->as_object(), depth);
             return serialize_object(*value->as_object(), depth);
         }
@@ -485,11 +500,16 @@ struct Stringifier {
         if (has_property_list) {
             keys = property_list;
         } else {
-            for (PropertyKey const& key : object.own_keys()) {
+            std::optional<std::vector<PropertyKey>> const own = in.own_keys(object);
+            if (!own)
+                return std::nullopt;
+            for (PropertyKey const& key : *own) {
                 if (key.is_symbol())
                     continue;
-                std::optional<PropertyDescriptor> const desc = object.get_own_property(key);
-                if (desc && desc->enumerable.value_or(false))
+                std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
+                if (!desc)
+                    return std::nullopt;
+                if (*desc && (*desc)->enumerable.value_or(false))
                     keys.push_back(key);
             }
         }

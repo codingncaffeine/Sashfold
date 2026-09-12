@@ -179,6 +179,12 @@ bool Interpreter::Impl::stack_ok()
 }
 
 
+bool Interpreter::stack_ok()
+{
+    return m_impl->stack_ok();
+}
+
+
 bool Interpreter::Impl::step()
 {
     ++self.m_steps;
@@ -251,7 +257,15 @@ Reference Interpreter::Impl::resolve(JsString* name, Environment* environment)
     for (Environment* e = environment; e != nullptr; e = e->outer()) {
         if (e->is_object_environment()) {
             PropertyKey const key = PropertyKey::atom(name);
-            if (e->object()->has_property(key)) {
+            // HasBinding (§9.1.1.2.1) is [[HasProperty]] on the object, so
+            // a `with` over a proxy runs the handler's `has` trap and may
+            // throw. The name then resolves to nothing with that exception
+            // pending, and GetValue and PutValue hand it on rather than
+            // reporting the name undefined.
+            std::optional<bool> const has = self.has_property(*e->object(), key);
+            if (!has)
+                break;
+            if (*has) {
                 reference.kind = Reference::Kind::ObjectEnvironment;
                 reference.environment = e;
                 reference.key = key;
@@ -294,6 +308,11 @@ std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context 
     case Reference::Kind::Value:
         return reference.base;
     case Reference::Kind::Unresolvable:
+        // A `with` object's [[HasProperty]] may have thrown while the
+        // reference was being resolved; that throw is the outcome, not a
+        // ReferenceError about the name.
+        if (self.has_exception())
+            return std::nullopt;
         return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
     case Reference::Kind::Binding: {
         Environment::Binding const* binding = reference.environment->find(reference.name);
@@ -317,7 +336,10 @@ std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context 
         // §9.1.1.2.6: the property may be gone by now; strict code
         // notices, sloppy code reads undefined.
         Object* object = reference.environment->object();
-        if (!object->has_property(reference.key)) {
+        std::optional<bool> const has = self.has_property(*object, reference.key);
+        if (!has)
+            return std::nullopt;
+        if (!*has) {
             if (cx.strict)
                 return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
             return Value::undefined();
@@ -355,6 +377,10 @@ bool Interpreter::Impl::put_value(Reference& reference, Value const& value, Cont
         self.throw_reference_error("Invalid left-hand side in assignment");
         return false;
     case Reference::Kind::Unresolvable: {
+        // As in GetValue: a `with` object's `has` trap may already have
+        // thrown while the name was being resolved.
+        if (self.has_exception())
+            return false;
         if (cx.strict) {
             self.throw_reference_error(reference.name->to_utf8() + " is not defined");
             return false;
@@ -389,7 +415,10 @@ bool Interpreter::Impl::put_value(Reference& reference, Value const& value, Cont
     case Reference::Kind::ObjectEnvironment: {
         // §9.1.1.2.5.
         Object* object = reference.environment->object();
-        if (!object->has_property(reference.key) && cx.strict) {
+        std::optional<bool> const has = self.has_property(*object, reference.key);
+        if (!has)
+            return false;
+        if (!*has && cx.strict) {
             self.throw_reference_error(reference.name->to_utf8() + " is not defined");
             return false;
         }
@@ -1593,7 +1622,10 @@ bool Interpreter::Impl::copy_data_properties(Object& target, Value const& source
     if (!from)
         return false;
     self.root(Value::object(*from));
-    for (PropertyKey const& key : (*from)->own_keys()) {
+    std::optional<std::vector<PropertyKey>> const keys = self.own_keys(**from);
+    if (!keys)
+        return false;
+    for (PropertyKey const& key : *keys) {
         if (std::find(excluded.begin(), excluded.end(), key) != excluded.end())
             continue;
         if (key.is_symbol())
@@ -2598,8 +2630,12 @@ std::optional<Value> Interpreter::Impl::delete_reference(Reference& reference, C
         return self.throw_syntax_error("Private fields can not be deleted");
     case Reference::Kind::Binding:
         return Value::boolean(reference.environment->remove(reference.name));
-    case Reference::Kind::ObjectEnvironment:
-        return Value::boolean(reference.environment->object()->delete_property(reference.key));
+    case Reference::Kind::ObjectEnvironment: {
+        std::optional<bool> const deleted = self.delete_property(*reference.environment->object(), reference.key);
+        if (!deleted)
+            return std::nullopt;
+        return Value::boolean(*deleted);
+    }
     case Reference::Kind::Property: {
         Roots const roots(self);
         self.root(reference.base);
@@ -2612,10 +2648,12 @@ std::optional<Value> Interpreter::Impl::delete_reference(Reference& reference, C
         self.root(Value::object(*object));
         if (!ensure_key(reference))
             return std::nullopt;
-        bool const deleted = (*object)->delete_property(reference.key);
-        if (!deleted && cx.strict)
+        std::optional<bool> const deleted = self.delete_property(**object, reference.key);
+        if (!deleted)
+            return std::nullopt;
+        if (!*deleted && cx.strict)
             return self.throw_type_error("Cannot delete property '" + key_description(reference.key) + "' of object");
-        return Value::boolean(deleted);
+        return Value::boolean(*deleted);
     }
     }
     return Value::boolean(true);
@@ -2787,7 +2825,10 @@ std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& l
         std::optional<PropertyKey> const key = self.to_property_key(left);
         if (!key)
             return std::nullopt;
-        return Value::boolean(right.as_object()->has_property(*key));
+        std::optional<bool> const has = self.has_property(*right.as_object(), *key);
+        if (!has)
+            return std::nullopt;
+        return Value::boolean(*has);
     }
     case BinaryOp::Instanceof: {
         std::optional<bool> const result = self.instance_of(left, right);
@@ -3335,22 +3376,30 @@ Completion Interpreter::Impl::execute_do_while(DoWhileStatement const& loop, Con
 }
 
 
-void Interpreter::Impl::enumerator_load(Enumerator& enumerator)
+bool Interpreter::Impl::enumerator_load(Enumerator& enumerator)
 {
     enumerator.keys.clear();
     enumerator.next = 0;
     if (enumerator.object == nullptr)
-        return;
-    for (PropertyKey const& key : enumerator.object->own_keys()) {
+        return true;
+    // [[OwnPropertyKeys]] through the wrapper: a proxy's is the handler's
+    // ownKeys trap (§10.5.11) and can throw. Only string keys are kept,
+    // and those are atoms, so nothing here outlives its owner.
+    std::optional<std::vector<PropertyKey>> const keys = self.own_keys(*enumerator.object);
+    if (!keys)
+        return false;
+    for (PropertyKey const& key : *keys) {
         if (key.is_string())
             enumerator.keys.push_back(key);
     }
+    return true;
 }
 
 
-// The next key as a string, or null when the chain is exhausted — or
-// when a module namespace's export threw in its dead zone (§10.4.6.4),
-// which the caller tells apart by the exception pending.
+// The next key as a string, or null when the chain is exhausted — or when
+// an internal method threw: a module namespace's export read in its dead
+// zone (§10.4.6.4), or one of a proxy's three traps this walk uses. The
+// caller tells the cases apart by the exception pending.
 JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
 {
     while (enumerator.object != nullptr) {
@@ -3359,23 +3408,22 @@ JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
             JsString* name = heap().key_to_string(key);
             if (enumerator.visited.contains(name))
                 continue;
-            std::optional<PropertyDescriptor> desc;
-            if (enumerator.object->class_id() == Object::Class::ModuleNamespace) {
-                std::optional<std::optional<PropertyDescriptor>> const read = self.get_own_property(*enumerator.object, key);
-                if (!read)
-                    return nullptr;
-                desc = *read;
-            } else {
-                desc = enumerator.object->get_own_property(key);
-            }
-            if (!desc)
+            std::optional<std::optional<PropertyDescriptor>> const read = self.get_own_property(*enumerator.object, key);
+            if (!read)
+                return nullptr;
+            if (!*read)
                 continue;
             enumerator.visited.insert(name);
-            if (desc->enumerable.value_or(false))
+            if ((*read)->enumerable.value_or(false))
                 return name;
         }
-        enumerator.object = enumerator.object->prototype();
-        enumerator_load(enumerator);
+        // [[GetPrototypeOf]]: a proxy in the chain answers from its trap.
+        std::optional<Object*> const next = self.get_prototype_of(*enumerator.object);
+        if (!next)
+            return nullptr;
+        enumerator.object = *next;
+        if (!enumerator_load(enumerator))
+            return nullptr;
     }
     return nullptr;
 }
@@ -3449,9 +3497,17 @@ Completion Interpreter::Impl::execute_for_in(ForInStatement const& loop, Context
     if (!object)
         return Completion::thrown();
     self.root(Value::object(*object));
-    Enumerator enumerator;
-    enumerator.object = *object;
-    enumerator_load(enumerator);
+    // The enumerator is a heap cell, and a traced one (Vm.h): the object it
+    // holds is whatever the chain's [[GetPrototypeOf]] last answered, which
+    // over a proxy is a trap's return value that nothing else need
+    // reference. The loop body allocates between one key and the next, so an
+    // enumerator on the C++ stack would have that object swept under it and
+    // then read it. The bytecode tier's ForInStart drives this same cell.
+    auto* iterator = heap().allocate<ForInIteratorObject>(*object);
+    self.root(Value::object(iterator));
+    Enumerator& enumerator = iterator->enumerator();
+    if (!enumerator_load(enumerator))
+        return Completion::thrown();
     Value& last = self.root(Value::undefined());
     while (true) {
         JsString* key = enumerator_next(enumerator);
@@ -3771,6 +3827,7 @@ void Interpreter::trace_roots(Tracer& tracer)
         tracer.visit(constructor);
     tracer.visit(i.data_view_prototype);
     tracer.visit(i.data_view_constructor);
+    tracer.visit(i.proxy_constructor);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);

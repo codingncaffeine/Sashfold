@@ -36,6 +36,7 @@ void install_generators(Interpreter&); // %GeneratorFunction%, %GeneratorPrototy
 void install_array_buffer(Interpreter&); // ArrayBuffer — RuntimeArrayBuffer.cpp
 void install_typed_arrays(Interpreter&); // %TypedArray% and its nine kinds — RuntimeTypedArray.cpp
 void install_data_view(Interpreter&); // DataView — RuntimeArrayBuffer.cpp
+void install_proxy(Interpreter&); // Proxy and Proxy.revocable — RuntimeProxy.cpp
 
 // The promise operations the engine itself needs (an await, an async
 // function's result): NewPromiseCapability (§27.2.1.5), PromiseResolve
@@ -65,6 +66,15 @@ inline Value argument(std::span<Value const> arguments, std::size_t index)
 // Number::exponentiate (§6.1.6.1.3): `**` and Math.pow, with the cases
 // where the language and the C library disagree spelled out.
 double number_exponentiate(double base, double exponent);
+// ToPropertyDescriptor (§6.2.6.5) and FromPropertyDescriptor (§6.2.6.4):
+// a descriptor read out of an ordinary object and written back into one.
+// Object's reflective methods, Reflect's and a proxy's traps — which hand
+// a descriptor to script and take one back — all pass through these.
+std::optional<PropertyDescriptor> to_property_descriptor(Interpreter&, Value const&);
+Object* from_property_descriptor(Interpreter&, PropertyDescriptor const&);
+// A key as the value a trap or a reflective method is handed: a string,
+// or the symbol itself.
+Value key_to_value(Interpreter&, PropertyKey const&);
 // A key's text for a message: the name, the index in decimal, or
 // Symbol(description). Never runs script.
 std::string key_description(PropertyKey const&);

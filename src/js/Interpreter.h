@@ -122,6 +122,10 @@ struct Intrinsics {
     Function* typed_array_constructors[element_type_count] = {};
     Object* data_view_prototype = nullptr;
     Function* data_view_constructor = nullptr;
+    // Proxy (§28.2). It has no prototype object: a proxy's prototype is
+    // whatever its [[GetPrototypeOf]] answers, so there is nothing for a
+    // %Proxy.prototype% to be.
+    Function* proxy_constructor = nullptr;
 };
 
 // A PromiseCapability Record (§27.2.1.1): a promise and the two functions
@@ -276,15 +280,30 @@ public:
     std::optional<bool> set(Object&, PropertyKey const&, Value const&, bool strict);
     // CreateDataProperty(OrThrow) and DefinePropertyOrThrow.
     std::optional<bool> create_data_property(Object&, PropertyKey const&, Value const&, bool or_throw = true);
-    // [[GetOwnProperty]] as script sees it: a module namespace reads the
-    // export's binding, which throws in its dead zone, so the reflective
-    // built-ins ask here. Outer nullopt = a throw; inner = absent.
+    // The essential internal methods as script sees them. Each of these
+    // has a virtual on Object that cannot throw, and an exotic object
+    // whose version runs script — a module namespace reading a binding in
+    // its dead zone, a proxy running a trap — is routed from here to the
+    // throwing method beside it. Every reflective built-in, every operator
+    // and both execution tiers go through these wrappers; a new site that
+    // calls the virtual instead silently skips the trap.
+    // Outer nullopt = a throw; inner = absent.
     std::optional<std::optional<PropertyDescriptor>> get_own_property(Object&, PropertyKey const&);
-    // [[DefineOwnProperty]] as script sees it: the array-length conversion
-    // of ArraySetLength happens here, so it can throw. false = rejected.
+    // [[DefineOwnProperty]]: the array-length conversion of ArraySetLength
+    // and a typed array's ToNumber happen here too. false = rejected.
     std::optional<bool> define_own_property(Object&, PropertyKey const&, PropertyDescriptor const&);
     std::optional<bool> define_property_or_throw(Object&, PropertyKey const&, PropertyDescriptor const&);
     std::optional<bool> delete_property_or_throw(Object&, PropertyKey const&);
+    // [[GetPrototypeOf]]: nullopt is the throw, a contained null the null
+    // prototype. Any walk up a prototype chain that a script can observe
+    // takes this, since a proxy in the chain answers from a trap.
+    std::optional<Object*> get_prototype_of(Object&);
+    std::optional<bool> set_prototype_of(Object&, Object* prototype); // false = refused
+    std::optional<bool> is_extensible(Object&);
+    std::optional<bool> prevent_extensions(Object&); // false = refused
+    std::optional<bool> has_property(Object&, PropertyKey const&);
+    std::optional<bool> delete_property(Object&, PropertyKey const&); // false = non-configurable
+    std::optional<std::vector<PropertyKey>> own_keys(Object&);
     std::optional<bool> has_property(Value const& base, PropertyKey const&);
     std::optional<Value> get_method(Value const& base, PropertyKey const&); // undefined when absent; TypeError when not callable
     std::optional<Function*> get_function(Value const& base, PropertyKey const&); // nullptr when absent
@@ -307,6 +326,11 @@ public:
     static bool is_callable(Value const& v) { return v.is_object() && v.as_object()->is_callable(); }
     static bool is_constructor(Value const& v) { return v.is_object() && v.as_object()->is_constructor(); }
     static bool is_array(Value const& v) { return v.is_object() && v.as_object()->is_array(); }
+    // IsArray (§7.2.2) in full: a proxy answers for its target, however
+    // deep the nesting, and a revoked one is a TypeError — so this can
+    // throw where the static test above, which knows only an Array exotic
+    // object, cannot. Every script-visible IsArray takes this one.
+    std::optional<bool> is_array(Object&);
     std::optional<bool> is_regexp(Value const&);
     std::optional<double> length_of_array_like(Object&);
     std::optional<std::vector<Value>> create_list_from_array_like(Value const&);
@@ -411,6 +435,11 @@ public:
     // depth count alone cannot know a frame's size; the evaluator also
     // measures the stack against where it was entered.
     void set_stack_budget(std::size_t bytes) { m_stack_budget = bytes; }
+    // The stack so far against that budget: false with a RangeError
+    // pending. Every script call is held to it; a native that recurses
+    // once per level of a structure the script built — a chain of proxies
+    // falling through to one another's targets — asks before descending.
+    bool stack_ok();
     // Stopping a runaway script. The evaluator counts steps (a statement,
     // a loop iteration, a call) and every `interval` of them asks
     // should_stop; a yes ends the script with an uncatchable termination

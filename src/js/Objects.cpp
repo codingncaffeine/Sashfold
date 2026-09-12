@@ -253,6 +253,12 @@ bool is_receiver(Value const& receiver, Object const* object)
 
 }
 
+bool is_compatible_property_descriptor(bool extensible, PropertyDescriptor const& desc,
+    std::optional<PropertyDescriptor> const& current)
+{
+    return is_compatible(extensible, desc, current);
+}
+
 // ---------------------------------------------------------------- Object
 
 Property const* Object::find_own(PropertyKey const& key) const
@@ -442,6 +448,11 @@ std::optional<Value> Object::get(Interpreter& interpreter, PropertyKey const& ke
 {
     // OrdinaryGet (§10.1.8.1), the recursion over the chain unrolled.
     for (Object* link = this; link != nullptr; link = link->prototype()) {
+        // A proxy up the chain answers for itself (§10.5.8): only its own
+        // [[Get]] can run the handler's trap, and the receiver it is
+        // handed is the one the walk started with.
+        if (link != this && link->is_proxy())
+            return link->get(interpreter, key, receiver);
         std::optional<PropertyDescriptor> const desc = link->get_own_property(key);
         if (!desc)
             continue;
@@ -465,7 +476,8 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
         // A typed array up the chain answers for itself (§10.4.5.5): its
         // [[Set]] decides a numeric key with no look further up and no
         // property created on the receiver, so the walk hands over to it.
-        if (link != this && link->class_id() == Class::TypedArray)
+        // A proxy does too (§10.5.9): only its own [[Set]] runs the trap.
+        if (link != this && (link->class_id() == Class::TypedArray || link->is_proxy()))
             return link->set(interpreter, key, value, receiver);
         own = link->get_own_property(key);
         if (own)
@@ -495,16 +507,17 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
     // wrapper; an ordinary receiver takes the virtual directly, and needs
     // no interpreter for it.
     Object* target = receiver.as_object();
-    bool const converts = target->class_id() == Class::TypedArray || (target->is_array() && is_length_key(key));
+    bool const converts = target->class_id() == Class::TypedArray || target->is_proxy() || (target->is_array() && is_length_key(key));
     auto const define = [&](PropertyDescriptor const& desc) -> std::optional<bool> {
         if (converts)
             return interpreter.define_own_property(*target, key, desc);
         return target->define_own_property(key, desc);
     };
     // A module namespace receiver reads its export's binding here, which
-    // throws in its dead zone (§10.4.6.4): the interpreter's wrapper.
+    // throws in its dead zone (§10.4.6.4), and a proxy receiver runs its
+    // getOwnPropertyDescriptor trap: the interpreter's wrapper.
     std::optional<PropertyDescriptor> existing;
-    if (target->class_id() == Class::ModuleNamespace) {
+    if (target->class_id() == Class::ModuleNamespace || target->is_proxy()) {
         std::optional<std::optional<PropertyDescriptor>> const read = interpreter.get_own_property(*target, key);
         if (!read)
             return std::nullopt;

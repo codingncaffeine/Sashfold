@@ -84,6 +84,10 @@ std::string class_name(Object const& object)
     case Object::Class::TypedArray: return std::string(element_type_name(static_cast<TypedArrayObject const&>(object).element_type()));
     case Object::Class::DataView: return "DataView";
     case Object::Class::ModuleNamespace: return "Module";
+    // A proxy's kind is its target's, but asking would run a trap and
+    // this text is made without running script (it is what `describe`
+    // reports in a message).
+    case Object::Class::Proxy: return "Object";
     }
     return "Object";
 }
@@ -581,7 +585,10 @@ std::optional<bool> Interpreter::create_data_property(Object& object, PropertyKe
     // typed array's element converts the value, which may run script.
     PropertyDescriptor const descriptor = PropertyDescriptor::data(value, default_attributes);
     std::optional<bool> defined;
-    if (object.class_id() == Object::Class::TypedArray) {
+    if (object.is_proxy()) {
+        // A proxy's [[DefineOwnProperty]] is the handler's trap (§10.5.6).
+        defined = static_cast<ProxyObject&>(object).define_own_property(*this, key, descriptor);
+    } else if (object.class_id() == Object::Class::TypedArray) {
         if (std::optional<double> const index = TypedArrayObject::numeric_index(key))
             defined = static_cast<TypedArrayObject&>(object).define_numeric(*this, *index, descriptor);
         else
@@ -599,20 +606,25 @@ std::optional<bool> Interpreter::create_data_property(Object& object, PropertyKe
 
 std::optional<std::optional<PropertyDescriptor>> Interpreter::get_own_property(Object& object, PropertyKey const& key)
 {
-    // [[GetOwnProperty]] with the one part that throws: a module
-    // namespace's export is read from its binding, which may be in its
-    // dead zone (§10.4.6.4).
+    // [[GetOwnProperty]] with the parts that throw: a module namespace's
+    // export is read from its binding, which may be in its dead zone
+    // (§10.4.6.4), and a proxy's is the handler's trap (§10.5.5).
     if (object.class_id() == Object::Class::ModuleNamespace)
         return static_cast<ModuleNamespaceObject&>(object).get_own_property(*this, key);
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).get_own_property(*this, key);
     return object.get_own_property(key);
 }
 
 std::optional<bool> Interpreter::define_own_property(Object& object, PropertyKey const& key, PropertyDescriptor const& descriptor)
 {
     // [[DefineOwnProperty]] with the parts that run script and throw: a
-    // typed array's element converts its value by ToNumber (§10.4.5.3),
-    // and ArraySetLength (§10.4.2.4 steps 3–5) wants an array's new length
-    // to be the same number as ToUint32 and ToNumber make of it.
+    // proxy's is the handler's trap (§10.5.6), a typed array's element
+    // converts its value by ToNumber (§10.4.5.3), and ArraySetLength
+    // (§10.4.2.4 steps 3–5) wants an array's new length to be the same
+    // number as ToUint32 and ToNumber make of it.
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).define_own_property(*this, key, descriptor);
     if (object.class_id() == Object::Class::TypedArray) {
         if (std::optional<double> const index = TypedArrayObject::numeric_index(key))
             return static_cast<TypedArrayObject&>(object).define_numeric(*this, *index, descriptor);
@@ -646,9 +658,98 @@ std::optional<bool> Interpreter::define_property_or_throw(Object& object, Proper
     return true;
 }
 
+// The remaining essential internal methods whose virtual on Object cannot
+// throw, each routing a proxy to the method of its that runs the trap.
+// Between them and the two wrappers above, every [[…]] a script can reach
+// has one entry point that copes with an exotic object running script.
+
+std::optional<Object*> Interpreter::get_prototype_of(Object& object)
+{
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).get_prototype_of(*this);
+    return object.prototype();
+}
+
+std::optional<bool> Interpreter::set_prototype_of(Object& object, Object* prototype)
+{
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).set_prototype_of(*this, prototype);
+    return object.set_prototype(prototype);
+}
+
+std::optional<bool> Interpreter::is_extensible(Object& object)
+{
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).is_extensible(*this);
+    return object.is_extensible();
+}
+
+std::optional<bool> Interpreter::prevent_extensions(Object& object)
+{
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).prevent_extensions(*this);
+    object.prevent_extensions();
+    return true;
+}
+
+std::optional<bool> Interpreter::has_property(Object& object, PropertyKey const& key)
+{
+    // OrdinaryHasProperty's walk (§10.1.7.1), with the two exotic objects
+    // whose [[HasProperty]] is not that walk handed the question instead.
+    // A proxy's runs the handler's trap, which no other object can do for
+    // it, and it continues the chain itself. A typed array's settles a
+    // numeric key alone and answers false without looking further up
+    // (§10.4.5.2) — an index past the end is absent however the prototype
+    // chain is furnished. Every other exotic object's [[HasProperty]]
+    // agrees with its own [[GetOwnProperty]], which is what the walk asks.
+    for (Object* link = &object; link != nullptr; link = link->prototype()) {
+        if (link->is_proxy())
+            return static_cast<ProxyObject*>(link)->has_property(*this, key);
+        if (link->class_id() == Object::Class::TypedArray && TypedArrayObject::numeric_index(key))
+            return link->has_property(key);
+        if (link->get_own_property(key))
+            return true;
+    }
+    return false;
+}
+
+std::optional<bool> Interpreter::delete_property(Object& object, PropertyKey const& key)
+{
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).delete_property(*this, key);
+    return object.delete_property(key);
+}
+
+std::optional<std::vector<PropertyKey>> Interpreter::own_keys(Object& object)
+{
+    if (object.is_proxy())
+        return static_cast<ProxyObject&>(object).own_keys(*this);
+    return object.own_keys();
+}
+
+std::optional<bool> Interpreter::is_array(Object& object)
+{
+    // IsArray (§7.2.2): a proxy answers for its target, and so on inward.
+    // A proxy's target is fixed when the proxy is made, so the chain was
+    // built from the inside out and cannot be circular.
+    for (Object* link = &object;;) {
+        if (link->is_array())
+            return true;
+        if (!link->is_proxy())
+            return false;
+        auto& proxy = static_cast<ProxyObject&>(*link);
+        if (proxy.is_revoked())
+            return throw_type_error("Cannot perform 'IsArray' on a proxy that has been revoked");
+        link = proxy.target();
+    }
+}
+
 std::optional<bool> Interpreter::delete_property_or_throw(Object& object, PropertyKey const& key)
 {
-    if (!object.delete_property(key))
+    std::optional<bool> const deleted = delete_property(object, key);
+    if (!deleted)
+        return std::nullopt;
+    if (!*deleted)
         return throw_type_error("Cannot delete property '" + key_description(key) + "' of #<" + class_name(object) + ">");
     return true;
 }
@@ -657,7 +758,7 @@ std::optional<bool> Interpreter::has_property(Value const& base, PropertyKey con
 {
     if (!base.is_object())
         return throw_type_error("Cannot use 'in' operator to search for '" + key_description(key) + "' in " + describe(base));
-    return base.as_object()->has_property(key);
+    return has_property(*base.as_object(), key);
 }
 
 std::optional<Value> Interpreter::get_method(Value const& base, PropertyKey const& key)
@@ -744,12 +845,26 @@ std::optional<bool> Interpreter::ordinary_has_instance(Value const& constructor,
         return std::nullopt;
     if (!prototype->is_object())
         return throw_type_error("Function has non-object prototype '" + describe(*prototype) + "' in instanceof check");
+    root(*prototype);
     Object const* wanted = prototype->as_object();
-    for (Object const* link = value.as_object()->prototype(); link != nullptr; link = link->prototype()) {
-        if (link == wanted)
+    // Step 5's loop over [[GetPrototypeOf]]: a proxy along the chain answers
+    // from its trap, which may hand back an object nothing else holds, so
+    // the link being walked is kept alive in one root reused each hop. A
+    // chain of traps that never ends is the specification's own "Repeat";
+    // the host's interrupt is what stops it, as it stops any endless loop.
+    Object* link = value.as_object();
+    Value& held = root(Value::object(link));
+    while (true) {
+        std::optional<Object*> const next = get_prototype_of(*link);
+        if (!next)
+            return std::nullopt;
+        if (*next == nullptr)
+            return false;
+        if (*next == wanted)
             return true;
+        link = *next;
+        held = Value::object(link);
     }
-    return false;
 }
 
 std::optional<Value> Interpreter::species_constructor(Object& object, Function* default_constructor)

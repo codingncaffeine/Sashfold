@@ -41,9 +41,12 @@ std::optional<bool> set_at(Interpreter& in, Object& object, double index, Value 
     return in.set(object, in.heap().key(index), value, true);
 }
 
-bool has_at(Interpreter& in, Object& object, double index)
+// HasProperty (§7.3.11) of an index. Through the wrapper, because over a
+// proxy this is the handler's has trap (§10.5.7): it answers for itself,
+// and it may throw — neither of which the non-throwing virtual can report.
+std::optional<bool> has_at(Interpreter& in, Object& object, double index)
 {
-    return object.has_property(in.heap().key(index));
+    return in.has_property(object, in.heap().key(index));
 }
 
 std::optional<bool> delete_at(Interpreter& in, Object& object, double index)
@@ -95,7 +98,10 @@ std::optional<Value> array_species_create(Interpreter& in, Object& original, dou
             return std::nullopt;
         return Value::object(*array);
     };
-    if (!original.is_array())
+    std::optional<bool> const array = in.is_array(original);
+    if (!array)
+        return std::nullopt;
+    if (!*array)
         return plain();
     Interpreter::Roots const roots(in);
     std::optional<Value> constructor = in.get(original, PropertyKey::atom(in.atoms().constructor));
@@ -153,7 +159,7 @@ std::optional<bool> is_concat_spreadable(Interpreter& in, Value const& value)
         return std::nullopt;
     if (!spreadable->is_undefined())
         return Interpreter::to_boolean(*spreadable);
-    return Interpreter::is_array(value);
+    return in.is_array(*value.as_object());
 }
 
 // SortCompare (§23.1.3.30.2): undefined sorts last, a comparator's
@@ -225,8 +231,13 @@ std::optional<std::vector<Value>> sorted_values(Interpreter& in, Object& object,
 {
     std::vector<Value> values;
     for (double k = 0; k < length; ++k) {
-        if (skip_holes && !has_at(in, object, k))
-            continue;
+        if (skip_holes) {
+            std::optional<bool> const present = has_at(in, object, k);
+            if (!present)
+                return std::nullopt;
+            if (!*present)
+                continue;
+        }
         std::optional<Value> const value = get_at(in, object, k);
         if (!value)
             return std::nullopt;
@@ -245,7 +256,10 @@ std::optional<double> flatten_into(Interpreter& in, Object& target, Object& sour
 {
     double target_index = start;
     for (double source_index = 0; source_index < source_length; ++source_index) {
-        if (!has_at(in, source, source_index))
+        std::optional<bool> const present = has_at(in, source, source_index);
+        if (!present)
+            return std::nullopt;
+        if (!*present)
             continue;
         Interpreter::Roots const roots(in);
         std::optional<Value> element = get_at(in, source, source_index);
@@ -318,8 +332,13 @@ std::optional<Value> visit_elements(Interpreter& in, Value const& this_value, Ar
     double filtered = 0;
     for (double step = 0; step < length; ++step) {
         double const k = backwards ? length - 1 - step : step;
-        if (skip_holes && !has_at(in, object, k))
-            continue;
+        if (skip_holes) {
+            std::optional<bool> const present = has_at(in, object, k);
+            if (!present)
+                return std::nullopt;
+            if (!*present)
+                continue;
+        }
         Interpreter::Roots const element_roots(in);
         std::optional<Value> const element = get_at(in, object, k);
         if (!element)
@@ -404,7 +423,10 @@ std::optional<Value> reduce_elements(Interpreter& in, Value const& this_value, A
     } else {
         bool present = false;
         while (!present && in_range()) {
-            present = has_at(in, object, k);
+            std::optional<bool> const found = has_at(in, object, k);
+            if (!found)
+                return std::nullopt;
+            present = *found;
             if (present) {
                 std::optional<Value> const value = get_at(in, object, k);
                 if (!value)
@@ -417,7 +439,10 @@ std::optional<Value> reduce_elements(Interpreter& in, Value const& this_value, A
             return in.throw_type_error("Reduce of empty array with no initial value");
     }
     for (; in_range(); advance()) {
-        if (!has_at(in, object, k))
+        std::optional<bool> const present = has_at(in, object, k);
+        if (!present)
+            return std::nullopt;
+        if (!*present)
             continue;
         Interpreter::Roots const element_roots(in);
         std::optional<Value> const element = get_at(in, object, k);
@@ -491,7 +516,10 @@ std::optional<Value> index_of(Interpreter& in, Value const& this_value, Args arg
             return not_found;
         start = n >= 0 ? std::min(n, length - 1) : length + n;
         for (double k = start; k >= 0; --k) {
-            if (!has_at(in, object, k))
+            std::optional<bool> const present = has_at(in, object, k);
+            if (!present)
+                return std::nullopt;
+            if (!*present)
                 continue;
             std::optional<Value> const element = get_at(in, object, k);
             if (!element)
@@ -510,8 +538,13 @@ std::optional<Value> index_of(Interpreter& in, Value const& this_value, Args arg
         start = *given >= 0 ? *given : std::max(length + *given, 0.0);
     }
     for (double k = start; k < length; ++k) {
-        if (!includes && !has_at(in, object, k))
-            continue;
+        if (!includes) {
+            std::optional<bool> const present = has_at(in, object, k);
+            if (!present)
+                return std::nullopt;
+            if (!*present)
+                continue;
+        }
         std::optional<Value> const element = get_at(in, object, k);
         if (!element)
             return std::nullopt;
@@ -610,7 +643,10 @@ void install_prototype(Interpreter& in, Object& prototype)
                 if (n + *length > max_safe_integer)
                     return interp.throw_type_error("array too long");
                 for (double k = 0; k < *length; ++k, ++n) {
-                    if (!has_at(interp, source, k))
+                    std::optional<bool> const present = has_at(interp, source, k);
+                    if (!present)
+                        return std::nullopt;
+                    if (!*present)
                         continue;
                     std::optional<Value> const element = get_at(interp, source, k);
                     if (!element)
@@ -657,7 +693,10 @@ void install_prototype(Interpreter& in, Object& prototype)
             target += count - 1;
         }
         while (count > 0) {
-            if (has_at(interp, object, source)) {
+            std::optional<bool> const present = has_at(interp, object, source);
+            if (!present)
+                return std::nullopt;
+            if (*present) {
                 std::optional<Value> const element = get_at(interp, object, source);
                 if (!element)
                     return std::nullopt;
@@ -812,31 +851,35 @@ void install_prototype(Interpreter& in, Object& prototype)
         for (double lower = 0; lower != middle; ++lower) {
             Interpreter::Roots const pair_roots(interp);
             double const upper = length - lower - 1;
-            bool const lower_exists = has_at(interp, object, lower);
+            std::optional<bool> const lower_exists = has_at(interp, object, lower);
+            if (!lower_exists)
+                return std::nullopt;
             Value lower_value;
-            if (lower_exists) {
+            if (*lower_exists) {
                 std::optional<Value> const value = get_at(interp, object, lower);
                 if (!value)
                     return std::nullopt;
                 lower_value = *value;
                 interp.root(lower_value);
             }
-            bool const upper_exists = has_at(interp, object, upper);
+            std::optional<bool> const upper_exists = has_at(interp, object, upper);
+            if (!upper_exists)
+                return std::nullopt;
             Value upper_value;
-            if (upper_exists) {
+            if (*upper_exists) {
                 std::optional<Value> const value = get_at(interp, object, upper);
                 if (!value)
                     return std::nullopt;
                 upper_value = *value;
                 interp.root(upper_value);
             }
-            if (lower_exists && upper_exists) {
+            if (*lower_exists && *upper_exists) {
                 if (!set_at(interp, object, lower, upper_value) || !set_at(interp, object, upper, lower_value))
                     return std::nullopt;
-            } else if (upper_exists) {
+            } else if (*upper_exists) {
                 if (!set_at(interp, object, lower, upper_value) || !delete_at(interp, object, upper))
                     return std::nullopt;
-            } else if (lower_exists) {
+            } else if (*lower_exists) {
                 if (!delete_at(interp, object, lower) || !set_at(interp, object, upper, lower_value))
                     return std::nullopt;
             }
@@ -861,7 +904,10 @@ void install_prototype(Interpreter& in, Object& prototype)
             return std::nullopt;
         interp.root(*first);
         for (double k = 1; k < length; ++k) {
-            if (has_at(interp, object, k)) {
+            std::optional<bool> const present = has_at(interp, object, k);
+            if (!present)
+                return std::nullopt;
+            if (*present) {
                 std::optional<Value> const element = get_at(interp, object, k);
                 if (!element)
                     return std::nullopt;
@@ -899,7 +945,10 @@ void install_prototype(Interpreter& in, Object& prototype)
         Object& result = *created->as_object();
         double n = 0;
         for (double k = *start; k < *end; ++k, ++n) {
-            if (!has_at(interp, object, k))
+            std::optional<bool> const present = has_at(interp, object, k);
+            if (!present)
+                return std::nullopt;
+            if (!*present)
                 continue;
             std::optional<Value> const element = get_at(interp, object, k);
             if (!element)
@@ -970,7 +1019,10 @@ void install_prototype(Interpreter& in, Object& prototype)
         Object& removed = *created->as_object();
         for (double k = 0; k < delete_count; ++k) {
             double const from = *start + k;
-            if (!has_at(interp, object, from))
+            std::optional<bool> const present = has_at(interp, object, from);
+            if (!present)
+                return std::nullopt;
+            if (!*present)
                 continue;
             std::optional<Value> const element = get_at(interp, object, from);
             if (!element)
@@ -984,7 +1036,10 @@ void install_prototype(Interpreter& in, Object& prototype)
             for (double k = *start; k < length - delete_count; ++k) {
                 double const from = k + delete_count;
                 double const to = k + insert_count;
-                if (has_at(interp, object, from)) {
+                std::optional<bool> const present = has_at(interp, object, from);
+                if (!present)
+                    return std::nullopt;
+                if (*present) {
                     std::optional<Value> const element = get_at(interp, object, from);
                     if (!element)
                         return std::nullopt;
@@ -1002,7 +1057,10 @@ void install_prototype(Interpreter& in, Object& prototype)
             for (double k = length - delete_count; k > *start; --k) {
                 double const from = k + delete_count - 1;
                 double const to = k + insert_count - 1;
-                if (has_at(interp, object, from)) {
+                std::optional<bool> const present = has_at(interp, object, from);
+                if (!present)
+                    return std::nullopt;
+                if (*present) {
                     std::optional<Value> const element = get_at(interp, object, from);
                     if (!element)
                         return std::nullopt;
@@ -1153,7 +1211,10 @@ void install_prototype(Interpreter& in, Object& prototype)
             for (double k = length; k > 0; --k) {
                 double const from = k - 1;
                 double const to = k + count - 1;
-                if (has_at(interp, object, from)) {
+                std::optional<bool> const present = has_at(interp, object, from);
+                if (!present)
+                    return std::nullopt;
+                if (*present) {
                     std::optional<Value> const element = get_at(interp, object, from);
                     if (!element)
                         return std::nullopt;
@@ -1232,8 +1293,15 @@ void install_array(Interpreter& in)
         NativeFunction* getter = in.new_native("get [Symbol.species]", 0, [](Interpreter&, Value const& this_value, Args) -> std::optional<Value> { return this_value; });
         constructor->put_accessor(PropertyKey::symbol(in.atoms().symbol_species), getter, nullptr, Configurable);
     }
-    define_method(in, *constructor, "isArray", 1, [](Interpreter&, Value const&, Args args) -> std::optional<Value> {
-        return Value::boolean(Interpreter::is_array(argument(args, 0)));
+    define_method(in, *constructor, "isArray", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
+        // §23.1.2.2 is IsArray, which answers for a proxy's target.
+        Value const value = argument(args, 0);
+        if (!value.is_object())
+            return Value::boolean(false);
+        std::optional<bool> const array = interp.is_array(*value.as_object());
+        if (!array)
+            return std::nullopt;
+        return Value::boolean(*array);
     });
     define_method(in, *constructor, "of", 0, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         // §23.1.2.3, over the realm's Array (no subclass constructors).

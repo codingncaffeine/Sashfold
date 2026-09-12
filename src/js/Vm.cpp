@@ -1115,7 +1115,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 self.root(Value::object(object));
             auto* enumerator = h.allocate<ForInIteratorObject>(object);
             frame.top() = Value::object(enumerator);
-            enumerator_load(enumerator->enumerator());
+            if (!enumerator_load(enumerator->enumerator()))
+                ok = false;
             break;
         }
         case Opcode::ForInNext: {
