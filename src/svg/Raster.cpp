@@ -250,12 +250,14 @@ namespace {
 void flatten_cubic(Point p0, Point p1, Point p2, Point p3, float tolerance, Polygon& out)
 {
     // The number of chords that keeps the error under the tolerance, from
-    // the curve's second differences (Wang's formula).
+    // the curve's second differences (Wang's formula). A curve whose
+    // control points are not numbers — an overflowed transform — is one
+    // chord: the rasterizer drops what is not a number.
     float const ddx = std::max(std::abs(p0.x - 2 * p1.x + p2.x), std::abs(p1.x - 2 * p2.x + p3.x));
     float const ddy = std::max(std::abs(p0.y - 2 * p1.y + p2.y), std::abs(p1.y - 2 * p2.y + p3.y));
     float const dd = std::sqrt(ddx * ddx + ddy * ddy);
-    int n = static_cast<int>(std::ceil(std::sqrt(0.75f * dd / std::max(tolerance, 0.001f))));
-    n = std::clamp(n, 1, 256);
+    float const wanted = std::ceil(std::sqrt(0.75f * dd / std::max(tolerance, 0.001f)));
+    int const n = !(wanted >= 1) ? 1 : wanted >= 256 ? 256 : static_cast<int>(wanted);
     for (int i = 1; i <= n; ++i) {
         float const t = static_cast<float>(i) / static_cast<float>(n);
         float const u = 1 - t;
@@ -344,7 +346,9 @@ void add_polygon(std::vector<Polygon>& out, Polygon polygon)
 
 void add_circle(std::vector<Polygon>& out, Point centre, float radius)
 {
-    int const n = std::clamp(static_cast<int>(radius * 2) + 8, 8, 64);
+    if (!std::isfinite(radius) || !std::isfinite(centre.x) || !std::isfinite(centre.y))
+        return;
+    int const n = radius >= 28 ? 64 : 8 + static_cast<int>(radius * 2);
     Polygon circle;
     circle.reserve(static_cast<std::size_t>(n));
     for (int i = 0; i < n; ++i) {
@@ -612,7 +616,10 @@ std::int64_t div_ceil(std::int64_t n, std::int64_t d)
 std::int64_t to_fixed(float v)
 {
     // Coordinates far outside any bitmap are held to a range the
-    // arithmetic below cannot overflow in.
+    // arithmetic below cannot overflow in; one that is not a number was
+    // refused before this.
+    if (!std::isfinite(v))
+        return 0;
     float const held = std::clamp(v, -1.0e6f, 1.0e6f);
     return static_cast<std::int64_t>(std::lround(held * 64.0f));
 }

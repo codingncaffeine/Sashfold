@@ -658,6 +658,8 @@ Color gradient_color_at(Gradient const& gradient, float x, float y)
             }
         }
     }
+    if (!std::isfinite(t))
+        t = 0; // a degenerate geometry: the first stop's colour
     switch (gradient.spread) {
     case Gradient::Spread::Pad:
         t = std::clamp(t, 0.0f, 1.0f);
@@ -1314,7 +1316,7 @@ void render_text_element(Context& context, State const& state, dom::Element cons
         text::FontStack const& fonts = text::FontManager::instance().resolve(request);
         float const scale = state.ctm.scale_factor();
         float const size = style.font_size * scale;
-        if (size <= 0 || size > 2048)
+        if (!std::isfinite(size) || size <= 0 || size > 2048)
             continue;
         float const width_device = fonts.measure(text, size);
         std::string_view const anchor = text_anchor_of(context, element);
@@ -1403,6 +1405,11 @@ void render_image(Context& context, State const& state, dom::Element const& elem
     Matrix const placement = view_box_transform(natural, ratio, x, y, width, height).then(state.ctm);
     Point const a = placement.apply(Point { 0, 0 });
     Point const b = placement.apply(Point { natural.width, natural.height });
+    // A transform that overflowed puts the picture nowhere.
+    for (float const v : { a.x, a.y, b.x, b.y }) {
+        if (!std::isfinite(v) || std::abs(v) > 1.0e6f)
+            return;
+    }
     int const left = static_cast<int>(std::lround(std::min(a.x, b.x)));
     int const top = static_cast<int>(std::lround(std::min(a.y, b.y)));
     int const right = static_cast<int>(std::lround(std::max(a.x, b.x)));
@@ -1414,6 +1421,10 @@ void render_image(Context& context, State const& state, dom::Element const& elem
         // Whatever the picture's box spills past the element's box is cut.
         Point const c0 = state.ctm.apply(Point { x, y });
         Point const c1 = state.ctm.apply(Point { x + width, y + height });
+        for (float const v : { c0.x, c0.y, c1.x, c1.y }) {
+            if (!std::isfinite(v) || std::abs(v) > 1.0e6f)
+                return;
+        }
         Rect box { static_cast<int>(std::lround(std::min(c0.x, c1.x))), static_cast<int>(std::lround(std::min(c0.y, c1.y))), 0, 0 };
         box.width = static_cast<int>(std::lround(std::max(c0.x, c1.x))) - box.x;
         box.height = static_cast<int>(std::lround(std::max(c0.y, c1.y))) - box.y;
@@ -1644,8 +1655,10 @@ IntrinsicSize intrinsic_size(dom::Element const& svg)
 
 Bitmap render(dom::Element const& svg, css::StyleMap const& styles, float width, float height)
 {
-    int const w = std::max(1, static_cast<int>(std::lround(width)));
-    int const h = std::max(1, static_cast<int>(std::lround(height)));
+    if (!std::isfinite(width) || !std::isfinite(height))
+        return Bitmap(1, 1, Color::rgba(0, 0, 0, 0));
+    int const w = std::max(1, static_cast<int>(std::lround(std::min(width, 1.0e5f))));
+    int const h = std::max(1, static_cast<int>(std::lround(std::min(height, 1.0e5f))));
     Bitmap target(w, h, Color::rgba(0, 0, 0, 0));
     if (!svg.is_svg("svg"))
         return target;
