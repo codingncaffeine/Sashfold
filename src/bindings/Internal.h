@@ -317,13 +317,21 @@ struct Realm::Internals {
     std::uint64_t next_sequence = 1;
     std::uint64_t next_listener_id = 1;
     bool in_checkpoint = false;
-    // A deferred script, fetched when prepared and run when the parser is done.
+    // A deferred script, fetched when prepared and run when the parser is
+    // done: a classic one by its source, a module by its record.
     struct PendingScript {
         dom::Element* element = nullptr;
         std::string source;
         std::string name;
+        js::ModuleRecord* module = nullptr;
     };
     std::vector<PendingScript> deferred_scripts;
+    // Inline modules keyed uniquely in the module map, each with the
+    // document's URL as its base; and the credentials mode of the module
+    // graph being loaded, which its dependencies inherit.
+    std::unordered_map<std::string, net::Url> inline_module_bases;
+    int inline_modules = 0;
+    bool module_credentials_include = false;
     std::unordered_set<dom::Element const*> started_scripts; // "already started" (§4.12.1)
     html::TreeBuilder* active_parser = nullptr; // set while the parser runs a script
     std::string ready_state = "loading";
@@ -379,6 +387,15 @@ struct Realm::Internals {
     // The scripts.
     void prepare_script(dom::Element& script, bool from_parser);
     void execute_script(dom::Element& script, std::string const& source, std::string const& name);
+    // Module scripts: the map's hooks, the fetch of one module, an
+    // element's graph prepared, run, and its evaluation watched.
+    void install_module_hooks();
+    std::string inline_module_key();
+    net::Url module_base_of(std::string_view referrer_key) const;
+    std::optional<std::string> fetch_module_source(std::string const& key, bool include_credentials, std::string& error);
+    void prepare_module_script(dom::Element& script, bool from_parser);
+    void execute_module(dom::Element& script, js::ModuleRecord& record, std::string const& name);
+    void watch_module_evaluation(js::Value const& promise, std::string const& name);
 
     // Strings across the boundary.
     js::Value string(std::string_view utf8) { return js::Value::string(interpreter.string(utf8)); }

@@ -91,12 +91,17 @@ bool is_forbidden_response_header(std::string_view lowered)
     return lowered == "set-cookie" || lowered == "set-cookie2";
 }
 
+} // namespace
+
 // The MIME essence of a Content-Type value: the type/subtype, lowercased.
+// Shared with the realm, which holds a module script to a JavaScript type.
 std::string mime_essence(std::string_view value)
 {
     std::size_t const semicolon = value.find(';');
     return lowercase(normalize_header_value(value.substr(0, semicolon)));
 }
+
+namespace {
 
 // A CORS-safelisted request header (Fetch §2.2.2): one of the four names
 // with a value of at most 128 bytes and, for Content-Type, one of the

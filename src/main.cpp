@@ -761,7 +761,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << "  \"fonts\": " << fonts.size() << ",\n";
         if (realm) {
             bindings::ScriptStats const& scripts = realm->stats();
-            out << "  \"scripts\": { \"run\": " << scripts.scripts_run << ", \"failed\": " << scripts.scripts_failed
+            out << "  \"scripts\": { \"run\": " << scripts.scripts_run << ", \"modules\": " << scripts.modules_run << ", \"failed\": " << scripts.scripts_failed
                 << ", \"skipped\": " << scripts.scripts_skipped << ", \"external\": " << scripts.external_fetched
                 << ", \"external_failed\": " << scripts.external_failed << ", \"timers\": " << scripts.timers_fired
                 << ", \"events\": " << scripts.events_dispatched << ", \"errors\": " << scripts.uncaught_errors

@@ -34,3 +34,10 @@ assert-text fetched hello
 assert-console log: sent waiting
 assert-console log: fetched hello
 assert-console log: xhr 200 7
+
+# A module script on the page: an inline module imports a data: module and
+# reads its live binding; module code has no document.currentScript, and
+# its import.meta.url is the document's, a data: URL here.
+open data:text/html,<p id="m">plain</p><script type="module">import { word, bump, count } from 'data:text/javascript,export const word = "imported"; export let count = 0; export function bump() { count += 1; }'; bump(); document.getElementById('m').textContent = word + ' ' + count + ' ' + (document.currentScript === null) + ' ' + import.meta.url.slice(0, 5); console.log('module ' + document.readyState);</script>
+assert-text imported 1 true data:
+assert-console log: module interactive

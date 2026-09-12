@@ -1,5 +1,7 @@
 #include "bindings/Internal.h"
 
+#include "bindings/Fetching.h"
+
 #include "html/Serializer.h"
 #include "js/Module.h"
 #include "js/Strings.h"
@@ -581,8 +583,7 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
         type = "text/javascript";
     }
     if (type == "module") {
-        ++stats.scripts_skipped;
-        console("warn", "module scripts are not run yet");
+        prepare_module_script(script, from_parser);
         return;
     }
     if (!is_javascript_type(type)) {
@@ -633,6 +634,192 @@ void Realm::Internals::execute_script(dom::Element& script, std::string const& s
         realm.dispatch_event(&script, "load");
 }
 
+// --- Module scripts (§4.12.1.1 for type=module; §8.1.7 for the fetch and the run) ----------
+
+// The module map is keyed by URL. An inline module has no URL of its own,
+// so its key is made unique per element, while its base — for a relative
+// specifier, and for import.meta.url — stays the document's URL.
+std::string Realm::Internals::inline_module_key()
+{
+    return url.serialize() + " (inline module " + std::to_string(++inline_modules) + ")";
+}
+
+net::Url Realm::Internals::module_base_of(std::string_view referrer_key) const
+{
+    if (auto const inline_base = inline_module_bases.find(std::string(referrer_key)); inline_base != inline_module_bases.end())
+        return inline_base->second;
+    if (std::optional<net::Url> const parsed = net::parse_url(referrer_key, nullptr))
+        return *parsed;
+    // A classic script's name ("…/page.html (inline)", "<test>"): the document's.
+    return url;
+}
+
+void Realm::Internals::install_module_hooks()
+{
+    interpreter.set_module_hooks(
+        // §8.1.7.1.3 "resolve a module specifier", without import maps: a URL,
+        // or a relative reference that begins with "/", "./" or "../"
+        // against the referrer's base. A bare specifier is what an import
+        // map would settle, and import maps are not written.
+        [this](std::string_view referrer_key, std::string_view specifier, std::string& error) -> std::optional<std::string> {
+            std::optional<net::Url> resolved = net::parse_url(specifier, nullptr);
+            if (!resolved && (specifier.starts_with("/") || specifier.starts_with("./") || specifier.starts_with("../"))) {
+                net::Url const base = module_base_of(referrer_key);
+                resolved = net::parse_url(specifier, &base);
+            }
+            if (!resolved) {
+                error = "Failed to resolve module specifier '" + std::string(specifier)
+                    + "': a relative reference must start with \"/\", \"./\" or \"../\"";
+                return std::nullopt;
+            }
+            return resolved->serialize();
+        },
+        [this](std::string_view key, std::string& error) -> std::optional<std::u16string> {
+            std::optional<std::string> const source = fetch_module_source(std::string(key), module_credentials_include, error);
+            if (!source)
+                return std::nullopt;
+            return js::utf16_from_utf8(*source);
+        });
+}
+
+// §8.1.7.2.7 "fetch a single module script": a GET in CORS mode with the
+// credentials the root element asked for, whose response is a JavaScript
+// type; anything else is a network error for the whole graph.
+std::optional<std::string> Realm::Internals::fetch_module_source(std::string const& key, bool include_credentials, std::string& error)
+{
+    std::optional<net::Url> const target = net::parse_url(key, nullptr);
+    if (!target) {
+        error = "not a URL";
+        return std::nullopt;
+    }
+    PageRequest request;
+    request.url = *target;
+    request.mode = FetchMode::Cors;
+    request.credentials = include_credentials ? FetchCredentials::Include : FetchCredentials::SameOrigin;
+    FetchOutcome const outcome = perform_fetch(*this, request);
+    if (!outcome.ok) {
+        error = outcome.error.empty() ? std::string("it could not be fetched") : outcome.error;
+        return std::nullopt;
+    }
+    if (outcome.status < 200 || outcome.status > 299) {
+        error = "the server answered " + std::to_string(outcome.status);
+        return std::nullopt;
+    }
+    std::string const* const content_type = net::find_header(outcome.headers, "content-type");
+    std::string const essence = content_type != nullptr ? mime_essence(*content_type) : std::string();
+    if (!is_javascript_type(essence)) {
+        error = "its type is " + (essence.empty() ? std::string("unknown") : essence) + ", not a JavaScript type";
+        return std::nullopt;
+    }
+    std::string source(outcome.body.begin(), outcome.body.end());
+    if (source.starts_with("\xEF\xBB\xBF"))
+        source.erase(0, 3);
+    ++stats.external_fetched;
+    return source;
+}
+
+// The module half of §4.12.1.1: the graph is fetched, parsed and loaded
+// now, in the element's credentials mode; a failure anywhere in it is the
+// element's error event and a console line. A parser-inserted module
+// without `async` then waits for the parse, in document order with the
+// deferred classic scripts; an `async` one, or one a script inserted,
+// runs as soon as its graph is loaded — with a synchronous loader, now.
+void Realm::Internals::prepare_module_script(dom::Element& script, bool from_parser)
+{
+    dom::Attr const* const cross = script.find_attribute("crossorigin");
+    module_credentials_include = cross != nullptr && ascii_lower(trimmed(cross->value)) == "use-credentials";
+    js::ModuleRecord* record = nullptr;
+    std::string name;
+    std::string error;
+    if (dom::Attr const* src = script.find_attribute("src")) {
+        std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &url);
+        if (!resolved) {
+            error = "its src is not a URL";
+            name = src->value;
+        } else {
+            name = resolved->serialize();
+            record = interpreter.find_module(name);
+            if (record == nullptr) {
+                std::optional<std::string> const source = fetch_module_source(name, module_credentials_include, error);
+                if (source) {
+                    record = interpreter.parse_module(js::utf16_from_utf8(*source), name);
+                    if (record == nullptr)
+                        error = interpreter.describe(interpreter.take_exception());
+                }
+            }
+        }
+        if (record == nullptr)
+            ++stats.external_failed;
+    } else {
+        name = inline_module_key();
+        inline_module_bases.emplace(name, url);
+        record = interpreter.parse_module(js::utf16_from_utf8(html::text_content(script)), name);
+        if (record == nullptr)
+            error = interpreter.describe(interpreter.take_exception());
+    }
+    if (record != nullptr && !interpreter.load_module(*record)) {
+        error = interpreter.describe(interpreter.take_exception());
+        record = nullptr;
+    }
+    if (record == nullptr) {
+        console("error", "module script " + name + " could not be loaded: " + error);
+        realm.dispatch_event(&script, "error");
+        return;
+    }
+    if (from_parser && !script.has_attribute("async")) {
+        deferred_scripts.push_back(PendingScript { &script, std::string(), std::move(name), record });
+        return;
+    }
+    execute_module(script, *record, name);
+}
+
+// §8.1.7.3.2 "run a module script": linked if it never was, evaluated,
+// its promise watched — a rejection is the module's uncaught error,
+// reported once — and, for an external module, the load event, the way a
+// classic script gets it. document.currentScript is null throughout.
+void Realm::Internals::execute_module(dom::Element& script, js::ModuleRecord& record, std::string const& name)
+{
+    ++stats.scripts_run;
+    ++stats.modules_run;
+    dom::Element* const previous = current_script;
+    current_script = nullptr;
+    bool failed = false;
+    {
+        Entry const entry(*this);
+        if (record.status() == js::ModuleRecord::Status::Unlinked && !interpreter.link_module(record)) {
+            report_uncaught(interpreter.take_exception(), name);
+            failed = true;
+        } else if (std::optional<js::Value> const promise = interpreter.evaluate_module(record)) {
+            watch_module_evaluation(*promise, name);
+        } else {
+            if (!interpreter.terminated())
+                report_uncaught(interpreter.take_exception(), name);
+            failed = true;
+        }
+    }
+    if (failed)
+        ++stats.scripts_failed;
+    current_script = previous;
+    if (script.has_attribute("src") && !interpreter.terminated())
+        realm.dispatch_event(&script, "load");
+}
+
+void Realm::Internals::watch_module_evaluation(js::Value const& promise, std::string const& name)
+{
+    js::Interpreter::Roots const roots(interpreter);
+    interpreter.root(promise);
+    js::ClosureFunction* on_rejected = interpreter.new_closure("", 1, {},
+        [this, name](js::Interpreter&, js::ClosureFunction&, js::Value const&, std::span<js::Value const> arguments) -> std::optional<js::Value> {
+            ++stats.scripts_failed;
+            report_uncaught(arguments.empty() ? js::Value::undefined() : arguments[0], name);
+            return js::Value::undefined();
+        });
+    interpreter.root(js::Value::object(on_rejected));
+    js::Value const arguments[2] = { js::Value::undefined(), js::Value::object(on_rejected) };
+    if (!interpreter.invoke(promise, interpreter.key("then"), arguments))
+        interpreter.clear_exception();
+}
+
 // --- The realm ------------------------------------------------------------------------
 
 Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
@@ -645,14 +832,17 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     interpreter.on_console = [this](std::string_view level, std::string_view message) {
         m_internals->console(level, message);
     };
+    // The module map is the document's: its keys are URLs, and the realm
+    // resolves and fetches modules for the engine (§8.1.7).
+    in.install_module_hooks();
     // HostGetImportMetaProperties: a module's `import.meta.url` is its own
-    // URL, which is the key the module map named it by. Nothing in a
-    // document makes a module record yet — this realm installs no module
-    // resolver or fetcher and still skips <script type=module> — so the
-    // hook is dormant until module scripts on the page arrive, and the
-    // tests that cover `import.meta` drive a hook of their own.
-    interpreter.set_module_meta_hook([](js::Interpreter& realm_interpreter, js::ModuleRecord& record, js::Object& meta) {
-        meta.put(realm_interpreter.key("url"), js::Value::string(realm_interpreter.string(record.key())), js::default_attributes);
+    // URL, which is the key the module map named it by, except for an
+    // inline module, whose URL is the document's.
+    interpreter.set_module_meta_hook([this](js::Interpreter& realm_interpreter, js::ModuleRecord& record, js::Object& meta) {
+        Internals const& internals = *m_internals;
+        auto const inline_base = internals.inline_module_bases.find(record.key());
+        std::string const url_text = inline_base != internals.inline_module_bases.end() ? inline_base->second.serialize() : record.key();
+        meta.put(realm_interpreter.key("url"), js::Value::string(realm_interpreter.string(url_text)), js::default_attributes);
     });
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
@@ -738,11 +928,16 @@ void Realm::document_parsed()
     in.active_parser = nullptr;
     in.ready_state = "interactive";
     dispatch_event(&in.document, "readystatechange");
-    // The deferred scripts, in order; each was fetched when the parser met it.
+    // The deferred scripts, in order; each was fetched when the parser met
+    // it, a module's graph with it.
     std::vector<Internals::PendingScript> deferred = std::move(in.deferred_scripts);
     in.deferred_scripts.clear();
-    for (Internals::PendingScript& pending : deferred)
-        in.execute_script(*pending.element, pending.source, pending.name);
+    for (Internals::PendingScript& pending : deferred) {
+        if (pending.module != nullptr)
+            in.execute_module(*pending.element, *pending.module, pending.name);
+        else
+            in.execute_script(*pending.element, pending.source, pending.name);
+    }
     dispatch_event(&in.document, "DOMContentLoaded", EventInit { true, false, false });
     in.ready_state = "complete";
     dispatch_event(&in.document, "readystatechange");

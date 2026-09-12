@@ -129,9 +129,10 @@ struct InputInit {
 
 // The counts a host reports (--report, the dashboard).
 struct ScriptStats {
-    int scripts_run = 0; // classic scripts prepared and executed
+    int scripts_run = 0; // scripts prepared and executed, classic and module alike
+    int modules_run = 0; // of those, module scripts
     int scripts_failed = 0; // of those, ended by an uncaught exception
-    int scripts_skipped = 0; // a type the engine does not run (module, JSON, a template)
+    int scripts_skipped = 0; // a type the engine does not run (JSON, a template, an import map)
     int external_fetched = 0;
     int external_failed = 0;
     int timers_fired = 0;

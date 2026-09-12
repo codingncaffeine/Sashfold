@@ -48,6 +48,8 @@ struct FetchOutcome {
 // same-origin check, the preflight when one is due, the request itself,
 // the CORS check on the answer. Runs no script.
 FetchOutcome perform_fetch(Realm::Internals&, PageRequest const&);
+// The MIME essence of a Content-Type value: the type/subtype, lowercased.
+std::string mime_essence(std::string_view value);
 
 FetchMode fetch_mode_of(std::string_view mode);
 FetchCredentials fetch_credentials_of(std::string_view credentials);

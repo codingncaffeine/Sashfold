@@ -81,6 +81,20 @@ struct Page {
         realm->document_parsed();
     }
 
+    // A module script the loader can serve, with the type it is served as
+    // and, when asked, the CORS header that lets another origin read it.
+    void module(std::string const& url, std::string const& source, std::string const& type = "text/javascript", bool cors_open = false)
+    {
+        net::FetchResponse response;
+        response.status = 200;
+        response.status_text = "OK";
+        response.headers.push_back(net::Header { "Content-Type", type });
+        if (cors_open)
+            response.headers.push_back(net::Header { "Access-Control-Allow-Origin", "*" });
+        response.body.assign(source.begin(), source.end());
+        responses[url] = response;
+    }
+
     // Through the realm, as the shell runs script: the microtask checkpoint
     // on the way out, an uncaught error on the console and in the count.
     test::JsRun eval(std::string_view source)
@@ -520,19 +534,104 @@ void test_external_deferred_and_skipped_scripts()
     page->scripts["https://example.test/b.js"] = "log.push('b:' + document.body.tagName);";
     page->scripts["https://example.test/dir/c.js"] = "log.push('c');";
     page->load();
-    // a runs at once (twice: two elements), the module and the data blocks
-    // are skipped, nomodule runs, the failed fetch fires error, and the
-    // deferred and async ones run after the parse in order, before
+    // a runs at once (twice: two elements), the data blocks are skipped,
+    // nomodule runs, the failed fetch fires error, and the deferred and
+    // async ones and the module run after the parse in order, before
     // DOMContentLoaded.
-    CHECK_EQ(page->string("log.join(' ')"), "a nomodule error:error:true a body b:BODY c dcl");
-    CHECK_EQ(page->realm->stats().scripts_skipped, 3);
+    CHECK_EQ(page->string("log.join(' ')"), "a nomodule error:error:true a body b:BODY c module dcl");
+    CHECK_EQ(page->realm->stats().scripts_skipped, 2);
     CHECK_EQ(page->realm->stats().external_fetched, 4);
     CHECK_EQ(page->realm->stats().external_failed, 1);
-    CHECK_EQ(page->realm->stats().scripts_run, 6);
+    CHECK_EQ(page->realm->stats().scripts_run, 7);
+    CHECK_EQ(page->realm->stats().modules_run, 1);
     CHECK_EQ(page->fetched.size(), 5u);
     CHECK_EQ(page->fetched[1], "https://example.test/b.js");
-    CHECK(page->console.find("module scripts are not run yet") != std::string::npos);
     CHECK(page->console.find("missing.js could not be loaded") != std::string::npos);
+}
+
+void test_module_scripts()
+{
+    // Module scripts on the page: an inline module and the external one it
+    // imports, in one map with live bindings across them; the inline
+    // module's base and import.meta.url are the document's, the external
+    // one's its own; module code is strict, has no `this` and no
+    // document.currentScript; a parser-inserted module waits for the parse
+    // in document order with the deferred classic scripts, before
+    // DOMContentLoaded, while an async one and a script-inserted one run at
+    // once; and a second element naming the same module evaluates nothing
+    // twice but still gets its load event.
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html><head>
+<script>var log = ['start']; function count_seen() { return window.exported ? window.exported.count : 'none'; }</script>
+<script type="module">
+  import { count, bump } from './counter.js';
+  import * as ns from "./counter.js";
+  log.push('module:' + count + ':' + (this === undefined) + ':' + (document.currentScript === null) + ':' + import.meta.url);
+  bump(); bump();
+  log.push('live:' + count + ':' + ns.count);
+  try { undeclared = 1; } catch (e) { log.push('strict:' + e.name); }
+  window.exported = ns;
+</script>
+<script defer src="deferred.js"></script>
+<script type="module" src="counter.js" onload="log.push('counter-load')"></script>
+<script type="module" async>log.push('async:' + document.readyState);</script>
+</head><body><script>log.push('body'); document.addEventListener('DOMContentLoaded', function () { log.push('dcl:' + count_seen()); });
+var inserted = document.createElement('script'); inserted.type = 'module'; inserted.textContent = "log.push('inserted:' + document.readyState);"; document.head.appendChild(inserted);</script></body>)HTML");
+    page->module("https://example.test/dir/counter.js", "log.push('counter:' + import.meta.url); export let count = 0; export function bump() { count += 1; }");
+    page->scripts["https://example.test/dir/deferred.js"] = "log.push('deferred:' + count_seen());";
+    page->load();
+    CHECK_EQ(page->string("log.join(' ')"),
+        "start async:loading body inserted:loading counter:https://example.test/dir/counter.js "
+        "module:0:true:true:https://example.test/dir/page.html live:2:2 strict:ReferenceError deferred:2 counter-load dcl:2");
+    CHECK_EQ(page->realm->stats().modules_run, 4);
+    CHECK_EQ(page->realm->stats().scripts_run, 7);
+    CHECK_EQ(page->realm->stats().scripts_failed, 0);
+    // The module was fetched once, as a CORS GET with same-origin credentials.
+    CHECK_EQ(page->requests.size(), 1u);
+    CHECK_EQ(page->requests[0], "GET https://example.test/dir/counter.js");
+    CHECK_EQ(page->console, "");
+
+    // Every way a module graph fails: a missing module, a non-JavaScript
+    // type, a bare specifier, a syntax error, and a cross-origin module
+    // whose response does not allow this origin, each the element's error
+    // event and a console line at the time the graph is fetched; a module
+    // that throws when it runs is an uncaught error and its element still
+    // gets load; a cross-origin module that opens itself with CORS runs.
+    auto bad = std::make_unique<Page>(R"HTML(<!DOCTYPE html><body>
+<script>var log = [];</script>
+<script type="module" src="missing.js" onerror="log.push('missing:' + event.type)"></script>
+<script type="module" src="plain.txt" onerror="log.push('plain:' + event.type)"></script>
+<script type="module" onerror="log.push('bare:' + event.type)">import x from 'bare';</script>
+<script type="module" onerror="log.push('syntax:' + event.type)">export var = 1;</script>
+<script type="module" src="thrower.js" onerror="log.push('thrower-error')" onload="log.push('thrower-load')"></script>
+<script type="module" src="https://other.test/cors.js" onerror="log.push('cors:' + event.type)" onload="log.push('cors-load')"></script>
+<script type="module" src="https://other.test/open.js" onload="log.push('open-load')"></script>
+</body>)HTML");
+    bad->module("https://example.test/dir/plain.txt", "export default 1", "text/plain");
+    bad->module("https://example.test/dir/thrower.js", "throw new RangeError('module boom');");
+    bad->module("https://other.test/cors.js", "log.push('cors ran');");
+    bad->module("https://other.test/open.js", "log.push('open ran');", "text/javascript", true);
+    bad->load();
+    CHECK_EQ(bad->string("log.join(' ')"), "missing:error plain:error bare:error syntax:error cors:error thrower-load open ran open-load");
+    CHECK_EQ(bad->realm->stats().uncaught_errors, 1);
+    CHECK_EQ(bad->realm->stats().scripts_failed, 1);
+    CHECK_EQ(bad->realm->stats().external_failed, 3);
+    CHECK(bad->console.find("module boom") != std::string::npos);
+    CHECK(bad->console.find("not a JavaScript type") != std::string::npos);
+    CHECK(bad->console.find("Failed to resolve module specifier 'bare'") != std::string::npos);
+
+    // A top-level await in a page module runs through the checkpoint the
+    // host takes on the way out, so the page sees its end before
+    // DOMContentLoaded; and import() from a classic script resolves against
+    // the document, on the same map.
+    auto tla = std::make_unique<Page>(R"HTML(<!DOCTYPE html><body><script>var log = [];</script>
+<script type="module">log.push('a'); await Promise.resolve(); log.push('b'); window.done = true;</script>
+<script>document.addEventListener('DOMContentLoaded', function () { log.push('dcl:' + (window.done === true)); });
+import('./m.js').then(function (ns) { log.push('dynamic:' + ns.v + ':' + (ns.v_url === import_url())); });
+function import_url() { return 'https://example.test/dir/m.js'; }</script></body>)HTML");
+    tla->module("https://example.test/dir/m.js", "export const v = 'v'; export const v_url = import.meta.url;");
+    tla->load();
+    CHECK_EQ(tla->string("log.join(' ')"), "dynamic:v:true a b dcl:true");
+    CHECK_EQ(tla->console, "");
 }
 
 void test_noscript_is_raw_text_with_scripting_on()
@@ -1024,6 +1123,7 @@ int main()
     test_timers_microtasks_and_the_clock();
     test_document_ready_states_and_load_events();
     test_external_deferred_and_skipped_scripts();
+    test_module_scripts();
     test_noscript_is_raw_text_with_scripting_on();
     test_document_write_during_parsing();
     test_inserted_scripts_run_and_fragment_scripts_do_not();
