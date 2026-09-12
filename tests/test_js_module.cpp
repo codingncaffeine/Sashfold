@@ -449,11 +449,12 @@ void test_top_level_await()
         "default,class,default,function,default,arrow,named,named,true/object/true,dep,k,2,2,dep,f,v");
     CHECK_EQ(forms.console, "");
 
-    // `for await` at the top level is a body the bytecode tier declines
-    // by name, for now: a rejection, never a hang.
-    ModuleRealm declined;
-    declined.files["fa"] = "for await (const x of [1]) {}";
-    CHECK_EQ(declined.run("fa"), "rejected: SyntaxError: for await is not supported yet");
+    // `for await` at the top level: the module's body runs as an async
+    // function, each step awaited, the module evaluated once it is done.
+    ModuleRealm awaited;
+    awaited.files["fa"] = "globalThis.out = []; for await (const x of [1, Promise.resolve(2), 3]) out.push(x); out.push('end');";
+    CHECK_EQ(awaited.run("fa"), "");
+    CHECK_JS_STRING(awaited.interpreter, "out.join()", "1,2,3,end");
 }
 
 void test_default_exports()

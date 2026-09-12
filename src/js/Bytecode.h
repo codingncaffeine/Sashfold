@@ -67,6 +67,10 @@ namespace sashfold::js {
     X(IteratorStep, 1) /* a: register */ X(IteratorRestArray, 1) /* a: register */                                  \
     X(IteratorClose, 0) /* a: register */ X(IteratorCloseThrowing, 0) /* a: register */                             \
     X(ForInStart, 0) X(ForInNext, 1) /* a: register */                                                              \
+    /* async iteration: the async iterator, next() called raw (its answer is awaited), return() called for a */    \
+    /* close — the quiet form swallowing its own throw, since a pending one wins — and the awaited result checked */ \
+    X(GetAsyncIterator, 1) X(IteratorNextCall, 1) /* a: register */ X(IteratorReturnCall, 1) /* a: register */    \
+    X(IteratorReturnCallQuiet, 1) /* a: register */ X(RequireIterResult, 0)                                        \
     /* suspension */                                                                                               \
     X(Yield, 0) /* flags 1: the operand is already an iterator result */ X(Await, 0)                               \
     /* modules */                                                                                                  \

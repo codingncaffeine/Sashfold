@@ -348,6 +348,9 @@ public:
     // to root across the loop; every step may run script.
     std::optional<IteratorRecord> get_iterator(Value const& iterable); // TypeError when not iterable
     std::optional<IteratorRecord> get_iterator_from_method(Value const& iterable, Value const& method);
+    // GetIterator with the async hint (§7.4.3): @@asyncIterator, or the
+    // sync iterator wrapped so that each result comes through a promise.
+    std::optional<IteratorRecord> get_async_iterator(Value const& iterable);
     // IteratorStepValue: true with the value in `out`; false at the end;
     // nullopt on a throw. Either of the last two marks the record done.
     std::optional<bool> iterator_step(IteratorRecord&, Value& out);

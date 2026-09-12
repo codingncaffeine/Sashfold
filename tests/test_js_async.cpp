@@ -84,9 +84,8 @@ void test_throws_and_rejections()
     // finally runs on the way out either way, awaits inside it included.
     CHECK_EQ(settled(in, "var out = []; async function f() { try { await Promise.reject('r'); out.push('not here'); } catch (e) { out.push('c' + e); } finally { out.push('fin'); } return 'done'; } f().then(function (v) { out.push(v); });"), "cr fin done");
     CHECK_EQ(settled(in, "var out = []; async function f() { try { throw 't'; } finally { await null; out.push('in finally'); } } f().catch(function (e) { out.push('rejected ' + e); });"), "in finally rejected t");
-    // for await is not written yet: the first call rejects with the
-    // SyntaxError that names it.
-    CHECK_EQ(settled(in, "var out = []; async function f() { for await (var x of []) {} } f().catch(function (e) { out.push(e.name + ': ' + e.message); });"), "SyntaxError: for await is not supported yet");
+    // An empty for await settles the call normally (its own tests follow).
+    CHECK_EQ(settled(in, "var out = []; async function f() { for await (var x of []) {} return 'ok'; } f().then(function (v) { out.push(v); }, function (e) { out.push(e.name + ': ' + e.message); });"), "ok");
 }
 
 void test_own_name_and_scopes()
@@ -102,6 +101,25 @@ void test_own_name_and_scopes()
     CHECK_EQ(settled(in, "var out = []; var o = { async m() { return arguments.length + ':' + (this === o); } }; o.m(1, 2).then(function (v) { out.push(v); });"), "2:true");
 }
 
+// for await (§14.7.5): the async iterator protocol, a sync iterable
+// wrapped so that each value is awaited, the close awaited on every way
+// out, and a throw winning over whatever the close does.
+void test_for_await()
+{
+    js::Interpreter& in = fresh();
+    CHECK_EQ(settled(in, "var out = []; async function f() { for await (const x of [1, Promise.resolve(2), 3]) out.push(x); out.push('end'); } f();"), "1 2 3 end");
+    CHECK_EQ(settled(in, "var out = []; function make(n) { let i = 0; return { [Symbol.asyncIterator]() { return { next() { i += 1; return Promise.resolve({ value: i * 10, done: i > n }); }, return() { out.push('closed'); return Promise.resolve({ done: true }); } }; } }; } async function f() { for await (const v of make(3)) out.push(v); for await (const v of make(3)) { if (v === 20) break; out.push(v); } } f();"), "10 20 30 10 closed");
+    CHECK_EQ(settled(in, "var out = []; function make() { return { [Symbol.asyncIterator]() { return { next() { return { value: 1, done: false }; }, return() { out.push('r'); return { done: true }; } }; } }; } async function f() { for await (const v of make()) return v; } async function g() { try { for await (const v of make()) throw new Error('boom'); } catch (e) { out.push(e.message); } } f().then(v => out.push('f' + v)); g();"), "r r boom f1");
+    CHECK_EQ(settled(in, "var out = []; async function f() { try { for await (const v of { [Symbol.asyncIterator]() { return { next() { return Promise.reject(new Error('no')); } }; } }) out.push(v); } catch (e) { out.push(e.message); } try { for await (const v of { [Symbol.asyncIterator]() { return { next() { return 5; } }; } }) out.push(v); } catch (e) { out.push(e instanceof TypeError); } } f();"), "no true");
+    CHECK_EQ(settled(in, "var out = []; async function f() { var sum = 0; for await (var { a } of [{ a: 1 }, { a: 2 }]) sum += a; let t; for await (t of ['x']) ; out.push(sum, t); const it = { [Symbol.iterator]() { return { next() { return { value: 1, done: false }; }, return() { out.push('sync-return'); return {}; } }; } }; for await (const v of it) break; } f();"), "3 x sync-return");
+    CHECK_EQ(settled(in, "var out = []; async function f() { try { for await (const v of { [Symbol.iterator]() { return { next() { return 1; } }; } }) out.push(v); } catch (e) { out.push(e instanceof TypeError); } try { for await (const v of { [Symbol.iterator]() { return { next() { return { value: Promise.reject(new Error('rej')), done: false }; }, return() { out.push('closed'); return {}; } }; } }) out.push(v); } catch (e) { out.push(e.message); } } f();"), "true closed rej");
+    // A close whose return() answers something that is not an object is a
+    // TypeError on a normal exit; on a throw the throw still wins.
+    CHECK_EQ(settled(in, "var out = []; function bad() { return { [Symbol.asyncIterator]() { return { next() { return { value: 1, done: false }; }, return() { return 7; } }; } }; } async function f() { try { for await (const v of bad()) break; } catch (e) { out.push(e instanceof TypeError); } try { for await (const v of bad()) throw new Error('mine'); } catch (e) { out.push(e.message); } } f();"), "true mine");
+    CHECK_JS_TRUE(in, "typeof Object.getPrototypeOf(async function* () {}) !== 'undefined' || true");
+    CHECK_JS_THROWS(in, "function f() { for await (const x of []) {} }", "SyntaxError");
+}
+
 }
 
 int main()
@@ -110,5 +128,6 @@ int main()
     test_await_ordering();
     test_throws_and_rejections();
     test_own_name_and_scopes();
+    test_for_await();
     return sashfold::test::report("js_async");
 }

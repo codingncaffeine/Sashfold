@@ -95,6 +95,7 @@ private:
         Label* break_label = nullptr;
         Label* continue_label = nullptr; // Loop
         std::uint32_t iterator_reg = None; // Loop: a for-of's iterator, closed on break and on crossing
+        bool async_iterator = false; // Loop: a for-await's, closed with an await
         bool owns_env = false; // a PopEnv on the way out
         std::uint32_t token_reg = 0; // Finally
         std::uint32_t value_reg = 0;
@@ -323,7 +324,7 @@ private:
             Scope& scope = m_scopes[i];
             if (is_target(scope, kind, label)) {
                 if (kind == Deferred::Kind::Break && scope.iterator_reg != None)
-                    emit(Opcode::IteratorClose, scope.iterator_reg);
+                    emit_iterator_close(scope);
                 jump(Opcode::Jump, kind == Deferred::Kind::Break ? *scope.break_label : *scope.continue_label);
                 return;
             }
@@ -344,7 +345,7 @@ private:
             if (scope.owns_env)
                 emit(Opcode::PopEnv);
             if (scope.kind == Scope::Kind::Loop && scope.iterator_reg != None)
-                emit(Opcode::IteratorClose, scope.iterator_reg);
+                emit_iterator_close(scope);
         }
         if (kind == Deferred::Kind::Return) {
             emit(Opcode::Return);
@@ -354,6 +355,26 @@ private:
     }
 
     void emit_exit(Deferred::Kind kind, JsString* label) { emit_exit_from(m_scopes.size(), kind, label); }
+
+    // IteratorClose on a normal exit from a loop: return() runs, and its
+    // failure is the outcome. An async iterator's answer is awaited and
+    // must be an object (AsyncIteratorClose, §7.4.13).
+    void emit_iterator_close(Scope const& scope)
+    {
+        if (!scope.async_iterator) {
+            emit(Opcode::IteratorClose, scope.iterator_reg);
+            return;
+        }
+        Label skip;
+        emit(Opcode::IteratorReturnCall, scope.iterator_reg);
+        emit(Opcode::Dup);
+        jump(Opcode::JumpIfEmpty, skip);
+        emit(Opcode::Await);
+        compile_resume_dispatch(false);
+        emit(Opcode::RequireIterResult);
+        bind(skip);
+        emit(Opcode::Pop);
+    }
 
     // ---- statements -------------------------------------------------------
 
@@ -577,13 +598,15 @@ private:
         }
     }
 
-    Scope loop_scope(std::vector<JsString*> labels, Label& end, Label& next, std::uint32_t iterator_reg = None)
+    Scope loop_scope(std::vector<JsString*> labels, Label& end, Label& next, std::uint32_t iterator_reg = None,
+        bool async_iterator = false)
     {
         Scope scope { Scope::Kind::Loop };
         scope.labels = std::move(labels);
         scope.break_label = &end;
         scope.continue_label = &next;
         scope.iterator_reg = iterator_reg;
+        scope.async_iterator = async_iterator;
         return scope;
     }
 
@@ -770,11 +793,10 @@ private:
     {
         // §14.7.5.6 (iterate) and §14.7.5.7: the iterator is stepped to
         // its end; a body that leaves the loop any other way closes it,
-        // a throw from the body closing it with the throw kept.
-        if (loop.is_await) {
-            fail("for await is not supported yet");
-            return;
-        }
+        // a throw from the body closing it with the throw kept. A `for
+        // await` (§14.7.5.6 async-iterate) awaits each step's answer,
+        // which must then be an iterator result, and awaits the close.
+        bool const async_loop = loop.is_await;
         bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
         if (lexical) {
             emit(Opcode::PushNamesEnv, name_list(head_names(loop.declaration)), 1);
@@ -790,7 +812,7 @@ private:
         std::uint32_t const iterator = new_register();
         new_register(); // the next method
         new_register(); // done — a for-of never steps past exhaustion, so it stays unset
-        emit(Opcode::GetIterator);
+        emit(async_loop ? Opcode::GetAsyncIterator : Opcode::GetIterator);
         emit(Opcode::StoreReg, iterator + 1);
         emit(Opcode::StoreReg, iterator);
         Label top;
@@ -798,7 +820,14 @@ private:
         Label end_pop;
         Label next;
         bind(top);
-        emit(Opcode::IteratorNext, iterator);
+        if (async_loop) {
+            emit(Opcode::IteratorNextCall, iterator);
+            emit(Opcode::Await);
+            compile_resume_dispatch(false);
+            emit(Opcode::RequireIterResult);
+        } else {
+            emit(Opcode::IteratorNext, iterator);
+        }
         emit(Opcode::Dup);
         emit(Opcode::IteratorResultDone);
         jump(Opcode::JumpIfTrue, end_pop);
@@ -809,7 +838,7 @@ private:
         int const depth_at_start = m_depth - 1; // the binding consumes the value
         int const refs_at_start = m_refs;
         std::uint32_t const envs_at_start = env_depth();
-        push_scope(loop_scope(std::move(labels), end, next, iterator));
+        push_scope(loop_scope(std::move(labels), end, next, iterator, async_loop));
         bool const pushed = compile_loop_head_binding(loop.declaration, loop.target);
         compile_statement(loop.body, {});
         if (pushed) {
@@ -823,7 +852,20 @@ private:
         jump(Opcode::Jump, top);
         std::uint32_t const handler = here();
         land(depth_at_start + 1, refs_at_start);
-        emit(Opcode::IteratorCloseThrowing, iterator);
+        if (async_loop) {
+            // AsyncIteratorClose under a throw: return() is called and its
+            // answer awaited, and whatever either does, the throw wins.
+            Label done;
+            emit(Opcode::IteratorReturnCallQuiet, iterator);
+            emit(Opcode::Dup);
+            jump(Opcode::JumpIfEmpty, done);
+            emit(Opcode::Await);
+            jump(Opcode::JumpIfResumeNormal, done);
+            bind(done);
+            emit(Opcode::Pop);
+        } else {
+            emit(Opcode::IteratorCloseThrowing, iterator);
+        }
         emit(Opcode::Throw);
         add_handler(protected_start, protected_end, handler, depth_at_start, refs_at_start, envs_at_start);
         bind(end_pop);

@@ -1001,14 +1001,61 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         }
 
         // ---- iteration
-        case Opcode::GetIterator: {
-            std::optional<IteratorRecord> const record = self.get_iterator(frame.top());
+        case Opcode::GetIterator:
+        case Opcode::GetAsyncIterator: {
+            std::optional<IteratorRecord> const record
+                = ins.op == Opcode::GetIterator ? self.get_iterator(frame.top()) : self.get_async_iterator(frame.top());
             if (!record) {
                 ok = false;
                 break;
             }
             frame.top() = record->iterator;
             frame.push(record->next_method);
+            break;
+        }
+        case Opcode::IteratorNextCall: {
+            // The async protocol's step: next() called, its answer pushed
+            // for the Await that follows; the object check comes after.
+            std::optional<Value> const result = self.call(frame.registers[ins.a + 1], frame.registers[ins.a], {});
+            if (!result) {
+                ok = false;
+                break;
+            }
+            frame.push(*result);
+            break;
+        }
+        case Opcode::IteratorReturnCall:
+        case Opcode::IteratorReturnCallQuiet: {
+            // AsyncIteratorClose's first half: return() called when there
+            // is one, its answer pushed for an Await; Empty when there is
+            // none. The quiet form runs under a pending throw, which wins
+            // over anything return() does.
+            Value const iterator = frame.registers[ins.a];
+            bool const quiet = ins.op == Opcode::IteratorReturnCallQuiet;
+            Value pending;
+            if (quiet)
+                pending = frame.top();
+            std::optional<Value> const method = self.get_method(iterator, self.key("return"));
+            std::optional<Value> result;
+            if (method && !method->is_undefined())
+                result = self.call(*method, iterator, {});
+            if ((!method || (!method->is_undefined() && !result))) {
+                if (!quiet || self.m_terminated) {
+                    ok = false;
+                    break;
+                }
+                self.take_exception();
+                frame.push(Value::empty());
+                break;
+            }
+            frame.push(method->is_undefined() ? Value::empty() : *result);
+            break;
+        }
+        case Opcode::RequireIterResult: {
+            if (!frame.top().is_object()) {
+                self.throw_type_error("Iterator result " + self.describe(frame.top()) + " is not an object");
+                ok = false;
+            }
             break;
         }
         case Opcode::IteratorNext: {

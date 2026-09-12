@@ -124,6 +124,31 @@ private:
     Value m_reject;
 };
 
+// An async-from-sync iterator (§27.1.6): the sync iterator a `for await`
+// or an async `yield*` was given, whose results the prototype's methods
+// hand back through promises, each value awaited. Made by GetIterator
+// with the async hint; never constructed by script.
+class AsyncFromSyncIteratorObject : public Object {
+public:
+    AsyncFromSyncIteratorObject(Object* prototype, IteratorRecord record)
+        : Object(prototype, Class::AsyncFromSyncIterator)
+        , m_record(std::move(record))
+    {
+    }
+
+    IteratorRecord& record() { return m_record; }
+
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_record.iterator);
+        tracer.visit(m_record.next_method);
+    }
+
+private:
+    IteratorRecord m_record;
+};
+
 // A for-in loop's enumerator as a register value: EnumerateObjectProperties
 // in progress. Never a script value.
 class ForInIteratorObject : public Object {

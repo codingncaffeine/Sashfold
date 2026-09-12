@@ -8,6 +8,7 @@
 // String.prototype[@@iterator], which walks code points.
 
 #include "js/Object.h"
+#include "js/Vm.h"
 
 #include <optional>
 #include <span>
@@ -65,6 +66,34 @@ std::optional<IteratorRecord> Interpreter::get_iterator(Value const& iterable)
     if (method->is_undefined())
         return throw_type_error(describe(iterable) + " is not iterable");
     return get_iterator_from_method(iterable, *method);
+}
+
+std::optional<IteratorRecord> Interpreter::get_async_iterator(Value const& iterable)
+{
+    // GetIterator (§7.4.3), the async kind: @@asyncIterator when the value
+    // has one; else its sync iterator behind an async-from-sync iterator
+    // (CreateAsyncFromSyncIterator, §27.1.6.1), whose `next` is read once.
+    Roots const roots(*this);
+    root(iterable);
+    std::optional<Value> const method = get_method(iterable, PropertyKey::symbol(atoms().symbol_async_iterator));
+    if (!method)
+        return std::nullopt;
+    if (!method->is_undefined())
+        return get_iterator_from_method(iterable, *method);
+    std::optional<IteratorRecord> const sync = get_iterator(iterable);
+    if (!sync)
+        return std::nullopt;
+    root(sync->iterator);
+    root(sync->next_method);
+    auto* wrapper = m_heap->allocate<AsyncFromSyncIteratorObject>(m_intrinsics.async_from_sync_iterator_prototype, *sync);
+    root(Value::object(wrapper));
+    std::optional<Value> const next = get(*wrapper, PropertyKey::atom(atoms().next));
+    if (!next)
+        return std::nullopt;
+    IteratorRecord record;
+    record.iterator = Value::object(wrapper);
+    record.next_method = *next;
+    return record;
 }
 
 std::optional<bool> Interpreter::iterator_step(IteratorRecord& record, Value& out)
@@ -254,6 +283,179 @@ std::optional<Value> string_iterator_next(Interpreter& in, Value const& this_val
     return Value::object(in.create_iter_result(Value::string(piece), false));
 }
 
+// ---- %AsyncFromSyncIteratorPrototype% (§27.1.6.2)
+
+// The receiver: made by the engine alone, so anything else is a TypeError.
+std::optional<AsyncFromSyncIteratorObject*> this_async_from_sync(Interpreter& in, Value const& this_value)
+{
+    if (!this_value.is_object() || this_value.as_object()->class_id() != Object::Class::AsyncFromSyncIterator)
+        return in.throw_type_error("Receiver is not an async-from-sync iterator");
+    return static_cast<AsyncFromSyncIteratorObject*>(this_value.as_object());
+}
+
+// IfAbruptRejectPromise: the pending throw becomes the promise's rejection.
+std::optional<Value> reject_with_exception(Interpreter& in, PromiseCapability const& capability)
+{
+    Value const thrown = in.take_exception();
+    Interpreter::Roots const roots(in);
+    in.root(thrown);
+    Value const arguments[1] = { thrown };
+    if (!in.call(capability.reject, Value::undefined(), arguments))
+        return std::nullopt;
+    return capability.promise;
+}
+
+// AsyncFromSyncIteratorContinuation (§27.1.6.4): the sync result's value
+// is awaited through a promise, and handed back as a result with the sync
+// result's `done`; a value that rejects closes the sync iterator when the
+// result was not done and the caller asked for that.
+std::optional<Value> async_from_sync_continuation(Interpreter& in, Value const& result, PromiseCapability const& capability,
+    AsyncFromSyncIteratorObject& self, bool close_on_rejection)
+{
+    Interpreter::Roots const roots(in);
+    in.root(result);
+    in.root(capability.promise);
+    in.root(capability.resolve);
+    in.root(capability.reject);
+    in.root(Value::object(&self));
+    std::optional<Value> const done_value = in.get(*result.as_object(), PropertyKey::atom(in.atoms().done));
+    if (!done_value)
+        return reject_with_exception(in, capability);
+    bool const done = Interpreter::to_boolean(*done_value);
+    std::optional<Value> const value = in.get(*result.as_object(), PropertyKey::atom(in.atoms().value));
+    if (!value)
+        return reject_with_exception(in, capability);
+    in.root(*value);
+    std::optional<Value> const wrapper = promise_resolve(in, Value::object(in.intrinsics().promise_constructor), *value);
+    if (!wrapper) {
+        if (!done && close_on_rejection)
+            in.iterator_close(self.record(), true); // the pending throw stays
+        return reject_with_exception(in, capability);
+    }
+    in.root(*wrapper);
+    ClosureFunction* unwrap = in.new_closure("", 1, { Value::boolean(done) },
+        [](Interpreter& interp, ClosureFunction& function, Value const&, Args arguments) -> std::optional<Value> {
+            return Value::object(interp.create_iter_result(argument(arguments, 0), function.slot(0).as_boolean()));
+        });
+    in.root(Value::object(unwrap));
+    Value on_rejected = Value::undefined();
+    if (!done && close_on_rejection) {
+        ClosureFunction* closer = in.new_closure("", 1, { Value::object(&self) },
+            [](Interpreter& interp, ClosureFunction& function, Value const&, Args arguments) -> std::optional<Value> {
+                // The sync iterator is closed with the rejection as the
+                // pending throw, which stays the outcome.
+                auto* iterator = static_cast<AsyncFromSyncIteratorObject*>(function.slot(0).as_object());
+                interp.throw_value(argument(arguments, 0));
+                interp.iterator_close(iterator->record(), true);
+                return std::nullopt;
+            });
+        on_rejected = Value::object(closer);
+        in.root(on_rejected);
+    }
+    perform_then(in, *static_cast<PromiseObject*>(wrapper->as_object()), Value::object(unwrap), on_rejected, capability);
+    return capability.promise;
+}
+
+std::optional<Value> async_from_sync_next(Interpreter& in, Value const& this_value, Args arguments)
+{
+    // §27.1.6.2.1: the sync next, with the value when one was given.
+    std::optional<AsyncFromSyncIteratorObject*> const self = this_async_from_sync(in, this_value);
+    if (!self)
+        return std::nullopt;
+    Interpreter::Roots const roots(in);
+    in.root(this_value);
+    std::optional<PromiseCapability> const capability = new_promise_capability(in, Value::object(in.intrinsics().promise_constructor));
+    if (!capability)
+        return std::nullopt;
+    in.root(capability->promise);
+    in.root(capability->resolve);
+    in.root(capability->reject);
+    IteratorRecord& record = (*self)->record();
+    std::optional<Value> const result = arguments.empty() ? in.call(record.next_method, record.iterator, {})
+                                                          : in.call(record.next_method, record.iterator, arguments.subspan(0, 1));
+    if (!result)
+        return reject_with_exception(in, *capability);
+    if (!result->is_object()) {
+        in.throw_type_error("Iterator result " + in.describe(*result) + " is not an object");
+        return reject_with_exception(in, *capability);
+    }
+    return async_from_sync_continuation(in, *result, *capability, **self, true);
+}
+
+std::optional<Value> async_from_sync_return(Interpreter& in, Value const& this_value, Args arguments)
+{
+    // §27.1.6.2.2: no return method means done at once with the value.
+    std::optional<AsyncFromSyncIteratorObject*> const self = this_async_from_sync(in, this_value);
+    if (!self)
+        return std::nullopt;
+    Interpreter::Roots const roots(in);
+    in.root(this_value);
+    std::optional<PromiseCapability> const capability = new_promise_capability(in, Value::object(in.intrinsics().promise_constructor));
+    if (!capability)
+        return std::nullopt;
+    in.root(capability->promise);
+    in.root(capability->resolve);
+    in.root(capability->reject);
+    IteratorRecord& record = (*self)->record();
+    std::optional<Value> const method = in.get_method(record.iterator, in.key("return"));
+    if (!method)
+        return reject_with_exception(in, *capability);
+    if (method->is_undefined()) {
+        Object* iter_result = in.create_iter_result(argument(arguments, 0), true);
+        Value const resolve_arguments[1] = { Value::object(iter_result) };
+        if (!in.call(capability->resolve, Value::undefined(), resolve_arguments))
+            return std::nullopt;
+        return capability->promise;
+    }
+    in.root(*method);
+    std::optional<Value> const result = arguments.empty() ? in.call(*method, record.iterator, {})
+                                                          : in.call(*method, record.iterator, arguments.subspan(0, 1));
+    if (!result)
+        return reject_with_exception(in, *capability);
+    if (!result->is_object()) {
+        in.throw_type_error("Iterator result " + in.describe(*result) + " is not an object");
+        return reject_with_exception(in, *capability);
+    }
+    return async_from_sync_continuation(in, *result, *capability, **self, false);
+}
+
+std::optional<Value> async_from_sync_throw(Interpreter& in, Value const& this_value, Args arguments)
+{
+    // §27.1.6.2.3, with ES2024's rule: a sync iterator with no throw
+    // method is closed, and the answer is a TypeError.
+    std::optional<AsyncFromSyncIteratorObject*> const self = this_async_from_sync(in, this_value);
+    if (!self)
+        return std::nullopt;
+    Interpreter::Roots const roots(in);
+    in.root(this_value);
+    std::optional<PromiseCapability> const capability = new_promise_capability(in, Value::object(in.intrinsics().promise_constructor));
+    if (!capability)
+        return std::nullopt;
+    in.root(capability->promise);
+    in.root(capability->resolve);
+    in.root(capability->reject);
+    IteratorRecord& record = (*self)->record();
+    std::optional<Value> const method = in.get_method(record.iterator, in.key("throw"));
+    if (!method)
+        return reject_with_exception(in, *capability);
+    if (method->is_undefined()) {
+        if (!in.iterator_close(record, false))
+            return reject_with_exception(in, *capability);
+        in.throw_type_error("The iterator does not provide a 'throw' method");
+        return reject_with_exception(in, *capability);
+    }
+    in.root(*method);
+    std::optional<Value> const result = arguments.empty() ? in.call(*method, record.iterator, {})
+                                                          : in.call(*method, record.iterator, arguments.subspan(0, 1));
+    if (!result)
+        return reject_with_exception(in, *capability);
+    if (!result->is_object()) {
+        in.throw_type_error("Iterator result " + in.describe(*result) + " is not an object");
+        return reject_with_exception(in, *capability);
+    }
+    return async_from_sync_continuation(in, *result, *capability, **self, true);
+}
+
 } // namespace
 
 void install_iterators(Interpreter& in)
@@ -271,6 +473,20 @@ void install_iterators(Interpreter& in)
         });
         i.iterator_prototype->put(PropertyKey::symbol(atoms.symbol_iterator), Value::object(self), builtin_attributes);
     }
+
+    // %AsyncIteratorPrototype% (§27.1.3): @@asyncIterator answers the
+    // receiver. %AsyncFromSyncIteratorPrototype% (§27.1.6.2) hangs off it.
+    i.async_iterator_prototype = in.new_object();
+    {
+        NativeFunction* self = in.new_native("[Symbol.asyncIterator]", 0, [](Interpreter&, Value const& this_value, Args) -> std::optional<Value> {
+            return this_value;
+        });
+        i.async_iterator_prototype->put(PropertyKey::symbol(atoms.symbol_async_iterator), Value::object(self), builtin_attributes);
+    }
+    i.async_from_sync_iterator_prototype = in.new_object(i.async_iterator_prototype);
+    define_method(in, *i.async_from_sync_iterator_prototype, "next", 1, async_from_sync_next);
+    define_method(in, *i.async_from_sync_iterator_prototype, "return", 1, async_from_sync_return);
+    define_method(in, *i.async_from_sync_iterator_prototype, "throw", 1, async_from_sync_throw);
 
     // %ArrayIteratorPrototype% (§23.1.5.2).
     i.array_iterator_prototype = in.new_object(i.iterator_prototype);
