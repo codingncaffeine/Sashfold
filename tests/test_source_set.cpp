@@ -133,7 +133,7 @@ int main()
         CHECK(ui::supports_image_type(""));
         CHECK(!ui::supports_image_type("image/webp"));
         CHECK(!ui::supports_image_type("image/avif"));
-        CHECK(!ui::supports_image_type("image/svg+xml"));
+        CHECK(ui::supports_image_type("image/svg+xml"));
     }
 
     // --- Selection through a document ----------------------------------------
