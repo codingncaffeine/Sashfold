@@ -102,6 +102,14 @@ struct Fragment {
     // descendants belong to the parent context.
     bool stacking_context = false;
 
+    // How far the sticky pass has moved this box from where the flow put
+    // it, so that it can be stuck again against a scrollport that has since
+    // moved: the flow position is the box's position less this. Zero on a
+    // box that does not stick, and on one whose offsets are satisfied
+    // where it stands.
+    float sticky_dx = 0;
+    float sticky_dy = 0;
+
     // The margin that reaches through this box's bottom edge from its last
     // in-flow child (CSS 2.1 §8.3.1): the caller joins it with the box's
     // own bottom margin. Zero when the edge lets nothing through.
@@ -141,6 +149,11 @@ struct LayoutResult {
     // image layers over the whole canvas, positioned against the box
     // itself (css-backgrounds-3 §2.11.2).
     bool canvas_background_from_body = false;
+    // The page is written in a vertical mode: its fragments were laid out
+    // in the frame of that mode and turned into the page's axes at the end,
+    // so a pass that reads the styles' physical offsets against them — the
+    // sticky pass — is only right before the turn.
+    bool vertical = false;
     // The styles of the anonymous boxes layout made (a table around loose
     // cells, an inline-table in a line): fragments point at them, so they
     // live as long as the result does.
@@ -188,6 +201,22 @@ bool is_scroll_container(Fragment const& fragment);
 // The tree from a fresh layout has nothing applied to it: start `applied`
 // empty each time it is laid out again.
 void apply_scroll(Fragment& root, ScrollOffsets const& offsets, ScrollOffsets& applied);
+
+// The page's own scroll, put on the fragments the way a box's is, and for
+// the same reason: whoever reads the tree sees where the content is drawn.
+// The painter moves the whole page up by the scroll; a fixed box is
+// anchored to the viewport, so it is moved down the page by as much here
+// and the two cancel where the viewport is. Then everything that sticks is
+// stuck again — against the viewport where it now stands, `scroll` down
+// the page and `viewport_width` by `viewport_height`, or against the
+// scrollport of the box around it, whose content `apply_scroll` may just
+// have moved — so this runs after that, on every change to either.
+// `applied` is what was last put on this tree, brought up to date; a fresh
+// layout carries nothing, so start it empty each time the page is laid
+// out again. `box_scrolls` is what `apply_scroll` has put on the boxes
+// that scroll — its `applied` — which is where their content now stands.
+void apply_page_scroll(LayoutResult& page, float viewport_width, float viewport_height,
+    ScrollOffset scroll, ScrollOffset& applied, ScrollOffsets const* box_scrolls);
 
 // The pictures the stylesheets name as backgrounds, by the URL a style's
 // background image carries (resolved, fragment dropped), decoded; the

@@ -104,3 +104,31 @@ assert-box-scroll 200 160 0 0
 navigate data:text/html,<title>Reach</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.pane{width:300px;height:100px;overflow:auto;border:1px solid gray}.gap{height:300px}</style><div class="pane"><p>top of the pane</p><div class="gap"></div><p id="deep">buried</p></div><div style="height:900px">below</div>#deep
 assert-scroll 89
 assert-box-scroll 200 90 0 288
+
+# A fixed bar stands at the viewport's top however far the page is moved
+# under it, and a heading that sticks catches at the bar's foot once the
+# page has carried it that far, then comes back to its place. The content
+# area starts at window y 76: the bar spans window 76 to 95, the heading
+# is at page 100 and shows at window 176 while the page stands at zero.
+open data:text/html,<title>Fixed</title><style>body{margin:0;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.bar{position:fixed;top:0;left:0;width:200px;height:20px;background:navy}.head{position:sticky;top:20px;height:20px;background:teal}.spacer{height:900px}</style><div class="bar"></div><div style="height:100px">above</div><div class="head"></div><div class="spacer">below</div>
+assert-title Fixed
+assert-scroll 0
+assert-pixel 100 86 #000080
+assert-pixel 100 186 #008080
+# One notch moves the page 60: the bar stays, the heading is read 60 higher.
+wheel -1
+assert-scroll 60
+assert-pixel 100 86 #000080
+assert-pixel 100 126 #008080
+# Three notches: page y 180. The heading's flow position, 100, is now
+# above the viewport's top plus its 20 px offset, so it is stuck at page
+# 200, which is window 96 to 115.
+wheel -2
+assert-scroll 180
+assert-pixel 100 86 #000080
+assert-pixel 100 106 #008080
+assert-golden goldens/scroll-fixed.png
+# Home brings the page back, and the heading with it.
+key Home
+assert-scroll 0
+assert-pixel 100 186 #008080

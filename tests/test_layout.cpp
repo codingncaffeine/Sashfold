@@ -1766,5 +1766,97 @@ int main(int argc, char** argv)
         }
     }
 
+    {
+        // The page's own scroll on the fragments: a fixed box moves down
+        // the page by as much as the page is scrolled, so the painter's
+        // translation of the whole page leaves it at the viewport; a box
+        // that sticks is stuck again against the viewport where it now
+        // stands and comes back to its flow position when the viewport
+        // does; and one inside a box that scrolls sticks against that
+        // box's scrollport as the content moves under it, the length of
+        // the content.
+        Page page;
+        page.document = html::parse_document(R"HTML(<!doctype html>
+<html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  #bar { position: fixed; top: 0; left: 0; width: 100px; height: 20px }
+  #head { position: sticky; top: 0; height: 20px }
+  #pane { height: 100px; overflow: auto }
+  #inner { position: sticky; top: 10px; height: 20px }
+  .tall { height: 1000px }
+</style></head><body>
+  <div id="bar"></div>
+  <div style="height: 100px"></div>
+  <div id="head"></div>
+  <div id="pane"><div style="height: 30px"></div><div id="inner"></div><div class="tall"></div></div>
+  <div class="tall"></div>
+</body></html>)HTML");
+        page.styles = css::resolve_styles(*page.document);
+        page.result = layout::layout_document(*page.document, page.styles, 400, nullptr, nullptr, 300);
+        std::function<layout::Fragment*(layout::Fragment&, std::string_view)> find_box
+            = [&](layout::Fragment& f, std::string_view id) -> layout::Fragment* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id && f.style)
+                    return &f;
+            }
+            for (layout::Fragment& child : f.children) {
+                if (layout::Fragment* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment* bar = find_box(page.result.root, "bar");
+        layout::Fragment* head = find_box(page.result.root, "head");
+        layout::Fragment* pane = find_box(page.result.root, "pane");
+        layout::Fragment* inner = find_box(page.result.root, "inner");
+        if (CHECK(bar && head && pane && inner)) {
+            CHECK_EQ(bar->y, 0.0f);
+            CHECK_EQ(head->y, 100.0f);
+            CHECK_EQ(pane->y, 120.0f);
+            CHECK_EQ(inner->y, 150.0f); // 10 below the pane's top is already satisfied
+            layout::ScrollOffsets box_scrolls;
+            layout::ScrollOffsets box_applied;
+            layout::ScrollOffset applied;
+            // 150 down: the bar follows, the heading's flow position is
+            // above the viewport's top so it is held there, and the pane's
+            // heading answers to the pane, which has not moved.
+            layout::apply_page_scroll(page.result, 400, 300, layout::ScrollOffset { 0, 150 }, applied, &box_applied);
+            CHECK_EQ(bar->y, 150.0f);
+            CHECK_EQ(head->y, 150.0f);
+            CHECK_EQ(head->sticky_dy, 50.0f);
+            CHECK_EQ(inner->y, 150.0f);
+            // 50 down: the heading's own place, 100, is inside the viewport
+            // again, so it goes back there.
+            layout::apply_page_scroll(page.result, 400, 300, layout::ScrollOffset { 0, 50 }, applied, &box_applied);
+            CHECK_EQ(bar->y, 50.0f);
+            CHECK_EQ(head->y, 100.0f);
+            CHECK_EQ(head->sticky_dy, 0.0f);
+            layout::apply_page_scroll(page.result, 400, 300, layout::ScrollOffset {}, applied, &box_applied);
+            CHECK_EQ(bar->y, 0.0f);
+            CHECK_EQ(head->y, 100.0f);
+            // The pane scrolled 60: its heading's flow position comes up
+            // to 90, above the scrollport's top plus its offset, 130, so
+            // it is stuck there; scrolled to the pane's far end, 950, it
+            // is still there — the containing block is the whole of the
+            // pane's content, not the part in view.
+            box_scrolls[pane->element] = layout::ScrollOffset { 0, 60 };
+            layout::apply_scroll(page.result.root, box_scrolls, box_applied);
+            layout::apply_page_scroll(page.result, 400, 300, layout::ScrollOffset {}, applied, &box_applied);
+            CHECK_EQ(inner->y, 130.0f);
+            box_scrolls[pane->element] = layout::ScrollOffset { 0, 9999 };
+            layout::apply_scroll(page.result.root, box_scrolls, box_applied);
+            layout::apply_page_scroll(page.result, 400, 300, layout::ScrollOffset {}, applied, &box_applied);
+            CHECK_EQ(pane->scroll_range_y, 950.0f);
+            CHECK_EQ(inner->y, 130.0f);
+            box_scrolls[pane->element] = layout::ScrollOffset {};
+            layout::apply_scroll(page.result.root, box_scrolls, box_applied);
+            layout::apply_page_scroll(page.result, 400, 300, layout::ScrollOffset {}, applied, &box_applied);
+            CHECK_EQ(inner->y, 150.0f);
+            CHECK_EQ(inner->sticky_dy, 0.0f);
+            CHECK(layout::check_fragments(page.result).empty());
+        }
+    }
+
     return test::report("layout");
 }

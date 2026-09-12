@@ -398,6 +398,7 @@ struct Browser::Impl {
         // none of it, so the two are brought together after every one.
         layout::ScrollOffsets scrolls;
         layout::ScrollOffsets applied;
+        layout::ScrollOffset applied_page; // and how much of the page's own scroll it carries
         // The box the keyboard moves — the one the reader last took a wheel
         // or a scrollbar to. Null means the page itself.
         dom::Element const* scroller = nullptr;
@@ -674,7 +675,22 @@ struct Browser::Impl {
         tab.scroll_y = clamped;
         if (HistoryEntry* const entry = tab.current())
             entry->scroll_y = clamped;
+        settle_scrolls(tab);
         dirty = true;
+    }
+
+    // Puts the reader's scrolling on the fragments — each box's own, then
+    // the page's, then whatever sticks — so that everything reading the
+    // tree, the painter included, sees the coordinates the content is
+    // drawn at. After every change to any of them.
+    void settle_scrolls(Tab& tab)
+    {
+        ChromeLayout const c = layout_chrome();
+        layout::apply_scroll(tab.layout.root, tab.scrolls, tab.applied);
+        layout::apply_page_scroll(tab.layout, static_cast<float>(std::max(1, c.content.width)),
+            static_cast<float>(std::max(1, c.content.height)),
+            layout::ScrollOffset { 0, static_cast<float>(tab.scroll_y) }, tab.applied_page,
+            &tab.applied);
     }
 
     // --- Boxes that scroll ---------------------------------------------------------
@@ -748,7 +764,7 @@ struct Browser::Impl {
         if (want.x == at.x && want.y == at.y)
             return false;
         at = want;
-        layout::apply_scroll(tab.layout.root, tab.scrolls, tab.applied);
+        settle_scrolls(tab);
         dirty = true;
         return true;
     }
@@ -966,7 +982,8 @@ struct Browser::Impl {
         // shape can reach. Before the runs are gathered, so the selection
         // and find-in-page read the coordinates the content is drawn at.
         tab.applied.clear();
-        layout::apply_scroll(tab.layout.root, tab.scrolls, tab.applied);
+        tab.applied_page = {};
+        settle_scrolls(tab);
         // The selection pointed into the old layout's runs.
         tab.runs.clear();
         gather_runs(tab.layout.root, tab.runs);

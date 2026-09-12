@@ -1085,12 +1085,17 @@ struct Layouter {
 
     // css-position-3 §6.3: a box that sticks stays inside what its offsets
     // leave of the scrollport it is in, and never leaves the block that
-    // contains it. Nothing is scrolled here, so what this settles is what a
-    // reader sees on opening the page: a box whose offset holds it clear of
-    // an edge it already sits past is moved to meet that edge, as far as
-    // its containing block allows and no further. An offset that is already
-    // satisfied moves nothing, which is why zero stays inside every clamp.
-    void stick(Fragment& box, Edges const& cb, Edges const& port) const
+    // contains it. A box whose offset holds it clear of an edge it already
+    // sits past is moved to meet that edge, as far as its containing block
+    // allows and no further. An offset that is already satisfied moves
+    // nothing, which is why zero stays inside every clamp.
+    //
+    // The offsets are measured from where the flow put the box, not from
+    // where it stands: the box records how far it has been stuck, so that
+    // when the scrollport moves — the reader scrolls the page or the box
+    // around it — it can be stuck again from the same flow position, and
+    // comes back to it when the scrollport does.
+    static void stick(Fragment& box, Edges const& cb, Edges const& port)
     {
         ComputedStyle const& s = *box.style;
         float const cb_width = cb.width();
@@ -1098,44 +1103,51 @@ struct Layouter {
         float const margin_right = resolve(s.margin_right, cb_width);
         float const margin_top = resolve(s.margin_top, cb_width);
         float const margin_bottom = resolve(s.margin_bottom, cb_width);
+        float const flow_x = box.x - box.sticky_dx;
+        float const flow_y = box.y - box.sticky_dy;
         // A sticky offset is measured from the scrollport's edge, and a
         // percentage of it is of the scrollport's own size.
         float dx = 0;
         if (!s.left.is_auto()) {
             float const limit = port.left + resolve(s.left, port.width());
-            if (box.x < limit)
-                dx = limit - box.x;
+            if (flow_x < limit)
+                dx = limit - flow_x;
         }
         if (!s.right.is_auto()) {
             float const limit = port.right - resolve(s.right, port.width());
-            if (box.x + box.width + dx > limit)
-                dx -= box.x + box.width + dx - limit;
+            if (flow_x + box.width + dx > limit)
+                dx -= flow_x + box.width + dx - limit;
         }
-        dx = std::clamp(dx, std::min(0.0f, cb.left + margin_left - box.x),
-            std::max(0.0f, cb.right - margin_right - box.x - box.width));
+        dx = std::clamp(dx, std::min(0.0f, cb.left + margin_left - flow_x),
+            std::max(0.0f, cb.right - margin_right - flow_x - box.width));
         float dy = 0;
         if (!s.top.is_auto()) {
             float const limit = port.top + resolve(s.top, port.height());
-            if (box.y < limit)
-                dy = limit - box.y;
+            if (flow_y < limit)
+                dy = limit - flow_y;
         }
         if (!s.bottom.is_auto()) {
             float const limit = port.bottom - resolve(s.bottom, port.height());
-            if (box.y + box.height + dy > limit)
-                dy -= box.y + box.height + dy - limit;
+            if (flow_y + box.height + dy > limit)
+                dy -= flow_y + box.height + dy - limit;
         }
-        dy = std::clamp(dy, std::min(0.0f, cb.top + margin_top - box.y),
-            std::max(0.0f, cb.bottom - margin_bottom - box.y - box.height));
-        if (dx != 0 || dy != 0)
-            shift_fragment(box, dx, dy);
+        dy = std::clamp(dy, std::min(0.0f, cb.top + margin_top - flow_y),
+            std::max(0.0f, cb.bottom - margin_bottom - flow_y - box.height));
+        if (dx != box.sticky_dx || dy != box.sticky_dy)
+            shift_fragment(box, dx - box.sticky_dx, dy - box.sticky_dy);
+        box.sticky_dx = dx;
+        box.sticky_dy = dy;
     }
 
     // Walks the finished tree carrying two rectangles: the content box of
     // the block a child is in, and the scrollport around it — the padding
     // box of the nearest box that scrolls or clips, the viewport where
     // there is none. A box is settled before its own boxes are, so what is
-    // inside it travels with it.
-    void settle_sticky(Fragment& box, Edges const& cb, Edges port) const
+    // inside it travels with it. Run again after a scrollport has moved,
+    // it sticks every box afresh from its flow position; `scrolled` is
+    // then how far each box that scrolls has had its content moved
+    // (`apply_scroll`), null on the page as laid out, where nothing has.
+    static void settle_sticky(Fragment& box, Edges const& cb, Edges port, ScrollOffsets const* scrolled)
     {
         if (box.style && box.style->position == css::Position::Sticky)
             stick(box, cb, port);
@@ -1153,9 +1165,21 @@ struct Layouter {
             inner.top += resolve(s.padding_top, width);
             inner.right -= resolve(s.padding_right, width);
             inner.bottom -= resolve(s.padding_bottom, width);
+            // What a box that scrolls contains is laid out over the whole
+            // of what it can reach, not the part in its scrollport, and
+            // has been moved up by however far it is scrolled: a heading
+            // stuck inside a pane stays stuck the length of the pane's
+            // content, which is what every engine shows.
+            if (is_scroll_container(box)) {
+                ScrollOffset const at = scrolled && box.element ? scroll_of(box, scrolled) : ScrollOffset {};
+                inner.left -= at.x;
+                inner.top -= at.y;
+                inner.right += box.scroll_range_x - at.x;
+                inner.bottom += box.scroll_range_y - at.y;
+            }
         }
         for (Fragment& child : box.children)
-            settle_sticky(child, inner, port);
+            settle_sticky(child, inner, port, scrolled);
     }
 
     // How far a subtree reaches on the page: the far corner of the
@@ -7313,9 +7337,10 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     {
         float const port_block = frame_height > 0 ? frame_height : frame_block_extent;
         Layouter::Edges const viewport { 0, 0, frame_width, port_block };
-        layouter.settle_sticky(result.root, viewport, viewport);
+        Layouter::settle_sticky(result.root, viewport, viewport, nullptr);
     }
     result.page_height = frame_block_extent;
+    result.vertical = vertical;
     if (vertical) {
         // Back to the page. The lines stack from the viewport's right edge
         // in the -rl modes, which is where a reader of one of them starts,
@@ -7440,6 +7465,40 @@ void apply_scroll(Fragment& root, ScrollOffsets const& offsets, ScrollOffsets& a
     }
     for (Fragment& child : root.children)
         apply_scroll(child, offsets, applied);
+}
+
+namespace {
+
+// Moves every fixed box down the page by the scroll's change, and nothing
+// else. A fixed box holds no other fixed box — each is placed against the
+// viewport in the root's own list — but what one holds travels with it in
+// any case, so the walk does not go inside.
+void shift_fixed(Fragment& box, float dx, float dy)
+{
+    for (Fragment& child : box.children) {
+        if (child.style && child.style->position == css::Position::Fixed)
+            Layouter::shift_fragment(child, dx, dy);
+        else
+            shift_fixed(child, dx, dy);
+    }
+}
+
+} // namespace
+
+void apply_page_scroll(LayoutResult& page, float viewport_width, float viewport_height,
+    ScrollOffset scroll, ScrollOffset& applied, ScrollOffsets const* box_scrolls)
+{
+    shift_fixed(page.root, scroll.x - applied.x, scroll.y - applied.y);
+    applied = scroll;
+    // The sticky pass reads the styles' physical offsets against the
+    // fragments, which is only right in the frame they were laid out in: a
+    // page in a vertical mode has been turned since, and keeps what the
+    // layout settled.
+    if (page.vertical)
+        return;
+    Layouter::Edges const viewport { scroll.x, scroll.y, scroll.x + viewport_width,
+        scroll.y + viewport_height };
+    Layouter::settle_sticky(page.root, viewport, viewport, box_scrolls);
 }
 
 ScrollOffset scroll_of(Fragment const& fragment, ScrollOffsets const* offsets)
