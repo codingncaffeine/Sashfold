@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (8508 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (8522 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -1340,6 +1340,7 @@ css/CSS2/floats/new-fc-relayout.html
 css/CSS2/floats/new-fc-separates-from-float-4.html
 css/CSS2/floats/new-fc-separates-from-float.html
 css/CSS2/floats/overflow-scroll-float-paint-order.html
+css/CSS2/floats/overhanging-float-paint-order.html
 css/CSS2/floats/zero-available-space-float-positioning.html
 css/CSS2/floats/zero-width-floats.html
 css/CSS2/fonts/font-003.xht
@@ -2040,6 +2041,7 @@ css/CSS2/margin-padding-clear/margin-bottom-applies-to-009.xht
 css/CSS2/margin-padding-clear/margin-collapse-001.xht
 css/CSS2/margin-padding-clear/margin-collapse-002.xht
 css/CSS2/margin-padding-clear/margin-collapse-003.xht
+css/CSS2/margin-padding-clear/margin-collapse-004.xht
 css/CSS2/margin-padding-clear/margin-collapse-005.xht
 css/CSS2/margin-padding-clear/margin-collapse-006.xht
 css/CSS2/margin-padding-clear/margin-collapse-007.xht
@@ -2800,6 +2802,8 @@ css/CSS2/normal-flow/inline-block-width-001a.xht
 css/CSS2/normal-flow/inline-block-width-001b.xht
 css/CSS2/normal-flow/inline-block-width-002a.xht
 css/CSS2/normal-flow/inline-block-width-002b.xht
+css/CSS2/normal-flow/inline-block-zorder-001.xht
+css/CSS2/normal-flow/inline-block-zorder-002.xht
 css/CSS2/normal-flow/inline-block-zorder-003.xht
 css/CSS2/normal-flow/inline-block-zorder-004.xht
 css/CSS2/normal-flow/inline-box-border-line-break.html
@@ -2831,6 +2835,8 @@ css/CSS2/normal-flow/inline-table-width-001a.xht
 css/CSS2/normal-flow/inline-table-width-001b.xht
 css/CSS2/normal-flow/inline-table-width-002a.xht
 css/CSS2/normal-flow/inline-table-width-002b.xht
+css/CSS2/normal-flow/inline-table-zorder-001.xht
+css/CSS2/normal-flow/inline-table-zorder-002.xht
 css/CSS2/normal-flow/inlines-013.xht
 css/CSS2/normal-flow/inlines-016.xht
 css/CSS2/normal-flow/inlines-017.xht
@@ -3165,6 +3171,7 @@ css/CSS2/normal-flow/min-width-percentage-002.xht
 css/CSS2/normal-flow/negative-margin-001.html
 css/CSS2/normal-flow/negative-margin-shrinking-container-size-001.html
 css/CSS2/normal-flow/negative-margin-shrinking-container-size-002.html
+css/CSS2/normal-flow/overflow-scroll-paint-order.html
 css/CSS2/normal-flow/table-in-inline-001.xht
 css/CSS2/normal-flow/width-001.xht
 css/CSS2/normal-flow/width-002.xht
@@ -3512,6 +3519,7 @@ css/CSS2/positioning/position-absolute-002.xht
 css/CSS2/positioning/position-absolute-003.xht
 css/CSS2/positioning/position-absolute-004.xht
 css/CSS2/positioning/position-absolute-006.xht
+css/CSS2/positioning/position-absolute-007.xht
 css/CSS2/positioning/position-absolute-008.xht
 css/CSS2/positioning/position-applies-to-001.xht
 css/CSS2/positioning/position-applies-to-002.xht
@@ -4669,6 +4677,7 @@ css/CSS2/text/text-indent-008.xht
 css/CSS2/text/text-indent-010.xht
 css/CSS2/text/text-indent-011.xht
 css/CSS2/text/text-indent-013.xht
+css/CSS2/text/text-indent-014.xht
 css/CSS2/text/text-indent-016.xht
 css/CSS2/text/text-indent-017.xht
 css/CSS2/text/text-indent-018.xht
@@ -5013,6 +5022,10 @@ css/CSS2/visuren/table-pseudo-in-part3-1.html
 css/CSS2/visuren/top-115.xht
 css/CSS2/visuren/whitespace-present-1a.html
 css/CSS2/visuren/whitespace-present-1b.html
+css/CSS2/zindex/stack-floats-001.xht
+css/CSS2/zindex/stack-floats-002.xht
+css/CSS2/zindex/stack-floats-003.xht
+css/CSS2/zindex/stack-floats-004.xht
 css/CSS2/zindex/z-index-001.xht
 css/CSS2/zindex/z-index-002.xht
 css/CSS2/zindex/z-index-003.xht
@@ -5024,6 +5037,7 @@ css/CSS2/zindex/z-index-008.xht
 css/CSS2/zindex/z-index-009.xht
 css/CSS2/zindex/z-index-010.xht
 css/CSS2/zindex/z-index-011.xht
+css/CSS2/zindex/z-index-012.xht
 css/CSS2/zindex/z-index-013.xht
 css/CSS2/zindex/z-index-014.xht
 css/CSS2/zindex/z-index-015.xht
@@ -5404,6 +5418,7 @@ css/css-color/t32-opacity-clamping-0.0-b.xht
 css/css-color/t32-opacity-clamping-1.0-b.xht
 css/css-color/t32-opacity-offscreen-b.xht
 css/css-color/t32-opacity-offscreen-with-alpha-c.xht
+css/css-color/t32-opacity-zorder-c.xht
 css/css-color/t41-html4-keywords-a.xht
 css/css-color/t421-rgb-clip-outside-gamut-b.xht
 css/css-color/t421-rgb-func-int-a.xht
@@ -5820,8 +5835,6 @@ css/css-flexbox/flexbox-writing-mode-007.html
 css/css-flexbox/flexbox-writing-mode-008.html
 css/css-flexbox/flexbox-writing-mode-009.html
 css/css-flexbox/flexbox-writing-mode-013.html
-css/css-flexbox/flexbox-writing-mode-014.html
-css/css-flexbox/flexbox-writing-mode-015.html
 css/css-flexbox/flexbox-writing-mode-016.html
 css/css-flexbox/flexbox_align-content-center.html
 css/css-flexbox/flexbox_align-content-flexend.html
@@ -7102,6 +7115,7 @@ css/css-position/sticky/position-sticky-fixed-ancestor-002.html
 css/css-position/sticky/position-sticky-fixed-ancestor-003.html
 css/css-position/sticky/position-sticky-fixed-ancestor-iframe.html
 css/css-position/sticky/position-sticky-in-fixed-container.html
+css/css-position/sticky/position-sticky-large-top.tentative.html
 css/css-position/sticky/position-sticky-left-004.html
 css/css-position/sticky/position-sticky-left-005.html
 css/css-position/sticky/position-sticky-left-006.html

@@ -792,9 +792,9 @@ void paint_control(Context& context, Fragment const& fragment)
 void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner);
 void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner);
 
-// The box's own painting: background, borders, picture, control — nothing
-// when its visibility is hidden (the box keeps its room).
-void paint_box(Context& context, Fragment const& fragment, bool skip_background)
+// The box's own background and borders — nothing when its visibility is
+// hidden (the box keeps its room).
+void paint_box_background(Context& context, Fragment const& fragment, bool skip_background)
 {
     // A table's row, row group or column: a background under the cells.
     if (fragment.background && !skip_background && fragment.background->a != 0
@@ -805,6 +805,16 @@ void paint_box(Context& context, Fragment const& fragment, bool skip_background)
     if (!fragment.style || fragment.style->hidden())
         return;
     paint_background_and_borders(context, fragment, skip_background);
+}
+
+// The box's replaced content: its picture or its control. Appendix E
+// paints a block-level replaced element's content after the floats, with
+// the inline content, and its background before them with the other block
+// backgrounds, so the two halves are separate.
+void paint_box_replaced(Context& context, Fragment const& fragment)
+{
+    if (!fragment.style || fragment.style->hidden())
+        return;
     if (fragment.control)
         paint_control(context, fragment);
     if (fragment.image && fragment.image->bitmap) {
@@ -822,6 +832,13 @@ void paint_box(Context& context, Fragment const& fragment, bool skip_background)
             snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
         context.target.truncate_round_clips(rounds);
     }
+}
+
+// The box's own painting, whole: background, borders, picture, control.
+void paint_box(Context& context, Fragment const& fragment, bool skip_background)
+{
+    paint_box_background(context, fragment, skip_background);
+    paint_box_replaced(context, fragment);
 }
 
 Rect intersect(Rect const& a, Rect const& b)
@@ -884,36 +901,152 @@ std::optional<Rect> clip_for(Context& context, Fragment const& fragment)
     return previous;
 }
 
-// What flows inside a box: its in-flow children, the floats over them (a
-// float paints above the blocks whose lines flow around it), and its own
-// lines, clipped to the box when its overflow is hidden. The positioned
-// descendants are not here: they belong to the stacking context and paint
-// at their level in it; a child that is a stacking context of its own
-// (opacity below one) paints as one unit.
+// A child painted at its own level of the stacking context rather than in
+// the flow: a positioned box, at its z-index, or a box that is a stacking
+// context for another reason — an opacity below one, a transform — which
+// CSS Color §3.2 paints as if it were positioned at level zero.
+bool paints_as_layer(Fragment const& child)
+{
+    return child.positioned || child.stacking_context;
+}
+
+// An inline-level box: an inline box's piece on a line, an inline-block,
+// an inline flex or grid container, an inline table, an inline replaced
+// element — painted with the line it is on. Everything else is
+// block-level, the boxes of the flow's own making (anonymous, without a
+// style) and the table parts included.
+bool inline_level(Fragment const& fragment)
+{
+    if (!fragment.style)
+        return false;
+    switch (fragment.style->display) {
+    case css::Display::Inline:
+    case css::Display::InlineBlock:
+    case css::Display::InlineFlex:
+    case css::Display::InlineGrid:
+    case css::Display::InlineTable:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool block_level(Fragment const& fragment)
+{
+    return !inline_level(fragment);
+}
+
+// A box that paints as one unit at the inline-content step, as if it made
+// a stacking context of its own with its block descendants and floats
+// inside it: an atomic inline — Appendix E says so of an inline-block and
+// an inline table — and a flex or grid item, which css-flexbox §4 and
+// css-grid §6 paint exactly as inline-blocks. An inline box is not: it is
+// open to the flow around it, and a block it was split around is the
+// containing block's block-level descendant, painted with the others.
+bool paints_whole(Fragment const& parent, Fragment const& child)
+{
+    if (parent.style) {
+        switch (parent.style->display) {
+        case css::Display::Flex:
+        case css::Display::InlineFlex:
+        case css::Display::Grid:
+        case css::Display::InlineGrid:
+            return true;
+        default:
+            break;
+        }
+    }
+    return inline_level(child) && child.style->display != css::Display::Inline;
+}
+
+// Walks into a box for one of the steps below with the clip the box puts
+// on what it holds, and takes the clip off again after.
+template <typename Walk>
+void descend(Context& context, Fragment const& box, Walk const& walk)
+{
+    std::size_t const rounds = context.target.round_clip_depth();
+    std::optional<Rect> const restore = clip_for(context, box);
+    walk(context, box);
+    context.target.truncate_round_clips(rounds);
+    context.target.set_clip(restore);
+}
+
+// CSS 2.1 Appendix E, step 3: the backgrounds and borders of every in-flow
+// block-level descendant, in tree order — through an inline box, whose
+// own background is inline content, to a block it was split around. The
+// floats, the positioned boxes and the stacking contexts are painted at
+// their own steps and levels, and an atomic inline paints whole at step 6.
+void paint_block_backgrounds(Context& context, Fragment const& box)
+{
+    for (Fragment const& child : box.children) {
+        if (child.floating || paints_as_layer(child) || paints_whole(box, child))
+            continue;
+        if (block_level(child))
+            paint_box_background(context, child, false);
+        descend(context, child, paint_block_backgrounds);
+    }
+}
+
+// Step 4: every non-positioned float in tree order, each as one unit — its
+// own box and then its own steps 3 to 6 — except that its positioned
+// descendants and the stacking contexts inside it belong to the context
+// around it, which is what the layer walk gathers.
+void paint_floats(Context& context, Fragment const& box)
+{
+    for (Fragment const& child : box.children) {
+        if (paints_as_layer(child))
+            continue;
+        if (child.floating) {
+            paint_flow(context, child, false);
+            continue;
+        }
+        if (paints_whole(box, child))
+            continue;
+        descend(context, child, paint_floats);
+    }
+}
+
+// Step 6: the inline content of the box and of each in-flow block-level
+// descendant, in tree order — a block-level replaced element's picture,
+// then the pieces of the inline boxes on the lines, each with its own
+// background, borders and whatever it holds, the atomic inlines as units,
+// and the lines' text. A box's boxes come before its own runs, so a line's
+// words are over the inline box drawn under them.
+void paint_inline_content(Context& context, Fragment const& box)
+{
+    for (Fragment const& child : box.children) {
+        if (child.floating || paints_as_layer(child))
+            continue;
+        if (paints_whole(box, child)) {
+            paint_flow(context, child, false);
+        } else if (block_level(child)) {
+            paint_box_replaced(context, child);
+            descend(context, child, paint_inline_content);
+        } else {
+            paint_flow(context, child, false);
+        }
+    }
+    for (TextRun const& run : box.runs) {
+        if (!run.style->hidden())
+            paint_run(context, run);
+    }
+}
+
+// What flows inside a box, in the order of CSS 2.1 Appendix E: the
+// backgrounds of all the block-level boxes in it first, then the floats
+// over them, then the inline content — the lines and their inline boxes —
+// over the floats, clipped to the box when its overflow is hidden. So a
+// float overlapping a later block sits over that block's background and
+// under its words, as it does in every engine. The positioned descendants
+// and the stacking contexts are not here: they belong to the stacking
+// context and paint at their level in it.
 void paint_contents(Context& context, Fragment const& fragment)
 {
     std::size_t const rounds = context.target.round_clip_depth();
     std::optional<Rect> const restore = clip_for(context, fragment);
-    for (Fragment const& child : fragment.children) {
-        if (child.floating || child.positioned)
-            continue;
-        if (child.stacking_context)
-            paint_stacking_context(context, child, false);
-        else
-            paint_flow(context, child, false);
-    }
-    for (Fragment const& child : fragment.children) {
-        if (child.floating && !child.positioned) {
-            if (child.stacking_context)
-                paint_stacking_context(context, child, false);
-            else
-                paint_flow(context, child, false);
-        }
-    }
-    for (TextRun const& run : fragment.runs) {
-        if (!run.style->hidden())
-            paint_run(context, run);
-    }
+    paint_block_backgrounds(context, fragment);
+    paint_floats(context, fragment);
+    paint_inline_content(context, fragment);
     context.target.truncate_round_clips(rounds);
     context.target.set_clip(restore);
 }
@@ -1042,31 +1175,60 @@ void paint_scrollbars(Context& context, Fragment const& box)
 struct Layer {
     Fragment const* box = nullptr;
     std::optional<Rect> clip;
+    // The curves of the clipping ancestors that round their corners,
+    // outermost first: a layer is faded along them as the flow is.
+    std::vector<RoundedRect> rounds;
 };
 
-// The positioned boxes a stacking context paints: every positioned
-// descendant reached without crossing another stacking context (a
-// positioned box with z-index auto is walked through — its positioned
-// descendants are the parent context's, per CSS 2.1 Appendix E).
-void collect_positioned(Context const& context, Fragment const& fragment, std::optional<Rect> const& clip_in_flow,
-    std::optional<Rect> const& clip_out_of_flow, std::vector<Layer>& out, std::vector<Layer>& bars)
+// The rounded clips a box adds for what it holds: the ancestors' and, when
+// the box clips its overflow along curved corners, its own padding box.
+std::vector<RoundedRect> rounds_within(Context const& context, Fragment const& fragment,
+    std::vector<RoundedRect> const& current)
+{
+    if (!clips_corners(fragment) || !fragment.style->rounded())
+        return current;
+    RoundedRect const curve = rounded_area(context, fragment, css::BackgroundBox::PaddingBox);
+    if (curve.is_rectangular())
+        return current;
+    std::vector<RoundedRect> rounds = current;
+    rounds.push_back(curve);
+    return rounds;
+}
+
+// The layers a stacking context paints: every positioned descendant, and
+// every descendant that is a stacking context for another reason, reached
+// without crossing another stacking context (a positioned box with
+// z-index auto is walked through — its positioned descendants are the
+// parent context's, per CSS 2.1 Appendix E).
+struct Clips {
+    std::optional<Rect> rect;
+    std::vector<RoundedRect> rounds;
+};
+
+void collect_positioned(Context const& context, Fragment const& fragment, Clips const& in_flow,
+    Clips const& out_of_flow, std::vector<Layer>& out, std::vector<Layer>& bars)
 {
     for (Fragment const& child : fragment.children) {
-        if (child.positioned)
-            out.push_back(Layer { &child, child.out_of_flow ? clip_out_of_flow : clip_in_flow });
+        if (paints_as_layer(child)) {
+            Clips const& clips = child.out_of_flow ? out_of_flow : in_flow;
+            out.push_back(Layer { &child, clips.rect, clips.rounds });
+        }
         if (child.stacking_context)
             continue;
-        std::optional<Rect> const inner = clip_within(context, child, clip_in_flow);
+        Clips const inner { clip_within(context, child, in_flow.rect),
+            rounds_within(context, child, in_flow.rounds) };
         // A scroll container's bars are drawn over everything it holds,
         // and a positioned descendant of it paints at this context's level
         // rather than inside it, so the bars are gathered here and drawn
         // after the whole context.
         if (context.scrolls && child.style && child.style->overflow_applies
             && css::scrolls(child.style->overflow_x))
-            bars.push_back(Layer { &child, clip_in_flow });
-        collect_positioned(context, child, inner,
-            child.positioned ? clip_within(context, child, clip_out_of_flow) : clip_out_of_flow, out,
-            bars);
+            bars.push_back(Layer { &child, in_flow.rect, in_flow.rounds });
+        Clips const inner_out_of_flow = child.positioned
+            ? Clips { clip_within(context, child, out_of_flow.rect),
+                  rounds_within(context, child, out_of_flow.rounds) }
+            : out_of_flow;
+        collect_positioned(context, child, inner, inner_out_of_flow, out, bars);
     }
 }
 
@@ -1080,21 +1242,26 @@ void paint_opaque_context(Context& context, Fragment const& root, bool is_canvas
     // The root's overflow clips everything inside it that it contains: its
     // flow, and the positioned descendants whose containing block it is.
     std::optional<Rect> const outer = context.target.clip();
-    std::optional<Rect> const inner = clip_within(context, root, outer);
+    std::size_t const outer_rounds = context.target.round_clip_depth();
+    Clips const outside { outer, {} };
+    Clips const inside { clip_within(context, root, outer), rounds_within(context, root, {}) };
     std::vector<Layer> positioned;
     std::vector<Layer> bars;
     if (context.scrolls && root.style && root.style->overflow_applies
         && css::scrolls(root.style->overflow_x))
-        bars.push_back(Layer { &root, inner });
-    collect_positioned(context, root, inner, root.positioned ? inner : outer, positioned, bars);
+        bars.push_back(Layer { &root, inside.rect, inside.rounds });
+    collect_positioned(context, root, inside, root.positioned ? inside : outside, positioned, bars);
     std::stable_sort(positioned.begin(), positioned.end(),
         [](Layer const& a, Layer const& b) { return a.box->z_index < b.box->z_index; });
     auto const paint_one = [&](Layer const& layer) {
         context.target.set_clip(layer.clip);
+        for (RoundedRect const& round : layer.rounds)
+            context.target.push_round_clip(round);
         if (layer.box->stacking_context)
             paint_stacking_context(context, *layer.box, false);
         else
             paint_flow(context, *layer.box, false);
+        context.target.truncate_round_clips(outer_rounds);
         context.target.set_clip(outer);
     };
     // The root's own box comes before its negative descendants, which come
