@@ -188,7 +188,7 @@ Object* Interpreter::new_error(ErrorType type, JsString* message)
 {
     // The error's own `message` (§20.5.1.1 step 3) and the non-standard
     // `stack` every engine gives it — here the "Name: message" line alone,
-    // since the tree-walker keeps no frame list yet.
+    // since the engine keeps no frame list for it yet.
     Heap::NoCollect const guard(*m_heap);
     auto* error = m_heap->allocate<ErrorObject>(m_intrinsics.error_prototypes[error_index(type)]);
     if (message)

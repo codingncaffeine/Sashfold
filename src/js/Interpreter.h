@@ -1,6 +1,6 @@
 #pragma once
 
-// The evaluator: a tree-walking interpreter over the Ast, one realm per
+// The evaluator: a bytecode machine over the Ast's compiled bodies, one realm per
 // Interpreter (its heap, its global object, its intrinsics). Everything
 // that can run script and therefore throw returns std::optional — nullopt
 // means a value is pending in `exception()` — so a throw travels up C++
@@ -207,8 +207,8 @@ public:
     std::optional<Value> evaluate_module(ModuleRecord&);
 
     // `import(specifier, options)` (§13.3.10) and `import.meta` (§13.3.12),
-    // for both execution tiers: the tree-walker's two cases and the VM's
-    // two opcodes call these with the operands already evaluated.
+    // for the machine's two opcodes, which call these with the operands
+    // already evaluated.
     // `referrer` is the program the running code was parsed from — it
     // names the module, or the script, the specifier is resolved against.
     // perform_import_call answers a promise whatever happens: from the
@@ -287,7 +287,7 @@ public:
     // whose version runs script — a module namespace reading a binding in
     // its dead zone, a proxy running a trap — is routed from here to the
     // throwing method beside it. Every reflective built-in, every operator
-    // and both execution tiers go through these wrappers; a new site that
+    // and the machine go through these wrappers; a new site that
     // calls the virtual instead silently skips the trap.
     // Outer nullopt = a throw; inner = absent.
     std::optional<std::optional<PropertyDescriptor>> get_own_property(Object&, PropertyKey const&);
@@ -441,15 +441,6 @@ public:
     std::optional<Value> compile_function(std::u16string_view parameters, std::u16string_view body,
         Environment* scope = nullptr, DynamicFunctionKind kind = DynamicFunctionKind::Normal);
 
-    // Which tier runs a plain function body: the bytecode machine, which
-    // carries every generator and async body too, or the tree-walking
-    // evaluator it grew out of. The machine is the default;
-    // SASHFOLD_JS_VM=tree in the environment puts plain bodies back on the
-    // evaluator for every interpreter of the process (a differential run),
-    // and the runners' --vm-all pins the machine for one.
-    void set_bytecode_for_all(bool on) { m_bytecode_for_all = on; }
-    bool bytecode_for_all() const { return m_bytecode_for_all; }
-
     // Limits and instrumentation.
     void set_call_depth_limit(int depth) { m_call_depth_limit = depth; }
     int call_depth() const { return m_call_depth; }
@@ -486,8 +477,8 @@ public:
     // The realm keeps every program it ran: functions point into them.
     void keep(std::unique_ptr<Program>);
 
-    // The evaluator's mechanisms (Evaluator.h), shared by the tree-walker
-    // and the bytecode VM. Internal to src/js.
+    // The evaluator's mechanisms (Evaluator.h), which the bytecode machine
+    // and the library call. Internal to src/js.
     struct Impl;
     Impl& impl() { return *m_impl; }
 
@@ -540,7 +531,6 @@ private:
     std::uint32_t m_interrupt_interval = 10000;
     std::uint64_t m_steps = 0;
     bool m_terminated = false;
-    bool m_bytecode_for_all = false;
 };
 
 }

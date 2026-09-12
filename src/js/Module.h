@@ -94,7 +94,7 @@ private:
     bool initialize_environment(Interpreter&);
     std::optional<std::size_t> inner_evaluation(Interpreter&, std::vector<ModuleRecord*>& stack, std::size_t index);
     // ExecuteModule (§16.2.1.6.5): without a capability the body runs to
-    // its end on the tree-walker; with one — a module with a top-level
+    // its end as a plain body; with one — a module with a top-level
     // await — it starts as an async function body that settles the
     // capability, and runs only to its first await here.
     bool execute_module(Interpreter&, PromiseCapability const* capability = nullptr);

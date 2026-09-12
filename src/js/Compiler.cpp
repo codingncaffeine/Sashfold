@@ -503,7 +503,7 @@ private:
             compile_statement(statement, {});
     }
 
-    // ExportDeclaration evaluation (§16.2.3.7), as the tree-walker has it:
+    // ExportDeclaration evaluation (§16.2.3.7):
     // a declaration is compiled as itself, a default expression is
     // compiled — named "default" when it is an anonymous function or
     // class — and bound to `*default*`, a default function was

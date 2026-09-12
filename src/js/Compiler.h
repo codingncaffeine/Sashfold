@@ -2,9 +2,9 @@
 
 // The compiler from a function's syntax tree to the bytecode of
 // Bytecode.h: one pass per FunctionNode, no intermediate form. It emits
-// exactly the environment operations the tree-walking evaluator performs
-// at the same points, and calls the same runtime mechanisms through its
-// instructions, so the two tiers agree by construction.
+// the environment operations the specification performs at the same
+// points, and calls the evaluator's mechanisms (Evaluator.h) through
+// its instructions.
 
 #include "js/Ast.h"
 #include "js/Bytecode.h"

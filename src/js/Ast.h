@@ -6,7 +6,7 @@
 // pointing into it. Names and string literals are heap atoms — permanent,
 // so the tree holds them without rooting.
 //
-// Coverage: ES5 whole, plus the pieces of later editions a tree-walker
+// Coverage: ES5 whole, plus the pieces of later editions an evaluator
 // takes cheaply and real pages use everywhere — let/const with block
 // scoping, arrow functions, template literals, `**`, `??`, `?.`, optional
 // catch binding, shorthand and computed property names, the iterator

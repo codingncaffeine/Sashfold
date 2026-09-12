@@ -1,10 +1,10 @@
 // Module records and the module namespace exotic object: §16.2.1.5–§16.2.1.10
 // and §10.4.6, ported with the specification's names and step order. A
-// module without a top-level await runs its body on the tree-walker under
-// a context whose lexical and variable environments are both the module
-// environment; one with a top-level await runs the same statements as an
-// async function body on the bytecode tier, and its importers wait for
-// it through the asynchronous half of InnerModuleEvaluation.
+// module without a top-level await runs its body as a function of its own
+// under a context whose lexical and variable environments are both the
+// module environment; one with a top-level await runs the same statements
+// as an async function body, and its importers wait for it through the
+// asynchronous half of InnerModuleEvaluation.
 
 #include "js/Module.h"
 
@@ -427,8 +427,8 @@ std::optional<std::size_t> ModuleRecord::inner_evaluation(Interpreter& in, std::
 
 // ExecuteModule (§16.2.1.6.5): the body under a context whose environments
 // are both the module environment, strict, with no function and so no
-// `this` of its own. Without a top-level await it runs to its end on the
-// tree-walker; with one it is AsyncBlockStart (§27.7.5.2) over the same
+// `this` of its own. Without a top-level await it runs to its end as a
+// plain body; with one it is AsyncBlockStart (§27.7.5.2) over the same
 // statements — the module is the one async function it contains, and it
 // runs to its first await here and settles the capability when it ends.
 // The environment already holds every declaration of the body
@@ -455,10 +455,7 @@ bool ModuleRecord::execute_module(Interpreter& in, PromiseCapability const* capa
     Context const context { m_environment, m_environment, m_program.get(), nullptr, true, nullptr };
     if (!has_top_level_await()) {
         Interpreter::Impl::ContextScope scope(impl, context);
-        if (in.bytecode_for_all())
-            return impl.run_compiled_node(synthetic_body(false), scope.context()).has_value();
-        Completion const completion = impl.execute_list(m_program->body, scope.context());
-        return completion.type != Completion::Type::Throw;
+        return impl.run_compiled_node(synthetic_body(false), scope.context()).has_value();
     }
     if (capability == nullptr) {
         in.throw_type_error("internal: a module with a top-level await executed without a capability");

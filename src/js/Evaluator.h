@@ -35,36 +35,6 @@ class GeneratorObject;
 class AsyncContextObject;
 class AsyncGeneratorObject;
 
-// A completion record (§6.2.4). The value is `empty` when the statement
-// produced none, which UpdateEmpty resolves at the statement above.
-struct Completion {
-    enum class Type : std::uint8_t { Normal, Return, Break, Continue, Throw };
-    Type type = Type::Normal;
-    Value value = Value::empty();
-    JsString* target = nullptr;
-
-    static Completion normal(Value value = Value::empty())
-    {
-        Completion completion;
-        completion.value = value;
-        return completion;
-    }
-    static Completion thrown()
-    {
-        Completion completion;
-        completion.type = Type::Throw;
-        return completion;
-    }
-    bool is_abrupt() const { return type != Type::Normal; }
-    // UpdateEmpty (§6.2.4.3).
-    Completion with_value_if_empty(Value const& fallback) const
-    {
-        Completion result = *this;
-        if (result.value.is_empty())
-            result.value = fallback;
-        return result;
-    }
-};
 
 // The running execution context (§9.4): the environment the code resolves
 // names in, the one its `var`s land in, and what it is evaluating.
@@ -173,12 +143,10 @@ struct Interpreter::Impl {
     // ---- functions
     void set_function_name(Object& function, PropertyKey const& key, std::string_view prefix = {});
     std::optional<Value> make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key);
-    std::optional<Value> evaluate_named(Expression const* expression, Context& cx, PropertyKey const& name_key);
     Object* make_arguments_object(ScriptFunction& function, Environment* environment, std::span<Value const> arguments, bool mapped);
     // [[Call]] and [[Construct]] of a script function: an async function
     // takes the promise path (call_async_function), everything else
-    // run_script_function — the prologue, then the body on the tier that
-    // runs it.
+    // run_script_function — the prologue, then the body on the machine.
     std::optional<Value> call_script_function(ScriptFunction& function, Value const& this_argument,
         std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key = nullptr);
     std::optional<Value> run_script_function(ScriptFunction& function, Value const& this_argument,
@@ -190,10 +158,8 @@ struct Interpreter::Impl {
     // MakeSuperPropertyReference with the key already evaluated: a value
     // (`super[key]`) or a name (`super.name`).
     std::optional<Reference> super_reference(Context const& cx, Value const* key_value, JsString* name);
-    std::optional<Reference> evaluate_super_member(SuperMember const& member, Context& cx);
     // SuperCall with the arguments already evaluated.
     std::optional<Value> super_call(Context& cx, std::span<Value const> arguments);
-    std::optional<Value> evaluate_super_call(SuperCall const& call, Context& cx);
     Value evaluate_new_target(Context& cx);
     std::optional<Value> call_field_initializer(ScriptFunction& initializer, Value const& this_value, PropertyKey const& key);
 
@@ -205,12 +171,9 @@ struct Interpreter::Impl {
     bool private_method_add(Object& object, PrivateMethod const& method);
     // `#name in right` with the right side already evaluated.
     std::optional<Value> private_in(JsString* name, Value const& right, Context const& cx);
-    std::optional<Value> evaluate_private_in(PrivateInExpression const& expression, Context& cx);
     bool define_field(Object& receiver, ClassField const& field);
     bool initialize_instance_elements(Object& instance, ScriptFunction& constructor);
     ScriptFunction* new_class_constructor(FunctionNode const& node, Environment* scope, Object* proto, Object* constructor_parent);
-    std::optional<Value> evaluate_class(ClassNode const& node, Context& cx, PropertyKey const* name_key);
-    Completion execute_class_declaration(ClassDeclaration const& declaration, Context& cx);
 
     // ---- patterns
 
@@ -223,15 +186,6 @@ struct Interpreter::Impl {
     static void collect_bound_names(JsString* name, Expression const* pattern, std::vector<JsString*>& out);
     static void collect_parameter_names(FunctionNode const& node, std::vector<JsString*>& out);
     bool initialize_binding(JsString* name, Value const& value, Environment* env);
-    bool prepare_target(Expression const* target, BindMode mode, Context& cx, std::optional<Reference>& reference);
-    bool bind_element(Expression const* target, Expression const* initializer, Value value,
-        std::optional<Reference>& reference, BindMode mode, Environment* env, Context& cx);
-    bool bind_declared(JsString* name, Expression const* pattern, Expression const* initializer, Value const& value,
-        BindMode mode, Environment* env, Context& cx);
-    bool bind_pattern(Expression const* pattern, Value const& value, BindMode mode, Environment* env, Context& cx);
-    bool bind_array_pattern(ArrayPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx);
-    bool bind_object_pattern(ObjectPattern const& pattern, Value const& value, BindMode mode, Environment* env, Context& cx);
-    bool bind_parameters(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context& cx);
     bool copy_data_properties(Object& target, Value const& source, std::span<PropertyKey const> excluded);
 
     // ---- declaration instantiation
@@ -249,45 +203,15 @@ struct Interpreter::Impl {
         PrivateEnvironment* private_environment, Program const* caller = nullptr);
 
     // ---- expressions
-    std::optional<Value> evaluate(Expression const* expression, Context& cx);
-
     static bool to_boolean(Value const& value) { return Interpreter::to_boolean(value); }
     std::optional<Value> evaluate_regexp(RegExpLiteral const& literal);
-    std::optional<Value> evaluate_template(TemplateLiteral const& literal, Context& cx);
     std::optional<Object*> template_object(TemplateLiteral const& literal);
-    std::optional<Value> evaluate_tagged_template(TaggedTemplate const& tagged, Context& cx);
-    std::optional<Value> evaluate_array(ArrayLiteral const& literal, Context& cx);
-    std::optional<Value> evaluate_object(ObjectLiteral const& literal, Context& cx);
-    std::optional<Reference> evaluate_member_reference(MemberExpression const& member, Context& cx, bool& short_circuit);
-    std::optional<Value> evaluate_chain(Expression const* expression, Context& cx, bool& short_circuit, Reference* out_reference);
-    std::optional<Value> evaluate_arguments(std::vector<Expression*> const& expressions, Context& cx, std::vector<Value>& values);
-    std::optional<Value> evaluate_call(CallExpression const& call, Context& cx, bool& short_circuit);
-    std::optional<Value> evaluate_new(NewExpression const& expression, Context& cx);
-    std::optional<Reference> evaluate_reference(Expression const* expression, Context& cx);
-    std::optional<Value> evaluate_unary(UnaryExpression const& unary, Context& cx);
     // `delete` of an evaluated reference (§13.5.1.2).
     std::optional<Value> delete_reference(Reference& reference, Context const& cx);
-    std::optional<Value> evaluate_delete(UnaryExpression const& unary, Context& cx);
-    std::optional<Value> evaluate_update(UpdateExpression const& update, Context& cx);
     std::optional<Value> apply_binary(BinaryOp op, Value const& left, Value const& right);
-    std::optional<Value> evaluate_binary(BinaryExpression const& binary, Context& cx);
-    std::optional<Value> evaluate_logical(LogicalExpression const& logical, Context& cx);
     static std::optional<BinaryOp> binary_for(AssignmentOp op);
-    std::optional<Value> evaluate_assignment(AssignmentExpression const& assignment, Context& cx);
 
-    // ---- statements
-    static bool loop_continues(Completion const& completion, std::span<JsString* const> labels);
-    static Completion finish_loop(Completion const& completion, Value const& last);
-    Completion execute_list(std::span<Statement* const> statements, Context& cx);
-    Completion execute(Statement const* statement, Context& cx, std::span<JsString* const> labels);
-    Completion execute_declaration(VariableDeclaration const& declaration, Context& cx);
-    Completion execute_function_declaration(FunctionDeclaration const& declaration, Context& cx);
-    Completion execute_export(ExportDeclaration const& declaration, Context& cx);
-    Completion execute_block(BlockStatement const& block, Context& cx);
     void copy_iteration_environment(Context& cx, std::vector<JsString*> const& names);
-    Completion execute_for(ForStatement const& loop, Context& cx, std::span<JsString* const> labels);
-    Completion execute_while(WhileStatement const& loop, Context& cx, std::span<JsString* const> labels);
-    Completion execute_do_while(DoWhileStatement const& loop, Context& cx, std::span<JsString* const> labels);
 
     // EnumerateObjectProperties (§14.7.5.9): the own string keys of each
     // object up the chain, snapshotted on arrival, each visited once and
@@ -302,26 +226,19 @@ struct Interpreter::Impl {
     // trap threw while the object's keys were being taken.
     bool enumerator_load(Enumerator& enumerator);
     JsString* enumerator_next(Enumerator& enumerator);
-    bool bind_loop_head(VariableDeclaration const* declaration, Expression const* target, std::vector<JsString*> const& names,
-        Value const& value, Environment* saved, Context& cx);
-    Completion execute_for_in(ForInStatement const& loop, Context& cx, std::span<JsString* const> labels);
-    Completion execute_for_of(ForOfStatement const& loop, Context& cx, std::span<JsString* const> labels);
-    Completion execute_try(TryStatement const& statement, Context& cx);
-    Completion execute_switch(SwitchStatement const& statement, Context& cx);
-    Completion execute_with(WithStatement const& statement, Context& cx);
 
-    // ---- the bytecode tier (Compiler.cpp, Vm.cpp): generator and async bodies
+    // ---- the bytecode machine (Compiler.cpp, Vm.cpp): every body
     // One compiled body per function node, made at the first call; the
     // programs are the realm's for life, so the keys never dangle.
     std::unordered_map<FunctionNode const*, std::unique_ptr<CodeBlock>> code_blocks;
     std::vector<Frame*> vm_frames; // the frames running now, innermost last; traced
-    std::vector<ClassBuilder*> class_builders; // the tree-walker's classes under construction; traced
+    std::vector<ClassBuilder*> class_builders; // the classes under construction outside a frame; traced
     CodeBlock const* compiled_body(FunctionNode const& node); // null with a SyntaxError pending
     Frame* new_frame(CodeBlock const& code, Context const& cx);
     Context frame_context(Frame const& frame) const;
     RunStatus vm_run(Frame& frame);
     bool vm_unwind(Frame& frame);
-    // The second tier: a plain body run on the machine (Interpreter::bytecode_for_all),
+    // A plain body run on the machine,
     // and a script's or an eval's statement list as a synthetic body.
     std::optional<Value> run_compiled_body(ScriptFunction& function, Context const& cx, PropertyKey const* field_key = nullptr);
     std::optional<Value> run_compiled_node(FunctionNode const& node, Context const& cx, PropertyKey const* field_key = nullptr);
@@ -336,8 +253,8 @@ struct Interpreter::Impl {
     // the scope (the class binding uninitialized, strict), the heritage
     // settled into a prototype and a constructor with the private names in
     // scope from here, each element defined in order, then the name bound
-    // and the static elements run. The tree-walker's evaluate_class is the
-    // same four calls with its own evaluations between them.
+    // and the static elements run. evaluate_class (the whole, with the
+    // tree of a class handed in) is the same four calls.
     ClassBuilder* class_scope(ClassNode const& node, Environment* outer, PrivateEnvironment* outer_private, bool outer_strict,
         PropertyKey const* name_key);
     bool class_begin(ClassBuilder& builder, Value const* heritage);

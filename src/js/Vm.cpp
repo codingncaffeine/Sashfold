@@ -3,8 +3,9 @@
 // The run loop over a Frame, and the drivers that start and resume the
 // bodies that need one: a generator's, resumed by next/return/throw; an
 // async function's, resumed by the reaction jobs of the promise it
-// awaits. Every instruction calls the same mechanisms the tree-walking
-// evaluator calls (Interpreter::Impl), so the two agree by construction.
+// awaits. Every instruction calls the evaluator's mechanisms
+// (Interpreter::Impl): the machine is the one tier, since the tree-walking
+// interpreter it grew beside was proved to agree with it and deleted.
 //
 // Rooting: an instruction's inputs stay on the frame's operand stack —
 // traced through vm_frames — until the operation has finished; only then
