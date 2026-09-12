@@ -34,4 +34,38 @@ Verdict validate_chain(std::vector<Certificate> const& chain, std::string const&
 // leftmost wildcard label (exposed for testing).
 bool host_matches(std::string const& presented, std::string const& host);
 
+// Revocation lists by URL, each kept until its nextUpdate (a day at the
+// most, an hour when the list names none), so a distribution point is
+// asked once per list and not once per connection; a fetch that came back
+// empty is remembered for ten minutes, so a point that is down does not
+// slow every handshake to its timeout. The fetch given does the HTTP.
+class CrlCache {
+public:
+    explicit CrlCache(HttpFetch fetch)
+        : m_fetch(std::move(fetch))
+    {
+    }
+
+    // The bytes of the list at `url` as of `now` (seconds since the epoch),
+    // from the cache or the network; empty when neither has it.
+    std::vector<std::uint8_t> get(std::string const& url, std::int64_t now);
+    // A fetcher over this cache, for validate_chain.
+    HttpFetch fetcher(std::int64_t now);
+
+    std::size_t fetches() const { return m_fetches; }
+
+    static constexpr std::int64_t longest_hold_seconds = 24 * 60 * 60;
+    static constexpr std::int64_t unnamed_hold_seconds = 60 * 60;
+    static constexpr std::int64_t failure_hold_seconds = 10 * 60;
+
+private:
+    struct Entry {
+        std::vector<std::uint8_t> bytes;
+        std::int64_t expires = 0;
+    };
+    HttpFetch m_fetch;
+    std::vector<std::pair<std::string, Entry>> m_entries;
+    std::size_t m_fetches = 0;
+};
+
 }

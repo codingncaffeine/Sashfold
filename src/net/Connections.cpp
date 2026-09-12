@@ -48,6 +48,15 @@ std::ptrdiff_t Connection::receive(std::uint8_t* buffer, std::size_t size)
     return -1;
 }
 
+bool Connection::set_receive_timeout(int milliseconds)
+{
+    if (m_tls)
+        return m_tls->set_receive_timeout(milliseconds);
+    if (m_tcp)
+        return m_tcp->set_receive_timeout(milliseconds);
+    return false;
+}
+
 std::string origin_key(bool secure, std::string const& host, std::uint16_t port)
 {
     return (secure ? "https://" : "http://") + host + ":" + std::to_string(port);

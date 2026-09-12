@@ -136,6 +136,16 @@ std::ptrdiff_t TcpSocket::receive(std::uint8_t* buffer, std::size_t size)
     }
 }
 
+bool TcpSocket::set_receive_timeout(int milliseconds)
+{
+    if (m_handle == invalid_handle || milliseconds < 0)
+        return false;
+    timeval window {};
+    window.tv_sec = milliseconds / 1000;
+    window.tv_usec = static_cast<suseconds_t>((milliseconds % 1000) * 1000);
+    return ::setsockopt(fd_of(m_handle), SOL_SOCKET, SO_RCVTIMEO, &window, sizeof window) == 0;
+}
+
 std::optional<TcpListener> TcpListener::listen_loopback(std::uint16_t port)
 {
     int const handle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);

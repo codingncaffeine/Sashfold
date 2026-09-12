@@ -80,6 +80,16 @@ void TcpSocket::close()
     }
 }
 
+bool TcpSocket::set_receive_timeout(int milliseconds)
+{
+    if (m_handle == invalid_handle || milliseconds < 0)
+        return false;
+    DWORD const window = static_cast<DWORD>(milliseconds);
+    return ::setsockopt(static_cast<SOCKET>(m_handle), SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<char const*>(&window), sizeof window)
+        == 0;
+}
+
 bool TcpSocket::send_all(std::uint8_t const* data, std::size_t size)
 {
     if (m_handle == invalid_handle)

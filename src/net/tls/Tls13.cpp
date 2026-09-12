@@ -557,6 +557,54 @@ struct TlsEngine::Impl {
         return false;
     }
 
+    // §4.2: no extension type appears twice in one block. One instance per
+    // block being read; a repeat is illegal_parameter.
+    struct ExtensionBlock {
+        std::vector<std::uint16_t> seen;
+        bool repeats(std::uint16_t type)
+        {
+            if (std::find(seen.begin(), seen.end(), type) != seen.end())
+                return true;
+            seen.push_back(type);
+            return false;
+        }
+    };
+
+    // The extension types this client knows, whether or not it offered them.
+    static bool recognized_extension(std::uint16_t type)
+    {
+        switch (type) {
+        case ext_server_name:
+        case ext_supported_groups:
+        case ext_ec_point_formats:
+        case ext_signature_algorithms:
+        case ext_alpn:
+        case ext_extended_master_secret:
+        case ext_pre_shared_key:
+        case ext_early_data:
+        case ext_supported_versions:
+        case ext_cookie:
+        case ext_psk_key_exchange_modes:
+        case ext_key_share:
+        case ext_renegotiation_info:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // §4.2 names two faults for an extension that does not belong: one the
+    // client recognizes but that is not specified for the message it came in
+    // is illegal_parameter; one the client never asked for is
+    // unsupported_extension.
+    void refuse_extension(TlsOutput& out, std::uint16_t type, char const* message)
+    {
+        if (recognized_extension(type))
+            fail(out, illegal_parameter, std::string(message) + " carried an extension that has no place in it");
+        else
+            fail(out, unsupported_extension, std::string(message) + " carried an extension that was not offered");
+    }
+
     // A fatal alert under whatever keys are current, and the failed state.
     void fail(TlsOutput& out, std::uint8_t description, std::string reason)
     {
@@ -707,12 +755,17 @@ struct TlsEngine::Impl {
         bool saw_group = false;
         std::uint16_t selected_group = 0;
         Bytes new_cookie;
+        ExtensionBlock block;
         Reader e { extensions };
         while (!e.done()) {
             std::uint16_t type = 0;
             View data;
             if (!e.u16(type) || !e.vector16(data)) {
                 fail(out, decode_error, "a hello retry request did not decode");
+                return false;
+            }
+            if (block.repeats(type)) {
+                fail(out, illegal_parameter, "a hello retry request carried an extension twice");
                 return false;
             }
             Reader d { data };
@@ -737,7 +790,7 @@ struct TlsEngine::Impl {
                 }
                 new_cookie.assign(value.begin(), value.end());
             } else {
-                fail(out, unsupported_extension, "a hello retry request carried an extension that was not offered");
+                refuse_extension(out, type, "a hello retry request");
                 return false;
             }
         }
@@ -859,12 +912,17 @@ struct TlsEngine::Impl {
         transcript.update(raw_message);
         bool saw_version = false;
         bool saw_key_share = false;
+        ExtensionBlock block;
         Reader e { extensions };
         while (!e.done()) {
             std::uint16_t type = 0;
             View data;
             if (!e.u16(type) || !e.vector16(data)) {
                 fail(out, decode_error, "ServerHello extensions did not decode");
+                return false;
+            }
+            if (block.repeats(type)) {
+                fail(out, illegal_parameter, "ServerHello carried an extension twice");
                 return false;
             }
             Reader d { data };
@@ -876,6 +934,13 @@ struct TlsEngine::Impl {
                 }
                 saw_version = true;
             } else if (type == ext_key_share) {
+                // §4.2.8: a hello that carried no share asked the server to
+                // name its group, and a retry request is the only answer
+                // that can; a plain hello with a share is out of order.
+                if (!share_sent) {
+                    fail(out, illegal_parameter, "the server answered a hello without a key share with a key share instead of a retry request");
+                    return false;
+                }
                 std::uint16_t group = 0;
                 View key;
                 if (!d.u16(group) || !d.vector16(key) || !d.done() || group != share_group) {
@@ -888,7 +953,7 @@ struct TlsEngine::Impl {
                 }
                 saw_key_share = true;
             } else {
-                fail(out, unsupported_extension, "ServerHello carried an extension that was not offered");
+                refuse_extension(out, type, "ServerHello");
                 return false;
             }
         }
@@ -964,12 +1029,17 @@ struct TlsEngine::Impl {
         negotiated_suite = static_cast<CipherSuite>(suite);
         std::copy(random.begin(), random.end(), server_random.begin());
         transcript.update(raw_message);
+        ExtensionBlock block;
         Reader e { extensions };
         while (!e.done()) {
             std::uint16_t type = 0;
             View data;
             if (!e.u16(type) || !e.vector16(data)) {
                 fail(out, decode_error, "ServerHello extensions did not decode");
+                return false;
+            }
+            if (block.repeats(type)) {
+                fail(out, illegal_parameter, "ServerHello carried an extension twice");
                 return false;
             }
             Reader d { data };
@@ -995,10 +1065,10 @@ struct TlsEngine::Impl {
             } else if (type == ext_alpn) {
                 if (!read_alpn(data, out))
                     return false;
-            } else if (type == ext_server_name) {
+            } else if (type == ext_server_name && !config.server_name.empty()) {
                 // The empty acknowledgement.
             } else {
-                fail(out, unsupported_extension, "ServerHello carried an extension that was not offered");
+                refuse_extension(out, type, "ServerHello");
                 return false;
             }
         }
@@ -1286,6 +1356,7 @@ struct TlsEngine::Impl {
             fail(out, decode_error, "EncryptedExtensions did not decode");
             return false;
         }
+        ExtensionBlock block;
         Reader e { extensions };
         while (!e.done()) {
             std::uint16_t type = 0;
@@ -1294,13 +1365,17 @@ struct TlsEngine::Impl {
                 fail(out, decode_error, "EncryptedExtensions did not decode");
                 return false;
             }
+            if (block.repeats(type)) {
+                fail(out, illegal_parameter, "EncryptedExtensions carried an extension twice");
+                return false;
+            }
             if (type == ext_alpn) {
                 if (!read_alpn(data, out))
                     return false;
-            } else if (type == ext_server_name || type == ext_supported_groups) {
+            } else if ((type == ext_server_name && !config.server_name.empty()) || type == ext_supported_groups) {
                 // The empty acknowledgement, and the server's groups: nothing to do.
             } else {
-                fail(out, unsupported_extension, "EncryptedExtensions carried an extension that was not offered");
+                refuse_extension(out, type, "EncryptedExtensions");
                 return false;
             }
         }

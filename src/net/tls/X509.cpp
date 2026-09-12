@@ -670,8 +670,54 @@ std::optional<Crl> parse_crl(std::span<std::uint8_t const> der)
                 DerReader s(sequence->content);
                 if (std::optional<DerElement> const key_id = s.next_context(0))
                     crl.authority_key_identifier = to_vector(key_id->content);
-            } else if (*id == "2.5.29.20") {
+            } else if (*id == oid::crl_number) {
                 // cRLNumber: nothing read.
+            } else if (*id == oid::issuing_distribution_point) {
+                // IssuingDistributionPoint ::= SEQUENCE { distributionPoint [0]
+                // DistributionPointName OPTIONAL, onlyContainsUserCerts [1]
+                // BOOLEAN DEFAULT FALSE, onlyContainsCACerts [2] BOOLEAN DEFAULT
+                // FALSE, onlySomeReasons [3] ReasonFlags OPTIONAL, indirectCRL
+                // [4] BOOLEAN DEFAULT FALSE, onlyContainsAttributeCerts [5]
+                // BOOLEAN DEFAULT FALSE } — the booleans are implicitly tagged,
+                // so their content is the one byte DER allows.
+                Crl::IssuingDistributionPoint point;
+                DerReader v(value->content);
+                std::optional<DerElement> const sequence = v.next(DerType::Sequence);
+                if (!sequence || !v.at_end())
+                    return std::nullopt;
+                DerReader s(sequence->content);
+                if (std::optional<DerElement> const name = s.next_context(0)) {
+                    point.has_point = true;
+                    DerReader n(name->content);
+                    if (std::optional<DerElement> const full = n.next_context(0)) {
+                        std::optional<GeneralNames> const names = parse_general_names(full->content);
+                        if (!names)
+                            return std::nullopt;
+                        for (std::string const& uri : names->uris) {
+                            if (uri.starts_with("http://"))
+                                point.uris.push_back(uri);
+                        }
+                    }
+                    // A nameRelativeToCRLIssuer [1] is a name this reader
+                    // cannot match a certificate's point against: the point
+                    // stays named with no URL, which covers_leaf reads as
+                    // no information.
+                }
+                auto flag = [&](std::uint8_t number, bool& out) {
+                    if (std::optional<DerElement> const element = s.next_context(number)) {
+                        if (element->content.size() != 1 || (element->content[0] != 0x00 && element->content[0] != 0xff))
+                            return false;
+                        out = element->content[0] == 0xff;
+                    }
+                    return true;
+                };
+                if (!flag(1, point.only_user_certs) || !flag(2, point.only_ca_certs))
+                    return std::nullopt;
+                if (s.next_context(3))
+                    point.only_some_reasons = true;
+                if (!flag(4, point.indirect) || !flag(5, point.only_attribute_certs) || !s.at_end())
+                    return std::nullopt;
+                crl.issuing_distribution_point = point;
             } else if (critical) {
                 return std::nullopt; // §5.2: an unrecognised critical extension makes the CRL unusable (delta CRLs included)
             }
@@ -689,6 +735,18 @@ bool Crl::revokes(std::span<std::uint8_t const> serial) const
             return true;
     }
     return false;
+}
+
+bool Crl::covers_leaf(std::string const& point) const
+{
+    if (!issuing_distribution_point)
+        return true;
+    IssuingDistributionPoint const& idp = *issuing_distribution_point;
+    if (idp.only_ca_certs || idp.only_attribute_certs || idp.indirect)
+        return false;
+    if (idp.has_point)
+        return std::find(idp.uris.begin(), idp.uris.end(), point) != idp.uris.end();
+    return true;
 }
 
 std::vector<std::vector<std::uint8_t>> pem_decode(std::string_view text, std::string_view label)

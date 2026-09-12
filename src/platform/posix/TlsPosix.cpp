@@ -11,13 +11,16 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 #include <string>
 #include <vector>
 
 // The Linux TLS backend: our own TLS 1.3 and 1.2 client (src/net/tls)
 // driven over a TcpSocket. Certificate validation runs against the system
-// trust store (net/tls/Validate); SASHFOLD_TLS_INSECURE=1 accepts any chain
-// and says so loudly, SASHFOLD_TLS_SUITE narrows the hello to one suite and
+// trust store (net/tls/Validate), with the leaf's revocation list fetched
+// over plain HTTP through the fetch the net layer installs and held in a
+// per-process cache; SASHFOLD_TLS_INSECURE=1 accepts any chain and says so
+// loudly, SASHFOLD_TLS_SUITE narrows the hello to one suite and
 // SASHFOLD_TLS_VERSION to one version, to drive a path end to end against a
 // real server. macOS gets Network.framework with its shell.
 
@@ -29,6 +32,22 @@ bool insecure_requested()
 {
     char const* const value = std::getenv("SASHFOLD_TLS_INSECURE");
     return value != nullptr && value[0] == '1';
+}
+
+// The process's revocation lists, behind one lock: the fetch pipeline is
+// synchronous, but a second thread validating a chain must not race the
+// first through the cache.
+tls::HttpFetch revocation_fetcher(std::int64_t now)
+{
+    RevocationFetch const& fetch = revocation_fetch();
+    if (!fetch)
+        return nullptr;
+    return [now](std::string const& url) {
+        static std::mutex mutex;
+        static tls::CrlCache cache([](std::string const& at) { return revocation_fetch()(at); });
+        std::lock_guard<std::mutex> const lock(mutex);
+        return cache.get(url, now);
+    };
 }
 
 // A suite named in the environment narrows what the hello offers to that one
@@ -169,7 +188,7 @@ std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const&
         }
         static tls::TrustStore const store = tls::TrustStore::load();
         std::int64_t const now = static_cast<std::int64_t>(std::time(nullptr));
-        tls::Verdict const verdict = tls::validate_chain(chain, host_copy, now, store, nullptr);
+        tls::Verdict const verdict = tls::validate_chain(chain, host_copy, now, store, revocation_fetcher(now));
         if (!verdict.trusted) {
             reason = "certificate validation failed: " + verdict.reason;
             return false;
@@ -209,6 +228,11 @@ bool TlsSocket::send_all(std::uint8_t const* data, std::size_t size)
         return false;
     std::vector<std::uint8_t> const records = m_impl->engine.seal(std::span<std::uint8_t const>(data, size));
     return m_impl->send_records(records);
+}
+
+bool TlsSocket::set_receive_timeout(int milliseconds)
+{
+    return m_impl && m_impl->socket.set_receive_timeout(milliseconds);
 }
 
 std::ptrdiff_t TlsSocket::receive(std::uint8_t* buffer, std::size_t size)

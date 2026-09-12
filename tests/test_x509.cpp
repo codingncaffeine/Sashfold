@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <optional>
 #include <string>
@@ -200,7 +201,116 @@ void test_crl()
     CHECK(!crl->revokes(leaf->serial));
     CHECK(tls::verify_signature(inter->public_key, crl->signature_algorithm, crl->tbs(), crl->signature));
     CHECK(crl->authority_key_identifier.empty()); // openssl ca writes only a CRL number
+    CHECK(!crl->issuing_distribution_point.has_value());
+    CHECK(crl->covers_leaf("http://crl.sashfold.test/inter.crl"));
     CHECK(!tls::parse_crl(leaf->der).has_value());
+}
+
+// A DER element: the tag byte, the length in its shortest form, the content.
+std::vector<std::uint8_t> der(std::uint8_t tag, std::vector<std::uint8_t> const& content)
+{
+    std::vector<std::uint8_t> out { tag };
+    if (content.size() < 128) {
+        out.push_back(static_cast<std::uint8_t>(content.size()));
+    } else if (content.size() < 256) {
+        out.push_back(0x81);
+        out.push_back(static_cast<std::uint8_t>(content.size()));
+    } else {
+        out.push_back(0x82);
+        out.push_back(static_cast<std::uint8_t>(content.size() >> 8));
+        out.push_back(static_cast<std::uint8_t>(content.size()));
+    }
+    out.insert(out.end(), content.begin(), content.end());
+    return out;
+}
+
+std::vector<std::uint8_t> cat(std::initializer_list<std::vector<std::uint8_t>> parts)
+{
+    std::vector<std::uint8_t> out;
+    for (std::vector<std::uint8_t> const& part : parts)
+        out.insert(out.end(), part.begin(), part.end());
+    return out;
+}
+
+std::vector<std::uint8_t> text(std::string const& s)
+{
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+}
+
+// A CRL as a sharded issuer writes one (Let's Encrypt's, say): an entry
+// with a reason code, and a critical issuing distribution point naming the
+// URL the shard is served from and limiting it to end-entity certificates.
+// The signature is not a real one; parsing does not verify it.
+std::vector<std::uint8_t> crl_with_point(std::vector<std::uint8_t> const& point_body)
+{
+    std::vector<std::uint8_t> const ecdsa_sha256 = der(0x30, der(0x06, { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02 }));
+    std::vector<std::uint8_t> const issuer = der(0x30, der(0x31, der(0x30, cat({ der(0x06, { 0x55, 0x04, 0x03 }), der(0x13, text("Shard CA")) }))));
+    std::vector<std::uint8_t> const this_update = der(0x17, text("260912000000Z"));
+    std::vector<std::uint8_t> const next_update = der(0x17, text("260921000000Z"));
+    std::vector<std::uint8_t> const reason = der(0x30, der(0x30, cat({ der(0x06, { 0x55, 0x1d, 0x15 }), der(0x04, der(0x0a, { 0x05 })) })));
+    std::vector<std::uint8_t> const entry = der(0x30, cat({ der(0x02, { 0x05, 0xc3, 0x91 }), der(0x17, text("260714210128Z")), reason }));
+    std::vector<std::uint8_t> const revoked = der(0x30, entry);
+    std::vector<std::uint8_t> extensions;
+    if (!point_body.empty()) {
+        std::vector<std::uint8_t> const idp = der(0x30, cat({ der(0x06, { 0x55, 0x1d, 0x1c }), der(0x01, { 0xff }), der(0x04, der(0x30, point_body)) }));
+        extensions = der(0xa0, der(0x30, idp));
+    }
+    std::vector<std::uint8_t> const tbs = der(0x30, cat({ der(0x02, { 0x01 }), ecdsa_sha256, issuer, this_update, next_update, revoked, extensions }));
+    return der(0x30, cat({ tbs, ecdsa_sha256, der(0x03, { 0x00, 0x01, 0x02 }) }));
+}
+
+void test_issuing_distribution_point()
+{
+    std::string const shard = "http://shard.sashfold.test/34.crl";
+    std::vector<std::uint8_t> const uri = der(0xa0, der(0xa0, der(0x86, text(shard))));
+    std::vector<std::uint8_t> const serial = { 0x05, 0xc3, 0x91 };
+
+    // Let's Encrypt's shape: the point and onlyContainsUserCerts TRUE.
+    {
+        std::optional<tls::Crl> const crl = tls::parse_crl(crl_with_point(cat({ uri, der(0x81, { 0xff }) })));
+        CHECK(crl.has_value());
+        if (!crl)
+            return;
+        CHECK_EQ(crl->revoked_serials.size(), std::size_t(1));
+        CHECK(crl->revokes(serial));
+        CHECK(crl->next_update.has_value());
+        CHECK(crl->issuing_distribution_point.has_value());
+        CHECK(crl->issuing_distribution_point->has_point);
+        CHECK_EQ(crl->issuing_distribution_point->uris.size(), std::size_t(1));
+        CHECK(crl->issuing_distribution_point->only_user_certs);
+        CHECK(!crl->issuing_distribution_point->only_ca_certs);
+        CHECK(!crl->issuing_distribution_point->indirect);
+        // The list covers a leaf fetched from its own point, and no other.
+        CHECK(crl->covers_leaf(shard));
+        CHECK(!crl->covers_leaf("http://shard.sashfold.test/35.crl"));
+    }
+    // A point with no names, no flags: covers any leaf of the issuer.
+    {
+        std::optional<tls::Crl> const crl = tls::parse_crl(crl_with_point(der(0x81, { 0x00 })));
+        CHECK(crl.has_value());
+        if (crl) {
+            CHECK(!crl->issuing_distribution_point->has_point);
+            CHECK(crl->covers_leaf(shard));
+        }
+    }
+    // Scoped to CA certificates, or indirect: says nothing about a leaf.
+    {
+        std::optional<tls::Crl> const ca_only = tls::parse_crl(crl_with_point(cat({ uri, der(0x82, { 0xff }) })));
+        CHECK(ca_only && !ca_only->covers_leaf(shard));
+        std::optional<tls::Crl> const indirect = tls::parse_crl(crl_with_point(cat({ uri, der(0x84, { 0xff }) })));
+        CHECK(indirect && !indirect->covers_leaf(shard));
+        // Only some reasons: still a list of revoked certificates.
+        std::optional<tls::Crl> const partial = tls::parse_crl(crl_with_point(cat({ uri, der(0x83, { 0x06, 0x40 }) })));
+        CHECK(partial && partial->issuing_distribution_point->only_some_reasons && partial->covers_leaf(shard));
+    }
+    // A boolean that is not DER's one byte, or a stray element, is refused.
+    CHECK(!tls::parse_crl(crl_with_point(cat({ uri, der(0x81, { 0x01 }) }))).has_value());
+    CHECK(!tls::parse_crl(crl_with_point(cat({ uri, der(0x87, { 0xff }) }))).has_value());
+    // And without the extension at all, the plain list.
+    {
+        std::optional<tls::Crl> const plain = tls::parse_crl(crl_with_point({}));
+        CHECK(plain && !plain->issuing_distribution_point && plain->covers_leaf(shard));
+    }
 }
 
 void test_system_bundle()
@@ -254,6 +364,7 @@ int main(int argc, char** argv)
     test_der();
     test_certificates();
     test_crl();
+    test_issuing_distribution_point();
     test_system_bundle();
     return sashfold::test::report("x509");
 }

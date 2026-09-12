@@ -111,7 +111,29 @@ struct Crl {
     std::vector<std::uint8_t> authority_key_identifier;
     std::vector<std::uint8_t> signature;
 
+    // The issuing distribution point (RFC 5280 §5.2.5), when the CRL carries
+    // one: what the list covers. A sharded CRL names the point it is served
+    // from and says it holds end-entity certificates only; one scoped to CA
+    // certificates, to attribute certificates or to another issuer's
+    // certificates (indirect) says nothing about a server's leaf.
+    struct IssuingDistributionPoint {
+        bool has_point = false; // a distributionPoint was named
+        std::vector<std::string> uris; // its full names that are http URLs
+        bool only_user_certs = false;
+        bool only_ca_certs = false;
+        bool only_some_reasons = false;
+        bool indirect = false;
+        bool only_attribute_certs = false;
+    };
+    std::optional<IssuingDistributionPoint> issuing_distribution_point;
+
     bool revokes(std::span<std::uint8_t const> serial) const;
+    // Whether an end-entity certificate's revocation may be read from this
+    // list, fetched from `point` — one of the certificate's own
+    // distribution points (§6.3.3 (b)): true with no issuing distribution
+    // point, or with one that names this point (or none) and does not
+    // limit itself to other kinds of certificate.
+    bool covers_leaf(std::string const& point) const;
 };
 
 std::optional<Certificate> parse_certificate(std::span<std::uint8_t const> der);
@@ -155,6 +177,8 @@ inline constexpr std::string_view name_constraints = "2.5.29.30";
 inline constexpr std::string_view subject_key_identifier = "2.5.29.14";
 inline constexpr std::string_view authority_key_identifier = "2.5.29.35";
 inline constexpr std::string_view crl_distribution_points = "2.5.29.31";
+inline constexpr std::string_view crl_number = "2.5.29.20";
+inline constexpr std::string_view issuing_distribution_point = "2.5.29.28";
 inline constexpr std::string_view certificate_policies = "2.5.29.32";
 inline constexpr std::string_view authority_info_access = "1.3.6.1.5.5.7.1.1";
 inline constexpr std::string_view ocsp = "1.3.6.1.5.5.7.48.1";

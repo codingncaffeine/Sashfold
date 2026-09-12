@@ -255,6 +255,11 @@ bool TlsSocket::send_all(std::uint8_t const* data, std::size_t size)
     return m_impl && m_impl->send_encrypted(data, size);
 }
 
+bool TlsSocket::set_receive_timeout(int milliseconds)
+{
+    return m_impl && m_impl->socket.set_receive_timeout(milliseconds);
+}
+
 std::ptrdiff_t TlsSocket::receive(std::uint8_t* buffer, std::size_t size)
 {
     if (!m_impl)

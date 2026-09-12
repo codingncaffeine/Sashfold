@@ -10,9 +10,11 @@
 #include "net/tls/Validate.h"
 #include "net/tls/X509.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -118,6 +120,72 @@ void test_revocation()
     CHECK(tls::validate_chain(good, "sashfold.test", now, store, fetch).trusted);
 }
 
+// The cache in front of the fetch: one fetch per list until its nextUpdate,
+// a failure remembered for ten minutes, and the same verdicts through it.
+void test_crl_cache()
+{
+    tls::TrustStore const store = tls::TrustStore::from_pem(read_file("root.pem"));
+    std::string const crl = read_file("inter.crl");
+    std::vector<std::uint8_t> const crl_bytes(crl.begin(), crl.end());
+    std::optional<tls::Crl> const parsed = tls::parse_crl(crl_bytes);
+    CHECK(parsed && parsed->next_update);
+    std::int64_t const next_update = parsed && parsed->next_update ? *parsed->next_update : now + 1;
+    CHECK(next_update > now);
+
+    std::string const url = "http://crl.sashfold.test/inter.crl";
+    {
+        tls::CrlCache cache([&](std::string const& at) { return at == url ? crl_bytes : std::vector<std::uint8_t> {}; });
+        CHECK(cache.get(url, now) == crl_bytes);
+        CHECK(cache.get(url, now + 60) == crl_bytes);
+        CHECK_EQ(cache.fetches(), std::size_t(1));
+        // Held until the list's own nextUpdate, and no longer.
+        std::int64_t const held_until = std::min(next_update, now + tls::CrlCache::longest_hold_seconds);
+        CHECK(cache.get(url, held_until - 1) == crl_bytes);
+        CHECK_EQ(cache.fetches(), std::size_t(1));
+        CHECK(cache.get(url, held_until) == crl_bytes);
+        CHECK_EQ(cache.fetches(), std::size_t(2));
+        // Another URL is another entry.
+        CHECK(cache.get("http://crl.sashfold.test/other.crl", now).empty());
+        CHECK_EQ(cache.fetches(), std::size_t(3));
+        // The verdicts through the cache's fetcher are the validator's.
+        std::vector<tls::Certificate> const revoked = { cert("leaf-revoked.pem"), cert("inter.pem") };
+        tls::Verdict const v = tls::validate_chain(revoked, "revoked.sashfold.test", now, store, cache.fetcher(now));
+        CHECK(!v.trusted);
+        CHECK(v.reason.find("revoked") != std::string::npos);
+        std::vector<tls::Certificate> const good = { cert("leaf.pem"), cert("inter.pem") };
+        CHECK(tls::validate_chain(good, "sashfold.test", now, store, cache.fetcher(now)).trusted);
+        // The fixture's leaf names the same list, so those two consulted the
+        // entry above and fetched nothing new.
+        CHECK_EQ(cache.fetches(), std::size_t(3));
+    }
+    // A point that answers nothing is asked again only after ten minutes.
+    {
+        tls::CrlCache cache([](std::string const&) { return std::vector<std::uint8_t> {}; });
+        CHECK(cache.get(url, now).empty());
+        CHECK(cache.get(url, now + tls::CrlCache::failure_hold_seconds - 1).empty());
+        CHECK_EQ(cache.fetches(), std::size_t(1));
+        CHECK(cache.get(url, now + tls::CrlCache::failure_hold_seconds).empty());
+        CHECK_EQ(cache.fetches(), std::size_t(2));
+    }
+    // A list that names no nextUpdate is held for an hour: bytes that are
+    // not a CRL at all stand in for one.
+    {
+        std::vector<std::uint8_t> const junk = { 0x30, 0x00 };
+        tls::CrlCache cache([&](std::string const&) { return junk; });
+        CHECK(cache.get(url, now) == junk);
+        CHECK(cache.get(url, now + tls::CrlCache::unnamed_hold_seconds - 1) == junk);
+        CHECK_EQ(cache.fetches(), std::size_t(1));
+        CHECK(cache.get(url, now + tls::CrlCache::unnamed_hold_seconds) == junk);
+        CHECK_EQ(cache.fetches(), std::size_t(2));
+    }
+    // Without a fetch there is nothing, and nothing is counted.
+    {
+        tls::CrlCache cache(nullptr);
+        CHECK(cache.get(url, now).empty());
+        CHECK_EQ(cache.fetches(), std::size_t(0));
+    }
+}
+
 }
 
 int main(int argc, char** argv)
@@ -132,5 +200,6 @@ int main(int argc, char** argv)
     test_refusals();
     test_name_constraints();
     test_revocation();
+    test_crl_cache();
     return sashfold::test::report("validate");
 }

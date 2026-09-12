@@ -27,6 +27,9 @@ public:
     bool send_all(std::uint8_t const* data, std::size_t size);
     // >0 bytes received, 0 orderly close, <0 error.
     std::ptrdiff_t receive(std::uint8_t* buffer, std::size_t size);
+    // How long one receive may wait for the peer before it fails; zero
+    // (the default) waits for as long as the peer takes.
+    bool set_receive_timeout(int milliseconds);
     void close();
 
 private:

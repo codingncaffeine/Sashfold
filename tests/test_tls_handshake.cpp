@@ -425,12 +425,27 @@ void test_retry_request()
         CHECK_EQ(second.data(51).size(), std::size_t(2 + 2 + 2 + 65));
         CHECK_EQ(hex(second.data(51)).substr(0, 14), std::string("00450017004104"));
     }
-    // No version at all, and an extension that was never offered.
+    // No version at all; an extension this client knows but that has no
+    // place in a retry (renegotiation_info, offered for 1.2); and one it
+    // never offered at all (status_request) — §4.2 names a different alert
+    // for each of the last two.
     CHECK_EQ(refusal(extension(44, cookie_value("no-version")), suite_chacha20), 109);
     {
         Bytes extensions = supported_versions();
         append(extensions, extension(0xff01, Bytes { 0x00 }));
+        CHECK_EQ(refusal(extensions, suite_chacha20), 47);
+    }
+    {
+        Bytes extensions = supported_versions();
+        append(extensions, extension(5, Bytes {}));
         CHECK_EQ(refusal(extensions, suite_chacha20), 110);
+    }
+    // The same extension twice in one block.
+    {
+        Bytes extensions = supported_versions();
+        append(extensions, extension(44, cookie_value("twice")));
+        append(extensions, extension(44, cookie_value("twice")));
+        CHECK_EQ(refusal(extensions, suite_chacha20), 47);
     }
     // A suite that was never offered (0x1302 is AES-256-GCM, which is not ours).
     {
@@ -466,6 +481,117 @@ void test_retry_request()
         tls::TlsOutput second;
         CHECK(!engine.feed(server_hello(session_id, suite_aes_128_gcm, hello_extensions), second));
         CHECK_EQ(alert_description(second.to_send), 47);
+    }
+}
+
+// ---- the extension rules of §4.2, against crafted hellos
+
+// A ServerHello's key share: one entry, the group and its key.
+Bytes key_share_entry(std::uint16_t group, Bytes const& key)
+{
+    Bytes body;
+    put16(body, group);
+    put16(body, static_cast<std::uint16_t>(key.size()));
+    append(body, key);
+    return extension(51, body);
+}
+
+void test_extension_rules()
+{
+    tls::TlsConfig const config = test_config();
+    Bytes const session_id = session_id_of(config);
+    Bytes const x25519_key(32, 0x09); // the base point: a valid share
+    auto plain_refusal = [&](tls::TlsConfig const& with, Bytes const& extensions, std::string& error) {
+        tls::TlsEngine engine(with);
+        engine.start();
+        tls::TlsOutput out;
+        bool const ok = engine.feed(server_hello(session_id, suite_chacha20, extensions), out);
+        CHECK(!ok);
+        CHECK(engine.state() == tls::TlsState::Failed);
+        error = engine.error();
+        return alert_description(out.to_send);
+    };
+    std::string error;
+
+    // §4.2.8: a hello that carried an empty key-share list asked the server
+    // to name a group, which only a retry request can do; a plain hello
+    // answering it with a share is refused, before its point is looked at.
+    {
+        tls::TlsConfig empty = config;
+        empty.empty_key_share = true;
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        CHECK_EQ(plain_refusal(empty, extensions, error), 47);
+        CHECK(error.find("retry") != std::string::npos);
+    }
+    // The same answer to a hello that did carry a share goes through.
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello(session_id, suite_chacha20, extensions), out));
+        CHECK(engine.state() == tls::TlsState::WaitEncryptedExtensions);
+    }
+    // §4.2: an extension twice in a ServerHello.
+    {
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        append(extensions, supported_versions());
+        CHECK_EQ(plain_refusal(config, extensions, error), 47);
+        CHECK(error.find("twice") != std::string::npos);
+    }
+    // §4.2: server_name was offered, but a 1.3 ServerHello is not where its
+    // acknowledgement belongs (EncryptedExtensions is): illegal_parameter.
+    {
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        append(extensions, extension(0, Bytes {}));
+        CHECK_EQ(plain_refusal(config, extensions, error), 47);
+        CHECK(error.find("no place") != std::string::npos);
+    }
+    // §4.2: an extension never offered (status_request) in a ServerHello.
+    {
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        append(extensions, extension(5, Bytes {}));
+        CHECK_EQ(plain_refusal(config, extensions, error), 110);
+        CHECK(error.find("not offered") != std::string::npos);
+    }
+    // The 1.2 answer under the same rules: renegotiation_info twice, and a
+    // server_name acknowledgement when no name was sent (an IP literal).
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        Bytes extensions = extension(0xff01, Bytes { 0x00 });
+        append(extensions, extension(0xff01, Bytes { 0x00 }));
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session_id, 0xc02f, extensions, false), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+        CHECK(engine.error().find("twice") != std::string::npos);
+    }
+    {
+        tls::TlsConfig literal = config;
+        literal.server_name.clear();
+        tls::TlsEngine engine(literal);
+        engine.start();
+        Bytes extensions = extension(0xff01, Bytes { 0x00 });
+        append(extensions, extension(0, Bytes {}));
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session_id, 0xc02f, extensions, false), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+        CHECK(engine.error().find("no place") != std::string::npos);
+    }
+    // And with the name sent, the acknowledgement is taken.
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        Bytes extensions = extension(0xff01, Bytes { 0x00 });
+        append(extensions, extension(0, Bytes {}));
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello_12(session_id, 0xc02f, extensions, false), out));
+        CHECK(engine.state() == tls::TlsState::WaitCertificate);
     }
 }
 
@@ -984,6 +1110,7 @@ void test_live_handshake()
 int main(int argc, char** argv)
 {
     test_retry_request();
+    test_extension_rules();
     test_version_choice();
 #ifndef _WIN32
     ::signal(SIGALRM, on_alarm);

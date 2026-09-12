@@ -332,8 +332,41 @@ std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encodin
     return std::nullopt; // unknown encoding
 }
 
+namespace {
+
+// The revocation lists a chain's validation asks for come over plain HTTP
+// through this same client: installed on the platform seam once, by the
+// first fetch of the process. Such a fetch carries no cookies, no cache and
+// no pool, follows no redirect (a hop onto https would start a handshake
+// from inside a handshake), and is bounded in size and in how long the
+// point may keep it waiting; anything but a 200 is nothing.
+void install_revocation_fetch()
+{
+    static bool const installed = [] {
+        platform::set_revocation_fetch([](std::string const& text) -> std::vector<std::uint8_t> {
+            std::optional<Url> const url = parse_url(text);
+            if (!url || url->scheme != "http")
+                return {};
+            FetchOptions options;
+            options.max_body = 8u * 1024u * 1024u;
+            options.follow_redirects = false;
+            options.receive_timeout_ms = 5000;
+            options.headers.push_back({ "Accept", "application/pkix-crl, */*;q=0.1" });
+            FetchResult result = fetch(*url, options);
+            if (!result.response || result.response->status != 200)
+                return {};
+            return std::move(result.response->body);
+        });
+        return true;
+    }();
+    static_cast<void>(installed);
+}
+
+}
+
 FetchResult fetch(Url const& url, FetchOptions const& options)
 {
+    install_revocation_fetch();
     // Synthesized schemes resolve without touching the network.
     if (url.scheme == "data") {
         std::optional<DataUrlPayload> payload = parse_data_url(url);
@@ -417,6 +450,8 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
             if (options.pool)
                 options.pool->note_opened();
         }
+        if (options.receive_timeout_ms > 0)
+            connection->set_receive_timeout(options.receive_timeout_ms);
 
         std::string target = current.serialize_path();
         if (target.empty())

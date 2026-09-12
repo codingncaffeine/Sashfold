@@ -105,6 +105,7 @@ add_library(sashfold_core STATIC
   src/net/tls/X509.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
+  src/platform/Tls.cpp
   src/svg/Raster.cpp
   src/svg/Svg.cpp
   src/text/Cff.cpp

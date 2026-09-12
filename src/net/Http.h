@@ -83,6 +83,11 @@ struct FetchOptions {
     std::vector<Header> headers;
     std::vector<std::uint8_t> body;
     bool follow_redirects = true;
+    // How long a single read of the response may wait for the server, in
+    // milliseconds; zero waits for as long as the server takes, which is
+    // what a page load does. A request that must not hang the caller (a
+    // revocation list inside a handshake) sets a bound.
+    int receive_timeout_ms = 0;
 };
 
 struct FetchResult {

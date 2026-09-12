@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -293,6 +294,24 @@ int main()
         CHECK(result.response && text_of(result.response->body) == "ok");
         server.finish();
         CHECK(head_says(server.heads(), 0, "Connection: close\r\n"));
+    }
+
+    // --- A server that never answers, against a receive timeout -------------
+    // The listener takes the connection into its backlog and nobody reads
+    // from it (no responses, so the server thread has already left): the
+    // fetch with a bound returns within the bound and a little, not never.
+    {
+        CountingServer server({});
+        net::FetchOptions options;
+        options.receive_timeout_ms = 300;
+        auto const started = std::chrono::steady_clock::now();
+        net::FetchResult const result = net::fetch(server.url("/silent"), options);
+        auto const waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+        CHECK(!result.response);
+        CHECK(!result.error.empty());
+        CHECK(waited >= 250);
+        CHECK(waited < 5000);
+        server.finish();
     }
 
     // --- The server asks for a close -----------------------------------------

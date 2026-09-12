@@ -229,12 +229,15 @@ Verdict validate_chain(std::vector<Certificate> const& chain, std::string const&
     }
 
     // Revocation: the leaf's first HTTP CRL, when a fetcher is given. A CRL
-    // that cannot be fetched or parsed is a soft failure (design §6).
+    // that cannot be fetched or parsed, one not signed by the issuer, or one
+    // whose issuing distribution point puts the leaf outside its scope is a
+    // soft failure (design §6): no information, not a refusal.
     if (fetch_crl && !leaf.crl_distribution_points.empty()) {
         Certificate const* const issuer = full.size() > 1 ? full[1] : nullptr;
-        std::vector<std::uint8_t> const bytes = fetch_crl(leaf.crl_distribution_points.front());
+        std::string const& point = leaf.crl_distribution_points.front();
+        std::vector<std::uint8_t> const bytes = fetch_crl(point);
         if (!bytes.empty()) {
-            if (std::optional<Crl> const crl = parse_crl(bytes)) {
+            if (std::optional<Crl> const crl = parse_crl(bytes); crl && crl->covers_leaf(point)) {
                 bool const signed_ok = issuer && verify_signature(issuer->public_key, crl->signature_algorithm, crl->tbs(), crl->signature);
                 if (signed_ok && crl->revokes(leaf.serial))
                     return { false, "the certificate has been revoked" };
@@ -243,6 +246,33 @@ Verdict validate_chain(std::vector<Certificate> const& chain, std::string const&
     }
 
     return { true, {} };
+}
+
+std::vector<std::uint8_t> CrlCache::get(std::string const& url, std::int64_t now)
+{
+    for (auto const& [key, entry] : m_entries) {
+        if (key == url && now < entry.expires)
+            return entry.bytes;
+    }
+    std::vector<std::uint8_t> bytes;
+    if (m_fetch) {
+        ++m_fetches;
+        bytes = m_fetch(url);
+    }
+    std::int64_t expires = now + failure_hold_seconds;
+    if (!bytes.empty()) {
+        expires = now + unnamed_hold_seconds;
+        if (std::optional<Crl> const crl = parse_crl(bytes); crl && crl->next_update)
+            expires = std::min(*crl->next_update, now + longest_hold_seconds);
+    }
+    std::erase_if(m_entries, [&](auto const& entry) { return entry.first == url || now >= entry.second.expires; });
+    m_entries.emplace_back(url, Entry { bytes, expires });
+    return bytes;
+}
+
+HttpFetch CrlCache::fetcher(std::int64_t now)
+{
+    return [this, now](std::string const& url) { return get(url, now); };
 }
 
 }
