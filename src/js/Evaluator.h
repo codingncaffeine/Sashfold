@@ -240,8 +240,11 @@ struct Interpreter::Impl {
     bool eval_declaration_instantiation(Program const& program, Environment* variable, Environment* lexical, bool strict,
         PrivateEnvironment* private_environment);
     Environment* variable_environment_of(Environment* environment);
+    // `caller` is the program the direct eval was written in, whose script
+    // or module the eval code inherits (PerformEval §19.2.1.1); the
+    // indirect form runs from the `eval` function itself and passes none.
     std::optional<Value> perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct,
-        PrivateEnvironment* private_environment);
+        PrivateEnvironment* private_environment, Program const* caller = nullptr);
 
     // ---- expressions
     std::optional<Value> evaluate(Expression const* expression, Context& cx);

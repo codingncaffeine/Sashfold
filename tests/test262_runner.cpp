@@ -292,14 +292,36 @@ RunResult async_verdict(std::string const& printed)
     return { true, "" };
 }
 
+// The loader INTERPRETING.md asks of a host: a specifier is "the name of
+// a file within the same directory" as the referrer, and a key is that
+// file's contents. Scripts get it too — a script's `import()` resolves
+// against the test's own path, which is the name it runs under.
+void install_module_hooks(js::Interpreter& interpreter)
+{
+    interpreter.set_module_hooks(
+        [](std::string_view referrer, std::string_view specifier, std::string&) -> std::optional<std::string> {
+            std::filesystem::path const base = std::filesystem::path(std::string(referrer)).parent_path();
+            return (base / std::string(specifier)).lexically_normal().generic_string();
+        },
+        [](std::string_view key, std::string& error) -> std::optional<std::u16string> {
+            std::optional<std::string> const text = read_file(std::filesystem::path(std::string(key)));
+            if (!text) {
+                error = "Cannot find module '" + std::string(key) + "'";
+                return std::nullopt;
+            }
+            return js::utf16_from_utf8(*text);
+        });
+}
+
 // One test in one mode: a fresh realm, the harness, the test.
-RunResult run_one(std::filesystem::path const& root, std::string const& source, Metadata const& meta, Mode mode,
-    int timeout_ms)
+RunResult run_one(std::filesystem::path const& root, std::filesystem::path const& path, std::string const& source,
+    Metadata const& meta, Mode mode, int timeout_ms)
 {
     js::Interpreter interpreter;
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
     auto const printed = install_host(interpreter);
+    install_module_hooks(interpreter);
     if (mode != Mode::Raw) {
         RunResult failure;
         if (!load_harness(root, interpreter, meta, failure))
@@ -307,7 +329,7 @@ RunResult run_one(std::filesystem::path const& root, std::string const& source, 
     }
 
     std::string program = mode == Mode::Strict ? "\"use strict\";\n" + source : source;
-    js::Outcome const outcome = interpreter.run_script(program, "test");
+    js::Outcome const outcome = interpreter.run_script(program, path.lexically_normal().generic_string());
     // The job queue drains before the verdict, as a host's microtask
     // checkpoint would: an async test's $DONE runs from a reaction job.
     if (!interpreter.terminated())
@@ -352,20 +374,7 @@ RunResult run_module(std::filesystem::path const& root, std::filesystem::path co
         if (!load_harness(root, interpreter, meta, failure))
             return failure;
     }
-    interpreter.set_module_hooks(
-        [](std::string_view referrer, std::string_view specifier, std::string&) -> std::optional<std::string> {
-            // "the name of a file within the same directory" as the referrer.
-            std::filesystem::path const base = std::filesystem::path(std::string(referrer)).parent_path();
-            return (base / std::string(specifier)).lexically_normal().generic_string();
-        },
-        [](std::string_view key, std::string& error) -> std::optional<std::u16string> {
-            std::optional<std::string> const text = read_file(std::filesystem::path(std::string(key)));
-            if (!text) {
-                error = "Cannot find module '" + std::string(key) + "'";
-                return std::nullopt;
-            }
-            return js::utf16_from_utf8(*text);
-        });
+    install_module_hooks(interpreter);
 
     bool const negative = !meta.negative_type.empty();
     auto const verdict = [&](std::string const& phase, std::string const& described) -> RunResult {
@@ -684,7 +693,7 @@ int main(int argc, char** argv)
                 }
                 result = { true, "" };
                 for (Mode const mode : modes) {
-                    RunResult const one = run_one(root, *source, meta, mode, timeout_ms);
+                    RunResult const one = run_one(root, root / tests[i].rel, *source, meta, mode, timeout_ms);
                     if (!one.pass) {
                         result = one;
                         if (mode == Mode::Strict)

@@ -69,6 +69,8 @@ namespace sashfold::js {
     X(ForInStart, 0) X(ForInNext, 1) /* a: register */                                                              \
     /* suspension */                                                                                               \
     X(Yield, 0) /* flags 1: the operand is already an iterator result */ X(Await, 0)                               \
+    /* modules */                                                                                                  \
+    X(ImportCall, -1) /* [specifier, options]: a promise of the namespace */ X(ImportMeta, 1)                       \
     X(Nop, 0)
 
 enum class Opcode : std::uint8_t {

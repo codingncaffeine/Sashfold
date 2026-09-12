@@ -1131,13 +1131,21 @@ private:
             emit(Opcode::Await);
             compile_resume_dispatch(false);
             return;
-        case NodeType::ImportCall:
-            // Not written yet: the call names itself rather than compiling
-            // to something that is not it.
-            fail("dynamic import() is not supported yet");
+        case NodeType::ImportCall: {
+            // §13.3.10.1: the specifier and then the options — undefined
+            // when the call gave none, which is what "absent" means to
+            // the instruction — and the opcode does the rest.
+            auto const& call = *static_cast<ImportCall const*>(expression);
+            compile_expression(call.specifier);
+            if (call.options != nullptr)
+                compile_expression(call.options);
+            else
+                emit(Opcode::PushUndefined);
+            emit(Opcode::ImportCall);
             return;
+        }
         case NodeType::ImportMeta:
-            fail("import.meta is not supported yet");
+            emit(Opcode::ImportMeta);
             return;
         default:
             break;

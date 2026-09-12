@@ -215,7 +215,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             return arguments[0];
         if (!step())
             return std::nullopt;
-        return perform_eval(arguments[0].as_string()->view(), frame.envs.back(), frame.strict, Value::empty(), true, frame.private_environment);
+        return perform_eval(arguments[0].as_string()->view(), frame.envs.back(), frame.strict, Value::empty(), true, frame.private_environment,
+            frame.program);
     };
     auto call_with = [&](Instruction const& ins, Value const& callee, Value const& this_value, Args arguments, bool eval) -> std::optional<Value> {
         if (eval && callee.is_object() && callee.as_object() == self.intrinsics().eval)
@@ -1138,6 +1139,31 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.result = frame.pop();
             frame.resume_pending = true;
             return RunStatus::Awaiting;
+
+        // ---- modules
+        case Opcode::ImportCall: {
+            // The specifier sits below the options; both stay on the
+            // stack — and so traced — until the promise replaces them.
+            Value const specifier = frame.peek(1);
+            Value const options = frame.peek(0);
+            std::optional<Value> const promise = self.perform_import_call(frame.program, specifier, options);
+            if (!promise) {
+                ok = false;
+                break;
+            }
+            frame.pop();
+            frame.top() = *promise;
+            break;
+        }
+        case Opcode::ImportMeta: {
+            std::optional<Value> const meta = self.import_meta_for(frame.program);
+            if (!meta) {
+                ok = false;
+                break;
+            }
+            frame.push(*meta);
+            break;
+        }
         case Opcode::Nop:
             break;
         }

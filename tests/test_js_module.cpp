@@ -22,11 +22,14 @@ using namespace sashfold;
 namespace {
 
 // A realm whose module loader reads from a map of key → source; a
-// specifier is a key as written (no resolution beyond that).
+// specifier is a key as written (no resolution beyond that), and every
+// resolution is logged so that a test can see which referrer it was
+// asked about.
 struct ModuleRealm {
     js::Interpreter interpreter;
     std::map<std::string, std::string> files;
     std::string console; // what console.* printed, one line each
+    std::string resolutions; // "<referrer>|<specifier>" per resolver call, one a line
 
     ModuleRealm()
     {
@@ -35,7 +38,8 @@ struct ModuleRealm {
             console += std::string(message) + "\n";
         };
         interpreter.set_module_hooks(
-            [this](std::string_view, std::string_view specifier, std::string& error) -> std::optional<std::string> {
+            [this](std::string_view referrer, std::string_view specifier, std::string& error) -> std::optional<std::string> {
+                resolutions += std::string(referrer) + "|" + std::string(specifier) + "\n";
                 if (!files.contains(std::string(specifier))) {
                     error = "no module named '" + std::string(specifier) + "'";
                     return std::nullopt;
@@ -77,6 +81,17 @@ struct ModuleRealm {
             return "rejected: " + interpreter.describe(state->result());
         if (state->state() == js::PromiseObject::State::Pending)
             return "pending";
+        return "";
+    }
+
+    // Runs `source` as a classic script under `name` — the referrer an
+    // import() in it resolves against — and drains the job queue.
+    std::string run_script(std::string const& source, std::string const& name)
+    {
+        js::Outcome const outcome = interpreter.run_script(source, name);
+        if (!outcome.ok)
+            return "threw: " + interpreter.describe(outcome.value);
+        interpreter.run_jobs([this](js::Value const& thrown) { console += "job threw " + interpreter.describe(thrown) + "\n"; });
         return "";
     }
 };
@@ -320,6 +335,236 @@ void test_import_and_export_of_index_names()
     CHECK_JS_STRING(realm.interpreter, "out", "zero|zero|zero|zero|0,a b|true|0,a b");
 }
 
+void test_dynamic_import()
+{
+    ModuleRealm realm;
+    realm.files["dep"] = "globalThis.evaluations = (globalThis.evaluations || 0) + 1; export const v = 1; export default 'd';";
+    realm.files["main"] = "globalThis.out = [];\n"
+                          "var p = import('dep');\n"
+                          "out.push(p instanceof Promise, p.constructor === Promise, p !== import('dep'));\n"
+                          "var first;\n"
+                          "p.then(function (ns) {\n"
+                          "  first = ns;\n"
+                          "  out.push('v=' + ns.v, 'default=' + ns.default, Object.getPrototypeOf(ns) === null,\n"
+                          "    ns[Symbol.toStringTag], evaluations);\n"
+                          "  return import('dep');\n"
+                          "}).then(function (again) { out.push(again === first, evaluations) });";
+    CHECK_EQ(realm.run("main"), "");
+    // A fresh promise of %Promise% each time; the namespace is the
+    // module's own, with its live export and its default; and however
+    // many times it is imported the body ran once.
+    CHECK_JS_STRING(realm.interpreter, "out.join('|')", "true|true|true|v=1|default=d|true|Module|1|true|1");
+    // Every call asked the host to resolve, even the ones the map answered.
+    CHECK_EQ(realm.resolutions, "main|dep\nmain|dep\nmain|dep\n");
+    CHECK_EQ(realm.console, "");
+}
+
+void test_dynamic_import_failures()
+{
+    ModuleRealm realm;
+    realm.files["dep"] = "export const v = 1;";
+    realm.files["broken"] = "export var = 1;";
+    realm.files["thrower"] = "throw new RangeError('boom');";
+    realm.files["tla"] = "export const v = await 1;";
+    realm.files["main"] = "globalThis.out = [];\n"
+                          "function watch(tag, p) {\n"
+                          "  return p.then(function () { out.push(tag + ':resolved') }, function (e) { out.push(tag + ':' + e.name) });\n"
+                          "}\n"
+                          "var poison = { toString: function () { throw new TypeError('specifier says no') } };\n"
+                          "watch('missing', import('nowhere'));\n"
+                          "watch('tostring', import(poison));\n"
+                          "watch('symbol', import(Symbol('s')));\n"
+                          "watch('parse', import('broken'));\n"
+                          "watch('evaluation', import('thrower'));\n"
+                          "watch('tla', import('tla'));\n"
+                          "watch('options', import('dep', 5));\n"
+                          "watch('with', import('dep', { with: 5 }));\n"
+                          "watch('type', import('dep', { with: { type: 'json' } }));\n"
+                          "watch('value', import('dep', { with: { other: 5 } }));\n"
+                          "watch('unknown', import('dep', { with: { other: 'x' } }));\n"
+                          "watch('both', import('dep', { with: { type: 'json', other: 'x' } }));\n"
+                          "import('dep', { with: { type: 'json' } }).catch(function (e) { globalThis.typeMessage = e.message });\n"
+                          "import('dep', { with: { other: 'x' } }).catch(function (e) { globalThis.otherMessage = e.message });\n"
+                          "import('dep', { with: { type: 'json', other: 'x' } }).catch(function (e) { globalThis.bothMessage = e.message });";
+    // Not one of them throws out of the expression: the module evaluates
+    // to its end and every failure is a rejection. Sorted, because the
+    // order the rejections settle in is not what this is about.
+    CHECK_EQ(realm.run("main"), "");
+    CHECK_JS_STRING(realm.interpreter, "out.slice().sort().join('|')",
+        "both:TypeError|evaluation:RangeError|missing:TypeError|options:TypeError|parse:SyntaxError|symbol:TypeError"
+        "|tla:SyntaxError|tostring:TypeError|type:TypeError|unknown:TypeError|value:TypeError|with:TypeError");
+    // A module type is refused by name, the way a static import's is.
+    CHECK_JS_STRING(realm.interpreter, "typeMessage",
+        "Cannot import 'dep' as a module of type 'json': modules of that type are not supported yet");
+    // An attribute key outside the host's supported set is not left to the
+    // host to ignore: AllImportAttributesSupported is false for it, and
+    // §13.3.10.1 rejects the capability with a TypeError of its own. The
+    // set here holds `type` and nothing else.
+    CHECK_JS_STRING(realm.interpreter, "otherMessage",
+        "Cannot import 'dep' with the import attribute 'other': that attribute is not supported");
+    // That check comes before the host's look at a `type` value, so a
+    // request carrying both is refused for the unsupported key.
+    CHECK_JS_STRING(realm.interpreter, "bothMessage",
+        "Cannot import 'dep' with the import attribute 'other': that attribute is not supported");
+    // What the loader was asked to resolve: only the four requests that got
+    // that far. A bad options argument, a bad attribute value, a module
+    // type and an unsupported attribute key are all refused before the
+    // resolver, so none of them named a module to the host.
+    CHECK_EQ(realm.resolutions, "main|nowhere\nmain|broken\nmain|thrower\nmain|tla\n");
+    // Every rejection had a handler, so nothing was reported unhandled.
+    CHECK_EQ(realm.console, "");
+}
+
+void test_dynamic_import_referrers()
+{
+    ModuleRealm realm;
+    realm.files["dep"] = "export const v = 'dep';";
+    realm.files["helper"] = "export function load() { return import('dep') }";
+    realm.files["caller"] = "import { load } from 'helper'; globalThis.out = []; load().then(function (ns) { out.push(ns.v) });";
+    CHECK_EQ(realm.run("caller"), "");
+    CHECK_JS_STRING(realm.interpreter, "out.join()", "dep");
+    // The referrer is the module the function was written in, not the one
+    // whose code called it.
+    CHECK_EQ(realm.resolutions, "caller|helper\nhelper|dep\n");
+    // A classic script resolves against the name the host ran it under.
+    ModuleRealm script;
+    script.files["dep"] = "export const v = 'dep';";
+    CHECK_EQ(script.run_script("globalThis.out = []; import('dep').then(function (ns) { out.push(ns.v) });", "page.js"), "");
+    CHECK_JS_STRING(script.interpreter, "out.join()", "dep");
+    CHECK_EQ(script.resolutions, "page.js|dep\n");
+    // import.meta is module code only, and the parser says so.
+    CHECK(script.run_script("import.meta;", "page.js").starts_with("threw: SyntaxError"));
+}
+
+void test_dynamic_import_from_eval_code()
+{
+    // Eval code is not a script and not a module: PerformEval (§19.2.1.1)
+    // gives the eval execution context the caller's [[ScriptOrModule]], so
+    // GetActiveScriptOrModule in eval code answers the script or module the
+    // eval was written in, and a relative specifier resolves against that.
+    ModuleRealm realm;
+    realm.files["dep"] = "export const v = 'dep';";
+    realm.files["holder"] = "export function load() { return eval(\"import('dep')\") }";
+    realm.files["main"] = "import { load } from 'holder';\n"
+                          "globalThis.out = [];\n"
+                          "function keep(tag) { return function (ns) { out.push(tag + ':' + ns.v) } }\n"
+                          "eval(\"import('dep')\").then(keep('direct'));\n"
+                          "eval(\"eval(\\\"import('dep')\\\")\").then(keep('nested'));\n"
+                          "eval(\"(function () { return import('dep') })\")().then(keep('fn'));\n"
+                          "function* gen() { yield eval(\"import('dep')\") }\n"
+                          "gen().next().value.then(keep('vm'));\n"
+                          "load().then(keep('holder'));";
+    CHECK_EQ(realm.run("main"), "");
+    CHECK_JS_STRING(realm.interpreter, "out.slice().sort().join('|')", "direct:dep|fn:dep|holder:dep|nested:dep|vm:dep");
+    // Each resolved against a module, never against the eval: the four in
+    // `main` — the plain one, an eval within that eval, the function an
+    // eval made and left behind, and a generator body, which runs on the
+    // bytecode tier — against `main`, and `holder`'s against `holder`.
+    CHECK_EQ(realm.resolutions, "main|holder\nmain|dep\nmain|dep\nmain|dep\nmain|dep\nholder|dep\n");
+    // A classic script is inherited the same way.
+    ModuleRealm script;
+    script.files["dep"] = "export const v = 'dep';";
+    CHECK_EQ(script.run_script("globalThis.out = []; eval(\"import('dep')\").then(function (ns) { out.push(ns.v) });", "page.js"), "");
+    CHECK_JS_STRING(script.interpreter, "out.join()", "dep");
+    CHECK_EQ(script.resolutions, "page.js|dep\n");
+    // The indirect form inherits nothing: it runs from the `eval` function
+    // itself, whose execution context carries no script or module (§10.3.3),
+    // so the host is given a referrer that names no module of the map
+    // rather than the module the call was written in.
+    ModuleRealm indirect;
+    indirect.files["dep"] = "export const v = 'dep';";
+    indirect.files["main"] = "globalThis.out = []; var run = eval;\n"
+                             "run(\"import('dep')\").then(function (ns) { out.push(ns.v) });";
+    CHECK_EQ(indirect.run("main"), "");
+    CHECK_JS_STRING(indirect.interpreter, "out.join()", "dep");
+    CHECK_EQ(indirect.resolutions, "eval|dep\n");
+}
+
+void test_dynamic_import_on_the_bytecode_tier()
+{
+    // An async function's body and a generator's compile to bytecode, so
+    // these two go through the opcodes rather than the tree-walker.
+    ModuleRealm realm;
+    realm.files["dep"] = "export const v = 'vm';";
+    realm.files["main"] = "globalThis.out = [];\n"
+                          "async function viaAwait() { var ns = await import('dep'); return ns.v + ':' + (import.meta === mine) }\n"
+                          "function* viaYield() { yield import('dep'); yield import.meta }\n"
+                          "var mine = import.meta;\n"
+                          "viaAwait().then(function (text) { out.push(text) });\n"
+                          "var iterator = viaYield();\n"
+                          "iterator.next().value.then(function (ns) { out.push('gen:' + ns.v) });\n"
+                          "out.push('genMeta:' + (iterator.next().value === mine));";
+    CHECK_EQ(realm.run("main"), "");
+    CHECK_JS_STRING(realm.interpreter, "out.slice().sort().join('|')", "gen:vm|genMeta:true|vm:true");
+    CHECK_EQ(realm.console, "");
+}
+
+void test_dynamic_import_of_a_failed_module()
+{
+    ModuleRealm realm;
+    realm.files["thrower"] = "globalThis.ran = (globalThis.ran || 0) + 1; throw new RangeError('boom');";
+    realm.files["main"] = "globalThis.out = [];\n"
+                          "function note(tag) { return function (e) { out.push(tag + ':' + e.name + ':' + e.message + ':' + ran) } }\n"
+                          "import('thrower').then(null, note('first'))\n"
+                          "  .then(function () { return import('thrower') }).then(null, note('second'));";
+    CHECK_EQ(realm.run("main"), "");
+    // The body ran once and every later request is the same error.
+    CHECK_JS_STRING(realm.interpreter, "out.join('|')", "first:RangeError:boom:1|second:RangeError:boom:1");
+    CHECK_JS_NUMBER(realm.interpreter, "ran", 1);
+    CHECK_EQ(realm.console, "");
+}
+
+void test_dynamic_import_of_the_running_module()
+{
+    // A module that imports itself while its own body is still running:
+    // the record is linked already, so it must be neither linked nor
+    // evaluated again — the environment its bindings live in has to
+    // survive — and the promise settles with the namespace once the
+    // evaluation under way has ended.
+    ModuleRealm realm;
+    realm.files["self"] = "globalThis.evaluations = (globalThis.evaluations || 0) + 1;\n"
+                          "globalThis.out = [];\n"
+                          "export let counter = 0;\n"
+                          "export default class { value() { return 45 } }\n"
+                          "import('self').then(function (ns) {\n"
+                          "  out.push(new ns.default().value(), ns.default.name, ns.counter, evaluations);\n"
+                          "  counter = 1;\n"
+                          "  out.push(ns.counter);\n"
+                          "});";
+    CHECK_EQ(realm.run("self"), "");
+    CHECK_JS_STRING(realm.interpreter, "out.join('|')", "45|default|0|1|1");
+    CHECK_EQ(realm.console, "");
+    // The record kept the environment it was linked with, so a module
+    // that imports it afterwards still reads the live binding.
+    realm.files["later"] = "import { counter } from 'self'; globalThis.seen = counter;";
+    CHECK_EQ(realm.run("later"), "");
+    CHECK_JS_NUMBER(realm.interpreter, "seen", 1);
+}
+
+void test_import_meta()
+{
+    ModuleRealm realm;
+    realm.files["other"] = "export const meta = import.meta; export function getMeta() { return import.meta }";
+    realm.files["main"] = "import { meta as otherMeta, getMeta } from 'other';\n"
+                          "var mine = import.meta;\n"
+                          "globalThis.out = [mine === import.meta, typeof mine, Object.getPrototypeOf(mine) === null,\n"
+                          "  Object.keys(mine).length, mine === otherMeta, otherMeta === getMeta(),\n"
+                          "  mine === (function () { return import.meta })(), Object.isExtensible(mine)].join('|');\n"
+                          "mine.added = 1; globalThis.out += '|' + import.meta.added;";
+    CHECK_EQ(realm.run("main"), "");
+    // One object per module, the same on every read, ordinary and
+    // extensible with no prototype and, with no host, no properties.
+    CHECK_JS_STRING(realm.interpreter, "out", "true|object|true|0|false|true|true|true|1");
+    // A host's properties are on it from the start.
+    ModuleRealm hosted;
+    hosted.interpreter.set_module_meta_hook([](js::Interpreter& in, js::ModuleRecord& record, js::Object& meta) {
+        meta.put(in.key("url"), js::Value::string(in.string("file:///" + record.key())), js::default_attributes);
+    });
+    hosted.files["main"] = "globalThis.out = [import.meta.url, Object.keys(import.meta).join()].join('|');";
+    CHECK_EQ(hosted.run("main"), "");
+    CHECK_JS_STRING(hosted.interpreter, "out", "file:///main|url");
+}
+
 } // namespace
 
 int main()
@@ -334,5 +579,13 @@ int main()
     test_default_exports();
     test_module_code_semantics();
     test_import_and_export_of_index_names();
+    test_dynamic_import();
+    test_dynamic_import_failures();
+    test_dynamic_import_referrers();
+    test_dynamic_import_from_eval_code();
+    test_dynamic_import_on_the_bytecode_tier();
+    test_dynamic_import_of_a_failed_module();
+    test_dynamic_import_of_the_running_module();
+    test_import_meta();
     return sashfold::test::report("js_module");
 }

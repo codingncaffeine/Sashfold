@@ -1,6 +1,7 @@
 #include "bindings/Internal.h"
 
 #include "html/Serializer.h"
+#include "js/Module.h"
 #include "js/Strings.h"
 
 #include <algorithm>
@@ -644,6 +645,15 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     interpreter.on_console = [this](std::string_view level, std::string_view message) {
         m_internals->console(level, message);
     };
+    // HostGetImportMetaProperties: a module's `import.meta.url` is its own
+    // URL, which is the key the module map named it by. Nothing in a
+    // document makes a module record yet — this realm installs no module
+    // resolver or fetcher and still skips <script type=module> — so the
+    // hook is dormant until module scripts on the page arrive, and the
+    // tests that cover `import.meta` drive a hook of their own.
+    interpreter.set_module_meta_hook([](js::Interpreter& realm_interpreter, js::ModuleRecord& record, js::Object& meta) {
+        meta.put(realm_interpreter.key("url"), js::Value::string(realm_interpreter.string(record.key())), js::default_attributes);
+    });
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
     in.time_origin = in.now();

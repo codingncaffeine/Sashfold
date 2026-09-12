@@ -1829,7 +1829,7 @@ Environment* Interpreter::Impl::variable_environment_of(Environment* environment
 
 // PerformEval (§19.2.1.1) for both the direct and the indirect form.
 std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct,
-    PrivateEnvironment* private_environment)
+    PrivateEnvironment* private_environment, Program const* caller)
 {
     ParseOptions options;
     options.strict = direct && strict_caller;
@@ -1865,6 +1865,15 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
     bool const strict = options.strict || program->is_strict;
     Program const* tree = program.get();
     self.keep(std::move(program));
+    // §19.2.1.1: the eval execution context's [[ScriptOrModule]] is the
+    // one the running context has, which for a direct eval is the caller's.
+    // This program is neither, so what it inherits is recorded against it —
+    // not held on the context, because a function made here outlives the
+    // eval and resolves its own `import()` against the same script or
+    // module. The indirect form runs from the `eval` function, whose
+    // context carries no script or module (§10.3.3), and passes none.
+    if (direct && caller != nullptr)
+        self.note_eval_referrer(*tree, caller);
 
     Environment* outer = direct ? scope : global_lexical;
     Environment* lexical = new_environment(outer);
@@ -1977,11 +1986,27 @@ std::optional<Value> Interpreter::Impl::evaluate(Expression const* expression, C
         }
         return last;
     }
-    case NodeType::ImportCall:
-        // Not written yet: the call names itself.
-        return self.throw_syntax_error("dynamic import() is not supported yet");
+    case NodeType::ImportCall: {
+        // §13.3.10.1: the specifier, then the options, then everything
+        // that can go wrong goes wrong into the promise.
+        auto const& call = *static_cast<ImportCall const*>(expression);
+        std::optional<Value> const specifier = evaluate(call.specifier, cx);
+        if (!specifier)
+            return std::nullopt;
+        Roots const roots(self);
+        self.root(*specifier);
+        Value options = Value::undefined();
+        if (call.options != nullptr) {
+            std::optional<Value> const evaluated = evaluate(call.options, cx);
+            if (!evaluated)
+                return std::nullopt;
+            options = *evaluated;
+            self.root(options);
+        }
+        return self.perform_import_call(cx.program, *specifier, options);
+    }
     case NodeType::ImportMeta:
-        return self.throw_syntax_error("import.meta is not supported yet");
+        return self.import_meta_for(cx.program);
     default:
         break;
     }
@@ -2440,7 +2465,7 @@ std::optional<Value> Interpreter::Impl::evaluate_call(CallExpression const& call
             return arguments[0];
         if (!step())
             return std::nullopt;
-        return perform_eval(arguments[0].as_string()->view(), cx.lexical, cx.strict, Value::empty(), true, cx.private_environment);
+        return perform_eval(arguments[0].as_string()->view(), cx.lexical, cx.strict, Value::empty(), true, cx.private_environment, cx.program);
     }
     if (!Interpreter::is_callable(callee_value))
         return self.throw_type_error(expression_text(callee, cx) + " is not a function");
@@ -3851,7 +3876,42 @@ ModuleRecord* Interpreter::parse_module(std::u16string_view source, std::string 
     }
     ModuleRecord* record = m_heap->allocate<ModuleRecord>(key, std::move(program));
     m_modules.emplace(std::move(key), record);
+    // The tree is how the running code finds its own record: a function
+    // carries the program it was written in, so `import()` in a function
+    // of one module called from another resolves against the first.
+    m_module_programs.emplace(&record->program(), record);
     return record;
+}
+
+// GetActiveScriptOrModule (§9.4.1) as this engine keeps it.
+ModuleRecord* Interpreter::module_of(Program const& program) const
+{
+    auto const found = m_module_programs.find(&program);
+    return found == m_module_programs.end() ? nullptr : found->second;
+}
+
+// GetActiveScriptOrModule for code that may be eval code: an eval Program
+// is not a script and not a module, so the answer is the program it
+// inherited from the context the eval ran in (§19.2.1.1), which is where
+// its relative specifiers resolve against. The loop costs nothing and
+// spells out that a chain cannot go round: note_eval_referrer flattens one
+// eval within another to the script or module at the end of it.
+Program const* Interpreter::referrer_program(Program const* program) const
+{
+    while (program != nullptr) {
+        auto const found = m_eval_referrers.find(program);
+        if (found == m_eval_referrers.end())
+            break;
+        program = found->second;
+    }
+    return program;
+}
+
+void Interpreter::note_eval_referrer(Program const& eval_program, Program const* caller)
+{
+    Program const* const inherited = referrer_program(caller);
+    if (inherited != nullptr && inherited != &eval_program)
+        m_eval_referrers.emplace(&eval_program, inherited);
 }
 
 // HostLoadImportedModule (§16.2.1.8) for every request of the record and,
@@ -3914,6 +3974,238 @@ std::optional<Value> Interpreter::evaluate_module(ModuleRecord& record)
     if (m_call_depth == 0)
         m_stack_base = stack_position();
     return record.evaluate(*this);
+}
+
+// AllImportAttributesSupported (§13.3.10.1): HostGetSupportedImportAttributes
+// answers one key here, `type`, so a request carrying any other key is not
+// supported and the request fails — there is no latitude to ignore it. What
+// a `type` it does carry names is a separate question, asked at load: no
+// module type but JavaScript is written here.
+bool Interpreter::all_import_attributes_supported(std::span<ImportAttribute const> attributes, std::string const& specifier)
+{
+    for (ImportAttribute const& attribute : attributes) {
+        if (attribute.key->view() == u"type")
+            continue;
+        throw_type_error("Cannot import '" + specifier + "' with the import attribute '" + attribute.key->to_utf8()
+            + "': that attribute is not supported");
+        return false;
+    }
+    return true;
+}
+
+// EvaluateImportCall (§13.3.10.1) from its fourth step on: the capability
+// is made before anything else can fail, so the specifier's ToString, the
+// options, the resolution, the fetch, the parse, the link and the
+// evaluation all reject the promise this answers instead of throwing out
+// of the expression. The operands were evaluated by the caller, which is
+// where a throw still propagates.
+std::optional<Value> Interpreter::perform_import_call(Program const* referrer, Value const& specifier, Value const& options)
+{
+    Roots const roots(*this);
+    root(specifier);
+    root(options);
+    std::optional<PromiseCapability> const capability = new_promise_capability(*this, Value::object(m_intrinsics.promise_constructor));
+    if (!capability)
+        return std::nullopt;
+    root(capability->promise);
+    root(capability->resolve);
+    root(capability->reject);
+    // IfAbruptRejectPromise, for every step below.
+    auto reject_pending = [&]() -> std::optional<Value> {
+        if (m_terminated)
+            return std::nullopt;
+        Value const thrown = take_exception();
+        root(thrown);
+        Value const arguments[1] = { thrown };
+        if (!call(capability->reject, Value::undefined(), arguments))
+            return std::nullopt;
+        return capability->promise;
+    };
+    std::optional<JsString*> const specifier_string = to_string(specifier);
+    if (!specifier_string)
+        return reject_pending();
+    root(Value::string(*specifier_string));
+    std::string const specifier_text = (*specifier_string)->to_utf8();
+    // The import attributes of the second argument: the own enumerable
+    // string-keyed properties of its `with`, each value a string.
+    std::vector<ImportAttribute> attributes;
+    if (!options.is_undefined()) {
+        if (!options.is_object()) {
+            throw_type_error("The options of import('" + specifier_text + "') must be an object");
+            return reject_pending();
+        }
+        std::optional<Value> const with = get(options, "with");
+        if (!with)
+            return reject_pending();
+        root(*with);
+        if (!with->is_undefined()) {
+            if (!with->is_object()) {
+                throw_type_error("The 'with' option of import('" + specifier_text + "') must be an object");
+                return reject_pending();
+            }
+            Object& source = *with->as_object();
+            for (PropertyKey const& key : source.own_keys()) {
+                if (key.is_symbol())
+                    continue;
+                std::optional<std::optional<PropertyDescriptor>> const descriptor = get_own_property(source, key);
+                if (!descriptor)
+                    return reject_pending();
+                if (!*descriptor || !(*descriptor)->enumerable.value_or(false))
+                    continue;
+                std::optional<Value> const value = get(*with, key);
+                if (!value)
+                    return reject_pending();
+                JsString* name = m_heap->key_to_string(key);
+                root(Value::string(name));
+                if (!value->is_string()) {
+                    throw_type_error("The import attribute '" + name->to_utf8() + "' must be a string");
+                    return reject_pending();
+                }
+                root(*value);
+                attributes.push_back(ImportAttribute { name, value->as_string() });
+            }
+        }
+    }
+    // AllImportAttributesSupported: an unsupported key is refused with a
+    // TypeError of the capability's own, before the module is named to the
+    // host at all. The values were checked as they were collected, which is
+    // the order §13.3.10.1 reads them in.
+    if (!all_import_attributes_supported(attributes, specifier_text))
+        return reject_pending();
+    // The referrer: the running module's key, or the name the host gave the
+    // script. Eval code has neither of its own and answers with the script
+    // or module it inherited, so a specifier in it resolves against the
+    // same base as one written beside the eval.
+    std::string referrer_key;
+    if (Program const* const origin = referrer_program(referrer); origin != nullptr) {
+        ModuleRecord* const record = module_of(*origin);
+        referrer_key = record != nullptr ? record->key() : origin->name;
+    }
+    if (!load_imported_module(referrer_key, specifier_text, attributes, *capability))
+        return std::nullopt;
+    return capability->promise;
+}
+
+// HostLoadImportedModule (§16.2.1.8) for a dynamic request, and the
+// continuation the specification hands it: load, link, evaluate, and then
+// settle the capability with the module's namespace when the module's own
+// evaluation promise fulfils — as a reaction on that promise, since a
+// module may be waiting on something, not because it has already settled
+// — or with the error of whichever phase failed.
+bool Interpreter::load_imported_module(std::string const& referrer_key, std::string const& specifier,
+    std::span<ImportAttribute const> attributes, PromiseCapability const& capability)
+{
+    Roots const roots(*this);
+    root(capability.promise);
+    root(capability.resolve);
+    root(capability.reject);
+    auto reject_pending = [&]() -> bool {
+        if (m_terminated)
+            return false;
+        Value const thrown = take_exception();
+        root(thrown);
+        Value const arguments[1] = { thrown };
+        return call(capability.reject, Value::undefined(), arguments).has_value();
+    };
+    // The only attribute a host here understands is `type`, and no type
+    // but JavaScript is written: refused by name, as a static import of
+    // the same attribute is refused at load.
+    for (ImportAttribute const& attribute : attributes) {
+        if (attribute.key->view() == u"type") {
+            throw_type_error("Cannot import '" + specifier + "' as a module of type '" + attribute.value->to_utf8()
+                + "': modules of that type are not supported yet");
+            return reject_pending();
+        }
+    }
+    if (!m_module_resolver || !m_module_fetcher) {
+        throw_type_error("Cannot load module '" + specifier + "': this host loads no modules");
+        return reject_pending();
+    }
+    std::string error;
+    std::optional<std::string> const key = m_module_resolver(referrer_key, specifier, error);
+    if (!key) {
+        throw_type_error(error.empty() ? "Failed to resolve module specifier '" + specifier + "'" : error);
+        return reject_pending();
+    }
+    ModuleRecord* record = find_module(*key);
+    if (record == nullptr) {
+        std::optional<std::u16string> const source = m_module_fetcher(*key, error);
+        if (!source) {
+            throw_type_error(error.empty() ? "Failed to fetch module '" + *key + "'" : error);
+            return reject_pending();
+        }
+        record = parse_module(*source, *key);
+        if (record == nullptr)
+            return reject_pending();
+    }
+    if (!load_module(*record))
+        return reject_pending();
+    // Only a module that has never been linked is linked here. Running
+    // InitializeEnvironment a second time would give the record a fresh
+    // environment and leave the old one holding every value the module
+    // had already initialised — and every importer's indirect bindings
+    // pointing into a dead zone that never ends. A module importing
+    // itself while its own body runs is exactly that case.
+    if (record->status() == ModuleRecord::Status::Unlinked && !link_module(*record))
+        return reject_pending();
+    // The map is keyed, so a module already evaluated is not evaluated
+    // again and one that threw answers its remembered error. A module
+    // whose evaluation is under way already has the promise that will say
+    // how it ended, and must not be started a second time.
+    Value promise = record->evaluation_promise();
+    if (promise.is_empty()) {
+        std::optional<Value> const evaluated = evaluate_module(*record);
+        if (!evaluated)
+            return reject_pending();
+        promise = *evaluated;
+    }
+    root(promise);
+    // GetModuleNamespace: one object per record, whatever the evaluation
+    // does next, so the reaction below has only to hand it over.
+    Object* namespace_object = record->get_namespace(*this);
+    root(Value::object(namespace_object));
+    ClosureFunction* on_fulfilled = new_closure("", 1, { capability.resolve, Value::object(namespace_object) },
+        [](Interpreter& in, ClosureFunction& self, Value const&, std::span<Value const>) -> std::optional<Value> {
+            Value const arguments[1] = { self.slot(1) };
+            if (!in.call(self.slot(0), Value::undefined(), arguments))
+                return std::nullopt;
+            return Value::undefined();
+        });
+    root(Value::object(on_fulfilled));
+    ClosureFunction* on_rejected = new_closure("", 1, { capability.reject },
+        [](Interpreter& in, ClosureFunction& self, Value const&, std::span<Value const> arguments) -> std::optional<Value> {
+            Value const reason[1] = { arguments.empty() ? Value::undefined() : arguments[0] };
+            if (!in.call(self.slot(0), Value::undefined(), reason))
+                return std::nullopt;
+            return Value::undefined();
+        });
+    root(Value::object(on_rejected));
+    perform_then(*this, *static_cast<PromiseObject*>(promise.as_object()), Value::object(on_fulfilled),
+        Value::object(on_rejected), std::nullopt);
+    return true;
+}
+
+// ImportMeta : import.meta (§13.3.12): an ordinary object with no
+// prototype, one per module record, made when the expression is first
+// evaluated and given whatever properties the host adds then. The
+// SyntaxError below is unreachable through the parser, which refuses
+// `import.meta` outside module code; it is here so that a caller without
+// a record cannot get an object that belongs to no module.
+std::optional<Value> Interpreter::import_meta_for(Program const* referrer)
+{
+    Program const* const origin = referrer_program(referrer);
+    ModuleRecord* const record = origin != nullptr ? module_of(*origin) : nullptr;
+    if (record == nullptr)
+        return throw_syntax_error("Cannot use 'import.meta' outside a module");
+    if (Object* const existing = record->import_meta())
+        return Value::object(existing);
+    Roots const roots(*this);
+    Object* meta = m_heap->allocate<Object>(nullptr);
+    root(Value::object(meta));
+    record->set_import_meta(meta);
+    if (m_module_meta_hook)
+        m_module_meta_hook(*this, *record, *meta);
+    return Value::object(meta);
 }
 
 std::optional<Value> Interpreter::call(Value const& callee, Value const& this_value, std::span<Value const> arguments)
@@ -3982,7 +4274,9 @@ Outcome Interpreter::call_outcome(Value const& callee, Value const& this_value, 
 std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environment* scope, bool strict, Value this_value,
     PrivateEnvironment* private_environment)
 {
-    return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true, private_environment);
+    // No caller program: the `eval` function's own context has no script or
+    // module, so eval code reached this way inherits none either.
+    return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true, private_environment, nullptr);
 }
 
 std::optional<Value> Interpreter::compile_function(std::u16string_view parameters, std::u16string_view body, Environment* scope,

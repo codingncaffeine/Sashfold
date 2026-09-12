@@ -200,6 +200,34 @@ public:
     bool link_module(ModuleRecord&);
     std::optional<Value> evaluate_module(ModuleRecord&);
 
+    // `import(specifier, options)` (§13.3.10) and `import.meta` (§13.3.12),
+    // for both execution tiers: the tree-walker's two cases and the VM's
+    // two opcodes call these with the operands already evaluated.
+    // `referrer` is the program the running code was parsed from — it
+    // names the module, or the script, the specifier is resolved against.
+    // perform_import_call answers a promise whatever happens: from the
+    // specifier's ToString onwards every failure rejects it rather than
+    // propagating, and nullopt means only that the capability itself
+    // could not be made. import_meta_for answers the running module's
+    // meta object, made on the first request and kept on its record.
+    std::optional<Value> perform_import_call(Program const* referrer, Value const& specifier, Value const& options);
+    std::optional<Value> import_meta_for(Program const* referrer);
+    // GetActiveScriptOrModule's answer for a program: the record it was
+    // parsed into, or null for a classic script.
+    ModuleRecord* module_of(Program const&) const;
+    // Eval code is neither a script nor a module, and PerformEval
+    // (§19.2.1.1) gives the eval execution context the caller's
+    // [[ScriptOrModule]]: this walks a program out to the script or module
+    // whose it is, which for eval code is the one the eval was written in —
+    // and for a function made in eval code, which outlives the eval, the
+    // same one. Every other program answers itself.
+    Program const* referrer_program(Program const* program) const;
+    // HostGetImportMetaProperties: the properties the host puts on a
+    // fresh `import.meta` — `url` for a document. Without it the object
+    // is empty, which is what a bare engine's meta object has.
+    using ModuleMetaHook = std::function<void(Interpreter&, ModuleRecord&, Object& meta)>;
+    void set_module_meta_hook(ModuleMetaHook hook) { m_module_meta_hook = std::move(hook); }
+
     // Calling into script from C++ (bindings, the event loop).
     std::optional<Value> call(Value const& callee, Value const& this_value, std::span<Value const> arguments);
     std::optional<Value> construct(Value const& callee, std::span<Value const> arguments);
@@ -415,6 +443,19 @@ public:
 private:
     friend struct Impl;
     friend class ScriptFunction;
+    // HostLoadImportedModule for a dynamic request, and the continuation
+    // after it: the graph is loaded, linked and evaluated, and the
+    // capability settles with the namespace or with the error of
+    // whichever phase failed. False means the realm was terminated or a
+    // settling call itself failed; every other failure is a rejection.
+    bool load_imported_module(std::string const& referrer_key, std::string const& specifier,
+        std::span<ImportAttribute const> attributes, PromiseCapability const& capability);
+    // AllImportAttributesSupported (§13.3.10.1): HostGetSupportedImportAttributes
+    // answers one key here, `type`, so a request carrying any other key is
+    // not supported at all. False with the TypeError pending then.
+    bool all_import_attributes_supported(std::span<ImportAttribute const> attributes, std::string const& specifier);
+    // Records what an eval Program inherited its [[ScriptOrModule]] from.
+    void note_eval_referrer(Program const& eval_program, Program const* caller);
     std::unique_ptr<Heap> m_heap;
     std::unique_ptr<Impl> m_impl;
     Intrinsics m_intrinsics;
@@ -423,8 +464,19 @@ private:
     std::deque<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
     std::unordered_map<std::string, ModuleRecord*> m_modules; // the module map (§16.2.1.7); traced
+    // A record by the tree it was parsed from, so that the running code's
+    // module is known from its execution context. The records are traced
+    // through m_modules and own their trees, so no key here dangles.
+    std::unordered_map<Program const*, ModuleRecord*> m_module_programs;
+    // An eval Program against the program it takes its script or module
+    // from: the program of the context the direct eval ran in, already
+    // walked out of any eval of its own, so no chain here is longer than
+    // one hop. Every program is kept for the life of the realm, in
+    // m_programs or on a record, so neither a key nor a value dangles.
+    std::unordered_map<Program const*, Program const*> m_eval_referrers;
     ModuleResolver m_module_resolver;
     ModuleFetcher m_module_fetcher;
+    ModuleMetaHook m_module_meta_hook;
     std::deque<Job> m_jobs; // traced
     std::vector<PromiseObject*> m_unhandled_rejections; // traced; rejected with no handler yet
     Value m_exception;
