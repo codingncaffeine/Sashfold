@@ -31,3 +31,15 @@ navigate http://malware.test/
 assert-title Sashfold kept you off this site
 assert-text 0.0.0.0 malware.test
 assert-blocked 7
+
+# The lists' element-hiding rules: a generic rule hides its element on any
+# page, an exception lifts one, and a rule for another site does nothing
+# here. The page is a data: URL, so it has no host: only the generic rules
+# and the rules written against other sites apply.
+open data:text/html,<title>Hidden</title><p>Kept</p><p class="sponsored">Sponsored</p><p class="promo">Promo</p><p class="banner">Banner</p><p class="offsite">Offsite</p>
+assert-title Hidden
+assert-text Kept
+assert-no-text Sponsored
+assert-text Promo
+assert-text Banner
+assert-no-text Offsite

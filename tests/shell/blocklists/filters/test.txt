@@ -6,3 +6,8 @@
 ||walled.test^$document
 @@||ads.test/allowed^$image
 tracker.test##.banner
+##.sponsored
+##.promo
+#@#.promo
+tracker.test##.banner
+~tracker.test##.offsite

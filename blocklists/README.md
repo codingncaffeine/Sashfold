@@ -6,8 +6,12 @@ before any request leaves the machine. No lookup is ever sent anywhere.
 
 - `filters/*.txt` — filter lists in the Adblock Plus syntax EasyList is
   written in: network rules (`||host^`, `|http://…`, `*`, `^`, `$script`,
-  `$third-party`, `$domain=…`, `@@` exceptions, `$important`). Cosmetic
-  rules (`##`) are read past for now. Drop EasyList here to use it.
+  `$third-party`, `$domain=…`, `@@` exceptions, `$important`) and the
+  element-hiding rules (`##selector`, `site.example##selector`,
+  `~site.example##selector`, `#@#` exceptions), which hide what they name
+  through a stylesheet added to the page. The procedural (`#?#`), style
+  (`#$#`), snippet (`#%#`) and scriptlet (`+js`) forms are read past. Drop
+  EasyList here to use it.
 - `nefarious/*.txt` — sites to keep away from: phishing and malware lists,
   as a hosts file (`0.0.0.0 host`), one host or URL per line, or the same
   Adblock syntax. A site these name is refused as a page too, with no way

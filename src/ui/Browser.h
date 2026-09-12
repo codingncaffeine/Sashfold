@@ -81,6 +81,9 @@ public:
     }
     // How many requests the session's blocklists have refused so far.
     virtual std::size_t blocked_requests() const { return 0; }
+    // The session's lists, for their element-hiding rules; null for a
+    // loader without any.
+    virtual net::Blocklists const* content_lists() const { return nullptr; }
 };
 
 struct HistoryEntry {

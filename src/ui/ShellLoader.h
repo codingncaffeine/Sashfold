@@ -25,6 +25,7 @@ public:
     std::string cookies_for(net::Url const& url) override;
     void set_cookie(net::Url const& url, std::string_view set_cookie_line) override;
     std::size_t blocked_requests() const override { return m_blocked; }
+    net::Blocklists const* content_lists() const override { return &m_blocklists; }
 
     // The lists every request is judged by. A navigation a list refuses
     // fails with an error beginning "blocked by " or, for a site to keep

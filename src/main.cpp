@@ -19,6 +19,7 @@
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 #include "ui/Browser.h"
+#include "ui/Cosmetic.h"
 #include "ui/InternalPages.h"
 #include "ui/PageImages.h"
 #include "ui/Script.h"
@@ -700,8 +701,12 @@ int render_page(std::string const& path, std::string const& output, int viewport
         }
     }
     auto const t1 = clock::now();
-    std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, &loaded.url,
+    std::vector<css::SheetSource> sheets = css::collect_stylesheets(*document, &loaded.url,
         sheet_fetcher(loaded, &sheet_failures), media);
+    if (loaded.loader) {
+        if (std::optional<css::SheetSource> hiding = ui::cosmetic_sheet(loaded.loader->blocklists(), loaded.url, *document))
+            sheets.push_back(std::move(*hiding));
+    }
     std::vector<text::PageFont> const fonts
         = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures), media);
     text::FontManager::instance().set_page_fonts(fonts);
@@ -931,7 +936,12 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
     auto const sheets_started = clock::now();
     std::vector<css::SheetSource> const sheets = [&] {
         auto const first = html::parse_document_bytes(loaded->bytes);
-        return css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
+        std::vector<css::SheetSource> collected = css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
+        if (loaded->loader) {
+            if (std::optional<css::SheetSource> hiding = ui::cosmetic_sheet(loaded->loader->blocklists(), loaded->url, *first))
+                collected.push_back(std::move(*hiding));
+        }
+        return collected;
     }();
     text::FontManager::instance().set_page_fonts(
         css::collect_page_fonts(sheets, sheet_fetcher(*loaded), media));

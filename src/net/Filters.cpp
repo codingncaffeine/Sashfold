@@ -161,10 +161,8 @@ bool FilterList::add_rule(std::string_view line)
         return false; // a comment, or the header
     if (line.find("##") != std::string_view::npos || line.find("#@#") != std::string_view::npos
         || line.find("#?#") != std::string_view::npos || line.find("#$#") != std::string_view::npos
-        || line.find("#%#") != std::string_view::npos) {
-        ++m_counts.cosmetic;
-        return false;
-    }
+        || line.find("#%#") != std::string_view::npos)
+        return add_cosmetic_rule(line);
     Rule rule;
     rule.text = std::string(line);
     std::string_view body = line;
@@ -544,6 +542,117 @@ std::size_t Blocklists::rule_count() const
     std::size_t count = 0;
     for (FilterList const& list : m_lists)
         count += list.size();
+    return count;
+}
+
+// --- Cosmetic rules ----------------------------------------------------------------
+
+// `[domains]##selector` hides, `[domains]#@#selector` lifts; the domains
+// are a comma list, each negated by a leading `~`. The procedural (`#?#`),
+// style-injecting (`#$#`), snippet (`#%#`) and scriptlet (`##+js(`) forms
+// are counted and left, as is a hide in a list of sites to keep away from
+// — that list decides navigations, not what a page shows.
+bool FilterList::add_cosmetic_rule(std::string_view line)
+{
+    if (m_everything) {
+        ++m_counts.unsupported;
+        return false;
+    }
+    std::size_t at = std::string_view::npos;
+    bool exception = false;
+    for (std::string_view const marker : { "#?#", "#$#", "#%#" }) {
+        if (line.find(marker) != std::string_view::npos) {
+            ++m_counts.unsupported;
+            return false;
+        }
+    }
+    if (std::size_t const lift = line.find("#@#"); lift != std::string_view::npos) {
+        at = lift;
+        exception = true;
+    } else {
+        at = line.find("##");
+    }
+    if (at == std::string_view::npos)
+        return false;
+    std::string_view const selector = trim(line.substr(at + (exception ? 3 : 2)));
+    if (selector.empty() || selector.starts_with("+js(")) {
+        ++m_counts.unsupported;
+        return false;
+    }
+    // The procedural pseudo-classes of the extended syntax are not CSS: a
+    // rule using one is left, not handed to the selector parser to drop.
+    for (std::string_view const procedural : { ":has-text(", ":matches-css", ":xpath(", ":min-text-length(", ":upward(",
+             ":remove(", ":style(", ":matches-path(", ":watch-attr(", ":matches-media(", ":matches-prop(", ":others(",
+             ":if(", ":if-not(", ":nth-ancestor(", ":matches-attr(" }) {
+        if (selector.find(procedural) != std::string_view::npos) {
+            ++m_counts.unsupported;
+            return false;
+        }
+    }
+    Cosmetic rule;
+    rule.selector = std::string(selector);
+    rule.exception = exception;
+    std::string_view domains = line.substr(0, at);
+    while (!domains.empty()) {
+        std::size_t const comma = domains.find(',');
+        std::string_view const item = trim(domains.substr(0, comma));
+        domains = comma == std::string_view::npos ? std::string_view() : domains.substr(comma + 1);
+        if (item.empty())
+            continue;
+        if (item.front() == '~')
+            rule.domains_out.push_back(lowercase(item.substr(1)));
+        else
+            rule.domains_in.push_back(lowercase(item));
+    }
+    m_cosmetic.push_back(std::move(rule));
+    ++m_counts.cosmetic;
+    return true;
+}
+
+void FilterList::cosmetic_for(std::string_view host, std::vector<std::string>& hide, std::vector<std::string>& lift) const
+{
+    std::string const page_host = lowercase(host);
+    for (Cosmetic const& rule : m_cosmetic) {
+        if (!rule.domains_in.empty()) {
+            bool inside = false;
+            for (std::string const& domain : rule.domains_in)
+                inside = inside || host_within(page_host, domain);
+            if (!inside)
+                continue;
+        }
+        bool excluded = false;
+        for (std::string const& domain : rule.domains_out)
+            excluded = excluded || host_within(page_host, domain);
+        if (excluded)
+            continue;
+        (rule.exception ? lift : hide).push_back(rule.selector);
+    }
+}
+
+std::vector<std::string> Blocklists::hidden_selectors(std::string_view host) const
+{
+    std::vector<std::string> hide;
+    std::vector<std::string> lift;
+    for (FilterList const& list : m_lists) {
+        if (!list.everything())
+            list.cosmetic_for(host, hide, lift);
+    }
+    std::vector<std::string> out;
+    for (std::string const& selector : hide) {
+        if (std::find(lift.begin(), lift.end(), selector) != lift.end())
+            continue;
+        if (std::find(out.begin(), out.end(), selector) != out.end())
+            continue;
+        out.push_back(selector);
+    }
+    return out;
+}
+
+std::size_t Blocklists::cosmetic_count() const
+{
+    std::size_t count = 0;
+    for (FilterList const& list : m_lists)
+        count += list.cosmetic_rules().size();
     return count;
 }
 

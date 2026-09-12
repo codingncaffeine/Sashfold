@@ -115,6 +115,7 @@ add_library(sashfold_core STATIC
   src/text/TrueType.cpp
   src/text/TrueTypeWriter.cpp
   src/ui/Browser.cpp
+  src/ui/Cosmetic.cpp
   src/ui/Downloads.cpp
   src/ui/Forms.cpp
   src/ui/InternalPages.cpp

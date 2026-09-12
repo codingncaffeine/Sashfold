@@ -3,8 +3,10 @@
 #include "net/Filters.h"
 #include "net/Url.h"
 
+#include <algorithm>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Content blocking: the Adblock Plus syntax — anchors, the separator, the
 // wildcard, exceptions, the type, party, domain and case options, hosts
@@ -209,6 +211,63 @@ void test_blocklists()
     CHECK_EQ(lists.rule_count(), std::size_t { 5 }); // the nefarious list's exception was dropped
 }
 
+// The cosmetic rules: hides for every site and for named sites, negated
+// domains, exceptions that lift a hide from any list, and the forms this
+// engine leaves aside, counted.
+void test_cosmetic()
+{
+    FilterList const a = FilterList::parse(
+        "##.sponsored\n"
+        "example.com##.ad\n"
+        "example.com,news.example##.promo\n"
+        "~example.com##.offsite\n"
+        "sub.example.com,~deep.sub.example.com##.inner\n"
+        "##.lifted\n"
+        "example.com#@#.lifted\n"
+        "example.com##div:has-text(x)\n"
+        "example.com#?#.procedural\n"
+        "example.com##+js(nowebrtc)\n"
+        "example.com#$#body { color: red }\n",
+        "a");
+    CHECK_EQ(a.counts().cosmetic, std::size_t { 7 });
+    CHECK_EQ(a.counts().unsupported, std::size_t { 4 });
+    CHECK_EQ(a.cosmetic_rules().size(), std::size_t { 7 });
+    std::vector<std::string> hide;
+    std::vector<std::string> lift;
+    a.cosmetic_for("www.example.com", hide, lift);
+    CHECK_EQ(hide.size(), std::size_t { 4 }); // sponsored, ad, promo, lifted
+    CHECK_EQ(lift.size(), std::size_t { 1 });
+    CHECK(std::find(hide.begin(), hide.end(), ".offsite") == hide.end());
+    hide.clear();
+    lift.clear();
+    a.cosmetic_for("other.test", hide, lift);
+    CHECK_EQ(hide.size(), std::size_t { 3 }); // sponsored, offsite, lifted
+    CHECK(lift.empty());
+    hide.clear();
+    a.cosmetic_for("deep.sub.example.com", hide, lift);
+    CHECK(std::find(hide.begin(), hide.end(), ".inner") == hide.end());
+    hide.clear();
+    a.cosmetic_for("sub.example.com", hide, lift);
+    CHECK(std::find(hide.begin(), hide.end(), ".inner") != hide.end());
+
+    Blocklists lists;
+    lists.add(a);
+    lists.add(FilterList::parse("##.sponsored\n#@#.ad\nexample.com##.second\n", "b"));
+    CHECK_EQ(lists.cosmetic_count(), std::size_t { 10 });
+    std::vector<std::string> const on_example = lists.hidden_selectors("example.com");
+    // .ad is lifted by the other list everywhere, .lifted on this site; the
+    // repeated .sponsored appears once.
+    CHECK_EQ(on_example.size(), std::size_t { 3 });
+    CHECK(std::find(on_example.begin(), on_example.end(), ".sponsored") != on_example.end());
+    CHECK(std::find(on_example.begin(), on_example.end(), ".promo") != on_example.end());
+    CHECK(std::find(on_example.begin(), on_example.end(), ".second") != on_example.end());
+    std::vector<std::string> const elsewhere = lists.hidden_selectors("");
+    CHECK_EQ(elsewhere.size(), std::size_t { 3 }); // sponsored, offsite, lifted
+    // A nefarious list contributes no hiding.
+    lists.add(FilterList::parse("##.x\n", "n", true));
+    CHECK_EQ(lists.hidden_selectors("").size(), std::size_t { 3 });
+}
+
 } // namespace
 
 int main()
@@ -220,5 +279,6 @@ int main()
     test_hosts_and_bare_lists();
     test_tokens();
     test_blocklists();
+    test_cosmetic();
     return sashfold::test::report("filters");
 }

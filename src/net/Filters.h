@@ -3,11 +3,14 @@
 // Content blocking: filter lists in the Adblock Plus syntax that EasyList
 // is written in, hosts files, and lists of hosts or URLs one per line —
 // read from the user's own files and matched against every request the
-// shell makes. Network rules only: the cosmetic rules (`##`) are counted
-// and left for the cosmetic era. Data, not code: a list is a file, updated
-// on the user's schedule, and no lookup ever leaves the machine. The same
-// engine, pointed at a second folder of lists, keeps the shell away from
-// sites named as phishing or malware: those block navigations too.
+// shell makes; and the lists' cosmetic rules (`##selector`, with the
+// domains they are for and the `#@#` exceptions that lift them), which
+// hide elements of a page through a stylesheet the shell adds to it. The
+// procedural and scriptlet forms (`#?#`, `#$#`, `#%#`, `+js`) are counted
+// and left. Data, not code: a list is a file, updated on the user's
+// schedule, and no lookup ever leaves the machine. The same engine,
+// pointed at a second folder of lists, keeps the shell away from sites
+// named as phishing or malware: those block navigations too.
 
 #include "net/Url.h"
 
@@ -53,8 +56,17 @@ public:
     struct Counts {
         std::size_t rules = 0; // blocking rules kept
         std::size_t exceptions = 0; // @@ rules kept
-        std::size_t cosmetic = 0; // ## and kin, not applied
-        std::size_t unsupported = 0; // regular expressions and options this engine does not have
+        std::size_t cosmetic = 0; // ## and #@# rules kept
+        std::size_t unsupported = 0; // regular expressions, options and cosmetic forms this engine does not have
+    };
+
+    // An element-hiding rule: a selector, the domains it is for (none: every
+    // site) and against, and whether it lifts a hide rather than adding one.
+    struct Cosmetic {
+        std::string selector;
+        std::vector<std::string> domains_in;
+        std::vector<std::string> domains_out;
+        bool exception = false;
     };
 
     static FilterList parse(std::string_view text, std::string name, bool everything = false);
@@ -75,6 +87,11 @@ public:
 
     std::size_t size() const { return m_rules.size(); }
 
+    // The cosmetic rules that apply on a page at `host`: the hides into
+    // `hide`, the exceptions into `lift`, each a selector.
+    void cosmetic_for(std::string_view host, std::vector<std::string>& hide, std::vector<std::string>& lift) const;
+    std::vector<Cosmetic> const& cosmetic_rules() const { return m_cosmetic; }
+
 private:
     struct Rule {
         std::string text; // as written
@@ -92,6 +109,7 @@ private:
     };
 
     bool add_rule(std::string_view line);
+    bool add_cosmetic_rule(std::string_view line);
     void index(std::uint32_t id);
     bool matches(Rule const& rule, FilterRequest const& request, std::string const& url_text,
         std::size_t host_at, std::size_t host_end) const;
@@ -100,6 +118,7 @@ private:
     bool m_everything = false;
     Counts m_counts;
     std::vector<Rule> m_rules;
+    std::vector<Cosmetic> m_cosmetic;
     // Every rule is filed under one token of its pattern that any URL it
     // matches must contain whole, so a request tries only the rules whose
     // token it carries; rules with no such token are tried every time.
@@ -126,6 +145,12 @@ public:
     // The rule that blocks the request and the list it came from, or
     // nullopt when the request may go.
     std::optional<Block> blocks(FilterRequest const& request) const;
+
+    // The selectors to hide on a page at `host`: every list's hides for it,
+    // less any selector a list's exception lifts there. In the order the
+    // lists and their rules were read, each selector once.
+    std::vector<std::string> hidden_selectors(std::string_view host) const;
+    std::size_t cosmetic_count() const;
 
     bool empty() const { return m_lists.empty(); }
     std::size_t list_count() const { return m_lists.size(); }

@@ -15,6 +15,7 @@
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
 #include "ui/PageImages.h"
+#include "ui/Cosmetic.h"
 #include "ui/Downloads.h"
 #include "ui/InternalPages.h"
 #include "ui/Reader.h"
@@ -1225,6 +1226,12 @@ struct Browser::Impl {
         std::string const signature = sheet_signature(*tab.document);
         if (signature != tab.sheet_signature || !tab.style_set) {
             tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
+            // The lists' element-hiding rules for this page, last, so their
+            // !important beats the page's own.
+            if (net::Blocklists const* const lists = loader.content_lists()) {
+                if (std::optional<css::SheetSource> hiding = cosmetic_sheet(*lists, page_url, *tab.document))
+                    tab.sheets.push_back(std::move(*hiding));
+            }
             tab.fonts = css::collect_page_fonts(tab.sheets, fetch_font, media_context());
             tab.style_set.reset();
             tab.sheet_signature = signature;
