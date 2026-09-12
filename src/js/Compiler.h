@@ -22,4 +22,12 @@ class Heap;
 // interns the two names the compiler needs of its own.
 std::unique_ptr<CodeBlock> compile_function_body(FunctionNode const& node, Heap& heap, std::string* error);
 
+// The binding of `node`'s parameters when the list is not simple: each
+// parameter taken from the call's arguments by index (a rest parameter
+// gathers the remainder), its default evaluated when the argument is
+// undefined, and the name or pattern initialized in the frame's
+// environment. Runs before the body, on the environment the call's
+// prologue made for the parameters.
+std::unique_ptr<CodeBlock> compile_parameter_list(FunctionNode const& node, Heap& heap, std::string* error);
+
 }

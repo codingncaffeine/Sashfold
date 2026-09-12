@@ -1,4 +1,4 @@
-# test262 tests passing (40121 of 41791) at test262 revision (unrecorded).
+# test262 tests passing (40167 of 41791) at test262 revision (unrecorded).
 # One test per line; a listed test that fails is a regression.
 # Re-bless with: test262_runner <checkout> <directories> <this file> --update
 test/annexB/built-ins/Date/prototype/getYear/B.2.4.js
@@ -20289,6 +20289,7 @@ test/language/expressions/call/spread-sngl-obj-ident.js
 test/language/expressions/call/trailing-comma.js
 test/language/expressions/call/with-base-obj.js
 test/language/expressions/class/accessor-name-inst-computed-in.js
+test/language/expressions/class/accessor-name-inst-computed-yield-expr.js
 test/language/expressions/class/accessor-name-inst/computed-err-evaluation.js
 test/language/expressions/class/accessor-name-inst/computed-err-to-prop-key.js
 test/language/expressions/class/accessor-name-inst/computed-err-unresolvable.js
@@ -20311,6 +20312,7 @@ test/language/expressions/class/accessor-name-inst/literal-string-line-continuat
 test/language/expressions/class/accessor-name-inst/literal-string-single-quote.js
 test/language/expressions/class/accessor-name-inst/literal-string-unicode-escape.js
 test/language/expressions/class/accessor-name-static-computed-in.js
+test/language/expressions/class/accessor-name-static-computed-yield-expr.js
 test/language/expressions/class/accessor-name-static/computed-err-evaluation.js
 test/language/expressions/class/accessor-name-static/computed-err-to-prop-key.js
 test/language/expressions/class/accessor-name-static/computed-err-unresolvable.js
@@ -20614,6 +20616,7 @@ test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-assignment-expression-logical-and.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-assignment-expression-logical-or.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-async-arrow-function-expression.js
+test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-await-expression.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-condition-expression-false.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-condition-expression-true.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-decimal-e-notational-literal.js
@@ -20634,6 +20637,7 @@ test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-null.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-numeric-literal.js
 test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-string-literal.js
+test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-yield-expression.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-additive-expression-add.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-additive-expression-subtract.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-arrow-function-expression.js
@@ -20643,6 +20647,7 @@ test/language/expressions/class/cpn-class-expr-computed-property-name-from-assig
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-assignment-expression-logical-and.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-assignment-expression-logical-or.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-async-arrow-function-expression.js
+test/language/expressions/class/cpn-class-expr-computed-property-name-from-await-expression.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-condition-expression-false.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-condition-expression-true.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-decimal-e-notational-literal.js
@@ -20663,6 +20668,7 @@ test/language/expressions/class/cpn-class-expr-computed-property-name-from-multi
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-null.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-numeric-literal.js
 test/language/expressions/class/cpn-class-expr-computed-property-name-from-string-literal.js
+test/language/expressions/class/cpn-class-expr-computed-property-name-from-yield-expression.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-additive-expression-add.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-additive-expression-subtract.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-arrow-function-expression.js
@@ -20672,6 +20678,7 @@ test/language/expressions/class/cpn-class-expr-fields-computed-property-name-fro
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-assignment-expression-logical-and.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-assignment-expression-logical-or.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-async-arrow-function-expression.js
+test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-await-expression.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-condition-expression-false.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-condition-expression-true.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-decimal-e-notational-literal.js
@@ -20692,6 +20699,7 @@ test/language/expressions/class/cpn-class-expr-fields-computed-property-name-fro
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-null.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-numeric-literal.js
 test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-string-literal.js
+test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-yield-expression.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-additive-expression-add.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-additive-expression-subtract.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-arrow-function-expression.js
@@ -20701,6 +20709,7 @@ test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-assignment-expression-logical-and.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-assignment-expression-logical-or.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-async-arrow-function-expression.js
+test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-await-expression.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-condition-expression-false.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-condition-expression-true.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-decimal-e-notational-literal.js
@@ -20721,6 +20730,7 @@ test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-null.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-numeric-literal.js
 test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-string-literal.js
+test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-yield-expression.js
 test/language/expressions/class/dstr/async-gen-meth-ary-init-iter-close.js
 test/language/expressions/class/dstr/async-gen-meth-ary-init-iter-get-err-array-prototype.js
 test/language/expressions/class/dstr/async-gen-meth-ary-init-iter-get-err.js
@@ -30521,6 +30531,18 @@ test/language/module-code/top-level-await/syntax/early-does-not-propagate-to-fn-
 test/language/module-code/top-level-await/syntax/early-does-not-propagate-to-fn-expr-body.js
 test/language/module-code/top-level-await/syntax/early-does-not-propagate-to-fn-expr-params.js
 test/language/module-code/top-level-await/syntax/early-no-escaped-await.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-array-literal.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-func-expression.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-identifier.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-literal-number.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-literal-string.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-nested.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-new-expr.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-null.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-obj-literal.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-regexp.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-template-literal.js
+test/language/module-code/top-level-await/syntax/export-class-decl-await-expr-this.js
 test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-expr-array-literal.js
 test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-expr-func-expression.js
 test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-expr-identifier.js
@@ -30533,6 +30555,18 @@ test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-e
 test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-expr-regexp.js
 test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-expr-template-literal.js
 test/language/module-code/top-level-await/syntax/export-dflt-assign-expr-await-expr-this.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-array-literal.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-func-expression.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-identifier.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-literal-number.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-literal-string.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-nested.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-new-expr.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-null.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-obj-literal.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-regexp.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-template-literal.js
+test/language/module-code/top-level-await/syntax/export-dft-class-decl-await-expr-this.js
 test/language/module-code/top-level-await/syntax/export-lex-decl-await-expr-array-literal.js
 test/language/module-code/top-level-await/syntax/export-lex-decl-await-expr-func-expression.js
 test/language/module-code/top-level-await/syntax/export-lex-decl-await-expr-identifier.js
@@ -31263,6 +31297,7 @@ test/language/statements/break/S12.8_A9_T1.js
 test/language/statements/break/S12.8_A9_T2.js
 test/language/statements/break/line-terminators.js
 test/language/statements/break/static-init-without-label.js
+test/language/statements/class/accessor-name-inst-computed-yield-expr.js
 test/language/statements/class/accessor-name-inst/computed-err-evaluation.js
 test/language/statements/class/accessor-name-inst/computed-err-to-prop-key.js
 test/language/statements/class/accessor-name-inst/computed-err-unresolvable.js
@@ -31284,6 +31319,7 @@ test/language/statements/class/accessor-name-inst/literal-string-hex-escape.js
 test/language/statements/class/accessor-name-inst/literal-string-line-continuation.js
 test/language/statements/class/accessor-name-inst/literal-string-single-quote.js
 test/language/statements/class/accessor-name-inst/literal-string-unicode-escape.js
+test/language/statements/class/accessor-name-static-computed-yield-expr.js
 test/language/statements/class/accessor-name-static/computed-err-evaluation.js
 test/language/statements/class/accessor-name-static/computed-err-to-prop-key.js
 test/language/statements/class/accessor-name-static/computed-err-unresolvable.js
@@ -31591,6 +31627,7 @@ test/language/statements/class/cpn-class-decl-accessors-computed-property-name-f
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-assignment-expression-logical-and.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-assignment-expression-logical-or.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-async-arrow-function-expression.js
+test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-await-expression.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-condition-expression-false.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-condition-expression-true.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-decimal-e-notational-literal.js
@@ -31611,6 +31648,7 @@ test/language/statements/class/cpn-class-decl-accessors-computed-property-name-f
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-null.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-numeric-literal.js
 test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-string-literal.js
+test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-yield-expression.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-additive-expression-add.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-additive-expression-subtract.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-arrow-function-expression.js
@@ -31620,6 +31658,7 @@ test/language/statements/class/cpn-class-decl-computed-property-name-from-assign
 test/language/statements/class/cpn-class-decl-computed-property-name-from-assignment-expression-logical-and.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-assignment-expression-logical-or.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-async-arrow-function-expression.js
+test/language/statements/class/cpn-class-decl-computed-property-name-from-await-expression.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-condition-expression-false.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-condition-expression-true.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-decimal-e-notational-literal.js
@@ -31640,6 +31679,7 @@ test/language/statements/class/cpn-class-decl-computed-property-name-from-multip
 test/language/statements/class/cpn-class-decl-computed-property-name-from-null.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-numeric-literal.js
 test/language/statements/class/cpn-class-decl-computed-property-name-from-string-literal.js
+test/language/statements/class/cpn-class-decl-computed-property-name-from-yield-expression.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-additive-expression-add.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-additive-expression-subtract.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-arrow-function-expression.js
@@ -31649,6 +31689,7 @@ test/language/statements/class/cpn-class-decl-fields-computed-property-name-from
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-assignment-expression-logical-and.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-assignment-expression-logical-or.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-async-arrow-function-expression.js
+test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-await-expression.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-condition-expression-false.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-condition-expression-true.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-decimal-e-notational-literal.js
@@ -31669,6 +31710,7 @@ test/language/statements/class/cpn-class-decl-fields-computed-property-name-from
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-null.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-numeric-literal.js
 test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-string-literal.js
+test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-yield-expression.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-additive-expression-add.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-additive-expression-subtract.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-arrow-function-expression.js
@@ -31678,6 +31720,7 @@ test/language/statements/class/cpn-class-decl-fields-methods-computed-property-n
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-assignment-expression-logical-and.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-assignment-expression-logical-or.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-async-arrow-function-expression.js
+test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-await-expression.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-condition-expression-false.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-condition-expression-true.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-decimal-e-notational-literal.js
@@ -31698,6 +31741,7 @@ test/language/statements/class/cpn-class-decl-fields-methods-computed-property-n
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-null.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-numeric-literal.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-string-literal.js
+test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-yield-expression.js
 test/language/statements/class/cptn-decl.js
 test/language/statements/class/definition/accessors.js
 test/language/statements/class/definition/basics.js
@@ -37057,9 +37101,11 @@ test/language/statements/for-in/S12.6.4_A7_T1.js
 test/language/statements/for-in/S12.6.4_A7_T2.js
 test/language/statements/for-in/cptn-decl-abrupt-empty.js
 test/language/statements/for-in/cptn-decl-itr.js
+test/language/statements/for-in/cptn-decl-skip-itr.js
 test/language/statements/for-in/cptn-decl-zero-itr.js
 test/language/statements/for-in/cptn-expr-abrupt-empty.js
 test/language/statements/for-in/cptn-expr-itr.js
+test/language/statements/for-in/cptn-expr-skip-itr.js
 test/language/statements/for-in/cptn-expr-zero-itr.js
 test/language/statements/for-in/decl-async-fun.js
 test/language/statements/for-in/decl-async-gen.js

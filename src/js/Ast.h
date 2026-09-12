@@ -334,6 +334,10 @@ struct FunctionNode {
     bool is_method = false;
     bool is_field_initializer = false; // the initializer is expression_body; `arguments` is an early error
     bool is_static_block = false; // `static { … }`: a body, no `return`
+    // A synthetic node the runner makes for a script's or an eval's
+    // statement list, so the bytecode machine can run it as a body: the
+    // compiler tracks its completion value, which is what the run returns.
+    bool is_program_body = false;
     ClassNode const* class_node = nullptr; // for a class constructor, the class whose fields it initialises
     // `function*` / `async function` / `async function*` (§15.5, §15.8,
     // §15.6): a body that can suspend — at a `yield`, at an `await` —

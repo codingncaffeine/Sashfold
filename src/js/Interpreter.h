@@ -441,6 +441,15 @@ public:
     std::optional<Value> compile_function(std::u16string_view parameters, std::u16string_view body,
         Environment* scope = nullptr, DynamicFunctionKind kind = DynamicFunctionKind::Normal);
 
+    // Which tier runs a plain function body: the bytecode machine, which
+    // carries every generator and async body too, or the tree-walking
+    // evaluator it grew out of. The machine is the default;
+    // SASHFOLD_JS_VM=tree in the environment puts plain bodies back on the
+    // evaluator for every interpreter of the process (a differential run),
+    // and the runners' --vm-all pins the machine for one.
+    void set_bytecode_for_all(bool on) { m_bytecode_for_all = on; }
+    bool bytecode_for_all() const { return m_bytecode_for_all; }
+
     // Limits and instrumentation.
     void set_call_depth_limit(int depth) { m_call_depth_limit = depth; }
     int call_depth() const { return m_call_depth; }
@@ -531,6 +540,7 @@ private:
     std::uint32_t m_interrupt_interval = 10000;
     std::uint64_t m_steps = 0;
     bool m_terminated = false;
+    bool m_bytecode_for_all = false;
 };
 
 }

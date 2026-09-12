@@ -30,6 +30,7 @@
 namespace sashfold::js {
 
 class Frame;
+class ClassBuilder;
 class GeneratorObject;
 class AsyncContextObject;
 class AsyncGeneratorObject;
@@ -314,11 +315,34 @@ struct Interpreter::Impl {
     // programs are the realm's for life, so the keys never dangle.
     std::unordered_map<FunctionNode const*, std::unique_ptr<CodeBlock>> code_blocks;
     std::vector<Frame*> vm_frames; // the frames running now, innermost last; traced
+    std::vector<ClassBuilder*> class_builders; // the tree-walker's classes under construction; traced
     CodeBlock const* compiled_body(FunctionNode const& node); // null with a SyntaxError pending
     Frame* new_frame(CodeBlock const& code, Context const& cx);
     Context frame_context(Frame const& frame) const;
     RunStatus vm_run(Frame& frame);
     bool vm_unwind(Frame& frame);
+    // The second tier: a plain body run on the machine (Interpreter::bytecode_for_all),
+    // and a script's or an eval's statement list as a synthetic body.
+    std::optional<Value> run_compiled_body(ScriptFunction& function, Context const& cx, PropertyKey const* field_key = nullptr);
+    std::optional<Value> run_compiled_node(FunctionNode const& node, Context const& cx, PropertyKey const* field_key = nullptr);
+    FunctionNode const* program_body(Program& program, bool strict);
+    // A non-simple parameter list bound on the machine: one block per
+    // function node, made at the first call.
+    std::unordered_map<FunctionNode const*, std::unique_ptr<CodeBlock>> parameter_blocks;
+    CodeBlock const* compiled_parameters(FunctionNode const& node);
+    bool run_parameter_block(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context const& cx);
+    // ClassDefinitionEvaluation (§15.7.14) in the steps the machine takes,
+    // with the heritage and the computed keys handed in already evaluated:
+    // the scope (the class binding uninitialized, strict), the heritage
+    // settled into a prototype and a constructor with the private names in
+    // scope from here, each element defined in order, then the name bound
+    // and the static elements run. The tree-walker's evaluate_class is the
+    // same four calls with its own evaluations between them.
+    ClassBuilder* class_scope(ClassNode const& node, Environment* outer, PrivateEnvironment* outer_private, bool outer_strict,
+        PropertyKey const* name_key);
+    bool class_begin(ClassBuilder& builder, Value const* heritage);
+    bool class_element(ClassBuilder& builder, std::size_t index, Value const* key_value);
+    std::optional<Value> class_finish(ClassBuilder& builder);
     std::optional<Value> start_generator(ScriptFunction& function, Context const& cx);
     std::optional<Value> generator_resume(GeneratorObject& generator, ResumeKind kind, Value const& value);
     std::optional<Value> call_async_function(ScriptFunction& function, Value const& this_argument, std::span<Value const> arguments);

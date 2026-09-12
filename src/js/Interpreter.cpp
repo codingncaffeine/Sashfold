@@ -668,8 +668,12 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
         }
     }
 
-    if (!node.has_simple_parameter_list && !bind_parameters(node, parameter_env, arguments, cx))
-        return std::nullopt;
+    if (!node.has_simple_parameter_list) {
+        bool const bound = self.bytecode_for_all() ? run_parameter_block(node, parameter_env, arguments, cx)
+                                                   : bind_parameters(node, parameter_env, arguments, cx);
+        if (!bound)
+            return std::nullopt;
+    }
 
     // Vars (steps 27–28): in the parameters' record unless a default
     // or a computed key could have made a closure there, in which case
@@ -737,6 +741,14 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
                 return std::nullopt;
         }
         value = Value::undefined();
+    } else if (self.bytecode_for_all()) {
+        // The second tier: the body compiled and run on the bytecode
+        // machine, on the environments this call's prologue made; a field
+        // initializer's key rides on the frame, to name an anonymous
+        // function after.
+        value = run_compiled_body(function, cx, field_key);
+        if (!value)
+            return std::nullopt;
     } else if (node.expression_body) {
         if (node.is_field_initializer && field_key && is_anonymous_function_definition(node.expression_body))
             value = evaluate_named(node.expression_body, cx, *field_key);
@@ -1079,238 +1091,290 @@ ScriptFunction* Interpreter::Impl::new_class_constructor(FunctionNode const& nod
 // and accessors defined at once, instance fields recorded on the
 // constructor, static fields and blocks run last with the class as
 // `this` — the class's own name bound throughout its body.
+// The class's scope (§15.7.14 steps 1–3): a record with the class name
+// uninitialized, strict from here to the end; the private names come
+// only with the heritage settled, since the heritage sees the outer ones.
+ClassBuilder* Interpreter::Impl::class_scope(ClassNode const& node, Environment* outer, PrivateEnvironment* outer_private,
+    bool outer_strict, PropertyKey const* name_key)
+{
+    Heap::NoCollect const guard(heap());
+    ClassBuilder* builder = heap().allocate<ClassBuilder>();
+    builder->node = &node;
+    builder->class_env = new_environment(outer);
+    if (node.name)
+        builder->class_env->declare(node.name, Value::undefined(), false, false);
+    builder->outer_private = outer_private;
+    builder->private_env = outer_private;
+    builder->saved_strict = outer_strict;
+    if (name_key) {
+        builder->name_key = *name_key;
+        builder->has_name_key = true;
+    }
+    return builder;
+}
+
+// Steps 4–14 with the heritage evaluated: the prototype's parent and the
+// constructor's from it (null extends nothing), the class's Private
+// Names — a fresh cell per declared `#x`, chained to the enclosing
+// class's, in scope for everything the body makes — then the prototype
+// and the constructor.
+bool Interpreter::Impl::class_begin(ClassBuilder& builder, Value const* heritage)
+{
+    Roots const roots(self);
+    ClassNode const& node = *builder.node;
+    Object* proto_parent = self.intrinsics().object_prototype;
+    Object* constructor_parent = self.intrinsics().function_prototype;
+    if (node.has_heritage) {
+        Value const superclass = heritage ? *heritage : Value::undefined();
+        self.root(superclass);
+        if (superclass.is_null()) {
+            proto_parent = nullptr;
+        } else if (!Interpreter::is_constructor(superclass)) {
+            self.throw_type_error("Class extends value " + self.describe(superclass) + " is not a constructor or null");
+            return false;
+        } else {
+            std::optional<Value> const parent_proto = self.get(superclass, PropertyKey::atom(atoms().prototype));
+            if (!parent_proto)
+                return false;
+            if (parent_proto->is_object()) {
+                proto_parent = parent_proto->as_object();
+            } else if (parent_proto->is_null()) {
+                proto_parent = nullptr;
+            } else {
+                self.throw_type_error("Class extends value does not have valid prototype property " + self.describe(*parent_proto));
+                return false;
+            }
+            constructor_parent = superclass.as_object();
+        }
+    }
+    bool has_private = false;
+    for (ClassElement const& element : node.elements)
+        has_private = has_private || element.is_private;
+    if (has_private) {
+        builder.private_env = heap().allocate<PrivateEnvironment>(builder.outer_private);
+        for (ClassElement const& element : node.elements) {
+            if (!element.is_private)
+                continue;
+            bool known = false;
+            for (auto const& [description, name] : builder.private_env->names())
+                known = known || description == element.key;
+            if (!known)
+                builder.private_env->add(element.key, heap().private_symbol(element.key));
+        }
+    }
+    Object* proto = self.new_object();
+    proto->set_prototype(proto_parent);
+    builder.proto = proto;
+    ScriptFunction* constructor = new_class_constructor(*node.constructor, builder.class_env, proto, constructor_parent);
+    constructor->set_private_environment(builder.private_env);
+    builder.constructor = constructor;
+    if (!node.name && builder.has_name_key)
+        set_function_name(*constructor, builder.name_key);
+    return true;
+}
+
+// One element (steps 15–24), its computed key evaluated: a method or an
+// accessor defined on the prototype or the class, a private one kept on
+// the constructor's list, an instance field recorded for the
+// constructor, a static field or block kept for the end.
+bool Interpreter::Impl::class_element(ClassBuilder& builder, std::size_t index, Value const* key_value)
+{
+    Roots const roots(self);
+    ClassElement const& element = builder.node->elements[index];
+    Environment* const class_env = builder.class_env;
+    PrivateEnvironment* const private_env = builder.private_env;
+    ScriptFunction* const constructor = builder.constructor;
+    Object* const proto = builder.proto;
+    Object* target = element.is_static ? static_cast<Object*>(constructor) : proto;
+    PropertyKey key;
+    if (element.kind != ClassElement::Kind::StaticBlock) {
+        if (element.computed_key) {
+            Value const value = key_value ? *key_value : Value::undefined();
+            self.root(value);
+            std::optional<PropertyKey> const converted = self.to_property_key(value);
+            if (!converted)
+                return false;
+            key = *converted;
+            if (key.is_symbol())
+                self.root(Value::symbol(key.as_symbol()));
+        } else if (element.is_private) {
+            key = PropertyKey::symbol(private_env->lookup(element.key));
+        } else {
+            key = heap().key(element.key);
+        }
+    }
+    switch (element.kind) {
+    case ClassElement::Kind::Method: {
+        Heap::NoCollect const guard(heap());
+        ScriptFunction* closure = self.new_script_function(*element.function, class_env, private_env);
+        closure->set_home_object(target);
+        set_function_name(*closure, key);
+        if (element.is_private) {
+            // A private method (§15.7.14 steps 22–23): a static one goes
+            // on the class now; an instance one waits on the constructor
+            // for each new object.
+            PrivateMethod method;
+            method.name = key.as_symbol();
+            method.method = closure;
+            if (!element.is_static)
+                constructor->private_methods().push_back(method);
+            else if (!private_method_add(*constructor, method))
+                return false;
+            return true;
+        }
+        // DefineMethodProperty: writable, configurable, not enumerable —
+        // through validation, so a key the target already holds as
+        // non-configurable (a static `['prototype']`) is a TypeError.
+        return self.define_property_or_throw(*target, key, PropertyDescriptor::data(Value::object(closure), builtin_attributes)).has_value();
+    }
+    case ClassElement::Kind::Getter:
+    case ClassElement::Kind::Setter: {
+        Heap::NoCollect const guard(heap());
+        ScriptFunction* accessor = self.new_script_function(*element.function, class_env, private_env);
+        accessor->set_home_object(target);
+        bool const is_getter = element.kind == ClassElement::Kind::Getter;
+        set_function_name(*accessor, key, is_getter ? "get" : "set");
+        if (element.is_private && !element.is_static) {
+            // An instance private accessor joins its other half on the
+            // constructor's list (§15.7.14 step 24).
+            PrivateMethod* method = nullptr;
+            for (PrivateMethod& candidate : constructor->private_methods()) {
+                if (candidate.name == key.as_symbol())
+                    method = &candidate;
+            }
+            if (method == nullptr) {
+                constructor->private_methods().push_back(PrivateMethod {});
+                method = &constructor->private_methods().back();
+                method->name = key.as_symbol();
+            }
+            (is_getter ? method->getter : method->setter) = accessor;
+            return true;
+        }
+        Object* getter = nullptr;
+        Object* setter = nullptr;
+        if (Property const* existing = target->find_own(key); existing && existing->accessor) {
+            getter = existing->getter;
+            setter = existing->setter;
+        }
+        if (is_getter)
+            getter = accessor;
+        else
+            setter = accessor;
+        // A static private accessor is a frozen private element of the
+        // class; a public one is configurable, and defined through
+        // validation so a non-configurable key on the target throws.
+        if (element.is_private) {
+            target->put_accessor(key, getter, setter, frozen_attributes);
+            return true;
+        }
+        return self.define_property_or_throw(*target, key, PropertyDescriptor::accessor(getter, setter, Configurable)).has_value();
+    }
+    case ClassElement::Kind::Field: {
+        if (element.is_static) {
+            builder.statics.push_back({ &element, key });
+            return true;
+        }
+        Heap::NoCollect const guard(heap());
+        ClassField field;
+        field.key = key;
+        if (element.function) {
+            field.initializer = self.new_script_function(*element.function, class_env, private_env);
+            field.initializer->set_home_object(proto);
+        }
+        constructor->fields().push_back(field);
+        return true;
+    }
+    case ClassElement::Kind::StaticBlock:
+        builder.statics.push_back({ &element, PropertyKey() });
+        return true;
+    }
+    return true;
+}
+
+// Steps 25–31: the name bound in the class scope, then the static fields
+// and blocks in order with the class as `this`; the constructor is the
+// class's value.
+std::optional<Value> Interpreter::Impl::class_finish(ClassBuilder& builder)
+{
+    Roots const roots(self);
+    ClassNode const& node = *builder.node;
+    ScriptFunction* const constructor = builder.constructor;
+    if (node.name) {
+        Environment::Binding* binding = builder.class_env->find(node.name);
+        binding->value = Value::object(constructor);
+        binding->initialized = true;
+    }
+    for (ClassBuilder::StaticElement const& item : builder.statics) {
+        ScriptFunction* closure = nullptr;
+        if (item.element->function) {
+            Heap::NoCollect const guard(heap());
+            closure = self.new_script_function(*item.element->function, builder.class_env, builder.private_env);
+            closure->set_home_object(constructor);
+        }
+        if (closure)
+            self.root(Value::object(closure));
+        if (item.element->kind == ClassElement::Kind::StaticBlock) {
+            if (!self.call(Value::object(closure), Value::object(constructor), {}))
+                return std::nullopt;
+            continue;
+        }
+        ClassField field;
+        field.key = item.key;
+        field.initializer = closure;
+        if (!define_field(*constructor, field))
+            return std::nullopt;
+    }
+    return Value::object(constructor);
+}
+
 std::optional<Value> Interpreter::Impl::evaluate_class(ClassNode const& node, Context& cx, PropertyKey const* name_key)
 {
     Roots const roots(self);
     Environment* const saved = cx.lexical;
     bool const saved_strict = cx.strict;
     PrivateEnvironment* const outer_private = cx.private_environment;
-    Environment* class_env = new_environment(saved);
-    if (node.name)
-        class_env->declare(node.name, Value::undefined(), false, false);
-    cx.lexical = class_env;
+    ClassBuilder* builder = class_scope(node, saved, outer_private, saved_strict, name_key);
+    class_builders.push_back(builder); // traced from here to leave()
+    cx.lexical = builder->class_env;
     cx.strict = true;
     auto leave = [&]() {
+        class_builders.pop_back();
         cx.lexical = saved;
         cx.strict = saved_strict;
         cx.private_environment = outer_private;
     };
-    Object* proto_parent = self.intrinsics().object_prototype;
-    Object* constructor_parent = self.intrinsics().function_prototype;
+    std::optional<Value> heritage;
     if (node.has_heritage) {
-        std::optional<Value> const superclass = evaluate(node.heritage, cx);
-        if (!superclass) {
+        heritage = evaluate(node.heritage, cx);
+        if (!heritage) {
             leave();
             return std::nullopt;
         }
-        self.root(*superclass);
-        if (superclass->is_null()) {
-            proto_parent = nullptr;
-        } else if (!Interpreter::is_constructor(*superclass)) {
-            leave();
-            return self.throw_type_error("Class extends value " + self.describe(*superclass) + " is not a constructor or null");
-        } else {
-            std::optional<Value> const parent_proto = self.get(*superclass, PropertyKey::atom(atoms().prototype));
-            if (!parent_proto) {
+        self.root(*heritage);
+    }
+    if (!class_begin(*builder, heritage ? &*heritage : nullptr)) {
+        leave();
+        return std::nullopt;
+    }
+    cx.private_environment = builder->private_env;
+    for (std::size_t i = 0; i < node.elements.size(); ++i) {
+        std::optional<Value> key_value;
+        if (node.elements[i].computed_key) {
+            key_value = evaluate(node.elements[i].computed_key, cx);
+            if (!key_value) {
                 leave();
                 return std::nullopt;
             }
-            if (parent_proto->is_object()) {
-                proto_parent = parent_proto->as_object();
-            } else if (parent_proto->is_null()) {
-                proto_parent = nullptr;
-            } else {
-                leave();
-                return self.throw_type_error("Class extends value does not have valid prototype property " + self.describe(*parent_proto));
-            }
-            constructor_parent = superclass->as_object();
+            self.root(*key_value);
         }
-    }
-    // The class's Private Names (§15.7.14 steps 4–6 and 11): a fresh
-    // cell per declared `#x`, chained to the enclosing class's, in scope
-    // for everything the body makes — the heritage above saw only the
-    // outer ones. The context traces it from here on, as it does the
-    // functions made in the body, which keep it.
-    bool has_private = false;
-    for (ClassElement const& element : node.elements)
-        has_private = has_private || element.is_private;
-    if (has_private) {
-        cx.private_environment = heap().allocate<PrivateEnvironment>(outer_private);
-        for (ClassElement const& element : node.elements) {
-            if (!element.is_private)
-                continue;
-            bool known = false;
-            for (auto const& [description, name] : cx.private_environment->names())
-                known = known || description == element.key;
-            if (!known)
-                cx.private_environment->add(element.key, heap().private_symbol(element.key));
-        }
-    }
-    Object* proto = self.new_object();
-    proto->set_prototype(proto_parent);
-    self.root(Value::object(proto));
-    ScriptFunction* constructor = new_class_constructor(*node.constructor, class_env, proto, constructor_parent);
-    constructor->set_private_environment(cx.private_environment);
-    self.root(Value::object(constructor));
-    if (!node.name && name_key)
-        set_function_name(*constructor, *name_key);
-
-    struct StaticElement {
-        ClassElement const* element;
-        PropertyKey key;
-    };
-    std::vector<StaticElement> statics;
-    for (ClassElement const& element : node.elements) {
-        Object* target = element.is_static ? static_cast<Object*>(constructor) : proto;
-        PropertyKey key;
-        if (element.kind != ClassElement::Kind::StaticBlock) {
-            if (element.computed_key) {
-                std::optional<Value> const key_value = evaluate(element.computed_key, cx);
-                if (!key_value) {
-                    leave();
-                    return std::nullopt;
-                }
-                self.root(*key_value);
-                std::optional<PropertyKey> const converted = self.to_property_key(*key_value);
-                if (!converted) {
-                    leave();
-                    return std::nullopt;
-                }
-                key = *converted;
-                if (key.is_symbol())
-                    self.root(Value::symbol(key.as_symbol()));
-            } else if (element.is_private) {
-                key = PropertyKey::symbol(cx.private_environment->lookup(element.key));
-            } else {
-                key = heap().key(element.key);
-            }
-        }
-        switch (element.kind) {
-        case ClassElement::Kind::Method: {
-            Heap::NoCollect const guard(heap());
-            ScriptFunction* closure = self.new_script_function(*element.function, class_env, cx.private_environment);
-            closure->set_home_object(target);
-            set_function_name(*closure, key);
-            if (element.is_private) {
-                // A private method (§15.7.14 steps 22–23): a static one
-                // goes on the class now; an instance one waits on the
-                // constructor for each new object.
-                PrivateMethod method;
-                method.name = key.as_symbol();
-                method.method = closure;
-                if (!element.is_static) {
-                    constructor->private_methods().push_back(method);
-                } else if (!private_method_add(*constructor, method)) {
-                    leave();
-                    return std::nullopt;
-                }
-                break;
-            }
-            // DefineMethodProperty: writable, configurable, not enumerable —
-            // through validation, so a key the target already holds as
-            // non-configurable (a static `['prototype']`) is a TypeError.
-            if (!self.define_property_or_throw(*target, key, PropertyDescriptor::data(Value::object(closure), builtin_attributes))) {
-                leave();
-                return std::nullopt;
-            }
-            break;
-        }
-        case ClassElement::Kind::Getter:
-        case ClassElement::Kind::Setter: {
-            Heap::NoCollect const guard(heap());
-            ScriptFunction* accessor = self.new_script_function(*element.function, class_env, cx.private_environment);
-            accessor->set_home_object(target);
-            bool const is_getter = element.kind == ClassElement::Kind::Getter;
-            set_function_name(*accessor, key, is_getter ? "get" : "set");
-            if (element.is_private && !element.is_static) {
-                // An instance private accessor joins its other half on
-                // the constructor's list (§15.7.14 step 24).
-                PrivateMethod* method = nullptr;
-                for (PrivateMethod& candidate : constructor->private_methods()) {
-                    if (candidate.name == key.as_symbol())
-                        method = &candidate;
-                }
-                if (method == nullptr) {
-                    constructor->private_methods().push_back(PrivateMethod {});
-                    method = &constructor->private_methods().back();
-                    method->name = key.as_symbol();
-                }
-                (is_getter ? method->getter : method->setter) = accessor;
-                break;
-            }
-            Object* getter = nullptr;
-            Object* setter = nullptr;
-            if (Property const* existing = target->find_own(key); existing && existing->accessor) {
-                getter = existing->getter;
-                setter = existing->setter;
-            }
-            if (is_getter)
-                getter = accessor;
-            else
-                setter = accessor;
-            // A static private accessor is a frozen private element of
-            // the class; a public one is configurable, and defined through
-            // validation so a non-configurable key on the target throws.
-            if (element.is_private) {
-                target->put_accessor(key, getter, setter, frozen_attributes);
-            } else if (!self.define_property_or_throw(*target, key, PropertyDescriptor::accessor(getter, setter, Configurable))) {
-                leave();
-                return std::nullopt;
-            }
-            break;
-        }
-        case ClassElement::Kind::Field: {
-            if (element.is_static) {
-                statics.push_back({ &element, key });
-                break;
-            }
-            Heap::NoCollect const guard(heap());
-            ClassField field;
-            field.key = key;
-            if (element.function) {
-                field.initializer = self.new_script_function(*element.function, class_env, cx.private_environment);
-                field.initializer->set_home_object(proto);
-            }
-            constructor->fields().push_back(field);
-            break;
-        }
-        case ClassElement::Kind::StaticBlock:
-            statics.push_back({ &element, PropertyKey() });
-            break;
-        }
-    }
-    if (node.name) {
-        Environment::Binding* binding = class_env->find(node.name);
-        binding->value = Value::object(constructor);
-        binding->initialized = true;
-    }
-    // Static fields and blocks, in order, with the class as `this`.
-    for (StaticElement const& item : statics) {
-        ScriptFunction* closure = nullptr;
-        if (item.element->function) {
-            Heap::NoCollect const guard(heap());
-            closure = self.new_script_function(*item.element->function, class_env, cx.private_environment);
-            closure->set_home_object(constructor);
-        }
-        if (closure)
-            self.root(Value::object(closure));
-        if (item.element->kind == ClassElement::Kind::StaticBlock) {
-            if (!self.call(Value::object(closure), Value::object(constructor), {})) {
-                leave();
-                return std::nullopt;
-            }
-            continue;
-        }
-        ClassField field;
-        field.key = item.key;
-        field.initializer = closure;
-        if (!define_field(*constructor, field)) {
+        if (!class_element(*builder, i, key_value ? &*key_value : nullptr)) {
             leave();
             return std::nullopt;
         }
     }
+    std::optional<Value> const value = class_finish(*builder);
     leave();
-    return Value::object(constructor);
+    return value;
 }
 
 
@@ -1909,6 +1973,7 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
     }
     bool const strict = options.strict || program->is_strict;
     Program const* tree = program.get();
+    FunctionNode const* body = self.bytecode_for_all() ? program_body(*program, strict) : nullptr;
     self.keep(std::move(program));
     // §19.2.1.1: the eval execution context's [[ScriptOrModule]] is the
     // one the running context has, which for a direct eval is the caller's.
@@ -1933,10 +1998,27 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
     Context& cx = context_scope.context();
     if (!eval_declaration_instantiation(*tree, variable, lexical, strict, private_env))
         return std::nullopt;
+    if (body != nullptr)
+        return run_compiled_node(*body, cx);
     Completion const completion = execute_list(tree->body, cx);
     if (completion.type == Completion::Type::Throw)
         return std::nullopt;
     return completion.value.is_empty() ? Value::undefined() : completion.value;
+}
+
+// The statement list of a script or an eval as a body the machine can run:
+// a synthetic function node of the program's own — no parameters, nothing
+// to instantiate, since the program's declarations were made by the
+// caller — marked so the compiler tracks its completion value.
+FunctionNode const* Interpreter::Impl::program_body(Program& program, bool strict)
+{
+    FunctionNode* body = program.make_function();
+    body->body = program.body;
+    body->declarations = program.declarations;
+    body->is_strict = strict;
+    body->is_constructable = false;
+    body->is_program_body = true;
+    return body;
 }
 
 
@@ -3832,6 +3914,8 @@ void Interpreter::Impl::trace(Tracer& tracer)
         tracer.visit(object);
     for (Frame* frame : vm_frames)
         tracer.visit(frame);
+    for (ClassBuilder* builder : class_builders)
+        tracer.visit(builder);
 }
 
 
@@ -3841,6 +3925,16 @@ Interpreter::Interpreter()
     : m_heap(std::make_unique<Heap>())
     , m_impl(std::make_unique<Impl>(*this))
 {
+    // Every plain body runs on the bytecode machine, since the two tiers
+    // agreed on the whole conformance suite (40,121 tests either way);
+    // SASHFOLD_JS_VM=tree puts plain bodies back on the tree-walking
+    // evaluator for the process — the switch a differential run is made
+    // with — and `all` says the default in so many words.
+    static bool const all_on_vm = [] {
+        char const* const value = std::getenv("SASHFOLD_JS_VM");
+        return value == nullptr || std::string_view(value) != "tree";
+    }();
+    m_bytecode_for_all = all_on_vm;
     m_heap->add_root_provider(this);
     install_intrinsics(*this);
     m_impl->global_lexical = m_heap->allocate<Environment>(m_intrinsics.global_environment);
@@ -3969,12 +4063,27 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
         return outcome;
     }
     Program const* tree = program.get();
+    // On the bytecode machine the script's statement list is a synthetic
+    // body of the program's own (kept with it for the realm's life), whose
+    // completion value the compiler tracks.
+    FunctionNode const* body = m_bytecode_for_all ? m_impl->program_body(*program, tree->is_strict) : nullptr;
     keep(std::move(program));
     Impl::ContextScope scope(*m_impl, Context { m_impl->global_lexical, m_intrinsics.global_environment, tree, nullptr, tree->is_strict, nullptr });
     Context& cx = scope.context();
     if (!m_impl->global_declaration_instantiation(*tree, cx)) {
         outcome.ok = false;
         outcome.value = take_exception();
+        return outcome;
+    }
+    if (body != nullptr) {
+        std::optional<Value> const value = m_impl->run_compiled_node(*body, cx);
+        if (!value) {
+            outcome.ok = false;
+            outcome.value = take_exception();
+            return outcome;
+        }
+        outcome.ok = true;
+        outcome.value = *value;
         return outcome;
     }
     Completion const completion = m_impl->execute_list(tree->body, cx);

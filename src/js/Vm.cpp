@@ -28,6 +28,19 @@ namespace sashfold::js {
 
 using Args = std::span<Value const>;
 
+void ClassBuilder::trace(Tracer& tracer)
+{
+    tracer.visit(class_env);
+    tracer.visit(outer_private);
+    tracer.visit(private_env);
+    if (has_name_key)
+        tracer.visit(name_key);
+    tracer.visit(proto);
+    tracer.visit(constructor);
+    for (StaticElement const& item : statics)
+        tracer.visit(item.key);
+}
+
 void Frame::trace(Tracer& tracer)
 {
     for (Value const& value : stack)
@@ -44,6 +57,11 @@ void Frame::trace(Tracer& tracer)
     }
     for (Environment* env : envs)
         tracer.visit(env);
+    for (Value const& value : arguments)
+        tracer.visit(value);
+    for (ClassBuilder* builder : builders)
+        tracer.visit(builder);
+    tracer.visit(field_key);
     tracer.visit(variable);
     tracer.visit(function);
     tracer.visit(private_environment);
@@ -102,6 +120,78 @@ CodeBlock const* Interpreter::Impl::compiled_body(FunctionNode const& node)
     return raw;
 }
 
+// A plain body on the machine: compiled at its first call, run on a frame
+// over the call's environments until it returns or throws. It cannot
+// yield or await — the compiler refuses those outside a generator or an
+// async body — so the run ends Completed with the return value in the
+// frame's result, or Threw with the exception pending.
+std::optional<Value> Interpreter::Impl::run_compiled_body(ScriptFunction& function, Context const& cx, PropertyKey const* field_key)
+{
+    return run_compiled_node(function.node(), cx, field_key);
+}
+
+// A parameter list that is not simple — a default, a pattern, a rest —
+// bound on the machine (IteratorBindingInitialization of the formals,
+// §10.2.11 step 24–26): the block reads the call's arguments by index and
+// initializes each parameter in the environment the prologue made for
+// them, with the defaults evaluated there in order.
+CodeBlock const* Interpreter::Impl::compiled_parameters(FunctionNode const& node)
+{
+    if (auto const found = parameter_blocks.find(&node); found != parameter_blocks.end())
+        return found->second.get();
+    std::string error;
+    std::unique_ptr<CodeBlock> code = compile_parameter_list(node, heap(), &error);
+    if (!code) {
+        self.throw_syntax_error(error);
+        return nullptr;
+    }
+    CodeBlock const* raw = code.get();
+    parameter_blocks.emplace(&node, std::move(code));
+    return raw;
+}
+
+bool Interpreter::Impl::run_parameter_block(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context const& cx)
+{
+    CodeBlock const* code = compiled_parameters(node);
+    if (code == nullptr)
+        return false;
+    Roots const roots(self);
+    Context binding_context = cx;
+    binding_context.lexical = env;
+    Frame* frame = nullptr;
+    {
+        Heap::NoCollect const guard(heap());
+        frame = new_frame(*code, binding_context);
+        frame->arguments.assign(arguments.begin(), arguments.end());
+    }
+    RunStatus const status = vm_run(*frame);
+    return status == RunStatus::Completed;
+}
+
+// The same for a body that is no function's: a script's or an eval's
+// statement list, compiled as a function body that tracks its completion
+// value and returns it.
+std::optional<Value> Interpreter::Impl::run_compiled_node(FunctionNode const& node, Context const& cx, PropertyKey const* field_key)
+{
+    CodeBlock const* code = compiled_body(node);
+    if (code == nullptr)
+        return std::nullopt;
+    Roots const roots(self);
+    Frame* frame = nullptr;
+    {
+        Heap::NoCollect const guard(heap());
+        frame = new_frame(*code, cx);
+        if (field_key != nullptr)
+            frame->field_key = key_to_value(heap(), *field_key);
+    }
+    RunStatus const status = vm_run(*frame);
+    if (status == RunStatus::Threw)
+        return std::nullopt;
+    if (status != RunStatus::Completed)
+        return self.throw_syntax_error("a plain function body suspended");
+    return frame->result.is_empty() ? Value::undefined() : frame->result;
+}
+
 Frame* Interpreter::Impl::new_frame(CodeBlock const& code, Context const& cx)
 {
     Frame* frame = heap().allocate<Frame>();
@@ -137,6 +227,15 @@ bool Interpreter::Impl::vm_unwind(Frame& frame)
         frame.stack.resize(handler.stack_depth);
         frame.refs.resize(handler.ref_depth);
         frame.envs.resize(1 + handler.env_depth);
+        if (frame.builders.size() > handler.class_depth) {
+            // A throw out of a class body: the classes it left half-made
+            // are dropped, and the private names and strictness of the
+            // outermost one's outside come back.
+            ClassBuilder const& outermost = *frame.builders[handler.class_depth];
+            frame.private_environment = outermost.outer_private;
+            frame.strict = outermost.saved_strict;
+            frame.builders.resize(handler.class_depth);
+        }
         frame.stack.push_back(thrown);
         frame.pc = handler.target;
         return true;
@@ -334,6 +433,16 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             }
             frame.stack.pop_back();
             break;
+        case Opcode::LoadArgument:
+            frame.push(ins.a < frame.arguments.size() ? frame.arguments[ins.a] : Value::undefined());
+            break;
+        case Opcode::RestArguments: {
+            std::span<Value const> const rest = ins.a < frame.arguments.size()
+                ? std::span<Value const>(frame.arguments).subspan(ins.a)
+                : std::span<Value const>();
+            frame.push(Value::object(self.new_array(rest)));
+            break;
+        }
         case Opcode::AnnexBCopy: {
             // B.3.2.1 step 2.b: a sloppy block-level function's current value
             // to the var binding the parser hoisted for it.
@@ -967,9 +1076,14 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.push(*value);
             break;
         }
-        case Opcode::MakeClass:
-        case Opcode::MakeClassNamedDyn: {
-            bool const dynamic = ins.op == Opcode::MakeClassNamedDyn;
+        case Opcode::LoadFieldKey:
+            frame.push(frame.field_key);
+            break;
+        case Opcode::ClassScope:
+        case Opcode::ClassScopeNamedDyn: {
+            // The class's scope goes on the frame: its environment is the
+            // lexical one until ClassFinish, its body strict.
+            bool const dynamic = ins.op == Opcode::ClassScopeNamedDyn;
             PropertyKey key;
             PropertyKey const* name_key = nullptr;
             if (dynamic) {
@@ -979,17 +1093,48 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 key = h.key(code.names[ins.b]);
                 name_key = &key;
             }
-            // The class body runs on the tree-walker with the frame's context
-            // pushed as a running context, so the environments evaluate_class
-            // makes and stores in it stay traced across its allocations.
-            ContextScope class_scope(*this, frame_context(frame));
-            std::optional<Value> const value = evaluate_class(*code.classes[ins.a], class_scope.context(), name_key);
+            ClassBuilder* builder = class_scope(*code.classes[ins.a], frame.envs.back(), frame.private_environment, frame.strict, name_key);
+            if (dynamic)
+                frame.stack.pop_back();
+            frame.builders.push_back(builder);
+            frame.envs.push_back(builder->class_env);
+            frame.strict = true;
+            break;
+        }
+        case Opcode::ClassBegin:
+        case Opcode::ClassBeginHeritage: {
+            ClassBuilder& builder = *frame.builders.back();
+            Value heritage;
+            if (ins.op == Opcode::ClassBeginHeritage)
+                heritage = frame.pop();
+            if (!class_begin(builder, ins.op == Opcode::ClassBeginHeritage ? &heritage : nullptr)) {
+                ok = false;
+                break;
+            }
+            frame.private_environment = builder.private_env; // the class's names, for its keys and bodies
+            break;
+        }
+        case Opcode::ClassElement:
+        case Opcode::ClassElementKeyed: {
+            ClassBuilder& builder = *frame.builders.back();
+            Value key_value;
+            if (ins.op == Opcode::ClassElementKeyed)
+                key_value = frame.pop();
+            if (!class_element(builder, ins.a, ins.op == Opcode::ClassElementKeyed ? &key_value : nullptr))
+                ok = false;
+            break;
+        }
+        case Opcode::ClassFinish: {
+            ClassBuilder& builder = *frame.builders.back();
+            std::optional<Value> const value = class_finish(builder);
+            frame.envs.pop_back();
+            frame.private_environment = builder.outer_private;
+            frame.strict = builder.saved_strict;
+            frame.builders.pop_back();
             if (!value) {
                 ok = false;
                 break;
             }
-            if (dynamic)
-                frame.stack.pop_back();
             frame.push(*value);
             break;
         }

@@ -19,6 +19,33 @@
 
 namespace sashfold::js {
 
+// A class between its ClassScope and its ClassFinish (§15.7.14): the
+// scope with the name binding, what the heritage settled, the prototype
+// and the constructor, the private names, and the static elements that
+// run at the end. Kept on the frame, so a body that suspends inside a
+// computed key keeps its class, and dropped by a handler that unwinds past
+// it.
+class ClassBuilder : public Cell {
+public:
+    ClassNode const* node = nullptr;
+    Environment* class_env = nullptr;
+    PrivateEnvironment* outer_private = nullptr; // restored when the class is done
+    PrivateEnvironment* private_env = nullptr; // the class's own, or the outer one
+    bool saved_strict = false;
+    PropertyKey name_key; // an anonymous class's binding name, if any
+    bool has_name_key = false;
+    Object* proto = nullptr;
+    ScriptFunction* constructor = nullptr;
+    struct StaticElement {
+        ClassElement const* element;
+        PropertyKey key;
+    };
+    std::vector<StaticElement> statics;
+
+    void trace(Tracer&) override;
+    std::size_t size_in_bytes() const override { return sizeof(*this) + statics.size() * sizeof(StaticElement); }
+};
+
 class Frame : public Cell {
 public:
     CodeBlock const* code = nullptr;
@@ -27,6 +54,9 @@ public:
     std::vector<Value> registers;
     std::vector<Reference> refs;
     std::vector<Environment*> envs; // envs.back() is the lexical environment; envs[0] the body's own
+    std::vector<Value> arguments; // the call's, for a parameter block (LoadArgument, RestArguments)
+    std::vector<ClassBuilder*> builders; // the classes under construction, innermost last
+    Value field_key; // a field initializer's key, for LoadFieldKey
     Environment* variable = nullptr;
     ScriptFunction* function = nullptr;
     Program const* program = nullptr;

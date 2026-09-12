@@ -49,14 +49,82 @@ public:
         m_code->is_async = node.is_async;
     }
 
+    // A script's or an eval's body: its completion value (§8.4) is what
+    // the run returns. A register carries it — every expression statement
+    // stores its value there; a compound statement (if, a loop, switch,
+    // try, with) starts it empty and, when nothing inside wrote it, leaves
+    // undefined, which is UpdateEmpty(…, undefined); a finally block's own
+    // statements write nothing, since its normal completion is discarded.
+    void track_completion()
+    {
+        m_track_completion = true;
+        m_completion = new_register();
+    }
+
+    // The parameter list as a block of its own (compile_parameter_list):
+    // for each formal, the argument by index or the rest of them, the
+    // default in the argument's place when it is undefined — named after
+    // the parameter when it is an anonymous function — then the name or
+    // the pattern initialized. The block returns undefined.
+    std::unique_ptr<CodeBlock> compile_parameters(std::string* error)
+    {
+        m_code->is_generator = false;
+        m_code->is_async = false;
+        std::uint32_t index = 0;
+        for (Parameter const& parameter : m_node.parameters) {
+            emit(parameter.is_rest ? Opcode::RestArguments : Opcode::LoadArgument, index);
+            ++index;
+            if (parameter.initializer) {
+                Label given;
+                emit(Opcode::Dup);
+                jump(Opcode::JumpIfNotUndefined, given);
+                emit(Opcode::Pop);
+                if (parameter.name)
+                    compile_named_value(parameter.initializer, parameter.name);
+                else
+                    compile_expression(parameter.initializer);
+                bind(given);
+            }
+            if (parameter.pattern)
+                compile_pattern(parameter.pattern, BindMode::Initialize);
+            else
+                emit(Opcode::InitializeBinding, name(parameter.name));
+        }
+        emit(Opcode::PushUndefined);
+        emit(Opcode::Return);
+        if (!m_error.empty()) {
+            if (error)
+                *error = m_error;
+            return nullptr;
+        }
+        return std::move(m_code);
+    }
+
     std::unique_ptr<CodeBlock> compile(std::string* error)
     {
         if (m_node.expression_body) {
-            compile_expression(m_node.expression_body);
+            if (m_node.is_field_initializer && is_anonymous_function_definition(m_node.expression_body)) {
+                // A field's anonymous function is named after the field
+                // (§15.7.10 step 2.b): the key rides on the frame.
+                emit(Opcode::LoadFieldKey);
+                compile_function_value_dyn(m_node.expression_body);
+            } else {
+                compile_expression(m_node.expression_body);
+            }
             emit(Opcode::Return);
         } else {
             compile_statements(m_node.body);
-            if (!m_unreachable) {
+            if (!m_unreachable && m_track_completion) {
+                Label empty;
+                emit(Opcode::LoadReg, m_completion);
+                emit(Opcode::Dup);
+                jump(Opcode::JumpIfEmpty, empty);
+                emit(Opcode::Return);
+                bind(empty);
+                emit(Opcode::Pop);
+                emit(Opcode::PushUndefined);
+                emit(Opcode::Return);
+            } else if (!m_unreachable) {
                 emit(Opcode::PushUndefined);
                 emit(Opcode::Return);
             }
@@ -117,6 +185,12 @@ private:
         int base_depth = 0;
         int base_refs = 0;
     };
+
+    // A script's or an eval's completion value, tracked in a register
+    // (see track_completion); off for a function body.
+    bool m_track_completion = false;
+    std::uint32_t m_completion = None;
+    std::uint32_t m_class_depth = 0; // classes under construction at this point of the code
 
     void fail(std::string message)
     {
@@ -259,7 +333,44 @@ private:
         handler.stack_depth = static_cast<std::uint32_t>(depth);
         handler.ref_depth = static_cast<std::uint32_t>(refs);
         handler.env_depth = envs;
+        handler.class_depth = m_class_depth;
         m_code->handlers.push_back(handler);
+    }
+
+    // A class in the steps the machine takes (§15.7.14): its scope, the
+    // heritage evaluated in it, each element with its computed key
+    // evaluated in it and under the class's private names, then the
+    // class finished. The scope's environment counts as one the body
+    // owns, so a handler around the class unwinds it.
+    void compile_class(ClassNode const& node, std::uint32_t name_index, bool dynamic_name)
+    {
+        std::uint32_t const index = class_node(&node);
+        if (dynamic_name)
+            emit(Opcode::ClassScopeNamedDyn, index);
+        else
+            emit(Opcode::ClassScope, index, name_index);
+        Scope scope { Scope::Kind::Block };
+        scope.owns_env = true;
+        push_scope(scope);
+        ++m_class_depth;
+        if (node.has_heritage) {
+            compile_expression(node.heritage);
+            emit(Opcode::ClassBeginHeritage);
+        } else {
+            emit(Opcode::ClassBegin);
+        }
+        for (std::size_t i = 0; i < node.elements.size(); ++i) {
+            ClassElement const& element = node.elements[i];
+            if (element.computed_key) {
+                compile_expression(element.computed_key);
+                emit(Opcode::ClassElementKeyed, static_cast<std::uint32_t>(i));
+            } else {
+                emit(Opcode::ClassElement, static_cast<std::uint32_t>(i));
+            }
+        }
+        --m_class_depth;
+        pop_scope();
+        emit(Opcode::ClassFinish);
     }
 
     // ---- pools ------------------------------------------------------------
@@ -420,7 +531,45 @@ private:
         }
     }
 
+    // The completion register starts a compound statement empty, and is
+    // undefined after one that wrote nothing (see track_completion).
+    void completion_reset()
+    {
+        emit(Opcode::PushEmpty);
+        emit(Opcode::StoreReg, m_completion);
+    }
+
+    void completion_settle()
+    {
+        Label empty;
+        Label done;
+        emit(Opcode::LoadReg, m_completion);
+        jump(Opcode::JumpIfEmpty, empty);
+        jump(Opcode::Jump, done);
+        bind(empty);
+        emit(Opcode::PushUndefined);
+        emit(Opcode::StoreReg, m_completion);
+        bind(done);
+    }
+
+    static bool is_compound_statement(NodeType type)
+    {
+        return type == NodeType::IfStatement || type == NodeType::ForStatement || type == NodeType::ForInStatement
+            || type == NodeType::ForOfStatement || type == NodeType::WhileStatement || type == NodeType::DoWhileStatement
+            || type == NodeType::SwitchStatement || type == NodeType::TryStatement || type == NodeType::WithStatement;
+    }
+
     void compile_statement(Statement const* statement, std::vector<JsString*> labels)
+    {
+        bool const compound = m_track_completion && is_compound_statement(statement->type);
+        if (compound)
+            completion_reset();
+        compile_statement_inner(statement, std::move(labels));
+        if (compound && !m_unreachable)
+            completion_settle();
+    }
+
+    void compile_statement_inner(Statement const* statement, std::vector<JsString*> labels)
     {
         if (!m_error.empty())
             return;
@@ -440,7 +589,7 @@ private:
             // binds `*default*` (§16.2.3.7), as execute_class_declaration
             // has it.
             bool const anonymous = declaration.node->name == nullptr;
-            emit(Opcode::MakeClass, class_node(declaration.node), anonymous ? name(m_heap.atom(u"default")) : None);
+            compile_class(*declaration.node, anonymous ? name(m_heap.atom(u"default")) : None, false);
             emit(Opcode::InitializeBinding, name(anonymous ? m_heap.atom(u"*default*") : declaration.node->name));
             return;
         }
@@ -452,7 +601,10 @@ private:
             return;
         case NodeType::ExpressionStatement:
             compile_expression(static_cast<ExpressionStatement const*>(statement)->expression);
-            emit(Opcode::Pop);
+            if (m_track_completion)
+                emit(Opcode::StoreReg, m_completion);
+            else
+                emit(Opcode::Pop);
             return;
         case NodeType::BlockStatement:
             compile_block(*static_cast<BlockStatement const*>(statement));
@@ -676,8 +828,15 @@ private:
             push_scope(scope);
         }
         std::uint32_t const copies = per_iteration.empty() ? None : name_list(per_iteration);
-        if (loop.init)
+        if (loop.init) {
+            // The head's expression is no statement of the loop's: it
+            // leaves the completion value alone (§14.7.4.2 starts V at
+            // undefined after it).
+            bool const tracking = m_track_completion;
+            m_track_completion = false;
             compile_statement(loop.init, {});
+            m_track_completion = tracking;
+        }
         if (copies != None)
             emit(Opcode::CopyIterationEnv, copies);
         Label top;
@@ -961,7 +1120,23 @@ private:
         emit(Opcode::StoreReg, token_reg);
         jump(Opcode::Jump, finally_entry);
         bind(finally_entry);
+        // §14.15.3: the finally block's own completion starts empty (a bare
+        // `break` out of it leaves undefined, `42; break` leaves 42), and
+        // when it completes normally it is discarded — the try's or the
+        // catch's value, kept aside at the entry, is put back on every way
+        // out through the token.
+        std::uint32_t kept_completion = None;
+        if (m_track_completion) {
+            kept_completion = new_register();
+            emit(Opcode::LoadReg, m_completion);
+            emit(Opcode::StoreReg, kept_completion);
+            completion_reset();
+        }
         compile_block(*statement.finalizer);
+        if (m_track_completion && !m_unreachable) {
+            emit(Opcode::LoadReg, kept_completion);
+            emit(Opcode::StoreReg, m_completion);
+        }
         // The dispatch on the token.
         std::uint32_t const table = new_jump_table();
         emit(Opcode::Switch, token_reg, table);
@@ -1052,7 +1227,7 @@ private:
             emit(Opcode::MakeClosure, function(static_cast<ArrowFunction const*>(value)->function), name_index);
             return;
         case NodeType::ClassExpression:
-            emit(Opcode::MakeClass, class_node(static_cast<ClassExpression const*>(value)->node), name_index);
+            compile_class(*static_cast<ClassExpression const*>(value)->node, name_index, false);
             return;
         default:
             compile_expression(value);
@@ -1071,7 +1246,7 @@ private:
             emit(Opcode::MakeClosureNamedDyn, function(static_cast<ArrowFunction const*>(value)->function));
             return;
         case NodeType::ClassExpression:
-            emit(Opcode::MakeClassNamedDyn, class_node(static_cast<ClassExpression const*>(value)->node));
+            compile_class(*static_cast<ClassExpression const*>(value)->node, None, true);
             return;
         default:
             fail("internal: a dynamic name for something that is not a function");
@@ -1584,6 +1759,11 @@ private:
     void compile_super_reference(SuperMember const& member)
     {
         if (member.property) {
+            // §13.3.7.1: `this` is resolved before the key is evaluated, so
+            // `super[super()]` in a derived constructor is a ReferenceError
+            // before the parent constructor ever runs.
+            emit(Opcode::ResolveThis);
+            emit(Opcode::Pop);
             compile_expression(member.property);
             emit(Opcode::RefSuper);
         } else {
@@ -1757,7 +1937,10 @@ private:
 
     // The end of a chain: the short-circuits land here on undefined (or
     // on [undefined, undefined] for a callee).
-    void finish_chain(ChainContext& context, int pushes)
+    // The chain's landings: each short-circuit discards what its link had
+    // pushed and lands on `pushes` values of `landing` — undefined for a
+    // value, true for `delete a?.b` (§13.5.1.2 step 4).
+    void finish_chain(ChainContext& context, int pushes, Opcode landing = Opcode::PushUndefined)
     {
         if (context.fixups.empty())
             return;
@@ -1771,7 +1954,7 @@ private:
             for (int i = 0; i < fixup.ref_drops; ++i)
                 emit(Opcode::RefDrop);
             for (int i = 0; i < pushes; ++i)
-                emit(Opcode::PushUndefined);
+                emit(landing);
             jump(Opcode::Jump, end);
         }
         bind(end);
@@ -1793,8 +1976,29 @@ private:
             return;
         case UnaryOp::Delete:
             switch (unary.operand->type) {
+            case NodeType::MemberExpression: {
+                // The member as the last link of a chain: `delete a?.b` on a
+                // nullish `a` is true without a reference ever being made.
+                auto const& member = *static_cast<MemberExpression const*>(unary.operand);
+                ChainContext context;
+                context.base_depth = m_depth;
+                context.base_refs = m_refs;
+                compile_chain_base(member.object, context);
+                if (member.optional)
+                    optional_check(context, Opcode::Dup, 1, 0);
+                if (member.is_private) {
+                    emit(Opcode::RefPrivate, name(member.name));
+                } else if (member.property) {
+                    compile_expression(member.property);
+                    emit(Opcode::RefMember);
+                } else {
+                    emit(Opcode::RefMemberNamed, name(member.name));
+                }
+                emit(Opcode::RefDelete);
+                finish_chain(context, 1, Opcode::PushTrue);
+                return;
+            }
             case NodeType::Identifier:
-            case NodeType::MemberExpression:
             case NodeType::SuperMember:
                 compile_reference(unary.operand);
                 emit(Opcode::RefDelete);
@@ -2093,7 +2297,15 @@ private:
 std::unique_ptr<CodeBlock> compile_function_body(FunctionNode const& node, Heap& heap, std::string* error)
 {
     Compiler compiler(node, heap);
+    if (node.is_program_body)
+        compiler.track_completion();
     return compiler.compile(error);
+}
+
+std::unique_ptr<CodeBlock> compile_parameter_list(FunctionNode const& node, Heap& heap, std::string* error)
+{
+    Compiler compiler(node, heap);
+    return compiler.compile_parameters(error);
 }
 
 // ---- disassembly ------------------------------------------------------
@@ -2137,7 +2349,7 @@ std::string disassemble(CodeBlock const& code)
             out += " " + name_text(ins.a);
             break;
         case Opcode::MakeClosure:
-        case Opcode::MakeClass:
+        case Opcode::ClassScope:
         case Opcode::DefineMethod:
         case Opcode::DefineAccessor:
             out += " #" + std::to_string(ins.a) + " " + name_text(ins.b);
@@ -2175,7 +2387,11 @@ std::string disassemble(CodeBlock const& code)
         case Opcode::NewRegExp:
         case Opcode::TemplateObject:
         case Opcode::MakeClosureNamedDyn:
-        case Opcode::MakeClassNamedDyn:
+        case Opcode::ClassScopeNamedDyn:
+        case Opcode::ClassElement:
+        case Opcode::ClassElementKeyed:
+        case Opcode::LoadArgument:
+        case Opcode::RestArguments:
         case Opcode::DefineMethodDyn:
         case Opcode::DefineAccessorDyn:
         case Opcode::ThrowTypeErrorConst:

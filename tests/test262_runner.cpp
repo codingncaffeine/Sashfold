@@ -44,6 +44,10 @@ using namespace sashfold;
 
 namespace {
 
+// --vm-all: every interpreter the run makes puts plain bodies on the
+// bytecode machine.
+bool g_vm_all = false;
+
 std::optional<std::string> read_file(std::filesystem::path const& path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -318,6 +322,8 @@ RunResult run_one(std::filesystem::path const& root, std::filesystem::path const
     Metadata const& meta, Mode mode, int timeout_ms)
 {
     js::Interpreter interpreter;
+    if (g_vm_all)
+        interpreter.set_bytecode_for_all(true);
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
     auto const printed = install_host(interpreter);
@@ -366,6 +372,8 @@ RunResult run_module(std::filesystem::path const& root, std::filesystem::path co
     Metadata const& meta, int timeout_ms)
 {
     js::Interpreter interpreter;
+    if (g_vm_all)
+        interpreter.set_bytecode_for_all(true);
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
     auto const printed = install_host(interpreter);
@@ -574,6 +582,12 @@ int main(int argc, char** argv)
     int timeout_ms = 60000;
     if (char const* env = std::getenv("SASHFOLD_PRINT_FAILURES"))
         max_printed = std::atoi(env);
+    // --vm-all: every plain body on the bytecode machine, as
+    // SASHFOLD_JS_VM=all does for the process — the differential run.
+    for (int i = 4; i < argc; ++i) {
+        if (std::string(argv[i]) == "--vm-all")
+            g_vm_all = true;
+    }
     for (int i = 4; i < argc; ++i) {
         std::string const arg = argv[i];
         auto const value = [&](std::string& into) {
@@ -603,6 +617,8 @@ int main(int argc, char** argv)
         } else if (arg == "--timeout") {
             value(text);
             timeout_ms = std::max(100, std::atoi(text.c_str()));
+        } else if (arg == "--vm-all") {
+            // read above
         } else {
             usage(argv[0]);
             return 2;

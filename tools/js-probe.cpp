@@ -35,7 +35,7 @@ namespace {
 
 int usage()
 {
-    std::fputs("usage: js_probe \"<source>\" [--module] [--dump-ast] [--dump-bytecode]\n", stderr);
+    std::fputs("usage: js_probe \"<source>\" [--module] [--dump-ast] [--dump-bytecode] [--vm-all]\n", stderr);
     return 2;
 }
 
@@ -46,6 +46,7 @@ int main(int argc, char** argv)
     bool want_ast = false;
     bool want_bytecode = false;
     bool want_module = false;
+    bool vm_all = false;
     char const* source = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-ast") == 0) {
@@ -54,6 +55,8 @@ int main(int argc, char** argv)
             want_bytecode = true;
         } else if (std::strcmp(argv[i], "--module") == 0) {
             want_module = true;
+        } else if (std::strcmp(argv[i], "--vm-all") == 0) {
+            vm_all = true;
         } else if (source == nullptr) {
             source = argv[i];
         } else {
@@ -65,6 +68,8 @@ int main(int argc, char** argv)
 
     js::Interpreter in;
     in.heap().set_stress(true);
+    if (vm_all)
+        in.set_bytecode_for_all(true);
     if (want_ast || want_module) {
         js::ParseOptions options;
         options.module = want_module;

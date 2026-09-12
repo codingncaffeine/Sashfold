@@ -431,12 +431,32 @@ std::optional<std::size_t> ModuleRecord::inner_evaluation(Interpreter& in, std::
 // tree-walker; with one it is AsyncBlockStart (§27.7.5.2) over the same
 // statements — the module is the one async function it contains, and it
 // runs to its first await here and settles the capability when it ends.
+// The environment already holds every declaration of the body
+// (InitializeEnvironment did what a call's prologue does), so the function
+// is the statement list and nothing else.
+FunctionNode const& ModuleRecord::synthetic_body(bool is_async)
+{
+    FunctionNode const*& slot = is_async ? m_async_body : m_sync_body;
+    if (slot == nullptr) {
+        FunctionNode* body = m_program->make_function();
+        body->is_async = is_async;
+        body->is_strict = true;
+        body->is_constructable = false;
+        body->body = m_program->body;
+        body->declarations = m_program->declarations;
+        slot = body;
+    }
+    return *slot;
+}
+
 bool ModuleRecord::execute_module(Interpreter& in, PromiseCapability const* capability)
 {
     Interpreter::Impl& impl = in.impl();
     Context const context { m_environment, m_environment, m_program.get(), nullptr, true, nullptr };
     if (!has_top_level_await()) {
         Interpreter::Impl::ContextScope scope(impl, context);
+        if (in.bytecode_for_all())
+            return impl.run_compiled_node(synthetic_body(false), scope.context()).has_value();
         Completion const completion = impl.execute_list(m_program->body, scope.context());
         return completion.type != Completion::Type::Throw;
     }
@@ -444,19 +464,7 @@ bool ModuleRecord::execute_module(Interpreter& in, PromiseCapability const* capa
         in.throw_type_error("internal: a module with a top-level await executed without a capability");
         return false;
     }
-    if (m_async_body == nullptr) {
-        // The environment already holds every declaration of the body
-        // (InitializeEnvironment did what a call's prologue does), so the
-        // function is the statement list and nothing else.
-        FunctionNode* body = m_program->make_function();
-        body->is_async = true;
-        body->is_strict = true;
-        body->is_constructable = false;
-        body->body = m_program->body;
-        body->declarations = m_program->declarations;
-        m_async_body = body;
-    }
-    return impl.start_async(*m_async_body, context, *capability).has_value();
+    return impl.start_async(synthetic_body(true), context, *capability).has_value();
 }
 
 // ExecuteAsyncModule (§16.2.1.5.3.2): a fresh capability for the body's

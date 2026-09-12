@@ -128,10 +128,13 @@ private:
     std::vector<ModuleRecord*> m_async_parent_modules;
     std::size_t m_pending_async_dependencies = 0;
     ModuleRecord* m_cycle_root = nullptr;
-    // The body of a module with a top-level await as the async function
-    // it runs as (§16.2.1.6.5 step 12): made once, over the program's own
-    // statement list, when the body first runs; owned by the program.
+    // The body as a function the bytecode machine runs: the async one of a
+    // module with a top-level await (§16.2.1.6.5 step 12), the plain one
+    // of any other. Made once, over the program's own statement list, when
+    // the body first runs; owned by the program.
     FunctionNode const* m_async_body = nullptr;
+    FunctionNode const* m_sync_body = nullptr;
+    FunctionNode const& synthetic_body(bool is_async);
     std::optional<std::size_t> m_dfs_index; // [[DFSIndex]], [[DFSAncestorIndex]]: EMPTY = nullopt
     std::optional<std::size_t> m_dfs_ancestor_index;
     std::vector<std::pair<JsString*, ModuleRecord*>> m_loaded_modules;

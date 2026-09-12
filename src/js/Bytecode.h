@@ -34,6 +34,7 @@ namespace sashfold::js {
     X(PushBlockEnv, 0) /* a: declarations */ X(PushNamesEnv, 0) /* a: name list; b: mutable */                      \
     X(PushWithEnv, -1) X(PopEnv, 0) X(CopyIterationEnv, 0) /* a: name list */                                      \
     X(InitializeBinding, -1) /* a: name */ X(AnnexBCopy, 0) /* a: name */ X(ResolveThis, 1) X(NewTarget, 1)        \
+    X(LoadArgument, 1) /* a: index; the call's argument or undefined */ X(RestArguments, 1) /* a: index */          \
     /* references (the reference stack is accounted separately) */                                                 \
     X(RefName, 0) /* a: name */ X(RefMember, -2) X(RefMemberNamed, -1) /* a: name */                                \
     X(RefSuper, -1) X(RefSuperNamed, 0) /* a: name */ X(RefPrivate, -1) /* a: name */                               \
@@ -60,7 +61,12 @@ namespace sashfold::js {
     X(DefineAccessor, 0) /* a: function; b: name; flags 1 = setter */ X(DefineAccessorDyn, -1) /* a: function */    \
     X(NewRegExp, 1) /* a: regexp */ X(TemplateObject, 1) /* a: template */                                          \
     X(MakeClosure, 1) /* a: function; b: name or None */ X(MakeClosureNamedDyn, 0) /* a: function */                \
-    X(MakeClass, 1) /* a: class; b: name or None */ X(MakeClassNamedDyn, 0) /* a: class */                           \
+    X(LoadFieldKey, 1) /* a field initializer's key, to name an anonymous function after */                       \
+    /* a class (§15.7.14), built in steps: its scope opened (the name on the stack for the Dyn form), the */       \
+    /* heritage settled, each element defined in order (its computed key on the stack), the constructor left */   \
+    X(ClassScope, 0) /* a: class; b: name or None */ X(ClassScopeNamedDyn, -1) /* a: class */                        \
+    X(ClassBegin, 0) X(ClassBeginHeritage, -1) X(ClassElement, 0) /* a: element */ X(ClassElementKeyed, -1)        \
+    X(ClassFinish, 1)                                                                                              \
     X(AppendToReg, -1) /* a: register holding an array */                                                          \
     /* iteration */                                                                                                \
     X(GetIterator, 1) X(IteratorNext, 1) /* a: register */ X(IteratorResultDone, 0) X(IteratorResultValue, 0)       \
@@ -130,6 +136,7 @@ struct Handler {
     std::uint32_t stack_depth = 0;
     std::uint32_t ref_depth = 0;
     std::uint32_t env_depth = 0; // environments pushed above the frame's first
+    std::uint32_t class_depth = 0; // classes under construction when the handler was entered
 };
 
 // One compiled function body. The pools hold what instructions refer to
