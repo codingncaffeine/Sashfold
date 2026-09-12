@@ -13,6 +13,11 @@ sashfold_test(test_gif)
 sashfold_test(test_bmp)
 sashfold_test(test_filters)
 sashfold_test(test_svg)
+# The generated bindings must be what the IDL generates: regenerate with
+# the bindings-regen target when this fails.
+add_test(NAME bindings_generated_current
+  COMMAND gen_bindings ${CMAKE_SOURCE_DIR}/idl/html-elements.idl
+    --check ${CMAKE_SOURCE_DIR}/src/bindings/generated/HtmlElements.gen.cpp)
 add_executable(test_jpeg test_jpeg.cpp)
 target_link_libraries(test_jpeg PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_jpeg COMMAND test_jpeg)

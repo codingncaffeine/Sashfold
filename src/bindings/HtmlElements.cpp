@@ -216,9 +216,6 @@ void install_form_control_common(Realm::Internals& in, js::Object& proto)
     element_method(in, proto, "checkValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
     element_method(in, proto, "reportValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
     element_method(in, proto, "setCustomValidity", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
-    reflect_boolean(in, proto, "disabled", "disabled");
-    reflect_string(in, proto, "name", "name");
-    reflect_boolean(in, proto, "autofocus", "autofocus");
     install_labels(in, proto);
 }
 
@@ -297,18 +294,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     js::Heap::NoCollect const guard(interpreter.heap());
 
     // HTMLElement.
-    reflect_string(in, html_element, "title", "title");
-    reflect_string(in, html_element, "lang", "lang");
-    reflect_string(in, html_element, "dir", "dir");
-    reflect_string(in, html_element, "accessKey", "accesskey");
-    reflect_string(in, html_element, "nonce", "nonce");
-    reflect_string(in, html_element, "popover", "popover");
-    reflect_boolean(in, html_element, "hidden", "hidden");
-    reflect_boolean(in, html_element, "inert", "inert");
-    reflect_boolean(in, html_element, "autofocus", "autofocus");
-    reflect_boolean(in, html_element, "draggable", "draggable");
-    reflect_boolean(in, html_element, "spellcheck", "spellcheck");
-    reflect_boolean(in, html_element, "translate", "translate");
     element_accessor(
         in, html_element, "tabIndex",
         [](Realm::Internals&, dom::Element& e) -> Native {
@@ -420,59 +405,19 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     for (std::string_view const name : { "showPopover", "hidePopover", "togglePopover" })
         element_method(in, html_element, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
 
-    // One interface per tag family. Anything not named here is an
-    // HTMLElement; an unknown tag is an HTMLUnknownElement.
-    struct Family {
-        std::string_view interface;
-        std::vector<std::string_view> tags;
-    };
-    static Family const families[] = {
-        { "HTMLAnchorElement", { "a" } }, { "HTMLAreaElement", { "area" } }, { "HTMLAudioElement", { "audio" } },
-        { "HTMLBaseElement", { "base" } }, { "HTMLBodyElement", { "body" } }, { "HTMLBRElement", { "br" } },
-        { "HTMLButtonElement", { "button" } }, { "HTMLCanvasElement", { "canvas" } }, { "HTMLDataElement", { "data" } },
-        { "HTMLDataListElement", { "datalist" } }, { "HTMLDetailsElement", { "details" } }, { "HTMLDialogElement", { "dialog" } },
-        { "HTMLDivElement", { "div" } }, { "HTMLDListElement", { "dl" } }, { "HTMLEmbedElement", { "embed" } },
-        { "HTMLFieldSetElement", { "fieldset" } }, { "HTMLFormElement", { "form" } },
-        { "HTMLHeadingElement", { "h1", "h2", "h3", "h4", "h5", "h6" } }, { "HTMLHeadElement", { "head" } },
-        { "HTMLHRElement", { "hr" } }, { "HTMLHtmlElement", { "html" } }, { "HTMLIFrameElement", { "iframe" } },
-        { "HTMLImageElement", { "img" } }, { "HTMLInputElement", { "input" } }, { "HTMLLabelElement", { "label" } },
-        { "HTMLLegendElement", { "legend" } }, { "HTMLLIElement", { "li" } }, { "HTMLLinkElement", { "link" } },
-        { "HTMLMapElement", { "map" } }, { "HTMLMenuElement", { "menu" } }, { "HTMLMetaElement", { "meta" } },
-        { "HTMLMeterElement", { "meter" } }, { "HTMLModElement", { "ins", "del" } }, { "HTMLObjectElement", { "object" } },
-        { "HTMLOListElement", { "ol" } }, { "HTMLOptGroupElement", { "optgroup" } }, { "HTMLOptionElement", { "option" } },
-        { "HTMLOutputElement", { "output" } }, { "HTMLParagraphElement", { "p" } }, { "HTMLPictureElement", { "picture" } },
-        { "HTMLPreElement", { "pre", "listing", "xmp" } }, { "HTMLProgressElement", { "progress" } },
-        { "HTMLQuoteElement", { "q", "blockquote" } }, { "HTMLScriptElement", { "script" } }, { "HTMLSelectElement", { "select" } },
-        { "HTMLSlotElement", { "slot" } }, { "HTMLSourceElement", { "source" } }, { "HTMLSpanElement", { "span" } },
-        { "HTMLStyleElement", { "style" } }, { "HTMLTableCaptionElement", { "caption" } }, { "HTMLTableCellElement", { "td", "th" } },
-        { "HTMLTableColElement", { "col", "colgroup" } }, { "HTMLTableElement", { "table" } }, { "HTMLTableRowElement", { "tr" } },
-        { "HTMLTableSectionElement", { "tbody", "thead", "tfoot" } }, { "HTMLTemplateElement", { "template" } },
-        { "HTMLTextAreaElement", { "textarea" } }, { "HTMLTimeElement", { "time" } }, { "HTMLTitleElement", { "title" } },
-        { "HTMLTrackElement", { "track" } }, { "HTMLUListElement", { "ul" } }, { "HTMLVideoElement", { "video" } },
-        { "HTMLUnknownElement", {} }
-    };
-    js::Object* media_element = define_interface(in, "HTMLMediaElement", &html_element);
-    std::unordered_map<std::string, js::Object*> protos;
-    for (Family const& family : families) {
-        js::Object* parent = (family.interface == "HTMLAudioElement" || family.interface == "HTMLVideoElement") ? media_element : &html_element;
-        js::Object* proto = define_interface(in, family.interface, parent);
-        protos[std::string(family.interface)] = proto;
-        for (std::string_view const tag : family.tags)
-            in.tag_interfaces[std::string(tag)] = std::string(family.interface);
-    }
-    auto const proto_of = [&](std::string_view name) -> js::Object& { return *protos.at(std::string(name)); };
+    // One interface per tag family, and every attribute reflected from a
+    // content attribute: generated from idl/html-elements.idl (see
+    // generated/HtmlElements.gen.cpp). Anything not named there is an
+    // HTMLElement; an unknown tag is an HTMLUnknownElement. What follows
+    // here is the hand-written rest of each interface.
+    generated::install_html_element_interfaces(in);
+    generated::install_reflected_attributes(in);
+    js::Object* media_element = in.prototype("HTMLMediaElement");
+    auto const proto_of = [&](std::string_view name) -> js::Object& { return *in.prototype(name); };
 
     // Anchors and areas.
     for (std::string_view const name : { "HTMLAnchorElement", "HTMLAreaElement" }) {
         js::Object& proto = proto_of(name);
-        reflect_url(in, proto, "href", "href");
-        reflect_string(in, proto, "target", "target");
-        reflect_string(in, proto, "rel", "rel");
-        reflect_string(in, proto, "download", "download");
-        reflect_string(in, proto, "hreflang", "hreflang");
-        reflect_string(in, proto, "type", "type");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
-        reflect_string(in, proto, "ping", "ping");
         element_getter(in, proto, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); });
         install_url_parts(in, proto);
     }
@@ -486,28 +431,12 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             replace_children_with_text(internals, e, *text);
             return js::Value::undefined();
         });
-    reflect_string(in, proto_of("HTMLAreaElement"), "alt", "alt");
-    reflect_string(in, proto_of("HTMLAreaElement"), "coords", "coords");
-    reflect_string(in, proto_of("HTMLAreaElement"), "shape", "shape");
 
     // Base.
-    reflect_url(in, proto_of("HTMLBaseElement"), "href", "href");
-    reflect_string(in, proto_of("HTMLBaseElement"), "target", "target");
 
     // Images.
     {
         js::Object& proto = proto_of("HTMLImageElement");
-        reflect_url(in, proto, "src", "src");
-        reflect_string(in, proto, "srcset", "srcset");
-        reflect_string(in, proto, "sizes", "sizes");
-        reflect_string(in, proto, "alt", "alt");
-        reflect_string(in, proto, "crossOrigin", "crossorigin");
-        reflect_string(in, proto, "useMap", "usemap");
-        reflect_string(in, proto, "loading", "loading");
-        reflect_string(in, proto, "decoding", "decoding");
-        reflect_string(in, proto, "fetchPriority", "fetchpriority");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
-        reflect_boolean(in, proto, "isMap", "ismap");
         auto const dimension = [](bool width) {
             return [width](Realm::Internals& internals, dom::Element& e) -> Native {
                 if (internals.hooks.layout_box) {
@@ -599,25 +528,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_control_checked_of(internals, e, js::Interpreter::to_boolean(value));
                 return js::Value::undefined();
             });
-        reflect_string(in, proto, "defaultValue", "value");
-        reflect_boolean(in, proto, "defaultChecked", "checked");
-        reflect_string(in, proto, "placeholder", "placeholder");
-        reflect_string(in, proto, "accept", "accept");
-        reflect_string(in, proto, "alt", "alt");
-        reflect_string(in, proto, "autocomplete", "autocomplete");
-        reflect_string(in, proto, "max", "max");
-        reflect_string(in, proto, "min", "min");
-        reflect_string(in, proto, "step", "step");
-        reflect_string(in, proto, "pattern", "pattern");
-        reflect_url(in, proto, "src", "src");
-        reflect_string(in, proto, "formAction", "formaction");
-        reflect_string(in, proto, "inputMode", "inputmode");
-        reflect_boolean(in, proto, "required", "required");
-        reflect_boolean(in, proto, "readOnly", "readonly");
-        reflect_boolean(in, proto, "multiple", "multiple");
-        reflect_long(in, proto, "maxLength", "maxlength", -1);
-        reflect_long(in, proto, "minLength", "minlength", -1);
-        reflect_long(in, proto, "size", "size", 20);
         element_getter(in, proto, "files", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         element_getter(in, proto, "list", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* list = e.find_attribute("list");
@@ -671,15 +581,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_getter(in, proto, "textLength", [](Realm::Internals& internals, dom::Element& e) -> Native {
             return js::Value::number(static_cast<double>(js::utf16_from_utf8(control_value_of(internals, e)).size()));
         });
-        reflect_string(in, proto, "placeholder", "placeholder");
-        reflect_string(in, proto, "wrap", "wrap");
-        reflect_string(in, proto, "autocomplete", "autocomplete");
-        reflect_boolean(in, proto, "required", "required");
-        reflect_boolean(in, proto, "readOnly", "readonly");
-        reflect_long(in, proto, "rows", "rows", 2);
-        reflect_long(in, proto, "cols", "cols", 20);
-        reflect_long(in, proto, "maxLength", "maxlength", -1);
-        reflect_long(in, proto, "minLength", "minlength", -1);
         for (std::string_view const name : { "select", "setSelectionRange", "setRangeText" })
             element_method(in, proto, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     }
@@ -689,10 +590,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         js::Object& proto = proto_of("HTMLSelectElement");
         install_form_control_common(in, proto);
         install_value_accessor(in, proto);
-        reflect_boolean(in, proto, "multiple", "multiple");
-        reflect_boolean(in, proto, "required", "required");
-        reflect_string(in, proto, "autocomplete", "autocomplete");
-        reflect_long(in, proto, "size", "size", 0);
         element_getter(in, proto, "type", [](Realm::Internals& internals, dom::Element& e) -> Native {
             return internals.string(e.has_attribute("multiple") ? "select-multiple" : "select-one");
         });
@@ -843,9 +740,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 }
                 return js::Value::undefined();
             });
-        reflect_boolean(in, option, "defaultSelected", "selected");
-        reflect_boolean(in, option, "disabled", "disabled");
-        reflect_string(in, option, "label", "label");
         element_getter(in, option, "index", [](Realm::Internals&, dom::Element& e) -> Native {
             dom::Element* select = select_of(e);
             if (!select)
@@ -864,8 +758,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             }
             return js::Value::null();
         });
-        reflect_boolean(in, proto_of("HTMLOptGroupElement"), "disabled", "disabled");
-        reflect_string(in, proto_of("HTMLOptGroupElement"), "label", "label");
     }
 
     // Buttons.
@@ -885,11 +777,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_attribute(internals, e, "type", std::move(*text));
                 return js::Value::undefined();
             });
-        reflect_string(in, proto, "value", "value");
-        reflect_string(in, proto, "formAction", "formaction");
-        reflect_string(in, proto, "formMethod", "formmethod");
-        reflect_string(in, proto, "formTarget", "formtarget");
-        reflect_boolean(in, proto, "formNoValidate", "formnovalidate");
     }
 
     // Forms.
@@ -924,13 +811,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_attribute(internals, e, "method", std::move(*text));
                 return js::Value::undefined();
             });
-        reflect_string(in, proto, "name", "name");
-        reflect_string(in, proto, "target", "target");
-        reflect_string(in, proto, "enctype", "enctype");
-        reflect_string(in, proto, "encoding", "enctype");
-        reflect_string(in, proto, "acceptCharset", "accept-charset");
-        reflect_string(in, proto, "autocomplete", "autocomplete");
-        reflect_boolean(in, proto, "noValidate", "novalidate");
         element_getter(in, proto, "elements", [](Realm::Internals& internals, dom::Element& e) -> Native {
             js::Interpreter::Roots const roots(internals.interpreter);
             js::Value const list = internals.interpreter.root(node_list(internals, form_controls(internals, e)));
@@ -969,7 +849,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     // Labels, fieldsets, legends, outputs.
     {
         js::Object& label = proto_of("HTMLLabelElement");
-        reflect_string(in, label, "htmlFor", "for");
         element_getter(in, label, "control", [](Realm::Internals& internals, dom::Element& e) -> Native {
             if (dom::Attr const* target = e.find_attribute("for"))
                 return internals.realm.wrap_or_null(element_by_id(internals.document, target->value));
@@ -1008,22 +887,11 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         });
         install_form_control_common(in, proto_of("HTMLOutputElement"));
         install_value_accessor(in, proto_of("HTMLOutputElement"));
-        reflect_string(in, proto_of("HTMLOutputElement"), "defaultValue", "value");
     }
 
     // Scripts, styles, links, metas.
     {
         js::Object& script = proto_of("HTMLScriptElement");
-        reflect_url(in, script, "src", "src");
-        reflect_string(in, script, "type", "type");
-        reflect_string(in, script, "charset", "charset");
-        reflect_string(in, script, "crossOrigin", "crossorigin");
-        reflect_string(in, script, "integrity", "integrity");
-        reflect_string(in, script, "referrerPolicy", "referrerpolicy");
-        reflect_string(in, script, "fetchPriority", "fetchpriority");
-        reflect_boolean(in, script, "async", "async");
-        reflect_boolean(in, script, "defer", "defer");
-        reflect_boolean(in, script, "noModule", "nomodule");
         element_accessor(
             in, script, "text", [](Realm::Internals& internals, dom::Element& e) -> Native { return internals.string(html::text_content(e)); },
             [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
@@ -1034,75 +902,30 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 return js::Value::undefined();
             });
         js::Object& style = proto_of("HTMLStyleElement");
-        reflect_string(in, style, "media", "media");
-        reflect_string(in, style, "type", "type");
-        reflect_boolean(in, style, "disabled", "disabled");
         element_getter(in, style, "sheet", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         js::Object& link = proto_of("HTMLLinkElement");
-        reflect_url(in, link, "href", "href");
-        reflect_string(in, link, "rel", "rel");
-        reflect_string(in, link, "type", "type");
-        reflect_string(in, link, "media", "media");
-        reflect_string(in, link, "as", "as");
-        reflect_string(in, link, "hreflang", "hreflang");
-        reflect_string(in, link, "crossOrigin", "crossorigin");
-        reflect_string(in, link, "integrity", "integrity");
-        reflect_string(in, link, "referrerPolicy", "referrerpolicy");
-        reflect_string(in, link, "imageSrcset", "imagesrcset");
-        reflect_string(in, link, "imageSizes", "imagesizes");
-        reflect_boolean(in, link, "disabled", "disabled");
         element_getter(in, link, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); });
         element_getter(in, link, "sizes", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sizes"); });
         element_getter(in, link, "sheet", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-        js::Object& meta = proto_of("HTMLMetaElement");
-        reflect_string(in, meta, "name", "name");
-        reflect_string(in, meta, "content", "content");
-        reflect_string(in, meta, "httpEquiv", "http-equiv");
-        reflect_string(in, meta, "media", "media");
-        reflect_string(in, meta, "scheme", "scheme");
     }
 
     // Frames, embeds, objects, canvas, media.
     {
         js::Object& iframe = proto_of("HTMLIFrameElement");
-        reflect_url(in, iframe, "src", "src");
-        reflect_string(in, iframe, "srcdoc", "srcdoc");
-        reflect_string(in, iframe, "name", "name");
-        reflect_string(in, iframe, "allow", "allow");
-        reflect_string(in, iframe, "width", "width");
-        reflect_string(in, iframe, "height", "height");
-        reflect_string(in, iframe, "loading", "loading");
-        reflect_string(in, iframe, "referrerPolicy", "referrerpolicy");
-        reflect_boolean(in, iframe, "allowFullscreen", "allowfullscreen");
         element_getter(in, iframe, "sandbox", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sandbox"); });
         element_getter(in, iframe, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         element_getter(in, iframe, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         for (std::string_view const name : { "HTMLEmbedElement", "HTMLObjectElement" }) {
             js::Object& proto = proto_of(name);
-            reflect_url(in, proto, "src", "src");
-            reflect_url(in, proto, "data", "data");
-            reflect_string(in, proto, "type", "type");
-            reflect_string(in, proto, "width", "width");
-            reflect_string(in, proto, "height", "height");
-            reflect_string(in, proto, "name", "name");
             element_getter(in, proto, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
             element_getter(in, proto, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         }
         js::Object& canvas = proto_of("HTMLCanvasElement");
-        reflect_long(in, canvas, "width", "width", 300);
-        reflect_long(in, canvas, "height", "height", 150);
         element_method(in, canvas, "getContext", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
         element_method(in, canvas, "toDataURL", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native { return internals.string("data:,"); });
         element_method(in, canvas, "toBlob", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
         element_method(in, canvas, "captureStream", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
 
-        reflect_url(in, *media_element, "src", "src");
-        reflect_string(in, *media_element, "preload", "preload");
-        reflect_string(in, *media_element, "crossOrigin", "crossorigin");
-        reflect_boolean(in, *media_element, "autoplay", "autoplay");
-        reflect_boolean(in, *media_element, "loop", "loop");
-        reflect_boolean(in, *media_element, "controls", "controls");
-        reflect_boolean(in, *media_element, "defaultMuted", "muted");
         element_getter(in, *media_element, "currentSrc", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* src = e.find_attribute("src");
             std::optional<net::Url> const url = src ? net::parse_url(src->value, &internals.url) : std::nullopt;
@@ -1134,24 +957,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                  std::pair { "HAVE_CURRENT_DATA", 2 }, std::pair { "HAVE_FUTURE_DATA", 3 }, std::pair { "HAVE_ENOUGH_DATA", 4 } })
             media_element->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
         js::Object& video = proto_of("HTMLVideoElement");
-        reflect_long(in, video, "width", "width", 0);
-        reflect_long(in, video, "height", "height", 0);
-        reflect_url(in, video, "poster", "poster");
-        reflect_boolean(in, video, "playsInline", "playsinline");
         element_getter(in, video, "videoWidth", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
         element_getter(in, video, "videoHeight", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
-        js::Object& source = proto_of("HTMLSourceElement");
-        reflect_url(in, source, "src", "src");
-        reflect_string(in, source, "srcset", "srcset");
-        reflect_string(in, source, "sizes", "sizes");
-        reflect_string(in, source, "media", "media");
-        reflect_string(in, source, "type", "type");
-        js::Object& track = proto_of("HTMLTrackElement");
-        reflect_url(in, track, "src", "src");
-        reflect_string(in, track, "kind", "kind");
-        reflect_string(in, track, "srclang", "srclang");
-        reflect_string(in, track, "label", "label");
-        reflect_boolean(in, track, "default", "default");
     }
 
     // Tables.
@@ -1240,11 +1047,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::number(-1);
         });
         js::Object& cell = proto_of("HTMLTableCellElement");
-        reflect_long(in, cell, "colSpan", "colspan", 1);
-        reflect_long(in, cell, "rowSpan", "rowspan", 1);
-        reflect_string(in, cell, "headers", "headers");
-        reflect_string(in, cell, "scope", "scope");
-        reflect_string(in, cell, "abbr", "abbr");
         element_getter(in, cell, "cellIndex", [](Realm::Internals&, dom::Element& e) -> Native {
             dom::Node* parent = e.parent();
             if (!parent)
@@ -1258,13 +1060,9 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             }
             return js::Value::number(-1);
         });
-        reflect_long(in, proto_of("HTMLTableColElement"), "span", "span", 1);
     }
 
     // The rest: single attributes.
-    reflect_boolean(in, proto_of("HTMLDetailsElement"), "open", "open");
-    reflect_boolean(in, proto_of("HTMLDialogElement"), "open", "open");
-    reflect_string(in, proto_of("HTMLDialogElement"), "returnValue", "returnvalue");
     for (std::string_view const name : { "show", "showModal", "close" }) {
         bool const open = name != "close";
         element_method(in, proto_of("HTMLDialogElement"), name, 0, [open](Realm::Internals& internals, dom::Element& e, Args) -> Native {
@@ -1275,18 +1073,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::undefined();
         });
     }
-    reflect_string(in, proto_of("HTMLTimeElement"), "dateTime", "datetime");
-    reflect_string(in, proto_of("HTMLDataElement"), "value", "value");
-    reflect_string(in, proto_of("HTMLModElement"), "cite", "cite");
-    reflect_string(in, proto_of("HTMLModElement"), "dateTime", "datetime");
-    reflect_string(in, proto_of("HTMLQuoteElement"), "cite", "cite");
-    reflect_string(in, proto_of("HTMLMapElement"), "name", "name");
-    reflect_string(in, proto_of("HTMLSlotElement"), "name", "name");
-    reflect_string(in, proto_of("HTMLOListElement"), "type", "type");
-    reflect_boolean(in, proto_of("HTMLOListElement"), "reversed", "reversed");
-    reflect_long(in, proto_of("HTMLOListElement"), "start", "start", 1);
-    reflect_long(in, proto_of("HTMLLIElement"), "value", "value", 0);
-    reflect_string(in, proto_of("HTMLLegendElement"), "align", "align");
     for (std::string_view const name : { "HTMLProgressElement", "HTMLMeterElement" }) {
         js::Object& proto = proto_of(name);
         for (std::string_view const attribute : { "value", "max", "min", "low", "high", "optimum" }) {

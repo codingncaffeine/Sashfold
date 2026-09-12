@@ -437,6 +437,13 @@ std::optional<dom::Document*> this_document(js::Interpreter&, js::Value const& t
 // A NodeList (an Array with NodeList.prototype) of these nodes' wrappers.
 js::Value node_list(Realm::Internals&, std::vector<dom::Node*> const& nodes);
 
+// Generated from idl/ by tools/gen-bindings.cpp (generated/*.gen.cpp): the
+// interfaces with their tags, and their reflected attributes.
+namespace generated {
+void install_html_element_interfaces(Realm::Internals&);
+void install_reflected_attributes(Realm::Internals&);
+}
+
 // Installers, one per file.
 void install_events(Realm::Internals&); // Events.cpp
 void install_nodes(Realm::Internals&); // Node.cpp

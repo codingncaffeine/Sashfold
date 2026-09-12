@@ -55,6 +55,7 @@ add_library(sashfold_core STATIC
   src/bindings/Tasks.cpp
   src/bindings/Window.cpp
   src/bindings/Xhr.cpp
+  src/bindings/generated/HtmlElements.gen.cpp
   src/core/Base64.cpp
   src/core/Bidi.cpp
   src/core/Bitmap.cpp
@@ -198,6 +199,18 @@ target_link_libraries(sashfold100 PRIVATE sashfold_core sashfold_warnings)
 # A build tool for the script engine's own work, never shipped.
 add_executable(js_probe tools/js-probe.cpp)
 target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
+
+# gen_bindings turns idl/*.idl into src/bindings/generated/*.gen.cpp: the
+# interfaces, their tags and their reflected attributes (tools/gen-bindings.cpp).
+# The output is committed; the bindings-regen target rewrites it and a test
+# fails when it is stale. A build tool, never shipped.
+add_executable(gen_bindings tools/gen-bindings.cpp)
+target_link_libraries(gen_bindings PRIVATE sashfold_warnings)
+add_custom_target(bindings-regen
+  COMMAND gen_bindings ${CMAKE_SOURCE_DIR}/idl/html-elements.idl
+    --output ${CMAKE_SOURCE_DIR}/src/bindings/generated/HtmlElements.gen.cpp
+  DEPENDS gen_bindings
+  COMMENT "Regenerating the bindings from idl/")
 
 enable_testing()
 add_subdirectory(tests)

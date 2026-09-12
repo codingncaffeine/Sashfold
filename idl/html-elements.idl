@@ -1,0 +1,483 @@
+// The HTML element interfaces (HTML §4), in WebIDL, as far as the bindings
+// generator reads them: each interface, its parent, the tags it is the
+// interface of, and the attributes reflected from content attributes.
+// tools/gen-bindings.cpp turns this into src/bindings/generated/
+// HtmlElements.gen.cpp, which is committed; a test fails when the two fall
+// out of step. Everything else an interface has — the accessors that read
+// live state, the methods — is hand-written in src/bindings/HtmlElements.cpp.
+//
+// The extended attributes the generator understands:
+//   [Existing]        the interface is defined elsewhere; only its attributes are emitted
+//   [Tags=(a, b)]     the element names this interface is the interface of
+//   [Reflect]         the attribute reflects the content attribute of its own name, lowercased
+//   [Reflect=name]    ... of that name
+//   [URL]             a reflected attribute read resolved against the document
+//   [Default=n]       the value of a reflected long when the attribute is absent or not a number
+// The types it reads: DOMString, USVString, boolean, long.
+
+[Existing]
+interface HTMLElement {
+  [Reflect] attribute DOMString title;
+  [Reflect] attribute DOMString lang;
+  [Reflect] attribute DOMString dir;
+  [Reflect] attribute DOMString accessKey;
+  [Reflect] attribute DOMString nonce;
+  [Reflect] attribute DOMString popover;
+  [Reflect] attribute boolean hidden;
+  [Reflect] attribute boolean inert;
+  [Reflect] attribute boolean autofocus;
+  [Reflect] attribute boolean draggable;
+  [Reflect] attribute boolean spellcheck;
+  [Reflect] attribute boolean translate;
+};
+
+[Tags=(a)]
+interface HTMLAnchorElement : HTMLElement {
+  [Reflect, URL] attribute USVString href;
+  [Reflect] attribute DOMString target;
+  [Reflect] attribute DOMString rel;
+  [Reflect] attribute DOMString download;
+  [Reflect] attribute DOMString hreflang;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect] attribute DOMString ping;
+};
+
+[Tags=(area)]
+interface HTMLAreaElement : HTMLElement {
+  [Reflect, URL] attribute USVString href;
+  [Reflect] attribute DOMString target;
+  [Reflect] attribute DOMString rel;
+  [Reflect] attribute DOMString download;
+  [Reflect] attribute DOMString hreflang;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect] attribute DOMString ping;
+  [Reflect] attribute DOMString alt;
+  [Reflect] attribute DOMString coords;
+  [Reflect] attribute DOMString shape;
+};
+
+interface HTMLMediaElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString preload;
+  [Reflect] attribute DOMString crossOrigin;
+  [Reflect] attribute boolean autoplay;
+  [Reflect] attribute boolean loop;
+  [Reflect] attribute boolean controls;
+  [Reflect=muted] attribute boolean defaultMuted;
+};
+
+[Tags=(audio)]
+interface HTMLAudioElement : HTMLMediaElement {
+};
+
+[Tags=(base)]
+interface HTMLBaseElement : HTMLElement {
+  [Reflect, URL] attribute USVString href;
+  [Reflect] attribute DOMString target;
+};
+
+[Tags=(body)]
+interface HTMLBodyElement : HTMLElement {
+};
+
+[Tags=(br)]
+interface HTMLBRElement : HTMLElement {
+};
+
+[Tags=(button)]
+interface HTMLButtonElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute boolean autofocus;
+  [Reflect] attribute DOMString value;
+  [Reflect] attribute DOMString formAction;
+  [Reflect] attribute DOMString formMethod;
+  [Reflect] attribute DOMString formTarget;
+  [Reflect] attribute boolean formNoValidate;
+};
+
+[Tags=(canvas)]
+interface HTMLCanvasElement : HTMLElement {
+  [Reflect, Default=300] attribute long width;
+  [Reflect, Default=150] attribute long height;
+};
+
+[Tags=(data)]
+interface HTMLDataElement : HTMLElement {
+  [Reflect] attribute DOMString value;
+};
+
+[Tags=(datalist)]
+interface HTMLDataListElement : HTMLElement {
+};
+
+[Tags=(details)]
+interface HTMLDetailsElement : HTMLElement {
+  [Reflect] attribute boolean open;
+};
+
+[Tags=(dialog)]
+interface HTMLDialogElement : HTMLElement {
+  [Reflect] attribute boolean open;
+  [Reflect] attribute DOMString returnValue;
+};
+
+[Tags=(div)]
+interface HTMLDivElement : HTMLElement {
+};
+
+[Tags=(dl)]
+interface HTMLDListElement : HTMLElement {
+};
+
+[Tags=(embed)]
+interface HTMLEmbedElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect, URL] attribute USVString data;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute DOMString width;
+  [Reflect] attribute DOMString height;
+  [Reflect] attribute DOMString name;
+};
+
+[Tags=(fieldset)]
+interface HTMLFieldSetElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute boolean autofocus;
+};
+
+[Tags=(form)]
+interface HTMLFormElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString target;
+  [Reflect] attribute DOMString enctype;
+  [Reflect=enctype] attribute DOMString encoding;
+  [Reflect="accept-charset"] attribute DOMString acceptCharset;
+  [Reflect] attribute DOMString autocomplete;
+  [Reflect] attribute boolean noValidate;
+};
+
+[Tags=(h1, h2, h3, h4, h5, h6)]
+interface HTMLHeadingElement : HTMLElement {
+};
+
+[Tags=(head)]
+interface HTMLHeadElement : HTMLElement {
+};
+
+[Tags=(hr)]
+interface HTMLHRElement : HTMLElement {
+};
+
+[Tags=(html)]
+interface HTMLHtmlElement : HTMLElement {
+};
+
+[Tags=(iframe)]
+interface HTMLIFrameElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString srcdoc;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString allow;
+  [Reflect] attribute DOMString width;
+  [Reflect] attribute DOMString height;
+  [Reflect] attribute DOMString loading;
+  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect] attribute boolean allowFullscreen;
+};
+
+[Tags=(img)]
+interface HTMLImageElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString srcset;
+  [Reflect] attribute DOMString sizes;
+  [Reflect] attribute DOMString alt;
+  [Reflect] attribute DOMString crossOrigin;
+  [Reflect] attribute DOMString useMap;
+  [Reflect] attribute DOMString loading;
+  [Reflect] attribute DOMString decoding;
+  [Reflect] attribute DOMString fetchPriority;
+  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect] attribute boolean isMap;
+};
+
+[Tags=(input)]
+interface HTMLInputElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute boolean autofocus;
+  [Reflect=value] attribute DOMString defaultValue;
+  [Reflect=checked] attribute boolean defaultChecked;
+  [Reflect] attribute DOMString placeholder;
+  [Reflect] attribute DOMString accept;
+  [Reflect] attribute DOMString alt;
+  [Reflect] attribute DOMString autocomplete;
+  [Reflect] attribute DOMString max;
+  [Reflect] attribute DOMString min;
+  [Reflect] attribute DOMString step;
+  [Reflect] attribute DOMString pattern;
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString formAction;
+  [Reflect] attribute DOMString inputMode;
+  [Reflect] attribute boolean required;
+  [Reflect] attribute boolean readOnly;
+  [Reflect] attribute boolean multiple;
+  [Reflect, Default=-1] attribute long maxLength;
+  [Reflect, Default=-1] attribute long minLength;
+  [Reflect, Default=20] attribute long size;
+};
+
+[Tags=(label)]
+interface HTMLLabelElement : HTMLElement {
+  [Reflect=for] attribute DOMString htmlFor;
+};
+
+[Tags=(legend)]
+interface HTMLLegendElement : HTMLElement {
+  [Reflect] attribute DOMString align;
+};
+
+[Tags=(li)]
+interface HTMLLIElement : HTMLElement {
+  [Reflect, Default=0] attribute long value;
+};
+
+[Tags=(link)]
+interface HTMLLinkElement : HTMLElement {
+  [Reflect, URL] attribute USVString href;
+  [Reflect] attribute DOMString rel;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute DOMString media;
+  [Reflect] attribute DOMString as;
+  [Reflect] attribute DOMString hreflang;
+  [Reflect] attribute DOMString crossOrigin;
+  [Reflect] attribute DOMString integrity;
+  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect] attribute DOMString imageSrcset;
+  [Reflect] attribute DOMString imageSizes;
+  [Reflect] attribute boolean disabled;
+};
+
+[Tags=(map)]
+interface HTMLMapElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+};
+
+[Tags=(menu)]
+interface HTMLMenuElement : HTMLElement {
+};
+
+[Tags=(meta)]
+interface HTMLMetaElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString content;
+  [Reflect="http-equiv"] attribute DOMString httpEquiv;
+  [Reflect] attribute DOMString media;
+  [Reflect] attribute DOMString scheme;
+};
+
+[Tags=(meter)]
+interface HTMLMeterElement : HTMLElement {
+};
+
+[Tags=(ins, del)]
+interface HTMLModElement : HTMLElement {
+  [Reflect] attribute DOMString cite;
+  [Reflect] attribute DOMString dateTime;
+};
+
+[Tags=(object)]
+interface HTMLObjectElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect, URL] attribute USVString data;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute DOMString width;
+  [Reflect] attribute DOMString height;
+  [Reflect] attribute DOMString name;
+};
+
+[Tags=(ol)]
+interface HTMLOListElement : HTMLElement {
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute boolean reversed;
+  [Reflect, Default=1] attribute long start;
+};
+
+[Tags=(optgroup)]
+interface HTMLOptGroupElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString label;
+};
+
+[Tags=(option)]
+interface HTMLOptionElement : HTMLElement {
+  [Reflect=selected] attribute boolean defaultSelected;
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString label;
+};
+
+[Tags=(output)]
+interface HTMLOutputElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute boolean autofocus;
+  [Reflect=value] attribute DOMString defaultValue;
+};
+
+[Tags=(p)]
+interface HTMLParagraphElement : HTMLElement {
+};
+
+[Tags=(picture)]
+interface HTMLPictureElement : HTMLElement {
+};
+
+[Tags=(pre, listing, xmp)]
+interface HTMLPreElement : HTMLElement {
+};
+
+[Tags=(progress)]
+interface HTMLProgressElement : HTMLElement {
+};
+
+[Tags=(q, blockquote)]
+interface HTMLQuoteElement : HTMLElement {
+  [Reflect] attribute DOMString cite;
+};
+
+[Tags=(script)]
+interface HTMLScriptElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute DOMString charset;
+  [Reflect] attribute DOMString crossOrigin;
+  [Reflect] attribute DOMString integrity;
+  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect] attribute DOMString fetchPriority;
+  [Reflect] attribute boolean async;
+  [Reflect] attribute boolean defer;
+  [Reflect] attribute boolean noModule;
+};
+
+[Tags=(select)]
+interface HTMLSelectElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute boolean autofocus;
+  [Reflect] attribute boolean multiple;
+  [Reflect] attribute boolean required;
+  [Reflect] attribute DOMString autocomplete;
+  [Reflect, Default=0] attribute long size;
+};
+
+[Tags=(slot)]
+interface HTMLSlotElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+};
+
+[Tags=(source)]
+interface HTMLSourceElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString srcset;
+  [Reflect] attribute DOMString sizes;
+  [Reflect] attribute DOMString media;
+  [Reflect] attribute DOMString type;
+};
+
+[Tags=(span)]
+interface HTMLSpanElement : HTMLElement {
+};
+
+[Tags=(style)]
+interface HTMLStyleElement : HTMLElement {
+  [Reflect] attribute DOMString media;
+  [Reflect] attribute DOMString type;
+  [Reflect] attribute boolean disabled;
+};
+
+[Tags=(caption)]
+interface HTMLTableCaptionElement : HTMLElement {
+};
+
+[Tags=(td, th)]
+interface HTMLTableCellElement : HTMLElement {
+  [Reflect, Default=1] attribute long colSpan;
+  [Reflect, Default=1] attribute long rowSpan;
+  [Reflect] attribute DOMString headers;
+  [Reflect] attribute DOMString scope;
+  [Reflect] attribute DOMString abbr;
+};
+
+[Tags=(col, colgroup)]
+interface HTMLTableColElement : HTMLElement {
+  [Reflect, Default=1] attribute long span;
+};
+
+[Tags=(table)]
+interface HTMLTableElement : HTMLElement {
+};
+
+[Tags=(tr)]
+interface HTMLTableRowElement : HTMLElement {
+};
+
+[Tags=(tbody, thead, tfoot)]
+interface HTMLTableSectionElement : HTMLElement {
+};
+
+[Tags=(template)]
+interface HTMLTemplateElement : HTMLElement {
+};
+
+[Tags=(textarea)]
+interface HTMLTextAreaElement : HTMLElement {
+  [Reflect] attribute boolean disabled;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute boolean autofocus;
+  [Reflect] attribute DOMString placeholder;
+  [Reflect] attribute DOMString wrap;
+  [Reflect] attribute DOMString autocomplete;
+  [Reflect] attribute boolean required;
+  [Reflect] attribute boolean readOnly;
+  [Reflect, Default=2] attribute long rows;
+  [Reflect, Default=20] attribute long cols;
+  [Reflect, Default=-1] attribute long maxLength;
+  [Reflect, Default=-1] attribute long minLength;
+};
+
+[Tags=(time)]
+interface HTMLTimeElement : HTMLElement {
+  [Reflect] attribute DOMString dateTime;
+};
+
+[Tags=(title)]
+interface HTMLTitleElement : HTMLElement {
+};
+
+[Tags=(track)]
+interface HTMLTrackElement : HTMLElement {
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString kind;
+  [Reflect] attribute DOMString srclang;
+  [Reflect] attribute DOMString label;
+  [Reflect] attribute boolean default;
+};
+
+[Tags=(ul)]
+interface HTMLUListElement : HTMLElement {
+};
+
+[Tags=(video)]
+interface HTMLVideoElement : HTMLMediaElement {
+  [Reflect, Default=0] attribute long width;
+  [Reflect, Default=0] attribute long height;
+  [Reflect, URL] attribute USVString poster;
+  [Reflect] attribute boolean playsInline;
+};
+
+interface HTMLUnknownElement : HTMLElement {
+};
+
