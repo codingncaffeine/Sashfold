@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace sashfold::text {
@@ -77,6 +78,7 @@ private:
     std::vector<std::uint8_t> m_fd_select; // CID: the font dict of each glyph
     std::size_t m_charset = 0; // 0: the ISOAdobe charset, glyph i has SID i
     mutable std::vector<std::uint16_t> m_sid_of_glyph; // loaded on the first accent
+    mutable std::unordered_map<std::uint16_t, std::uint16_t> m_gid_of_sid;
     mutable bool m_charset_loaded = false;
     std::uint16_t m_glyph_count = 0;
     bool m_cid = false;

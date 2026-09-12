@@ -163,8 +163,11 @@ std::uint16_t standard_encoding_sid(std::uint8_t code)
     return 0;
 }
 
-constexpr std::size_t max_points = 20000;
-constexpr int max_instructions = 200000;
+// The most involved glyph of a CJK face runs to a thousand points and a
+// few thousand instructions; these hold a hostile charstring to a small
+// multiple of that, so the rasterizer behind it stays bounded too.
+constexpr std::size_t max_points = 4000;
+constexpr int max_instructions = 30000;
 constexpr int max_depth = 10;
 
 } // namespace
@@ -934,6 +937,9 @@ void CffFont::load_charset(std::vector<std::uint8_t> const& bytes) const
                 m_sid_of_glyph[glyph] = static_cast<std::uint16_t>(first + k);
         }
     }
+    // The way back, for the accents: the first glyph of each name.
+    for (std::size_t g = 1; g < m_sid_of_glyph.size(); ++g)
+        m_gid_of_sid.emplace(m_sid_of_glyph[g], static_cast<std::uint16_t>(g));
 }
 
 std::uint16_t CffFont::glyph_of_standard_code(std::vector<std::uint8_t> const& bytes, std::uint8_t code) const
@@ -943,11 +949,8 @@ std::uint16_t CffFont::glyph_of_standard_code(std::vector<std::uint8_t> const& b
         return 0;
     // The charset is loaded once, on the first accent.
     load_charset(bytes);
-    for (std::size_t g = 1; g < m_sid_of_glyph.size(); ++g) {
-        if (m_sid_of_glyph[g] == sid)
-            return static_cast<std::uint16_t>(g);
-    }
-    return 0;
+    auto const it = m_gid_of_sid.find(sid);
+    return it == m_gid_of_sid.end() ? 0 : it->second;
 }
 
 CffFont::Private const& CffFont::private_for(std::uint16_t glyph) const
