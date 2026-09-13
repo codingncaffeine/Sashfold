@@ -1752,6 +1752,15 @@ function threw(f, name) { try { f(); } catch (e) { return e.name === name; } ret
     CHECK(page->boolean("threw(function () { return w.location.href; }, 'SecurityError') && threw(function () { return w.location.pathname; }, 'SecurityError')"));
     CHECK(page->boolean("Object.getPrototypeOf(w.location) === null && Object.getOwnPropertyNames(w.location).join() === 'href,replace,then'"));
     CHECK(page->boolean("s.location.href === 'about:srcdoc' && Object.getPrototypeOf(s.location) === s.Location.prototype"));
+    // What the functions another origin is shown throw before they reach the
+    // window is the asking realm's: a `this` that is no location, a URL that
+    // is no string.
+    CHECK(page->boolean("var hrefSetter = Object.getOwnPropertyDescriptor(w.location, 'href').set;"
+                        " (function () { try { hrefSetter.call({}, 'x'); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    CHECK(page->boolean("(function () { try { w.location.href = Symbol(); } catch (e) { return e instanceof TypeError; } return false; })()"
+                        " && (function () { try { w.location = Symbol(); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    // The window's bars, window.external and the media event handlers.
+    CHECK(page->boolean("locationbar.visible === true && toolbar instanceof BarProp && typeof external.AddSearchProvider === 'function' && 'oncanplay' in window && onended === null"));
     // The window's own members check `this`: another origin's window only for
     // what that origin shows, and anything else is no window at all.
     CHECK(page->boolean("var documentGetter = Object.getOwnPropertyDescriptor(window, 'document').get; threw(function () { documentGetter.call(w); }, 'SecurityError') && documentGetter.call(s) === s.document"));

@@ -1782,8 +1782,23 @@ void install_window(Realm::Internals& in)
         "touchmove", "touchcancel", "pointerdown", "pointerup", "pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave",
         "pointercancel", "scrollend", "animationend", "animationstart", "animationiteration", "transitionend", "afterprint", "beforeprint",
         "select", "abort", "auxclick", "copy", "cut", "paste", "drag", "dragstart", "dragend", "dragover", "dragenter", "dragleave", "drop",
-        "orientationchange", "devicemotion", "deviceorientation", "gamepadconnected", "gamepaddisconnected" };
+        "orientationchange", "devicemotion", "deviceorientation", "gamepadconnected", "gamepaddisconnected", "cancel", "canplay",
+        "canplaythrough", "close", "cuechange", "durationchange", "emptied", "ended", "invalid", "loadeddata", "loadedmetadata", "loadstart",
+        "pause", "play", "playing", "progress", "ratechange", "seeked", "seeking", "stalled", "suspend", "timeupdate", "volumechange",
+        "waiting" };
     define_event_handlers(in, *global, window_event_types);
+
+    // The window's bars (HTML §7.2.2.2): a browser's location bar, menu bar
+    // and the rest, each visible, as a page with a browser around it sees
+    // them. And window.external (HTML §16.1.3), whose methods do nothing.
+    js::Object* const bar_proto = define_interface(in, "BarProp", nullptr);
+    define_getter(in, *bar_proto, "visible", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
+    for (std::string_view const bar : { "locationbar", "menubar", "personalbar", "scrollbars", "statusbar", "toolbar" })
+        global->put(interpreter.key(bar), js::Value::object(interpreter.new_object(bar_proto)), js::builtin_attributes);
+    js::Object* const external_proto = define_interface(in, "External", nullptr);
+    for (std::string_view const method : { "AddSearchProvider", "IsSearchProviderInstalled" })
+        js::define_method(interpreter, *external_proto, method, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    global->put(interpreter.key("external"), js::Value::object(interpreter.new_object(external_proto)), js::builtin_attributes);
 }
 
 }

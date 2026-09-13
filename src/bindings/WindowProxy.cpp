@@ -97,13 +97,34 @@ void collect_iframes(dom::Node const& node, std::vector<dom::Element const*>& ou
 // A function of the realm that asks, which performs a member's steps: those
 // of the window's or location's own member, with the `this` it is called
 // with, so that anything but that window or location is refused as the
-// member itself refuses it (WebIDL §3.7.6).
+// member itself refuses it (WebIDL §3.7.6). The steps run in this function's
+// realm rather than the member's, so what they throw before they reach the
+// window — a `this` that is no window, an argument that is no string — is
+// the asking realm's error.
 js::Object* forwarding_function(js::Interpreter& interpreter, std::string_view name, int length, js::Value const& original)
 {
     return interpreter.new_closure(name, length, { original },
         [](js::Interpreter& interp, js::ClosureFunction& function, js::Value const& this_value, std::span<js::Value const> arguments) -> std::optional<js::Value> {
-            return interp.call(function.slot(0), this_value, arguments);
+            js::Value const member = function.slot(0);
+            if (auto* const native = member.is_object() ? dynamic_cast<js::NativeFunction*>(member.as_object()) : nullptr)
+                return native->callback()(interp, this_value, arguments);
+            return interp.call(member, this_value, arguments);
         });
+}
+
+// The arguments with the first, a URL, converted to a string before a member
+// enters its window's realm (WebIDL §3.2.10, USVString): a value that cannot
+// be converted throws in the realm of the script that passed it.
+std::optional<std::vector<js::Value>> with_url_converted(js::Interpreter& interpreter, Args arguments)
+{
+    std::vector<js::Value> converted(arguments.begin(), arguments.end());
+    if (converted.empty())
+        return converted;
+    std::optional<js::JsString*> const text = interpreter.to_string(converted[0]);
+    if (!text)
+        return std::nullopt;
+    converted[0] = js::Value::string(*text);
+    return converted;
 }
 
 std::uint8_t attributes_of(js::PropertyDescriptor const& descriptor)
@@ -123,10 +144,11 @@ std::uint8_t attributes_of(js::PropertyDescriptor const& descriptor)
 // global object; a WindowProxy is the window it stands for; anything else is
 // no window. The member then runs as that window's, after the security check
 // (HTML §7.2.3.2) unless another origin may reach it. [LegacyLenientThis]
-// members answer undefined for no window instead of throwing.
-js::NativeFunction::Callback window_member(js::NativeFunction::Callback original, bool shown_to_other_origins, bool lenient_this)
+// members answer undefined for no window instead of throwing. A member that
+// takes a URL has it converted first, in the realm of the script that called.
+js::NativeFunction::Callback window_member(js::NativeFunction::Callback original, bool shown_to_other_origins, bool lenient_this, bool takes_url)
 {
-    return [original = std::move(original), shown_to_other_origins, lenient_this](
+    return [original = std::move(original), shown_to_other_origins, lenient_this, takes_url](
                js::Interpreter& interpreter, js::Value const& this_value, Args arguments) -> Native {
         js::RealmRecord* target = nullptr;
         if (this_value.is_nullish()) {
@@ -143,8 +165,17 @@ js::NativeFunction::Callback window_member(js::NativeFunction::Callback original
         }
         if (!shown_to_other_origins && !is_platform_object_same_origin(interpreter, *target))
             return throw_security_error(interpreter);
+        js::Interpreter::Roots const roots(interpreter);
+        std::optional<std::vector<js::Value>> converted;
+        if (takes_url) {
+            converted = with_url_converted(interpreter, arguments);
+            if (!converted)
+                return std::nullopt;
+            for (js::Value const& argument : *converted)
+                interpreter.root(argument);
+        }
         js::Interpreter::RealmScope const inside(interpreter, target);
-        return original(interpreter, this_value, arguments);
+        return original(interpreter, this_value, converted ? Args(*converted) : arguments);
     };
 }
 
@@ -616,8 +647,15 @@ js::NativeFunction::Callback location_member(js::NativeFunction::Callback origin
             return interpreter.throw_type_error("Illegal invocation");
         if (!shown_to_other_origins && !is_platform_object_same_origin(interpreter, location->record()))
             return throw_security_error(interpreter);
+        // Every member of a Location that takes an argument takes a URL.
+        js::Interpreter::Roots const roots(interpreter);
+        std::optional<std::vector<js::Value>> const converted = with_url_converted(interpreter, arguments);
+        if (!converted)
+            return std::nullopt;
+        for (js::Value const& argument : *converted)
+            interpreter.root(argument);
         js::Interpreter::RealmScope const inside(interpreter, &location->record());
-        return original(interpreter, this_value, arguments);
+        return original(interpreter, this_value, Args(*converted));
     };
 }
 
@@ -628,7 +666,8 @@ namespace {
 // High Resolution Time), which a script's assignment replaces with a data
 // property of the window's own.
 constexpr std::string_view unforgeable_members[] = { "window", "document", "location", "top" };
-constexpr std::string_view replaceable_members[] = { "self", "frames", "parent", "length", "origin", "external", "screen", "scrollX",
+constexpr std::string_view replaceable_members[] = { "self", "locationbar", "menubar", "personalbar", "scrollbars", "statusbar", "toolbar",
+    "frames", "parent", "length", "origin", "external", "screen", "scrollX",
     "scrollY", "pageXOffset", "pageYOffset", "innerWidth", "innerHeight", "screenLeft", "screenTop", "screenX", "screenY", "outerWidth",
     "outerHeight", "devicePixelRatio", "event", "performance", "visualViewport", "clientInformation" };
 // Namespace objects, which are plain data properties like Math.
@@ -714,7 +753,7 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
     shape_window_members(in, language_globals);
     // A method or an accessor function made by the interfaces, put behind the
     // checks; an interface object, which has a prototype, is left as it is.
-    auto const guarded = [&interpreter](js::Object* function, bool shown, bool lenient) -> js::Object* {
+    auto const guarded = [&interpreter](js::Object* function, bool shown, bool lenient, bool takes_url) -> js::Object* {
         auto* const native = dynamic_cast<js::NativeFunction*>(function);
         if (native == nullptr || native->is_constructor() || native->get_own_property(interpreter.key("prototype")))
             return function;
@@ -722,7 +761,7 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
         std::optional<js::PropertyDescriptor> const name = native->get_own_property(interpreter.key("name"));
         int const arity = length && length->value && length->value->is_number() ? static_cast<int>(length->value->as_number()) : 0;
         std::string const function_name = name && name->value && name->value->is_string() ? name->value->as_string()->to_utf8() : std::string();
-        return interpreter.new_native(function_name, arity, window_member(native->callback(), shown, lenient));
+        return interpreter.new_native(function_name, arity, window_member(native->callback(), shown, lenient, takes_url));
     };
     for (js::PropertyKey const& key : global.own_keys()) {
         if (!key.is_atom() || std::find(language_globals.begin(), language_globals.end(), key) != language_globals.end())
@@ -733,14 +772,16 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
         std::string const name = key.as_atom()->to_utf8();
         CrossOriginProperty const* const shown = find_cross_origin(window_cross_origin, name);
         bool const lenient = name == "onmouseenter" || name == "onmouseleave";
+        // window.location's setter forwards a URL to the Location's href.
+        bool const takes_url = name == "location";
         if (own->is_accessor()) {
-            js::Object* const getter = own->get && *own->get ? guarded(*own->get, shown != nullptr, lenient) : nullptr;
-            js::Object* const setter = own->set && *own->set ? guarded(*own->set, shown != nullptr, lenient) : nullptr;
+            js::Object* const getter = own->get && *own->get ? guarded(*own->get, shown != nullptr, lenient, takes_url) : nullptr;
+            js::Object* const setter = own->set && *own->set ? guarded(*own->set, shown != nullptr, lenient, takes_url) : nullptr;
             global.put_accessor(key, getter, setter, attributes_of(*own));
             if (shown)
                 in.cross_origin_members[shown->name] = js::PropertyDescriptor::accessor(getter, setter, attributes_of(*own));
         } else if (own->value && js::Interpreter::is_callable(*own->value)) {
-            js::Object* const function = guarded(own->value->as_object(), shown != nullptr, lenient);
+            js::Object* const function = guarded(own->value->as_object(), shown != nullptr, lenient, takes_url);
             if (function != own->value->as_object())
                 global.put(key, js::Value::object(function), attributes_of(*own));
             if (shown)
