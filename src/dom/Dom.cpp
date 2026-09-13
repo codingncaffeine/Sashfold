@@ -89,10 +89,12 @@ void Document::adopt(Node& node)
     }
 }
 
+// The first attribute whose qualified name is `name`, in any namespace (DOM
+// §4.9 "get an attribute by name").
 Attr const* Element::find_attribute(std::string_view name) const
 {
     for (Attr const& attribute : m_attributes) {
-        if (attribute.local_name == name && attribute.prefix.empty())
+        if (attribute.has_qualified_name(name))
             return &attribute;
     }
     return nullptr;

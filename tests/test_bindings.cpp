@@ -1936,6 +1936,13 @@ void test_the_origin_interface()
                         " document.createElement('div'), document.createElementNS('http://www.w3.org/2000/svg', 'a'),"
                         " document.createElementNS('http://www.w3.org/1998/Math/MathML', 'a')].every(function (value) {"
                         " try { Origin.from(value); } catch (e) { return e instanceof TypeError; } return false; })"));
+    // An element that is not a hyperlink element gives no origin, whatever
+    // its href attribute holds: a <div>, a <link>, the SVG <use>, the MathML
+    // <a>.
+    CHECK(page->boolean("(function () { var div = document.createElement('div'), link = document.createElement('link');"
+                        " var use = document.createElementNS('http://www.w3.org/2000/svg', 'use'), math = document.createElementNS('http://www.w3.org/1998/Math/MathML', 'a');"
+                        " return [div, link, use, math].every(function (element) { element.setAttribute('href', 'https://site.example/');"
+                        " try { Origin.from(element); } catch (e) { return e instanceof TypeError; } return false; }); })()"));
     CHECK(page->boolean("(function () { try { new Origin().isSameOrigin({}); } catch (e) { return e instanceof TypeError; } return false; })()"));
     CHECK(page->boolean("(function () { try { Object.getOwnPropertyDescriptor(Origin.prototype, 'opaque').get.call({}); } catch (e) { return e instanceof TypeError; } return false; })()"));
     // <a> and <area>: the origin of the href resolved against the document,
@@ -1957,6 +1964,23 @@ void test_the_origin_interface()
                         " a.setAttribute('href', 'data:,z'); return a.href.baseVal === 'data:,z' && Origin.from(a).opaque; })()"));
     CHECK(page->boolean("(function () { var parsed = document.getElementById('parsedLink');"
                         " return parsed.href.baseVal === 'https://parsed.example/' && Origin.from(parsed).isSameOrigin(Origin.from('https://parsed.example')); })()"));
+    // An attribute in no namespace named xlink:href is not the XLink href.
+    CHECK(page->boolean("(function () { var a = document.createElementNS('http://www.w3.org/2000/svg', 'a'); a.setAttribute('xlink:href', 'https://nonamespace.example/');"
+                        " if (a.getAttribute('xlink:href') !== 'https://nonamespace.example/' || a.href.baseVal !== '') return false;"
+                        " try { Origin.from(a); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    // baseVal writes the attribute it reflects: xlink:href while the element
+    // has no href, and href once it has one.
+    CHECK(page->boolean("(function () { var holder = document.createElement('div'); holder.innerHTML = '<svg><a xlink:href=\"https://parsed.example/\"></a></svg>';"
+                        " var a = holder.firstChild.firstChild; a.href.baseVal = 'https://written.example/';"
+                        " if (a.attributes.length !== 1 || a.getAttributeNS('http://www.w3.org/1999/xlink', 'href') !== 'https://written.example/' || a.hasAttribute('href')) return false;"
+                        " a.setAttribute('href', 'https://both.example/'); a.href.baseVal = 'https://href.example/';"
+                        " return a.attributes.length === 2 && a.getAttribute('href') === 'https://href.example/'"
+                        " && a.getAttributeNS('http://www.w3.org/1999/xlink', 'href') === 'https://written.example/' && a.href.animVal === 'https://href.example/'; })()"));
+    // href is one SVGAnimatedString for the element's life, kept through
+    // collections while nothing else holds it.
+    CHECK(page->boolean("(function () { var a = document.createElementNS('http://www.w3.org/2000/svg', 'a'); a.href.expando = 'kept';"
+                        " for (var i = 0; i < 64; i++) [i, {}]; var first = a.href; a.setAttribute('href', 'https://same.example/');"
+                        " return a.href === first && first.expando === 'kept' && first.baseVal === 'https://same.example/'; })()"));
     // A window of this origin: its document's origin; an Origin made by
     // another realm's from is that realm's, and compares all the same.
     CHECK(page->boolean("!Origin.from(window).opaque && Origin.from(window).isSameOrigin(Origin.from('https://example.test'))"
@@ -1975,6 +1999,37 @@ void test_the_origin_interface()
     CHECK(in_opaque_frame("received.length === 3 && received[0].data === 'first' && received[0].origin.opaque"
                           " && received[0].origin.isSameOrigin(received[1].origin) && received[1].origin.isSameOrigin(Origin.from(window))"));
     CHECK(in_opaque_frame("received[2].data === 'from the page' && !received[2].origin.opaque && received[2].origin.isSameOrigin(Origin.from('https://example.test'))"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
+// Attributes in namespaces (DOM §4.9): setAttributeNS validates and extracts
+// the namespace, prefix and local name and keeps all three; the NS methods
+// find an attribute by its namespace and local name, the others the first by
+// its qualified name.
+void test_attributes_in_namespaces()
+{
+    auto page = loaded("<!DOCTYPE html><p></p>");
+    CHECK(page->boolean("(function () { var e = document.createElement('p'); e.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', 'v'); var attr = e.attributes[0];"
+                        " return e.attributes.length === 1 && attr.namespaceURI === 'http://www.w3.org/1999/xlink' && attr.prefix === 'xlink' && attr.localName === 'href'"
+                        " && attr.name === 'xlink:href' && e.getAttributeNames()[0] === 'xlink:href'; })()"));
+    // By namespace and local name: a second prefix sets the same attribute
+    // and keeps the first prefix.
+    CHECK(page->boolean("(function () { var e = document.createElement('p'); e.setAttributeNS('ns', 'a:x', '1'); e.setAttributeNS('ns', 'b:x', '2'); e.setAttributeNS(null, 'x', '3');"
+                        " if (e.attributes.length !== 2 || e.attributes[0].prefix !== 'a' || e.getAttributeNS('ns', 'x') !== '2' || e.getAttributeNS('', 'x') !== '3') return false;"
+                        " if (e.getAttributeNS('ns', 'a:x') !== null || !e.hasAttributeNS('ns', 'x') || e.hasAttributeNS('other', 'x')) return false;"
+                        " e.removeAttributeNS('ns', 'x'); e.setAttributeNS('ns', 'c:x', '4'); e.removeAttributeNS('ns', 'x'); return e.attributes.length === 1 && e.getAttributeNS(null, 'x') === '3'; })()"));
+    // By qualified name: the first attribute that has it, in any namespace.
+    CHECK(page->boolean("(function () { var e = document.createElement('p'); e.setAttributeNS('ns', 'a:x', '1'); e.setAttributeNS('other', 'x', '2');"
+                        " if (e.getAttribute('a:x') !== '1' || e.getAttribute('x') !== '2' || !e.hasAttribute('a:x')) return false;"
+                        " e.setAttribute('a:x', 'changed'); if (e.attributes.length !== 2 || e.getAttributeNS('ns', 'x') !== 'changed') return false;"
+                        " e.removeAttribute('a:x'); return e.attributes.length === 1 && e.getAttributeNS('other', 'x') === '2'; })()"));
+    // The exceptions of validate and extract.
+    CHECK(page->boolean("(function () { var e = document.createElement('p'); function thrown(namespace, name) { try { e.setAttributeNS(namespace, name, 'v'); } catch (x) { return x.name; } return 'none'; }"
+                        " return thrown(null, 'a:b') === 'NamespaceError' && thrown('ns', 'xml:b') === 'NamespaceError' && thrown('ns', 'xmlns') === 'NamespaceError'"
+                        " && thrown('http://www.w3.org/2000/xmlns/', 'a:b') === 'NamespaceError' && thrown('ns', 'b:') === 'InvalidCharacterError'"
+                        " && thrown('ns', ':b') === 'InvalidCharacterError' && thrown('http://www.w3.org/XML/1998/namespace', 'a:b') === 'none'"
+                        " && thrown('http://www.w3.org/2000/xmlns/', 'xmlns:a') === 'none' && e.attributes.length === 2; })()"));
     CHECK_EQ(page->console, "");
     page.reset();
 }
@@ -2017,5 +2072,6 @@ int main()
     test_a_window_of_another_origin_shows_little();
     test_document_domain_relaxes_the_same_origin_rule();
     test_the_origin_interface();
+    test_attributes_in_namespaces();
     return test::report("test_bindings");
 }

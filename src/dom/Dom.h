@@ -106,6 +106,19 @@ struct Attr {
     {
         return prefix.empty() ? local_name : prefix + " " + local_name;
     }
+    // The qualified name (DOM §4.9.2): the local name, after the prefix and a
+    // colon when there is a prefix.
+    std::string qualified_name() const
+    {
+        return prefix.empty() ? local_name : prefix + ":" + local_name;
+    }
+    bool has_qualified_name(std::string_view name) const
+    {
+        if (prefix.empty())
+            return local_name == name;
+        return name.size() == prefix.size() + 1 + local_name.size() && name.starts_with(prefix) && name[prefix.size()] == ':'
+            && name.ends_with(local_name);
+    }
 };
 
 class Element : public Node {

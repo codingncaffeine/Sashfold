@@ -43,10 +43,26 @@ NodeWrapper::~NodeWrapper()
         m_node->wrapper = nullptr;
 }
 
+js::Object* NodeWrapper::same_object(std::string_view attribute) const
+{
+    for (auto const& [name, object] : m_same_objects) {
+        if (name == attribute)
+            return object;
+    }
+    return nullptr;
+}
+
+void NodeWrapper::keep_same_object(std::string_view attribute, js::Object* object)
+{
+    m_same_objects.emplace_back(std::string(attribute), object);
+}
+
 void NodeWrapper::trace(js::Tracer& tracer)
 {
     EventTargetObject::trace(tracer);
     tracer.visit(m_record);
+    for (auto const& kept : m_same_objects)
+        tracer.visit(kept.second);
     if (!m_node)
         return;
     // A detached subtree lives as long as a wrapper into it is reachable
@@ -173,12 +189,23 @@ std::string attribute_or_empty(dom::Element const& element, std::string_view nam
 
 namespace {
 
-// An iframe's src or srcdoc written by a script: the frame navigates.
-void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view name)
+// An attribute a script wrote is a mutation; an iframe's src or srcdoc, in no
+// namespace, navigates its frame.
+void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name)
 {
     in.realm.note_mutation();
-    if ((name == "src" || name == "srcdoc") && element.is_html("iframe"))
+    if (namespace_uri.empty() && (local_name == "src" || local_name == "srcdoc") && element.is_html("iframe"))
         in.schedule_frame_navigation(element);
+}
+
+// Erases an attribute, then reports it written by its namespace and local
+// name, copied first: the erase moves the attributes after it.
+void erase_attribute(Realm::Internals& in, dom::Element& element, std::vector<dom::Attr>::iterator it)
+{
+    std::string const namespace_uri = it->namespace_uri;
+    std::string const local_name = it->local_name;
+    element.attributes().erase(it);
+    attribute_written(in, element, namespace_uri, local_name);
 }
 
 } // namespace
@@ -186,26 +213,53 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
 void set_attribute(Realm::Internals& in, dom::Element& element, std::string_view name, std::string value)
 {
     for (dom::Attr& attribute : element.attributes()) {
-        if (attribute.local_name == name && attribute.prefix.empty()) {
+        if (attribute.has_qualified_name(name)) {
             attribute.value = std::move(value);
             attribute.from_cssom = false; // set by a script as text: inline style again
-            attribute_written(in, element, name);
+            attribute_written(in, element, attribute.namespace_uri, attribute.local_name);
             return;
         }
     }
     element.attributes().push_back(dom::Attr { std::string(name), std::move(value), "", "" });
-    attribute_written(in, element, name);
+    attribute_written(in, element, "", element.attributes().back().local_name);
 }
 
 bool remove_attribute(Realm::Internals& in, dom::Element& element, std::string_view name)
 {
     auto& attributes = element.attributes();
     auto const it = std::find_if(attributes.begin(), attributes.end(),
-        [name](dom::Attr const& attribute) { return attribute.local_name == name && attribute.prefix.empty(); });
+        [name](dom::Attr const& attribute) { return attribute.has_qualified_name(name); });
     if (it == attributes.end())
         return false;
-    attributes.erase(it);
-    attribute_written(in, element, name);
+    erase_attribute(in, element, it);
+    return true;
+}
+
+void set_attribute_ns(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view prefix,
+    std::string_view local_name, std::string value)
+{
+    for (dom::Attr& attribute : element.attributes()) {
+        if (attribute.namespace_uri == namespace_uri && attribute.local_name == local_name) {
+            attribute.value = std::move(value);
+            attribute.from_cssom = false;
+            attribute_written(in, element, attribute.namespace_uri, attribute.local_name);
+            return;
+        }
+    }
+    element.attributes().push_back(dom::Attr { std::string(local_name), std::move(value), std::string(prefix), std::string(namespace_uri) });
+    dom::Attr const& added = element.attributes().back();
+    attribute_written(in, element, added.namespace_uri, added.local_name);
+}
+
+bool remove_attribute_ns(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name)
+{
+    auto& attributes = element.attributes();
+    auto const it = std::find_if(attributes.begin(), attributes.end(), [namespace_uri, local_name](dom::Attr const& attribute) {
+        return attribute.namespace_uri == namespace_uri && attribute.local_name == local_name;
+    });
+    if (it == attributes.end())
+        return false;
+    erase_attribute(in, element, it);
     return true;
 }
 

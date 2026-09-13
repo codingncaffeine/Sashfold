@@ -85,11 +85,17 @@ public:
     // of its node; no native accepts a detached wrapper again.
     void detach() { m_node = nullptr; }
     bool detached() const { return m_node == nullptr; }
+    // The object an attribute of the node's interface declared [SameObject]
+    // (WebIDL) returns, by the attribute's name: made the first time it is
+    // read, then kept, and traced, for the wrapper's life. Null before then.
+    js::Object* same_object(std::string_view attribute) const;
+    void keep_same_object(std::string_view attribute, js::Object*);
     void trace(js::Tracer&) override;
 
 private:
     js::RealmRecord* m_record;
     dom::Node* m_node;
+    std::vector<std::pair<std::string, js::Object*>> m_same_objects;
 };
 
 // An origin (HTML §7.1.1): a tuple of a scheme, a host and a port, or an
@@ -824,8 +830,8 @@ void install_origin(Realm::Internals&); // Origin.cpp: Origin
 // one identity for as long as the realm lasts.
 Origin origin_of_url(net::Url const&);
 Origin document_origin(Realm::Internals&);
-// The value of an SVG element's href attribute, else of its xlink:href (SVG 2
-// §16.1.1); null for neither (Node.cpp).
+// The value of an SVG element's href attribute in no namespace, else of its
+// href in the XLink namespace (SVG 2 §16.1.1); null for neither (Node.cpp).
 std::string const* svg_href(dom::Element const&);
 
 // Objects the style file makes for the node bindings.
@@ -866,9 +872,16 @@ void reflect_long(Realm::Internals&, js::Object& prototype, std::string_view pro
 // prototype or the global.
 void define_event_handlers(Realm::Internals&, js::Object& target, std::span<std::string_view const> types);
 
-// Attribute helpers that count as mutations.
+// Attribute helpers that count as mutations. set_attribute and
+// remove_attribute find the first attribute by its qualified name, in any
+// namespace (DOM §4.9), and set_attribute appends one in no namespace when
+// there is none. The NS forms find it by namespace and local name, "" being
+// no namespace; an attribute set_attribute_ns finds keeps its prefix.
 void set_attribute(Realm::Internals&, dom::Element&, std::string_view name, std::string value);
 bool remove_attribute(Realm::Internals&, dom::Element&, std::string_view name);
+void set_attribute_ns(Realm::Internals&, dom::Element&, std::string_view namespace_uri, std::string_view prefix, std::string_view local_name,
+    std::string value);
+bool remove_attribute_ns(Realm::Internals&, dom::Element&, std::string_view namespace_uri, std::string_view local_name);
 std::string attribute_or_empty(dom::Element const&, std::string_view name);
 
 // ASCII lowercase / uppercase copies.

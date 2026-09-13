@@ -517,7 +517,7 @@ js::Value attribute_map(Realm::Internals& in, dom::Element& element)
     for (dom::Attr const& attribute : element.attributes()) {
         js::Object* attr = interpreter.new_object(in.prototype("Attr"));
         map->push(js::Value::object(attr));
-        std::string const name = attribute.display_name();
+        std::string const name = attribute.qualified_name();
         attr->put(interpreter.key("name"), in.string(name), js::Enumerable);
         attr->put(interpreter.key("localName"), in.string(attribute.local_name), js::Enumerable);
         attr->put(interpreter.key("value"), in.string(attribute.value), js::Enumerable | js::Writable);
@@ -554,6 +554,67 @@ bool is_valid_attribute_name(std::string_view name)
     }
     return true;
 }
+
+namespace {
+
+// A valid namespace prefix and a valid attribute local name (DOM §1.4): at
+// least one code unit, and none of them ASCII whitespace, U+0000, "/" or ">",
+// nor "=" in a local name.
+bool is_valid_name_part(std::string_view part, bool local_name)
+{
+    if (part.empty())
+        return false;
+    for (char const c : part) {
+        if (c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == ' ' || c == '\0' || c == '/' || c == '>' || (local_name && c == '='))
+            return false;
+    }
+    return true;
+}
+
+// An attribute's namespace, prefix and local name from setAttributeNS's
+// arguments (DOM §1.4 "validate and extract", for an attribute), or the name
+// of the DOMException to throw when they are not valid.
+struct ExtractedName {
+    std::string namespace_uri; // "" for null
+    std::string prefix; // "" for null
+    std::string local_name;
+    std::string_view error; // "" when valid
+};
+
+ExtractedName validate_and_extract(std::string namespace_uri, std::string const& qualified_name)
+{
+    ExtractedName out { std::move(namespace_uri), "", qualified_name, "" };
+    std::size_t const colon = qualified_name.find(':');
+    if (colon != std::string::npos) {
+        out.prefix = qualified_name.substr(0, colon);
+        out.local_name = qualified_name.substr(colon + 1);
+        if (!is_valid_name_part(out.prefix, false)) {
+            out.error = "InvalidCharacterError";
+            return out;
+        }
+    }
+    bool const xmlns_name = qualified_name == "xmlns" || out.prefix == "xmlns";
+    if (!is_valid_name_part(out.local_name, true))
+        out.error = "InvalidCharacterError";
+    else if (!out.prefix.empty() && out.namespace_uri.empty())
+        out.error = "NamespaceError";
+    else if (out.prefix == "xml" && out.namespace_uri != dom::ns::xml)
+        out.error = "NamespaceError";
+    // The name or prefix xmlns belongs to the XMLNS namespace, and that
+    // namespace to nothing else.
+    else if (xmlns_name != (out.namespace_uri == dom::ns::xmlns))
+        out.error = "NamespaceError";
+    return out;
+}
+
+// A namespace argument: null and the empty string are no namespace, "".
+std::optional<std::string> namespace_argument(Realm::Internals& in, Args args, std::size_t index)
+{
+    js::Value const value = js::argument(args, index);
+    return value.is_nullish() ? std::optional<std::string>("") : in.to_utf8(value);
+}
+
+} // namespace
 
 // The insertAdjacent* positions (§4.9 "insert adjacent").
 std::optional<std::pair<dom::Node*, dom::Node*>> adjacent_position(Realm::Internals& in, dom::Element& element,
@@ -1017,9 +1078,12 @@ void install_element(Realm::Internals& in, js::Object& element)
         js::ArrayObject* names = internals.interpreter.new_array();
         internals.interpreter.root(js::Value::object(names));
         for (dom::Attr const& attribute : e.attributes())
-            names->push(internals.string(attribute.display_name()));
+            names->push(internals.string(attribute.qualified_name()));
         return js::Value::object(names);
     });
+    // The attribute methods (DOM §4.9): those without NS take a qualified
+    // name, the first attribute with it in any namespace; the NS forms a
+    // namespace and a local name.
     element_method(in, element, "getAttribute", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
         std::optional<std::string> const name = string_argument(internals, args, 0);
         if (!name)
@@ -1028,11 +1092,14 @@ void install_element(Realm::Internals& in, js::Object& element)
         return attribute ? internals.string(attribute->value) : js::Value::null();
     });
     element_method(in, element, "getAttributeNS", 2, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<std::string> const namespace_uri = namespace_argument(internals, args, 0);
+        if (!namespace_uri)
+            return std::nullopt;
         std::optional<std::string> const name = string_argument(internals, args, 1);
         if (!name)
             return std::nullopt;
         for (dom::Attr const& attribute : e.attributes()) {
-            if (attribute.local_name == *name)
+            if (attribute.namespace_uri == *namespace_uri && attribute.local_name == *name)
                 return internals.string(attribute.value);
         }
         return js::Value::null();
@@ -1050,8 +1117,23 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_method(in, element, "setAttribute", 2, [set_attribute_native](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
         return set_attribute_native(internals, e, args, 0);
     });
-    element_method(in, element, "setAttributeNS", 3, [set_attribute_native](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
-        return set_attribute_native(internals, e, args, 1);
+    // The qualified name validated and split, the attribute of that namespace
+    // and local name takes the value, or one is appended with the prefix.
+    element_method(in, element, "setAttributeNS", 3, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<std::string> namespace_uri = namespace_argument(internals, args, 0);
+        if (!namespace_uri)
+            return std::nullopt;
+        std::optional<std::string> const qualified_name = string_argument(internals, args, 1);
+        if (!qualified_name)
+            return std::nullopt;
+        std::optional<std::string> value = string_argument(internals, args, 2);
+        if (!value)
+            return std::nullopt;
+        ExtractedName const name = validate_and_extract(std::move(*namespace_uri), *qualified_name);
+        if (!name.error.empty())
+            return internals.throw_dom_exception(name.error, "'" + *qualified_name + "' is not a valid attribute name in the namespace '" + name.namespace_uri + "'");
+        set_attribute_ns(internals, e, name.namespace_uri, name.prefix, name.local_name, std::move(*value));
+        return js::Value::undefined();
     });
     element_method(in, element, "removeAttribute", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
         std::optional<std::string> const name = string_argument(internals, args, 0);
@@ -1061,10 +1143,13 @@ void install_element(Realm::Internals& in, js::Object& element)
         return js::Value::undefined();
     });
     element_method(in, element, "removeAttributeNS", 2, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<std::string> const namespace_uri = namespace_argument(internals, args, 0);
+        if (!namespace_uri)
+            return std::nullopt;
         std::optional<std::string> const name = string_argument(internals, args, 1);
         if (!name)
             return std::nullopt;
-        remove_attribute(internals, e, *name);
+        remove_attribute_ns(internals, e, *namespace_uri, *name);
         return js::Value::undefined();
     });
     element_method(in, element, "hasAttribute", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
@@ -1074,11 +1159,14 @@ void install_element(Realm::Internals& in, js::Object& element)
         return js::Value::boolean(e.has_attribute(e.is_html() ? ascii_lower(*name) : *name));
     });
     element_method(in, element, "hasAttributeNS", 2, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<std::string> const namespace_uri = namespace_argument(internals, args, 0);
+        if (!namespace_uri)
+            return std::nullopt;
         std::optional<std::string> const name = string_argument(internals, args, 1);
         if (!name)
             return std::nullopt;
         for (dom::Attr const& attribute : e.attributes()) {
-            if (attribute.local_name == *name)
+            if (attribute.namespace_uri == *namespace_uri && attribute.local_name == *name)
                 return js::Value::boolean(true);
         }
         return js::Value::boolean(false);
@@ -1108,7 +1196,7 @@ void install_element(Realm::Internals& in, js::Object& element)
         js::Value const map = internals.interpreter.root(attribute_map(internals, e));
         auto* array = static_cast<js::ArrayObject*>(map.as_object());
         for (std::size_t i = 0; i < e.attributes().size(); ++i) {
-            if (e.attributes()[i].local_name == lower && e.attributes()[i].prefix.empty())
+            if (e.attributes()[i].has_qualified_name(lower))
                 return array->element(static_cast<std::uint32_t>(i));
         }
         return js::Value::null();
@@ -1380,25 +1468,36 @@ void install_character_data(Realm::Internals& in, js::Object& character_data, js
     });
 }
 
+// The attribute SVGURIReference's href reflects: href in no namespace, else
+// the href in the XLink namespace SVG 2 keeps for old content, which is
+// xlink:href whether the parser or setAttributeNS put it there. An attribute
+// in no namespace named xlink:href is neither.
+dom::Attr const* reflected_href(dom::Element const& element)
+{
+    dom::Attr const* xlink = nullptr;
+    for (dom::Attr const& attribute : element.attributes()) {
+        if (attribute.local_name != "href")
+            continue;
+        if (attribute.namespace_uri.empty())
+            return &attribute;
+        if (attribute.namespace_uri == dom::ns::xlink && xlink == nullptr)
+            xlink = &attribute;
+    }
+    return xlink;
+}
+
 } // namespace
 
 std::string const* svg_href(dom::Element const& element)
 {
-    // SVGURIReference: href, else the xlink:href SVG 2 keeps for old content —
-    // in the XLink namespace from the parser, named whole by setAttributeNS.
-    if (dom::Attr const* const href = element.find_attribute("href"))
-        return &href->value;
-    for (dom::Attr const& attribute : element.attributes()) {
-        if ((attribute.local_name == "href" && attribute.namespace_uri == dom::ns::xlink) || attribute.local_name == "xlink:href")
-            return &attribute.value;
-    }
-    return nullptr;
+    dom::Attr const* const href = reflected_href(element);
+    return href ? &href->value : nullptr;
 }
 
 namespace {
 
 // An SVGAnimatedString (SVG 2 §4.4.7) over an element's href: baseVal reads
-// the attribute and writes href, and animVal, with no animation running,
+// and writes the attribute reflected, and animVal, with no animation running,
 // reads what baseVal does.
 class AnimatedStringObject final : public ElementBackedObject {
 public:
@@ -1438,19 +1537,31 @@ void install_svg_links(Realm::Internals& in, js::Object& svg_element)
             std::optional<std::string> value = internals_of(interp).to_utf8(js::argument(args, 0));
             if (!value)
                 return std::nullopt;
-            // The write is a mutation of the element's own document's realm.
-            if (dom::Element* const element = (*found)->element())
-                set_attribute((*found)->wrapper->realm().internals(), *element, "href", std::move(*value));
+            // The write goes to the attribute reflected — an xlink:href while
+            // there is no href, else href, made in no namespace when there is
+            // neither — as a mutation of the element's own document's realm.
+            if (dom::Element* const element = (*found)->element()) {
+                dom::Attr const* const reflected = reflected_href(*element);
+                std::string const namespace_uri = reflected ? reflected->namespace_uri : std::string();
+                set_attribute_ns((*found)->wrapper->realm().internals(), *element, namespace_uri, "", "href", std::move(*value));
+            }
             return js::Value::undefined();
         });
     define_getter(in, *animated_string, "animVal", read);
 
+    // href is [SameObject]: the one SVGAnimatedString is made the first time,
+    // with the intrinsics of the element's realm, and its wrapper keeps it.
     js::Object* anchor = define_interface(in, "SVGAElement", &svg_element);
     element_getter(in, *anchor, "href", [](Realm::Internals& internals, dom::Element& e) -> Native {
         js::Interpreter::Roots const roots(internals.interpreter);
         NodeWrapper& wrapper = wrapper_for(internals, e);
         internals.interpreter.root(js::Value::object(&wrapper));
-        return js::Value::object(internals.interpreter.heap().allocate<AnimatedStringObject>(internals.prototype("SVGAnimatedString"), wrapper));
+        if (js::Object* const kept = wrapper.same_object("href"))
+            return js::Value::object(kept);
+        js::Object* const animated = internals.interpreter.heap().allocate<AnimatedStringObject>(
+            wrapper.realm().internals().prototype("SVGAnimatedString"), wrapper);
+        wrapper.keep_same_object("href", animated);
+        return js::Value::object(animated);
     });
 }
 
