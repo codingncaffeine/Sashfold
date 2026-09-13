@@ -2577,6 +2577,10 @@ void test_objects_and_embeds_have_windows()
     CHECK(page->boolean("deepest.self === 2"));
     CHECK(page->boolean("deepest.fresh === 10"));
     CHECK(page->boolean("(function () { try { URL.createObjectURL({}); return false; } catch (e) { return e instanceof TypeError; } })()"));
+    // An object's useMap reflects its usemap attribute, which HTML's obsolete
+    // features still give HTMLObjectElement.
+    CHECK(page->boolean("o.useMap === '' && (o.setAttribute('usemap', '#m'), o.useMap === '#m')"
+                        " && (o.useMap = '#n', o.getAttribute('usemap') === '#n')"));
     CHECK_EQ(page->console + nested->console + media->console + hidden->console + changed->console, "");
     changed.reset();
     hidden.reset();

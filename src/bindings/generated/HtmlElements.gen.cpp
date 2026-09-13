@@ -390,6 +390,7 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "width", "width");
         reflect_string(in, proto, "height", "height");
         reflect_string(in, proto, "name", "name");
+        reflect_string(in, proto, "useMap", "usemap");
     }
     {
         js::Object& proto = *in.prototype("HTMLOListElement");

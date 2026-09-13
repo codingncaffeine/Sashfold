@@ -318,6 +318,7 @@ interface HTMLObjectElement : HTMLElement {
   [Reflect] attribute DOMString width;
   [Reflect] attribute DOMString height;
   [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString useMap;
 };
 
 [Tags=(ol)]
