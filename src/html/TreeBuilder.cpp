@@ -2488,8 +2488,23 @@ void TreeBuilder::adoption_agency(Token& token)
         }
 
         InsertionLocation const location = appropriate_place(common_ancestor);
-        if (location.parent)
-            location.parent->insert_before(*last_node, location.before);
+        if (location.parent) {
+            // A script that ran during the parse may have moved the common
+            // ancestor under lastNode, so that inserting it there would make
+            // a cycle. The prose has no guard for it; as WebKit does, the move
+            // is dropped, and the subtree with it.
+            bool cycle = false;
+            for (dom::Node const* up = location.parent; up != nullptr; up = up->parent()) {
+                if (up == last_node) {
+                    cycle = true;
+                    break;
+                }
+            }
+            if (cycle)
+                last_node->remove();
+            else
+                location.parent->insert_before(*last_node, location.before);
+        }
 
         Token const formatting_token = m_formatting[formatting_index_after_marker(subject) >= 0
                 ? static_cast<std::size_t>(formatting_index_after_marker(subject))
