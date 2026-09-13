@@ -5,8 +5,8 @@
 // MessageChannel and MessagePort (HTML §9.5: two entangled ports, a
 // message posted on one delivered to the other as a task, which is how a
 // library schedules "the next turn" without a timer), and
-// window.postMessage to the window itself. A message is delivered as the
-// value that was posted: same realm, no clone.
+// window.postMessage between the windows of a page's agent. A message is
+// delivered as the value that was posted, not a clone of it.
 
 #include "js/Object.h"
 
@@ -208,41 +208,59 @@ void install_message_channel(Realm::Internals& in)
         },
         0);
 
-    // window.postMessage(message, targetOrigin): to the window itself, as a
-    // task; a target origin that is neither "*", "/" nor the page's own is
-    // silently not this window.
+    // window.postMessage(message, targetOrigin) and (message, options) (HTML
+    // §9.3.3): to the window the method is on, from the window whose script
+    // called it, the incumbent realm's, as a task on the agent's loop. "/" is
+    // the sender's origin, and so are one argument and options without a
+    // target origin; a target origin the receiving document does not have
+    // when the task runs delivers nothing.
     js::define_method(interpreter, *interpreter.global(), "postMessage", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
+        Realm::Internals& target = internals_of(interp);
+        js::RealmRecord* const incumbent = interp.incumbent_realm();
+        Realm::Internals& sender = incumbent != nullptr && incumbent->host_defined != nullptr
+            ? static_cast<Realm*>(incumbent->host_defined)->internals()
+            : target;
         js::Value const data = js::argument(args, 0);
-        js::Value const target_origin = js::argument(args, 1);
-        std::string const own = internals.url.serialize_origin();
-        if (target_origin.is_object()) {
-            std::optional<js::Value> const origin_member = interp.get(*target_origin.as_object(), interp.key("targetOrigin"));
-            if (!origin_member)
+        js::Value const target_argument = js::argument(args, 1);
+        std::optional<std::string> target_text;
+        if (target_argument.is_object()) {
+            std::optional<js::Value> const member = interp.get(*target_argument.as_object(), interp.key("targetOrigin"));
+            if (!member)
                 return std::nullopt;
-            if (!origin_member->is_undefined()) {
-                std::optional<std::string> const text = internals.to_utf8(*origin_member);
-                if (!text)
+            if (!member->is_undefined()) {
+                target_text = target.to_utf8(*member);
+                if (!target_text)
                     return std::nullopt;
-                if (*text != "*" && *text != "/" && *text != own)
-                    return js::Value::undefined();
             }
-        } else if (!target_origin.is_undefined()) {
-            std::optional<std::string> const text = internals.to_utf8(target_origin);
-            if (!text)
+        } else if (!target_argument.is_undefined()) {
+            target_text = target.to_utf8(target_argument);
+            if (!target_text)
                 return std::nullopt;
-            if (*text != "*" && *text != "/") {
-                std::optional<net::Url> const parsed = net::parse_url(*text);
-                if (!parsed)
-                    return interp.throw_error(js::ErrorType::SyntaxError, "Failed to execute 'postMessage' on 'Window': Invalid target origin '" + *text + "'");
-                if (parsed->serialize_origin() != own)
-                    return js::Value::undefined();
-            }
         }
+        std::string const sender_origin = sender.origin_url.serialize_origin();
+        // The origin a delivery requires; none for "*".
+        std::optional<std::string> required;
+        if (!target_text || *target_text == "/") {
+            required = sender_origin;
+        } else if (*target_text != "*") {
+            std::optional<net::Url> const parsed = net::parse_url(*target_text);
+            if (!parsed)
+                return target.throw_dom_exception("SyntaxError",
+                    "Failed to execute 'postMessage' on 'Window': Invalid target origin '" + *target_text + "' in a call to 'postMessage'.");
+            required = parsed->serialize_origin();
+        }
+        bool const to_itself = &sender == &target;
         auto payload = std::make_shared<js::Persistent>(interp.heap(), data);
-        internals.post_task([&internals, payload, own] {
-            deliver_message(internals, internals.realm_record->intrinsics.global, payload->value(), own,
-                js::Value::object(internals.realm_record->intrinsics.global));
+        auto source = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(sender.realm_record->intrinsics.global));
+        target.post_task([&target, payload, source, required, sender_origin, to_itself] {
+            if (required) {
+                // An opaque origin matches nothing but the window itself.
+                std::string const own = target.origin_url.serialize_origin();
+                bool const opaque = own == "null" || *required == "null";
+                if (opaque ? !to_itself : *required != own)
+                    return;
+            }
+            deliver_message(target, target.realm_record->intrinsics.global, payload->value(), sender_origin, source->value());
         });
         return js::Value::undefined();
     });

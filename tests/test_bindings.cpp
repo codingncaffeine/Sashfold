@@ -1458,6 +1458,48 @@ void test_a_frames_detached_nodes_go_with_it()
     page.reset();
 }
 
+// Messages between windows: the source and the origin are the sender's, the
+// window whose script called postMessage, whichever window's method it called;
+// "/" means the sender's origin, as do one argument and options without a
+// target origin; a target origin the receiving document does not have
+// delivers nothing, and one that does not parse throws.
+void test_messages_between_windows()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var fromFrame = []; addEventListener('message', function (e) { fromFrame.push([e.data, e.origin, e.source === document.getElementById('f').contentWindow]); });</script>
+<iframe id=f srcdoc="<script>var fromPage = []; addEventListener('message', function (e) { fromPage.push([e.data, e.origin, e.source === parent]); }); parent.postMessage('hello parent', '*');</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->eval("var frameWindow = document.getElementById('f').contentWindow;"
+               " frameWindow.postMessage('with a slash', '/');"
+               " frameWindow.postMessage('one argument');"
+               " frameWindow.postMessage('by options', { targetOrigin: 'https://example.test' });"
+               " frameWindow.postMessage('lost', 'https://other.test');"
+               " var malformed = (function () { try { frameWindow.postMessage('x', 'not a url'); } catch (e) { return e.name === 'SyntaxError' && e.constructor.name === 'DOMException'; } return false; })();");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("JSON.stringify(fromFrame)"), R"([["hello parent","https://example.test",true]])");
+    CHECK_EQ(page->string("JSON.stringify(frameWindow.fromPage)"),
+        R"([["with a slash","https://example.test",true],["one argument","https://example.test",true],["by options","https://example.test",true]])");
+    CHECK(page->boolean("malformed"));
+    CHECK_EQ(page->console, "");
+}
+
 } // namespace
 
 int main()
@@ -1490,5 +1532,6 @@ int main()
     test_frames_have_realms_of_their_own();
     test_a_frames_window_events_are_its_own();
     test_a_frames_detached_nodes_go_with_it();
+    test_messages_between_windows();
     return test::report("test_bindings");
 }
