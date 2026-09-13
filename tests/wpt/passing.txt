@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9380 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9403 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -1231,6 +1231,7 @@ css/CSS2/floats-clear/float-replaced-height-001.xht
 css/CSS2/floats-clear/float-replaced-height-002.xht
 css/CSS2/floats-clear/float-replaced-height-003.xht
 css/CSS2/floats-clear/float-replaced-height-004.xht
+css/CSS2/floats-clear/float-replaced-height-005.xht
 css/CSS2/floats-clear/float-replaced-height-007.xht
 css/CSS2/floats-clear/float-replaced-width-001.xht
 css/CSS2/floats-clear/float-replaced-width-002.xht
@@ -1715,6 +1716,7 @@ css/CSS2/generated-content/quotes-applies-to-015.xht
 css/CSS2/inline-svg-100-percent-in-body.html
 css/CSS2/inline-svg-intrinsic-size-100-percent-1.html
 css/CSS2/inline-svg-intrinsic-size-100-percent-2.html
+css/CSS2/inline-svg-margin-padding-border.html
 css/CSS2/linebox/empty-inline-001.xht
 css/CSS2/linebox/empty-inline-002.xht
 css/CSS2/linebox/fractional-line-height.html
@@ -2116,6 +2118,7 @@ css/CSS2/margin-padding-clear/margin-collapse-007.xht
 css/CSS2/margin-padding-clear/margin-collapse-008.xht
 css/CSS2/margin-padding-clear/margin-collapse-009.xht
 css/CSS2/margin-padding-clear/margin-collapse-012.xht
+css/CSS2/margin-padding-clear/margin-collapse-013.xht
 css/CSS2/margin-padding-clear/margin-collapse-014.xht
 css/CSS2/margin-padding-clear/margin-collapse-015.xht
 css/CSS2/margin-padding-clear/margin-collapse-015a.xht
@@ -2670,6 +2673,7 @@ css/CSS2/normal-flow/block-formatting-contexts-004.xht
 css/CSS2/normal-flow/block-formatting-contexts-005.xht
 css/CSS2/normal-flow/block-formatting-contexts-006.xht
 css/CSS2/normal-flow/block-formatting-contexts-007.xht
+css/CSS2/normal-flow/block-formatting-contexts-008.xht
 css/CSS2/normal-flow/block-formatting-contexts-009.xht
 css/CSS2/normal-flow/block-formatting-contexts-010.xht
 css/CSS2/normal-flow/block-formatting-contexts-012.xht
@@ -3403,9 +3407,15 @@ css/CSS2/positioning/absolute-replaced-height-021.xht
 css/CSS2/positioning/absolute-replaced-height-022.xht
 css/CSS2/positioning/absolute-replaced-height-023.xht
 css/CSS2/positioning/absolute-replaced-height-024.xht
+css/CSS2/positioning/absolute-replaced-height-025.xht
+css/CSS2/positioning/absolute-replaced-height-026.xht
+css/CSS2/positioning/absolute-replaced-height-028.xht
 css/CSS2/positioning/absolute-replaced-height-029.xht
 css/CSS2/positioning/absolute-replaced-height-030.xht
 css/CSS2/positioning/absolute-replaced-height-031.xht
+css/CSS2/positioning/absolute-replaced-height-032.xht
+css/CSS2/positioning/absolute-replaced-height-033.xht
+css/CSS2/positioning/absolute-replaced-height-035.xht
 css/CSS2/positioning/absolute-replaced-height-036.xht
 css/CSS2/positioning/absolute-replaced-width-001.xht
 css/CSS2/positioning/absolute-replaced-width-003a.xht
@@ -3436,6 +3446,8 @@ css/CSS2/positioning/abspos-002.xht
 css/CSS2/positioning/abspos-007.xht
 css/CSS2/positioning/abspos-008.xht
 css/CSS2/positioning/abspos-009.xht
+css/CSS2/positioning/abspos-011.xht
+css/CSS2/positioning/abspos-012.xht
 css/CSS2/positioning/abspos-013.xht
 css/CSS2/positioning/abspos-014.xht
 css/CSS2/positioning/abspos-015.xht
@@ -3461,6 +3473,9 @@ css/CSS2/positioning/abspos-containing-block-008.xht
 css/CSS2/positioning/abspos-containing-block-009.xht
 css/CSS2/positioning/abspos-containing-block-010.xht
 css/CSS2/positioning/abspos-negative-margin-001.html
+css/CSS2/positioning/abspos-overflow-001.xht
+css/CSS2/positioning/abspos-overflow-002.xht
+css/CSS2/positioning/abspos-overflow-003.xht
 css/CSS2/positioning/abspos-overflow-004.xht
 css/CSS2/positioning/abspos-overflow-005.xht
 css/CSS2/positioning/abspos-overflow-006.xht
@@ -5918,6 +5933,7 @@ css/css-flexbox/flex-flow-008.html
 css/css-flexbox/flex-flow-009.html
 css/css-flexbox/flex-flow-011.html
 css/css-flexbox/flex-flow-012.html
+css/css-flexbox/flex-grow-001.xht
 css/css-flexbox/flex-grow-002.html
 css/css-flexbox/flex-grow-003.html
 css/css-flexbox/flex-grow-004.html
@@ -6048,6 +6064,7 @@ css/css-flexbox/flexbox-items-as-stacking-contexts-003.html
 css/css-flexbox/flexbox-min-height-auto-002b.html
 css/css-flexbox/flexbox-min-width-auto-001.html
 css/css-flexbox/flexbox-order-only-flexitems.html
+css/css-flexbox/flexbox-overflow-horiz-001.html
 css/css-flexbox/flexbox-overflow-horiz-002.html
 css/css-flexbox/flexbox-overflow-horiz-003.html
 css/css-flexbox/flexbox-overflow-horiz-004.html
@@ -8957,6 +8974,12 @@ css/css-writing-modes/direction-vlr-003.xht
 css/css-writing-modes/direction-vlr-005.xht
 css/css-writing-modes/direction-vrl-002.xht
 css/css-writing-modes/direction-vrl-004.xht
+css/css-writing-modes/dynamic-offset-rtl-001.html
+css/css-writing-modes/dynamic-offset-rtl-002.html
+css/css-writing-modes/dynamic-offset-vrl-001.html
+css/css-writing-modes/dynamic-offset-vrl-002.html
+css/css-writing-modes/dynamic-offset-vrl-rtl-001.html
+css/css-writing-modes/dynamic-offset-vrl-rtl-002.html
 css/css-writing-modes/float-clear-vlr-003.xht
 css/css-writing-modes/float-clear-vlr-005.xht
 css/css-writing-modes/float-clear-vlr-007.xht

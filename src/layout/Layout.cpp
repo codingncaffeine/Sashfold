@@ -2879,7 +2879,7 @@ struct Layouter {
                 return;
             for (InlineItem const* pending : pending_floats) {
                 place_float(*pending->element, *pending->style, content_x, content_x + content_width, y,
-                    list_depth, floats, out, block_rtl);
+                    list_depth, floats, out, block_rtl, containing_height);
             }
             pending_floats.clear();
             start_line();
@@ -3791,7 +3791,7 @@ struct Layouter {
                     continue;
                 }
                 place_float(*item.element, *item.style, content_x, content_x + content_width, y,
-                    list_depth, floats, out, block_rtl);
+                    list_depth, floats, out, block_rtl, containing_height);
                 start_line();
                 continue;
             }
@@ -4245,7 +4245,8 @@ struct Layouter {
                 continue;
             auto const& child_element = static_cast<dom::Element const&>(*child);
             ComputedStyle const* child_style = style_of(child_element);
-            if (!child_style || child_style->display == Display::None || is_floating(*child_style))
+            if (!child_style || child_style->display == Display::None || is_floating(*child_style)
+                || child_style->out_of_flow())
                 continue;
             if (!is_block_level(*child_style) || child_style->clear != css::Clear::None)
                 break;
@@ -4810,7 +4811,7 @@ struct Layouter {
                 else
                     place_float(element, box.style, content_x, content_x + content_width,
                         cursor + previous_bottom_margin, list_depth, floats, fragment,
-                        style.direction == css::Direction::Rtl);
+                        style.direction == css::Direction::Rtl, containing_height);
             } else if (is_block_level(box.style)) {
                 place_generated(box);
             } else {
@@ -4909,7 +4910,7 @@ struct Layouter {
                 else
                     place_float(child_element, *child_style, content_x, content_x + content_width,
                         cursor + previous_bottom_margin, list_depth, floats, fragment,
-                        style.direction == css::Direction::Rtl);
+                        style.direction == css::Direction::Rtl, containing_height);
                 continue;
             }
             if (!is_block_level(*child_style)) {
@@ -5630,7 +5631,8 @@ struct Layouter {
     // containing block's content edges [x0, x1] and beside the floats already
     // there; its box joins `parent`.
     void place_float(dom::Element const& element, ComputedStyle const& style, float x0, float x1,
-        float y, int list_depth, FloatContext& floats, Fragment& parent, bool cb_rtl) const
+        float y, int list_depth, FloatContext& floats, Fragment& parent, bool cb_rtl,
+        std::optional<float> containing_height) const
     {
         float const containing_width = x1 - x0;
         FloatWidth const width = float_width(element, style, containing_width);
@@ -5655,6 +5657,9 @@ struct Layouter {
         BlockOptions options;
         options.content_width = width.shrink;
         options.zero_auto_margins = true;
+        // A percentage height resolves against the containing block height,
+        // as for any block child.
+        options.containing_height = containing_height;
         Fragment box = layout_block(element, style, outer_left, y + margin_top, containing_width,
             list_depth, floats, options);
         floats.floats.push_back(FloatBox { outer_left, outer_left + width.outer(), y,

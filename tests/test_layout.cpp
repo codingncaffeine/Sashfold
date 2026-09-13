@@ -700,6 +700,45 @@ int main(int argc, char** argv)
         CHECK_EQ(width_of("none"), 400.0f);
     }
 
+    // --- A float's percentage height, and an out-of-flow child's margin ---------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  p, div { margin: 0 }
+  #cb { height: 200px }
+  #fl { float: left; width: 40px; height: 50% }
+  #frame { float: left; border: 0 }
+  #box { position: relative; margin-top: 30px }
+  #abs { position: absolute; margin-top: 48px; width: 10px; height: 10px }
+</style></head><body><div id="cb"><div id="fl"></div><iframe id="frame" height="50%"></iframe></div><p>pp</p><div id="box"><div id="abs"></div></div></body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                if (dom::Attr const* attribute = fragment.element->find_attribute("id");
+                    attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* fl = find_box(page.result.root, "fl");
+        layout::Fragment const* frame = find_box(page.result.root, "frame");
+        layout::Fragment const* box = find_box(page.result.root, "box");
+        if (CHECK(fl && frame && box)) {
+            // A float's percentage height is of its containing block's written
+            // height, for a box and for a replaced element alike.
+            CHECK_EQ(fl->height, 100.0f);
+            CHECK_EQ(frame->height, 100.0f);
+            // An absolutely positioned first child's margin stays out of its
+            // parent's: the box stands at its own 30 px margin below the line.
+            CHECK_EQ(box->y, 250.0f);
+        }
+    }
+
     // --- inline-block: an atomic box on the line, laid out as a block inside ------
     {
         text::FontManager::instance().set_system_fonts(false);
