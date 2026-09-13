@@ -123,16 +123,17 @@ int schedule_timer(Realm::Internals& in, js::Value const& callback, double delay
     double interval, bool animation_frame)
 {
     Timer timer;
-    timer.id = in.next_timer_id++;
+    timer.id = in.agent.next_timer_id++;
     timer.due = in.now() + std::max(0.0, std::isfinite(delay) ? delay : 0.0);
-    timer.sequence = in.next_sequence++;
+    timer.sequence = in.agent.next_sequence++;
+    timer.owner = &in;
     timer.interval = interval;
     timer.animation_frame = animation_frame;
     timer.callback = std::make_unique<js::Persistent>(in.interpreter.heap(), callback);
     for (js::Value const& argument : arguments)
         timer.arguments.push_back(std::make_unique<js::Persistent>(in.interpreter.heap(), argument));
     int const id = timer.id;
-    in.timers.push_back(std::move(timer));
+    in.agent.timers.push_back(std::move(timer));
     return id;
 }
 
@@ -175,9 +176,11 @@ Native clear_timer(js::Interpreter& interpreter, Args args)
     std::optional<double> const id = interpreter.to_number(id_value);
     if (!id)
         return std::nullopt;
-    auto const it = std::find_if(in.timers.begin(), in.timers.end(), [&](Timer const& timer) { return static_cast<double>(timer.id) == *id; });
-    if (it != in.timers.end())
-        in.timers.erase(it);
+    // Only this window's own timers: the agent keeps every realm's.
+    auto const it = std::find_if(in.agent.timers.begin(), in.agent.timers.end(),
+        [&](Timer const& timer) { return timer.owner == &in && static_cast<double>(timer.id) == *id; });
+    if (it != in.agent.timers.end())
+        in.agent.timers.erase(it);
     return js::Value::undefined();
 }
 
@@ -627,7 +630,7 @@ public:
     {
         if (key.is_symbol())
             return std::nullopt;
-        if (m_internals.interpreter.global()->get_own_property(key))
+        if (m_internals.realm_record->intrinsics.global->get_own_property(key))
             return std::nullopt;
         for (js::Object const* link = prototype(); link != nullptr; link = link->prototype()) {
             if (link->get_own_property(key))
@@ -644,6 +647,8 @@ public:
         if (found.size() == 1) {
             value = js::Value::object(m_internals.wrap(*found.front()));
         } else {
+            // Made with this window's intrinsics, whichever realm asked.
+            js::Interpreter::RealmScope const own_realm(m_internals.interpreter, m_internals.realm_record);
             js::Interpreter::Roots const roots(m_internals.interpreter);
             value = m_internals.interpreter.root(node_list(m_internals, found));
             value.as_object()->set_prototype(m_internals.prototype("HTMLCollection"));

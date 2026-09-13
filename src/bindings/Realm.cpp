@@ -363,6 +363,10 @@ Realm::Internals::Internals(Realm& the_realm, dom::Document& the_document, net::
     , document(the_document)
     , url(std::move(the_url))
     , hooks(std::move(the_hooks))
+    , own_agent(std::make_unique<Agent>())
+    , agent(*own_agent)
+    , interpreter(agent.interpreter)
+    , realm_record(interpreter.current_realm())
 {
 }
 
@@ -478,7 +482,7 @@ Realm::Internals::Entry::Entry(Internals& the_internals)
     : internals(the_internals)
     , started(the_internals.now())
 {
-    ++internals.script_depth;
+    ++internals.agent.script_depth;
     // Time is measured on the steady clock even when timers run on a
     // virtual one: this is a cost, not a schedule.
     using namespace std::chrono;
@@ -490,7 +494,7 @@ Realm::Internals::Entry::~Entry()
     using namespace std::chrono;
     double const ended = static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
     internals.stats.script_ms += ended - started;
-    if (--internals.script_depth == 0)
+    if (--internals.agent.script_depth == 0)
         internals.realm.perform_microtask_checkpoint();
 }
 
@@ -948,17 +952,21 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
 
 void Realm::Internals::post_task(std::function<void()> task)
 {
-    tasks.emplace_back(next_sequence++, std::move(task));
+    agent.tasks.push_back(Task { agent.next_sequence++, this, std::move(task) });
 }
 
 Realm::~Realm()
 {
     // The wrappers go with the heap, before the documents they point into:
-    // the interpreter is destroyed here, the extra documents after it
-    // (member order), the page's document by whoever owns it, later.
-    m_internals->timers.clear();
-    m_internals->interpreter.clear_jobs();
-    m_internals->interpreter.heap().remove_root_provider(this);
+    // the agent and its interpreter are destroyed here, the extra documents
+    // after them (member order), the page's document by whoever owns it,
+    // later. What this realm left on the agent's event loop goes first.
+    Internals& in = *m_internals;
+    std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
+    std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
+    if (in.own_agent)
+        in.interpreter.clear_jobs();
+    in.interpreter.heap().remove_root_provider(this);
 }
 
 js::Interpreter& Realm::interpreter() { return m_internals->interpreter; }
@@ -1133,53 +1141,59 @@ bool Realm::run_pending()
     double const now = in.now();
     // Only the timers that exist now: one set while running waits for the
     // next pump, so a chain of zero-delay timers cannot hold the host.
-    std::uint64_t const cutoff = in.next_sequence;
+    Agent& agent = in.agent;
+    std::uint64_t const cutoff = agent.next_sequence;
     bool ran = false;
     // The tasks queued before this pump, oldest first; one a task queues
     // waits for the next pump, like a timer.
-    while (!in.tasks.empty() && in.tasks.front().first < cutoff) {
-        std::function<void()> task = std::move(in.tasks.front().second);
-        in.tasks.pop_front();
+    while (!agent.tasks.empty() && agent.tasks.front().sequence < cutoff) {
+        std::function<void()> task = std::move(agent.tasks.front().run);
+        agent.tasks.pop_front();
         task();
         ran = true;
         if (in.interpreter.terminated())
             return ran;
     }
     while (true) {
-        std::size_t best = in.timers.size();
-        for (std::size_t i = 0; i < in.timers.size(); ++i) {
-            Timer const& timer = in.timers[i];
+        std::size_t best = agent.timers.size();
+        for (std::size_t i = 0; i < agent.timers.size(); ++i) {
+            Timer const& timer = agent.timers[i];
             if (timer.due > now || timer.sequence >= cutoff)
                 continue;
-            if (best == in.timers.size() || timer.due < in.timers[best].due
-                || (timer.due == in.timers[best].due && timer.sequence < in.timers[best].sequence))
+            if (best == agent.timers.size() || timer.due < agent.timers[best].due
+                || (timer.due == agent.timers[best].due && timer.sequence < agent.timers[best].sequence))
                 best = i;
         }
-        if (best == in.timers.size())
+        if (best == agent.timers.size())
             break;
-        Timer timer = std::move(in.timers[best]);
-        in.timers.erase(in.timers.begin() + static_cast<std::ptrdiff_t>(best));
-        js::Interpreter::Roots const roots(in.interpreter);
-        js::Value const callback = in.interpreter.root(timer.callback->value());
+        Timer timer = std::move(agent.timers[best]);
+        agent.timers.erase(agent.timers.begin() + static_cast<std::ptrdiff_t>(best));
+        // A timer runs as the realm that set it, with that realm's window as
+        // `this`.
+        Internals& owner = *timer.owner;
+        bool const animation_frame = timer.animation_frame;
+        js::Interpreter::Roots const roots(agent.interpreter);
+        js::Value const callback = agent.interpreter.root(timer.callback->value());
         std::vector<js::Value> arguments;
         for (auto const& argument : timer.arguments)
-            arguments.push_back(in.interpreter.root(argument->value()));
+            arguments.push_back(agent.interpreter.root(argument->value()));
         if (timer.interval >= 0) {
             // Re-armed before it runs, under its own id, so that a
             // clearInterval inside the callback finds it.
             timer.due = now + timer.interval;
-            timer.sequence = in.next_sequence++;
-            in.timers.push_back(std::move(timer));
+            timer.sequence = agent.next_sequence++;
+            agent.timers.push_back(std::move(timer));
         }
-        ++in.stats.timers_fired;
+        ++owner.stats.timers_fired;
         ran = true;
+        js::Value const owner_window = js::Value::object(owner.realm_record->intrinsics.global);
         if (callback.is_string()) {
-            run(callback.as_string()->to_utf8(), "<timer>");
-        } else if (timer.animation_frame) {
-            js::Value const timestamp[1] = { js::Value::number(now - in.time_origin) };
-            in.call_reporting(callback, js::Value::object(in.interpreter.global()), timestamp, "animation frame");
+            owner.realm.run(callback.as_string()->to_utf8(), "<timer>");
+        } else if (animation_frame) {
+            js::Value const timestamp[1] = { js::Value::number(now - owner.time_origin) };
+            owner.call_reporting(callback, owner_window, timestamp, "animation frame");
         } else {
-            in.call_reporting(callback, js::Value::object(in.interpreter.global()), arguments, "timer");
+            owner.call_reporting(callback, owner_window, arguments, "timer");
         }
         if (in.interpreter.terminated())
             break;
@@ -1190,10 +1204,10 @@ bool Realm::run_pending()
 std::optional<double> Realm::next_timer_due() const
 {
     // A queued task is due now.
-    if (!m_internals->tasks.empty())
+    if (!m_internals->agent.tasks.empty())
         return m_internals->now();
     std::optional<double> due;
-    for (Timer const& timer : m_internals->timers) {
+    for (Timer const& timer : m_internals->agent.timers) {
         if (!due || timer.due < *due)
             due = timer.due;
     }
@@ -1202,15 +1216,15 @@ std::optional<double> Realm::next_timer_due() const
 
 bool Realm::has_pending_timers() const
 {
-    return !m_internals->timers.empty() || !m_internals->tasks.empty();
+    return !m_internals->agent.timers.empty() || !m_internals->agent.tasks.empty();
 }
 
 void Realm::perform_microtask_checkpoint()
 {
     Internals& in = *m_internals;
-    if (in.in_checkpoint)
+    if (in.agent.in_checkpoint)
         return;
-    in.in_checkpoint = true;
+    in.agent.in_checkpoint = true;
     {
         // The queue is the interpreter's: queueMicrotask callbacks and
         // promise reactions in one order. The Entry accounts the time;
@@ -1222,7 +1236,7 @@ void Realm::perform_microtask_checkpoint()
             in.report_uncaught(thrown, "microtask");
         });
     }
-    in.in_checkpoint = false;
+    in.agent.in_checkpoint = false;
 }
 
 // --- Roots ------------------------------------------------------------------------------------

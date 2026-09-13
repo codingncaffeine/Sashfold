@@ -293,6 +293,31 @@ struct Timer {
     bool animation_frame = false; // requestAnimationFrame: the callback takes a timestamp
     std::unique_ptr<js::Persistent> callback; // a function, or a string of source
     std::vector<std::unique_ptr<js::Persistent>> arguments;
+    Realm::Internals* owner = nullptr; // the realm that set it
+};
+
+// A task queued for the event loop's next turn — a response to deliver, a
+// message to post — with the realm that queued it.
+struct Task {
+    std::uint64_t sequence = 0;
+    Realm::Internals* owner = nullptr;
+    std::function<void()> run;
+};
+
+// The agent a page's documents run in (HTML §8.1.2, the similar-origin
+// window agent): the interpreter, whose heap and job queue — the microtask
+// queue — its realms share, the event loop's tasks and timers, and how deep
+// the host's entries into script go. A page's realm makes one of its own.
+struct Agent {
+    js::Interpreter interpreter;
+    std::vector<Timer> timers;
+    // Run before the timers at the next pump, oldest first, each holding what
+    // it needs through Persistents.
+    std::deque<Task> tasks;
+    int next_timer_id = 1;
+    std::uint64_t next_sequence = 1;
+    bool in_checkpoint = false;
+    int script_depth = 0; // entries from the host in progress
 };
 
 struct Realm::Internals {
@@ -303,7 +328,12 @@ struct Realm::Internals {
     // Documents scripts made (DOMParser, createHTMLDocument): owned for the
     // realm's life, so no wrapper into them can dangle.
     std::vector<std::unique_ptr<dom::Document>> extra_documents;
-    js::Interpreter interpreter;
+    // The agent this realm runs in, its own: declared after the documents its
+    // wrappers point into, so that it ends first.
+    std::unique_ptr<Agent> own_agent;
+    Agent& agent;
+    js::Interpreter& interpreter; // the agent's
+    js::RealmRecord* realm_record; // this document's realm in it
 
     // The interfaces, by name: each constructor's prototype object.
     std::unordered_map<std::string, js::Object*> prototypes;
@@ -316,16 +346,9 @@ struct Realm::Internals {
     std::vector<ListenerEntry> window_listeners;
     HandlerMap window_handlers;
 
-    std::vector<Timer> timers;
-    // Tasks the page queued for the event loop's next turn — a response to
-    // deliver, a message to post: run before the timers at the next pump,
-    // oldest first, each holding what it needs through Persistents.
-    std::deque<std::pair<std::uint64_t, std::function<void()>>> tasks;
+    // Queues a task on the agent's event loop, as this realm's.
     void post_task(std::function<void()> task);
-    int next_timer_id = 1;
-    std::uint64_t next_sequence = 1;
     std::uint64_t next_listener_id = 1;
-    bool in_checkpoint = false;
     // A deferred script, fetched when prepared and run when the parser is
     // done: a classic one by its source, a module by its record.
     struct PendingScript {
@@ -352,7 +375,6 @@ struct Realm::Internals {
     js::Value current_event; // window.event
     std::uint64_t mutations = 0;
     ScriptStats stats;
-    int script_depth = 0; // entries from the host in progress
     std::vector<std::pair<std::string, std::string>> cookies; // the fallback jar
     // A control's value and checkedness set by script when the host gave no
     // hooks for them (a test, --render): the dirty value, kept apart from

@@ -45,11 +45,12 @@ std::optional<AbortSignalObject*> this_signal(js::Interpreter& interp, js::Value
 void schedule_native(Realm::Internals& in, double delay_ms, js::Value const& function)
 {
     Timer timer;
-    timer.id = in.next_timer_id++;
+    timer.id = in.agent.next_timer_id++;
     timer.due = in.now() + delay_ms;
-    timer.sequence = in.next_sequence++;
+    timer.sequence = in.agent.next_sequence++;
+    timer.owner = &in;
     timer.callback = std::make_unique<js::Persistent>(in.interpreter.heap(), function);
-    in.timers.push_back(std::move(timer));
+    in.agent.timers.push_back(std::move(timer));
 }
 
 // --- MessagePort ---------------------------------------------------------------------------
