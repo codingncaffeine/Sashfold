@@ -8046,16 +8046,20 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // A box with a picture but no color of its own leaves the canvas the
     // white it started as, and lays its picture over that.
     if (has_background(*html_style)) {
-        if (html_style->background_color.a != 0)
+        if (html_style->background_color.a != 0) {
             result.canvas_background = html_style->background_color;
+            result.canvas_background_given = true;
+        }
     } else {
         for (dom::Node const* child : html->children()) {
             if (child->is_element() && static_cast<dom::Element const*>(child)->is_html("body")) {
                 if (ComputedStyle const* body = layouter.style_of(
                         *static_cast<dom::Element const*>(child));
                     body && has_background(*body)) {
-                    if (body->background_color.a != 0)
+                    if (body->background_color.a != 0) {
                         result.canvas_background = body->background_color;
+                        result.canvas_background_given = true;
+                    }
                     result.canvas_background_from_body = true;
                 }
             }
@@ -8078,7 +8082,11 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // (css-writing-modes-4 §3.1), so a narrow <html> in an rtl document
     // settles against the viewport's right edge.
     root_options.containing_rtl = html_style->direction == css::Direction::Rtl;
-    result.root = layouter.layout_block(*html, *html_style, 0, 0, frame_width, 0, root_floats, root_options);
+    // The root's margins collapse with nothing (CSS 2.1 §8.3.1): its box
+    // starts below its own top margin, as a child's starts where its
+    // parent's flow puts it, margin and all.
+    float const root_top = resolve(html_style->margin_top, frame_width);
+    result.root = layouter.layout_block(*html, *html_style, 0, root_top, frame_width, 0, root_floats, root_options);
     if (std::optional<float> const bottom = root_floats.lowest_bottom())
         result.root.height = std::max(result.root.height, *bottom - result.root.y);
     float frame_block_extent = result.root.y + result.root.height

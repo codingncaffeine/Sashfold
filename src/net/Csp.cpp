@@ -680,6 +680,45 @@ RequestGuard ContentSecurityPolicy::guard(ResourceKind kind, std::string nonce, 
     return guard;
 }
 
+// §6.4.2, frame-ancestors' navigation response check: every document the
+// frame is inside, by its origin — serialized and parsed back into a URL,
+// so a source naming a path beyond "/" matches none of them, and an opaque
+// origin parses to nothing that matches.
+std::optional<std::string> ContentSecurityPolicy::frame_ancestors_refusal(std::vector<Url> const& ancestors)
+{
+    std::optional<std::string> refusal;
+    for (Policy const& policy : m_policies) {
+        Directive const* const directive = policy.find("frame-ancestors");
+        if (!directive)
+            continue;
+        for (Url const& ancestor : ancestors) {
+            std::optional<Url> const origin = parse_url(ancestor.serialize_origin());
+            if (origin && list_matches(*directive, *origin, false))
+                continue;
+            std::string const message = std::string(policy.report_only ? "[Report Only] " : "") + "Refused to frame '"
+                + m_document_url.serialize()
+                + "' because an ancestor violates the following Content Security Policy directive: \""
+                + directive->text() + "\".";
+            report(message);
+            if (!policy.report_only && !refusal) {
+                ++m_refusals;
+                refusal = "refused by the framed document's Content Security Policy: " + directive->text();
+            }
+            break;
+        }
+    }
+    return refusal;
+}
+
+bool ContentSecurityPolicy::governs_framing() const
+{
+    for (Policy const& policy : m_policies) {
+        if (!policy.report_only && policy.find("frame-ancestors") != nullptr)
+            return true;
+    }
+    return false;
+}
+
 // §6.7.3.3 "Does element match source list for type and source".
 bool ContentSecurityPolicy::inline_matches(Directive const& directive, InlineKind kind, std::string_view nonce,
     std::string_view source) const

@@ -1011,6 +1011,19 @@ js::Outcome Realm::run(std::string_view utf8_source, std::string name)
     return outcome;
 }
 
+namespace {
+
+void collect_frames(dom::Node const& node, std::vector<dom::Element*>& out)
+{
+    for (dom::Node* const child : node.children()) {
+        if (child->is_element() && static_cast<dom::Element*>(child)->is_html("iframe"))
+            out.push_back(static_cast<dom::Element*>(child));
+        collect_frames(*child, out);
+    }
+}
+
+} // namespace
+
 void Realm::document_parsed()
 {
     Internals& in = *m_internals;
@@ -1028,6 +1041,13 @@ void Realm::document_parsed()
             in.execute_script(*pending.element, pending.source, pending.name);
     }
     dispatch_event(&in.document, "DOMContentLoaded", EventInit { true, false, false });
+    // A page's load waits on its frames' documents, so every iframe the
+    // parse left in the tree has fired its load event, in tree order, by the
+    // time the window fires its own.
+    std::vector<dom::Element*> frames;
+    collect_frames(in.document, frames);
+    for (dom::Element* const frame : frames)
+        dispatch_event(frame, "load");
     in.ready_state = "complete";
     dispatch_event(&in.document, "readystatechange");
     dispatch_event(nullptr, "load");

@@ -89,6 +89,7 @@ textarea { white-space: pre-wrap }
 [dir], bdi, output { unicode-bidi: isolate }
 bdo, bdo[dir] { unicode-bidi: isolate-override }
 pre[dir=auto i], textarea[dir=auto i] { unicode-bidi: plaintext }
+iframe { border: 2px inset }
 )CSS";
 
 enum class CascadeRank : int {
@@ -355,6 +356,27 @@ std::string presentational_hints(dom::Element const& element)
     if (table || cell || row || embedded) {
         if (std::optional<std::string_view> const height = attribute("height"))
             add("height", legacy_dimension(*height));
+    }
+    // An iframe's frameborder: zero, or a value the rules for parsing
+    // integers make nothing of, takes the frame's border away.
+    if (tag == "iframe") {
+        if (std::optional<std::string_view> const frameborder = attribute("frameborder")) {
+            std::string_view text = *frameborder;
+            while (!text.empty()
+                && (text.front() == ' ' || text.front() == '\t' || text.front() == '\n' || text.front() == '\f'
+                    || text.front() == '\r'))
+                text.remove_prefix(1);
+            if (!text.empty() && (text.front() == '-' || text.front() == '+'))
+                text.remove_prefix(1);
+            bool nonzero = false;
+            for (char const c : text) {
+                if (c < '0' || c > '9')
+                    break;
+                nonzero = nonzero || c != '0';
+            }
+            if (!nonzero)
+                add("border-width", "0");
+        }
     }
     if (tag == "hr") {
         if (std::optional<std::string_view> const size = attribute("size"))

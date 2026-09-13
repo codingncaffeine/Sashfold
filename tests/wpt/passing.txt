@@ -1,8 +1,10 @@
-# WPT CSS reference tests passing (9249 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9286 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
+css/CSS2/abspos/abspos-containing-block-initial-001.xht
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
 css/CSS2/abspos/abspos-containing-block-initial-005c.xht
+css/CSS2/abspos/abspos-containing-block-initial-009a.xht
 css/CSS2/abspos/abspos-containing-block-initial-009e.xht
 css/CSS2/abspos/abspos-containing-block-initial-009f.xht
 css/CSS2/abspos/between-float-and-text.html
@@ -281,7 +283,29 @@ css/CSS2/backgrounds/background-repeat-applies-to-014.xht
 css/CSS2/backgrounds/background-repeat-applies-to-015.xht
 css/CSS2/backgrounds/background-reset-001.xht
 css/CSS2/backgrounds/background-root-001.xht
+css/CSS2/backgrounds/background-root-002.xht
+css/CSS2/backgrounds/background-root-004.xht
+css/CSS2/backgrounds/background-root-005.xht
+css/CSS2/backgrounds/background-root-006.xht
+css/CSS2/backgrounds/background-root-007.xht
+css/CSS2/backgrounds/background-root-008.xht
+css/CSS2/backgrounds/background-root-009.xht
+css/CSS2/backgrounds/background-root-010.xht
+css/CSS2/backgrounds/background-root-011.xht
+css/CSS2/backgrounds/background-root-012a.xht
+css/CSS2/backgrounds/background-root-012b.xht
+css/CSS2/backgrounds/background-root-013a.xht
+css/CSS2/backgrounds/background-root-013b.xht
+css/CSS2/backgrounds/background-root-014a.xht
+css/CSS2/backgrounds/background-root-014b.xht
+css/CSS2/backgrounds/background-root-015.xht
+css/CSS2/backgrounds/background-root-016.xht
+css/CSS2/backgrounds/background-root-017.xht
+css/CSS2/backgrounds/background-root-018.xht
+css/CSS2/backgrounds/background-root-019.xht
+css/CSS2/backgrounds/background-root-020.xht
 css/CSS2/backgrounds/background-root-023.xht
+css/CSS2/backgrounds/background-root-024.xht
 css/CSS2/backgrounds/background-root-101.xht
 css/CSS2/backgrounds/background-root-102.xht
 css/CSS2/backgrounds/background-root-103.xht
@@ -2094,6 +2118,7 @@ css/CSS2/margin-padding-clear/margin-collapse-014.xht
 css/CSS2/margin-padding-clear/margin-collapse-015.xht
 css/CSS2/margin-padding-clear/margin-collapse-015a.xht
 css/CSS2/margin-padding-clear/margin-collapse-017.xht
+css/CSS2/margin-padding-clear/margin-collapse-020.xht
 css/CSS2/margin-padding-clear/margin-collapse-021.xht
 css/CSS2/margin-padding-clear/margin-collapse-022.xht
 css/CSS2/margin-padding-clear/margin-collapse-025.xht
@@ -3217,6 +3242,9 @@ css/CSS2/normal-flow/negative-margin-001.html
 css/CSS2/normal-flow/negative-margin-shrinking-container-size-001.html
 css/CSS2/normal-flow/negative-margin-shrinking-container-size-002.html
 css/CSS2/normal-flow/overflow-scroll-paint-order.html
+css/CSS2/normal-flow/replaced-intrinsic-002.xht
+css/CSS2/normal-flow/resizable-iframe-paint-order.html
+css/CSS2/normal-flow/root-box-001.xht
 css/CSS2/normal-flow/table-in-inline-001.xht
 css/CSS2/normal-flow/width-001.xht
 css/CSS2/normal-flow/width-002.xht
@@ -3411,6 +3439,8 @@ css/CSS2/positioning/abspos-015.xht
 css/CSS2/positioning/abspos-016.xht
 css/CSS2/positioning/abspos-017.xht
 css/CSS2/positioning/abspos-018.xht
+css/CSS2/positioning/abspos-019.xht
+css/CSS2/positioning/abspos-020.xht
 css/CSS2/positioning/abspos-024.xht
 css/CSS2/positioning/abspos-025.xht
 css/CSS2/positioning/abspos-026.xht
@@ -5145,7 +5175,7 @@ css/css-backgrounds/background-attachment-fixed-inline-scrolled.html
 css/css-backgrounds/background-attachment-fixed-inside-transform-1.html
 css/css-backgrounds/background-attachment-local-block-002.html
 css/css-backgrounds/background-attachment-local-inline-002.html
-css/css-backgrounds/background-attachment-margin-root-002.html
+css/css-backgrounds/background-attachment-margin-root-001.html
 css/css-backgrounds/background-clip-002.html
 css/css-backgrounds/background-clip-003.html
 css/css-backgrounds/background-clip-004.html
@@ -5200,6 +5230,9 @@ css/css-backgrounds/background-image-large-with-auto.html
 css/css-backgrounds/background-image-table-cells-zoomed.html
 css/css-backgrounds/background-image-with-border-radius-fidelity.html
 css/css-backgrounds/background-margin-iframe-root.html
+css/css-backgrounds/background-margin-root.html
+css/css-backgrounds/background-margin-transformed-root.html
+css/css-backgrounds/background-margin-will-change-root.html
 css/css-backgrounds/background-multiple-layers-table-cell.html
 css/css-backgrounds/background-none-none-and-color.html
 css/css-backgrounds/background-origin-002.html
@@ -6327,7 +6360,6 @@ css/css-flexbox/table-with-infinite-max-intrinsic-width.html
 css/css-flexbox/text-overflow-on-flexbox-001.html
 css/css-flexbox/webkit-box-vertical-writing-mode.html
 css/css-fonts/alternates-order.html
-css/css-fonts/downloadable-font-scoped-to-document.html
 css/css-fonts/first-available-font-001.html
 css/css-fonts/first-available-font-002.html
 css/css-fonts/first-available-font-003.html
@@ -6395,6 +6427,7 @@ css/css-fonts/font-size-adjust-006.xht
 css/css-fonts/font-size-adjust-007.xht
 css/css-fonts/font-size-adjust-008.xht
 css/css-fonts/font-size-adjust-014.html
+css/css-fonts/font-size-adjust-reload.html
 css/css-fonts/font-size-adjust-text-orientation.html
 css/css-fonts/font-size-monospace-adjust.html
 css/css-fonts/font-size-xxx-large.html
@@ -8391,6 +8424,7 @@ css/css-values/ex-unit-001.html
 css/css-values/ex-unit-002.html
 css/css-values/ex-unit-003.html
 css/css-values/ex-unit-004.html
+css/css-values/inline-cache-base-uri.html
 css/css-values/lh-unit-same-element-font-size-dependency.html
 css/css-values/lh-unit-same-element-line-height-dependency.html
 css/css-values/max-20-arguments.html
@@ -8417,7 +8451,6 @@ css/css-values/vh-support-margin.html
 css/css-values/vh-support-transform-origin.html
 css/css-values/vh-support-transform-translate.html
 css/css-values/vh-support.html
-css/css-values/vh-update-and-transition-in-subframe.html
 css/css-values/vh-zero-support.html
 css/css-values/viewport-unit-011.html
 css/css-values/viewport-units-scrollbars-custom-001.html
@@ -8742,6 +8775,10 @@ css/css-writing-modes/available-size-019.html
 css/css-writing-modes/background-position-vrl-018.xht
 css/css-writing-modes/background-position-vrl-020.xht
 css/css-writing-modes/background-position-vrl-022.xht
+css/css-writing-modes/background-size-document-root-vrl-002.html
+css/css-writing-modes/background-size-document-root-vrl-004.html
+css/css-writing-modes/background-size-document-root-vrl-006.html
+css/css-writing-modes/background-size-document-root-vrl-008.html
 css/css-writing-modes/baseline-inline-non-replaced-004.xht
 css/css-writing-modes/baseline-inline-non-replaced-005.xht
 css/css-writing-modes/baseline-with-orthogonal-flow-001.html

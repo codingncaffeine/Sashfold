@@ -479,6 +479,55 @@ void test_guards()
     CHECK(!none.refusal);
 }
 
+void test_frame_ancestors()
+{
+    std::vector<Url> const same { url_of("https://example.test/outer.html") };
+    std::vector<Url> const cross { url_of("https://other.test/outer.html") };
+    // The parent first, then the page it is in.
+    std::vector<Url> const chain { url_of("https://example.test/middle.html"), url_of("https://other.test/top.html") };
+
+    // Nothing said about framing: framed anywhere, and X-Frame-Options is read.
+    ContentSecurityPolicy open = policy_for("https://example.test/frame.html", "img-src 'self'");
+    CHECK(!open.governs_framing());
+    CHECK(!open.frame_ancestors_refusal(cross));
+
+    ContentSecurityPolicy none = policy_for("https://example.test/frame.html", "frame-ancestors 'none'");
+    CHECK(none.governs_framing());
+    CHECK(none.frame_ancestors_refusal(same).has_value());
+    CHECK(!none.frame_ancestors_refusal({})); // not in a frame at all
+
+    // Every ancestor answers, the top-level page as much as the parent.
+    ContentSecurityPolicy own = policy_for("https://example.test/frame.html", "frame-ancestors 'self'");
+    CHECK(!own.frame_ancestors_refusal(same));
+    CHECK(own.frame_ancestors_refusal(cross).has_value());
+    CHECK(own.frame_ancestors_refusal(chain).has_value());
+    CHECK(!policy_for("https://example.test/frame.html", "frame-ancestors 'self' other.test").frame_ancestors_refusal(chain));
+    // An ancestor is matched by its origin, which has no path beyond "/".
+    CHECK(!policy_for("https://example.test/frame.html", "frame-ancestors https://other.test/").frame_ancestors_refusal(cross));
+    CHECK(policy_for("https://example.test/frame.html", "frame-ancestors https://other.test/outer.html")
+              .frame_ancestors_refusal(cross)
+              .has_value());
+    // A document with an opaque origin matches nothing, * included.
+    ContentSecurityPolicy any = policy_for("https://example.test/frame.html", "frame-ancestors *");
+    CHECK(!any.frame_ancestors_refusal(cross));
+    CHECK(any.frame_ancestors_refusal({ url_of("data:text/html,x") }).has_value());
+
+    // Report-only: a console line and no refusal; a <meta> element's
+    // frame-ancestors never was.
+    Reports reports;
+    ContentSecurityPolicy watching = policy_for("https://example.test/frame.html", "frame-ancestors 'none'", &reports, true);
+    CHECK(!watching.governs_framing());
+    CHECK(!watching.frame_ancestors_refusal(same));
+    CHECK(reports.has("[Report Only] Refused to frame 'https://example.test/frame.html' because an ancestor violates the "
+                      "following Content Security Policy directive: \"frame-ancestors 'none'\"."));
+    CHECK_EQ(watching.refusals(), std::size_t { 0 });
+    CHECK_EQ(none.refusals(), std::size_t { 1 });
+    ContentSecurityPolicy meta(url_of("https://example.test/frame.html"));
+    meta.add_meta("frame-ancestors 'none'");
+    CHECK(!meta.governs_framing());
+    CHECK(!meta.frame_ancestors_refusal(cross));
+}
+
 } // namespace
 
 int main()
@@ -494,5 +543,6 @@ int main()
     test_meta_policies();
     test_sandbox_and_upgrade();
     test_guards();
+    test_frame_ancestors();
     return sashfold::test::report("csp");
 }

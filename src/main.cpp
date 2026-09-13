@@ -22,6 +22,7 @@
 #include "text/TrueType.h"
 #include "ui/Browser.h"
 #include "ui/Cosmetic.h"
+#include "ui/Frames.h"
 #include "ui/InternalPages.h"
 #include "ui/PageImages.h"
 #include "ui/Script.h"
@@ -330,6 +331,26 @@ ui::ImageFetcher image_fetcher(LoadedPage const& page, int* failures = nullptr)
             return std::nullopt;
         }
         return std::move(result.response->body);
+    };
+}
+
+// The page's frames and what their documents fetch, through its own
+// session: a frame's document whatever its status, as a window shows a
+// server's error page in a frame, and anything else only when it arrived.
+ui::FrameFetcher frame_fetcher(LoadedPage const& page)
+{
+    return [&page](net::Url const& url, net::Url const&, net::ResourceKind kind,
+               net::RequestGuard const& guard) -> std::optional<ui::FrameResponse> {
+        net::FetchResult result = page.loader->load_subresource(url, page.url, "", kind, guard);
+        bool const document = kind == net::ResourceKind::Subdocument;
+        if (!result.response || (!document && result.response->status != 200)) {
+            std::cerr << (document ? "frame " : "frame resource ") << url.serialize() << ": "
+                      << describe_failure(result) << "\n";
+            return std::nullopt;
+        }
+        std::string const* const type = net::find_header(result.response->headers, "content-type");
+        return ui::FrameResponse { std::move(result.response->body), type ? *type : "", result.response->final_url,
+            std::move(result.response->headers) };
     };
 }
 
@@ -763,8 +784,12 @@ int render_page(std::string const& path, std::string const& output, int viewport
     layout::BackgroundImages const backgrounds
         = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures));
     auto const t4 = clock::now();
-    layout::LayoutResult const page = layout::layout_document(*document, styles,
+    layout::LayoutResult page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale);
+    // The page's frames: a frame's document under the page's frame-src, what
+    // that document fetches under its own policy.
+    ui::draw_frames(loaded.url, page, frame_fetcher(loaded), g_device_scale, loaded.policy.get());
+    text::FontManager::instance().set_page_fonts(fonts);
     auto const t5 = clock::now();
     if (extras.dump_layout) {
         std::cout << "layout " << viewport_width << "x" << viewport_height << ", page height "

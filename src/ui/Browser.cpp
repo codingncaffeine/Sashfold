@@ -1,5 +1,6 @@
 #include "ui/Browser.h"
 #include "ui/Forms.h"
+#include "ui/Frames.h"
 
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
@@ -396,6 +397,7 @@ struct Browser::Impl {
         css::StyleMap styles;
         layout::ImageMap images; // the page's pictures, decoded
         layout::BackgroundImages backgrounds; // the pictures its styles name as backgrounds
+        DrawnFrames frames; // its frames' pictures as last drawn, by element
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
         layout::LayoutResult layout;
         std::vector<layout::TextRun const*> runs; // the layout's runs in tree order
@@ -1311,6 +1313,26 @@ struct Browser::Impl {
         tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
     }
 
+    // Fetches for a tab's frames through the loader, with the page as first
+    // party: a frame's document whatever its status, as a tab shows a
+    // server's error page, and anything else only when it arrived.
+    FrameFetcher frame_fetcher(Tab& tab)
+    {
+        HistoryEntry const* const entry = tab.current();
+        net::Url const page_url = entry ? entry->final_url : net::Url {};
+        std::string const container = tab.container;
+        return [this, page_url, container](net::Url const& url, net::Url const& from, net::ResourceKind kind,
+                   net::RequestGuard const& guard) -> std::optional<FrameResponse> {
+            net::FetchResult result
+                = loader.load_subresource(url, page_url, referrer_for(&from, url), kind, guard, container);
+            if (!result.response || (kind != net::ResourceKind::Subdocument && result.response->status != 200))
+                return std::nullopt;
+            std::string const* const type = net::find_header(result.response->headers, "content-type");
+            return FrameResponse { std::move(result.response->body), type ? *type : "", result.response->final_url,
+                std::move(result.response->headers) };
+        };
+    }
+
     void relayout(Tab& tab)
     {
         if (!tab.document)
@@ -1322,6 +1344,13 @@ struct Browser::Impl {
         tab.layout = layout::layout_document(*tab.document, tab.styles,
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
             static_cast<float>(std::max(1, c.content.height)), scale);
+        // The frames' documents, drawn into the layout; a frame drawn before
+        // at the same size is taken as it was. Their documents set fonts of
+        // their own, so the page's are put back.
+        if (HistoryEntry const* const entry = tab.current()) {
+            draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames);
+            text::FontManager::instance().set_page_fonts(tab.fonts);
+        }
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
         // A page laid out again is at every scrollport's origin: what the
         // reader had moved is put back on, held inside whatever the new
@@ -1666,6 +1695,7 @@ struct Browser::Impl {
             tab.scrolls.clear();
             tab.applied.clear();
             tab.scroller = nullptr;
+            tab.frames.clear();
             return;
         }
         // The new-tab page is of the moment it is shown, not of its first
@@ -1698,6 +1728,7 @@ struct Browser::Impl {
         tab.tree_scroll = 0;
         tab.images.clear();
         tab.backgrounds.clear();
+        tab.frames.clear();
         tab.sheets.clear();
         tab.fonts.clear();
         tab.style_set.reset();

@@ -137,6 +137,24 @@ int main(int argc, char** argv)
         CHECK(sans->width == sans->fonts->measure(sans->text, sans->style->font_size));
     }
 
+    // --- The root's margins collapse with nothing: its box starts below its
+    // top margin, its body's margin stays inside it, and the page runs on
+    // past its bottom margin ---
+    {
+        manager.set_system_fonts(false);
+        Page const margined = lay_out(
+            "<!doctype html><style>html { margin: 50px 0 30px; height: 100px } body { margin: 8px }</style><div>x</div>", 400);
+        CHECK_EQ(margined.result.root.y, 50.0f);
+        CHECK_EQ(margined.result.page_height, 180.0f);
+        layout::Fragment const* body = nullptr;
+        for (layout::Fragment const& child : margined.result.root.children) {
+            if (child.element && child.element->is_html("body"))
+                body = &child;
+        }
+        if (CHECK(body != nullptr))
+            CHECK_EQ(body->y, 58.0f);
+    }
+
     // --- Images: on the baseline inline, as blocks, sized by CSS, attributes, or themselves ---
     {
         constexpr std::string_view image_html = R"HTML(<!doctype html>
@@ -1042,7 +1060,7 @@ int main(int argc, char** argv)
         CHECK_EQ(height_of("capped"), 20.0f); // max-height in percent holds it
         CHECK_EQ(height_of("none"), 20.0f); // no definite base anywhere: auto
         CHECK_EQ(height_of("fi"), 50.0f); // a flex item's percentage against the container's definite height
-        CHECK_EQ(height_of("fr"), 50.0f); // a replaced box's height attribute in percent
+        CHECK_EQ(height_of("fr"), 54.0f); // a replaced box's height attribute in percent, inside an iframe's 2px border
         CHECK_EQ(height_of("ai"), 60.0f); // an absolutely positioned picture against its containing block
     }
 
@@ -1154,8 +1172,14 @@ int main(int argc, char** argv)
         layout::Fragment const* frame = find_box(page.result.root, "frame");
         layout::Fragment const* canvas = find_box(page.result.root, "canvas");
         if (CHECK(frame && canvas)) {
-            CHECK_EQ(frame->width, 300.0f); // no picture, no size written: CSS 2.1 §10.3.2
-            CHECK_EQ(frame->height, 150.0f);
+            // No picture, no size written: 300 by 150 (CSS 2.1 §10.3.2), inside
+            // the 2px border an iframe has.
+            CHECK_EQ(frame->width, 304.0f);
+            CHECK_EQ(frame->height, 154.0f);
+            if (CHECK(frame->image)) {
+                CHECK_EQ(frame->image->width, 300.0f);
+                CHECK_EQ(frame->image->height, 150.0f);
+            }
             CHECK_EQ(canvas->width, 100.0f); // its attributes size it
             CHECK_EQ(canvas->height, 50.0f);
         }

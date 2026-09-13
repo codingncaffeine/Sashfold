@@ -111,6 +111,14 @@ public:
     std::optional<std::string> eval_refusal();
     // A form's submission URL, judged by form-action.
     std::optional<std::string> form_action_refusal(Url const& action);
+    // frame-ancestors, for this policy's document about to be shown in a
+    // frame: the refusal when an enforced policy's list does not match every
+    // document the frame is inside, `ancestors` — each by its origin, one
+    // with an opaque origin matching nothing — or nullopt.
+    std::optional<std::string> frame_ancestors_refusal(std::vector<Url> const& ancestors);
+    // Whether an enforced policy says frame-ancestors at all: when one does,
+    // the document's X-Frame-Options header is not read (HTML says so).
+    bool governs_framing() const;
 
     bool upgrade_insecure_requests() const { return m_upgrade_insecure; }
     // The sandbox directive, from a header only: scripts and forms are

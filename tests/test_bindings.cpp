@@ -526,6 +526,27 @@ void test_document_ready_states_and_load_events()
     CHECK_EQ(page->console, "");
 }
 
+void test_frame_load_events()
+{
+    // A page's load waits on its frames: every iframe the parse left in the
+    // tree fires load after DOMContentLoaded, in tree order, without
+    // bubbling, and before the window's — which fires once. One inside a
+    // template is not in the tree.
+    auto page = loaded(R"HTML(<!DOCTYPE html><html><head><script>
+        var log = [];
+        document.addEventListener('DOMContentLoaded', function () { log.push('dcl'); });
+        window.addEventListener('load', function () { log.push('window'); });
+        document.addEventListener('load', function () { log.push('bubbled'); });
+    </script></head><body>
+    <iframe id="first" onload="log.push('first:' + document.readyState + ':' + (event.target === this) + ':' + event.bubbles)"></iframe>
+    <div><iframe id="second" srcdoc="<p>x"></iframe></div>
+    <template><iframe onload="log.push('template')"></iframe></template>
+    <script>document.getElementById('second').addEventListener('load', function () { log.push('second'); });</script>
+    </body></html>)HTML");
+    CHECK_EQ(page->string("log.join(' ')"), "dcl first:interactive:true:false second window");
+    CHECK_EQ(page->console, "");
+}
+
 void test_external_deferred_and_skipped_scripts()
 {
     auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html><head>
@@ -1295,6 +1316,7 @@ int main()
     test_event_dispatch_order_and_flags();
     test_timers_microtasks_and_the_clock();
     test_document_ready_states_and_load_events();
+    test_frame_load_events();
     test_external_deferred_and_skipped_scripts();
     test_module_scripts();
     test_noscript_is_raw_text_with_scripting_on();

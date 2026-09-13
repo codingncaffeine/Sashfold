@@ -152,6 +152,10 @@ struct LayoutResult {
     // image layers over the whole canvas, positioned against the box
     // itself (css-backgrounds-3 §2.11.2).
     bool canvas_background_from_body = false;
+    // Whether the canvas color came from the document at all — html's or
+    // body's background color — rather than being the white a page starts
+    // on: a frame whose document gives none is transparent.
+    bool canvas_background_given = false;
     // The page is written in a vertical mode: its fragments were laid out
     // in the frame of that mode and turned into the page's axes at the end,
     // so a pass that reads the styles' physical offsets against them — the
