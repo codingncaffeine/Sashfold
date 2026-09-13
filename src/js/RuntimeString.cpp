@@ -763,7 +763,7 @@ std::optional<Value> construct_regexp(Interpreter& in, Args args, Object* new_ta
             in.root(f);
         }
     }
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, in.intrinsics().regexp_prototype);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, &Intrinsics::regexp_prototype);
     if (!prototype)
         return std::nullopt;
     return regexp_create(in, p, f, *prototype);
@@ -960,7 +960,7 @@ std::optional<Value> construct_string(Interpreter& in, Args args, Object* new_ta
     if (called_as_function)
         return Value::string(string);
     in.root(Value::string(string));
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, in.intrinsics().string_prototype);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, &Intrinsics::string_prototype);
     if (!prototype)
         return std::nullopt;
     return Value::object(in.heap().allocate<StringObject>(*prototype, string));

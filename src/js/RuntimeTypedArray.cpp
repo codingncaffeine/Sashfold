@@ -148,7 +148,8 @@ std::optional<TypedArrayObject*> allocate_typed_array(Interpreter& in, ElementTy
     Interpreter::Roots const roots(in);
     if (new_target != nullptr)
         in.root(Value::object(new_target));
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, in.intrinsics().typed_array_prototypes[type_index(type)]);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target,
+        [type](Intrinsics const& intrinsics) { return intrinsics.typed_array_prototypes[type_index(type)]; });
     if (!prototype)
         return std::nullopt;
     in.root(Value::object(*prototype));

@@ -80,9 +80,6 @@ struct Intrinsics {
     Function* throw_type_error = nullptr; // %ThrowTypeError% (§10.2.4.1)
     Object* math = nullptr;
     Object* json = nullptr;
-    // The registry behind Symbol.for and Symbol.keyFor (§20.4.2.2): an
-    // ordinary object no script can reach, mapping each key to its symbol.
-    Object* symbol_registry = nullptr;
     // The iterator prototypes (§27.1.2, §23.1.5.2, §22.1.5.1), and
     // %Array.prototype.values%, which arguments objects carry as @@iterator.
     Object* iterator_prototype = nullptr;
@@ -201,6 +198,9 @@ public:
     Intrinsics& intrinsics() { return m_realm->intrinsics; }
     Object* global() const { return m_realm->intrinsics.global; }
     RealmRecord* current_realm() const { return m_realm; }
+    // The GlobalSymbolRegistry (§20.4.2.2), one for every realm here: an
+    // ordinary object no script can reach, mapping each key to its symbol.
+    Object* symbol_registry() const { return m_symbol_registry; }
     // CreateRealm with its intrinsics (§9.3.1, §9.3.2): a new realm record,
     // built with itself current and the previous current realm put back.
     // The interpreter keeps every realm it makes for its own life.
@@ -361,7 +361,34 @@ public:
     std::optional<bool> instance_of(Value const&, Value const& target);
     std::optional<bool> ordinary_has_instance(Value const& constructor, Value const&);
     std::optional<Value> species_constructor(Object&, Function* default_constructor);
-    std::optional<Object*> get_prototype_from_constructor(Object* new_target, Object* default_prototype);
+    // GetPrototypeFromConstructor (§10.1.14): `prototype` read from the
+    // constructor `new` was applied to, or — when that is not an object —
+    // the intrinsic `select` names, taken from the constructor's own realm
+    // (GetFunctionRealm) rather than the caller's; with no new.target, the
+    // current realm's. `select` is a pointer to an Intrinsics member, or a
+    // callable taking the Intrinsics.
+    template<typename Select>
+    std::optional<Object*> get_prototype_from_constructor(Object* new_target, Select const& select)
+    {
+        RealmRecord* realm = m_realm;
+        if (new_target != nullptr) {
+            std::optional<Value> const prototype = get(*new_target, PropertyKey::atom(atoms().prototype));
+            if (!prototype)
+                return std::nullopt;
+            if (prototype->is_object())
+                return prototype->as_object();
+            std::optional<RealmRecord*> const constructor_realm = get_function_realm(*new_target);
+            if (!constructor_realm)
+                return std::nullopt;
+            realm = *constructor_realm;
+        }
+        return std::invoke(select, realm->intrinsics);
+    }
+    // GetFunctionRealm (§7.3.24): a function's own realm; a bound function's
+    // and a proxy's are their target's, and a revoked proxy has none to give,
+    // which is a TypeError. Anything that records no realm answers with the
+    // current one.
+    std::optional<RealmRecord*> get_function_realm(Object&);
 
     // ToNumeric (§7.1.3): a Number or a BigInt. ToBigInt (§7.1.13): a
     // TypeError for a Number, undefined, null or a symbol, a SyntaxError
@@ -561,6 +588,7 @@ private:
     // Every realm made here, traced, so a realm lives as long as the
     // interpreter does.
     std::vector<RealmRecord*> m_realms;
+    Object* m_symbol_registry = nullptr;
     // A deque, so that the reference root() hands out survives every later
     // push: a vector would move its elements when it grows.
     std::deque<Value> m_roots;

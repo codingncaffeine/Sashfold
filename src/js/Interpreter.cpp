@@ -2080,6 +2080,7 @@ Interpreter::Interpreter()
     , m_impl(std::make_unique<Impl>(*this))
 {
     m_heap->add_root_provider(this);
+    m_symbol_registry = m_heap->allocate<Object>(nullptr);
     m_realm = create_realm();
 }
 
@@ -2169,7 +2170,6 @@ void RealmRecord::trace(Tracer& tracer)
     tracer.visit(i.proxy_constructor);
     tracer.visit(i.math);
     tracer.visit(i.json);
-    tracer.visit(i.symbol_registry);
     tracer.visit(global_lexical);
     for (JsString* name : var_names)
         tracer.visit(name);
@@ -2190,6 +2190,7 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(m_realm);
     for (RealmRecord* realm : m_realms)
         tracer.visit(realm);
+    tracer.visit(m_symbol_registry);
     for (Job const& job : m_jobs) {
         tracer.visit(job.argument);
         tracer.visit(job.then);
@@ -2798,7 +2799,7 @@ std::optional<Value> ScriptFunction::construct(Interpreter& interpreter, std::sp
         interpreter.root(Value::object(new_target));
     if (m_node->is_derived_constructor)
         return interpreter.m_impl->call_script_function(*this, Value::undefined(), arguments, new_target);
-    std::optional<Object*> const prototype = interpreter.get_prototype_from_constructor(new_target, interpreter.intrinsics().object_prototype);
+    std::optional<Object*> const prototype = interpreter.get_prototype_from_constructor(new_target, &Intrinsics::object_prototype);
     if (!prototype)
         return std::nullopt;
     Object* this_object = interpreter.new_object(*prototype);

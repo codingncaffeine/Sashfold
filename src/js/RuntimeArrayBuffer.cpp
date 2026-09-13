@@ -698,7 +698,7 @@ std::optional<ArrayBufferObject*> allocate_array_buffer(Interpreter& in, Object*
     Interpreter::Roots const roots(in);
     if (new_target != nullptr)
         in.root(Value::object(new_target));
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, in.intrinsics().array_buffer_prototype);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, &Intrinsics::array_buffer_prototype);
     if (!prototype)
         return std::nullopt;
     in.root(Value::object(*prototype));
@@ -930,7 +930,7 @@ void install_data_view(Interpreter& in)
                     return interp.throw_range_error("Invalid DataView length");
                 view_byte_length = *length;
             }
-            std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, interp.intrinsics().data_view_prototype);
+            std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, &Intrinsics::data_view_prototype);
             if (!proto)
                 return std::nullopt;
             interp.root(Value::object(*proto));

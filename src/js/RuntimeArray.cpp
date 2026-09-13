@@ -107,6 +107,15 @@ std::optional<Value> array_species_create(Interpreter& in, Object& original, dou
     std::optional<Value> constructor = in.get(original, PropertyKey::atom(in.atoms().constructor));
     if (!constructor)
         return std::nullopt;
+    // Another realm's %Array% as the constructor makes an array of this
+    // realm instead (step 5.c).
+    if (Interpreter::is_constructor(*constructor)) {
+        std::optional<RealmRecord*> const realm = in.get_function_realm(*constructor->as_object());
+        if (!realm)
+            return std::nullopt;
+        if (*realm != in.current_realm() && constructor->as_object() == (*realm)->intrinsics.array_constructor)
+            constructor = Value::undefined();
+    }
     if (constructor->is_object()) {
         in.root(*constructor);
         constructor = in.get(*constructor->as_object(), PropertyKey::symbol(in.atoms().symbol_species));
@@ -575,7 +584,7 @@ std::optional<Value> construct_array(Interpreter& in, Args args, Object* new_tar
     Interpreter::Roots const roots(in);
     for (Value const& arg : args)
         in.root(arg);
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, in.intrinsics().array_prototype);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, &Intrinsics::array_prototype);
     if (!prototype)
         return std::nullopt;
     ArrayObject* array = in.heap().allocate<ArrayObject>(*prototype);

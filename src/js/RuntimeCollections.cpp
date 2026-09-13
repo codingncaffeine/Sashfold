@@ -233,7 +233,7 @@ bool can_be_held_weakly(Interpreter& in, Value const& value)
         return true;
     if (!value.is_symbol())
         return false;
-    Object* registry = in.intrinsics().symbol_registry;
+    Object* registry = in.symbol_registry();
     if (registry == nullptr)
         return true;
     for (PropertyKey const& key : registry->own_keys()) {
@@ -321,7 +321,7 @@ NativeFunction* install_constructor(Interpreter& in, std::string_view name, Obje
             Interpreter::Roots const roots(interp);
             if (new_target)
                 interp.root(Value::object(new_target));
-            std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, interp.intrinsics().*(kind.prototype));
+            std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, kind.prototype);
             if (!proto)
                 return std::nullopt;
             CollectionObject* collection = interp.heap().allocate<CollectionObject>(*proto, kind.class_id);

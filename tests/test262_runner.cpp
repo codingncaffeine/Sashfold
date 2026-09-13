@@ -202,11 +202,12 @@ struct RunResult {
     std::string reason;
 };
 
-// The host hooks INTERPRETING.md asks for: print, and the $262 object.
-// Answers the buffer print appends to.
-std::shared_ptr<std::string> install_host(js::Interpreter& interpreter)
+// The host hooks INTERPRETING.md asks for, in the current realm: print on
+// its global, and the $262 object — global, gc, evalScript,
+// detachArrayBuffer and createRealm. Answers the $262 object.
+js::Object* install_262(js::Interpreter& interpreter, std::shared_ptr<std::string> const& printed)
 {
-    auto printed = std::make_shared<std::string>();
+    js::Object* result = nullptr;
     {
         js::Interpreter::Roots roots(interpreter);
         js::Object* global = interpreter.global();
@@ -253,8 +254,28 @@ std::shared_ptr<std::string> install_host(js::Interpreter& interpreter)
                 return js::Value::null();
             });
         host->put(interpreter.key("detachArrayBuffer"), js::Value::object(detach), js::builtin_attributes);
+        // $262.createRealm: a new realm in the same heap with a $262 of its
+        // own, whose evalScript runs there, since a native runs in the realm
+        // it was made in.
+        js::NativeFunction* create_realm = interpreter.new_native("createRealm", 0,
+            [printed](js::Interpreter& in, js::Value const&, std::span<js::Value const>) -> std::optional<js::Value> {
+                js::RealmRecord* const realm = in.create_realm();
+                js::Interpreter::RealmScope const enter(in, realm);
+                return js::Value::object(install_262(in, printed));
+            });
+        host->put(interpreter.key("createRealm"), js::Value::object(create_realm), js::builtin_attributes);
         global->put(interpreter.key("$262"), js::Value::object(host), js::builtin_attributes);
+        result = host;
     }
+    return result;
+}
+
+// The host for a test: $262 in the interpreter's first realm. Answers the
+// buffer print appends to, which every realm's print shares.
+std::shared_ptr<std::string> install_host(js::Interpreter& interpreter)
+{
+    auto printed = std::make_shared<std::string>();
+    install_262(interpreter, printed);
     return printed;
 }
 

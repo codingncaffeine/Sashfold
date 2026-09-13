@@ -1391,7 +1391,7 @@ std::optional<Value> Interpreter::Impl::start_generator(ScriptFunction& function
     if (code == nullptr)
         return std::nullopt;
     Roots const roots(self);
-    std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, self.intrinsics().generator_prototype);
+    std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, &Intrinsics::generator_prototype);
     if (!prototype)
         return std::nullopt;
     self.root(Value::object(*prototype));
@@ -1600,7 +1600,7 @@ std::optional<Value> Interpreter::Impl::start_async_generator(ScriptFunction& fu
     if (code == nullptr)
         return std::nullopt;
     Roots const roots(self);
-    std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, self.intrinsics().async_generator_prototype);
+    std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, &Intrinsics::async_generator_prototype);
     if (!prototype)
         return std::nullopt;
     self.root(Value::object(*prototype));

@@ -649,7 +649,7 @@ std::optional<Value> construct_date(Interpreter& in, Args args, Object* new_targ
             make_time(with_default(fields, 3, 0), with_default(fields, 4, 0), with_default(fields, 5, 0), with_default(fields, 6, 0)));
         tv = time_clip(utc_time(final_date));
     }
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, in.intrinsics().date_prototype);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, &Intrinsics::date_prototype);
     if (!prototype)
         return std::nullopt;
     return Value::object(in.heap().allocate<DateObject>(*prototype, tv));

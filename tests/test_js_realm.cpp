@@ -8,7 +8,11 @@
 // called from another realm, a script function makes what it creates and
 // throws with its own realm's intrinsics, a native does the same, and a
 // generator resumed through another realm's next() runs in its own; each
-// call puts its caller's realm back however it ends.
+// call puts its caller's realm back however it ends. A constructor whose
+// new.target has no object for a `prototype` takes the default from
+// new.target's realm, through bound functions and proxies; another realm's
+// %Array% as an array's constructor makes an array of this realm; and
+// Symbol.for keeps one registry for every realm.
 
 using namespace sashfold;
 
@@ -85,6 +89,18 @@ int main()
     CHECK(step.is_object());
     js::Value const yielded = in.root(step.is_object() ? in.get(step, "value").value_or(js::Value::undefined()) : js::Value::undefined());
     CHECK(prototype_of(yielded) == b->intrinsics.array_prototype);
+    CHECK(in.current_realm() == a);
+
+    // Script in A reaching B's global as `other`.
+    a->intrinsics.global->put(in.key("other"), js::Value::object(b->intrinsics.global));
+    CHECK_JS_TRUE(in, "var C = new other.Function(); C.prototype = null;"
+                      "Object.getPrototypeOf(Reflect.construct(Array, [], C)) === other.Array.prototype");
+    CHECK_JS_TRUE(in, "var D = new other.Function(); D.prototype = null;"
+                      "Object.getPrototypeOf(Reflect.construct(Array, [], D.bind())) === other.Array.prototype");
+    CHECK_JS_TRUE(in, "var E = new other.Function(); E.prototype = null;"
+                      "Object.getPrototypeOf(Reflect.construct(Array, [], new Proxy(E, {}))) === other.Array.prototype");
+    CHECK_JS_TRUE(in, "Object.getPrototypeOf(Array.prototype.map.call(new other.Array(1, 2), function (x) { return x; })) === Array.prototype");
+    CHECK_JS_TRUE(in, "other.Symbol.for('shared') === Symbol.for('shared') && other.Symbol.keyFor(Symbol.for('shared')) === 'shared'");
     CHECK(in.current_realm() == a);
 
     return test::report("js realm");

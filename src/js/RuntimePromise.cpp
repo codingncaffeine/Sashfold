@@ -687,7 +687,7 @@ void install_promise(Interpreter& in)
                     interp.root(Value::object(new_target));
                 for (Value const& arg : args)
                     interp.root(arg);
-                std::optional<Object*> const instance_prototype = interp.get_prototype_from_constructor(new_target, interp.intrinsics().aggregate_error_prototype);
+                std::optional<Object*> const instance_prototype = interp.get_prototype_from_constructor(new_target, &Intrinsics::aggregate_error_prototype);
                 if (!instance_prototype)
                     return std::nullopt;
                 Object* error = interp.heap().allocate<ErrorObject>(*instance_prototype);
@@ -754,7 +754,7 @@ void install_promise(Interpreter& in)
             if (new_target)
                 interp.root(Value::object(new_target));
             interp.root(executor);
-            std::optional<Object*> const instance_prototype = interp.get_prototype_from_constructor(new_target, interp.intrinsics().promise_prototype);
+            std::optional<Object*> const instance_prototype = interp.get_prototype_from_constructor(new_target, &Intrinsics::promise_prototype);
             if (!instance_prototype)
                 return std::nullopt;
             auto* promise = interp.heap().allocate<PromiseObject>(*instance_prototype);

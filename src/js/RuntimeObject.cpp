@@ -353,9 +353,10 @@ std::optional<Value> enumerable_own_properties(Interpreter& in, Object& object, 
     return Value::object(result);
 }
 
-Object* ordinary_create_from_constructor(Interpreter& in, Object* new_target, Object* default_prototype, std::optional<Object*>& out)
+template<typename Select>
+Object* ordinary_create_from_constructor(Interpreter& in, Object* new_target, Select const& select, std::optional<Object*>& out)
 {
-    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, default_prototype);
+    std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, select);
     if (!prototype) {
         out = std::nullopt;
         return nullptr;
@@ -930,7 +931,8 @@ std::optional<Value> construct_error(Interpreter& interp, ErrorType type, Args a
     for (Value const& arg : args)
         interp.root(arg);
     std::optional<Object*> prototype;
-    ordinary_create_from_constructor(interp, new_target, interp.intrinsics().error_prototypes[error_index(type)], prototype);
+    ordinary_create_from_constructor(interp, new_target,
+        [type](Intrinsics const& intrinsics) { return intrinsics.error_prototypes[error_index(type)]; }, prototype);
     if (!prototype)
         return std::nullopt;
     auto* error = interp.heap().allocate<ErrorObject>(*prototype);
@@ -1213,7 +1215,7 @@ void install_object(Interpreter& in)
         [](Interpreter& interp, Args args, Object* new_target) -> std::optional<Value> {
             if (new_target != nullptr && new_target != interp.intrinsics().object_constructor) {
                 std::optional<Object*> prototype;
-                ordinary_create_from_constructor(interp, new_target, interp.intrinsics().object_prototype, prototype);
+                ordinary_create_from_constructor(interp, new_target, &Intrinsics::object_prototype, prototype);
                 if (!prototype)
                     return std::nullopt;
                 return Value::object(interp.new_object(*prototype));
@@ -1497,11 +1499,11 @@ void install_symbol(Interpreter& in)
         });
     i.symbol_constructor = constructor;
     define_method(in, *constructor, "for", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
-        // §20.4.2.2: one symbol per key, kept in the realm's registry.
+        // §20.4.2.2: one symbol per key, in the registry every realm shares.
         std::optional<JsString*> const key_string = interp.to_string(argument(args, 0));
         if (!key_string)
             return std::nullopt;
-        Object& registry = *interp.intrinsics().symbol_registry;
+        Object& registry = *interp.symbol_registry();
         PropertyKey const key = interp.heap().key(*key_string);
         if (Property const* existing = registry.find_own(key))
             return existing->value;
@@ -1514,7 +1516,7 @@ void install_symbol(Interpreter& in)
         Value const symbol = argument(args, 0);
         if (!symbol.is_symbol())
             return interp.throw_type_error(interp.describe(symbol) + " is not a symbol");
-        for (Property const& property : interp.intrinsics().symbol_registry->properties()) {
+        for (Property const& property : interp.symbol_registry()->properties()) {
             if (property.value == symbol)
                 return Value::string(interp.heap().key_to_string(property.key));
         }
@@ -1609,7 +1611,6 @@ void install_intrinsics(Interpreter& in)
     i.date_prototype = heap.allocate<Object>(i.object_prototype);
     i.regexp_prototype = heap.allocate<Object>(i.object_prototype);
     i.arguments_prototype = i.object_prototype;
-    i.symbol_registry = heap.allocate<Object>(nullptr);
 
     // The global object and the object environment over it (§9.1.1.4);
     // the evaluator adds the declarative record for lexicals in front.

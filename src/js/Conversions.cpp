@@ -958,18 +958,27 @@ std::optional<Value> Interpreter::species_constructor(Object& object, Function* 
     return *species;
 }
 
-std::optional<Object*> Interpreter::get_prototype_from_constructor(Object* new_target, Object* default_prototype)
+std::optional<RealmRecord*> Interpreter::get_function_realm(Object& object)
 {
-    // §10.1.14: `prototype` read from the constructor `new` was applied
-    // to, falling back to the realm's intrinsic when it is not an object.
-    if (new_target == nullptr)
-        return default_prototype;
-    std::optional<Value> const prototype = get(*new_target, PropertyKey::atom(atoms().prototype));
-    if (!prototype)
-        return std::nullopt;
-    if (!prototype->is_object())
-        return default_prototype;
-    return prototype->as_object();
+    Object* current = &object;
+    while (true) {
+        if (current->is_proxy()) {
+            auto const& proxy = static_cast<ProxyObject const&>(*current);
+            if (proxy.is_revoked())
+                return throw_type_error("Cannot perform 'GetFunctionRealm' on a proxy that has been revoked");
+            current = proxy.target();
+            continue;
+        }
+        if (current->class_id() == Object::Class::BoundFunction) {
+            current = static_cast<BoundFunction const&>(*current).target();
+            continue;
+        }
+        if (current->is_callable()) {
+            if (RealmRecord* const realm = static_cast<Function const&>(*current).realm())
+                return realm;
+        }
+        return m_realm;
+    }
 }
 
 // ---------------------------------------------- testing and comparison §7.2

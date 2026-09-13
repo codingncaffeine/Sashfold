@@ -62,7 +62,7 @@ void install_boolean_library(Interpreter& in)
         },
         [](Interpreter& interp, Args args, Object* new_target) -> std::optional<Value> {
             bool const value = Interpreter::to_boolean(argument(args, 0));
-            std::optional<Object*> const prototype = interp.get_prototype_from_constructor(new_target, interp.intrinsics().boolean_prototype);
+            std::optional<Object*> const prototype = interp.get_prototype_from_constructor(new_target, &Intrinsics::boolean_prototype);
             if (!prototype)
                 return std::nullopt;
             return Value::object(interp.heap().allocate<PrimitiveObject>(*prototype, Object::Class::Boolean, Value::boolean(value)));
@@ -130,7 +130,7 @@ void install_number_library(Interpreter& in)
                     return std::nullopt;
                 number = numeric->is_bigint() ? numeric->as_bigint()->value().to_double() : numeric->as_number();
             }
-            std::optional<Object*> const prototype = interp.get_prototype_from_constructor(new_target, interp.intrinsics().number_prototype);
+            std::optional<Object*> const prototype = interp.get_prototype_from_constructor(new_target, &Intrinsics::number_prototype);
             if (!prototype)
                 return std::nullopt;
             return Value::object(interp.heap().allocate<PrimitiveObject>(*prototype, Object::Class::Number, Value::number(number)));
