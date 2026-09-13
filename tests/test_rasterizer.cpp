@@ -200,6 +200,38 @@ int main(int argc, char** argv)
         CHECK_EQ(filled_mask.alpha[middle], 255);
     }
 
+    // --- Hostile outlines: the work is bounded by the size asked for ---------------------
+    {
+        // Units per em 16 make a unit a pixel at 16 px, so a square of 1999
+        // units each way is 250 ems wide there: a font's box, not its em, sets
+        // the scan, sixteen million pixels of it. It draws nothing, and neither
+        // do a thousand tall edges in a narrow box of the same area.
+        auto const corner = [](int x, int y) {
+            return text::GlyphPoint { static_cast<std::int16_t>(x), static_cast<std::int16_t>(y), true };
+        };
+        text::GlyphOutline huge;
+        huge.points = { corner(-1999, -1999), corner(-1999, 1999), corner(1999, 1999), corner(1999, -1999) };
+        huge.contour_ends = { 3 };
+        CHECK(text::rasterize(huge, 16, 16 * 4).empty());
+        text::GlyphOutline zigzag;
+        for (int i = 0; i < 1000; ++i)
+            zigzag.points.push_back(corner(i - 500, i % 2 ? 7999 : -7999));
+        zigzag.contour_ends = { 999 };
+        CHECK(text::rasterize(zigzag, 16, 16 * 4).empty());
+        // A square four ems wide draws whole at 16 px and at 250 px.
+        text::GlyphOutline four_ems;
+        four_ems.points = { corner(-4096, -4096), corner(-4096, 4096), corner(4096, 4096), corner(4096, -4096) };
+        four_ems.contour_ends = { 3 };
+        text::GlyphMask const at16 = text::rasterize(four_ems, 2048, 16 * 4);
+        CHECK_EQ(at16.width, 64);
+        CHECK_EQ(at16.height, 64);
+        if (!at16.empty())
+            CHECK_EQ(at16.alpha[32 * 64 + 32], 255);
+        text::GlyphMask const at250 = text::rasterize(four_ems, 2048, 250 * 4);
+        CHECK_EQ(at250.width, 1000);
+        CHECK_EQ(at250.height, 1000);
+    }
+
     // --- Synthesized styles --------------------------------------------------------------
     {
         Bitmap regular(48, 64, white);

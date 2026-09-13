@@ -28,7 +28,9 @@ struct RasterOptions {
     bool oblique = false; // synthetic italic: the same one-in-four shear as Sashfold Mono
 };
 
-// Renders an outline in font units at `size_q` quarter pixels per em.
+// Renders an outline in font units at `size_q` quarter pixels per em. An
+// outline whose scan would cost more than a glyph eight ems square at that
+// size, or cover more than sixteen million pixels, draws nothing.
 GlyphMask rasterize(GlyphOutline const& outline, int units_per_em, int size_q,
     RasterOptions options = {});
 

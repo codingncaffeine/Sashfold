@@ -194,6 +194,20 @@ GlyphMask rasterize(GlyphOutline const& outline, int units_per_em, int size_q, R
     std::int64_t const height = bottom - top;
     if (width <= 0 || height <= 0 || width * height > 16'000'000)
         return mask; // a size no glyph on a page needs
+    // The scan below finds every crossing of an edge with a subsample row and
+    // tests four subsamples in each pixel of a row, so its work is known
+    // before it starts. It may not exceed what a glyph eight ems square asks
+    // at this size, with a floor for the smallest sizes: a font's own box, not
+    // its em, sets the scan, and a hostile one reaches millions of pixels at
+    // text sizes. Such an outline draws nothing.
+    std::int64_t work = 16 * width * height;
+    for (Edge const& edge : edges) {
+        std::int64_t const first_row = div_ceil(std::min(edge.y0, edge.y1) - top * 64 - 8, 16);
+        std::int64_t const end_row = div_ceil(std::max(edge.y0, edge.y1) - top * 64 - 8, 16);
+        work += end_row - first_row; // the subsample rows it crosses
+    }
+    if (work > 64 * static_cast<std::int64_t>(size_q) * size_q + (1 << 18))
+        return mask;
     mask.left = static_cast<int>(left);
     mask.top = static_cast<int>(top);
     mask.width = static_cast<int>(width);
@@ -205,23 +219,34 @@ GlyphMask rasterize(GlyphOutline const& outline, int units_per_em, int size_q, R
     };
     std::vector<std::uint8_t> hits(static_cast<std::size_t>(width * height), 0);
     std::vector<Crossing> crossings;
+    // The edges by the row they begin on, and the ones a subsample row
+    // crosses: a row tests those alone, not every edge of the outline.
+    std::vector<Edge const*> by_top;
+    by_top.reserve(edges.size());
+    for (Edge const& edge : edges)
+        by_top.push_back(&edge);
+    std::sort(by_top.begin(), by_top.end(),
+        [](Edge const* a, Edge const* b) { return std::min(a->y0, a->y1) < std::min(b->y0, b->y1); });
+    std::size_t next_edge = 0;
+    std::vector<Edge const*> alive;
     for (std::int64_t row = 0; row < height; ++row) {
         for (int sub = 0; sub < 4; ++sub) {
             std::int64_t const ys = (top + row) * 64 + 8 + 16 * sub;
+            while (next_edge < by_top.size() && std::min(by_top[next_edge]->y0, by_top[next_edge]->y1) <= ys)
+                alive.push_back(by_top[next_edge++]);
+            std::erase_if(alive, [ys](Edge const* edge) { return std::max(edge->y0, edge->y1) <= ys; });
             crossings.clear();
-            for (Edge const& edge : edges) {
-                if (ys < std::min(edge.y0, edge.y1) || ys >= std::max(edge.y0, edge.y1))
-                    continue;
+            for (Edge const* const edge : alive) {
                 // x on the edge at ys, exactly: its ceiling is the first
                 // integer position not left of it, which is what the sample
                 // test below needs.
-                std::int64_t numerator = (edge.x1 - edge.x0) * (ys - edge.y0);
-                std::int64_t denominator = edge.y1 - edge.y0;
+                std::int64_t numerator = (edge->x1 - edge->x0) * (ys - edge->y0);
+                std::int64_t denominator = edge->y1 - edge->y0;
                 if (denominator < 0) {
                     numerator = -numerator;
                     denominator = -denominator;
                 }
-                crossings.push_back(Crossing { edge.x0 + div_ceil(numerator, denominator), edge.direction });
+                crossings.push_back(Crossing { edge->x0 + div_ceil(numerator, denominator), edge->direction });
             }
             if (crossings.size() < 2)
                 continue;
