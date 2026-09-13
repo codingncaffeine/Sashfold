@@ -14,7 +14,29 @@ dom/events/AddEventListenerOptions-signal.any.html	Adding then aborting a listen
 dom/events/AddEventListenerOptions-signal.any.html	Passing an AbortSignal to addEventListener does not prevent removeEventListener
 dom/events/AddEventListenerOptions-signal.any.html	Removing a once listener works with a passed signal
 dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onblur
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onerror
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onfocus
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onload
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onresize
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onscroll
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLFrameSetElement.onblur
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLFrameSetElement.onerror
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLFrameSetElement.onfocus
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLFrameSetElement.onload
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLFrameSetElement.onresize
+dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLFrameSetElement.onscroll
 dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLBodyElement.onblur
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLBodyElement.onerror
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLBodyElement.onfocus
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLBodyElement.onload
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLBodyElement.onresize
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLBodyElement.onscroll
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLFrameSetElement.onblur
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLFrameSetElement.onerror
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLFrameSetElement.onfocus
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLFrameSetElement.onload
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLFrameSetElement.onresize
+dom/events/Body-FrameSet-Event-Handlers.html	Set HTMLFrameSetElement.onscroll
 dom/events/CustomEvent.html	CustomEvent dispatching.
 dom/events/CustomEvent.html	initCustomEvent's default parameter values.
 dom/events/Event-cancelBubble.html	Event.cancelBubble=false must have no effect during event propagation.
@@ -3773,6 +3795,8 @@ dom/nodes/Node-cloneNode.html	createElement(figcaption)
 dom/nodes/Node-cloneNode.html	createElement(figure)
 dom/nodes/Node-cloneNode.html	createElement(footer)
 dom/nodes/Node-cloneNode.html	createElement(form)
+dom/nodes/Node-cloneNode.html	createElement(frame)
+dom/nodes/Node-cloneNode.html	createElement(frameset)
 dom/nodes/Node-cloneNode.html	createElement(h1)
 dom/nodes/Node-cloneNode.html	createElement(h2)
 dom/nodes/Node-cloneNode.html	createElement(h3)
@@ -6434,6 +6458,7 @@ html/browsers/the-window-object/Document-defaultView.html	Document in a browsing
 html/browsers/the-window-object/Window-document.html	Document in a browsing context
 html/browsers/the-window-object/accessing-other-browsing-contexts/indexed-browsing-contexts-01.html	The window's length must return the number of child browsing contexts
 html/browsers/the-window-object/accessing-other-browsing-contexts/indexed-browsing-contexts-01.html	The window's length must return zero if it has no child browsing context
+html/browsers/the-window-object/accessing-other-browsing-contexts/indexed-browsing-contexts-02.html	Accessing child browsing contexts 2
 html/browsers/the-window-object/accessing-other-browsing-contexts/iterator.html	window[@@iterator]
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	Child browsing context has a child browsing context
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	No child browsing contexts
@@ -6891,9 +6916,15 @@ html/browsers/windows/nested-browsing-contexts/frameElement-siblings.sub.html	it
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The SecurityError must be thrown if the window accesses to frameElement attribute of a Window which does not have the same effective script origin
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if it is not a nested browsing context
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if the container's document does not have the same effective script origin
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <frame name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <frame name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <frame>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe name=>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <frame name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <frame name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <frame>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe>
@@ -7353,6 +7384,7 @@ html/semantics/embedded-content/the-embed-element/embed-in-object-fallback.html	
 html/semantics/embedded-content/the-embed-element/embed-javascript-url.html	javascript: in src attribute should do nothing
 html/semantics/embedded-content/the-embed-element/embed-represent-nothing-04.html	ensure the element represents nothing
 html/semantics/embedded-content/the-embed-element/historical.html	embed legacycaller should not be supported
+html/semantics/embedded-content/the-frame-element/document-getters-return-null-for-cross-origin.html	HTMLFrameElement.contentDocument for cross-origin document
 html/semantics/embedded-content/the-iframe-element/change_parentage.html	Change the frame heriarchy
 html/semantics/embedded-content/the-iframe-element/content_document_changes_only_after_load_matures.html	contentDocument should only change after a load matures.
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-cross-site.sub.html	Below-viewport iframes load lazily

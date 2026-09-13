@@ -303,8 +303,10 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 if (end != attribute->value.c_str())
                     return js::Value::number(static_cast<double>(value));
             }
-            bool const focusable = e.is_html("a") || e.is_html("button") || e.is_html("input") || e.is_html("select")
-                || e.is_html("textarea") || e.is_html("area") || e.is_html("iframe") || e.is_html("summary");
+            // HTML's tabIndex getter (§6.6.3): 0 for these, -1 otherwise.
+            bool const focusable = e.is_html("a") || e.is_html("area") || e.is_html("button") || e.is_html("frame")
+                || e.is_html("iframe") || e.is_html("input") || e.is_html("object") || e.is_html("select")
+                || e.is_html("textarea") || e.is_html("summary");
             return js::Value::number(focusable ? 0 : -1);
         },
         [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
@@ -924,17 +926,20 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             });
         // A frame's WindowProxy, whatever its document's origin, and its
         // document, when that has the origin of the script asking (HTML
-        // §4.8.5); null when the iframe has no document here.
-        element_getter(in, iframe, "contentWindow", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            Realm* const frame = internals.realm.frame_realm(e);
-            return frame ? js::Value::object(frame->internals().window_proxy()) : js::Value::null();
-        });
-        element_getter(in, iframe, "contentDocument", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            Realm* const frame = internals.realm.frame_realm(e);
-            if (!frame || !is_platform_object_same_origin(internals.interpreter, *frame->internals().realm_record))
-                return js::Value::null();
-            return js::Value::object(frame->wrap(frame->document()));
-        });
+        // §4.8.5, §16.3.2); null when the iframe or frame has no document here.
+        for (std::string_view const name : { "HTMLIFrameElement", "HTMLFrameElement" }) {
+            js::Object& container = proto_of(name);
+            element_getter(in, container, "contentWindow", [](Realm::Internals& internals, dom::Element& e) -> Native {
+                Realm* const frame = internals.realm.frame_realm(e);
+                return frame ? js::Value::object(frame->internals().window_proxy()) : js::Value::null();
+            });
+            element_getter(in, container, "contentDocument", [](Realm::Internals& internals, dom::Element& e) -> Native {
+                Realm* const frame = internals.realm.frame_realm(e);
+                if (!frame || !is_platform_object_same_origin(internals.interpreter, *frame->internals().realm_record))
+                    return js::Value::null();
+                return js::Value::object(frame->wrap(frame->document()));
+            });
+        }
         for (std::string_view const name : { "HTMLEmbedElement", "HTMLObjectElement" }) {
             js::Object& proto = proto_of(name);
             element_getter(in, proto, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });

@@ -1729,6 +1729,10 @@ bool TreeBuilder::mode_in_frameset(Token& token)
         }
         if (token.tag_name == "frame") {
             insert_html_element(token);
+            // The frame's insertion steps, as for an iframe in body: its
+            // initial document before the element is popped.
+            if (Element* const frame = current_node(); m_runner != nullptr && frame != nullptr)
+                m_runner->frame_inserted(*frame);
             pop();
             return false;
         }

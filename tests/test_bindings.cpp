@@ -2370,6 +2370,73 @@ var docBlank = docAtParse !== null && doc.contentDocument.URL === 'about:blank' 
     page.reset();
 }
 
+// A frame element is a navigable container as an iframe is (HTML §16.3.2):
+// its window and initial about:blank document at insertion, then the document
+// its src names; a window name taken from its name attribute at creation and
+// not changed by the attribute after; no srcdoc. The parser gives one inside
+// a frameset its initial document as it inserts it, so a frame that names
+// nothing has loaded before DOMContentLoaded. Every check here answers false
+// rather than throwing on an engine without frames.
+void test_a_frame_has_a_window()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/doc.html"] = "<script>var which = 'doc';</script>";
+    auto page = std::make_unique<Page>("<!DOCTYPE html>", "https://example.test/dir/page.html", hooks_serving(documents));
+    page->load();
+    page->eval("var fr = document.createElement('frame'); fr.name = 'one'; fr.src = '/sub/doc.html'; document.body.appendChild(fr);"
+               " var atOnce = fr.contentWindow; var blankAtOnce = atOnce != null && (fr.contentDocument || {}).URL === 'about:blank';");
+    CHECK(page->boolean("blankAtOnce"));
+    page->realm->run_pending();
+    CHECK(page->boolean("atOnce != null && fr.contentWindow === atOnce && atOnce.which === 'doc' && atOnce.name === 'one'"
+                        " && window.length === 1 && window[0] === atOnce && window.one === atOnce"));
+    CHECK(page->boolean("typeof HTMLFrameElement === 'function' && fr instanceof HTMLFrameElement"
+                        " && typeof HTMLFrameSetElement === 'function' && document.createElement('frameset') instanceof HTMLFrameSetElement"));
+    // HTML's tabIndex getter answers 0 for a frame and an object as for an
+    // iframe.
+    CHECK(page->boolean("fr.tabIndex === 0 && document.createElement('object').tabIndex === 0"));
+    // The name attribute names the navigable only as it is created.
+    page->eval("fr.setAttribute('name', 'two');");
+    CHECK_EQ(page->string("String(atOnce && atOnce.name)"), "one");
+    // srcdoc is an iframe's alone: a frame with one shows about:blank.
+    page->eval("var sd = document.createElement('frame'); sd.setAttribute('srcdoc', '<p id=x>'); document.body.appendChild(sd);");
+    page->realm->run_pending();
+    CHECK(page->boolean("sd.contentDocument != null && sd.contentDocument.URL === 'about:blank' && sd.contentDocument.getElementById('x') === null"));
+    // So is sandbox: a frame with one runs its document's scripts, in its
+    // parent's origin.
+    page->eval("var sb = document.createElement('frame'); sb.setAttribute('sandbox', ''); sb.src = '/sub/doc.html'; document.body.appendChild(sb);");
+    page->realm->run_pending();
+    CHECK(page->boolean("sb.contentDocument != null && sb.contentWindow.which === 'doc'"));
+    // A frame taken out of the tree takes its window with it.
+    page->eval("var sbWindow = sb.contentWindow; sb.remove();");
+    CHECK(page->boolean("sbWindow != null && sbWindow.closed === true && sb.contentWindow === null"));
+
+    auto parsed = std::make_unique<Page>(
+        R"HTML(<!DOCTYPE html><script>var log = [];</script><frameset><frame id=p src="/sub/doc.html" onload="log.push('p')"></frameset>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    parsed->load();
+    CHECK(parsed->boolean("(function () { var w = (document.getElementById('p') || {}).contentWindow;"
+                          " return w != null && w.which === 'doc' && log.join() === 'p' && window.length === 1; })()"));
+    // The order of loads: q, which names nothing, as the parser inserts it;
+    // p, whose document is fetched, as the parse ends.
+    auto ordered = std::make_unique<Page>(
+        R"HTML(<!DOCTYPE html><script>var log = []; document.addEventListener('DOMContentLoaded', function () { log.push('dcl'); });</script>)HTML"
+        R"HTML(<frameset><frame id=p src="/sub/doc.html" onload="log.push('p')"><frame id=q onload="log.push('q')"></frameset>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    ordered->load();
+    CHECK_EQ(ordered->string("log.join()"), "q,dcl,p");
+    // A src written on a frame already in the tree navigates it to the
+    // document the new URL names; the WindowProxy it had stays its own.
+    documents["https://example.test/sub/other.html"] = "<script>var which = 'other';</script>";
+    page->eval("fr.src = '/sub/other.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("atOnce != null && fr.contentWindow === atOnce && atOnce.which === 'other'"
+                        " && (fr.contentDocument || {}).URL === 'https://example.test/sub/other.html'"));
+    CHECK_EQ(page->console + parsed->console + ordered->console, "");
+    ordered.reset();
+    parsed.reset();
+    page.reset();
+}
+
 // javascript: URLs in frames (HTML §7.4.2.2, "navigate to a javascript: URL").
 // An iframe whose src is one gets the initial about:blank document at once;
 // the script runs in that document's realm, after the script that inserted
@@ -2954,6 +3021,7 @@ int main()
     test_a_frame_navigates();
     test_a_navigable_keeps_its_target_name();
     test_every_iframe_has_a_window();
+    test_a_frame_has_a_window();
     test_javascript_urls_in_frames();
     test_a_frame_reuses_the_initial_about_blank_window();
     test_the_sandbox_attribute();

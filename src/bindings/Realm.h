@@ -210,11 +210,21 @@ struct ScriptStats {
 // makes, and a host that parsed without a realm does it once after.
 void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const& document);
 
-// What an iframe shows, as HTML reads its attributes: "srcdoc:" and the
-// text, or "src:" and the URL resolved against `base`; empty for nothing —
-// no src, an empty one, about:blank, or one that does not parse. The key a
-// frame's document is opened and drawn under.
-std::string frame_source(dom::Element const& iframe, net::Url const& base);
+// Which navigable container an element is: an iframe, or the obsolete frame
+// (HTML §16.3.2), which is an iframe without srcdoc and sandbox; None for
+// any other element, and for either name outside the HTML namespace.
+enum class ContainerKind { None, IFrame, Frame };
+ContainerKind container_kind(dom::Element const& element);
+inline bool is_navigable_container(dom::Element const& element) { return container_kind(element) != ContainerKind::None; }
+// A container's srcdoc attribute, which only an iframe has; null for a frame
+// with one, whose srcdoc names nothing.
+dom::Attr const* container_srcdoc(dom::Element const& element);
+
+// What a frame shows, as HTML reads its container's attributes: "srcdoc:"
+// and the text, or "src:" and the URL resolved against `base`; empty for
+// nothing — no src, an empty one, about:blank, or one that does not parse.
+// The key a frame's document is opened and drawn under.
+std::string frame_source(dom::Element const& container, net::Url const& base);
 
 struct Agent;
 

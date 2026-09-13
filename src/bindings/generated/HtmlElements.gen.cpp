@@ -47,6 +47,10 @@ void install_html_element_interfaces(Realm::Internals& in)
     in.tag_interfaces["fieldset"] = "HTMLFieldSetElement";
     define_interface(in, "HTMLFormElement", in.prototype("HTMLElement"));
     in.tag_interfaces["form"] = "HTMLFormElement";
+    define_interface(in, "HTMLFrameElement", in.prototype("HTMLElement"));
+    in.tag_interfaces["frame"] = "HTMLFrameElement";
+    define_interface(in, "HTMLFrameSetElement", in.prototype("HTMLElement"));
+    in.tag_interfaces["frameset"] = "HTMLFrameSetElement";
     define_interface(in, "HTMLHeadingElement", in.prototype("HTMLElement"));
     in.tag_interfaces["h1"] = "HTMLHeadingElement";
     in.tag_interfaces["h2"] = "HTMLHeadingElement";
@@ -266,6 +270,22 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "acceptCharset", "accept-charset");
         reflect_string(in, proto, "autocomplete", "autocomplete");
         reflect_boolean(in, proto, "noValidate", "novalidate");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLFrameElement");
+        reflect_string(in, proto, "name", "name");
+        reflect_string(in, proto, "scrolling", "scrolling");
+        reflect_url(in, proto, "src", "src");
+        reflect_string(in, proto, "frameBorder", "frameborder");
+        reflect_url(in, proto, "longDesc", "longdesc");
+        reflect_boolean(in, proto, "noResize", "noresize");
+        reflect_string(in, proto, "marginHeight", "marginheight");
+        reflect_string(in, proto, "marginWidth", "marginwidth");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLFrameSetElement");
+        reflect_string(in, proto, "cols", "cols");
+        reflect_string(in, proto, "rows", "rows");
     }
     {
         js::Object& proto = *in.prototype("HTMLIFrameElement");

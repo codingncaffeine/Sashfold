@@ -189,17 +189,30 @@ std::string attribute_or_empty(dom::Element const& element, std::string_view nam
 
 namespace {
 
-// An attribute a script wrote is a mutation; an iframe's src or srcdoc, in no
-// namespace, navigates its frame (HTML §4.8.5, "process the iframe
-// attributes"), though not to what it already shows from those very
-// attributes (see navigate_frame); a src beside an srcdoc names nothing.
+// An attribute a script wrote is a mutation; an iframe's src or srcdoc, or a
+// frame's src, in no namespace, navigates its frame (HTML §4.8.5, "process
+// the iframe attributes", and §16.3.2, "process the frame attributes"),
+// though not to what it already shows from those very attributes (see
+// navigate_frame); a src beside an srcdoc names nothing. The name attribute
+// is not read again: a navigable's target name is its container's name as
+// the navigable is created.
 void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name)
 {
     in.realm.note_mutation();
-    if (!namespace_uri.empty() || !element.is_html("iframe"))
+    if (!namespace_uri.empty())
         return;
-    if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
-        in.schedule_frame_navigation(element, FrameNavigation {});
+    switch (container_kind(element)) {
+    case ContainerKind::IFrame:
+        if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
+            in.schedule_frame_navigation(element, FrameNavigation {});
+        return;
+    case ContainerKind::Frame:
+        if (local_name == "src")
+            in.schedule_frame_navigation(element, FrameNavigation {});
+        return;
+    case ContainerKind::None:
+        return;
+    }
 }
 
 // Erases an attribute, then reports it written by its namespace and local
@@ -267,11 +280,25 @@ bool remove_attribute_ns(Realm::Internals& in, dom::Element& element, std::strin
     return true;
 }
 
-std::string frame_source(dom::Element const& iframe, net::Url const& base)
+ContainerKind container_kind(dom::Element const& element)
 {
-    if (dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc"))
+    if (element.is_html("iframe"))
+        return ContainerKind::IFrame;
+    if (element.is_html("frame"))
+        return ContainerKind::Frame;
+    return ContainerKind::None;
+}
+
+dom::Attr const* container_srcdoc(dom::Element const& element)
+{
+    return container_kind(element) == ContainerKind::IFrame ? element.find_attribute("srcdoc") : nullptr;
+}
+
+std::string frame_source(dom::Element const& container, net::Url const& base)
+{
+    if (dom::Attr const* const srcdoc = container_srcdoc(container))
         return "srcdoc:" + srcdoc->value;
-    dom::Attr const* const src = iframe.find_attribute("src");
+    dom::Attr const* const src = container.find_attribute("src");
     if (!src || src->value.empty())
         return "";
     std::optional<net::Url> const url = net::parse_url(src->value, &base);
@@ -1348,17 +1375,17 @@ namespace {
 void collect_frames(dom::Node const& node, std::vector<dom::Element*>& out)
 {
     for (dom::Node* const child : node.children()) {
-        if (child->is_element() && static_cast<dom::Element*>(child)->is_html("iframe"))
+        if (child->is_element() && is_navigable_container(*static_cast<dom::Element*>(child)))
             out.push_back(static_cast<dom::Element*>(child));
         collect_frames(*child, out);
     }
 }
 
-// The javascript: URL an iframe's src names, when it has no srcdoc to show
-// instead (HTML §4.8.5, "process the iframe attributes").
+// The javascript: URL a frame's src names, when its iframe has no srcdoc to
+// show instead (HTML §4.8.5, "process the iframe attributes").
 std::optional<net::Url> javascript_src(dom::Element const& iframe, net::Url const& base)
 {
-    if (iframe.find_attribute("srcdoc"))
+    if (container_srcdoc(iframe))
         return std::nullopt;
     dom::Attr const* const src = iframe.find_attribute("src");
     std::optional<net::Url> url = src ? net::parse_url(src->value, &base) : std::nullopt;
@@ -1488,7 +1515,7 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
             // that no other document reaches into.
             std::optional<net::Url> asked = target;
             if (!asked) {
-                dom::Attr const* const src = iframe.find_attribute("srcdoc") ? nullptr : iframe.find_attribute("src");
+                dom::Attr const* const src = container_srcdoc(iframe) ? nullptr : iframe.find_attribute("src");
                 asked = src ? net::parse_url(src->value, &url) : net::parse_url("about:srcdoc");
             }
             answer->url = asked ? *asked : *net::parse_url("about:blank");
@@ -1509,10 +1536,12 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
         answer.content_type = "text/html";
     }
     // The sandboxing flags the frame navigates with: its iframe's sandbox
-    // attribute as it stands now, with this document's own. Without
+    // attribute as it stands now, with this document's own (HTML §7.1.5,
+    // "determine the creation sandboxing flags"; only an iframe has an iframe
+    // sandboxing flag set, so a frame has this document's alone). Without
     // allow-same-origin its document's origin is a new opaque one.
     std::uint32_t flags = sandbox_flags;
-    if (dom::Attr const* const sandbox = iframe.find_attribute("sandbox"))
+    if (dom::Attr const* const sandbox = container_kind(iframe) == ContainerKind::IFrame ? iframe.find_attribute("sandbox") : nullptr)
         flags |= parse_sandboxing_directive(sandbox->value);
     if (flags & sandboxing::origin)
         answer.origin = *net::parse_url("about:blank");
@@ -1787,7 +1816,7 @@ void Realm::Internals::frames_removed(dom::Node& subtree)
     std::vector<dom::Node*> nodes;
     walk_subtree(subtree, nodes);
     for (dom::Node* const node : nodes) {
-        if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("iframe"))
+        if (!node->is_element() || !is_navigable_container(*static_cast<dom::Element*>(node)))
             continue;
         if (Internals* const owner = realm_of(node->document()))
             owner->close_frame(*static_cast<dom::Element*>(node));
@@ -1799,7 +1828,7 @@ void Realm::Internals::frames_inserted(dom::Node& subtree)
     std::vector<dom::Node*> nodes;
     walk_subtree(subtree, nodes);
     for (dom::Node* const node : nodes) {
-        if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("iframe"))
+        if (!node->is_element() || !is_navigable_container(*static_cast<dom::Element*>(node)))
             continue;
         dom::Element& iframe = *static_cast<dom::Element*>(node);
         if (Internals* const owner = realm_of(node->document()); owner && !owner->open_blank_frame(iframe)) {

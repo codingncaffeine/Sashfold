@@ -88,7 +88,7 @@ std::optional<OriginSnapshot> origin_of(js::RealmRecord const& record)
 void collect_iframes(dom::Node const& node, std::vector<dom::Element const*>& out)
 {
     for (dom::Node const* const child : node.children()) {
-        if (child->is_element() && static_cast<dom::Element const*>(child)->is_html("iframe"))
+        if (child->is_element() && is_navigable_container(*static_cast<dom::Element const*>(child)))
             out.push_back(static_cast<dom::Element const*>(child));
         collect_iframes(*child, out);
     }

@@ -160,6 +160,27 @@ interface HTMLFormElement : HTMLElement {
   [Reflect] attribute boolean noValidate;
 };
 
+// Obsolete (HTML §16.3.2). marginHeight and marginWidth are
+// [LegacyNullToEmptyString] in HTML, which is not modelled here: null sets
+// "null".
+[Tags=(frame)]
+interface HTMLFrameElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString scrolling;
+  [Reflect, URL] attribute USVString src;
+  [Reflect] attribute DOMString frameBorder;
+  [Reflect, URL] attribute USVString longDesc;
+  [Reflect] attribute boolean noResize;
+  [Reflect] attribute DOMString marginHeight;
+  [Reflect] attribute DOMString marginWidth;
+};
+
+[Tags=(frameset)]
+interface HTMLFrameSetElement : HTMLElement {
+  [Reflect] attribute DOMString cols;
+  [Reflect] attribute DOMString rows;
+};
+
 [Tags=(h1, h2, h3, h4, h5, h6)]
 interface HTMLHeadingElement : HTMLElement {
 };

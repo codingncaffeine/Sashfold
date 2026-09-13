@@ -93,7 +93,7 @@ std::string_view text_of(std::vector<std::uint8_t> const& bytes)
 
 void find_frames(layout::Fragment& fragment, std::vector<layout::Fragment*>& out)
 {
-    if (fragment.element && fragment.element->is_html("iframe") && fragment.image)
+    if (fragment.element && bindings::is_navigable_container(*fragment.element) && fragment.image)
         out.push_back(&fragment);
     for (layout::Fragment& child : fragment.children)
         find_frames(child, out);
@@ -258,7 +258,7 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
         return { nullptr, false };
     --walk.frames_left;
     std::optional<Opened> opened
-        = open_document(element, element.find_attribute("srcdoc") != nullptr, url, base, policy, walk.ancestors, walk.fetch);
+        = open_document(element, bindings::container_srcdoc(element) != nullptr, url, base, policy, walk.ancestors, walk.fetch);
     if (!opened)
         return {};
     walk.pixels_left -= pixels;
@@ -352,11 +352,11 @@ void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecur
         bool const sized = box.width >= 0.5f && box.height >= 0.5f && box.width < 65536 && box.height < 65536;
         int const width = sized ? static_cast<int>(std::lround(box.width)) : 0;
         int const height = sized ? static_cast<int>(std::lround(box.height)) : 0;
-        // What the frame shows, as HTML processes its attributes: srcdoc
-        // first; then src, where none, an empty one, about:blank or one that
-        // does not parse shows nothing.
+        // What the frame shows, as HTML processes its attributes: an iframe's
+        // srcdoc first; then src, where none, an empty one, about:blank or one
+        // that does not parse shows nothing.
         std::optional<net::Url> url;
-        if (!element.find_attribute("srcdoc")) {
+        if (!bindings::container_srcdoc(element)) {
             if (dom::Attr const* const src = element.find_attribute("src"); src && !src->value.empty())
                 url = net::parse_url(src->value, &base);
         }
@@ -402,10 +402,11 @@ std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& if
     std::optional<net::Url> const& target, FrameFetcher const& fetch)
 {
     // What the frame shows, as HTML processes its attributes and draw_in reads
-    // them: srcdoc first, then a src that parses and is not about:; or the URL
-    // the frame navigates to on its own, whatever its attributes say.
+    // them: an iframe's srcdoc first, then a src that parses and is not
+    // about:; or the URL the frame navigates to on its own, whatever its
+    // attributes say.
     std::optional<net::Url> url = target;
-    bool const from_srcdoc = !target && iframe.find_attribute("srcdoc") != nullptr;
+    bool const from_srcdoc = !target && bindings::container_srcdoc(iframe) != nullptr;
     if (!target && !from_srcdoc) {
         dom::Attr const* const src = iframe.find_attribute("src");
         if (!src || src->value.empty())
