@@ -20,6 +20,23 @@
 
 namespace sashfold::bindings {
 
+OriginSnapshot snapshot_of(Realm::Internals const& in)
+{
+    return OriginSnapshot { in.origin_url.serialize_origin(), in.origin_url.scheme, in.domain.get() };
+}
+
+// Same origin-domain (HTML §7.1.1): two tuple origins whose documents both
+// set the same domain under one scheme, or the same origin where neither did.
+// An opaque origin is only its own, which the caller has already asked.
+bool same_origin_domain(OriginSnapshot const& a, OriginSnapshot const& b)
+{
+    if (a.serialized == "null" || b.serialized == "null")
+        return false;
+    if (a.domain || b.domain)
+        return a.domain && b.domain && a.scheme == b.scheme && *a.domain == *b.domain;
+    return a.serialized == b.serialized;
+}
+
 namespace {
 
 // CrossOriginProperties (HTML §7.2.3.2), a window's and a location's.
@@ -53,11 +70,6 @@ CrossOriginProperty const* find_cross_origin(std::span<CrossOriginProperty const
     return nullptr;
 }
 
-OriginSnapshot snapshot_of(Realm::Internals const& in)
-{
-    return OriginSnapshot { in.origin_url.serialize_origin(), in.origin_url.scheme, in.domain.get() };
-}
-
 // The origin of a realm's document, or the one it had when its realm ended;
 // none for a realm no host stands behind.
 std::optional<OriginSnapshot> origin_of(js::RealmRecord const& record)
@@ -71,18 +83,6 @@ std::optional<OriginSnapshot> origin_of(js::RealmRecord const& record)
             return found->second;
     }
     return snapshot_of(in);
-}
-
-// Same origin-domain (HTML §7.1.1): two tuple origins whose documents both
-// set the same domain under one scheme, or the same origin where neither did.
-// An opaque origin is only its own, which the caller has already asked.
-bool same_origin_domain(OriginSnapshot const& a, OriginSnapshot const& b)
-{
-    if (a.serialized == "null" || b.serialized == "null")
-        return false;
-    if (a.domain || b.domain)
-        return a.domain && b.domain && a.scheme == b.scheme && *a.domain == *b.domain;
-    return a.serialized == b.serialized;
 }
 
 void collect_iframes(dom::Node const& node, std::vector<dom::Element const*>& out)

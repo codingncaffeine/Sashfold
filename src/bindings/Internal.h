@@ -557,13 +557,19 @@ js::NativeFunction::Callback location_member(js::NativeFunction::Callback, bool 
 // WebIDL's checks of `this` and HTML's security check, and gives the realm
 // its WindowProxy; `language_globals` are the names that were there before.
 void install_window_proxy(Realm::Internals&, std::vector<js::PropertyKey> const& language_globals);
+// The origin of a realm's document as the cross-origin rules compare it, and
+// whether two such origins are same origin-domain (HTML §7.1.1).
+OriginSnapshot snapshot_of(Realm::Internals const&);
+bool same_origin_domain(OriginSnapshot const&, OriginSnapshot const&);
 
 // An iframe's document with a realm of its own in its page's agent: the
 // policy, the document, and the Realm last, so that the Realm ends first;
 // what the frame was opened from, as the painter keys its attributes, or the
 // URL it navigated to on its own, which no attributes name; whether the
 // document is the frame's initial about:blank one (HTML's "is initial
-// about:blank"), which a javascript: URL's first run is told by; and whether
+// about:blank"), which a javascript: URL's first run is told by, and whose
+// window the frame's first navigation to a document same origin-domain with
+// it keeps (HTML §7.5.1); and whether
 // that document stands only until the navigation the iframe's src or srcdoc
 // names, as it does for such an iframe from its insertion on.
 struct ChildFrame {
@@ -651,12 +657,17 @@ struct Agent {
 
 struct Realm::Internals {
     Realm& realm;
-    dom::Document* document; // never null
+    // The document the window shows, never null: a frame's goes on to another
+    // when the frame's navigation keeps the window.
+    dom::Document* document;
     net::Url url;
     HostHooks hooks;
-    // Documents scripts made (DOMParser, createHTMLDocument): owned for the
-    // realm's life, so no wrapper into them can dangle.
+    // Documents scripts made (DOMParser, createHTMLDocument), and a frame's
+    // documents its window has gone on from: owned for the realm's life, so
+    // no wrapper into them can dangle; and those documents' policies, which a
+    // request made under one may still hold.
     std::vector<std::unique_ptr<dom::Document>> extra_documents;
+    std::vector<std::unique_ptr<net::ContentSecurityPolicy>> retired_policies;
     // The agent this realm runs in, its own: declared after the documents its
     // wrappers point into, so that it ends first.
     std::unique_ptr<Agent> own_agent;
@@ -753,6 +764,11 @@ struct Realm::Internals {
     // flags the iframe navigates with, keyed by `source`: what the iframe's
     // attributes name, or the URL the frame navigated to without them.
     void open_frame_document(dom::Element& iframe, FrameDocument answer, std::string source, std::uint64_t mutations_from, bool initial_blank);
+    // Shows that document in the frame's own realm, keeping the window: the
+    // initial about:blank document unloads — its frames destroyed, its tasks
+    // and timers cleared — and stays alive with no window.
+    void reuse_frame_window(ChildFrame& frame, FrameDocument answer, std::string source, std::uint64_t mutations_from,
+        std::uint32_t flags, std::string const& type, bool initial_blank);
     ChildFrame const* frame_of(dom::Element const& iframe) const;
     // Closes an iframe's frame here: its loop work erased, its window gone
     // at once, its realm ended at the agent's next safe point. A frame that

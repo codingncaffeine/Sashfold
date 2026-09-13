@@ -6867,6 +6867,7 @@ html/browsers/the-window-object/window-prototype-chain.html	EventTarget.prototyp
 html/browsers/the-window-object/window-prototype-chain.html	Object.prototype
 html/browsers/the-window-object/window-prototype-chain.html	Window.prototype
 html/browsers/the-window-object/window-prototype-chain.html	window object
+html/browsers/the-window-object/window-reuse-in-nested-browsing-contexts.tentative.html	iframe with initial src == same-origin resource.
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to 
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to 42
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to Symbol()

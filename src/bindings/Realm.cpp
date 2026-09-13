@@ -1439,11 +1439,7 @@ void Realm::document_parsed()
                 in.run_javascript_url(*frame, *script, parsed_javascript_navigation(in));
             continue;
         }
-        std::uint64_t mutations_from = 0;
-        if (opened) {
-            mutations_from = listed->realm->tree_mutation_count() + 1;
-            in.close_frame(*frame, true);
-        }
+        std::uint64_t const mutations_from = opened ? listed->realm->tree_mutation_count() + 1 : 0;
         in.open_frame(*frame, mutations_from);
         // Not at an iframe its own document's load took out of the tree.
         if (frame->is_connected())
@@ -1457,8 +1453,6 @@ void Realm::document_parsed()
 
 void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from, std::optional<net::Url> const& target)
 {
-    if (realm.frame_realm(iframe) != nullptr)
-        return;
     // The documents this frame is inside, the page first: the framing rules
     // read the chain, and it goes ten frames deep, as the painter draws them.
     std::vector<FrameAncestor> ancestors;
@@ -1522,6 +1516,23 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
         flags |= parse_sandboxing_directive(sandbox->value);
     if (flags & sandboxing::origin)
         answer.origin = *net::parse_url("about:blank");
+    // HTML's "create and initialize a Document object": a frame still on its
+    // initial about:blank document keeps its window for a document same
+    // origin-domain with that one — an srcdoc or about:blank one by having
+    // this document's origin, domain included, a fetched one by having the
+    // same origin where neither set a domain. Any other frame closes, keeping
+    // its WindowProxy for the new window.
+    auto const existing = std::find_if(child_frames.begin(), child_frames.end(),
+        [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
+    if (existing != child_frames.end()) {
+        bool const parents_origin = answer.srcdoc && answer.origin.serialize() == origin_url.serialize();
+        OriginSnapshot const next { answer.origin.serialize_origin(), answer.origin.scheme, parents_origin ? domain.get() : std::nullopt };
+        if (existing->initial_blank && same_origin_domain(snapshot_of(existing->realm->internals()), next)) {
+            reuse_frame_window(*existing, std::move(answer), std::move(source), mutations_from, flags, type, initial_blank);
+            return;
+        }
+        close_frame(iframe, true);
+    }
     ChildFrame opened;
     opened.container = &iframe;
     opened.source = std::move(source);
@@ -1583,6 +1594,72 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     else
         html::parse_document_bytes_into(opened_document, text, &opened_realm);
     opened_realm.document_parsed();
+}
+
+void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answer, std::string source, std::uint64_t mutations_from,
+    std::uint32_t flags, std::string const& type, bool initial_blank)
+{
+    Realm& frame_realm = *frame.realm;
+    Internals& window = frame_realm.internals();
+    // The old document unloads: its child navigables are destroyed with it,
+    // and what it asked of them is dropped (HTML §7.3.1, destroying a
+    // document).
+    std::vector<dom::Element const*> containers;
+    for (ChildFrame const& listed : window.child_frames)
+        containers.push_back(listed.container);
+    for (dom::Element const* const container : containers)
+        window.close_frame(*container);
+    window.navigables.clear();
+    window.frame_navigations.clear();
+    // Its timers are cleared, as the unloading document cleanup steps clear
+    // the window's map of active timers, and its tasks removed, as destroying
+    // it removes the tasks whose document it is. The navigation running now is
+    // the parent's task, not the window's.
+    std::erase_if(agent.timers, [&window](Timer const& timer) { return timer.owner == &window; });
+    std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
+    // The old document stays alive with the realm, so no wrapper into it, and
+    // no element-keyed record of it, can dangle; so does its policy.
+    window.extra_documents.push_back(std::move(frame.document));
+    window.retired_policies.push_back(std::move(frame.policy));
+    frame.policy = answer.policy ? std::make_unique<net::ContentSecurityPolicy>(std::move(*answer.policy))
+                                 : std::make_unique<net::ContentSecurityPolicy>(answer.url);
+    frame.document = std::make_unique<dom::Document>();
+    window.hooks.policy = frame.policy.get();
+    // Everything the window holds for its document starts again with the new
+    // one; what it holds for itself — its listeners, expandos, Location,
+    // History, storages, name — stays. The domain is set before the parse,
+    // which may set it.
+    window.document = frame.document.get();
+    window.url = answer.url;
+    window.origin_url = answer.origin;
+    window.opaque_origin_id = 0;
+    window.domain = OriginDomain {};
+    if (answer.srcdoc && answer.origin.serialize() == origin_url.serialize())
+        window.domain.share(domain);
+    window.sandbox_flags = flags;
+    window.document_content_type = type.empty() ? std::string("text/html") : mime_essence(type);
+    window.ready_state = "loading";
+    window.active_parser = nullptr;
+    window.current_script = nullptr;
+    window.deferred_scripts.clear();
+    window.history_state = js::Value {};
+    window.fallback_focus = nullptr;
+    // A frame shown anew counts on from its predecessor, so no picture of the
+    // old document stands for the new one.
+    window.mutations = mutations_from;
+    frame.source = std::move(source);
+    frame.initial_blank = initial_blank;
+    frame.awaiting_navigation = false;
+    trace("frame reuses its window: " + (frame.source.empty() ? std::string("about:blank") : frame.source) + " in " + url.serialize(true));
+    // A script of the new document may remove its own iframe, closing the
+    // frame: nothing of `frame` is read from here on.
+    dom::Document& new_document = *frame.document;
+    std::string_view const text(reinterpret_cast<char const*>(answer.bytes.data()), answer.bytes.size());
+    if (answer.srcdoc)
+        html::parse_document_into(new_document, decode_utf8(text), &frame_realm);
+    else
+        html::parse_document_bytes_into(new_document, text, &frame_realm);
+    frame_realm.document_parsed();
 }
 
 std::string* Realm::Internals::navigable_target_name()
@@ -1819,7 +1896,7 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
             return;
         }
     }
-    // Anything else closes the frame and opens it anew — though not for
+    // Anything else opens a new document in the frame — though not for
     // attributes that name what the frame shows, opened from those very
     // attributes and not navigated elsewhere since, unless to reload it. HTML
     // navigates again even then; but until the old document's beforeunload
@@ -1834,7 +1911,6 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
         if (!navigation.target && !navigation.reload && existing->source == key && !existing->awaiting_navigation)
             return; // already showing it
         mutations_from = existing->realm->tree_mutation_count() + 1;
-        close_frame(iframe, true);
     }
     trace("frame navigates: " + (key.empty() ? std::string("about:blank") : key));
     open_frame(iframe, mutations_from, navigation.target);
@@ -1909,7 +1985,6 @@ void Realm::Internals::run_javascript_url(dom::Element& iframe, net::Url const& 
         answer.policy = *target.hooks.policy;
     std::uint64_t const mutations_from = frame.tree_mutation_count() + 1;
     trace("frame navigates: " + text);
-    close_frame(iframe, true);
     open_frame_document(iframe, std::move(answer), navigation.target ? "url:" + script_url.serialize() : frame_source(iframe, url), mutations_from, false);
     if (iframe.is_connected())
         fire_frame_load(iframe);

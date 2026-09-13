@@ -1666,11 +1666,12 @@ void test_an_iframe_has_the_initial_about_blank_document()
     // connected to a document with a browsing context creates one).
     CHECK(page->boolean("(function () { var pd = new DOMParser().parseFromString('<body></body>', 'text/html'); var o = pd.createElement('iframe');"
                         " pd.body.appendChild(o); return o.contentWindow === null && o.contentDocument === null; })()"));
-    // Pointed at an srcdoc afterwards: navigated, a new window behind the same
-    // WindowProxy, one more load.
+    // Pointed at an srcdoc afterwards: navigated, one more load, and the same
+    // window, since the srcdoc document has the page's origin as the initial
+    // about:blank document it replaces does.
     page->eval("var blankArray = atOnce.Array; made.srcdoc = '<script>var which = \"srcdoc\";</script>';");
     page->realm->run_pending();
-    CHECK(page->boolean("made.contentWindow === atOnce && made.contentWindow.which === 'srcdoc' && atOnce.Array !== blankArray && loads.made === 2"));
+    CHECK(page->boolean("made.contentWindow === atOnce && made.contentWindow.which === 'srcdoc' && atOnce.Array === blankArray && loads.made === 2"));
     // Removed: closed at once.
     page->eval("made.remove();");
     CHECK(page->boolean("made.contentWindow === null && atOnce.closed"));
@@ -2433,6 +2434,94 @@ var u = document.createElement('iframe'); u.id = 'u'; u.src = 'javascript:parent
     page.reset();
 }
 
+// A frame's first navigation away from its initial about:blank document, to
+// a document same origin-domain with it, keeps the window (HTML §7.5.1,
+// create and initialize a Document object): its expandos, its listeners and
+// its intrinsics go on under the new document. The about:blank document stays
+// alive, with no window; its timers are cleared as it unloads. A later
+// navigation, or one to another origin or domain, makes a new window.
+void test_a_frame_reuses_the_initial_about_blank_window()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/same.html"] = "<script>var sawPersisted = window.persisted; addEventListener('load', function () { window.didLoadFrame = true; });</script>";
+    documents["https://www.example.test/sub/same.html"] = "<script>var sawPersisted = window.persisted;</script>";
+    documents["https://other.test/doc.html"] = "<script>var which = 'other';</script>";
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var loads = {}; document.addEventListener('load', function (e) { if (e.target.tagName === 'IFRAME') loads[e.target.id] = (loads[e.target.id] || 0) + 1; }, true);</script>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    page->load();
+
+    // A src named at the insertion: the navigation the initial about:blank
+    // document stood in for keeps its window.
+    page->eval("var a = document.createElement('iframe'); a.id = 'a'; a.src = '/sub/same.html'; document.body.appendChild(a);"
+               " var aWindow = a.contentWindow, aBlankDoc = a.contentDocument, aArray = aWindow.Array;"
+               " aWindow.persisted = 'kept'; aWindow.pinged = 0; aWindow.addEventListener('ping', function () { aWindow.pinged++; });"
+               " aWindow.setTimeout(function () { aWindow.blankTimerRan = true; }, 5);");
+    CHECK_EQ(string_in(frame_realm_of(*page, "a"), "history.replaceState('s', ''); location.hash = 'x'; addEventListener('hashchange', function () { window.sawHashchange = true; });"
+        " var inner = document.createElement('iframe'); document.body.appendChild(inner); window.innerWindow = inner.contentWindow; String(innerWindow !== null && history.state === 's')"),
+        "true");
+    // Past the timer's due time: only the navigation's unload keeps it from
+    // running.
+    page->clock = 2000;
+    page->realm->run_pending();
+    CHECK(page->boolean("a.contentWindow === aWindow && aWindow.persisted === 'kept' && aWindow.sawPersisted === 'kept' && aWindow.Array === aArray && aWindow.didLoadFrame === true && loads.a === 1"));
+    CHECK(page->boolean("aWindow.dispatchEvent(new aWindow.Event('ping')) && aWindow.pinged === 1"));
+    CHECK(page->boolean("(function () { try { return a.contentDocument !== aBlankDoc && aBlankDoc.defaultView === null && a.contentDocument.defaultView === aWindow"
+                        " && aBlankDoc.createElement('p').ownerDocument === aBlankDoc; } catch (e) { return false; } })()"));
+    CHECK(page->boolean("aWindow.blankTimerRan === undefined"));
+    CHECK(page->boolean("aWindow.history.state === null"));
+    CHECK(page->boolean("aWindow.sawHashchange === undefined"));
+    CHECK(page->boolean("aWindow.innerWindow.closed === true"));
+
+    // A src set after the insertion's load: still the initial about:blank
+    // document, still its window. An iframe put into that document now has
+    // no browsing context to be a frame of.
+    page->eval("var b = document.createElement('iframe'); b.id = 'b'; document.body.appendChild(b);"
+               " var bWindow = b.contentWindow, bBlankDoc = b.contentDocument; bWindow.persisted = 'b'; b.src = '/sub/same.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("b.contentWindow === bWindow && bWindow.persisted === 'b' && loads.b === 2"));
+    CHECK_EQ(string_in(frame_realm_of(*page, "b"), "(function () { try { var d = parent.bBlankDoc, i = d.createElement('iframe'); d.body.appendChild(i);"
+                                                   " return String(i.contentWindow === null); } catch (e) { return e.name; } })()"),
+        "true");
+
+    // A javascript: URL's string result is a navigation too; the document it
+    // makes is not the initial about:blank one, so the next navigation makes
+    // a new window.
+    page->eval("var c = document.createElement('iframe'); c.id = 'c'; document.body.appendChild(c);"
+               " var cWindow = c.contentWindow; cWindow.persisted = 'c'; cWindow.location.href = 'javascript:\"<p id=made>made</p>\"';");
+    page->realm->run_pending();
+    CHECK(page->boolean("c.contentDocument.getElementById('made') !== null && cWindow.persisted === 'c' && loads.c === 2"));
+    page->eval("cWindow.second = 2; cWindow.location.href = '/sub/same.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("c.contentWindow === cWindow && cWindow.second === undefined && cWindow.didLoadFrame === true"));
+
+    // Another origin: a new window.
+    page->eval("var d = document.createElement('iframe'); d.id = 'd'; d.src = 'https://other.test/doc.html'; document.body.appendChild(d); d.contentWindow.persisted = 'd';");
+    page->realm->run_pending();
+    CHECK_EQ(string_in(frame_realm_of(*page, "d"), "String(window.persisted)"), "undefined");
+
+    // The same origin, but the page set document.domain, which the initial
+    // about:blank document shares and the fetched one does not: a new window.
+    // An srcdoc document has the page's origin itself, domain and all, so it
+    // keeps the window, and goes on sharing the page's domain.
+    auto domained = std::make_unique<Page>("<!DOCTYPE html>", "https://www.example.test/dir/page.html", hooks_serving(documents));
+    domained->load();
+    domained->clock = 2000;
+    domained->eval("var e = document.createElement('iframe'); e.id = 'e'; document.body.appendChild(e); e.contentWindow.persisted = 'e';"
+                   " document.domain = document.domain; e.src = '/sub/same.html';");
+    domained->realm->run_pending();
+    CHECK_EQ(string_in(frame_realm_of(*domained, "e"), "String(window.persisted)"), "undefined");
+    domained->eval("var e2 = document.createElement('iframe'); e2.id = 'e2'; document.body.appendChild(e2); e2.contentWindow.persisted = 'e2'; e2.srcdoc = '<p id=x>x</p>';");
+    domained->realm->run_pending();
+    CHECK(domained->boolean("e2.contentWindow.persisted === 'e2' && e2.contentDocument.getElementById('x') !== null"));
+    domained->eval("document.domain = 'example.test';");
+    CHECK(domained->boolean("e2.contentDocument !== null && e2.contentDocument.domain === 'example.test'"));
+    CHECK_EQ(page->console, "");
+    CHECK_EQ(domained->console, "");
+    domained.reset();
+    page.reset();
+}
+
 // The iframe's sandbox attribute (HTML §7.6.2), its tokens ASCII
 // case-insensitive, read when the frame navigates rather than when the
 // attribute changes. Without allow-scripts no script runs in the frame, a
@@ -2866,6 +2955,7 @@ int main()
     test_a_navigable_keeps_its_target_name();
     test_every_iframe_has_a_window();
     test_javascript_urls_in_frames();
+    test_a_frame_reuses_the_initial_about_blank_window();
     test_the_sandbox_attribute();
     test_structured_clone_values();
     test_structured_clone_across_realms();
