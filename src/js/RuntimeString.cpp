@@ -1773,6 +1773,11 @@ void install_string_library(Interpreter& in)
 
 } // namespace
 
+std::optional<Value> create_regexp(Interpreter& in, Value const& pattern, Value const& flags)
+{
+    return regexp_create(in, pattern, flags, in.intrinsics().regexp_prototype);
+}
+
 void install_string(Interpreter& in)
 {
     install_string_library(in);

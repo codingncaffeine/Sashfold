@@ -106,6 +106,16 @@ std::optional<Value> to_element_value(Interpreter&, ElementType, Value const&);
 // naming the caller.
 std::optional<TypedArrayObject*> validate_typed_array(Interpreter&, Value const&, std::string_view method);
 
+// RegExpCreate (§22.2.3.1) in the current realm: a RegExp of a pattern and
+// flags, lastIndex 0, or the SyntaxError they do not compile with. How a
+// structured clone makes a RegExp again from its original source and flags.
+std::optional<Value> create_regexp(Interpreter&, Value const& pattern, Value const& flags);
+
+// SetIntegrityLevel (§7.3.15): sealed, or frozen when `frozen`; nullopt with
+// the exception a proxy's trap threw. How the bindings make a FrozenArray,
+// such as a MessageEvent's ports.
+std::optional<bool> set_integrity_level(Interpreter&, Object&, bool frozen);
+
 // The current time in ms since the epoch, and the local zone's offset
 // (minutes east of UTC) at a given UTC time — the two places Date reads
 // the clock. Platform code; both are overridable for tests.

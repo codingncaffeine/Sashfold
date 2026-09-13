@@ -212,8 +212,6 @@ Value key_to_value(Interpreter& in, PropertyKey const& key)
     return Value::string(in.heap().key_to_string(key));
 }
 
-namespace {
-
 // SetIntegrityLevel (§7.3.15): sealed = nothing configurable, frozen =
 // nothing writable either. Every step is an internal method a proxy traps.
 std::optional<bool> set_integrity_level(Interpreter& in, Object& object, bool frozen)
@@ -242,6 +240,8 @@ std::optional<bool> set_integrity_level(Interpreter& in, Object& object, bool fr
     }
     return true;
 }
+
+namespace {
 
 // TestIntegrityLevel (§7.3.16).
 std::optional<bool> test_integrity_level(Interpreter& in, Object& object, bool frozen)

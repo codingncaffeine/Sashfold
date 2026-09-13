@@ -308,6 +308,21 @@ public:
     std::size_t size_in_bytes() const override { return sizeof(*this) + bytes.capacity(); }
 };
 
+// An instance of an interface whose state the bindings keep in its
+// properties or in the realm — Location, History, Navigator, Screen,
+// DOMImplementation, DOMParser, TextEncoder, Attr, MessageChannel,
+// AbortController. It is an ordinary object in every internal method, and
+// its class is Object, but it is a platform object all the same, which a
+// structured clone refuses (HTML §2.7.3) as it does no ordinary object made
+// from the same prototype.
+class PlainPlatformObject final : public js::Object {
+public:
+    explicit PlainPlatformObject(js::Object* prototype)
+        : Object(prototype)
+    {
+    }
+};
+
 // An AbortSignal (Tasks.cpp): whether it has fired and why.
 class AbortSignalObject final : public EventTargetObject {
 public:
@@ -321,6 +336,42 @@ public:
     {
         EventTargetObject::trace(tracer);
         tracer.visit(reason);
+    }
+};
+
+// A value serialized for a structured clone (StructuredClone.cpp): records of
+// C++ data, and the ports its transfer list detached, which whoever holds
+// the message keeps alive.
+struct SerializedMessage;
+void trace_transferred_ports(js::Tracer&, SerializedMessage const&);
+
+// A MessagePort (Tasks.cpp, HTML §9.5.3): the realm it belongs to, named by
+// the realm's record as a node's wrapper names it; the port it is entangled
+// with; and its port message queue — every message sent to it and not yet
+// delivered, with a task posted for each once the port has started. A port
+// transferred is detached, and its queue goes, in order, to the port made for
+// it in the receiving realm.
+class MessagePortObject final : public EventTargetObject {
+public:
+    MessagePortObject(js::Object* prototype, js::RealmRecord& the_record)
+        : EventTargetObject(prototype)
+        , record(&the_record)
+    {
+    }
+    Realm& realm() const { return *static_cast<Realm*>(record->host_defined); }
+    js::RealmRecord* record;
+    MessagePortObject* entangled = nullptr;
+    bool started = false;
+    bool closed = false;
+    bool detached = false;
+    std::deque<std::shared_ptr<SerializedMessage const>> pending;
+    void trace(js::Tracer& tracer) override
+    {
+        EventTargetObject::trace(tracer);
+        tracer.visit(record);
+        tracer.visit(entangled);
+        for (auto const& message : pending)
+            trace_transferred_ports(tracer, *message);
     }
 };
 
@@ -877,6 +928,34 @@ AbortSignalObject* new_abort_signal(Realm::Internals&);
 void signal_abort(Realm::Internals&, AbortSignalObject&, js::Value const& reason);
 // An AbortError DOMException as a value, for a rejection.
 js::Value abort_error(Realm::Internals&, std::string_view message);
+
+// Structured clone (StructuredClone.cpp, HTML §2.7).
+// StructuredSerializeWithTransfer in the realm of the call: null with the
+// exception pending — a DataCloneError DOMException, or what a getter threw.
+// The transfer list's buffers and ports are detached once the whole value
+// has serialized. Storage and messages serialize alike while the engine has
+// no SharedArrayBuffer.
+std::shared_ptr<SerializedMessage const> structured_serialize(Realm::Internals&, js::Value const& value, std::span<js::Value const> transfer);
+// StructuredDeserializeWithTransfer into a realm, with its intrinsics: the
+// value, and the transferred values in the transfer list's order, all rooted
+// on the interpreter's root stack for the caller's Roots scope; nullopt with
+// a DataCloneError pending when a buffer could not be made. A message that
+// transferred ports is deserialized once: the ports move with it.
+struct Deserialized {
+    js::Value value;
+    std::vector<js::Value> transferred;
+};
+std::optional<Deserialized> structured_deserialize(Realm::Internals& target, SerializedMessage const&);
+std::vector<MessagePortObject*> transferred_ports(SerializedMessage const&);
+// A transfer list as WebIDL converts one — a sequence<object>, the transfer
+// member of a StructuredSerializeOptions dictionary, or either of them as
+// MessagePort.postMessage's overloads take its second argument — each value
+// rooted for the caller's Roots scope.
+std::optional<std::vector<js::Value>> transfer_sequence(Realm::Internals&, js::Value const&);
+std::optional<std::vector<js::Value>> options_transfer(Realm::Internals&, js::Value const& options);
+std::optional<std::vector<js::Value>> transfer_or_options(Realm::Internals&, js::Value const& argument);
+// window.structuredClone(value, options).
+Native structured_clone(js::Interpreter&, js::Value const& this_value, Args);
 
 // The node behind `this`, or a TypeError "Illegal invocation".
 std::optional<dom::Node*> this_node(js::Interpreter&, js::Value const& this_value);

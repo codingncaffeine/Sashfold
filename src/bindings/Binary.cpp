@@ -344,7 +344,7 @@ void install_text_coding(Realm::Internals& in)
 
     js::Object* encoder = define_interface(in, "TextEncoder", nullptr,
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
-            return js::Value::object(interp.new_object(internals_of(interp).prototype("TextEncoder")));
+            return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals_of(interp).prototype("TextEncoder")));
         },
         0);
     define_getter(in, *encoder, "encoding", [](js::Interpreter& interp, js::Value const&, Args) -> Native {

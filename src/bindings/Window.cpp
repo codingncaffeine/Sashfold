@@ -1002,25 +1002,7 @@ void install_window(Realm::Internals& in)
         }
         return internals.string(out);
     });
-    js::define_method(interpreter, *global, "structuredClone", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-        // A JSON round trip: what the algorithm does for the values pages
-        // clone in practice, minus Dates and Maps.
-        js::Value const json = js::Value::object(interp.intrinsics().json);
-        std::optional<js::Value> const stringify = interp.get(json, "stringify");
-        std::optional<js::Value> const parse = interp.get(json, "parse");
-        if (!stringify || !parse)
-            return std::nullopt;
-        js::Value const to_text[1] = { js::argument(args, 0) };
-        std::optional<js::Value> const text = interp.call(*stringify, json, to_text);
-        if (!text)
-            return std::nullopt;
-        if (text->is_undefined())
-            return js::Value::undefined();
-        js::Interpreter::Roots const roots(interp);
-        interp.root(*text);
-        js::Value const from_text[1] = { *text };
-        return interp.call(*parse, json, from_text);
-    });
+    js::define_method(interpreter, *global, "structuredClone", 1, structured_clone);
     js::define_method(interpreter, *global, "matchMedia", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const query = internals.to_utf8(js::argument(args, 0));
@@ -1119,7 +1101,15 @@ void install_window(Realm::Internals& in)
         bool const push = name == "pushState";
         js::define_method(interpreter, *history_proto, name, 2, [push](js::Interpreter& interp, js::Value const&, Args args) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            internals.history_state = js::argument(args, 0);
+            // The state is serialized before anything else (HTML's shared
+            // history push/replace state steps), so a state that cannot be
+            // cloned throws a DataCloneError; history keeps a clone of it,
+            // taken once the URL has been accepted.
+            js::Interpreter::Roots const roots(interp);
+            std::shared_ptr<SerializedMessage const> const serialized = structured_serialize(internals, js::argument(args, 0), {});
+            if (!serialized)
+                return std::nullopt;
+            std::optional<net::Url> new_url;
             js::Value const url_value = js::argument(args, 2);
             if (!url_value.is_nullish()) {
                 std::optional<std::string> const text = internals.to_utf8(url_value);
@@ -1128,8 +1118,14 @@ void install_window(Realm::Internals& in)
                 std::optional<net::Url> const url = net::parse_url(*text, &internals.url);
                 if (!url || url->serialize_origin() != internals.url.serialize_origin())
                     return internals.throw_dom_exception("SecurityError", "A history state object with URL '" + *text + "' cannot be created in a document with origin '" + internals.url.serialize_origin() + "'.");
-                internals.url = *url;
+                new_url = *url;
             }
+            std::optional<Deserialized> const state = structured_deserialize(internals, *serialized);
+            if (!state)
+                return std::nullopt;
+            internals.history_state = state->value;
+            if (new_url)
+                internals.url = *new_url;
             if (push)
                 ++internals.history_length;
             return js::Value::undefined();
@@ -1137,7 +1133,7 @@ void install_window(Realm::Internals& in)
     }
     for (std::string_view const name : { "back", "forward", "go" })
         js::define_method(interpreter, *history_proto, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    global->put(interpreter.key("history"), js::Value::object(interpreter.new_object(history_proto)), js::builtin_attributes);
+    global->put(interpreter.key("history"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(history_proto)), js::builtin_attributes);
 
     // Navigator.
     js::Object* navigator_proto = define_interface(in, "Navigator", nullptr);
@@ -1184,7 +1180,7 @@ void install_window(Realm::Internals& in)
     js::define_method(interpreter, *navigator_proto, "sendBeacon", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     js::define_method(interpreter, *navigator_proto, "vibrate", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     js::define_method(interpreter, *navigator_proto, "registerProtocolHandler", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    global->put(interpreter.key("navigator"), js::Value::object(interpreter.new_object(navigator_proto)), js::builtin_attributes);
+    global->put(interpreter.key("navigator"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(navigator_proto)), js::builtin_attributes);
     global->put(interpreter.key("clientInformation"), *global->get(interpreter, interpreter.key("navigator"), js::Value::object(global)), js::builtin_attributes);
 
     // Screen.
@@ -1202,7 +1198,7 @@ void install_window(Realm::Internals& in)
         bool const landscape = internals.hooks.viewport_width >= internals.hooks.viewport_height;
         return js::Value::object(object_with(internals, { { "type", internals.string(landscape ? "landscape-primary" : "portrait-primary") }, { "angle", js::Value::number(0) } }));
     });
-    global->put(interpreter.key("screen"), js::Value::object(interpreter.new_object(screen_proto)), js::builtin_attributes);
+    global->put(interpreter.key("screen"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(screen_proto)), js::builtin_attributes);
 
     // Storage.
     js::Object* storage_proto = define_interface(in, "Storage", nullptr);

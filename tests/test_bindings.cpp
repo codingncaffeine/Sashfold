@@ -2455,6 +2455,222 @@ sib.contentDocument.body.appendChild(nested);)JS");
     local.reset();
 }
 
+// structuredClone (HTML §2.7): a value serialized into a record of its own
+// and made again — the language's values, the wrappers of its primitives,
+// dates, regular expressions, buffers and every view over them, the keyed
+// collections in order, errors by their native type, arrays with holes and
+// extra properties, objects by their own enumerable keys, blobs and files —
+// with identity and cycles kept inside one clone; what cannot be cloned is a
+// DataCloneError at the call, and a transferred buffer is detached.
+void test_structured_clone_values()
+{
+    auto page = loaded("<!DOCTYPE html><p>clone</p>");
+    CHECK(page->boolean("(function () { var c = structuredClone([-0, NaN, 12n, undefined, '\\uD800']);"
+                        " return Object.is(c[0], -0) && Number.isNaN(c[1]) && c[2] === 12n && c.length === 5 && 3 in c && c[4] === '\\uD800'; })()"));
+    CHECK(page->boolean("(function () { var c = structuredClone([new Boolean(false), new Number(-0), new String('x'), Object(5n)]);"
+                        " return c[0] instanceof Boolean && c[0].valueOf() === false && Object.is(c[1].valueOf(), -0)"
+                        " && c[2] instanceof String && c[2].valueOf() === 'x' && typeof c[3] === 'object' && c[3].valueOf() === 5n; })()"));
+    CHECK(page->boolean("(function () { var r = /a+/gi; r.lastIndex = 3; var c = structuredClone({ when: new Date(86400000), re: r });"
+                        " return c.when instanceof Date && c.when.getTime() === 86400000 && c.re instanceof RegExp && c.re !== r"
+                        " && c.re.source === 'a+' && c.re.flags === 'gi' && c.re.lastIndex === 0; })()"));
+    CHECK(page->boolean("(function () { var buffer = new ArrayBuffer(8, { maxByteLength: 16 }); var bytes = new Uint8Array(buffer); bytes[1] = 7;"
+                        " var c = structuredClone({ bytes: bytes, view: new DataView(buffer, 2), floats: new Float64Array([1.5]) });"
+                        " return c.bytes instanceof Uint8Array && c.bytes[1] === 7 && c.bytes.buffer === c.view.buffer && c.bytes.buffer !== buffer"
+                        " && c.bytes.buffer.maxByteLength === 16 && c.view instanceof DataView && c.view.byteOffset === 2 && c.floats[0] === 1.5; })()"));
+    CHECK(page->boolean("(function () { var c = structuredClone(new Map([[{ k: 1 }, 'a'], ['b', new Set([3, 2, 1])]]));"
+                        " return c instanceof Map && JSON.stringify(Array.from(c.keys())) === '[{\"k\":1},\"b\"]'"
+                        " && c.get('b') instanceof Set && Array.from(c.get('b')).join() === '3,2,1'; })()"));
+    CHECK(page->boolean("(function () { var e = new RangeError('bad', { cause: 'why' }); e.extra = 1; var c = structuredClone(e);"
+                        " return c instanceof RangeError && c.message === 'bad' && c.cause === 'why' && !('extra' in c)"
+                        " && !Object.prototype.hasOwnProperty.call(structuredClone(new TypeError()), 'message'); })()"));
+    CHECK(page->boolean("(function () { var shared = {}; var a = [1, , 3]; a.extra = 'x'; var o = { z: 1, a: a, s1: shared, s2: shared }; o.self = o;"
+                        " var c = structuredClone(o);"
+                        " return Object.keys(c).join() === 'z,a,s1,s2,self' && Array.isArray(c.a) && !(1 in c.a) && c.a.length === 3"
+                        " && c.a.extra === 'x' && c.s1 === c.s2 && c.s1 !== shared && c.self === c; })()"));
+    CHECK(page->boolean("(function () { var f = structuredClone(new File(['abc'], 'n.txt', { type: 'text/plain', lastModified: 42 }));"
+                        " return f instanceof File && f.name === 'n.txt' && f.size === 3 && f.type === 'text/plain' && f.lastModified === 42; })()"));
+    CHECK_EQ(page->string("(function () { function refused(v, t) { try { structuredClone(v, t ? { transfer: t } : undefined); }"
+                          " catch (e) { return e instanceof DOMException && e.name === 'DataCloneError' && e.code === 25; } return false; }"
+                          " var detached = new ArrayBuffer(1); structuredClone(detached, { transfer: [detached] }); var buffer = new ArrayBuffer(1);"
+                          " return [refused(function () {}), refused(Symbol('s')), refused(new WeakMap()), refused(new Proxy({}, {})), refused(new Response()),"
+                          " refused(detached), refused(buffer, [buffer, buffer]), refused(1, [new Blob()])].join(); })()"),
+        "true,true,true,true,true,true,true,true");
+    CHECK(page->boolean("(function () { var t = new Uint8Array([1, 2]).buffer; var moved = structuredClone({ t: t }, { transfer: [t] });"
+                        " return t.byteLength === 0 && moved.t.byteLength === 2 && new Uint8Array(moved.t)[1] === 2; })()"));
+    // A getter's throw is the clone's.
+    CHECK(page->boolean("(function () { var thrown = new Error('mine'); try { structuredClone({ get x() { throw thrown; } }); } catch (e) { return e === thrown; } return false; })()"));
+    CHECK_EQ(page->console, "");
+}
+
+// A clone is made in the realm the specification names: structuredClone's in
+// its this's realm; window.postMessage's and a port's in the receiving
+// window's, at delivery, after the sender's call has serialized it — so a
+// value that cannot be cloned throws at the call, a transferred buffer is
+// detached at once, and a transferred port arrives in the event's ports,
+// entangled with the port that stayed; history's state is a clone taken
+// before the URL is judged.
+void test_structured_clone_across_realms()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<script>var got = []; addEventListener('message', function (e) { got.push(e); });</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->eval("var frameWindow = document.getElementById('f').contentWindow;");
+    CHECK(page->boolean("(function () { var made = frameWindow.structuredClone.call(window, new frameWindow.Array(1));"
+                        " return made instanceof Array && !(made instanceof frameWindow.Array) && made.length === 1 && !(0 in made); })()"));
+    CHECK(page->boolean("frameWindow.structuredClone(new Date(0)) instanceof frameWindow.Date"));
+    page->eval("var sent = { list: [1] }; frameWindow.postMessage(sent, '*');"
+               " var channel = new MessageChannel(); var buffer = new ArrayBuffer(4);"
+               " frameWindow.postMessage({ buffer: buffer }, '*', [channel.port2, buffer]);"
+               " var detachedAtOnce = buffer.byteLength === 0;"
+               " var back = null; channel.port1.onmessage = function (m) { back = m.data; };");
+    CHECK(page->boolean("(function () { try { frameWindow.postMessage(function () {}, '*'); } catch (e) { return e.name === 'DataCloneError'; } return false; })()"));
+    CHECK(page->boolean("detachedAtOnce"));
+    page->realm->run_pending();
+    CHECK(page->boolean("frameWindow.got.length === 2 && frameWindow.got[0].data !== sent && frameWindow.got[0].data.list instanceof frameWindow.Array"
+                        " && frameWindow.got[0].data.list[0] === 1"));
+    CHECK(page->boolean("(function () { var e = frameWindow.got[1]; return e.ports.length === 1 && e.ports[0] instanceof frameWindow.MessagePort"
+                        " && e.data.buffer instanceof frameWindow.ArrayBuffer && e.data.buffer.byteLength === 4; })()"));
+    page->eval("frameWindow.got[1].ports[0].postMessage({ word: 'back' });");
+    page->realm->run_pending();
+    CHECK(page->boolean("back !== null && back.word === 'back' && back instanceof Object"));
+    page->eval("var payload = { n: 1 }; var received = null; var second = new MessageChannel();"
+               " second.port2.onmessage = function (e) { received = e.data; }; second.port1.postMessage(payload);");
+    page->realm->run_pending();
+    CHECK(page->boolean("received !== null && received !== payload && received.n === 1"));
+    CHECK(page->boolean("(function () { var state = { deep: [1] }; history.pushState(state, ''); return history.state !== state && history.state.deep[0] === 1; })()"));
+    CHECK(page->boolean("(function () { var before = history.state; try { history.pushState(function () {}, ''); } catch (e) {"
+                        " return e.name === 'DataCloneError' && history.state === before; } return false; })()"));
+    CHECK(page->boolean("(function () { var before = history.state; try { history.pushState({ x: 1 }, '', 'https://other.test/'); } catch (e) {"
+                        " return e.name === 'SecurityError' && history.state === before; } return false; })()"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
+// A message keeps what it transfers. The transfer list stays alive while the
+// rest of window.postMessage's options are converted, so a getter that drops
+// the list's last reference and allocates frees nothing the call still reads;
+// a transferred port that nothing else reaches lives on while its message
+// waits in a task or in the queue of a port not yet started, and still
+// carries a reply; the messages in a port's queue, one already in a task
+// among them, go with the port when it is transferred, in their order; and a
+// port may not transfer itself.
+void test_a_message_keeps_what_it_transfers()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<script>var got = []; addEventListener('message', function (e) { got.push(e.data); if (e.ports.length) e.ports[0].postMessage('reply to ' + e.data); });</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->eval("var frameWindow = document.getElementById('f').contentWindow;"
+               " function junk() { var made = []; for (var i = 0; i < 50; ++i) made.push({ i: i }); return made.length; }");
+    // The list's only reference is the generator's, or the array the getter
+    // empties.
+    page->eval("frameWindow.postMessage('generated', { transfer: (function* () { yield new ArrayBuffer(64); })(),"
+               " get targetOrigin() { junk(); return '*'; } });"
+               " var emptied = [new ArrayBuffer(64)];"
+               " frameWindow.postMessage('emptied', { transfer: emptied, get targetOrigin() { emptied.length = 0; junk(); return '*'; } });");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("frameWindow.got.join()"), "generated,emptied");
+    // A port reached only through the window message carrying it.
+    page->eval("(function () { var c = new MessageChannel(); c.port1.onmessage = function (e) { window.inFlight = e.data; };"
+               " frameWindow.postMessage('in flight', '*', [c.port2]); })();");
+    page->eval("junk();");
+    page->realm->run_pending();
+    page->realm->run_pending();
+    CHECK(page->boolean("window.inFlight === 'reply to in flight'"));
+    // A port reached only through the queue of a port that has not started.
+    page->eval("(function () { var carrier = new MessageChannel(); window.carried = carrier.port2;"
+               " var inner = new MessageChannel(); inner.port1.onmessage = function (e) { window.queued = e.data; };"
+               " carrier.port1.postMessage('queued', [inner.port2]); })();");
+    page->eval("junk();");
+    page->eval("carried.onmessage = function (e) { e.ports[0].postMessage('reply to ' + e.data); };");
+    page->realm->run_pending();
+    page->realm->run_pending();
+    CHECK(page->boolean("window.queued === 'reply to queued'"));
+    // One message already in a task for the port, one sent once it has moved.
+    page->eval("var order = []; var moving = new MessageChannel(); moving.port2.onmessage = function (e) { order.push('old ' + e.data); };"
+               " moving.port1.postMessage('sent before the move');"
+               " var moved = structuredClone(moving.port2, { transfer: [moving.port2] });"
+               " moved.onmessage = function (e) { order.push('new ' + e.data); };"
+               " moving.port1.postMessage('sent after the move');");
+    page->realm->run_pending();
+    page->realm->run_pending();
+    CHECK_EQ(page->string("order.join()"), "new sent before the move,new sent after the move");
+    // A port in its own transfer list: a DataCloneError, and the port still works.
+    page->eval("var selfish = new MessageChannel(); var stillWorks = null; selfish.port2.onmessage = function (e) { stillWorks = e.data; };"
+               " var refusedItself = (function () { try { selfish.port1.postMessage(0, [selfish.port1]); } catch (e) {"
+               " return e instanceof DOMException && e.name === 'DataCloneError'; } return false; })();"
+               " selfish.port1.postMessage('still');");
+    page->realm->run_pending();
+    CHECK(page->boolean("refusedItself"));
+    CHECK(page->boolean("stillWorks === 'still'"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
+// A platform object that is not serializable is a DataCloneError, whatever
+// the bindings build it as, while an ordinary object made from an
+// interface's prototype is cloned as the ordinary object it is. A delivered
+// message's ports are a frozen array, the same one at every read. And
+// window.postMessage picks its overload as WebIDL does, by the number of
+// arguments: with three, the second is the target origin as a string and the
+// third the transfer sequence; with two, an object, null or undefined is the
+// options dictionary.
+void test_platform_objects_and_message_arrivals()
+{
+    auto page = loaded("<!DOCTYPE html><p>platform</p>");
+    CHECK_EQ(page->string("(function () { function clone(v) { try { structuredClone(v); return 'cloned'; } catch (e) { return e.name; } }"
+                          " return [location, history, navigator, screen, document.implementation, new DOMParser(), new TextEncoder(),"
+                          " document.createAttribute('a'), new AbortController(), new MessageChannel()].map(clone).join(); })()"),
+        "DataCloneError,DataCloneError,DataCloneError,DataCloneError,DataCloneError,DataCloneError,DataCloneError,DataCloneError,DataCloneError,DataCloneError");
+    CHECK(page->boolean("(function () { var c = structuredClone(Object.create(Location.prototype)); return Object.getPrototypeOf(c) === Object.prototype; })()"));
+    CHECK_EQ(page->string("(function () { function outcome(f) { try { f(); return 'ok'; } catch (e) { return e.name; } }"
+                          " return [outcome(function () { postMessage(1, { targetOrigin: '*' }, 5); }),"
+                          " outcome(function () { postMessage(1, { targetOrigin: '*' }, []); }),"
+                          " outcome(function () { postMessage(1, { targetOrigin: '*' }, undefined); }),"
+                          " outcome(function () { postMessage(1, null); }), outcome(function () { postMessage(1, undefined); })].join(); })()"),
+        "TypeError,SyntaxError,SyntaxError,ok,ok");
+    page->realm->run_pending();
+    page->eval("var arrivals = []; addEventListener('message', function (e) { arrivals.push(e); });"
+               " postMessage('bare', '*'); var channel = new MessageChannel(); postMessage('with a port', '*', [channel.port1]);");
+    page->realm->run_pending();
+    CHECK(page->boolean("arrivals.length === 2 && arrivals[0].ports.length === 0 && arrivals[1].ports.length === 1"
+                        " && arrivals.every(function (e) { return Array.isArray(e.ports) && Object.isFrozen(e.ports) && e.ports === e.ports; })"));
+    CHECK_EQ(page->console, "");
+}
+
 } // namespace
 
 int main()
@@ -2497,5 +2713,9 @@ int main()
     test_a_frame_navigates();
     test_javascript_urls_in_frames();
     test_the_sandbox_attribute();
+    test_structured_clone_values();
+    test_structured_clone_across_realms();
+    test_a_message_keeps_what_it_transfers();
+    test_platform_objects_and_message_arrivals();
     return test::report("test_bindings");
 }

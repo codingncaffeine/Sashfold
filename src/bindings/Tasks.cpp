@@ -6,7 +6,8 @@
 // message posted on one delivered to the other as a task, which is how a
 // library schedules "the next turn" without a timer), and
 // window.postMessage between the windows of a page's agent. A message is
-// delivered as the value that was posted, not a clone of it.
+// serialized at the call and delivered as a clone made in the receiving
+// realm (StructuredClone.cpp), with the ports it transferred.
 
 #include "js/Object.h"
 
@@ -14,6 +15,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -55,24 +57,6 @@ void schedule_native(Realm::Internals& in, double delay_ms, js::Value const& fun
 
 // --- MessagePort ---------------------------------------------------------------------------
 
-class MessagePortObject final : public EventTargetObject {
-public:
-    explicit MessagePortObject(js::Object* prototype)
-        : EventTargetObject(prototype)
-    {
-    }
-    MessagePortObject* entangled = nullptr;
-    bool started = false;
-    bool closed = false;
-    // Messages posted to this port before it was started.
-    std::vector<std::unique_ptr<js::Persistent>> pending;
-    void trace(js::Tracer& tracer) override
-    {
-        EventTargetObject::trace(tracer);
-        tracer.visit(entangled);
-    }
-};
-
 std::optional<MessagePortObject*> this_port(js::Interpreter& interp, js::Value const& this_value)
 {
     if (this_value.is_object()) {
@@ -82,10 +66,43 @@ std::optional<MessagePortObject*> this_port(js::Interpreter& interp, js::Value c
     return interp.throw_type_error("Illegal invocation");
 }
 
-// Fires a MessageEvent carrying `data` at `target` (a port or the window);
-// a message a window posted carries the origin of that window's document.
+// A message on its way in a task: its serialized form, and the ports it
+// transferred, kept alive until it arrives, since nothing traces a task.
+struct MessageInFlight {
+    MessageInFlight(js::Heap& heap, std::shared_ptr<SerializedMessage const> the_message)
+        : message(std::move(the_message))
+    {
+        for (MessagePortObject* const port : transferred_ports(*message))
+            ports.emplace_back(heap, js::Value::object(port));
+    }
+    std::shared_ptr<SerializedMessage const> message;
+    std::vector<js::Persistent> ports;
+};
+
+// A MessageEvent's ports (HTML §9.4.1, a FrozenArray<MessagePort>): the
+// MessagePorts among the values the message transferred, in the transfer
+// list's order — not its buffers — as one frozen array the event keeps, so
+// every read answers the same array.
+js::Value frozen_ports(Realm::Internals& in, std::span<js::Value const> transferred)
+{
+    std::vector<js::Value> ports;
+    for (js::Value const& value : transferred) {
+        if (dynamic_cast<MessagePortObject*>(value.as_object()) != nullptr)
+            ports.push_back(value);
+    }
+    js::Interpreter::Roots const roots(in.interpreter);
+    js::ArrayObject* const list = in.interpreter.new_array(ports);
+    in.interpreter.root(js::Value::object(list));
+    // A fresh ordinary array: freezing it runs no script and cannot fail.
+    (void)js::set_integrity_level(in.interpreter, *list, true);
+    return js::Value::object(list);
+}
+
+// Fires a MessageEvent carrying `data` at `target` (a port or the window),
+// with the ports the message transferred; a message a window posted carries
+// the origin of that window's document.
 void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& data, std::string_view origin, js::Value const& source,
-    std::optional<Origin> const& sender_origin = std::nullopt)
+    std::span<js::Value const> transferred, std::optional<Origin> const& sender_origin = std::nullopt)
 {
     js::Interpreter::Roots const roots(in.interpreter);
     in.interpreter.root(js::Value::object(target));
@@ -99,32 +116,75 @@ void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& 
     event->source_value = source;
     event->sender_origin = sender_origin;
     event->is_trusted = true;
+    event->ports = frozen_ports(in, transferred);
     in.dispatch(*event, target);
 }
 
-// A task that delivers `data` at the port once it runs; a port closed or
-// collected by then gets nothing.
-void post_message_task(Realm::Internals& in, MessagePortObject& port, js::Value const& data)
+// A message that could not be made in the receiving realm: a messageerror
+// event in its place (HTML §9.3.3, §9.5.3).
+void deliver_message_error(Realm::Internals& in, js::Object* target, std::string_view origin, js::Value const& source,
+    std::optional<Origin> const& sender_origin = std::nullopt)
 {
+    in.interpreter.clear_exception();
+    js::Interpreter::Roots const roots(in.interpreter);
+    in.interpreter.root(js::Value::object(target));
+    in.interpreter.root(source);
+    EventObject* event = in.new_event("MessageEvent", "messageerror", false, false);
+    in.interpreter.root(js::Value::object(event));
+    event->origin = std::string(origin);
+    event->source_value = source;
+    event->sender_origin = sender_origin;
+    event->is_trusted = true;
+    event->ports = frozen_ports(in, {});
+    in.dispatch(*event, target);
+}
+
+// The task that delivers the message at the front of a port's message queue
+// (HTML §9.5.3), in the port's realm: one is posted for each message, as the
+// message is queued on a port that has started or as the port starts. A port
+// closed since, or transferred — its queue gone, in order, to the port made
+// for it in the receiving realm — delivers nothing. The message is made in
+// the port's realm while it is still in the queue, which keeps the ports it
+// transferred alive, and only then taken out.
+void post_port_task(MessagePortObject& port)
+{
+    Realm::Internals& in = port.realm().internals();
     auto target = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&port));
-    auto payload = std::make_shared<js::Persistent>(in.interpreter.heap(), data);
-    in.post_task([&in, target, payload] {
+    in.post_task([&in, target] {
         auto* destination = static_cast<MessagePortObject*>(target->value().as_object());
-        if (destination->closed)
+        if (destination->closed || destination->detached || destination->pending.empty())
             return;
-        deliver_message(in, destination, payload->value(), in.url.serialize_origin(), js::Value::null());
+        std::shared_ptr<SerializedMessage const> const message = destination->pending.front();
+        js::Interpreter::Roots const roots(in.interpreter);
+        std::optional<Deserialized> const received = structured_deserialize(in, *message);
+        destination->pending.pop_front();
+        if (!received) {
+            deliver_message_error(in, destination, in.url.serialize_origin(), js::Value::null());
+            return;
+        }
+        deliver_message(in, destination, received->value, in.url.serialize_origin(), js::Value::null(), received->transferred);
     });
 }
 
-void start_port(Realm::Internals& in, MessagePortObject& port)
+// Adds a message to a port's message queue, with a task to deliver it when
+// the port has started; otherwise it waits for the port to start, here or in
+// the realm the port is on its way to.
+void enqueue_port_message(MessagePortObject& port, std::shared_ptr<SerializedMessage const> const& message)
 {
-    if (port.started)
+    if (port.closed)
+        return;
+    port.pending.push_back(message);
+    if (port.started && !port.detached)
+        post_port_task(port);
+}
+
+void start_port(MessagePortObject& port)
+{
+    if (port.started || port.detached)
         return;
     port.started = true;
-    std::vector<std::unique_ptr<js::Persistent>> pending = std::move(port.pending);
-    port.pending.clear();
-    for (auto const& message : pending)
-        post_message_task(in, port, message->value());
+    for (std::size_t i = 0; i < port.pending.size(); ++i)
+        post_port_task(port);
 }
 
 void install_message_channel(Realm::Internals& in)
@@ -133,31 +193,54 @@ void install_message_channel(Realm::Internals& in)
 
     js::Object* port = define_interface(in, "MessagePort", in.prototype("EventTarget"));
     js::define_method(interpreter, *port, "postMessage", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        // The port's post message steps (HTML §9.5.3): the transfer list may
+        // not hold this port, and a list holding the entangled port dooms the
+        // message; the value is serialized now, in this realm, whether or not
+        // anything will receive it.
         std::optional<MessagePortObject*> const found = this_port(interp, this_value);
         if (!found)
             return std::nullopt;
+        MessagePortObject& source = **found;
         Realm::Internals& internals = internals_of(interp);
-        MessagePortObject* other = (*found)->entangled;
-        if (other == nullptr || other->closed)
+        js::Interpreter::Roots const roots(interp);
+        interp.root(this_value);
+        std::optional<std::vector<js::Value>> const transfer = transfer_or_options(internals, js::argument(args, 1));
+        if (!transfer)
+            return std::nullopt;
+        if (source.detached)
             return js::Value::undefined();
-        js::Value const data = js::argument(args, 0);
-        if (other->started)
-            post_message_task(internals, *other, data);
-        else
-            other->pending.push_back(std::make_unique<js::Persistent>(interp.heap(), data));
+        MessagePortObject* const target = source.entangled;
+        if (target != nullptr)
+            interp.root(js::Value::object(target));
+        bool doomed = false;
+        for (std::size_t i = 0; i < transfer->size(); ++i) {
+            js::Object const* const entry = (*transfer)[i].as_object();
+            if (entry == &source)
+                return internals.throw_dom_exception("DataCloneError", "Port at index " + std::to_string(i) + " contains the source port.");
+            if (target != nullptr && entry == target)
+                doomed = true;
+        }
+        std::shared_ptr<SerializedMessage const> const message = structured_serialize(internals, js::argument(args, 0), *transfer);
+        if (!message)
+            return std::nullopt;
+        if (target == nullptr || doomed)
+            return js::Value::undefined();
+        enqueue_port_message(*target, message);
         return js::Value::undefined();
     });
     js::define_method(interpreter, *port, "start", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<MessagePortObject*> const found = this_port(interp, this_value);
         if (!found)
             return std::nullopt;
-        start_port(internals_of(interp), **found);
+        start_port(**found);
         return js::Value::undefined();
     });
     js::define_method(interpreter, *port, "close", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<MessagePortObject*> const found = this_port(interp, this_value);
         if (!found)
             return std::nullopt;
+        if ((*found)->detached)
+            return js::Value::undefined();
         (*found)->closed = true;
         if ((*found)->entangled != nullptr) {
             (*found)->entangled->entangled = nullptr;
@@ -191,7 +274,7 @@ void install_message_channel(Realm::Internals& in)
             EventHandler handler;
             handler.function = js::Interpreter::is_callable(value) ? value : js::Value::undefined();
             (*handlers)["message"] = handler;
-            start_port(internals, **found);
+            start_port(**found);
             return js::Value::undefined();
         });
     static constexpr std::string_view port_events[] = { "messageerror" };
@@ -201,45 +284,67 @@ void install_message_channel(Realm::Internals& in)
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
             js::Heap::NoCollect const no_collect(interp.heap());
-            auto* first = interp.heap().allocate<MessagePortObject>(internals.prototype("MessagePort"));
-            auto* second = interp.heap().allocate<MessagePortObject>(internals.prototype("MessagePort"));
+            auto* first = interp.heap().allocate<MessagePortObject>(internals.prototype("MessagePort"), *internals.realm_record);
+            auto* second = interp.heap().allocate<MessagePortObject>(internals.prototype("MessagePort"), *internals.realm_record);
             first->entangled = second;
             second->entangled = first;
-            js::Object* channel = interp.new_object(internals.prototype("MessageChannel"));
+            js::Object* channel = interp.heap().allocate<PlainPlatformObject>(internals.prototype("MessageChannel"));
             channel->put(interp.key("port1"), js::Value::object(first), js::Enumerable);
             channel->put(interp.key("port2"), js::Value::object(second), js::Enumerable);
             return js::Value::object(channel);
         },
         0);
 
-    // window.postMessage(message, targetOrigin) and (message, options) (HTML
-    // §9.3.3): to the window the method is on, from the window whose script
-    // called it, the incumbent realm's, as a task on the agent's loop. "/" is
-    // the sender's origin, and so are one argument and options without a
-    // target origin; a target origin the receiving document does not have
-    // when the task runs delivers nothing.
+    // window.postMessage(message, targetOrigin, transfer) and (message,
+    // options) (HTML §9.3.3): to the window the method is on, from the window
+    // whose script called it, the incumbent realm's, as a task on the agent's
+    // loop. "/" is the sender's origin, and so are one argument and options
+    // without a target origin; a target origin the receiving document does
+    // not have when the task runs delivers nothing. The message is serialized
+    // at the call, so what cannot be cloned throws here and a transferred
+    // buffer is detached at once, and it is deserialized into the receiving
+    // realm when the task runs.
     js::define_method(interpreter, *interpreter.global(), "postMessage", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& target = internals_of(interp);
         js::RealmRecord* const incumbent = interp.incumbent_realm();
         Realm::Internals& sender = incumbent != nullptr && incumbent->host_defined != nullptr
             ? static_cast<Realm*>(incumbent->host_defined)->internals()
             : target;
+        js::Interpreter::Roots const roots(interp);
         js::Value const data = js::argument(args, 0);
         js::Value const target_argument = js::argument(args, 1);
         std::optional<std::string> target_text;
-        if (target_argument.is_object()) {
-            std::optional<js::Value> const member = interp.get(*target_argument.as_object(), interp.key("targetOrigin"));
-            if (!member)
+        std::optional<std::vector<js::Value>> transfer = std::vector<js::Value> {};
+        // WebIDL's overload resolution chooses by the number of arguments:
+        // three or more are (message, targetOrigin, transfer), the second
+        // converted to a string whatever it is; two are (message, options)
+        // when the second is an object, null or undefined, and (message,
+        // targetOrigin) otherwise; one is (message) with the default options.
+        if (args.size() < 3 && (target_argument.is_object() || target_argument.is_nullish())) {
+            // WindowPostMessageOptions: the inherited transfer member first.
+            transfer = options_transfer(target, target_argument);
+            if (!transfer)
                 return std::nullopt;
-            if (!member->is_undefined()) {
-                target_text = target.to_utf8(*member);
-                if (!target_text)
+            if (target_argument.is_object()) {
+                std::optional<js::Value> const member = interp.get(*target_argument.as_object(), interp.key("targetOrigin"));
+                if (!member)
                     return std::nullopt;
+                if (!member->is_undefined()) {
+                    target_text = target.to_utf8(*member);
+                    if (!target_text)
+                        return std::nullopt;
+                }
             }
-        } else if (!target_argument.is_undefined()) {
+        } else {
             target_text = target.to_utf8(target_argument);
             if (!target_text)
                 return std::nullopt;
+            js::Value const transfer_argument = js::argument(args, 2);
+            if (!transfer_argument.is_undefined()) {
+                transfer = transfer_sequence(target, transfer_argument);
+                if (!transfer)
+                    return std::nullopt;
+            }
         }
         std::string const sender_origin = sender.origin_url.serialize_origin();
         // The origin a delivery requires; none for "*".
@@ -253,11 +358,14 @@ void install_message_channel(Realm::Internals& in)
                     "Failed to execute 'postMessage' on 'Window': Invalid target origin '" + *target_text + "' in a call to 'postMessage'.");
             required = parsed->serialize_origin();
         }
+        std::shared_ptr<SerializedMessage const> const message = structured_serialize(target, data, *transfer);
+        if (!message)
+            return std::nullopt;
         bool const to_itself = &sender == &target;
         Origin const sender_document_origin = document_origin(sender);
-        auto payload = std::make_shared<js::Persistent>(interp.heap(), data);
+        auto flight = std::make_shared<MessageInFlight>(interp.heap(), message);
         auto source = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(sender.window_proxy()));
-        target.post_task([&target, payload, source, required, sender_origin, sender_document_origin, to_itself] {
+        target.post_task([&target, flight, source, required, sender_origin, sender_document_origin, to_itself] {
             if (required) {
                 // An opaque origin matches nothing but the window itself.
                 std::string const own = target.origin_url.serialize_origin();
@@ -265,7 +373,14 @@ void install_message_channel(Realm::Internals& in)
                 if (opaque ? !to_itself : *required != own)
                     return;
             }
-            deliver_message(target, target.window_proxy(), payload->value(), sender_origin, source->value(), sender_document_origin);
+            js::Object* const window = target.window_proxy();
+            js::Interpreter::Roots const task_roots(target.interpreter);
+            std::optional<Deserialized> const received = structured_deserialize(target, *flight->message);
+            if (!received) {
+                deliver_message_error(target, window, sender_origin, source->value(), sender_document_origin);
+                return;
+            }
+            deliver_message(target, window, received->value, sender_origin, source->value(), received->transferred, sender_document_origin);
         });
         return js::Value::undefined();
     });
@@ -341,7 +456,7 @@ void install_abort(Realm::Internals& in)
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
             js::Heap::NoCollect const no_collect(interp.heap());
-            js::Object* object = interp.new_object(internals.prototype("AbortController"));
+            js::Object* object = interp.heap().allocate<PlainPlatformObject>(internals.prototype("AbortController"));
             object->put(interp.key("signal"), js::Value::object(new_abort_signal(internals)), js::Enumerable);
             return js::Value::object(object);
         },

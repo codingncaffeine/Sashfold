@@ -515,7 +515,7 @@ js::Value attribute_map(Realm::Internals& in, dom::Element& element)
     map->set_prototype(in.prototype("NamedNodeMap"));
     map->host_data = &element;
     for (dom::Attr const& attribute : element.attributes()) {
-        js::Object* attr = interpreter.new_object(in.prototype("Attr"));
+        js::Object* attr = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("Attr"));
         map->push(js::Value::object(attr));
         std::string const name = attribute.qualified_name();
         attr->put(interpreter.key("name"), in.string(name), js::Enumerable);

@@ -53,6 +53,7 @@ add_library(sashfold_core STATIC
   src/bindings/Origin.cpp
   src/bindings/Realm.cpp
   src/bindings/Style.cpp
+  src/bindings/StructuredClone.cpp
   src/bindings/Tasks.cpp
   src/bindings/Window.cpp
   src/bindings/WindowProxy.cpp
