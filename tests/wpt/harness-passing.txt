@@ -137,6 +137,7 @@ dom/events/Event-subclasses-constructors.html	Event constructor (undefined argum
 dom/events/Event-subclasses-constructors.html	FocusEvent constructor (argument with non-default values)
 dom/events/Event-subclasses-constructors.html	MouseEvent constructor (argument with non-default values)
 dom/events/Event-subclasses-constructors.html	UIEvent constructor (argument with non-default values)
+dom/events/Event-timestamp-cross-realm-getter.html	event.timeStamp is initialized using event's relevant global object
 dom/events/Event-timestamp-high-resolution.html	Constructed FocusEvent timestamp should be high resolution and have the same time origin as performance.now()
 dom/events/Event-timestamp-high-resolution.html	Constructed KeyboardEvent timestamp should be high resolution and have the same time origin as performance.now()
 dom/events/Event-timestamp-high-resolution.html	Constructed MouseEvent timestamp should be high resolution and have the same time origin as performance.now()
@@ -501,6 +502,7 @@ dom/nodes/ChildNode-replaceWith.html	Text.replaceWith() with only text as an arg
 dom/nodes/ChildNode-replaceWith.html	Text.replaceWith() with sibling of child as arguments.
 dom/nodes/ChildNode-replaceWith.html	Text.replaceWith() with undefined as an argument.
 dom/nodes/ChildNode-replaceWith.html	Text.replaceWith() without any argument.
+dom/nodes/Comment-constructor.html	new Comment() should get the correct ownerDocument across globals
 dom/nodes/Comment-constructor.html	new Comment(): ""
 dom/nodes/Comment-constructor.html	new Comment(): "&amp;"
 dom/nodes/Comment-constructor.html	new Comment(): "-"
@@ -627,6 +629,7 @@ dom/nodes/DOMImplementation-createDocument.html	createDocument test: characterSe
 dom/nodes/DOMImplementation-createDocument.html	createDocument test: characterSet aliases for undefined,undefined,null
 dom/nodes/DOMImplementation-createDocument.html	createDocument test: characterSet aliases for undefined,undefined,undefined
 dom/nodes/DOMImplementation-createDocumentType.html	DOMImplementation.createDocumentType(qualifiedName, publicId, systemId)
+dom/nodes/DOMImplementation-createHTMLDocument-with-saved-implementation.html	createHTMLDocument(): from a saved and detached implementation does not return null
 dom/nodes/DOMImplementation-createHTMLDocument.html	Missing title argument
 dom/nodes/DOMImplementation-createHTMLDocument.html	createHTMLDocument test 0: "","",""
 dom/nodes/DOMImplementation-createHTMLDocument.html	createHTMLDocument test 1: null,"null","null"
@@ -5735,6 +5738,7 @@ dom/nodes/ParentNode-replaceChildren.html	If node is a doctype and parent is not
 dom/nodes/ParentNode-replaceChildren.html	If node is a host-including inclusive ancestor of parent, then throw a HierarchyRequestError DOMException.
 dom/nodes/ParentNode-replaceChildren.html	If node is not a DocumentFragment, DocumentType, Element, Text, ProcessingInstruction, or Comment node, then throw a HierarchyRequestError DOMException.
 dom/nodes/ProcessingInstruction-in-doctype.xhtml	XML: Processing instruction in doctype internal subset
+dom/nodes/Text-constructor.html	new Text() should get the correct ownerDocument across globals
 dom/nodes/Text-constructor.html	new Text(): ""
 dom/nodes/Text-constructor.html	new Text(): "&amp;"
 dom/nodes/Text-constructor.html	new Text(): "-"
@@ -5760,6 +5764,8 @@ dom/nodes/adoption.window.html	adoptNode() and DocumentFragment
 dom/nodes/adoption.window.html	appendChild() and DocumentFragment
 dom/nodes/append-on-Document.html	Document.append() with only one element as an argument, on a Document having no child.
 dom/nodes/append-on-Document.html	Document.append() without any argument, on a Document having no child.
+dom/nodes/attach-shadow-realm-after-adoption.html	Precondition (built-in host): node document and relevant realm differ after adoption
+dom/nodes/attach-shadow-realm-after-adoption.html	Precondition (custom element host): node document and relevant realm differ after adoption
 dom/nodes/attributes-namednodemap.html	an attribute set by setAttribute should be accessible as a field on the `attributes` field of an Element
 dom/nodes/attributes-namednodemap.html	an attribute with a null namespace should be accessible as a field on the `attributes` field of an Element
 dom/nodes/attributes-namednodemap.html	an attribute with a set namespace should be accessible as a field on the `attributes` field of an Element
@@ -5840,6 +5846,7 @@ dom/nodes/case.html	setAttribute ä
 dom/nodes/case.html	setAttributeNS abc
 dom/nodes/case.html	setAttributeNS Ä
 dom/nodes/case.html	setAttributeNS ä
+dom/nodes/create-element-realm-after-adoption.html	Precondition: the host's node document and relevant realm differ after adoption
 dom/nodes/getElementsByClassName-01.htm	document.getElementsByClassName(): simple
 dom/nodes/getElementsByClassName-02.htm	document.getElementsByClassName(): also simple
 dom/nodes/getElementsByClassName-04.htm	document.getElementsByClassName(): changing classes
@@ -5912,12 +5919,25 @@ dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html	A scr
 dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html	A script inserted atomically before an iframe (using a div) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
 dom/nodes/insertion-removing-steps/blur-event.window.html	<button> element does not fire blur/focusout events upon DOM removal
 dom/nodes/insertion-removing-steps/blur-event.window.html	<input> element does not fire blur event upon DOM removal
+dom/nodes/insertion-removing-steps/insertion-removing-steps-iframe.window.html	Removing steps (remove): script does not run synchronously during iframe destruction
 dom/nodes/insertion-removing-steps/insertion-removing-steps-script.window.html	Script execution happens after all batched DOM insertions complete through post-connection steps
 dom/nodes/insertion-removing-steps/script-does-not-run-on-child-removal.window.html	Script execution is never triggered on child removals
 dom/nodes/moveBefore/Node-moveBefore.html	Calling moveBefore with a non-Node first argument must throw TypeError.
 dom/nodes/moveBefore/Node-moveBefore.html	Calling moveBefore with second argument missing, or other than Node, null, or undefined, must throw TypeError.
 dom/nodes/moveBefore/preserve-render-blocking-script.html	A moved script should keep its render-blocking state
 dom/nodes/moveBefore/preserve-render-blocking-style.html	A moved script should keep its render-blocking state
+dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: iframe removed before adoption (subtree not pre-detached)
+dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: subtree detached, iframe removed, then adopted
+dom/nodes/node-realm-mixed-across-adoption.html	Never-wrapped node keeps its creation realm across multiple adoptions
+dom/nodes/node-realm-preserved-across-adoption.html	Built-in element keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-adoption.html	Comment node keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-adoption.html	Never-wrapped descendant keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-adoption.html	Text node keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-adoption.html	createElement()d element keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-frameless-adoption.html	Built-in element from a frameless document keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-frameless-adoption.html	Comment node from a frameless document keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-frameless-adoption.html	Never-wrapped descendant from a frameless document keeps its creation realm after adoption
+dom/nodes/node-realm-preserved-across-frameless-adoption.html	Text node from a frameless document keeps its creation realm after adoption
 dom/nodes/prepend-on-Document.html	Document.prepend() with only one element as an argument, on a Document having no child.
 dom/nodes/prepend-on-Document.html	Document.prepend() without any argument, on a Document having no child.
 dom/nodes/querySelector-empty-id.html	querySelector attribute matching empty id
@@ -5928,6 +5948,7 @@ dom/nodes/svg-template-querySelector.html	querySelector works on template conten
 dom/nodes/svg-template-querySelector.html	querySelector works on template contents fragments with SVG elements
 dom/nodes/svg-template-querySelector.html	querySelector works on template contents fragments with nested SVG elements
 dom/ranges/Range-commonAncestorContainer-2.html	Normal Ranges
+html/browsers/origin/inheritance/about-blank-iframe.html	about:blank in child browsing context aliases security origin
 html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html	basics
 html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html	current document
 html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html	new Document()
@@ -5942,6 +5963,7 @@ html/browsers/the-window-object/accessing-other-browsing-contexts/iterator.html	
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	No child browsing contexts
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	iframe not inserted into the document
 html/browsers/the-window-object/defaultstatus.html	The window.defaultStatus and window.defaultstatus attributes are not supported
+html/browsers/the-window-object/focus.window.html	focus
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be enumerable
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be set if the element is not reachable from the Document
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must return an element as-is if its name attribute matches
@@ -6060,10 +6082,15 @@ html/browsers/the-window-object/window-properties.https.html	Window interface
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: frames
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: self
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: window
+html/browsers/windows/browsing-context.html	Check that browsing context has new, ready HTML document
+html/browsers/windows/browsing-context.html	Check that new document nodes extant, empty
 html/browsers/windows/document-domain-removed-iframe.html	No removal, no document.domain
 html/browsers/windows/document-domain-removed-iframe.html	Removal, no document.domain
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if it is not a nested browsing context
+html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for multiple nested browsing contexts
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for top-level browsing context
+html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` on single nested browsing context
+html/browsers/windows/nested-browsing-contexts/window-top.html	One nested iframe
 html/browsers/windows/nested-browsing-contexts/window-top.html	Top level browsing context
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLFormControlsCollection legacycaller should not be supported
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLOptionsCollection legacycaller should not be supported
@@ -6160,6 +6187,7 @@ html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.ht
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	primitive string, lone low surrogate
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	primitive true
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	primitive undefined
+html/infrastructure/urls/base-url/document-base-url-changes-about-srcdoc-2.https.html	wrapper promise test for timeout.
 html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <a>.href
 html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <a>.ping
 html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <area>.href
@@ -6265,6 +6293,7 @@ html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL con
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, url
 html/infrastructure/urls/terminology-0/document-base-url.html	The fallback base URL of a document containing no base element is the document's address.
 html/semantics/embedded-content/the-iframe-element/change_parentage.html	Change the frame heriarchy
+html/semantics/embedded-content/the-iframe-element/content_document_changes_only_after_load_matures.html	contentDocument should only change after a load matures.
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-cross-site.sub.html	In-viewport iframes load eagerly
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-in-scroller-cross-site.sub.html	Test that lazy-loaded iframes load when near viewport.
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	In-viewport left iframe loads eagerly
@@ -6274,6 +6303,7 @@ html/semantics/embedded-content/the-iframe-element/historical.html	iframe.allowP
 html/semantics/embedded-content/the-iframe-element/historical.html	iframe.seamless should not be supported
 html/semantics/embedded-content/the-iframe-element/iframe-display-none-with-object.html	Load event triggered on window
 html/semantics/embedded-content/the-iframe-element/iframe-first-load-canceled-second-load-blank.html	about:blank navigation is asynchronous, even if the initial one is canceled.
+html/semantics/embedded-content/the-iframe-element/iframe-load-event.html	load event of initial about:blank
 html/semantics/embedded-content/the-iframe-element/iframe-loading-eager.html	Test that iframes with loading='eager' load immediately regardless of their position with respect to the viewport.
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-script-disabled-iframe.html	Iframes with loading='lazy' in script disabled iframe are not handled\n       as 'lazy'
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroller-horizontal-far.html	Test that lazy-loaded iframes do not load when far from viewport.
@@ -6284,13 +6314,18 @@ html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroll
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroller-nested-5.html	Test that lazy-loaded images load when near viewport.
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroller-nested.html	Test that lazy-loaded iframes load when near viewport.
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroller.html	Test that lazy-loaded iframes load when near viewport.
+html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-nav-location-replace-set-src.html	Navigating iframe loading='lazy' and then setting src: location.replace
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-reload-location-reload.html	Reloading iframe loading='lazy' before it is loaded: location.reload
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy.html	In-viewport iframes load eagerly
 html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	new iframe: X-Frame-Options prevents embedding
 html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	new iframe: nonexistent host
 html/semantics/embedded-content/the-iframe-element/iframe-nosrc.html	iframe.contentDocument should not be changed
+html/semantics/embedded-content/the-iframe-element/iframe-nosrc.html	load event of iframe should not be fired after processing the element
+html/semantics/embedded-content/the-iframe-element/iframe_navigate_javascript_url.htm	location.href = 'javascript:1' should not fire a load event
 html/semantics/embedded-content/the-iframe-element/iframe_sandbox_block_modals-2.html	Frames without `allow-modals` should not be able to open modal dialogs
 html/semantics/embedded-content/the-iframe-element/iframe_sandbox_block_modals-3.html	Frames without `allow-modals` should not be able to open modal dialogs
+html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_01.html	moving modified IFRAME in document (original page about:blank, DOM modification)
+html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_02.html	moving modified IFRAME in document (original page about:blank, document.write modification)
 html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_03.html	moving modified IFRAME in document (original page from server, DOM modification)
 html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_04.html	moving modified IFRAME in document (original page from server, document.write modification)
 html/semantics/embedded-content/the-iframe-element/sandbox-ascii-case-insensitive.html	iframe 'sandbox' ASCII case insensitive, allow-same-orİgin
@@ -6320,6 +6355,7 @@ html/semantics/embedded-content/the-iframe-element/sandbox_027.htm	Allow XMLHttp
 html/semantics/embedded-content/the-iframe-element/sandbox_030.htm	Block parent content to access sandbox child iframe content when sandbox attribute exists
 html/semantics/embedded-content/the-iframe-element/sandbox_032.htm	Block XMLHttpRequest in an iframe with the sandbox attribute.
 html/semantics/embedded-content/the-iframe-element/srcdoc-anchor.html	Verify srcdoc content loads when src is about:srcdoc#foo.
+html/semantics/embedded-content/the-iframe-element/srcdoc-attribute-reset.html	Verify that the frame reloads with empty body after we remove srcdoc.
 html/semantics/embedded-content/the-iframe-element/srcdoc_process_attributes.html	Setting `srcdoc` (via property) triggers attributes processing
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyph
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphDef
@@ -8695,6 +8731,7 @@ html/webappapis/scripting/event-loops/microtask_after_raf.html	Microtask execute
 html/webappapis/scripting/event-loops/microtask_after_script.html	Microtask immediately after script
 html/webappapis/scripting/event-loops/task_microtask_ordering.html	Basic task and microtask ordering
 html/webappapis/scripting/events/compile-event-handler-lexical-scopes-form-owner.html	<div> doesn't have a form owner
+html/webappapis/scripting/events/compile-event-handler-settings-objects.html	The Function instance must be created in the Realm of the node document
 html/webappapis/scripting/events/event-handler-handleEvent-ignored.html	non-callable "message" handler that is instance of Function
 html/webappapis/scripting/events/event-handler-handleEvent-ignored.html	plain object "mouseenter" handler
 html/webappapis/scripting/events/event-handler-javascript.html	Event handlers starting with 'javascript:' should treat that as a label.
@@ -8810,6 +8847,7 @@ html/webappapis/timers/negative-setinterval.any.html	negative-setinterval
 html/webappapis/timers/negative-settimeout.any.html	negative-settimeout
 html/webappapis/timers/setinterval-settimeout-clamping.any.html	setInterval(0) before setTimeout(0)
 html/webappapis/timers/setinterval-settimeout-clamping.any.html	setTimeout(0) before setInterval(0)
+html/webappapis/timers/settimeout-detached-iframe.html	setTimeout() on a detached iframe's window does not throw and its callback never runs
 html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html	Test requires performance.now() to measure approximate timing of callbacks.
 html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html	Test that a timer scheduled during a microtask checkpoint does not inherit the timer nesting level of the task that just ran.
 url/IdnaTestV2-removed.any.html	Loading data…

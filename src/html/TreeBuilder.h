@@ -27,6 +27,9 @@ class ScriptRunner {
 public:
     virtual ~ScriptRunner() = default;
     virtual void run_script(dom::Element& script, TreeBuilder& builder) = 0;
+    // An iframe the parser inserted, before the next token: the insertion
+    // steps that give it its initial document. Nothing by default.
+    virtual void frame_inserted(dom::Element&) { }
 };
 
 class TreeBuilder {

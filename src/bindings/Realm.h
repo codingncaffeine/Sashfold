@@ -141,6 +141,12 @@ struct HostHooks {
     std::function<std::optional<FrameDocument>(dom::Element const& iframe, net::Url const& base,
         net::ContentSecurityPolicy* policy, std::vector<FrameAncestor> const& ancestors)> frame_document;
 
+    // A line for each step of the event loop and the frames worth seeing — a
+    // timer set or fired, a task run, a frame opened, closed or navigated, a
+    // navigation asked, a message delivered — for a host that wants to know
+    // why a page waits. Nothing by default.
+    std::function<void(std::string_view)> trace;
+
     float viewport_width = 1024; // CSS px, for innerWidth and matchMedia
     float viewport_height = 768;
     // Device px per CSS px: devicePixelRatio, and the scale matchMedia's
@@ -239,6 +245,9 @@ public:
     // The parser's hook: prepares the script element (§4.12.1.1) and runs a
     // classic inline or external script now, or queues a deferred one.
     void run_script(dom::Element& script, html::TreeBuilder& builder) override;
+    // The parser's other hook: an iframe it inserted gets its initial
+    // about:blank document, and that document's load, before the next token.
+    void frame_inserted(dom::Element& iframe) override;
     // Runs a <script> element inserted by a script (§4.12.1.1 step 1 of the
     // insertion steps): the same preparation, no parser.
     void run_inserted_script(dom::Element& script);

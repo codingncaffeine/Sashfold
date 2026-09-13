@@ -89,6 +89,7 @@ void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& 
     in.interpreter.root(js::Value::object(target));
     in.interpreter.root(data);
     in.interpreter.root(source);
+    in.trace("message delivered from " + std::string(origin));
     EventObject* event = in.new_event("MessageEvent", "message", false, false);
     in.interpreter.root(js::Value::object(event));
     event->detail_value = data;

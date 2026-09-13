@@ -133,6 +133,8 @@ int schedule_timer(Realm::Internals& in, js::Value const& callback, double delay
     for (js::Value const& argument : arguments)
         timer.arguments.push_back(std::make_unique<js::Persistent>(in.interpreter.heap(), argument));
     int const id = timer.id;
+    in.trace((animation_frame ? "animation frame " : interval >= 0 ? "interval " : "timer ") + std::to_string(id) + " set for "
+        + std::to_string(static_cast<long>(timer.due)) + " ms");
     in.agent.timers.push_back(std::move(timer));
     return id;
 }
@@ -193,10 +195,12 @@ void navigate_to(Realm::Internals& in, std::string const& target)
         in.console("error", "location: '" + target + "' is not a URL");
         return;
     }
-    if (in.hooks.navigate)
+    if (in.hooks.navigate) {
+        in.trace("navigate: " + url->serialize());
         in.hooks.navigate(*url);
-    else
+    } else {
         in.url = *url;
+    }
 }
 
 // Sets one part of the URL and navigates to the result.
@@ -252,10 +256,12 @@ Native set_url_part(js::Interpreter& interpreter, std::string_view part, js::Val
             return js::Value::undefined();
         url = *parsed;
     }
-    if (in.hooks.navigate)
+    if (in.hooks.navigate) {
+        in.trace("navigate: " + url.serialize());
         in.hooks.navigate(url);
-    else
+    } else {
         in.url = url;
+    }
     return js::Value::undefined();
 }
 
@@ -736,7 +742,9 @@ void install_window(Realm::Internals& in)
         return js::Value::object(parent_internals->wrap(*internals.frame_element));
     });
     define_getter(in, *global, "origin", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return internals_of(interp).string(internals_of(interp).url.serialize_origin());
+        // The document's origin, which an srcdoc or about:blank document
+        // inherits: not what its URL alone would say.
+        return internals_of(interp).string(internals_of(interp).origin_url.serialize_origin());
     });
     define_getter(in, *global, "isSecureContext", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         net::Url const& url = internals_of(interp).url;

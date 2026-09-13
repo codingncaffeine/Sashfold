@@ -793,7 +793,8 @@ void usage(char const* program)
 {
     std::cerr << "usage: " << program
               << " <wpt-checkout> <directories-file> <baseline-file> [--update] [--only <text>]\n"
-                 "       [--json <file>] [--html <file>] [--revision <file>] [--dump <dir>] [--print <n>]\n";
+                 "       [--json <file>] [--html <file>] [--revision <file>] [--dump <dir>] [--print <n>]\n"
+                 "       [--accept-losses]\n";
 }
 
 } // namespace
@@ -808,6 +809,7 @@ int main(int argc, char** argv)
     std::filesystem::path const directories_file = argv[2];
     std::filesystem::path const baseline_file = argv[3];
     bool update = false;
+    bool accept_losses = false;
     std::string only;
     std::string json_path;
     std::string html_path;
@@ -837,6 +839,8 @@ int main(int argc, char** argv)
             value(revision_file);
         else if (arg == "--dump")
             value(dump_dir);
+        else if (arg == "--accept-losses")
+            accept_losses = true;
         else if (arg == "--print") {
             std::string text;
             value(text);
@@ -1000,6 +1004,19 @@ int main(int argc, char** argv)
             std::cerr << "--update needs the whole run, not --only\n";
             return 2;
         }
+        // A bless never drops a passing test unread: the losses are named,
+        // and go only when accepted by name of the flag.
+        if (!regressions.empty() && !accept_losses) {
+            std::cerr << "REFUSED: --update would drop " << regressions.size()
+                      << " test(s) that passed before; read them, and --accept-losses if they are to go:\n";
+            for (std::string const& rel : regressions)
+                std::cerr << "  lost " << rel << "\n";
+            return 1;
+        }
+        for (std::string const& rel : new_passes)
+            std::cout << "  won " << rel << "\n";
+        for (std::string const& rel : regressions)
+            std::cout << "  lost " << rel << "\n";
         std::ofstream out(baseline_file, std::ios::binary);
         out << "# WPT CSS reference tests passing (" << passed << " of " << total << ") at WPT revision "
             << (revision.empty() ? std::string("(unrecorded)") : revision) << ",\n"

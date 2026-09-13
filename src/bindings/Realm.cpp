@@ -442,6 +442,12 @@ void Realm::Internals::console(std::string_view level, std::string_view message)
         hooks.console(level, message);
 }
 
+void Realm::Internals::trace(std::string_view message) const
+{
+    if (hooks.trace)
+        hooks.trace(message);
+}
+
 // --- The document's Content Security Policy ----------------------------------------------
 
 void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const& document)
@@ -1254,10 +1260,12 @@ void Realm::document_parsed()
     std::vector<dom::Element*> frames;
     collect_frames(in.document, frames);
     for (dom::Element* const frame : frames) {
+        if (frame_realm(*frame) != nullptr)
+            continue; // an about:blank frame, opened and loaded as it was inserted
         in.open_frame(*frame);
         // Not at an iframe its own document's load took out of the tree.
         if (frame->is_connected())
-            dispatch_event(frame, "load");
+            in.fire_frame_load(*frame);
     }
     in.ready_state = "complete";
     dispatch_event(&in.document, "readystatechange");
@@ -1267,7 +1275,7 @@ void Realm::document_parsed()
 
 void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from)
 {
-    if (!hooks.frame_document || realm.frame_realm(iframe) != nullptr)
+    if (realm.frame_realm(iframe) != nullptr)
         return;
     // The documents this frame is inside, the page first: the framing rules
     // read the chain, and it goes ten frames deep, as the painter draws them.
@@ -1277,9 +1285,26 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     if (ancestors.size() > 10)
         return;
     std::reverse(ancestors.begin(), ancestors.end());
-    std::optional<FrameDocument> answer = hooks.frame_document(iframe, url, hooks.policy, ancestors);
-    if (!answer)
-        return;
+    // The host answers for what a frame fetches; without a host's answer, a
+    // frame with something to show has no document here.
+    std::optional<FrameDocument> answer
+        = hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors) : std::nullopt;
+    if (!answer) {
+        // Something to show that the host could not: no document. Nothing to
+        // show at all — no src, an empty one, about:blank — is the initial
+        // about:blank document (HTML §7.5.2), which needs no host: empty, of
+        // this document's origin, under this document's policy, as an srcdoc
+        // document is.
+        if (!frame_source(iframe, url).empty())
+            return;
+        answer = FrameDocument {};
+        answer->content_type = "text/html";
+        answer->url = *net::parse_url("about:blank");
+        answer->origin = origin_url;
+        answer->srcdoc = true;
+        if (hooks.policy)
+            answer->policy = *hooks.policy;
+    }
     std::string const type = ascii_lower(answer->content_type);
     if (!type.empty() && !type.starts_with("text/html") && !type.starts_with("application/xhtml"))
         return;
@@ -1302,6 +1327,7 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     frame_hooks.console = hooks.console;
     frame_hooks.local_storage = hooks.local_storage;
     frame_hooks.frame_document = hooks.frame_document;
+    frame_hooks.trace = hooks.trace;
     frame_hooks.viewport_width = hooks.viewport_width;
     frame_hooks.viewport_height = hooks.viewport_height;
     frame_hooks.device_scale = hooks.device_scale;
@@ -1313,6 +1339,7 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     opened.realm->internals().mutations = mutations_from;
     Realm& opened_realm = *opened.realm;
     dom::Document& opened_document = *opened.document;
+    trace("frame opened: " + (opened.source.empty() ? std::string("about:blank") : opened.source) + " in " + url.serialize(true));
     child_frames.push_back(std::move(opened));
     std::string_view const text(reinterpret_cast<char const*>(answer->bytes.data()), answer->bytes.size());
     if (answer->srcdoc)
@@ -1351,6 +1378,7 @@ void Realm::Internals::close_frame(dom::Element const& iframe)
         return;
     // Nothing of its runs again, its own frames' included; the realm itself
     // ends when the host's last entry into the agent has returned.
+    trace("frame closed: " + (it->source.empty() ? std::string("about:blank") : it->source));
     erase_loop_work(it->realm->internals());
     agent.closing.push_back(std::move(*it));
     child_frames.erase(it);
@@ -1433,9 +1461,37 @@ void Realm::Internals::frames_inserted(dom::Node& subtree)
     std::vector<dom::Node*> nodes;
     walk_subtree(subtree, nodes);
     for (dom::Node* const node : nodes) {
-        if (node->is_element() && static_cast<dom::Element*>(node)->is_html("iframe"))
-            schedule_frame_navigation(*static_cast<dom::Element*>(node));
+        if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("iframe"))
+            continue;
+        if (Internals* const owner = realm_of(node->document())) {
+            owner->open_blank_frame(*static_cast<dom::Element*>(node));
+            owner->schedule_frame_navigation(*static_cast<dom::Element*>(node));
+        }
     }
+}
+
+void Realm::Internals::open_blank_frame(dom::Element& iframe)
+{
+    // The initial about:blank document and its load, both before the next
+    // line: a listener added after the insertion never sees that load.
+    if (!iframe.is_connected() || !frame_source(iframe, url).empty() || realm.frame_realm(iframe) != nullptr)
+        return;
+    open_frame(iframe);
+    if (realm.frame_realm(iframe) != nullptr)
+        fire_frame_load(iframe);
+}
+
+void Realm::Internals::fire_frame_load(dom::Element& iframe)
+{
+    realm.dispatch_event(&iframe, "load");
+}
+
+void Realm::frame_inserted(dom::Element& iframe)
+{
+    Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    in.open_blank_frame(iframe);
 }
 
 void Realm::Internals::schedule_frame_navigation(dom::Element& iframe)
@@ -1462,13 +1518,14 @@ void Realm::Internals::navigate_frame(dom::Element& iframe)
     std::uint64_t mutations_from = 0;
     if (existing != child_frames.end()) {
         if (existing->source == key)
-            return;
+            return; // already showing it
         mutations_from = existing->realm->tree_mutation_count() + 1;
         close_frame(iframe);
     }
+    trace("frame navigates: " + (key.empty() ? std::string("about:blank") : key));
     open_frame(iframe, mutations_from);
     if (iframe.is_connected())
-        realm.dispatch_event(&iframe, "load");
+        fire_frame_load(iframe);
 }
 
 // --- Events from the host ----------------------------------------------------------------
@@ -1573,6 +1630,8 @@ bool Realm::run_pending()
         agent.tasks.pop_front();
         {
             // A task runs in the realm that queued it.
+            if (task_owner)
+                task_owner->trace("task runs");
             js::Interpreter::RealmScope const inside(agent.interpreter, task_owner ? task_owner->realm_record : nullptr);
             task();
         }
@@ -1611,6 +1670,7 @@ bool Realm::run_pending()
             agent.timers.push_back(std::move(timer));
         }
         ++owner.stats.timers_fired;
+        owner.trace("timer " + std::to_string(timer.id) + " fires at " + std::to_string(static_cast<long>(now)) + " ms");
         ran = true;
         js::Value const owner_window = js::Value::object(owner.realm_record->intrinsics.global);
         if (callback.is_string()) {

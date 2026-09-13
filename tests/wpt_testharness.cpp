@@ -677,7 +677,9 @@ TestResult run_test(Server const& server, std::string const& id)
         result.harness_message = "the test could not be served";
         return result;
     }
-    bool const trace = std::getenv("SASHFOLD_WPT_TRACE") != nullptr;
+    char const* const trace_env = std::getenv("SASHFOLD_WPT_TRACE");
+    bool const trace = trace_env != nullptr;
+    bool const deep = trace && std::atoi(trace_env) >= 2; // the event loop and every fetch too
     if (trace)
         std::cerr << "  run " << id << "\n";
     css::MediaContext const media { static_cast<float>(viewport_width), static_cast<float>(viewport_height) };
@@ -703,12 +705,16 @@ TestResult run_test(Server const& server, std::string const& id)
     bindings::HostHooks hooks;
     hooks.fetch_script = [&](net::Url const& target, net::RequestGuard const&) -> std::optional<std::string> {
         std::optional<Served> const served = server.serve(target);
+        if (deep)
+            std::cerr << "    " << id << " ~ script " << target.serialize() << (served ? " served" : " not found") << "\n";
         if (!served)
             return std::nullopt;
         return served->body;
     };
     hooks.fetch_resource = [&](net::Url const& target, net::ResourceRequest const& request,
                                net::RequestGuard const&) -> net::FetchResult {
+        if (deep)
+            std::cerr << "    " << id << " ~ fetch " << request.method << " " << target.serialize() << "\n";
         if (request.method != "GET" && request.method != "HEAD")
             return { std::nullopt, "the runner serves files only" };
         std::optional<Served> served = server.serve(target);
@@ -754,6 +760,8 @@ TestResult run_test(Server const& server, std::string const& id)
         if (!report && level == "error" && result.harness_message.empty())
             result.harness_message = std::string(message);
     };
+    if (deep)
+        hooks.trace = [&](std::string_view message) { std::cerr << "    " << id << " ~ " << message << "\n"; };
     hooks.viewport_width = media.width;
     hooks.viewport_height = media.height;
     hooks.user_agent = "Mozilla/5.0 (X11; Linux x86_64) Sashfold/0.0 wpt";
@@ -893,7 +901,7 @@ void usage(char const* program)
     std::cerr << "usage: " << program
               << " <wpt-checkout> <directories-file> <baseline-file> [--update] [--only <text>]\n"
                  "       [--json <file>] [--html <file>] [--revision <file>] [--print <n>] [--jobs <n>]\n"
-                 "       [--hang <seconds>] [--messages <n>]\n";
+                 "       [--hang <seconds>] [--messages <n>] [--files <n>] [--accept-losses]\n";
 }
 
 } // namespace
@@ -918,6 +926,8 @@ int main(int argc, char** argv)
     int jobs = static_cast<int>(std::max(1u, std::thread::hardware_concurrency() / 2));
     long hang_seconds = 60;
     int messages = 0;
+    int files_ranked = 0;
+    bool accept_losses = false;
     for (int i = 4; i < argc; ++i) {
         std::string const arg = argv[i];
         auto const value = [&](std::string& into) {
@@ -953,6 +963,12 @@ int main(int argc, char** argv)
             std::string text;
             value(text);
             messages = std::atoi(text.c_str());
+        } else if (arg == "--files") {
+            std::string text;
+            value(text);
+            files_ranked = std::atoi(text.c_str());
+        } else if (arg == "--accept-losses") {
+            accept_losses = true;
         } else {
             usage(argv[0]);
             return 2;
@@ -1113,6 +1129,33 @@ int main(int argc, char** argv)
         for (std::size_t i = 0; i < common.size() && i < static_cast<std::size_t>(messages); ++i)
             std::printf("  %6ld  %s\n", common[i].first, common[i].second.substr(0, 160).c_str());
     }
+    // The files that fail the most subtests, each with the message that
+    // recurs most in it: where one missing piece stops a whole file.
+    if (files_ranked > 0) {
+        std::map<std::string, std::pair<long, std::map<std::string, long>>> by_file;
+        for (auto const& [name, message] : failures) {
+            std::string const file = name.substr(0, name.find(" \xe2\x80\xba "));
+            auto& entry = by_file[file];
+            ++entry.first;
+            ++entry.second[message];
+        }
+        std::vector<std::pair<long, std::string>> ranked;
+        for (auto const& [file, entry] : by_file)
+            ranked.emplace_back(entry.first, file);
+        std::sort(ranked.begin(), ranked.end(), [](auto const& a, auto const& b) { return a.first > b.first; });
+        for (std::size_t i = 0; i < ranked.size() && i < static_cast<std::size_t>(files_ranked); ++i) {
+            auto const& entry = by_file[ranked[i].second];
+            std::string top;
+            long top_count = 0;
+            for (auto const& [message, count] : entry.second) {
+                if (count > top_count) {
+                    top = message;
+                    top_count = count;
+                }
+            }
+            std::printf("  %5ld  %s \xe2\x80\x94 %s\n", ranked[i].first, ranked[i].second.c_str(), top.substr(0, 110).c_str());
+        }
+    }
     // The slowest tests, named: a test at the deadline is a hang to look at.
     std::vector<std::pair<double, std::string>> slowest;
     for (std::size_t i = 0; i < tests.size(); ++i)
@@ -1166,13 +1209,29 @@ int main(int argc, char** argv)
             std::cerr << "--update needs the whole run, not --only\n";
             return 2;
         }
+        // A bless never drops a passing subtest unread: the losses are
+        // named, and go only when accepted by name of the flag.
+        if (!regressions.empty() && !accept_losses) {
+            std::cerr << "REFUSED: --update would drop " << regressions.size()
+                      << " subtest(s) that passed before; read them, and --accept-losses if they are to go:\n";
+            for (std::string const& line : regressions)
+                std::cerr << "  lost " << line << "\n";
+            return 1;
+        }
+        for (std::size_t i = 0; i < new_passes.size() && i < 40; ++i)
+            std::cout << "  won " << new_passes[i] << "\n";
+        if (new_passes.size() > 40)
+            std::cout << "  (" << (new_passes.size() - 40) << " more won)\n";
+        for (std::string const& line : regressions)
+            std::cout << "  lost " << line << "\n";
         std::ofstream out(baseline_file, std::ios::binary);
         out << "# Every testharness subtest that passes: one per line, the test's path, a tab, the subtest's\n"
                "# name (tabs and newlines escaped). A listed subtest that fails is a regression.\n"
                "# Re-bless with: wpt_testharness <checkout> <directories> <this file> --update\n";
         for (std::string const& line : passing)
             out << line << "\n";
-        std::cout << "blessed " << passing.size() << " passing subtests into " << baseline_file.string() << "\n";
+        std::cout << "blessed " << passing.size() << " passing subtests into " << baseline_file.string() << " ("
+                  << new_passes.size() << " won, " << regressions.size() << " lost)\n";
         return 0;
     }
     if (!only.empty()) {

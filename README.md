@@ -42,7 +42,7 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | Unicode line breaking conformance, `LineBreakTest` | **16,672 / 16,672** (100%) |
 | WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **9406 / 14616 (64.4%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests, 26,067 subtests over 1226 test files under fourteen `dom/` and `html/` directories | **15326 / 26067 (58.8%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| WPT testharness tests, 26,081 subtests over 1226 test files under fourteen `dom/` and `html/` directories | **15364 / 26081 (58.9%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
 | test262, the ECMAScript conformance suite, 41,791 tests over 86 directories | **40358 / 41791 (96.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night by the Windows build and by the Linux build, and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 

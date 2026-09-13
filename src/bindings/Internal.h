@@ -407,6 +407,12 @@ struct Realm::Internals {
     // in a task after the script that inserted it, as does an iframe whose
     // src or srcdoc a script changed.
     void frames_inserted(dom::Node& subtree);
+    // An iframe of this document with nothing to show, as it is inserted by
+    // the parser or a script: its initial about:blank document and that
+    // document's load, both before the next line (HTML §4.8.5); and the
+    // iframe's load event.
+    void open_blank_frame(dom::Element& iframe);
+    void fire_frame_load(dom::Element& iframe);
     void schedule_frame_navigation(dom::Element& iframe);
     void navigate_frame(dom::Element& iframe);
     // Holds the agent's host_depth for a public entry of the realm; the last
@@ -478,6 +484,7 @@ struct Realm::Internals {
 
     double now() const;
     void console(std::string_view level, std::string_view message) const;
+    void trace(std::string_view message) const; // the hooks' trace, when given
     // Reports an uncaught exception: the console, the count, window.onerror.
     void report_uncaught(js::Value const& thrown, std::string_view where);
 

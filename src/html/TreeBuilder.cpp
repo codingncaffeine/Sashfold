@@ -1039,6 +1039,10 @@ bool TreeBuilder::mode_in_body(Token& token)
         if (name == "iframe") {
             m_frameset_ok = false;
             parse_generic_text(token, Tokenizer::State::RAWTEXT);
+            // The insertion steps: the frame's document, when the runner
+            // gives frames one, is there before the next token.
+            if (m_runner != nullptr && !m_stack.empty())
+                m_runner->frame_inserted(*m_stack.back());
             return false;
         }
         if (name == "noembed") {

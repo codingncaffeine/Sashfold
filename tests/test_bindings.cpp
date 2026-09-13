@@ -528,8 +528,10 @@ void test_document_ready_states_and_load_events()
 
 void test_frame_load_events()
 {
-    // A page's load waits on its frames: every iframe the parse left in the
-    // tree fires load after DOMContentLoaded, in tree order, without
+    // A page's load waits on its frames: an iframe with nothing to show
+    // gets its about:blank document and fires load as the parser inserts it,
+    // while the document is still loading; every other iframe the parse left
+    // in the tree fires load after DOMContentLoaded, in tree order, without
     // bubbling, and before the window's — which fires once. One inside a
     // template is not in the tree.
     auto page = loaded(R"HTML(<!DOCTYPE html><html><head><script>
@@ -543,7 +545,7 @@ void test_frame_load_events()
     <template><iframe onload="log.push('template')"></iframe></template>
     <script>document.getElementById('second').addEventListener('load', function () { log.push('second'); });</script>
     </body></html>)HTML");
-    CHECK_EQ(page->string("log.join(' ')"), "dcl first:interactive:true:false second window");
+    CHECK_EQ(page->string("log.join(' ')"), "first:loading:true:false dcl second window");
     CHECK_EQ(page->console, "");
 }
 
@@ -1605,6 +1607,64 @@ void test_a_frames_document_follows_its_iframe()
     page.reset();
 }
 
+// An iframe with nothing to show — no src, an empty one, about:blank — has
+// the initial about:blank document (HTML §7.5.2): empty, of its parent's
+// origin, with a window of its own the moment the iframe is in the tree, so
+// a script that makes an iframe for a fresh realm has one before the next
+// line runs; its load fires once, after the script. Pointing it somewhere
+// later navigates it as any frame; removing it closes it.
+void test_an_iframe_has_the_initial_about_blank_document()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt; // nothing the host can show: about:blank is the realm's own
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = ancestors.empty() ? base : ancestors.back().origin;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var loads = {}; document.addEventListener('load', function (e) { if (e.target.tagName === 'IFRAME') loads[e.target.id] = (loads[e.target.id] || 0) + 1; }, true);</script>
+<iframe id=parsed></iframe><iframe id=blank src="about:blank"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    // The parse's own: a window each, empty, the page's origin, one load each.
+    CHECK(page->boolean("loads.parsed === 1 && loads.blank === 1"));
+    CHECK(page->boolean("parsed.contentWindow !== null && parsed.contentWindow.parent === window && parsed.contentDocument.URL === 'about:blank'"));
+    CHECK(page->boolean("parsed.contentDocument.body !== null && parsed.contentDocument.body.childNodes.length === 0 && parsed.contentWindow.origin === 'https://example.test'"));
+    CHECK(page->boolean("blank.contentWindow !== null && blank.contentWindow !== parsed.contentWindow"));
+    // A script-made iframe: a window the moment it is in the tree, and a
+    // realm of its own — its Array is not the page's.
+    page->eval("var made = document.createElement('iframe'); made.id = 'made'; var beforeInsert = made.contentWindow;"
+               " document.body.appendChild(made); var atOnce = made.contentWindow;"
+               " var ownRealm = atOnce !== null && atOnce.Array !== Array && new atOnce.Array() instanceof atOnce.Array;"
+               " atOnce.document.body.innerHTML = '<p>written</p>';");
+    CHECK(page->boolean("beforeInsert === null && atOnce !== null && ownRealm"));
+    // Its load fired inside the insertion: the document's capturing listener
+    // saw it, and one added afterwards never will.
+    CHECK(page->boolean("made.contentDocument.body.firstChild.textContent === 'written' && loads.made === 1"));
+    page->eval("var lateLoad = false; made.addEventListener('load', function () { lateLoad = true; });");
+    page->realm->run_pending();
+    CHECK(page->boolean("loads.made === 1 && !lateLoad && made.contentWindow === atOnce"));
+    // Pointed at an srcdoc afterwards: navigated, a new window, one more load.
+    page->eval("made.srcdoc = '<script>var which = \"srcdoc\";</script>';");
+    page->realm->run_pending();
+    CHECK(page->boolean("made.contentWindow !== atOnce && made.contentWindow.which === 'srcdoc' && loads.made === 2"));
+    // Removed: closed at once.
+    page->eval("made.remove();");
+    CHECK(page->boolean("made.contentWindow === null"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 } // namespace
 
 int main()
@@ -1639,5 +1699,6 @@ int main()
     test_a_frames_detached_nodes_go_with_it();
     test_messages_between_windows();
     test_a_frames_document_follows_its_iframe();
+    test_an_iframe_has_the_initial_about_blank_document();
     return test::report("test_bindings");
 }

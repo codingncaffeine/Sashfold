@@ -912,7 +912,16 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     // Frames, embeds, objects, canvas, media.
     {
         js::Object& iframe = proto_of("HTMLIFrameElement");
-        element_getter(in, iframe, "sandbox", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sandbox"); });
+        // sandbox is a DOMTokenList that forwards a write to its value.
+        element_accessor(
+            in, iframe, "sandbox", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sandbox"); },
+            [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                std::optional<std::string> text = internals.to_utf8(value);
+                if (!text)
+                    return std::nullopt;
+                set_attribute(internals, e, "sandbox", std::move(*text));
+                return js::Value::undefined();
+            });
         // A frame's window and document, when its document has a realm here
         // and this document's origin; null otherwise.
         element_getter(in, iframe, "contentWindow", [](Realm::Internals& internals, dom::Element& e) -> Native {
