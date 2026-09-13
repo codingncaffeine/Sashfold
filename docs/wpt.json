@@ -2,7 +2,7 @@
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-13",
   "viewport": [800, 600],
-  "passed": 9406,
+  "passed": 9409,
   "total": 14616,
   "directories": [
     { "path": "css/CSS2", "passed": 5178, "total": 6169 },
@@ -17,9 +17,9 @@
     { "path": "css/css-overflow", "passed": 179, "total": 596 },
     { "path": "css/css-position", "passed": 96, "total": 248 },
     { "path": "css/css-syntax", "passed": 1, "total": 1 },
-    { "path": "css/css-text", "passed": 990, "total": 1484 },
+    { "path": "css/css-text", "passed": 992, "total": 1484 },
     { "path": "css/css-values", "passed": 94, "total": 211 },
-    { "path": "css/selectors", "passed": 122, "total": 226 },
+    { "path": "css/selectors", "passed": 123, "total": 226 },
     { "path": "css/css-variables", "passed": 91, "total": 182 },
     { "path": "css/css-writing-modes", "passed": 675, "total": 1139 }
   ]
