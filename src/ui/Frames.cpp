@@ -355,14 +355,11 @@ void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecur
         // first; then src, where none, an empty one, about:blank or one that
         // does not parse shows nothing.
         std::optional<net::Url> url;
-        std::string source;
-        if (dom::Attr const* const srcdoc = element.find_attribute("srcdoc")) {
-            source = "srcdoc:" + srcdoc->value;
-        } else if (dom::Attr const* const src = element.find_attribute("src"); src && !src->value.empty()) {
-            url = net::parse_url(src->value, &base);
-            if (url && url->scheme != "about")
-                source = "src:" + url->serialize();
+        if (!element.find_attribute("srcdoc")) {
+            if (dom::Attr const* const src = element.find_attribute("src"); src && !src->value.empty())
+                url = net::parse_url(src->value, &base);
         }
+        std::string const source = bindings::frame_source(element, base);
         // A frame whose document has a realm here is drawn from that live
         // document; its picture stands only while those documents are unchanged.
         bindings::Realm* const live = realm ? realm->frame_realm(element) : nullptr;

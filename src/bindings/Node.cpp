@@ -220,16 +220,22 @@ void collect_scripts(dom::Node& node, std::vector<dom::Element*>& out)
 
 void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::Node* reference)
 {
-    parent.document().adopt(node);
+    // A node moved out of a tree takes its frames down with it (the removing
+    // steps), before it is adopted and inserted.
+    if (node.parent())
+        in.frames_removed(node);
+    in.adopt_into(parent.document(), node);
     parent.insert_before(node, reference);
     in.realm.note_mutation();
     // A script element inserted into the document runs (§4.12.1, the
-    // insertion steps), unless it was already started — a fragment's are.
+    // insertion steps), unless it was already started — a fragment's are;
+    // an iframe inserted navigates, in a task after the script.
     if (parent.is_connected()) {
         std::vector<dom::Element*> scripts;
         collect_scripts(node, scripts);
         for (dom::Element* script : scripts)
             in.realm.run_inserted_script(*script);
+        in.frames_inserted(node);
     }
 }
 
@@ -274,6 +280,7 @@ void remove_node(Realm::Internals& in, dom::Node& node)
 {
     if (!node.parent())
         return;
+    in.frames_removed(node);
     node.remove();
     in.realm.note_mutation();
 }
@@ -302,18 +309,26 @@ void replace_children_with_markup(Realm::Internals& in, dom::Node& parent, dom::
 {
     std::vector<dom::Node*> const children = parse_markup(in, context, markup);
     std::vector<dom::Node*> const old = parent.children();
-    for (dom::Node* child : old)
+    for (dom::Node* child : old) {
+        in.frames_removed(*child);
         child->remove();
+    }
     for (dom::Node* child : children)
         parent.append_child(*child);
+    if (parent.is_connected()) {
+        for (dom::Node* child : children)
+            in.frames_inserted(*child);
+    }
     in.realm.note_mutation();
 }
 
 void replace_children_with_text(Realm::Internals& in, dom::Node& parent, std::string_view text)
 {
     std::vector<dom::Node*> const old = parent.children();
-    for (dom::Node* child : old)
+    for (dom::Node* child : old) {
+        in.frames_removed(*child);
         child->remove();
+    }
     if (!text.empty()) {
         dom::Text* node = parent.document().create<dom::Text>();
         node->data = std::string(text);
@@ -468,7 +483,9 @@ std::optional<dom::Node*> nodes_argument(Realm::Internals& in, dom::Document& do
     dom::DocumentFragment* fragment = document.create<dom::DocumentFragment>();
     for (js::Value const& value : args) {
         if (NodeWrapper* wrapper = in.wrapper_of(value)) {
-            document.adopt(wrapper->node());
+            if (wrapper->node().parent())
+                in.frames_removed(wrapper->node());
+            in.adopt_into(document, wrapper->node());
             fragment->append_child(wrapper->node());
             continue;
         }
@@ -840,8 +857,10 @@ void install_parent_node(Realm::Internals& in, js::Object& proto)
         if (!nodes)
             return std::nullopt;
         std::vector<dom::Node*> const old = n.children();
-        for (dom::Node* child : old)
+        for (dom::Node* child : old) {
+            internals.frames_removed(*child);
             child->remove();
+        }
         if (!pre_insert(internals, n, **nodes, nullptr))
             return std::nullopt;
         return js::Value::undefined();
@@ -1121,6 +1140,7 @@ void install_element(Realm::Internals& in, js::Object& element)
                 context = internals.document.create<dom::Element>(std::string(dom::ns::html), "body");
             std::vector<dom::Node*> const children = parse_markup(internals, *context, *markup);
             dom::Node* reference = next_sibling_of(e);
+            internals.frames_removed(e);
             e.remove();
             for (dom::Node* child : children)
                 insert_one(internals, *parent, *child, reference);
@@ -1445,9 +1465,10 @@ void install_nodes(Realm::Internals& in)
         if (!index)
             return std::nullopt;
         auto* array = static_cast<js::ArrayObject*>(this_value.as_object());
-        if (*index < 0 || *index >= array->length())
+        std::uint32_t const position = to_unsigned_long(*index);
+        if (position >= array->length())
             return js::Value::null();
-        js::Value const element_value = array->element(static_cast<std::uint32_t>(*index));
+        js::Value const element_value = array->element(position);
         return element_value.is_empty() ? js::Value::null() : element_value;
     };
     js::define_method(interpreter, *node_list_proto, "item", 1, item);

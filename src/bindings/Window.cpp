@@ -620,9 +620,9 @@ void collect_named(dom::Node& node, std::string_view name, std::vector<dom::Node
 // defined on the object or deleted from it.
 class WindowNamedProperties final : public js::Object {
 public:
-    WindowNamedProperties(js::Object* prototype, Realm::Internals& internals)
+    WindowNamedProperties(js::Object* prototype, js::RealmRecord& record)
         : js::Object(prototype)
-        , m_internals(internals)
+        , m_record(&record)
     {
     }
 
@@ -630,7 +630,7 @@ public:
     {
         if (key.is_symbol())
             return std::nullopt;
-        if (m_internals.realm_record->intrinsics.global->get_own_property(key))
+        if (internals().realm_record->intrinsics.global->get_own_property(key))
             return std::nullopt;
         for (js::Object const* link = prototype(); link != nullptr; link = link->prototype()) {
             if (link->get_own_property(key))
@@ -640,18 +640,18 @@ public:
         if (name.empty())
             return std::nullopt;
         std::vector<dom::Node*> found;
-        collect_named(m_internals.document, name, found);
+        collect_named(internals().document, name, found);
         if (found.empty())
             return std::nullopt;
         js::Value value;
         if (found.size() == 1) {
-            value = js::Value::object(m_internals.wrap(*found.front()));
+            value = js::Value::object(internals().wrap(*found.front()));
         } else {
             // Made with this window's intrinsics, whichever realm asked.
-            js::Interpreter::RealmScope const own_realm(m_internals.interpreter, m_internals.realm_record);
-            js::Interpreter::Roots const roots(m_internals.interpreter);
-            value = m_internals.interpreter.root(node_list(m_internals, found));
-            value.as_object()->set_prototype(m_internals.prototype("HTMLCollection"));
+            js::Interpreter::RealmScope const own_realm(internals().interpreter, internals().realm_record);
+            js::Interpreter::Roots const roots(internals().interpreter);
+            value = internals().interpreter.root(node_list(internals(), found));
+            value.as_object()->set_prototype(internals().prototype("HTMLCollection"));
             // Held until the next lookup: the collection is new, and whoever
             // asked has not stored it anywhere the collector can see yet.
             m_last_collection = value;
@@ -665,11 +665,15 @@ public:
     void trace(js::Tracer& tracer) override
     {
         js::Object::trace(tracer);
+        tracer.visit(m_record);
         tracer.visit(m_last_collection);
     }
 
 private:
-    Realm::Internals& m_internals;
+    // The window's realm through its record, which outlives the realm: an
+    // ended frame's window answers from the agent's stand-in, from nothing.
+    Realm::Internals& internals() const { return static_cast<Realm*>(m_record->host_defined)->internals(); }
+    js::RealmRecord* m_record;
     mutable js::Value m_last_collection;
 };
 
@@ -698,7 +702,7 @@ void install_window(Realm::Internals& in)
     js::Heap::NoCollect const guard(interpreter.heap());
     js::Object* global = interpreter.global();
     in.prototypes["Window"] = global;
-    global->set_prototype(interpreter.heap().allocate<WindowNamedProperties>(global->prototype(), in));
+    global->set_prototype(interpreter.heap().allocate<WindowNamedProperties>(global->prototype(), *in.realm_record));
 
     // window, self and frames are the window (its indexed frames are not
     // written); parent and top walk up the frames it is shown in, for as far

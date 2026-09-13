@@ -201,6 +201,14 @@ struct ScriptStats {
 // makes, and a host that parsed without a realm does it once after.
 void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const& document);
 
+// What an iframe shows, as HTML reads its attributes: "srcdoc:" and the
+// text, or "src:" and the URL resolved against `base`; empty for nothing —
+// no src, an empty one, about:blank, or one that does not parse. The key a
+// frame's document is opened and drawn under.
+std::string frame_source(dom::Element const& iframe, net::Url const& base);
+
+struct Agent;
+
 class Realm final : public js::RootProvider, public html::ScriptRunner {
 public:
     Realm(dom::Document& document, net::Url url, HostHooks hooks);
@@ -289,6 +297,9 @@ public:
     Realm(Internals& parent, dom::Element& container, dom::Document& document, net::Url url, HostHooks hooks);
     // The realm of an iframe's document here, when it has one.
     Realm* frame_realm(dom::Element const& iframe);
+    // The agent's stand-in for its ended realms: an empty document, no hooks.
+    struct StandIn { };
+    Realm(StandIn, Agent& agent, dom::Document& document);
 
 private:
     std::unique_ptr<Internals> m_internals;

@@ -69,25 +69,26 @@ public:
     }
 };
 
-// A node's one wrapper (ADR 0001 §1).
+// A node's one wrapper (ADR 0001 §1). It names its realm through the realm's
+// record, which outlives the realm: a frame's realm that has ended hands the
+// record to the agent's stand-in, so a wrapper made by an ended realm still
+// answers, from nothing.
 class NodeWrapper final : public EventTargetObject {
 public:
-    NodeWrapper(js::Object* prototype, Realm& realm, dom::Node& node);
+    NodeWrapper(js::Object* prototype, js::RealmRecord& record, dom::Node& node);
     ~NodeWrapper() override;
     dom::Node& node() const { return *m_node; }
-    Realm& realm() const { return *m_realm; }
+    Realm& realm() const { return *static_cast<Realm*>(m_record->host_defined); }
+    // A node adopted into another realm's document is that realm's from then on.
+    void rehome(js::RealmRecord& record) { m_record = &record; }
     // A frame's realm ending before the heap its wrappers live in lets each go
-    // of its node and its realm; no native accepts a detached wrapper again.
-    void detach()
-    {
-        m_node = nullptr;
-        m_realm = nullptr;
-    }
+    // of its node; no native accepts a detached wrapper again.
+    void detach() { m_node = nullptr; }
     bool detached() const { return m_node == nullptr; }
     void trace(js::Tracer&) override;
 
 private:
-    Realm* m_realm;
+    js::RealmRecord* m_record;
     dom::Node* m_node;
 };
 
@@ -153,60 +154,70 @@ public:
     void trace(js::Tracer& tracer) override;
 };
 
-// A DOMTokenList over one attribute of an element (classList, relList).
-class TokenListObject final : public js::Object {
+// A host object over one element, reached through the element's wrapper: the
+// wrapper is traced with it, and once the wrapper is detached — its
+// document gone with a frame — there is no element to read, and the realm
+// answering is the wrapper's, the one its node's document has now.
+class ElementBackedObject : public js::Object {
 public:
-    TokenListObject(js::Object* prototype, Realm& the_realm, dom::Element& the_element, std::string the_attribute)
+    ElementBackedObject(js::Object* prototype, NodeWrapper* the_wrapper)
         : Object(prototype, Class::Host)
-        , realm(&the_realm)
-        , element(&the_element)
+        , wrapper(the_wrapper)
+    {
+    }
+    NodeWrapper* wrapper; // null for a computed style of no element
+    dom::Element* element() const
+    {
+        return wrapper && !wrapper->detached() ? static_cast<dom::Element*>(&wrapper->node()) : nullptr;
+    }
+    void trace(js::Tracer&) override;
+};
+
+// A DOMTokenList over one attribute of an element (classList, relList).
+class TokenListObject final : public ElementBackedObject {
+public:
+    TokenListObject(js::Object* prototype, NodeWrapper& the_wrapper, std::string the_attribute)
+        : ElementBackedObject(prototype, &the_wrapper)
         , attribute(std::move(the_attribute))
     {
     }
-    Realm* realm;
-    dom::Element* element;
     std::string attribute;
+    Realm::Internals& internals() const;
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
-    void trace(js::Tracer&) override;
 };
 
 // A CSSStyleDeclaration: an element's style attribute read and written
 // property by property, or — read-only — its computed style.
-class StyleDeclarationObject final : public js::Object {
+class StyleDeclarationObject final : public ElementBackedObject {
 public:
-    StyleDeclarationObject(js::Object* prototype, Realm& the_realm, dom::Element* the_element, bool is_computed)
-        : Object(prototype, Class::Host)
-        , realm(&the_realm)
-        , element(the_element)
+    StyleDeclarationObject(js::Object* prototype, js::RealmRecord& the_record, NodeWrapper* the_wrapper, bool is_computed)
+        : ElementBackedObject(prototype, the_wrapper)
+        , record(&the_record)
         , computed(is_computed)
     {
     }
-    Realm* realm;
-    dom::Element* element;
+    js::RealmRecord* record; // the realm that made it, for a declaration of no element
     bool computed;
+    Realm::Internals& internals() const;
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
     std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
     void trace(js::Tracer&) override;
 };
 
 // element.dataset: the data-* attributes as properties.
-class DatasetObject final : public js::Object {
+class DatasetObject final : public ElementBackedObject {
 public:
-    DatasetObject(js::Object* prototype, Realm& the_realm, dom::Element& the_element)
-        : Object(prototype, Class::Host)
-        , realm(&the_realm)
-        , element(&the_element)
+    DatasetObject(js::Object* prototype, NodeWrapper& the_wrapper)
+        : ElementBackedObject(prototype, &the_wrapper)
     {
     }
-    Realm* realm;
-    dom::Element* element;
+    Realm::Internals& internals() const;
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
     std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
     bool delete_property(js::PropertyKey const&) override;
     std::vector<js::PropertyKey> own_keys() const override;
-    void trace(js::Tracer&) override;
 };
 
 // localStorage and sessionStorage: a map of strings, reachable as
@@ -312,6 +323,17 @@ struct Task {
     std::function<void()> run;
 };
 
+// An iframe's document with a realm of its own in its page's agent: the
+// policy, the document, and the Realm last, so that the Realm ends first;
+// and what the frame was opened from, as the painter keys it.
+struct ChildFrame {
+    dom::Element* container = nullptr;
+    std::string source;
+    std::unique_ptr<net::ContentSecurityPolicy> policy;
+    std::unique_ptr<dom::Document> document;
+    std::unique_ptr<Realm> realm;
+};
+
 // The agent a page's documents run in (HTML §8.1.2, the similar-origin
 // window agent): the interpreter, whose heap and job queue — the microtask
 // queue — its realms share, the event loop's tasks and timers, and how deep
@@ -326,15 +348,18 @@ struct Agent {
     std::uint64_t next_sequence = 1;
     bool in_checkpoint = false;
     int script_depth = 0; // entries from the host in progress
-};
-
-// An iframe's document with a realm of its own in its page's agent: the
-// policy, the document, and the Realm last, so that the Realm ends first.
-struct ChildFrame {
-    dom::Element* container = nullptr;
-    std::unique_ptr<net::ContentSecurityPolicy> policy;
-    std::unique_ptr<dom::Document> document;
-    std::unique_ptr<Realm> realm;
+    // Every entry of the host into any realm here, nested: a frame's realm
+    // ends only when this is back at zero.
+    int host_depth = 0;
+    bool ending = false; // the page's realm is being destroyed
+    // The realm that stands in for the realms that have ended: an empty
+    // document, no hooks, and tasks and timers that never run. A native of an
+    // ended realm that a script still holds answers from it. After the
+    // interpreter, so that it ends before it; the frames being closed after
+    // it, since their ending hands it their records.
+    std::unique_ptr<dom::Document> stand_in_document;
+    std::unique_ptr<Realm> stand_in;
+    std::vector<ChildFrame> closing;
 };
 
 struct Realm::Internals {
@@ -358,13 +383,41 @@ struct Realm::Internals {
     // that iframe; null for a page's.
     Internals* parent_realm = nullptr;
     dom::Element* frame_element = nullptr;
+    bool ended = false; // the agent's stand-in: no task or timer of its runs
     // The frames of this document that have realms, in the order they were
     // opened; after the agent, so that they end before it.
     std::vector<ChildFrame> child_frames;
     // Opens an iframe's document in a realm of its own here, when the host
-    // answers for it; and the frame of an iframe, when it has this origin.
-    void open_frame(dom::Element& iframe);
+    // answers for it, its mutation count starting past `mutations_from`; and
+    // the frame of an iframe, when it has this origin.
+    void open_frame(dom::Element& iframe, std::uint64_t mutations_from = 0);
     ChildFrame const* frame_of(dom::Element const& iframe) const;
+    // Closes an iframe's frame here: its loop work erased, its window gone
+    // at once, its realm ended at the agent's next safe point.
+    void close_frame(dom::Element const& iframe);
+    // The realm of a document in this agent, found from the page down; null
+    // for a document none of them owns.
+    Internals* realm_of(dom::Document const& document);
+    // Adopts a node into a document (DOM §4.2.4), re-homing every wrapper in
+    // the subtree to that document's realm; a node leaving a tree closes the
+    // frames of the iframes in it.
+    void adopt_into(dom::Document& target, dom::Node& node);
+    void frames_removed(dom::Node& subtree);
+    // A subtree inserted into a connected tree: each iframe in it navigates,
+    // in a task after the script that inserted it, as does an iframe whose
+    // src or srcdoc a script changed.
+    void frames_inserted(dom::Node& subtree);
+    void schedule_frame_navigation(dom::Element& iframe);
+    void navigate_frame(dom::Element& iframe);
+    // Holds the agent's host_depth for a public entry of the realm; the last
+    // one out ends the frames closed meanwhile.
+    struct HostEntry {
+        explicit HostEntry(Agent&);
+        ~HostEntry();
+        HostEntry(HostEntry const&) = delete;
+        HostEntry& operator=(HostEntry const&) = delete;
+        Agent& agent;
+    };
 
     // The interfaces, by name: each constructor's prototype object.
     std::unordered_map<std::string, js::Object*> prototypes;
@@ -443,6 +496,7 @@ struct Realm::Internals {
     struct Entry {
         explicit Entry(Internals&);
         ~Entry();
+        HostEntry host_entry; // first, so that it is the last out
         Internals& internals;
         double started;
         // The host enters this document's realm for the length of the entry.
@@ -539,6 +593,8 @@ void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSigna
 js::Value make_token_list(Realm::Internals&, dom::Element&, std::string attribute); // classList, relList
 js::Value make_style_declaration(Realm::Internals&, dom::Element*, bool computed); // element.style, getComputedStyle
 js::Value make_dataset(Realm::Internals&, dom::Element&);
+// The element's wrapper as the node wrapper it is.
+NodeWrapper& wrapper_for(Realm::Internals&, dom::Node&);
 
 // Control state through the hooks, else the realm's fallback.
 std::string control_value_of(Realm::Internals&, dom::Element const&);
@@ -579,6 +635,9 @@ std::string attribute_or_empty(dom::Element const&, std::string_view name);
 // ASCII lowercase / uppercase copies.
 std::string ascii_lower(std::string_view);
 std::string ascii_upper(std::string_view);
+// WebIDL's unsigned long of a number: NaN and the infinities are 0, the rest
+// truncated and taken modulo 2^32.
+std::uint32_t to_unsigned_long(double);
 // The HTML "space characters" split of a token list attribute.
 std::vector<std::string> split_tokens(std::string_view);
 std::string join_tokens(std::vector<std::string> const&);

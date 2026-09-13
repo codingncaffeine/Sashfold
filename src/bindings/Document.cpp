@@ -457,7 +457,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return internals.throw_dom_exception("NotSupportedError", "The node provided is a document, which may not be imported.");
         bool const deep = js::Interpreter::to_boolean(js::argument(args, 1));
         dom::Node* clone = deep ? dom::clone_subtree(*node, d) : clone_node(internals, *node, false);
-        d.adopt(*clone);
+        internals.adopt_into(d, *clone);
         return js::Value::object(internals.wrap(*clone));
     });
     document_method(in, *document, "adoptNode", 1, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
@@ -466,7 +466,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return internals.interpreter.throw_type_error("parameter 1 is not of type 'Node'");
         if (node->type() == dom::NodeType::Document)
             return internals.throw_dom_exception("NotSupportedError", "The node provided is a document, which may not be adopted.");
-        d.adopt(*node);
+        internals.adopt_into(d, *node);
         internals.realm.note_mutation();
         return js::Value::object(internals.wrap(*node));
     });

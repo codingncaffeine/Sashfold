@@ -1500,6 +1500,111 @@ void test_messages_between_windows()
     CHECK_EQ(page->console, "");
 }
 
+// A frame's document follows its iframe. A changed srcdoc or src reopens the
+// frame after the script that changed it, with a new window and one load
+// event; a removed iframe's frame closes at once — contentWindow null, its
+// timers and its own frames' timers never run — and its realm ends once the
+// host's entry has returned, so a script still holding its window, a node of
+// its document or a token list of one reads nothing rather than freed
+// memory, while a node adopted into the page before the removal lives on
+// there; a frame can remove its own iframe from inside its own load; and a
+// script-inserted iframe opens after the script, with a load event.
+void test_a_frames_document_follows_its_iframe()
+{
+    std::map<std::string, std::string> documents; // by URL, for a src
+    documents["https://example.test/dir/second.html"] = "<script>var which = 'second';</script>";
+    bindings::HostHooks hooks;
+    hooks.frame_document = [&documents](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+        bindings::FrameDocument answer;
+        answer.content_type = "text/html";
+        if (policy)
+            answer.policy = *policy;
+        if (dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc")) {
+            answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+            answer.url = *net::parse_url("about:srcdoc");
+            // An srcdoc document has its parent's origin, a nested one's too.
+            answer.origin = ancestors.empty() ? base : ancestors.back().origin;
+            answer.srcdoc = true;
+            return answer;
+        }
+        dom::Attr const* const src = iframe.find_attribute("src");
+        std::optional<net::Url> const url = src ? net::parse_url(src->value, &base) : std::nullopt;
+        if (!url)
+            return std::nullopt;
+        auto const it = documents.find(url->serialize());
+        if (it == documents.end())
+            return std::nullopt;
+        answer.bytes.assign(it->second.begin(), it->second.end());
+        answer.url = *url;
+        answer.origin = *url;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var loads = {}; document.addEventListener('load', function (e) { if (e.target.tagName === 'IFRAME') loads[e.target.id] = (loads[e.target.id] || 0) + 1; }, true);</script>
+<iframe id=a srcdoc="<script>var which = 'first'; setTimeout(function () { parent.aTimerRan = true; }, 5);</script>"></iframe>
+<iframe id=b srcdoc="<script>var which = 'b';</script>"></iframe>
+<iframe id=c srcdoc="<p id=keep class=x>kept</p><script>var which = 'c'; setTimeout(function () { parent.cTimerRan = true; }, 1500);</script>"></iframe>
+<iframe id=d srcdoc="<script>parent.dOpened = (parent.dOpened || 0) + 1; frameElement.remove();</script>"></iframe>
+<iframe id=f srcdoc="<iframe id=inner srcdoc='<script>setTimeout(function () { top.innerTimerRan = true; }, 1500);</script>'></iframe>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    CHECK(page->boolean("loads.a === 1 && loads.b === 1 && loads.c === 1 && loads.f === 1"));
+    // d removed its own iframe from inside its load: opened once, no load
+    // event at an iframe no longer in the tree.
+    CHECK(page->boolean("dOpened === 1 && loads.d === undefined && document.getElementById('d') === null"));
+
+    // A changed srcdoc: the old window stands until the task, then a new one.
+    page->eval("var a = document.getElementById('a'); var oldWindow = a.contentWindow;"
+               " a.srcdoc = \"<script>var which = 'changed';</script>\";");
+    CHECK(page->boolean("a.contentWindow === oldWindow && oldWindow.which === 'first' && loads.a === 1"));
+    // A src in place of a srcdoc: two changes, one navigation.
+    page->eval("var b = document.getElementById('b'); b.removeAttribute('srcdoc'); b.src = 'second.html';");
+    page->clock = 2000;
+    page->realm->run_pending();
+    CHECK(page->boolean("a.contentWindow !== oldWindow && a.contentWindow.which === 'changed' && loads.a === 2"));
+    CHECK(page->boolean("b.contentWindow.which === 'second' && loads.b === 2"));
+    // The old document's timer never ran; the old window answers from nothing.
+    CHECK(page->boolean("typeof aTimerRan === 'undefined'"));
+    CHECK(page->boolean("oldWindow.which === 'first' && oldWindow.document.body === null && oldWindow.nosuch === undefined"));
+    CHECK(page->boolean("oldWindow.postMessage('x', '*') === undefined && typeof oldWindow.setTimeout(function () { parent.neverRuns = true; }, 0) === 'number'"));
+
+    // A removed iframe: the frame closes at once, and its realm ends when the
+    // script that removed it has returned.
+    page->eval("var c = document.getElementById('c'); var cWindow = c.contentWindow; var cDoc = c.contentDocument;"
+               " var keep = cDoc.getElementById('keep'); var keepStyle = keep.style; var cList = cDoc.body.classList;"
+               " document.body.appendChild(keep); c.remove();"
+               " var closedAtOnce = c.contentWindow === null && c.contentDocument === null;");
+    CHECK(page->boolean("closedAtOnce"));
+    CHECK(page->boolean("keep.textContent === 'kept' && keep.parentNode === document.body && keep.ownerDocument === document && keep.className === 'x'"));
+    // The adopted node's wrapper is the page's now: writing through it moves
+    // the page's mutation count.
+    std::uint64_t const before = page->realm->mutation_count();
+    page->eval("keepStyle.color = 'red';");
+    CHECK(page->realm->mutation_count() > before);
+    CHECK_EQ(page->string("keep.getAttribute('style')"), "color: red;");
+    CHECK(page->boolean("cWindow.which === 'c' && cWindow.document.body === null && cWindow.keep === undefined"));
+    // The TypeError is the frame realm's own, so it is told by name.
+    CHECK(page->boolean("cList.length === 0 && (function () { try { cDoc.getElementById('keep'); } catch (e) { return e.name === 'TypeError'; } return false; })()"));
+    // Its timer, and a nested frame's, due between the pumps, never run.
+    page->eval("document.getElementById('f').remove();");
+    page->clock = 3000;
+    page->realm->run_pending();
+    CHECK(page->boolean("typeof cTimerRan === 'undefined' && typeof innerTimerRan === 'undefined' && typeof neverRuns === 'undefined'"));
+
+    // A script-inserted iframe opens after the script, once, with a load.
+    page->eval("var e = document.createElement('iframe'); e.id = 'e';"
+               " e.srcdoc = \"<script>parent.eOpened = (parent.eOpened || 0) + 1;</script>\"; document.body.appendChild(e);"
+               " var openedLater = e.contentWindow === null;");
+    page->realm->run_pending();
+    CHECK(page->boolean("openedLater && eOpened === 1 && loads.e === 1 && e.contentWindow !== null"));
+    // Removed from inside, by its own script, at the page's ask.
+    page->eval("e.contentWindow.eval('frameElement.remove()');");
+    CHECK(page->boolean("document.getElementById('e') === null && eOpened === 1"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 } // namespace
 
 int main()
@@ -1533,5 +1638,6 @@ int main()
     test_a_frames_window_events_are_its_own();
     test_a_frames_detached_nodes_go_with_it();
     test_messages_between_windows();
+    test_a_frames_document_follows_its_iframe();
     return test::report("test_bindings");
 }

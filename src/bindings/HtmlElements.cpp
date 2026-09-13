@@ -663,7 +663,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             dom::Node* reference = internals.realm.node_of(before);
             if (!reference && before.is_number()) {
                 std::vector<dom::Element*> const options = options_of(e);
-                auto const index = static_cast<std::size_t>(std::max(0.0, before.as_number()));
+                std::size_t const index = before.as_number() < 0 ? options.size() : to_unsigned_long(before.as_number());
                 if (index < options.size())
                     reference = options[index];
             }

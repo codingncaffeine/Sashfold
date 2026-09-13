@@ -513,7 +513,10 @@ std::optional<TokenListObject*> this_token_list(js::Interpreter& interpreter, js
 
 std::vector<std::string> tokens_of(TokenListObject const& list)
 {
-    std::vector<std::string> tokens = split_tokens(attribute_or_empty(*list.element, list.attribute));
+    dom::Element const* const element = list.element();
+    if (!element)
+        return {}; // its document is gone with a frame
+    std::vector<std::string> tokens = split_tokens(attribute_or_empty(*element, list.attribute));
     // The ordered set: duplicates dropped.
     std::vector<std::string> unique;
     for (std::string& token : tokens) {
@@ -525,7 +528,8 @@ std::vector<std::string> tokens_of(TokenListObject const& list)
 
 void write_tokens(TokenListObject const& list, std::vector<std::string> const& tokens)
 {
-    set_attribute(*&list.realm->internals(), *list.element, list.attribute, join_tokens(tokens));
+    if (dom::Element* const element = list.element())
+        set_attribute(list.internals(), *element, list.attribute, join_tokens(tokens));
 }
 
 // A token argument must be non-empty and hold no whitespace (§7.1).
@@ -622,14 +626,14 @@ std::optional<js::Value> StyleDeclarationObject::get(js::Interpreter& interprete
     std::string const name = css_property_name(key.as_atom()->to_utf8());
     if (name.empty() || name.starts_with("_") || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
         return js::Value::undefined();
-    Realm::Internals& in = realm->internals();
-    if (!element)
+    Realm::Internals& in = internals();
+    if (!element())
         return in.string("");
     if (computed) {
-        css::ComputedStyle const* style = in.hooks.computed_style ? in.hooks.computed_style(*element) : nullptr;
-        return in.string(style ? computed_property(in, *element, *style, name) : "");
+        css::ComputedStyle const* style = in.hooks.computed_style ? in.hooks.computed_style(*element()) : nullptr;
+        return in.string(style ? computed_property(in, *element(), *style, name) : "");
     }
-    return in.string(declaration_value(*element, name));
+    return in.string(declaration_value(*element(), name));
 }
 
 std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& value, js::Value const& receiver)
@@ -639,15 +643,15 @@ std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js
     std::string const name = css_property_name(key.as_atom()->to_utf8());
     if (name.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
         return Object::set(interpreter, key, value, receiver);
-    Realm::Internals& in = realm->internals();
-    if (computed || !element) {
+    Realm::Internals& in = internals();
+    if (computed || !element()) {
         in.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore the '" + name + "' property is read-only.");
         return std::nullopt;
     }
     std::optional<std::string> const text = value.is_nullish() ? std::optional<std::string>("") : in.to_utf8(value);
     if (!text)
         return std::nullopt;
-    set_declaration(in, *element, name, *text, false);
+    set_declaration(in, *element(), name, *text, false);
     return true;
 }
 
@@ -655,10 +659,10 @@ std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js
 
 std::optional<js::PropertyDescriptor> DatasetObject::get_own_property(js::PropertyKey const& key) const
 {
-    if (key.is_atom()) {
+    if (key.is_atom() && element()) {
         js::Heap::NoCollect const guard(*heap()); // a fresh string the caller has not rooted yet
         std::string const attribute = dataset_attribute(key.as_atom()->to_utf8());
-        if (dom::Attr const* found = element->find_attribute(attribute))
+        if (dom::Attr const* found = element()->find_attribute(attribute))
             return js::PropertyDescriptor::data(js::Value::string(heap()->string(found->value)), js::default_attributes);
     }
     return Object::get_own_property(key);
@@ -666,9 +670,9 @@ std::optional<js::PropertyDescriptor> DatasetObject::get_own_property(js::Proper
 
 std::optional<js::Value> DatasetObject::get(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& receiver)
 {
-    if (key.is_atom()) {
+    if (key.is_atom() && element()) {
         std::string const attribute = dataset_attribute(key.as_atom()->to_utf8());
-        if (dom::Attr const* found = element->find_attribute(attribute))
+        if (dom::Attr const* found = element()->find_attribute(attribute))
             return js::Value::string(interpreter.string(found->value));
     }
     return Object::get(interpreter, key, receiver);
@@ -678,18 +682,22 @@ std::optional<bool> DatasetObject::set(js::Interpreter& interpreter, js::Propert
 {
     if (!key.is_atom())
         return Object::set(interpreter, key, value, receiver);
-    Realm::Internals& in = realm->internals();
+    dom::Element* const target = element();
+    if (!target)
+        return interpreter.throw_type_error("Illegal invocation");
+    Realm::Internals& in = internals();
     std::optional<std::string> text = in.to_utf8(value);
     if (!text)
         return std::nullopt;
-    set_attribute(in, *element, dataset_attribute(key.as_atom()->to_utf8()), std::move(*text));
+    set_attribute(in, *target, dataset_attribute(key.as_atom()->to_utf8()), std::move(*text));
     return true;
 }
 
 bool DatasetObject::delete_property(js::PropertyKey const& key)
 {
     if (key.is_atom()) {
-        remove_attribute(realm->internals(), *element, dataset_attribute(key.as_atom()->to_utf8()));
+        if (dom::Element* const target = element())
+            remove_attribute(internals(), *target, dataset_attribute(key.as_atom()->to_utf8()));
         return true;
     }
     return Object::delete_property(key);
@@ -698,7 +706,9 @@ bool DatasetObject::delete_property(js::PropertyKey const& key)
 std::vector<js::PropertyKey> DatasetObject::own_keys() const
 {
     std::vector<js::PropertyKey> keys;
-    for (dom::Attr const& attribute : element->attributes()) {
+    if (!element())
+        return keys;
+    for (dom::Attr const& attribute : element()->attributes()) {
         if (attribute.local_name.starts_with("data-") && attribute.prefix.empty())
             keys.push_back(heap()->key(dataset_name(attribute.local_name)));
     }
@@ -707,21 +717,32 @@ std::vector<js::PropertyKey> DatasetObject::own_keys() const
 
 // --- Factories -------------------------------------------------------------------------------
 
+// Each is made over the element's wrapper, rooted while the object is made.
 js::Value make_token_list(Realm::Internals& in, dom::Element& element, std::string attribute)
 {
-    TokenListObject* list = in.interpreter.heap().allocate<TokenListObject>(in.prototype("DOMTokenList"), in.realm, element, std::move(attribute));
+    js::Interpreter::Roots const roots(in.interpreter);
+    NodeWrapper& wrapper = wrapper_for(in, element);
+    in.interpreter.root(js::Value::object(&wrapper));
+    TokenListObject* list = in.interpreter.heap().allocate<TokenListObject>(in.prototype("DOMTokenList"), wrapper, std::move(attribute));
     return js::Value::object(list);
 }
 
 js::Value make_style_declaration(Realm::Internals& in, dom::Element* element, bool computed)
 {
-    StyleDeclarationObject* style = in.interpreter.heap().allocate<StyleDeclarationObject>(in.prototype("CSSStyleDeclaration"), in.realm, element, computed);
+    js::Interpreter::Roots const roots(in.interpreter);
+    NodeWrapper* const wrapper = element ? &wrapper_for(in, *element) : nullptr;
+    if (wrapper)
+        in.interpreter.root(js::Value::object(wrapper));
+    StyleDeclarationObject* style = in.interpreter.heap().allocate<StyleDeclarationObject>(in.prototype("CSSStyleDeclaration"), *in.realm_record, wrapper, computed);
     return js::Value::object(style);
 }
 
 js::Value make_dataset(Realm::Internals& in, dom::Element& element)
 {
-    DatasetObject* dataset = in.interpreter.heap().allocate<DatasetObject>(in.prototype("DOMStringMap"), in.realm, element);
+    js::Interpreter::Roots const roots(in.interpreter);
+    NodeWrapper& wrapper = wrapper_for(in, element);
+    in.interpreter.root(js::Value::object(&wrapper));
+    DatasetObject* dataset = in.interpreter.heap().allocate<DatasetObject>(in.prototype("DOMStringMap"), wrapper);
     return js::Value::object(dataset);
 }
 
@@ -746,7 +767,8 @@ void install_style(Realm::Internals& in)
             std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
             if (!list)
                 return std::nullopt;
-            return internals_of(interp).string(attribute_or_empty(*(*list)->element, (*list)->attribute));
+            dom::Element const* const element = (*list)->element();
+            return internals_of(interp).string(element ? attribute_or_empty(*element, (*list)->attribute) : "");
         },
         [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
             std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
@@ -755,14 +777,16 @@ void install_style(Realm::Internals& in)
             std::optional<std::string> text = internals_of(interp).to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
-            set_attribute(internals_of(interp), *(*list)->element, (*list)->attribute, std::move(*text));
+            if (dom::Element* const element = (*list)->element())
+                set_attribute((*list)->internals(), *element, (*list)->attribute, std::move(*text));
             return js::Value::undefined();
         });
     js::define_method(interpreter, *token_list, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
-        return internals_of(interp).string(attribute_or_empty(*(*list)->element, (*list)->attribute));
+        dom::Element const* const element = (*list)->element();
+        return internals_of(interp).string(element ? attribute_or_empty(*element, (*list)->attribute) : "");
     });
     js::define_method(interpreter, *token_list, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
@@ -904,30 +928,30 @@ void install_style(Realm::Internals& in)
             std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
             if (!s)
                 return std::nullopt;
-            if ((*s)->computed || !(*s)->element)
+            if ((*s)->computed || !(*s)->element())
                 return internals_of(interp).string("");
-            return internals_of(interp).string(serialize_declarations(declarations_of(*(*s)->element)));
+            return internals_of(interp).string(serialize_declarations(declarations_of(*(*s)->element())));
         },
         [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
             std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
             if (!s)
                 return std::nullopt;
             Realm::Internals& internals = internals_of(interp);
-            if ((*s)->computed || !(*s)->element)
+            if ((*s)->computed || !(*s)->element())
                 return internals.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore read-only.");
             std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
-            write_declarations(internals, *(*s)->element, css::parse_declaration_list(*text));
+            write_declarations(internals, *(*s)->element(), css::parse_declaration_list(*text));
             return js::Value::undefined();
         });
     define_getter(in, *style, "length", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
-        if ((*s)->computed || !(*s)->element)
+        if ((*s)->computed || !(*s)->element())
             return js::Value::number(0);
-        return js::Value::number(static_cast<double>(declarations_of(*(*s)->element).size()));
+        return js::Value::number(static_cast<double>(declarations_of(*(*s)->element()).size()));
     });
     define_getter(in, *style, "parentRule", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
     js::define_method(interpreter, *style, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
@@ -937,9 +961,9 @@ void install_style(Realm::Internals& in)
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
-        if ((*s)->computed || !(*s)->element)
+        if ((*s)->computed || !(*s)->element())
             return internals_of(interp).string("");
-        std::vector<css::Declaration> const declarations = declarations_of(*(*s)->element);
+        std::vector<css::Declaration> const declarations = declarations_of(*(*s)->element());
         if (*index < 0 || *index >= static_cast<double>(declarations.size()))
             return internals_of(interp).string("");
         return internals_of(interp).string(declarations[static_cast<std::size_t>(*index)].name);
@@ -952,13 +976,13 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        if (!(*s)->element)
+        if (!(*s)->element())
             return internals.string("");
         if ((*s)->computed) {
-            css::ComputedStyle const* computed = internals.hooks.computed_style ? internals.hooks.computed_style(*(*s)->element) : nullptr;
-            return internals.string(computed ? computed_property(internals, *(*s)->element, *computed, ascii_lower(*name)) : "");
+            css::ComputedStyle const* computed = internals.hooks.computed_style ? internals.hooks.computed_style(*(*s)->element()) : nullptr;
+            return internals.string(computed ? computed_property(internals, *(*s)->element(), *computed, ascii_lower(*name)) : "");
         }
-        return internals.string(declaration_value(*(*s)->element, *name));
+        return internals.string(declaration_value(*(*s)->element(), *name));
     });
     js::define_method(interpreter, *style, "getPropertyPriority", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
@@ -968,9 +992,9 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        if ((*s)->computed || !(*s)->element)
+        if ((*s)->computed || !(*s)->element())
             return internals.string("");
-        for (css::Declaration const& declaration : declarations_of(*(*s)->element)) {
+        for (css::Declaration const& declaration : declarations_of(*(*s)->element())) {
             if (declaration.name == ascii_lower(*name))
                 return internals.string(declaration.important ? "important" : "");
         }
@@ -981,7 +1005,7 @@ void install_style(Realm::Internals& in)
         if (!s)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        if ((*s)->computed || !(*s)->element)
+        if ((*s)->computed || !(*s)->element())
             return internals.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore read-only.");
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         js::Value const value_argument = js::argument(args, 1);
@@ -989,7 +1013,7 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const priority = js::argument(args, 2).is_undefined() ? std::optional<std::string>("") : internals.to_utf8(js::argument(args, 2));
         if (!name || !value || !priority)
             return std::nullopt;
-        set_declaration(internals, *(*s)->element, *name, *value, ascii_lower(*priority) == "important");
+        set_declaration(internals, *(*s)->element(), *name, *value, ascii_lower(*priority) == "important");
         return js::Value::undefined();
     });
     js::define_method(interpreter, *style, "removeProperty", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
@@ -997,13 +1021,13 @@ void install_style(Realm::Internals& in)
         if (!s)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        if ((*s)->computed || !(*s)->element)
+        if ((*s)->computed || !(*s)->element())
             return internals.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore read-only.");
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        std::string const previous = declaration_value(*(*s)->element, *name);
-        set_declaration(internals, *(*s)->element, *name, "", false);
+        std::string const previous = declaration_value(*(*s)->element(), *name);
+        set_declaration(internals, *(*s)->element(), *name, "", false);
         return internals.string(previous);
     });
 

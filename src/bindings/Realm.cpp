@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -27,9 +28,9 @@ void EventTargetObject::trace(js::Tracer& tracer)
         tracer.visit(handler.function);
 }
 
-NodeWrapper::NodeWrapper(js::Object* prototype, Realm& realm, dom::Node& node)
+NodeWrapper::NodeWrapper(js::Object* prototype, js::RealmRecord& record, dom::Node& node)
     : EventTargetObject(prototype)
-    , m_realm(&realm)
+    , m_record(&record)
     , m_node(&node)
 {
 }
@@ -45,6 +46,7 @@ NodeWrapper::~NodeWrapper()
 void NodeWrapper::trace(js::Tracer& tracer)
 {
     EventTargetObject::trace(tracer);
+    tracer.visit(m_record);
     if (!m_node)
         return;
     // A detached subtree lives as long as a wrapper into it is reachable
@@ -52,7 +54,7 @@ void NodeWrapper::trace(js::Tracer& tracer)
     // document a script made keeps that document's wrapper. The connected
     // tree is marked by the realm as one root.
     dom::Node& root = m_node->root();
-    if (&root != &m_realm->document() && root.wrapper && root.wrapper != this)
+    if (&root != &realm().document() && root.wrapper && root.wrapper != this)
         tracer.visit(root.wrapper);
 }
 
@@ -67,25 +69,24 @@ void EventObject::trace(js::Tracer& tracer)
     tracer.visit(ports);
 }
 
-void TokenListObject::trace(js::Tracer& tracer)
+void ElementBackedObject::trace(js::Tracer& tracer)
 {
     Object::trace(tracer);
-    if (element->wrapper)
-        tracer.visit(element->wrapper);
+    tracer.visit(wrapper);
+}
+
+Realm::Internals& TokenListObject::internals() const { return wrapper->realm().internals(); }
+Realm::Internals& DatasetObject::internals() const { return wrapper->realm().internals(); }
+
+Realm::Internals& StyleDeclarationObject::internals() const
+{
+    return wrapper ? wrapper->realm().internals() : static_cast<Realm*>(record->host_defined)->internals();
 }
 
 void StyleDeclarationObject::trace(js::Tracer& tracer)
 {
-    Object::trace(tracer);
-    if (element && element->wrapper)
-        tracer.visit(element->wrapper);
-}
-
-void DatasetObject::trace(js::Tracer& tracer)
-{
-    Object::trace(tracer);
-    if (element->wrapper)
-        tracer.visit(element->wrapper);
+    ElementBackedObject::trace(tracer);
+    tracer.visit(record);
 }
 
 void UrlObject::trace(js::Tracer& tracer)
@@ -154,11 +155,33 @@ std::string join_tokens(std::vector<std::string> const& tokens)
     return out;
 }
 
+std::uint32_t to_unsigned_long(double number)
+{
+    if (std::isnan(number) || std::isinf(number))
+        return 0;
+    double integer = std::fmod(std::trunc(number), 4294967296.0);
+    if (integer < 0)
+        integer += 4294967296.0;
+    return static_cast<std::uint32_t>(integer);
+}
+
 std::string attribute_or_empty(dom::Element const& element, std::string_view name)
 {
     dom::Attr const* attribute = element.find_attribute(name);
     return attribute ? attribute->value : std::string();
 }
+
+namespace {
+
+// An iframe's src or srcdoc written by a script: the frame navigates.
+void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view name)
+{
+    in.realm.note_mutation();
+    if ((name == "src" || name == "srcdoc") && element.is_html("iframe"))
+        in.schedule_frame_navigation(element);
+}
+
+} // namespace
 
 void set_attribute(Realm::Internals& in, dom::Element& element, std::string_view name, std::string value)
 {
@@ -166,12 +189,12 @@ void set_attribute(Realm::Internals& in, dom::Element& element, std::string_view
         if (attribute.local_name == name && attribute.prefix.empty()) {
             attribute.value = std::move(value);
             attribute.from_cssom = false; // set by a script as text: inline style again
-            in.realm.note_mutation();
+            attribute_written(in, element, name);
             return;
         }
     }
     element.attributes().push_back(dom::Attr { std::string(name), std::move(value), "", "" });
-    in.realm.note_mutation();
+    attribute_written(in, element, name);
 }
 
 bool remove_attribute(Realm::Internals& in, dom::Element& element, std::string_view name)
@@ -182,8 +205,21 @@ bool remove_attribute(Realm::Internals& in, dom::Element& element, std::string_v
     if (it == attributes.end())
         return false;
     attributes.erase(it);
-    in.realm.note_mutation();
+    attribute_written(in, element, name);
     return true;
+}
+
+std::string frame_source(dom::Element const& iframe, net::Url const& base)
+{
+    if (dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc"))
+        return "srcdoc:" + srcdoc->value;
+    dom::Attr const* const src = iframe.find_attribute("src");
+    if (!src || src->value.empty())
+        return "";
+    std::optional<net::Url> const url = net::parse_url(src->value, &base);
+    if (!url || url->scheme == "about")
+        return "";
+    return "src:" + url->serialize();
 }
 
 std::optional<dom::Node*> this_node(js::Interpreter& interpreter, js::Value const& this_value)
@@ -495,7 +531,8 @@ void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view
 }
 
 Realm::Internals::Entry::Entry(Internals& the_internals)
-    : internals(the_internals)
+    : host_entry(the_internals.agent)
+    , internals(the_internals)
     , started(the_internals.now())
     , realm_scope(the_internals.interpreter, the_internals.realm_record)
 {
@@ -509,8 +546,8 @@ Realm::Internals::Entry::Entry(Internals& the_internals)
 Realm::Internals::Entry::~Entry()
 {
     using namespace std::chrono;
-    double const ended = static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
-    internals.stats.script_ms += ended - started;
+    double const finished = static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
+    internals.stats.script_ms += finished - started;
     if (--internals.agent.script_depth == 0)
         internals.realm.perform_microtask_checkpoint();
 }
@@ -602,9 +639,14 @@ js::Object* Realm::Internals::wrap(dom::Node& node)
     if (node.wrapper)
         return node.wrapper;
     js::Object* proto = prototype_for(node);
-    NodeWrapper* wrapper = interpreter.heap().allocate<NodeWrapper>(proto, realm, node);
+    NodeWrapper* wrapper = interpreter.heap().allocate<NodeWrapper>(proto, *realm_record, node);
     node.wrapper = wrapper;
     return wrapper;
+}
+
+NodeWrapper& wrapper_for(Realm::Internals& in, dom::Node& node)
+{
+    return *static_cast<NodeWrapper*>(in.wrap(node));
 }
 
 NodeWrapper* Realm::Internals::wrapper_of(js::Value const& value) const
@@ -1018,6 +1060,63 @@ void Realm::Internals::post_task(std::function<void()> task)
     agent.tasks.push_back(Task { agent.next_sequence++, this, std::move(task) });
 }
 
+Realm::Realm(StandIn, Agent& agent, dom::Document& document)
+    : m_internals(std::make_unique<Internals>(*this, agent, document, *net::parse_url("about:blank"), HostHooks {}))
+{
+    Internals& in = *m_internals;
+    in.ended = true;
+    in.realm_record->host_defined = this;
+    in.interpreter.heap().add_root_provider(this);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    install_interfaces(in);
+}
+
+namespace {
+
+// The agent's stand-in, made the first time a realm ends while the page lives.
+Realm* stand_in_of(Agent& agent)
+{
+    if (!agent.stand_in) {
+        agent.stand_in_document = std::make_unique<dom::Document>();
+        agent.stand_in = std::make_unique<Realm>(Realm::StandIn {}, agent, *agent.stand_in_document);
+    }
+    return agent.stand_in.get();
+}
+
+// Ends the frames closed while the host was inside the agent's realms: the
+// last entry out calls this, when nothing of theirs is on the stack.
+void end_closing(Agent& agent)
+{
+    while (!agent.closing.empty()) {
+        ChildFrame frame = std::move(agent.closing.back());
+        agent.closing.pop_back();
+        frame.realm.reset(); // then its document and policy, with `frame`
+    }
+}
+
+// The timers and tasks of a realm and of its frames' realms, erased.
+void erase_loop_work(Realm::Internals& in)
+{
+    std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
+    std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
+    for (ChildFrame const& listed : in.child_frames)
+        erase_loop_work(listed.realm->internals());
+}
+
+} // namespace
+
+Realm::Internals::HostEntry::HostEntry(Agent& the_agent)
+    : agent(the_agent)
+{
+    ++agent.host_depth;
+}
+
+Realm::Internals::HostEntry::~HostEntry()
+{
+    if (--agent.host_depth == 0 && !agent.closing.empty())
+        end_closing(agent);
+}
+
 Realm::~Realm()
 {
     // The wrappers go with the heap, before the documents they point into:
@@ -1025,19 +1124,26 @@ Realm::~Realm()
     // after them (member order), the page's document by whoever owns it,
     // later. What this realm left on the agent's event loop goes first.
     Internals& in = *m_internals;
+    if (in.own_agent)
+        in.agent.ending = true;
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
     // Its frames end first, while this realm and the agent are whole.
     in.child_frames.clear();
     if (in.own_agent) {
+        in.agent.closing.clear();
+        in.agent.stand_in.reset();
+        in.agent.stand_in_document.reset();
         in.interpreter.clear_jobs();
     } else {
         // A frame's realm ends before the heap its wrappers live in: they let
-        // go of the nodes they point into, and the interpreter of this realm.
+        // go of the nodes they point into. Its record passes to the agent's
+        // stand-in, so a native of this realm that a script still holds
+        // answers from an empty document rather than from freed memory.
         detach_wrappers(in.document);
         for (std::unique_ptr<dom::Document> const& extra : in.extra_documents)
             detach_wrappers(*extra);
-        in.realm_record->host_defined = nullptr;
+        in.realm_record->host_defined = in.agent.ending || in.ended ? nullptr : stand_in_of(in.agent);
         in.interpreter.release_realm(in.realm_record);
     }
     in.interpreter.heap().remove_root_provider(this);
@@ -1077,6 +1183,7 @@ dom::Node* Realm::node_of(js::Value const& value) const
 void Realm::run_script(dom::Element& script, html::TreeBuilder& builder)
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     html::TreeBuilder* const previous = in.active_parser;
     in.active_parser = &builder;
@@ -1086,6 +1193,7 @@ void Realm::run_script(dom::Element& script, html::TreeBuilder& builder)
 
 void Realm::run_inserted_script(dom::Element& script)
 {
+    Internals::HostEntry const host(m_internals->agent);
     js::Interpreter::RealmScope const inside(m_internals->interpreter, m_internals->realm_record);
     m_internals->prepare_script(script, false);
 }
@@ -1093,6 +1201,7 @@ void Realm::run_inserted_script(dom::Element& script)
 js::Outcome Realm::run(std::string_view utf8_source, std::string name)
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     Internals::Entry const entry(in);
     js::Outcome outcome = in.interpreter.run_script(utf8_source, name);
     if (!outcome.ok) {
@@ -1120,6 +1229,7 @@ void collect_frames(dom::Node const& node, std::vector<dom::Element*>& out)
 void Realm::document_parsed()
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     // What the host does in this document's name happens in its realm, even
     // when a page's realm opens a frame's document from inside its own.
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
@@ -1145,7 +1255,9 @@ void Realm::document_parsed()
     collect_frames(in.document, frames);
     for (dom::Element* const frame : frames) {
         in.open_frame(*frame);
-        dispatch_event(frame, "load");
+        // Not at an iframe its own document's load took out of the tree.
+        if (frame->is_connected())
+            dispatch_event(frame, "load");
     }
     in.ready_state = "complete";
     dispatch_event(&in.document, "readystatechange");
@@ -1153,9 +1265,9 @@ void Realm::document_parsed()
     dispatch_event(nullptr, "pageshow");
 }
 
-void Realm::Internals::open_frame(dom::Element& iframe)
+void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from)
 {
-    if (!hooks.frame_document)
+    if (!hooks.frame_document || realm.frame_realm(iframe) != nullptr)
         return;
     // The documents this frame is inside, the page first: the framing rules
     // read the chain, and it goes ten frames deep, as the painter draws them.
@@ -1173,6 +1285,7 @@ void Realm::Internals::open_frame(dom::Element& iframe)
         return;
     ChildFrame opened;
     opened.container = &iframe;
+    opened.source = frame_source(iframe, url);
     opened.policy = answer->policy ? std::make_unique<net::ContentSecurityPolicy>(std::move(*answer->policy))
                                    : std::make_unique<net::ContentSecurityPolicy>(answer->url);
     opened.document = std::make_unique<dom::Document>();
@@ -1195,6 +1308,9 @@ void Realm::Internals::open_frame(dom::Element& iframe)
     frame_hooks.user_agent = hooks.user_agent;
     opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer->url, std::move(frame_hooks));
     opened.realm->internals().origin_url = answer->origin;
+    // A reopened frame counts on from its predecessor, so no picture of the
+    // old document stands for the new one.
+    opened.realm->internals().mutations = mutations_from;
     Realm& opened_realm = *opened.realm;
     dom::Document& opened_document = *opened.document;
     child_frames.push_back(std::move(opened));
@@ -1227,11 +1343,140 @@ Realm* Realm::frame_realm(dom::Element const& iframe)
     return nullptr;
 }
 
+void Realm::Internals::close_frame(dom::Element const& iframe)
+{
+    auto const it = std::find_if(child_frames.begin(), child_frames.end(),
+        [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
+    if (it == child_frames.end())
+        return;
+    // Nothing of its runs again, its own frames' included; the realm itself
+    // ends when the host's last entry into the agent has returned.
+    erase_loop_work(it->realm->internals());
+    agent.closing.push_back(std::move(*it));
+    child_frames.erase(it);
+}
+
+Realm::Internals* Realm::Internals::realm_of(dom::Document const& target)
+{
+    Internals* page = this;
+    while (page->parent_realm != nullptr)
+        page = page->parent_realm;
+    std::vector<Internals*> pending { page };
+    while (!pending.empty()) {
+        Internals* const at = pending.back();
+        pending.pop_back();
+        if (&at->document == &target)
+            return at;
+        for (std::unique_ptr<dom::Document> const& extra : at->extra_documents) {
+            if (extra.get() == &target)
+                return at;
+        }
+        for (ChildFrame const& listed : at->child_frames)
+            pending.push_back(&listed.realm->internals());
+    }
+    return nullptr;
+}
+
+namespace {
+
+// Every element of a subtree, the root included, template contents too.
+void walk_subtree(dom::Node& root, std::vector<dom::Node*>& out)
+{
+    std::vector<dom::Node*> pending { &root };
+    while (!pending.empty()) {
+        dom::Node* const current = pending.back();
+        pending.pop_back();
+        out.push_back(current);
+        for (dom::Node* const child : current->children())
+            pending.push_back(child);
+        if (current->is_element()) {
+            if (dom::Node* const content = static_cast<dom::Element*>(current)->template_content())
+                pending.push_back(content);
+        }
+    }
+}
+
+} // namespace
+
+void Realm::Internals::adopt_into(dom::Document& target, dom::Node& node)
+{
+    if (&node.document() == &target)
+        return;
+    if (node.parent())
+        frames_removed(node);
+    target.adopt(node);
+    Internals* const home = realm_of(target);
+    if (!home)
+        return;
+    std::vector<dom::Node*> nodes;
+    walk_subtree(node, nodes);
+    for (dom::Node* const moved : nodes) {
+        if (moved->wrapper)
+            static_cast<NodeWrapper*>(moved->wrapper)->rehome(*home->realm_record);
+    }
+}
+
+void Realm::Internals::frames_removed(dom::Node& subtree)
+{
+    std::vector<dom::Node*> nodes;
+    walk_subtree(subtree, nodes);
+    for (dom::Node* const node : nodes) {
+        if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("iframe"))
+            continue;
+        if (Internals* const owner = realm_of(node->document()))
+            owner->close_frame(*static_cast<dom::Element*>(node));
+    }
+}
+
+void Realm::Internals::frames_inserted(dom::Node& subtree)
+{
+    std::vector<dom::Node*> nodes;
+    walk_subtree(subtree, nodes);
+    for (dom::Node* const node : nodes) {
+        if (node->is_element() && static_cast<dom::Element*>(node)->is_html("iframe"))
+            schedule_frame_navigation(*static_cast<dom::Element*>(node));
+    }
+}
+
+void Realm::Internals::schedule_frame_navigation(dom::Element& iframe)
+{
+    if (!iframe.is_connected())
+        return;
+    Internals* const owner = realm_of(iframe.document());
+    if (!owner)
+        return;
+    // The iframe lives as long as its document, and the task as long as the
+    // document's realm: it goes when that realm ends.
+    owner->post_task([owner, &iframe] { owner->navigate_frame(iframe); });
+}
+
+void Realm::Internals::navigate_frame(dom::Element& iframe)
+{
+    // Only an iframe still in this document; and not again for what its
+    // frame already shows — a frame the parse opened is not opened twice.
+    if (&iframe.document() != &document || !iframe.is_connected())
+        return;
+    std::string const key = frame_source(iframe, url);
+    auto const existing = std::find_if(child_frames.begin(), child_frames.end(),
+        [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
+    std::uint64_t mutations_from = 0;
+    if (existing != child_frames.end()) {
+        if (existing->source == key)
+            return;
+        mutations_from = existing->realm->tree_mutation_count() + 1;
+        close_frame(iframe);
+    }
+    open_frame(iframe, mutations_from);
+    if (iframe.is_connected())
+        realm.dispatch_event(&iframe, "load");
+}
+
 // --- Events from the host ----------------------------------------------------------------
 
 bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit init)
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     EventObject* event = in.new_event("Event", type, init.bubbles, init.cancelable);
@@ -1245,6 +1490,7 @@ bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit i
 bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, MouseInit const& init)
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     bool const bubbles = type != "mouseenter" && type != "mouseleave";
@@ -1270,6 +1516,7 @@ bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, Mouse
 bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const& init)
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     EventObject* event = in.new_event("KeyboardEvent", type, true, true);
@@ -1291,6 +1538,7 @@ bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit
 bool Realm::dispatch_input_event(dom::Node& target, std::string_view type, InputInit const& init)
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     EventObject* event = in.new_event(type == "input" ? "InputEvent" : "Event", type, true, type == "beforeinput");
@@ -1307,11 +1555,15 @@ bool Realm::dispatch_input_event(dom::Node& target, std::string_view type, Input
 bool Realm::run_pending()
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     double const now = in.now();
     // Only the timers that exist now: one set while running waits for the
     // next pump, so a chain of zero-delay timers cannot hold the host.
     Agent& agent = in.agent;
     std::uint64_t const cutoff = agent.next_sequence;
+    // What a script asked of an ended realm's window never runs.
+    std::erase_if(agent.timers, [](Timer const& timer) { return timer.owner->ended; });
+    std::erase_if(agent.tasks, [](Task const& task) { return task.owner != nullptr && task.owner->ended; });
     bool ran = false;
     // The tasks queued before this pump, oldest first; one a task queues
     // waits for the next pump, like a timer.
@@ -1396,6 +1648,7 @@ bool Realm::has_pending_timers() const
 void Realm::perform_microtask_checkpoint()
 {
     Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
     if (in.agent.in_checkpoint)
         return;
     in.agent.in_checkpoint = true;
