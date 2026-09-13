@@ -444,6 +444,7 @@ private:
             };
             hooks.viewport_width = media.width;
             hooks.viewport_height = media.height;
+            hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return ui::decode_image_bytes(bytes).has_value(); };
             // A frame's document gets a realm of its own, served by the rules
             // the frames are drawn by.
             hooks.frame_document = [this](dom::Element const& iframe, net::Url const& base,
@@ -479,14 +480,18 @@ private:
         std::vector<text::PageFont> const fonts = css::collect_page_fonts(sheets, fetch_sheet, media);
         text::FontManager::instance().set_page_fonts(fonts);
         css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
-        layout::ImageMap const images = ui::collect_images(*document, &*url, fetch_image, media);
+        // The objects and embeds as the page's realm decided them; a page with no
+        // script has no realm, and each is the replaced box it always was.
+        layout::EmbeddedStates const embedded = realm ? bindings::embedded_states(*realm) : layout::EmbeddedStates {};
+        layout::ImageMap const images = ui::collect_images(*document, &*url, fetch_image, media, realm ? &embedded : nullptr);
         // The pictures the stylesheets ask for. The painter draws them from a
         // map of its own, and without it every background-image in the suite
         // is a blank box.
         layout::BackgroundImages const backgrounds
             = ui::collect_background_images(styles, fetch_image);
         layout::LayoutResult page = layout::layout_document(*document, styles,
-            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
+            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), 1,
+            realm ? &embedded : nullptr);
         // The frames: one whose document has a realm is drawn from it.
         ui::draw_frames(*url, page, frame_fetcher(), 1.0f, nullptr, nullptr, realm.get());
         text::FontManager::instance().set_page_fonts(fonts);

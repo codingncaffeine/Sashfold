@@ -686,7 +686,7 @@ bool keeps_ratio(dom::Element const& element)
 // suggestion, which is what every engine does with a responsive picture).
 std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedStyle const& style,
     Bitmap const* image, float density, float containing_width,
-    std::optional<float> containing_height = std::nullopt, float device_scale = 1)
+    std::optional<float> containing_height = std::nullopt, float device_scale = 1, bool no_content = false)
 {
     // The sizes an element states for itself are CSS px; the layout's are
     // device px.
@@ -711,7 +711,7 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
             intrinsic = ReplacedSize { own.width.value_or(300) * scale, own.height.value_or(150) * scale };
         }
     } else if (!element.is_html("img") && is_replaced(element)) {
-        intrinsic = ReplacedSize { 300 * scale, 150 * scale };
+        intrinsic = no_content ? ReplacedSize { 0, 0 } : ReplacedSize { 300 * scale, 150 * scale };
     }
     return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element), containing_height);
 }
@@ -862,6 +862,9 @@ struct Layouter {
     mutable std::unordered_map<ComputedStyle const*, text::FontStack const*> fonts;
     ImageMap const* images = nullptr;
     ControlStates const* controls = nullptr;
+    // What each object and embed represents, from the realm of the document;
+    // null for a document laid out without one.
+    EmbeddedStates const* embedded = nullptr;
     float device_scale = 1; // device px per CSS px, for the sizes layout owns
     // A flex item's content height at a width, remembered: an item is
     // measured before it is placed, and an item that is itself a flex
@@ -1161,7 +1164,7 @@ struct Layouter {
             options.own_context = true;
             options.zero_auto_margins = true;
             options.containing_height = cb_height; // definite for an absolutely positioned box
-            bool const replaced = is_replaced(*box.element);
+            bool const replaced = shows_replaced(*box.element);
             // Whether the two offsets settle the size between them. When
             // they do not — a written width, a content keyword, or a
             // replaced box that keeps its own — the three values cannot all
@@ -1527,6 +1530,34 @@ struct Layouter {
             return {};
         auto const it = images->find(&element);
         return it == images->end() ? PageImage {} : it->second;
+    }
+
+    // Whether an element is laid out as a replaced box, as HTML's rendering
+    // section expects (§15.4.1): an object is one only while it shows an
+    // image or a document — one showing its fallback content is an ordinary
+    // element, its children laid out — and one not decided yet is kept as the
+    // box it will most likely be. Laid out without a realm nothing is decided,
+    // and every object is replaced.
+    bool shows_replaced(dom::Element const& element) const
+    {
+        if (!is_replaced(element))
+            return false;
+        if (!embedded || !element.is_html("object"))
+            return true;
+        auto const it = embedded->find(&element);
+        return it == embedded->end() || it->second != Embedded::Fallback;
+    }
+
+    // An embed that represents nothing is still a replaced box, but one with
+    // no size of its own, so it takes none unless one is written for it
+    // (embed-change-src-2.html expects 0). An embed not decided yet represents
+    // nothing so far.
+    bool represents_nothing(dom::Element const& element) const
+    {
+        if (!embedded || !element.is_html("embed"))
+            return false;
+        auto const it = embedded->find(&element);
+        return it == embedded->end() || it->second == Embedded::Nothing;
     }
 
     // The picture a replaced box shows: the one fetched for it — or, for
@@ -2286,7 +2317,7 @@ struct Layouter {
                 // rule) is a line of its own rather than nothing, since it
                 // has no children to collect.
                 items.push_back(InlineItem { InlineItem::Kind::SoftBreak, {}, style, &element });
-                if (is_replaced(element))
+                if (shows_replaced(element))
                     append_image(element, style, items);
                 else
                     collect_inline(element, style, items);
@@ -2296,7 +2327,7 @@ struct Layouter {
                 InlineItem item(InlineItem::Kind::HardBreak, {}, inherited, &element);
                 item.clear = break_clear(element, *style);
                 items.push_back(std::move(item));
-            } else if (is_replaced(element)) {
+            } else if (shows_replaced(element)) {
                 append_image(element, style, items);
             } else if (is_atomic_inline(*style)) {
                 // One box on the line, laid out as a block inside.
@@ -3900,7 +3931,8 @@ struct Layouter {
             }
             if (item.kind == InlineItem::Kind::Image) {
                 std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
-                    item.image.get(), item.image_density, content_width, containing_height, device_scale);
+                    item.image.get(), item.image_density, content_width, containing_height, device_scale,
+                    represents_nothing(*item.element));
                 if (!size)
                     continue;
                 // The margin box is what the line holds; the bottom margin
@@ -4086,7 +4118,7 @@ struct Layouter {
     {
         return !options.own_context && !establishes_bfc(style) && style.border_top.width == 0
             && resolve(style.padding_top, containing_width) == 0 && !is_root(element)
-            && !is_replaced(element) && !is_control(element) && !is_grid_item(element);
+            && !shows_replaced(element) && !is_control(element) && !is_grid_item(element);
     }
 
     // The same for the bottom edge, which also needs an auto height.
@@ -4095,7 +4127,7 @@ struct Layouter {
     {
         return !options.own_context && !options.content_height && !establishes_bfc(style)
             && style.border_bottom.width == 0 && resolve(style.padding_bottom, containing_width) == 0
-            && style.height.is_auto() && !is_root(element) && !is_replaced(element)
+            && style.height.is_auto() && !is_root(element) && !shows_replaced(element)
             && !is_control(element) && !is_grid_item(element);
     }
 
@@ -4199,7 +4231,7 @@ struct Layouter {
     // block-level descendant.
     bool splits_around_blocks(dom::Element const& element, ComputedStyle const& style) const
     {
-        return !is_block_level(style) && !is_control(element) && !is_replaced(element)
+        return !is_block_level(style) && !is_control(element) && !shows_replaced(element)
             && !is_atomic_inline(style) && !element.is_html("br") && contains_block_descendant(element);
     }
 
@@ -4453,7 +4485,7 @@ struct Layouter {
         std::optional<float> orthogonal_width;
         css::WritingMode const own_writing_mode = physical(&style)->writing_mode;
         if (own_writing_mode != frame_mode && !options.content_width && style.width.is_auto()
-            && !style.width.is_content_size() && !is_replaced(element)) {
+            && !style.width.is_content_size() && !shows_replaced(element)) {
             float const down_edges = padding_top + padding_bottom + border_top + border_bottom;
             orthogonal_width = orthogonal_block_extent(element, own_writing_mode,
                 options.content_height ? options.content_height
@@ -4539,7 +4571,7 @@ struct Layouter {
             border_box_width - border_left - border_right - padding_left - padding_right);
         float const content_y = fragment.y + border_top + padding_top;
 
-        if (is_replaced(element)) {
+        if (shows_replaced(element)) {
             // A block-level picture (or embedded box): its own size, shrunk
             // to fit, no children. A box without a ratio of its own takes
             // the size a formatting context settled for it (a flex line's
@@ -4549,7 +4581,7 @@ struct Layouter {
             // shrinks to the room this box has.
             std::optional<ReplacedSize> const size = replaced_size(element, style, image.bitmap.get(),
                 image.density, style.width.is_auto() ? content_width : containing_width,
-                options.containing_height, device_scale);
+                options.containing_height, device_scale, represents_nothing(element));
             if (size) {
                 bool const settled = !keeps_ratio(element);
                 float width = settled ? options.content_width.value_or(size->width) : size->width;
@@ -5178,7 +5210,7 @@ struct Layouter {
             InlineItem item(InlineItem::Kind::HardBreak, {}, &style, &element);
             item.clear = break_clear(element, style);
             items.push_back(std::move(item));
-        } else if (is_replaced(element)) {
+        } else if (shows_replaced(element)) {
             append_image(element, &style, items);
         } else if (is_atomic_inline(style)) {
             items.push_back(InlineItem { InlineItem::Kind::Block, {}, &style, &element });
@@ -5322,7 +5354,7 @@ struct Layouter {
                 break;
             case InlineItem::Kind::Image: {
                 std::optional<ReplacedSize> const size = replaced_size(*item.element, *item.style,
-                    item.image.get(), item.image_density, 0, std::nullopt, device_scale);
+                    item.image.get(), item.image_density, 0, std::nullopt, device_scale, represents_nothing(*item.element));
                 InlineEdges const edges = inline_edges(*item.style, 0);
                 float const width = size
                     ? edges.margin_left + edges.left + size->width + edges.right + edges.margin_right
@@ -5416,10 +5448,11 @@ struct Layouter {
 
     Intrinsic content_intrinsic_widths(dom::Element const& element, ComputedStyle const& style) const
     {
-        if (is_replaced(element)) {
+        if (shows_replaced(element)) {
             PageImage const image = image_for(element);
             std::optional<ReplacedSize> const size
-                = replaced_size(element, style, image.bitmap.get(), image.density, 0, std::nullopt, device_scale);
+                = replaced_size(element, style, image.bitmap.get(), image.density, 0, std::nullopt, device_scale,
+                    represents_nothing(element));
             float const width = size ? size->width : 0;
             return { width, width };
         }
@@ -6886,9 +6919,9 @@ struct Layouter {
 
     // Whether an item keeps its own size under a normal alignment: a
     // picture, an embedded box or a control does; a block stretches.
-    static bool keeps_own_size(GridItem const& item)
+    bool keeps_own_size(GridItem const& item) const
     {
-        return item.element && !item.generated && (is_replaced(*item.element) || is_control(*item.element));
+        return item.element && !item.generated && (shows_replaced(*item.element) || is_control(*item.element));
     }
 
     // Settles an item's content width and where its margin box starts
@@ -7996,7 +8029,7 @@ struct Layouter {
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
     float viewport_width, ImageMap const* images, ControlStates const* controls, float viewport_height,
-    float device_scale)
+    float device_scale, EmbeddedStates const* embedded)
 {
     LayoutResult result;
     result.canvas_background = Color::rgb(255, 255, 255);
@@ -8010,7 +8043,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     if (!html)
         return result;
 
-    Layouter layouter { styles, {}, images, controls, device_scale > 0 ? device_scale : 1.0f, {}, {}, {}, 0, {}, {},
+    Layouter layouter { styles, {}, images, controls, embedded, device_scale > 0 ? device_scale : 1.0f, {}, {}, {}, 0, {}, {},
         css::WritingMode::HorizontalTb, 0, 0, {}, {}, {} };
     // The whole page is laid out in the root's own writing mode — which the
     // resolver has already taken from body where there is one — so the

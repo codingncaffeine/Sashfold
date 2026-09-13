@@ -1,7 +1,9 @@
 #include "Test.h"
 
+#include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/Bitmap.h"
+#include "core/Png.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
@@ -12,6 +14,7 @@
 #include "paint/Painter.h"
 #include "text/FontManager.h"
 #include "ui/Frames.h"
+#include "ui/PageImages.h"
 
 #include <functional>
 #include <map>
@@ -416,6 +419,139 @@ int main()
         // The status the document came with goes with it.
         Asked const missing = ask("frame-src *", "<iframe src='https://example.test/o.html'></iframe>", false, 404);
         CHECK(missing.answered && missing.status == 404 && fetched_iframe.status == 200);
+    }
+
+    // An object or an embed is laid out and drawn as what the realm of its
+    // document decided it represents (HTML §15.4.1): an object showing its
+    // fallback is an ordinary box around its children, and so is one whose
+    // picture does not decode; an embed that represents nothing has no size
+    // of its own, though a size written for it still holds; an object's
+    // picture is its content; an object's document is drawn from its window.
+    // A frame inside a frameset has a window but no box, so nothing is drawn
+    // for it. Laid out without a realm, nothing is decided and an object is the
+    // replaced box it always was.
+    {
+        Server server;
+        server.files["https://example.test/green.html"] = html_file(green_page);
+        std::vector<std::uint8_t> const png = encode_png(Bitmap(12, 8, blue));
+        server.files["https://example.test/pic.png"] = File { std::string(png.begin(), png.end()), {}, "image/png", 200 };
+        server.files["https://example.test/bad.png"] = File { "no picture here", {}, "image/png", 200 };
+        net::Url const base = *net::parse_url("https://example.test/page.html");
+        css::MediaContext const media { 400, 900, 1 };
+        std::string const markup = "<!doctype html><style>body { margin: 0 } object, embed { display: block; border: 0 }</style>"
+                                   "<object id=fallback data='missing.html'><div id=inside style='width:50px;height:20px'></div></object>"
+                                   "<embed id=nothing>"
+                                   "<embed id=sized width=40 height=30>"
+                                   "<object id=picture data='pic.png'></object>"
+                                   "<object id=broken data='bad.png'><div id=instead style='width:30px;height:10px'></div></object>"
+                                   "<object id=shown data='green.html' style='width:100px;height:60px'></object>";
+        struct Live {
+            dom::Document document;
+            std::unique_ptr<bindings::Realm> realm;
+        };
+        auto const open_live = [&](std::string const& page_markup) {
+            auto live = std::make_unique<Live>();
+            bindings::HostHooks hooks;
+            hooks.frame_document = [&server](dom::Element const& element, net::Url const& frame_base, net::ContentSecurityPolicy* policy,
+                                       std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const& target) {
+                return ui::frame_document_for(element, frame_base, policy, ancestors, target, server.fetcher());
+            };
+            hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return ui::decode_image_bytes(bytes).has_value(); };
+            live->realm = std::make_unique<bindings::Realm>(live->document, base, std::move(hooks));
+            html::parse_document_bytes_into(live->document, page_markup, live->realm.get());
+            live->realm->document_parsed();
+            live->realm->run_pending();
+            return live;
+        };
+        std::function<dom::Element*(dom::Node&, std::string_view)> const by_id
+            = [&by_id](dom::Node& node, std::string_view id) -> dom::Element* {
+            if (node.is_element()) {
+                dom::Attr const* const attribute = static_cast<dom::Element&>(node).find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &static_cast<dom::Element&>(node);
+            }
+            for (dom::Node* const child : node.children()) {
+                if (dom::Element* const found = by_id(*child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> const fragment_of
+            = [&fragment_of](layout::Fragment const& fragment, std::string_view id) -> layout::Fragment const* {
+            if (fragment.element) {
+                dom::Attr const* const attribute = fragment.element->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &fragment;
+            }
+            for (layout::Fragment const& child : fragment.children) {
+                if (layout::Fragment const* const found = fragment_of(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        ui::ImageFetcher const fetch_image = [&server](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            std::optional<ui::FrameResponse> response
+                = server.fetcher()(url, *net::parse_url("https://example.test/page.html"), net::ResourceKind::Image, {});
+            if (!response)
+                return std::nullopt;
+            return std::move(response->bytes);
+        };
+
+        std::unique_ptr<Live> const live = open_live(markup);
+        layout::EmbeddedStates const states = bindings::embedded_states(*live->realm);
+        css::StyleMap const styles
+            = css::resolve_styles(live->document, css::collect_stylesheets(live->document, &base, {}, media), media, &base);
+        layout::ImageMap const images = ui::collect_images(live->document, &base, fetch_image, media, &states);
+        layout::LayoutResult laid = layout::layout_document(live->document, styles, 400, &images, nullptr, 900, 1, &states);
+        ui::draw_frames(base, laid, server.fetcher(), 1.0f, nullptr, nullptr, live->realm.get());
+        Bitmap canvas(400, 900, laid.canvas_background);
+        paint::paint_page(canvas, laid);
+
+        layout::Fragment const* const inside = fragment_of(laid.root, "inside");
+        CHECK(inside != nullptr && inside->width == 50.0f && inside->height == 20.0f);
+        layout::Fragment const* const nothing = fragment_of(laid.root, "nothing");
+        CHECK(nothing != nullptr && nothing->width == 0.0f && nothing->height == 0.0f);
+        layout::Fragment const* const sized = fragment_of(laid.root, "sized");
+        CHECK(sized != nullptr && sized->width == 40.0f && sized->height == 30.0f);
+        layout::Fragment const* const picture = fragment_of(laid.root, "picture");
+        CHECK(picture != nullptr && picture->image && picture->image->bitmap && picture->width == 12.0f && picture->height == 8.0f);
+        layout::Fragment const* const instead = fragment_of(laid.root, "instead");
+        CHECK(instead != nullptr && instead->width == 30.0f);
+        layout::Fragment const* const shown = fragment_of(laid.root, "shown");
+        CHECK(shown != nullptr && same(canvas.pixel(static_cast<int>(shown->x) + 50, static_cast<int>(shown->y) + 30), lime));
+
+        // Without a realm nothing is decided: the object is replaced, 300 by 150.
+        layout::LayoutResult const undecided = layout::layout_document(live->document, styles, 400, nullptr, nullptr, 900);
+        layout::Fragment const* const replaced = fragment_of(undecided.root, "fallback");
+        CHECK(replaced != nullptr && replaced->width == 300.0f && fragment_of(undecided.root, "inside") == nullptr);
+
+        // What a script asks of the geometry follows the decisions: an embed not
+        // decided yet has no size, and an object's fallback is laid out once it
+        // has been decided, a task after the script that inserted it.
+        bindings::LayoutOracle oracle(live->document, base, {}, media);
+        oracle.set_realm(live->realm.get());
+        live->realm->run("var late = document.createElement('object'); late.data = 'missing.html';"
+                         " late.innerHTML = \"<div id=late style='width:50px;height:20px'></div>\"; document.body.appendChild(late);"
+                         " var pending = document.createElement('embed'); pending.id = 'pending'; pending.src = 'green.html';"
+                         " document.body.appendChild(pending);",
+            "<test>");
+        dom::Element* const late = by_id(live->document, "late");
+        dom::Element* const pending = by_id(live->document, "pending");
+        std::optional<bindings::LayoutBox> const late_before = late ? oracle.box(*late) : std::nullopt;
+        std::optional<bindings::LayoutBox> const pending_before = pending ? oracle.box(*pending) : std::nullopt;
+        CHECK(late != nullptr && !late_before);
+        CHECK(pending_before && pending_before->width == 0.0f);
+        live->realm->run_pending();
+        std::optional<bindings::LayoutBox> const late_after = late ? oracle.box(*late) : std::nullopt;
+        CHECK(late_after && late_after->width == 50.0f);
+
+        // A frameset's frame: a window, no box, and nothing drawn.
+        std::unique_ptr<Live> const framed = open_live("<!doctype html><frameset><frame id=f src='green.html'></frameset>");
+        dom::Element* const frame = by_id(framed->document, "f");
+        css::StyleMap const frame_styles = css::resolve_styles(framed->document);
+        layout::LayoutResult frame_laid = layout::layout_document(framed->document, frame_styles, 400, nullptr, nullptr, 900);
+        ui::draw_frames(base, frame_laid, server.fetcher(), 1.0f, nullptr, nullptr, framed->realm.get());
+        CHECK(frame != nullptr && framed->realm->frame_realm(*frame) != nullptr && fragment_of(frame_laid.root, "f") == nullptr);
     }
 
     return test::report("frames");

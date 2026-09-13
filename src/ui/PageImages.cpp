@@ -23,6 +23,7 @@ struct Collector {
     css::MediaContext const& media;
     ImageFetcher const& fetch;
     layout::ImageMap& out;
+    layout::EmbeddedStates const* embedded;
     std::map<std::string, std::shared_ptr<Bitmap const>> by_url; // one fetch per URL
     std::map<std::string, float> by_url_density; // the factor an SVG was drawn at
     std::size_t fetched = 0;
@@ -33,6 +34,8 @@ struct Collector {
             auto const& element = static_cast<dom::Element const&>(node);
             if (element.is_html("img"))
                 consider(element);
+            else if (embedded && (element.is_html("object") || element.is_html("embed")))
+                consider_embedded(element);
         }
         for (dom::Node const* child : node.children())
             visit(*child);
@@ -45,14 +48,32 @@ struct Collector {
         std::optional<ImageSource> const source = select_image_source(element, base, media);
         if (!source)
             return;
-        net::Url const& url = source->url;
+        take(element, source->url, source->density);
+    }
+
+    // An object's or an embed's picture: what its data or its src names, once
+    // the realm of its document has decided that it shows that as an image.
+    void consider_embedded(dom::Element const& element)
+    {
+        auto const state = embedded->find(&element);
+        if (state == embedded->end() || state->second != layout::Embedded::Image)
+            return;
+        dom::Attr const* const given = element.find_attribute(element.is_html("object") ? "data" : "src");
+        if (!given || given->value.empty())
+            return;
+        if (std::optional<net::Url> const url = net::parse_url(given->value, base))
+            take(element, *url, 1);
+    }
+
+    void take(dom::Element const& element, net::Url const& url, float source_density)
+    {
         std::string const key = url.serialize(true);
         // A picture's density to the layout is its pixels per device px:
         // the source's pixels per CSS px, over the device's scale.
         float const scale = media.device_scale > 0 ? media.device_scale : 1.0f;
         if (auto const it = by_url.find(key); it != by_url.end()) {
             if (it->second)
-                out.emplace(&element, layout::PageImage { it->second, source->density * by_url_density[key] / scale });
+                out.emplace(&element, layout::PageImage { it->second, source_density * by_url_density[key] / scale });
             return;
         }
         std::shared_ptr<Bitmap const> image;
@@ -68,7 +89,7 @@ struct Collector {
         by_url.emplace(key, image);
         by_url_density[key] = drawn_at;
         if (image)
-            out.emplace(&element, layout::PageImage { std::move(image), source->density * drawn_at / scale });
+            out.emplace(&element, layout::PageImage { std::move(image), source_density * drawn_at / scale });
     }
 };
 
@@ -98,10 +119,10 @@ std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes,
 }
 
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
-    ImageFetcher const& fetch, css::MediaContext const& media)
+    ImageFetcher const& fetch, css::MediaContext const& media, layout::EmbeddedStates const* embedded)
 {
     layout::ImageMap images;
-    Collector collector { base, media, fetch, images, {}, {}, 0 };
+    Collector collector { base, media, fetch, images, embedded, {}, {}, 0 };
     collector.visit(document);
     return images;
 }

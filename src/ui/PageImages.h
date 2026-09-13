@@ -37,7 +37,7 @@ std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes,
 
 // `media` is the viewport the sources are chosen for.
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
-    ImageFetcher const& fetch, css::MediaContext const& media = {});
+    ImageFetcher const& fetch, css::MediaContext const& media = {}, layout::EmbeddedStates const* embedded = nullptr);
 
 // The pictures the styles name as backgrounds (their URLs already
 // resolved), fetched once each and decoded, for the painter. Bounded like

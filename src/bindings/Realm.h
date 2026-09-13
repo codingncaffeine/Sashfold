@@ -126,6 +126,10 @@ struct HostHooks {
     std::function<dom::Element const*()> focused;
     // An image's decoded size in CSS px, for naturalWidth and naturalHeight.
     std::function<std::optional<std::pair<int, int>>(dom::Element const&)> image_size;
+    // Whether a picture's bytes decode: an object whose resource is a picture
+    // that does not shows its fallback instead (HTML §4.8.7). Without it every
+    // picture counts as one that decodes.
+    std::function<bool(std::vector<std::uint8_t> const&)> image_decodes;
     // form.submit() and a submit event nobody cancelled: the host submits.
     std::function<void(dom::Element const& form, dom::Element const* submitter)> submit_form;
     // console.* output and every uncaught error, by level.

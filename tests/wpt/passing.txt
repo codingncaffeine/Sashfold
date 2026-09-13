@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9409 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9410 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -5713,6 +5713,7 @@ css/css-color/t44-currentcolor-background-b.xht
 css/css-color/t44-currentcolor-border-b.xht
 css/css-color/tagged-images-002.html
 css/css-display/display-change-iframe.html
+css/css-display/display-change-object-iframe.html
 css/css-display/display-contents-alignment-001.html
 css/css-display/display-contents-alignment-002.html
 css/css-display/display-contents-details-001.html

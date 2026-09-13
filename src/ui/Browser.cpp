@@ -1343,9 +1343,10 @@ struct Browser::Impl {
         // have set its own since.
         text::FontManager::instance().set_page_fonts(tab.fonts);
         ChromeLayout const c = layout_chrome();
+        layout::EmbeddedStates const embedded = tab.realm ? bindings::embedded_states(*tab.realm) : layout::EmbeddedStates {};
         tab.layout = layout::layout_document(*tab.document, tab.styles,
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
-            static_cast<float>(std::max(1, c.content.height)), scale);
+            static_cast<float>(std::max(1, c.content.height)), scale, tab.realm ? &embedded : nullptr);
         // The frames' documents, drawn into the layout; a frame drawn before
         // at the same size is taken as it was. Their documents set fonts of
         // their own, so the page's are put back.
@@ -1562,6 +1563,7 @@ struct Browser::Impl {
             return std::pair<int, int> { static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->width()) / density)),
                 static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->height()) / density)) };
         };
+        hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return decode_image_bytes(bytes).has_value(); };
         hooks.submit_form = [this, document](dom::Element const& form, dom::Element const* submitter) {
             Tab* const owner = tab_of(document);
             HistoryEntry const* const entry = owner ? owner->current() : nullptr;
@@ -1660,8 +1662,15 @@ struct Browser::Impl {
         // Pictures are decoded once: only a page with an <img> not seen yet
         // is walked again (the fetches come from the cache; the decoding
         // does not).
-        if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images)) {
-            layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context());
+        // An object or an embed its realm decided shows a picture is walked
+        // for too, once.
+        layout::EmbeddedStates const embedded = tab.realm ? bindings::embedded_states(*tab.realm) : layout::EmbeddedStates {};
+        bool const unfetched_embedded = std::any_of(embedded.begin(), embedded.end(), [&tab](auto const& decided) {
+            return decided.second == layout::Embedded::Image && !tab.images.contains(decided.first);
+        });
+        if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images) || unfetched_embedded) {
+            layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
+                tab.realm ? &embedded : nullptr);
             for (auto& [element, image] : fresh)
                 tab.images[element] = std::move(image);
         }

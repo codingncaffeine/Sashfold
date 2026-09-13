@@ -181,6 +181,12 @@ struct PageImage {
 // Decoded images by element, supplied by whoever fetched them.
 using ImageMap = std::unordered_map<dom::Element const*, PageImage>;
 
+// What an object or an embed represents, as the realm of its document decided
+// it (HTML §4.8.6, §4.8.7): a document in a window of its own, an image, an
+// object's fallback content, or nothing.
+enum class Embedded : std::uint8_t { Document, Image, Fallback, Nothing };
+using EmbeddedStates = std::unordered_map<dom::Element const*, Embedded>;
+
 // How far a box that scrolls has had its content moved, and by which
 // element: the shell's live state, as the form controls' values are. A box
 // not named here sits at its origin, which is where every box starts. The
@@ -242,7 +248,8 @@ using BackgroundImages = std::unordered_map<std::string, std::shared_ptr<Bitmap 
 // size of its own) — the styles arrive already scaled.
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
     float viewport_width, ImageMap const* images = nullptr,
-    ControlStates const* controls = nullptr, float viewport_height = 0, float device_scale = 1);
+    ControlStates const* controls = nullptr, float viewport_height = 0, float device_scale = 1,
+    EmbeddedStates const* embedded = nullptr);
 
 
 // Faults in a finished fragment tree that no reference picture can show:

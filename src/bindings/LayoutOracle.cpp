@@ -1,5 +1,6 @@
 #include "bindings/LayoutOracle.h"
 
+#include "bindings/Internal.h"
 #include "text/FontManager.h"
 
 #include <algorithm>
@@ -9,6 +10,21 @@
 #include <vector>
 
 namespace sashfold::bindings {
+
+layout::EmbeddedStates embedded_states(Realm& realm)
+{
+    using Represents = Realm::Internals::Represents;
+    layout::EmbeddedStates states;
+    for (auto const& [element, represents] : realm.internals().embedder_states) {
+        switch (represents) {
+        case Represents::Navigable: states.emplace(element, layout::Embedded::Document); break;
+        case Represents::Image: states.emplace(element, layout::Embedded::Image); break;
+        case Represents::Fallback: states.emplace(element, layout::Embedded::Fallback); break;
+        case Represents::Nothing: states.emplace(element, layout::Embedded::Nothing); break;
+        }
+    }
+    return states;
+}
 
 namespace {
 
@@ -146,7 +162,12 @@ void LayoutOracle::ensure()
         m_sheet_signature = std::move(signature);
     }
     m_styles = css::resolve_styles(m_document, *m_style_set);
-    m_layout = layout::layout_document(m_document, m_styles, m_media.width, nullptr, nullptr, m_media.height);
+    // The objects and embeds as the realm has decided them, so that a script
+    // measuring an object's fallback, or an embed that represents nothing,
+    // measures what is drawn.
+    layout::EmbeddedStates const embedded = m_realm ? embedded_states(*m_realm) : layout::EmbeddedStates {};
+    m_layout = layout::layout_document(m_document, m_styles, m_media.width, nullptr, nullptr, m_media.height, 1,
+        m_realm ? &embedded : nullptr);
     m_computed = true;
     m_mutations = mutations;
 }

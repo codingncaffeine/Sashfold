@@ -748,6 +748,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         hooks.viewport_height = media.height / g_device_scale;
         hooks.device_scale = g_device_scale;
         hooks.user_agent = std::string(net::user_agent());
+        hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return ui::decode_image_bytes(bytes).has_value(); };
         // A frame's document gets a realm of its own, by the framing rules the
         // frames are drawn by, unless the page's sandbox keeps scripts off.
         if (loaded.policy->sandbox_allows_scripts()) {
@@ -789,13 +790,17 @@ int render_page(std::string const& path, std::string const& output, int viewport
     style_set.set_style_attribute_check(style_attribute_check(*loaded.policy));
     css::StyleMap const styles = css::resolve_styles(*document, style_set);
     auto const t3 = clock::now();
+    // The objects and embeds as the page's realm decided them; without scripts
+    // nothing is decided, and each is the replaced box it always was.
+    layout::EmbeddedStates const embedded = realm ? bindings::embedded_states(*realm) : layout::EmbeddedStates {};
     layout::ImageMap const images = ui::collect_images(*document, &loaded.url,
-        image_fetcher(loaded, &image_failures), media);
+        image_fetcher(loaded, &image_failures), media, realm ? &embedded : nullptr);
     layout::BackgroundImages const backgrounds
         = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures));
     auto const t4 = clock::now();
     layout::LayoutResult page = layout::layout_document(*document, styles,
-        static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale);
+        static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale,
+        realm ? &embedded : nullptr);
     // The page's frames: a frame's document under the page's frame-src, what
     // that document fetches under its own policy.
     ui::draw_frames(loaded.url, page, frame_fetcher(loaded), g_device_scale, loaded.policy.get(), nullptr, realm.get());

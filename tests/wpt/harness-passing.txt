@@ -7555,6 +7555,8 @@ html/semantics/embedded-content/the-object-element/object-events.html	error even
 html/semantics/embedded-content/the-object-element/object-events.html	error event (using 'http:' protocol)
 html/semantics/embedded-content/the-object-element/object-events.html	load event
 html/semantics/embedded-content/the-object-element/object-events.html	load event of about:blank
+html/semantics/embedded-content/the-object-element/object-fallback-failed-cross-origin-navigation.sub.html	Verify fallback content for failed cross-origin navigations is shown correctly: http://nonexistent.not-web-platform.test:8000/foo.html
+html/semantics/embedded-content/the-object-element/object-fallback-failed-cross-origin-navigation.sub.html	Verify fallback content for failed cross-origin navigations is shown correctly: http://www.not-web-platform.test:8000/foo.html
 html/semantics/embedded-content/the-object-element/object-handler.html	The nested browsing context must be navigated to the resource specified by the data attribute.
 html/semantics/embedded-content/the-object-element/object-handler.html	The object.data must not be updated if the browsing context gets further navigated.
 html/semantics/embedded-content/the-object-element/object-ignored-in-media-element.html	Test <object> being ignored inside media element

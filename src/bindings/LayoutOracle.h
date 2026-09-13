@@ -22,6 +22,11 @@ namespace sashfold::bindings {
 // when it has neither (display: none, or not laid out).
 std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element);
 
+// What each object and embed of the realm's document represents, as the realm
+// has decided it so far, for layout and for the pictures an object or an embed
+// shows. An element the realm has not decided yet is left out.
+layout::EmbeddedStates embedded_states(Realm& realm);
+
 class LayoutOracle {
 public:
     LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media);

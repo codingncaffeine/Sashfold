@@ -1,5 +1,6 @@
 #include "ui/Frames.h"
 
+#include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/Ascii.h"
 #include "core/Unicode.h"
@@ -93,13 +94,11 @@ std::string_view text_of(std::vector<std::uint8_t> const& bytes)
 
 void find_frames(layout::Fragment& fragment, std::vector<layout::Fragment*>& out)
 {
-    // An iframe's or a frame's document is drawn; an object's or an embed's
-    // window is not drawn yet.
-    if (fragment.element && fragment.image) {
-        bindings::ContainerKind const kind = bindings::container_kind(*fragment.element);
-        if (kind == bindings::ContainerKind::IFrame || kind == bindings::ContainerKind::Frame)
-            out.push_back(&fragment);
-    }
+    // Every navigable container laid out as a box of its own: an iframe, an
+    // object or an embed. A frame has a window, but inside a frameset it has
+    // no box yet, frameset layout being unwritten, so nothing is drawn for it.
+    if (fragment.element && fragment.image && bindings::is_navigable_container(*fragment.element))
+        out.push_back(&fragment);
     for (layout::Fragment& child : fragment.children)
         find_frames(child, out);
 }
@@ -233,10 +232,13 @@ std::shared_ptr<Bitmap const> render_document(dom::Document& document, net::Url 
             return std::nullopt;
         return std::move(response->bytes);
     };
-    layout::ImageMap const images = collect_images(document, &document_url, fetch_image, media);
+    // A live document's objects and embeds as its realm decided them.
+    layout::EmbeddedStates const embedded = realm ? bindings::embedded_states(*realm) : layout::EmbeddedStates {};
+    layout::EmbeddedStates const* const decided = realm ? &embedded : nullptr;
+    layout::ImageMap const images = collect_images(document, &document_url, fetch_image, media, decided);
     layout::BackgroundImages const backgrounds = collect_background_images(styles, fetch_image);
     layout::LayoutResult page = layout::layout_document(document, styles, static_cast<float>(width), &images, nullptr,
-        static_cast<float>(height), walk.device_scale);
+        static_cast<float>(height), walk.device_scale, decided);
     if (depth < max_depth)
         draw_in(document_url, page, &policy, walk, depth, nullptr, realm);
     // Its frames set fonts of their own; its own are put back to paint by.
@@ -378,6 +380,12 @@ void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecur
         // A frame whose document has a realm here is drawn from that live
         // document; its picture stands only while those documents are unchanged.
         bindings::Realm* const live = realm ? realm->frame_realm(element) : nullptr;
+        // An object's or an embed's window is drawn from its live document
+        // alone: laid out without a realm, nothing has decided that it shows a
+        // document, and one that shows a picture already has it in its box.
+        if (bindings::ContainerKind const kind = bindings::container_kind(element);
+            !live && (kind == bindings::ContainerKind::Object || kind == bindings::ContainerKind::Embed))
+            continue;
         std::uint64_t const mutations = live ? live->tree_mutation_count() : 0;
         if (drawn) {
             auto const it = drawn->find(&element);

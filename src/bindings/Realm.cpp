@@ -1625,6 +1625,7 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     frame_hooks.console = hooks.console;
     frame_hooks.local_storage = hooks.local_storage;
     frame_hooks.frame_document = hooks.frame_document;
+    frame_hooks.image_decodes = hooks.image_decodes;
     frame_hooks.trace = hooks.trace;
     frame_hooks.viewport_width = hooks.viewport_width;
     frame_hooks.viewport_height = hooks.viewport_height;
@@ -2083,19 +2084,24 @@ void Realm::Internals::update_embedder(dom::Element& element)
     bool const object = container_kind(element) == ContainerKind::Object;
     auto const recorded = embedder_states.find(&element);
     bool const was_fallback = recorded != embedder_states.end() && recorded->second == Represents::Fallback;
+    std::optional<Represents> const before = recorded != embedder_states.end() ? std::optional(recorded->second) : std::nullopt;
     // What an object shows when it shows nothing of its own is its fallback
     // content; an embed represents nothing.
     Represents const nothing = object ? Represents::Fallback : Represents::Nothing;
     // What the element comes to represent: anything but a window closes the one
-    // it had. The objects and embeds inside an object decide again when it
-    // starts or stops showing its fallback. Then the event, at an element the
-    // document it loaded has not taken out of the tree.
-    auto const settle = [this, &element, object, was_fallback](Represents represents, std::string_view event) {
+    // it had. A change is counted as a mutation, since the element is laid out
+    // by it: an object's fallback is an ordinary box around its children. The
+    // objects and embeds inside an object decide again when it starts or stops
+    // showing its fallback. Then the event, at an element the document it
+    // loaded has not taken out of the tree.
+    auto const settle = [this, &element, object, was_fallback, before](Represents represents, std::string_view event) {
         if (represents != Represents::Navigable)
             close_frame(element);
         if (&element.document() != document || !element.is_connected())
             return;
         embedder_states[&element] = represents;
+        if (before != represents)
+            ++mutations;
         if (object && was_fallback != (represents == Represents::Fallback)) {
             std::vector<dom::Node*> nodes;
             walk_subtree(element, nodes);
@@ -2188,6 +2194,14 @@ void Realm::Internals::update_embedder(dom::Element& element)
         return;
     }
     if (shown_as_image(type)) {
+        // A picture an object cannot render, one that does not decode, is its
+        // fallback, with no event: the load event is for a resource shown
+        // (HTML §4.8.7, "if the image cannot be rendered … jump to the step
+        // below labeled fallback").
+        if (object && hooks.image_decodes && !hooks.image_decodes(answer->bytes)) {
+            settle(nothing, {});
+            return;
+        }
         settle(Represents::Image, "load");
         return;
     }
