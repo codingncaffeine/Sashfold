@@ -2103,6 +2103,14 @@ RealmRecord* Interpreter::create_realm()
     return realm;
 }
 
+void Interpreter::release_realm(RealmRecord* realm)
+{
+    // The current realm stays: code runs in it, or a host has entered it.
+    if (realm == m_realm)
+        return;
+    std::erase(m_realms, realm);
+}
+
 void RealmRecord::trace(Tracer& tracer)
 {
     Intrinsics const& i = intrinsics;
@@ -2179,6 +2187,8 @@ void RealmRecord::trace(Tracer& tracer)
         tracer.visit(name);
     for (auto const& [site, object] : template_objects)
         tracer.visit(object);
+    for (auto const& [key, record] : modules)
+        tracer.visit(record);
 }
 
 Interpreter::~Interpreter()
@@ -2208,8 +2218,6 @@ void Interpreter::trace_roots(Tracer& tracer)
     }
     for (PromiseObject* promise : m_unhandled_rejections)
         tracer.visit(promise);
-    for (auto const& [key, record] : m_modules)
-        tracer.visit(record);
     m_impl->trace(tracer);
 }
 
@@ -2276,8 +2284,8 @@ void Interpreter::set_module_hooks(ModuleResolver resolver, ModuleFetcher fetche
 
 ModuleRecord* Interpreter::find_module(std::string_view key) const
 {
-    auto const found = m_modules.find(std::string(key));
-    return found == m_modules.end() ? nullptr : found->second;
+    auto const found = m_realm->modules.find(std::string(key));
+    return found == m_realm->modules.end() ? nullptr : found->second;
 }
 
 // ParseModule (§16.2.1.6.1): the Module goal's parse, then a record in
@@ -2300,19 +2308,19 @@ ModuleRecord* Interpreter::parse_module(std::u16string_view source, std::string 
         return nullptr;
     }
     ModuleRecord* record = m_heap->allocate<ModuleRecord>(key, std::move(program));
-    m_modules.emplace(std::move(key), record);
+    m_realm->modules.emplace(std::move(key), record);
     // The tree is how the running code finds its own record: a function
     // carries the program it was written in, so `import()` in a function
     // of one module called from another resolves against the first.
-    m_module_programs.emplace(&record->program(), record);
+    m_realm->module_programs.emplace(&record->program(), record);
     return record;
 }
 
 // GetActiveScriptOrModule (§9.4.1) as this engine keeps it.
 ModuleRecord* Interpreter::module_of(Program const& program) const
 {
-    auto const found = m_module_programs.find(&program);
-    return found == m_module_programs.end() ? nullptr : found->second;
+    auto const found = m_realm->module_programs.find(&program);
+    return found == m_realm->module_programs.end() ? nullptr : found->second;
 }
 
 // GetActiveScriptOrModule for code that may be eval code: an eval Program

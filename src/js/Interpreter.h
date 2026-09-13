@@ -130,19 +130,30 @@ struct Intrinsics {
 
 // A Realm Record (§9.3): the intrinsics a realm is born with, the
 // declarative part of its global environment and that environment's
-// [[VarNames]] (§9.1.1.4), and its [[TemplateMap]]. A cell, so a realm
-// lives as long as something holds it; trace() visits every member.
+// [[VarNames]] (§9.1.1.4), its [[TemplateMap]], its module map and its
+// [[HostDefined]]. A cell, so a realm lives as long as something holds it;
+// trace() visits every member but the host's object.
 class RealmRecord : public Cell {
 public:
     Intrinsics intrinsics;
     Environment* global_lexical = nullptr;
     std::unordered_set<JsString*> var_names;
     std::unordered_map<TemplateLiteral const*, Object*> template_objects;
+    // The module map (§16.2.1.7; HTML keeps one per environment settings
+    // object), and each record by the tree it was parsed from, so that the
+    // running code's module is known from its execution context. The records
+    // own their trees, so no key here dangles.
+    std::unordered_map<std::string, ModuleRecord*> modules;
+    std::unordered_map<Program const*, ModuleRecord*> module_programs;
+    // The embedder's object behind this realm (the bindings' Realm), for
+    // natives to find their way back; untraced, unowned.
+    void* host_defined = nullptr;
 
     void trace(Tracer&) override;
     std::size_t size_in_bytes() const override
     {
-        return sizeof(*this) + var_names.size() * sizeof(JsString*) + template_objects.size() * 2 * sizeof(void*);
+        return sizeof(*this) + var_names.size() * sizeof(JsString*)
+            + (template_objects.size() + modules.size() + module_programs.size()) * 2 * sizeof(void*);
     }
 };
 
@@ -203,8 +214,12 @@ public:
     Object* symbol_registry() const { return m_symbol_registry; }
     // CreateRealm with its intrinsics (§9.3.1, §9.3.2): a new realm record,
     // built with itself current and the previous current realm put back.
-    // The interpreter keeps every realm it makes for its own life.
+    // The interpreter keeps every realm it makes until its host lets it go.
     RealmRecord* create_realm();
+    // Lets a realm go: the interpreter no longer keeps it, and it is
+    // collected once nothing refers to it (a frame's, when the frame is
+    // gone). The current realm is kept.
+    void release_realm(RealmRecord*);
     // Makes a realm the current realm until the scope closes, and puts the
     // previous one back however the scope is left; a null realm leaves the
     // current one. How a call enters its function's realm
@@ -553,9 +568,6 @@ public:
     std::uint64_t steps() const { return m_steps; }
     // Every console.* call and every uncaught error ends up here.
     std::function<void(std::string_view level, std::string_view message)> on_console;
-    // The embedder's object behind this realm (the bindings' Realm), for
-    // natives to find their way back; untraced, unowned.
-    void* host = nullptr;
     // A description of a thrown value: "TypeError: x is not a function".
     std::string describe(Value const&);
     // The realm keeps every program it ran: functions point into them.
@@ -587,19 +599,13 @@ private:
     // The current realm (§9.4): the running function's, or the one a host
     // entered.
     RealmRecord* m_realm = nullptr;
-    // Every realm made here, traced, so a realm lives as long as the
-    // interpreter does.
+    // Every realm made here and not let go, traced.
     std::vector<RealmRecord*> m_realms;
     Object* m_symbol_registry = nullptr;
     // A deque, so that the reference root() hands out survives every later
     // push: a vector would move its elements when it grows.
     std::deque<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
-    std::unordered_map<std::string, ModuleRecord*> m_modules; // the module map (§16.2.1.7); traced
-    // A record by the tree it was parsed from, so that the running code's
-    // module is known from its execution context. The records are traced
-    // through m_modules and own their trees, so no key here dangles.
-    std::unordered_map<Program const*, ModuleRecord*> m_module_programs;
     // An eval Program against the program it takes its script or module
     // from: the program of the context the direct eval ran in, already
     // walked out of any eval of its own, so no chain here is longer than

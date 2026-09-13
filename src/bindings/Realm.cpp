@@ -913,7 +913,7 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
 {
     Internals& in = *m_internals;
     js::Interpreter& interpreter = in.interpreter;
-    interpreter.host = this;
+    interpreter.current_realm()->host_defined = this;
     interpreter.heap().add_root_provider(this);
     interpreter.on_console = [this](std::string_view level, std::string_view message) {
         m_internals->console(level, message);

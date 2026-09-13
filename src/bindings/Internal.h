@@ -430,7 +430,7 @@ struct Realm::Internals {
 // The realm a native was installed by.
 inline Realm::Internals& internals_of(js::Interpreter& interpreter)
 {
-    return static_cast<Realm*>(interpreter.host)->internals();
+    return static_cast<Realm*>(interpreter.current_realm()->host_defined)->internals();
 }
 
 // Binary data across the interfaces (Binary.cpp).

@@ -16,7 +16,8 @@
 // and Symbol.for keeps one registry for every realm. A class constructor
 // called without `new` throws its own realm's error, a derived
 // constructor's result is judged in its caller's realm, and
-// RegExp.prototype.compile refuses another realm's object.
+// RegExp.prototype.compile refuses another realm's object. Each realm keeps
+// its own module map, and a realm its host lets go is collected.
 
 using namespace sashfold;
 
@@ -134,6 +135,31 @@ int main()
                       "(function () { try { RegExp.prototype.compile.call(otherRegExp); } catch (e) { return e instanceof TypeError; } })()"
                       " && otherRegExp.compile('b') === otherRegExp && otherRegExp.source === 'b'");
     CHECK_JS_TRUE(in, "(function () { try { new (class extends RegExp {})('a').compile(); } catch (e) { return e instanceof TypeError; } })()");
+    CHECK(in.current_realm() == a);
+
+    // The module map is the realm's: a module parsed with B current is not
+    // in A's map.
+    {
+        js::ModuleRecord* in_b = nullptr;
+        {
+            js::Interpreter::RealmScope const inside(in, b);
+            in_b = in.parse_module(u"export let x = 1;", "realm-module");
+            CHECK(in_b != nullptr && in.find_module("realm-module") == in_b);
+        }
+        CHECK(in_b != nullptr && in.find_module("realm-module") == nullptr);
+    }
+
+    // A realm its host lets go is collected once nothing refers to it.
+    {
+        in.heap().collect();
+        std::size_t const before = in.heap().cell_count();
+        js::RealmRecord* const released = in.create_realm();
+        std::size_t const with_realm = in.heap().cell_count();
+        CHECK(released != nullptr && with_realm > before + 100);
+        in.release_realm(released);
+        in.heap().collect();
+        CHECK(in.heap().cell_count() + 100 < with_realm);
+    }
     CHECK(in.current_realm() == a);
 
     return test::report("js realm");
