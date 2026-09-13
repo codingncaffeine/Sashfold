@@ -1607,6 +1607,89 @@ int main(int argc, char** argv)
         x_of(U" \u05D1\u05D0", 271.0f);
     }
 
+    // --- Bidi controls written in the text ---------------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // The formatting characters of UAX #9 spelled in the markup have the
+        // same say as the ones `unicode-bidi` writes: an override holds its
+        // text to one direction, a mark is a strong character of no width.
+        // They are invisible, so no run carries one.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 300px; border: 1px solid }
+</style></head><body>
+  <div dir="ltr">&#x202D;&#x5D3;&#x5D2;&#x5D1;&#x5D0;&#x202C;</div>
+  <div dir="ltr">&#x202E;abc&#x202C; xyz</div>
+  <div dir="ltr">&#x5D0;&#x200E;&#x5D1;</div>
+  <div dir="ltr">&#x5D3;&#x5D2;&#x5D1;&#x5D0;</div>
+  <div dir="ltr" style="width: 100px">aaaaaaaa&#x202A;bbbbbbbb&#x202C;cccccccc</div>
+  <div style="unicode-bidi: bidi-override">&#x5D4;&#x5D5; yy</div>
+  <div style="direction: rtl; unicode-bidi: bidi-override">gh ij</div>
+  <div dir="ltr">&gt; <span style="unicode-bidi: isolate-override">kl &#x5D6;&#x5D7;</span> mn</div>
+  <div dir="ltr"><span style="unicode-bidi: plaintext">&#x5D8;&#x5D9; op</span> qr</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const run : runs) {
+                if (run->text == text)
+                    return run;
+            }
+            return nullptr;
+        };
+        auto const x_of = [&](std::u32string_view text, float expected) {
+            layout::TextRun const* const run = run_of(text);
+            CHECK(run != nullptr);
+            if (run)
+                CHECK_EQ(run->x, expected);
+        };
+        // Under a left-to-right override the Hebrew keeps its written order
+        // (the fourth div, without one, is drawn reversed as right-to-left
+        // text is); under a right-to-left one the Latin is reversed and the
+        // text after the pop reads on as before.
+        x_of(U"\x05D3\x05D2\x05D1\x05D0", 1.0f);
+        x_of(U"cba", 1.0f);
+        x_of(U"xyz", 41.0f);
+        // A left-to-right mark between two Hebrew letters keeps them in two
+        // runs, each in its place: without it they would be one run drawn
+        // reversed, with the bet first.
+        x_of(U"\x05D0", 1.0f);
+        x_of(U"\x05D1", 11.0f);
+        x_of(U"\x05D0\x05D1\x05D2\x05D3", 1.0f);
+        // An embedding cuts a word where its level changes, and a cut is no
+        // place to end a line: the word overflows its 100px box whole.
+        layout::TextRun const* const before_run = run_of(U"aaaaaaaa");
+        layout::TextRun const* const inside_run = run_of(U"bbbbbbbb");
+        layout::TextRun const* const after_run = run_of(U"cccccccc");
+        CHECK(before_run && inside_run && after_run);
+        if (before_run && inside_run && after_run) {
+            CHECK_EQ(inside_run->baseline_y, before_run->baseline_y);
+            CHECK_EQ(after_run->baseline_y, before_run->baseline_y);
+            CHECK_EQ(inside_run->x, 81.0f);
+            CHECK_EQ(after_run->x, 161.0f);
+        }
+        // An override on the block holds everything in it to the block's
+        // direction: the Hebrew in its written order, and the Latin of a
+        // right-to-left block reversed from the right edge.
+        x_of(U"\x05D4\x05D5", 1.0f);
+        x_of(U"yy", 31.0f);
+        x_of(U"ji", 251.0f);
+        x_of(U"hg", 281.0f);
+        // isolate-override is an isolate to the text around it and an
+        // override within, so the Hebrew in the span keeps its written order.
+        x_of(U"\x05D6\x05D7", 51.0f);
+        x_of(U"mn", 81.0f);
+        // plaintext on an inline box: an isolate reading the way its first
+        // strong character does — the Hebrew — whatever `direction` says, so
+        // the Latin after it inside the box is drawn to its left.
+        x_of(U"op", 1.0f);
+        x_of(U"\x05D9\x05D8", 31.0f);
+        for (layout::TextRun const* const run : runs) {
+            for (char32_t const ch : run->text)
+                CHECK(!(ch == 0x200E || ch == 0x200F || (ch >= 0x202A && ch <= 0x202E) || (ch >= 0x2066 && ch <= 0x2069)));
+        }
+    }
+
     // --- Lowercasing a final sigma -----------------------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

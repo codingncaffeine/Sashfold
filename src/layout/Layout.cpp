@@ -191,19 +191,33 @@ bool is_atomic_inline(InlineItem const& item)
 // The invisible characters with a say in where a line ends and in nothing
 // else: a zero width space is a break opportunity, a word joiner (U+2060,
 // and U+FEFF) forbids one, a zero width joiner forbids one after itself.
-// They stay in a word's text for the breaker's sake and come out before
-// the word is measured or drawn.
 bool is_break_control(char32_t c)
 {
     return c == 0x200B || c == 0x200D || c == 0x2060 || c == 0xFEFF;
 }
 
-std::u32string without_break_controls(std::u32string_view text)
+// The formatting characters of UAX #9: the marks (LRM, RLM, ALM), the
+// embeddings and overrides with their pop, the isolates with theirs.
+// Spelled in the text they have the say the ones `unicode-bidi` writes
+// have.
+bool is_bidi_control(char32_t c)
+{
+    return c == 0x200E || c == 0x200F || c == 0x061C || (c >= 0x202A && c <= 0x202E)
+        || (c >= 0x2066 && c <= 0x2069);
+}
+
+// What a word's text draws and measures. Both kinds of control stay in the
+// text for the line breaker's sake and the bidi algorithm's, and come out
+// here; a preserved tab stays a tab for the bidi algorithm, which reads it
+// as a segment separator, and is 8 spaces here — short of a real tab stop.
+std::u32string drawn_text(std::u32string_view text)
 {
     std::u32string out;
     out.reserve(text.size());
     for (char32_t const c : text) {
-        if (!is_break_control(c))
+        if (c == U'\t')
+            out.append(8, U' ');
+        else if (!is_break_control(c) && !is_bidi_control(c))
             out.push_back(c);
     }
     return out;
@@ -269,7 +283,6 @@ std::uint8_t line_break_tailoring(ComputedStyle const& style)
 std::vector<InlineItem> wrap_opportunities(std::vector<InlineItem> const& items, std::vector<std::uint8_t>& levels)
 {
     constexpr char32_t object = 0xFFFC;
-    constexpr char32_t no_break_space = 0xA0;
     std::vector<InlineItem> out;
     std::vector<std::uint8_t> out_levels;
     out.reserve(items.size());
@@ -280,7 +293,10 @@ std::vector<InlineItem> wrap_opportunities(std::vector<InlineItem> const& items,
         for (std::size_t i = first; i < last; ++i) {
             position[i - first] = text.size();
             if (items[i].kind == InlineItem::Kind::Word || items[i].kind == InlineItem::Kind::Space) {
-                text += items[i].text;
+                // A preserved tab wraps as the spaces it is drawn as: a line
+                // may end after a run of spaces and tabs, never inside one.
+                for (char32_t const c : items[i].text)
+                    text.push_back(c == U'\t' ? U' ' : c);
                 tailoring.insert(tailoring.end(), items[i].text.size(), line_break_tailoring(*items[i].style));
             } else if (is_atomic_inline(items[i])) {
                 text.push_back(object);
@@ -288,15 +304,24 @@ std::vector<InlineItem> wrap_opportunities(std::vector<InlineItem> const& items,
             }
         }
         std::vector<LineBreak> breaks = line_break_opportunities(text, tailoring);
-        // A line may end either side of an atomic inline even beside a
-        // no-break space, which would glue anything else to it (LB12).
+        // A line may end either side of an atomic inline even where the
+        // character beside it would allow no break (css-text-3 §5.1): the
+        // punctuation no break may come before (LB13), a no-break space
+        // (LB12). The glue of the other GL characters, of a word joiner and
+        // of a zero width joiner holds, and a space or a zero width space
+        // keeps its own rule: the break comes after it.
+        auto const holds = [](char32_t c) {
+            LineBreakClass const klass = line_break_class(c);
+            return (klass == LineBreakClass::GL && c != 0xA0) || klass == LineBreakClass::WJ
+                || klass == LineBreakClass::ZWJ || klass == LineBreakClass::SP || klass == LineBreakClass::ZW;
+        };
         for (std::size_t i = first; i < last; ++i) {
             if (!is_atomic_inline(items[i]))
                 continue;
             std::size_t const p = position[i - first];
-            if (p > 0 && text[p - 1] == no_break_space)
+            if (p > 0 && breaks[p] == LineBreak::None && !holds(text[p - 1]))
                 breaks[p] = LineBreak::Allowed;
-            if (p + 1 < text.size() && text[p + 1] == no_break_space)
+            if (p + 1 < text.size() && breaks[p + 1] == LineBreak::None && !holds(text[p + 1]))
                 breaks[p + 1] = LineBreak::Allowed;
         }
         for (std::size_t i = first; i < last; ++i) {
@@ -1897,12 +1922,9 @@ struct Layouter {
         };
         for (char32_t const c : text) {
             // Invisible by definition: no glyph, no advance — and, but for
-            // the few the line breaker reads, no say in where a line ends.
-            // (The bidi controls go with them, so an override spelled in
-            // the markup is not yet heard: keeping them in a word's text
-            // splits the word where its level changes, and every cut is a
-            // break opportunity today.)
-            if (is_default_ignorable(c) && !is_break_control(c))
+            // the few the line breaker or the bidi algorithm reads, no say
+            // in where a line ends or which way its text reads.
+            if (is_default_ignorable(c) && !is_break_control(c) && !is_bidi_control(c))
                 continue;
             bool const is_newline = c == U'\n';
             bool const is_space = c == U' ' || c == U'\t' || c == U'\f' || c == U'\r';
@@ -1912,11 +1934,10 @@ struct Layouter {
                 continue;
             }
             if (preserve_spaces) {
-                // Spaces are content; tabs advance to the next 8-column stop
-                // once monospace layout knows the position — approximated as
-                // 8 spaces here.
+                // Spaces are content. A tab stays itself in the text for the
+                // bidi algorithm and is drawn as 8 spaces (see drawn_text).
                 if (c == U'\t') {
-                    word.append(8, U' ');
+                    word.push_back(c);
                     continue;
                 }
                 word.push_back(is_space || is_newline ? U' ' : c);
@@ -2475,12 +2496,17 @@ struct Layouter {
             case css::UnicodeBidi::BidiOverride:
                 return std::u32string(1, opening ? (rtl ? 0x202E : 0x202D) : 0x202C);
             case css::UnicodeBidi::Isolate:
-            case css::UnicodeBidi::IsolateOverride:
-            case css::UnicodeBidi::Plaintext:
-                // An isolate-override should hold an override inside its
-                // isolate; only the isolate is written, so an override on
-                // an inline box does not yet reverse what it holds.
                 return std::u32string(1, opening ? (rtl ? 0x2067 : 0x2066) : 0x2069);
+            case css::UnicodeBidi::IsolateOverride:
+                // An isolate to the text around it, an override within
+                // (css-writing-modes-3 §2.4.2).
+                if (opening)
+                    return rtl ? U"\x2067\x202E" : U"\x2066\x202D";
+                return U"\x202C\x2069";
+            case css::UnicodeBidi::Plaintext:
+                // An isolate that takes the direction of its first strong
+                // character, whatever `direction` says.
+                return std::u32string(1, opening ? 0x2068 : 0x2069);
             }
             return {};
         }
@@ -2499,6 +2525,8 @@ struct Layouter {
         std::vector<InlineItem>& split, std::vector<std::uint8_t>& levels) const
     {
         bool const plaintext = block_style.unicode_bidi == css::UnicodeBidi::Plaintext;
+        bool const overrides = block_style.unicode_bidi == css::UnicodeBidi::BidiOverride
+            || block_style.unicode_bidi == css::UnicodeBidi::IsolateOverride;
         std::uint8_t const block_level = block_style.direction == css::Direction::Rtl ? 1 : 0;
         levels.assign(items.size(), block_level);
         std::vector<std::vector<std::uint8_t>> per_character(items.size());
@@ -2516,9 +2544,15 @@ struct Layouter {
             if (text.empty())
                 return;
             std::uint8_t const base = plaintext ? (first_strong_is_rtl(text) ? 1 : 0) : block_level;
+            // An override on the block holds all its inline content to the
+            // block's direction (css-writing-modes-3 §2.4.2): the paragraph
+            // reads as if it opened with the override's control.
+            std::size_t const lead = overrides ? 1 : 0;
+            if (overrides)
+                text.insert(text.begin(), block_level == 1 ? char32_t { 0x202E } : char32_t { 0x202D });
             BidiParagraph const resolved = bidi_resolve(text, base);
-            for (std::size_t c = 0; c < text.size(); ++c) {
-                per_character[owner[c]].push_back(resolved.levels[c]);
+            for (std::size_t c = lead; c < text.size(); ++c) {
+                per_character[owner[c - lead]].push_back(resolved.levels[c]);
                 mixed = mixed || resolved.levels[c] != block_level;
             }
         };
@@ -3452,8 +3486,12 @@ struct Layouter {
         // earlier item — with nothing since that must not be laid out twice:
         // an inline-block, a float, an absolute box — the line ends there
         // instead, and the answer is that item, for the loop to read from
-        // again. Else the line ends in front of the item anyway, an
-        // emergency the word is then sliced for below.
+        // again. A line with no place to end at all is one unbreakable run
+        // with the item: under `overflow-wrap: normal` the item stays on it
+        // and overflows (css-text-3 §5.5), which is what keeps a word cut
+        // where its bidi level changes whole; where an emergency break is
+        // allowed the line ends in front of the item anyway, and the word
+        // is then sliced below.
         auto const end_line_before = [&](std::size_t index) -> std::optional<std::size_t> {
             if (!items[index].break_before && opportunity) {
                 bool clean = true;
@@ -3474,6 +3512,16 @@ struct Layouter {
                     return again;
                 }
             }
+            // The item may allow the emergency, or what stands in front of
+            // it: the end of an `overflow-wrap: anywhere` span is a place a
+            // line may end when nothing else is.
+            auto const may_slice = [](ComputedStyle const& style) {
+                return style.overflow_wrap != css::OverflowWrap::Normal
+                    || style.word_break == css::WordBreak::BreakWord;
+            };
+            bool const emergency = may_slice(*items[index].style) || (index > 0 && may_slice(*items[index - 1].style));
+            if (!items[index].break_before && !opportunity && !emergency)
+                return std::nullopt;
             flush_line();
             return std::nullopt;
         };
@@ -3719,7 +3767,7 @@ struct Layouter {
                 line_width += width;
                 continue;
             }
-            std::u32string word = without_break_controls(item.text);
+            std::u32string word = drawn_text(item.text);
             // Measured as it is drawn: a run reading right-to-left is drawn
             // with its characters in the other order and its brackets
             // mirrored (rules L2 and L4, at flush_line), so its kerning
@@ -5012,7 +5060,7 @@ struct Layouter {
         for (InlineItem const& item : items) {
             switch (item.kind) {
             case InlineItem::Kind::Word: {
-                std::u32string const word = without_break_controls(item.text);
+                std::u32string const word = drawn_text(item.text);
                 float const width = measure(*item.style, word);
                 // The spaces a word ends with hang past a line's end, so
                 // they do not hold the narrowest line open — but under
