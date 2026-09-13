@@ -6,6 +6,10 @@
 #include "text/Woff.h"
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -13,6 +17,10 @@
 // is — every table zlib-compressed, or stored — unwraps to a font the
 // reader reads as the original, straight through TrueTypeFont::parse too;
 // and a wrapper that lies about its tables unwraps to nothing.
+//
+// WOFF 2.0: the fixture font as the reference encoder (woff2_compress)
+// wrote it — one brotli stream, glyf and loca transformed — unwraps to a
+// font whose every glyph, advance and cmap entry are the fixture TTF's.
 
 using namespace sashfold;
 using text::TrueTypeFont;
@@ -35,6 +43,17 @@ void push_u32(std::vector<std::uint8_t>& out, std::uint32_t value)
 {
     push_u16(out, static_cast<std::uint16_t>(value >> 16));
     push_u16(out, static_cast<std::uint16_t>(value));
+}
+
+std::optional<std::vector<std::uint8_t>> read_file(std::filesystem::path const& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        return std::nullopt;
+    std::ostringstream stream;
+    stream << file.rdbuf();
+    std::string const text = std::move(stream).str();
+    return std::vector<std::uint8_t>(text.begin(), text.end());
 }
 
 // An sfnt wrapped as WOFF 1.0, its tables compressed or stored.
@@ -89,9 +108,37 @@ std::vector<std::uint8_t> wrap(std::vector<std::uint8_t> const& sfnt, bool compr
     return out;
 }
 
+// Whether two fonts draw the same: every glyph's advance, its points with
+// their on-curve bits, and its contour ends.
+bool same_glyphs(TrueTypeFont const& font, TrueTypeFont const& expected)
+{
+    if (font.glyph_count() != expected.glyph_count())
+        return false;
+    for (std::uint32_t index = 0; index < expected.glyph_count(); ++index) {
+        auto const glyph = static_cast<std::uint16_t>(index);
+        if (font.advance_width(glyph) != expected.advance_width(glyph))
+            return false;
+        std::optional<text::GlyphOutline> const outline = font.outline(glyph);
+        std::optional<text::GlyphOutline> const reference = expected.outline(glyph);
+        if (outline.has_value() != reference.has_value())
+            return false;
+        if (!outline)
+            continue;
+        if (outline->points.size() != reference->points.size() || outline->contour_ends != reference->contour_ends)
+            return false;
+        for (std::size_t i = 0; i < outline->points.size(); ++i) {
+            text::GlyphPoint const& a = outline->points[i];
+            text::GlyphPoint const& b = reference->points[i];
+            if (a.x != b.x || a.y != b.y || a.on_curve != b.on_curve)
+                return false;
+        }
+    }
+    return true;
 }
 
-int main()
+}
+
+int main(int argc, char** argv)
 {
     std::vector<std::uint8_t> const sfnt = text::SashfoldMono::instance().to_truetype();
     std::optional<TrueTypeFont> const original = TrueTypeFont::parse(sfnt);
@@ -140,6 +187,61 @@ int main()
     }
     CHECK(!text::unwrap_woff(sfnt).has_value()); // not a wrapper at all
     CHECK(!text::unwrap_woff({}).has_value());
+
+    // WOFF 2.0, from the fixtures directory the test is given.
+    if (!CHECK(argc >= 2))
+        return test::report("woff");
+    std::filesystem::path const fixtures = argv[1];
+    std::optional<std::vector<std::uint8_t>> const woff2 = read_file(fixtures / "SashfoldMono.woff2");
+    std::optional<std::vector<std::uint8_t>> const ttf = read_file(fixtures / "SashfoldMono.ttf");
+    if (!CHECK(woff2.has_value() && ttf.has_value()))
+        return test::report("woff");
+    std::optional<TrueTypeFont> const reference = TrueTypeFont::parse(*ttf);
+    if (!CHECK(reference.has_value()))
+        return test::report("woff");
+    CHECK(text::is_woff2(*woff2));
+    CHECK(!text::is_woff(*woff2));
+    std::optional<std::vector<std::uint8_t>> const unwrapped = text::unwrap_woff2(*woff2);
+    if (CHECK(unwrapped.has_value())) {
+        CHECK_EQ(TrueTypeFont::face_count(*unwrapped), 1u);
+        std::optional<TrueTypeFont> const font = TrueTypeFont::parse(*unwrapped);
+        if (CHECK(font.has_value())) {
+            CHECK_EQ(font->family_name(), reference->family_name());
+            CHECK_EQ(font->units_per_em(), reference->units_per_em());
+            // The glyphs were rebuilt from the transformed streams, not
+            // copied: the test that they came out right is every one of them.
+            CHECK(same_glyphs(*font, *reference));
+            bool same_cmap = true;
+            for (char32_t c = 0; c < 0x3000; ++c)
+                same_cmap = same_cmap && font->glyph_index(c) == reference->glyph_index(c);
+            CHECK(same_cmap);
+        }
+    }
+    // The reader unwraps it for itself, as it does a WOFF.
+    CHECK_EQ(TrueTypeFont::face_count(*woff2), 1u);
+    std::optional<TrueTypeFont> const direct = TrueTypeFont::parse(*woff2);
+    CHECK(direct && same_glyphs(*direct, *reference));
+
+    // Cut short anywhere, over the cap, or not WOFF2 at all: nothing.
+    bool every_cut_refused = true;
+    for (std::size_t cut = 0; cut < woff2->size(); ++cut) {
+        std::vector<std::uint8_t> const cut_short(woff2->begin(), woff2->begin() + static_cast<std::ptrdiff_t>(cut));
+        if (text::unwrap_woff2(cut_short).has_value())
+            every_cut_refused = false;
+    }
+    CHECK(every_cut_refused);
+    CHECK(!text::unwrap_woff2(*woff2, 1024).has_value());
+    CHECK(!text::unwrap_woff2(*ttf).has_value());
+    CHECK(!text::unwrap_woff2(wrap(sfnt, true)).has_value());
+    // A flipped byte anywhere decodes to a font or to nothing, never a crash
+    // (what the sanitizer lane runs this for).
+    for (std::size_t at = 0; at < woff2->size(); ++at) {
+        std::vector<std::uint8_t> flipped = *woff2;
+        flipped[at] = static_cast<std::uint8_t>(flipped[at] ^ 0x5A);
+        std::optional<std::vector<std::uint8_t>> const out = text::unwrap_woff2(flipped, 1u << 22);
+        if (out)
+            (void)TrueTypeFont::parse(*out);
+    }
 
     return test::report("woff");
 }

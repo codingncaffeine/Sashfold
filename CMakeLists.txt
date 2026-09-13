@@ -62,6 +62,7 @@ add_library(sashfold_core STATIC
   src/core/LineBreak.cpp
   src/core/Bmp.cpp
   src/core/Gif.cpp
+  src/core/Brotli.cpp
   src/core/Inflate.cpp
   src/core/Jpeg.cpp
   src/core/Json.cpp
@@ -236,6 +237,7 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(css_parser)
   sashfold_fuzzer(url)
   sashfold_fuzzer(inflate)
+  sashfold_fuzzer(brotli)
   sashfold_fuzzer(http_response)
   sashfold_fuzzer(x509)
   sashfold_fuzzer(truetype)

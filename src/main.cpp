@@ -653,30 +653,10 @@ void census_rules(std::vector<css::Rule> const& rules, FeatureCensus& census)
             census_rules(rule.qualified().child_rules, census);
         } else if (rule.is_at_rule()) {
             std::string const name = lowercase_ascii(rule.at_rule().name);
-            if (name == "font-face") {
-                for (css::Rule const& child : rule.at_rule().child_rules) {
-                    if (!child.is_nested_declarations())
-                        continue;
-                    for (css::Declaration const& declaration : child.nested_declarations().declarations) {
-                        if (lowercase_ascii(declaration.name) != "src")
-                            continue;
-                        for (css::ComponentValue const& value : declaration.value) {
-                            std::string text;
-                            if (value.is_token(css::Token::Type::Url) || value.is_token(css::Token::Type::String))
-                                text = lowercase_ascii(value.token().value);
-                            else if (value.is_function())
-                                for (css::ComponentValue const& inner : value.function().values)
-                                    if (inner.is_token(css::Token::Type::String))
-                                        text = lowercase_ascii(inner.token().value);
-                            if (text.find("woff2") != std::string::npos) {
-                                ++census["web-fonts"];
-                                break;
-                            }
-                        }
-                    }
-                }
+            // A font face's descriptors are no page feature to count: every
+            // format its sources name is read.
+            if (name == "font-face")
                 continue;
-            }
             if (name == "supports" || name == "layer" || name == "container" || name == "keyframes" || name == "scope")
                 ++census["at-rules"];
             census_rules(rule.at_rule().child_rules, census);

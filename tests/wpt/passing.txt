@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9261 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9249 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -7388,7 +7388,6 @@ css/css-text/hyphens/hyphens-none-shy-on-2nd-line-001.html
 css/css-text/hyphens/hyphens-out-of-flow-001.html
 css/css-text/hyphens/hyphens-out-of-flow-002.html
 css/css-text/hyphens/hyphens-overflow-001.html
-css/css-text/hyphens/hyphens-shaping-001.html
 css/css-text/hyphens/hyphens-shaping-002.html
 css/css-text/hyphens/hyphens-span-001.html
 css/css-text/hyphens/hyphens-span-002.html
@@ -7613,7 +7612,6 @@ css/css-text/line-break/line-break-normal-017b.xht
 css/css-text/line-break/line-break-normal-018.xht
 css/css-text/line-break/line-break-normal-hyphens-002.html
 css/css-text/line-break/line-break-normal-hyphens-003.html
-css/css-text/line-break/line-break-shaping-001.html
 css/css-text/line-break/line-break-strict-011.xht
 css/css-text/line-break/line-break-strict-012.xht
 css/css-text/line-break/line-break-strict-013.xht
@@ -7757,14 +7755,13 @@ css/css-text/overflow-wrap/overflow-wrap-min-content-size-005.html
 css/css-text/overflow-wrap/overflow-wrap-min-content-size-006.html
 css/css-text/overflow-wrap/overflow-wrap-min-content-size-007.html
 css/css-text/overflow-wrap/overflow-wrap-min-content-size-009.html
-css/css-text/overflow-wrap/overflow-wrap-shaping-001.html
-css/css-text/overflow-wrap/overflow-wrap-shaping-002.html
 css/css-text/overflow-wrap/word-wrap-001.html
 css/css-text/overflow-wrap/word-wrap-002.html
 css/css-text/overflow-wrap/word-wrap-004.html
 css/css-text/shaping/shaping-024.html
 css/css-text/shaping/shaping-025.html
 css/css-text/shaping/shaping-arabic-diacritics-001.html
+css/css-text/shaping/shaping-arabic-diacritics-002.html
 css/css-text/shaping/shaping_lig-000.html
 css/css-text/shaping/shaping_lig-001.html
 css/css-text/tab-size/tab-size-spacing-001.html
@@ -7863,15 +7860,6 @@ css/css-text/text-autospace/text-autospace-vertical-combine-001.html
 css/css-text/text-autospace/text-autospace-vertical-upright-001.html
 css/css-text/text-autospace/text-autospace-vs-001.html
 css/css-text/text-autospace/text-autospace-zh-001.html
-css/css-text/text-encoding/shaping-join-001.html
-css/css-text/text-encoding/shaping-join-002.html
-css/css-text/text-encoding/shaping-join-003.html
-css/css-text/text-encoding/shaping-no-join-001.html
-css/css-text/text-encoding/shaping-no-join-002.html
-css/css-text/text-encoding/shaping-no-join-003.html
-css/css-text/text-encoding/shaping-tatweel-001.html
-css/css-text/text-encoding/shaping-tatweel-002.html
-css/css-text/text-encoding/shaping-tatweel-003.html
 css/css-text/text-fit/grow-dynamic.html
 css/css-text/text-fit/shrink-dynamic.html
 css/css-text/text-group-align/text-group-align-left-vlr.html

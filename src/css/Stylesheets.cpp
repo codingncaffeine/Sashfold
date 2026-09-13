@@ -461,18 +461,20 @@ void gather_font_faces(std::vector<Rule> const& rules, MediaContext const& media
 }
 
 // Whether a source is worth fetching: a URL in a format this engine reads
-// — TrueType and OpenType, plain or in a WOFF wrapper — or in no stated
-// format and not under an extension of one it does not.
+// — TrueType and OpenType, plain or in a WOFF or WOFF2 wrapper — or in no
+// stated format and not under an extension of one it does not.
 bool readable_source(FontFaceSource const& source)
 {
     if (source.url.empty())
         return false;
-    if (!source.format.empty())
-        return source.format == "truetype" || source.format == "opentype" || source.format == "woff";
+    if (!source.format.empty()) {
+        return source.format == "truetype" || source.format == "opentype" || source.format == "woff"
+            || source.format == "woff2";
+    }
     std::string path = lowercased(source.url);
     if (std::size_t const cut = path.find_first_of("?#"); cut != std::string::npos)
         path.erase(cut);
-    for (std::string_view const extension : { ".woff2", ".eot", ".svg", ".svgz" }) {
+    for (std::string_view const extension : { ".eot", ".svg", ".svgz" }) {
         if (path.ends_with(extension))
             return false;
     }

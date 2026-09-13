@@ -1,6 +1,7 @@
 #include "net/Http.h"
 
 #include "core/Ascii.h"
+#include "core/Brotli.h"
 #include "core/Inflate.h"
 #include "net/Cache.h"
 #include "net/Connections.h"
@@ -329,6 +330,8 @@ std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encodin
             return zlibbed;
         return inflate(body, max_output);
     }
+    if (ascii_ci_equals(trimmed, "br"))
+        return brotli_decompress(body, max_output);
     return std::nullopt; // unknown encoding
 }
 
@@ -479,7 +482,7 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         request += "User-Agent: " + std::string(user_agent()) + "\r\n";
         if (find_header(headers, "accept") == nullptr)
             request += "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
-        request += "Accept-Encoding: gzip, deflate\r\n";
+        request += "Accept-Encoding: gzip, deflate, br\r\n";
         // The caller's headers; the ones the exchange owns are never theirs.
         for (Header const& header : headers) {
             std::string const name = lowered(header.name);

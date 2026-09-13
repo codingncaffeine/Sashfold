@@ -211,10 +211,11 @@ std::size_t TrueTypeFont::face_count(std::vector<std::uint8_t> const& bytes)
 {
     if (bytes.size() < 12 || bytes.size() > max_font_bytes)
         return 0;
-    if (is_woff(bytes)) {
-        // A web font wrapper holds one font; whether it is one is known
-        // once it is unwrapped.
-        std::optional<std::vector<std::uint8_t>> const unwrapped = unwrap_woff(bytes, max_font_bytes);
+    if (is_woff(bytes) || is_woff2(bytes)) {
+        // A web font wrapper holds a font, or under WOFF 2.0 perhaps a
+        // collection; how many faces is known once it is unwrapped.
+        std::optional<std::vector<std::uint8_t>> const unwrapped
+            = is_woff(bytes) ? unwrap_woff(bytes, max_font_bytes) : unwrap_woff2(bytes, max_font_bytes);
         return unwrapped ? face_count(*unwrapped) : 0;
     }
     Reader const reader { bytes };
@@ -233,8 +234,9 @@ std::optional<TrueTypeFont> TrueTypeFont::parse(std::vector<std::uint8_t> bytes,
 {
     if (bytes.size() < 12 || bytes.size() > max_font_bytes)
         return std::nullopt;
-    if (is_woff(bytes)) {
-        std::optional<std::vector<std::uint8_t>> unwrapped = unwrap_woff(bytes, max_font_bytes);
+    if (is_woff(bytes) || is_woff2(bytes)) {
+        std::optional<std::vector<std::uint8_t>> unwrapped
+            = is_woff(bytes) ? unwrap_woff(bytes, max_font_bytes) : unwrap_woff2(bytes, max_font_bytes);
         if (!unwrapped)
             return std::nullopt;
         bytes = std::move(*unwrapped);

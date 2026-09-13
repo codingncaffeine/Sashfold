@@ -223,7 +223,6 @@ constexpr FeatureName feature_names[] = {
     { "multi-column", "multi-column layout" },
     { "sizing", "object-fit and aspect-ratio" },
     { "outline", "outlines" },
-    { "web-fonts", "web fonts in WOFF or WOFF2" },
     { "at-rules", "@supports, @layer, @container, @keyframes, @scope" },
 };
 

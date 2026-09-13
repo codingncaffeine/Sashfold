@@ -72,7 +72,6 @@ sashfold_test(test_cache)
 sashfold_test(test_connections)
 sashfold_test(test_downloads)
 sashfold_test(test_font_manager)
-sashfold_test(test_woff)
 
 # The script engine.
 sashfold_test(test_js_lexer)
@@ -221,6 +220,16 @@ add_executable(test_inflate test_inflate.cpp)
 target_link_libraries(test_inflate PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_inflate
   COMMAND test_inflate ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/inflate)
+
+add_executable(test_brotli test_brotli.cpp)
+target_link_libraries(test_brotli PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_brotli
+  COMMAND test_brotli ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/brotli)
+
+add_executable(test_woff test_woff.cpp)
+target_link_libraries(test_woff PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_woff
+  COMMAND test_woff ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts)
 
 add_executable(test_http test_http.cpp)
 target_link_libraries(test_http PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
