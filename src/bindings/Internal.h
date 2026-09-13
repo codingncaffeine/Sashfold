@@ -76,6 +76,14 @@ public:
     ~NodeWrapper() override;
     dom::Node& node() const { return *m_node; }
     Realm& realm() const { return *m_realm; }
+    // A frame's realm ending before the heap its wrappers live in lets each go
+    // of its node and its realm; no native accepts a detached wrapper again.
+    void detach()
+    {
+        m_node = nullptr;
+        m_realm = nullptr;
+    }
+    bool detached() const { return m_node == nullptr; }
     void trace(js::Tracer&) override;
 
 private:
@@ -320,6 +328,15 @@ struct Agent {
     int script_depth = 0; // entries from the host in progress
 };
 
+// An iframe's document with a realm of its own in its page's agent: the
+// policy, the document, and the Realm last, so that the Realm ends first.
+struct ChildFrame {
+    dom::Element* container = nullptr;
+    std::unique_ptr<net::ContentSecurityPolicy> policy;
+    std::unique_ptr<dom::Document> document;
+    std::unique_ptr<Realm> realm;
+};
+
 struct Realm::Internals {
     Realm& realm;
     dom::Document& document;
@@ -334,6 +351,20 @@ struct Realm::Internals {
     Agent& agent;
     js::Interpreter& interpreter; // the agent's
     js::RealmRecord* realm_record; // this document's realm in it
+    // The URL of this document's origin: its own, or an srcdoc document's
+    // parent's.
+    net::Url origin_url;
+    // For a frame's realm, the realm of the document its iframe is in and
+    // that iframe; null for a page's.
+    Internals* parent_realm = nullptr;
+    dom::Element* frame_element = nullptr;
+    // The frames of this document that have realms, in the order they were
+    // opened; after the agent, so that they end before it.
+    std::vector<ChildFrame> child_frames;
+    // Opens an iframe's document in a realm of its own here, when the host
+    // answers for it; and the frame of an iframe, when it has this origin.
+    void open_frame(dom::Element& iframe);
+    ChildFrame const* frame_of(dom::Element const& iframe) const;
 
     // The interfaces, by name: each constructor's prototype object.
     std::unordered_map<std::string, js::Object*> prototypes;
@@ -389,6 +420,8 @@ struct Realm::Internals {
     double time_origin = 0;
 
     Internals(Realm& realm, dom::Document& document, net::Url url, HostHooks hooks);
+    // A frame's: a realm of its own in its page's agent.
+    Internals(Realm& realm, Agent& agent, dom::Document& document, net::Url url, HostHooks hooks);
 
     double now() const;
     void console(std::string_view level, std::string_view message) const;
@@ -412,13 +445,15 @@ struct Realm::Internals {
         ~Entry();
         Internals& internals;
         double started;
+        // The host enters this document's realm for the length of the entry.
+        js::Interpreter::RealmScope realm_scope;
     };
     // Calls a script function from the host, reporting a throw.
     void call_reporting(js::Value const& callee, js::Value const& this_value, Args arguments, std::string_view where);
 
     // Wrappers.
     js::Object* wrap(dom::Node&);
-    NodeWrapper* wrapper_of(js::Value const&) const; // null unless a node wrapper of this realm
+    NodeWrapper* wrapper_of(js::Value const&) const; // null unless a node wrapper of this agent, not detached
     js::Object* prototype_for(dom::Node const&) const;
 
     // Events.

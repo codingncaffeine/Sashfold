@@ -913,8 +913,16 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     {
         js::Object& iframe = proto_of("HTMLIFrameElement");
         element_getter(in, iframe, "sandbox", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sandbox"); });
-        element_getter(in, iframe, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-        element_getter(in, iframe, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        // A frame's window and document, when its document has a realm here
+        // and this document's origin; null otherwise.
+        element_getter(in, iframe, "contentWindow", [](Realm::Internals& internals, dom::Element& e) -> Native {
+            ChildFrame const* const frame_entry = internals.frame_of(e);
+            return frame_entry ? js::Value::object(frame_entry->realm->window()) : js::Value::null();
+        });
+        element_getter(in, iframe, "contentDocument", [](Realm::Internals& internals, dom::Element& e) -> Native {
+            ChildFrame const* const frame_entry = internals.frame_of(e);
+            return frame_entry ? js::Value::object(frame_entry->realm->wrap(*frame_entry->document)) : js::Value::null();
+        });
         for (std::string_view const name : { "HTMLEmbedElement", "HTMLObjectElement" }) {
             js::Object& proto = proto_of(name);
             element_getter(in, proto, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });

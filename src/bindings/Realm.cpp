@@ -3,6 +3,7 @@
 #include "bindings/Fetching.h"
 
 #include "core/Ascii.h"
+#include "core/Unicode.h"
 #include "html/Serializer.h"
 #include "js/Module.h"
 #include "js/Strings.h"
@@ -37,13 +38,15 @@ NodeWrapper::~NodeWrapper()
 {
     // The node outlives every wrapper (the realm goes before its documents),
     // so the slot can be cleared for the next script that reaches the node.
-    if (m_node->wrapper == this)
+    if (m_node && m_node->wrapper == this)
         m_node->wrapper = nullptr;
 }
 
 void NodeWrapper::trace(js::Tracer& tracer)
 {
     EventTargetObject::trace(tracer);
+    if (!m_node)
+        return;
     // A detached subtree lives as long as a wrapper into it is reachable
     // (ADR 0001 §3): reaching any node of it keeps its root's wrapper, and a
     // document a script made keeps that document's wrapper. The connected
@@ -367,6 +370,19 @@ Realm::Internals::Internals(Realm& the_realm, dom::Document& the_document, net::
     , agent(*own_agent)
     , interpreter(agent.interpreter)
     , realm_record(interpreter.current_realm())
+    , origin_url(url)
+{
+}
+
+Realm::Internals::Internals(Realm& the_realm, Agent& the_agent, dom::Document& the_document, net::Url the_url, HostHooks the_hooks)
+    : realm(the_realm)
+    , document(the_document)
+    , url(std::move(the_url))
+    , hooks(std::move(the_hooks))
+    , agent(the_agent)
+    , interpreter(the_agent.interpreter)
+    , realm_record(the_agent.interpreter.create_realm())
+    , origin_url(url)
 {
 }
 
@@ -481,6 +497,7 @@ void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view
 Realm::Internals::Entry::Entry(Internals& the_internals)
     : internals(the_internals)
     , started(the_internals.now())
+    , realm_scope(the_internals.interpreter, the_internals.realm_record)
 {
     ++internals.agent.script_depth;
     // Time is measured on the steady clock even when timers run on a
@@ -597,7 +614,9 @@ NodeWrapper* Realm::Internals::wrapper_of(js::Value const& value) const
     // Every host object is a js::Object subclass of ours; the node wrappers
     // are told apart by the cached slot pointing back at them.
     auto* wrapper = dynamic_cast<NodeWrapper*>(value.as_object());
-    if (!wrapper || &wrapper->realm() != &realm)
+    // A wrapper another document's realm made in this agent is accepted — a
+    // frame's node reached or adopted by its page — but never a detached one.
+    if (!wrapper || wrapper->detached() || &wrapper->realm().internals().agent != &agent)
         return nullptr;
     return wrapper;
 }
@@ -741,10 +760,10 @@ void Realm::Internals::install_module_hooks()
         // or a relative reference that begins with "/", "./" or "../"
         // against the referrer's base. A bare specifier is what an import
         // map would settle, and import maps are not written.
-        [this](std::string_view referrer_key, std::string_view specifier, std::string& error) -> std::optional<std::string> {
+        [&agent_interpreter = interpreter](std::string_view referrer_key, std::string_view specifier, std::string& error) -> std::optional<std::string> {
             std::optional<net::Url> resolved = net::parse_url(specifier, nullptr);
             if (!resolved && (specifier.starts_with("/") || specifier.starts_with("./") || specifier.starts_with("../"))) {
-                net::Url const base = module_base_of(referrer_key);
+                net::Url const base = internals_of(agent_interpreter).module_base_of(referrer_key);
                 resolved = net::parse_url(specifier, &base);
             }
             if (!resolved) {
@@ -754,8 +773,10 @@ void Realm::Internals::install_module_hooks()
             }
             return resolved->serialize();
         },
-        [this](std::string_view key, std::string& error) -> std::optional<std::u16string> {
-            std::optional<std::string> const source = fetch_module_source(std::string(key), module_credentials_include, error);
+        [&agent_interpreter = interpreter](std::string_view key, std::string& error) -> std::optional<std::u16string> {
+            // The realm whose module graph asks is the one running.
+            Internals& asking = internals_of(agent_interpreter);
+            std::optional<std::string> const source = asking.fetch_module_source(std::string(key), asking.module_credentials_include, error);
             if (!source)
                 return std::nullopt;
             return js::utf16_from_utf8(*source);
@@ -912,6 +933,35 @@ void Realm::Internals::watch_module_evaluation(js::Value const& promise, std::st
 
 // --- The realm ------------------------------------------------------------------------
 
+namespace {
+
+// Every interface a document's realm has, made with that realm current.
+void install_interfaces(Realm::Internals& in)
+{
+    install_events(in);
+    install_nodes(in);
+    install_style(in);
+    install_window(in);
+    install_binary(in);
+    install_fetch(in);
+    install_xhr(in);
+    install_tasks(in);
+}
+
+// Lets every wrapper into a tree go of its node: the realm that made them is
+// ending before the heap they live in.
+void detach_wrappers(dom::Node& node)
+{
+    if (node.wrapper) {
+        static_cast<NodeWrapper*>(node.wrapper)->detach();
+        node.wrapper = nullptr;
+    }
+    for (dom::Node* const child : node.children())
+        detach_wrappers(*child);
+}
+
+} // namespace
+
 Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     : m_internals(std::make_unique<Internals>(*this, document, std::move(url), std::move(hooks)))
 {
@@ -922,17 +972,18 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     interpreter.on_console = [this](std::string_view level, std::string_view message) {
         m_internals->console(level, message);
     };
-    // HostEnsureCanCompileStrings: the page's policy's say on eval and
-    // Function, and on a string a timer would compile.
-    interpreter.on_compile_strings = [this]() { return m_internals->compile_strings_refusal(); };
+    // HostEnsureCanCompileStrings: the policy of the document whose realm is
+    // running has its say on eval and Function, and on a string a timer
+    // would compile.
+    interpreter.on_compile_strings = [&interpreter]() { return internals_of(interpreter).compile_strings_refusal(); };
     // The module map is the document's: its keys are URLs, and the realm
     // resolves and fetches modules for the engine (§8.1.7).
     in.install_module_hooks();
     // HostGetImportMetaProperties: a module's `import.meta.url` is its own
     // URL, which is the key the module map named it by, except for an
     // inline module, whose URL is the document's.
-    interpreter.set_module_meta_hook([this](js::Interpreter& realm_interpreter, js::ModuleRecord& record, js::Object& meta) {
-        Internals const& internals = *m_internals;
+    interpreter.set_module_meta_hook([](js::Interpreter& realm_interpreter, js::ModuleRecord& record, js::Object& meta) {
+        Internals const& internals = internals_of(realm_interpreter);
         auto const inline_base = internals.inline_module_bases.find(record.key());
         std::string const url_text = inline_base != internals.inline_module_bases.end() ? inline_base->second.serialize() : record.key();
         meta.put(realm_interpreter.key("url"), js::Value::string(realm_interpreter.string(url_text)), js::default_attributes);
@@ -940,14 +991,22 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
     in.time_origin = in.now();
-    install_events(in);
-    install_nodes(in);
-    install_style(in);
-    install_window(in);
-    install_binary(in);
-    install_fetch(in);
-    install_xhr(in);
-    install_tasks(in);
+    install_interfaces(in);
+}
+
+Realm::Realm(Internals& parent, dom::Element& container, dom::Document& document, net::Url url, HostHooks hooks)
+    : m_internals(std::make_unique<Internals>(*this, parent.agent, document, std::move(url), std::move(hooks)))
+{
+    // The agent's own hooks stay its page's; this is one more realm in it.
+    Internals& in = *m_internals;
+    in.parent_realm = &parent;
+    in.frame_element = &container;
+    in.realm_record->host_defined = this;
+    in.interpreter.heap().add_root_provider(this);
+    in.time_origin = in.now();
+    // Its interfaces are made of its own intrinsics.
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    install_interfaces(in);
 }
 
 void Realm::Internals::post_task(std::function<void()> task)
@@ -964,8 +1023,19 @@ Realm::~Realm()
     Internals& in = *m_internals;
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
-    if (in.own_agent)
+    // Its frames end first, while this realm and the agent are whole.
+    in.child_frames.clear();
+    if (in.own_agent) {
         in.interpreter.clear_jobs();
+    } else {
+        // A frame's realm ends before the heap its wrappers live in: they let
+        // go of the nodes they point into, and the interpreter of this realm.
+        detach_wrappers(in.document);
+        for (std::unique_ptr<dom::Document> const& extra : in.extra_documents)
+            detach_wrappers(*extra);
+        in.realm_record->host_defined = nullptr;
+        in.interpreter.release_realm(in.realm_record);
+    }
     in.interpreter.heap().remove_root_provider(this);
 }
 
@@ -974,7 +1044,7 @@ dom::Document& Realm::document() { return m_internals->document; }
 net::Url const& Realm::url() const { return m_internals->url; }
 HostHooks& Realm::hooks() { return m_internals->hooks; }
 js::Object* Realm::wrap(dom::Node& node) { return m_internals->wrap(node); }
-js::Object* Realm::window() const { return m_internals->interpreter.global(); }
+js::Object* Realm::window() const { return m_internals->realm_record->intrinsics.global; }
 std::string const& Realm::ready_state() const { return m_internals->ready_state; }
 std::uint64_t Realm::mutation_count() const { return m_internals->mutations; }
 void Realm::note_mutation() { ++m_internals->mutations; }
@@ -1051,15 +1121,90 @@ void Realm::document_parsed()
     dispatch_event(&in.document, "DOMContentLoaded", EventInit { true, false, false });
     // A page's load waits on its frames' documents, so every iframe the
     // parse left in the tree has fired its load event, in tree order, by the
-    // time the window fires its own.
+    // time the window fires its own. A frame's document the host answers for
+    // is parsed and loaded in a realm of its own first.
     std::vector<dom::Element*> frames;
     collect_frames(in.document, frames);
-    for (dom::Element* const frame : frames)
+    for (dom::Element* const frame : frames) {
+        in.open_frame(*frame);
         dispatch_event(frame, "load");
+    }
     in.ready_state = "complete";
     dispatch_event(&in.document, "readystatechange");
     dispatch_event(nullptr, "load");
     dispatch_event(nullptr, "pageshow");
+}
+
+void Realm::Internals::open_frame(dom::Element& iframe)
+{
+    if (!hooks.frame_document)
+        return;
+    // Ten frames deep, as far as the painter draws them.
+    int depth = 0;
+    for (Internals const* up = parent_realm; up != nullptr; up = up->parent_realm)
+        ++depth;
+    if (depth >= 10)
+        return;
+    std::optional<FrameDocument> answer = hooks.frame_document(iframe, url, hooks.policy);
+    if (!answer)
+        return;
+    std::string const type = ascii_lower(answer->content_type);
+    if (!type.empty() && !type.starts_with("text/html") && !type.starts_with("application/xhtml"))
+        return;
+    ChildFrame opened;
+    opened.container = &iframe;
+    opened.policy = answer->policy ? std::make_unique<net::ContentSecurityPolicy>(std::move(*answer->policy))
+                                   : std::make_unique<net::ContentSecurityPolicy>(answer->url);
+    opened.document = std::make_unique<dom::Document>();
+    // What the frame's realm asks its host for goes where the page's requests
+    // go; the boxes, controls and navigation of the page are not the frame's.
+    HostHooks frame_hooks;
+    frame_hooks.fetch_script = hooks.fetch_script;
+    frame_hooks.fetch_resource = hooks.fetch_resource;
+    frame_hooks.policy = opened.policy.get();
+    frame_hooks.now = hooks.now;
+    frame_hooks.should_stop = hooks.should_stop;
+    frame_hooks.cookie_get = hooks.cookie_get;
+    frame_hooks.cookie_set = hooks.cookie_set;
+    frame_hooks.console = hooks.console;
+    frame_hooks.local_storage = hooks.local_storage;
+    frame_hooks.frame_document = hooks.frame_document;
+    frame_hooks.viewport_width = hooks.viewport_width;
+    frame_hooks.viewport_height = hooks.viewport_height;
+    frame_hooks.device_scale = hooks.device_scale;
+    frame_hooks.user_agent = hooks.user_agent;
+    opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer->url, std::move(frame_hooks));
+    opened.realm->internals().origin_url = answer->origin;
+    Realm& opened_realm = *opened.realm;
+    dom::Document& opened_document = *opened.document;
+    child_frames.push_back(std::move(opened));
+    std::string_view const text(reinterpret_cast<char const*>(answer->bytes.data()), answer->bytes.size());
+    if (answer->srcdoc)
+        html::parse_document_into(opened_document, decode_utf8(text), &opened_realm);
+    else
+        html::parse_document_bytes_into(opened_document, text, &opened_realm);
+    opened_realm.document_parsed();
+}
+
+ChildFrame const* Realm::Internals::frame_of(dom::Element const& iframe) const
+{
+    for (ChildFrame const& listed : child_frames) {
+        if (listed.container != &iframe)
+            continue;
+        // The same origin as this document's, and not an opaque one.
+        std::string const own = origin_url.serialize_origin();
+        return own != "null" && listed.realm->internals().origin_url.serialize_origin() == own ? &listed : nullptr;
+    }
+    return nullptr;
+}
+
+Realm* Realm::frame_realm(dom::Element const& iframe)
+{
+    for (ChildFrame const& listed : m_internals->child_frames) {
+        if (listed.container == &iframe)
+            return listed.realm.get();
+    }
+    return nullptr;
 }
 
 // --- Events from the host ----------------------------------------------------------------

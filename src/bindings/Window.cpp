@@ -673,6 +673,21 @@ private:
     mutable js::Value m_last_collection;
 };
 
+// The realm `steps` frames up from this one, for as far as the frames share
+// its origin: a parent of another origin is not reached until a window proxy
+// guards what may be read of it.
+Realm::Internals& same_origin_up(Realm::Internals& from, int steps)
+{
+    Realm::Internals* at = &from;
+    std::string const own = from.origin_url.serialize_origin();
+    for (int step = 0; step < steps && at->parent_realm != nullptr; ++step) {
+        if (own == "null" || at->parent_realm->origin_url.serialize_origin() != own)
+            break;
+        at = at->parent_realm;
+    }
+    return *at;
+}
+
 } // namespace
 
 // --- install_window ---------------------------------------------------------------------------------
@@ -685,9 +700,17 @@ void install_window(Realm::Internals& in)
     in.prototypes["Window"] = global;
     global->set_prototype(interpreter.heap().allocate<WindowNamedProperties>(global->prototype(), in));
 
-    // The window is its own frame tree.
-    for (std::string_view const name : { "window", "self", "frames", "top", "parent" })
+    // window, self and frames are the window (its indexed frames are not
+    // written); parent and top walk up the frames it is shown in, for as far
+    // as they share its origin.
+    for (std::string_view const name : { "window", "self", "frames" })
         define_getter(in, *global, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.global()); });
+    define_getter(in, *global, "parent", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        return js::Value::object(same_origin_up(internals_of(interp), 1).realm_record->intrinsics.global);
+    });
+    define_getter(in, *global, "top", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        return js::Value::object(same_origin_up(internals_of(interp), 10).realm_record->intrinsics.global);
+    });
     define_getter(in, *global, "document", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         return js::Value::object(internals.wrap(internals.document));
@@ -697,7 +720,17 @@ void install_window(Realm::Internals& in)
     global->put(interpreter.key("closed"), js::Value::boolean(false), js::builtin_attributes);
     global->put(interpreter.key("length"), js::Value::number(0), js::builtin_attributes);
     global->put(interpreter.key("opener"), js::Value::null(), js::default_attributes);
-    global->put(interpreter.key("frameElement"), js::Value::null(), js::builtin_attributes);
+    define_getter(in, *global, "frameElement", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        // The iframe this window is shown in, as its own document's realm
+        // wraps it, when that document has this one's origin.
+        Realm::Internals& internals = internals_of(interp);
+        Realm::Internals* const parent_internals = internals.parent_realm;
+        std::string const own = internals.origin_url.serialize_origin();
+        if (!parent_internals || !internals.frame_element || own == "null"
+            || parent_internals->origin_url.serialize_origin() != own)
+            return js::Value::null();
+        return js::Value::object(parent_internals->wrap(*internals.frame_element));
+    });
     define_getter(in, *global, "origin", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).string(internals_of(interp).url.serialize_origin());
     });

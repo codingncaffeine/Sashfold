@@ -1332,6 +1332,65 @@ void test_local_storage_areas()
     CHECK_EQ(opaque->string("document.title"), "1");
 }
 
+// A frame's document with a realm of its own in the page's agent, under the
+// same heap stress as every page here.
+void test_frames_have_realms_of_their_own()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base,
+                               net::ContentSecurityPolicy const* policy) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<p id=inner>hi</p><script>var childValue = 7; window.timerId = setTimeout(function () { window.ranAs = this === window; }, 5); setTimeout('stringRan = true', 5);</script>"></iframe>
+<script>var parentValue = 1;</script>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    CHECK_EQ(page->string("document.getElementById('f').contentDocument.getElementById('inner').textContent"), "hi");
+    CHECK(page->boolean("document.getElementById('f').contentWindow !== window"));
+    // The frame's script ran in the frame's global, not the page's.
+    CHECK(page->boolean("document.getElementById('f').contentWindow.childValue === 7 && typeof childValue === 'undefined'"));
+    CHECK(page->boolean("document.getElementById('f').contentWindow.parent === window && document.getElementById('f').contentWindow.top === window"));
+    CHECK(page->boolean("document.getElementById('f').contentWindow.frameElement === document.getElementById('f')"));
+    CHECK(page->boolean("window.parent === window && window.top === window && window.frameElement === null"));
+    // The frame's timers run as the frame, and the page's clearTimeout of the
+    // same id leaves them be.
+    page->eval("clearTimeout(document.getElementById('f').contentWindow.timerId);");
+    page->clock = 2000;
+    page->realm->run_pending();
+    CHECK(page->boolean("document.getElementById('f').contentWindow.ranAs === true"));
+    CHECK(page->boolean("document.getElementById('f').contentWindow.stringRan === true && typeof stringRan === 'undefined'"));
+    // A page script writing a frame element's style moves the frame's
+    // mutation count, not the page's.
+    dom::Node* const frame_node = page->realm->node_of(page->eval("document.getElementById('f')").value);
+    bindings::Realm* const frame_realm = frame_node && frame_node->is_element()
+        ? page->realm->frame_realm(*static_cast<dom::Element*>(frame_node))
+        : nullptr;
+    CHECK(frame_realm != nullptr);
+    if (frame_realm) {
+        std::uint64_t const page_before = page->realm->mutation_count();
+        std::uint64_t const frame_before = frame_realm->mutation_count();
+        page->eval("document.getElementById('f').contentDocument.getElementById('inner').style.color = 'red';");
+        CHECK(frame_realm->mutation_count() > frame_before);
+        CHECK_EQ(page->realm->mutation_count(), page_before);
+    }
+    // A node of the frame's document adopted into the page's.
+    CHECK(page->boolean("document.body.appendChild(document.getElementById('f').contentDocument.getElementById('inner')).parentNode === document.body"));
+    CHECK_EQ(page->string("document.getElementById('inner').textContent"), "hi");
+    CHECK_EQ(page->console, "");
+}
+
 } // namespace
 
 int main()
@@ -1361,5 +1420,6 @@ int main()
     test_fetch_and_xhr();
     test_content_security_policy();
     test_local_storage_areas();
+    test_frames_have_realms_of_their_own();
     return test::report("test_bindings");
 }

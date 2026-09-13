@@ -49,6 +49,19 @@ struct StorageArea {
     std::uint64_t changes = 0;
 };
 
+// An iframe's document as the host found it, once the framing rules let it
+// through: its bytes and their type, the URL it has, the URL of its origin
+// (an srcdoc document's is its parent's), whether the bytes are srcdoc text
+// rather than a response to decode, and its Content Security Policy.
+struct FrameDocument {
+    std::vector<std::uint8_t> bytes;
+    std::string content_type;
+    net::Url url;
+    net::Url origin;
+    bool srcdoc = false;
+    std::optional<net::ContentSecurityPolicy> policy;
+};
+
 // What the page's host provides to its scripts. Every hook is optional;
 // a missing one answers with the least surprising nothing (no box, the
 // attribute's value, no navigation).
@@ -112,6 +125,12 @@ struct HostHooks {
     // change, so the host can write the area out when the count moves.
     // Without it a page's localStorage lives and dies with the document.
     std::function<StorageArea*(std::string const& origin)> local_storage;
+    // An iframe's document, for a realm of its own in this page's agent: what
+    // its srcdoc or src names for the document at `base` under `policy`, as
+    // the framing rules let it through; nullopt when there is nothing to show.
+    // Without it a frame's document has no realm, and contentDocument is null.
+    std::function<std::optional<FrameDocument>(dom::Element const& iframe, net::Url const& base,
+        net::ContentSecurityPolicy const* policy)> frame_document;
 
     float viewport_width = 1024; // CSS px, for innerWidth and matchMedia
     float viewport_height = 768;
@@ -190,8 +209,8 @@ public:
     // The script object for a node, made on first use and cached on it.
     js::Object* wrap(dom::Node&);
     js::Value wrap_or_null(dom::Node*);
-    // The node behind a value; null when it is not a node wrapper of this
-    // realm.
+    // The node behind a value; null when it is not a node wrapper made in
+    // this realm's agent.
     dom::Node* node_of(js::Value const&) const;
     // The global object, which is the window.
     js::Object* window() const;
@@ -249,6 +268,12 @@ public:
 
     struct Internals;
     Internals& internals() { return *m_internals; }
+
+    // A frame's realm, in the agent of the page it is in: made by the realm of
+    // the document its iframe is in, as that realm processes the iframe.
+    Realm(Internals& parent, dom::Element& container, dom::Document& document, net::Url url, HostHooks hooks);
+    // The realm of an iframe's document here, when it has one.
+    Realm* frame_realm(dom::Element const& iframe);
 
 private:
     std::unique_ptr<Internals> m_internals;
