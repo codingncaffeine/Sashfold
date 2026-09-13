@@ -653,6 +653,16 @@ struct Agent {
     // that window's WindowProxy or Location, and the cross-origin rules go on
     // judging them by the origin they had rather than the stand-in's.
     std::unordered_map<js::RealmRecord const*, OriginSnapshot> ended_origins;
+    // The blob URL store (File API §8): what each blob: URL made by
+    // URL.createObjectURL names, by the URL, until it is revoked. A Blob does
+    // not change, so its bytes and type are kept as they were, with the origin
+    // of the document that made the URL. The page and its frames share it.
+    struct BlobUrlEntry {
+        std::vector<std::uint8_t> bytes;
+        std::string type;
+        net::Url origin;
+    };
+    std::unordered_map<std::string, BlobUrlEntry> blob_urls;
 };
 
 struct Realm::Internals {

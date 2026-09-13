@@ -2544,6 +2544,39 @@ void test_objects_and_embeds_have_windows()
     changed->load();
     changed->realm->run_pending();
     CHECK(changed->boolean("n === 1 && e === 0 && x.contentWindow != null && x.contentWindow.which === 'two'"));
+    // A blob: URL that URL.createObjectURL made names its Blob's document until
+    // it is revoked (File API §8): each URL a new one, of the page's origin,
+    // shown by an object and an embed alike; a revoked one names nothing, an
+    // object's error; and only a Blob makes one.
+    page->eval("var made = URL.createObjectURL(new Blob(['<script>var which = \"blob\";<\\/script>'], { type: 'text/html' }));"
+               " var gone = URL.createObjectURL(new Blob(['<script>var which = \"gone\";<\\/script>'], { type: 'text/html' }));"
+               " URL.revokeObjectURL(gone);"
+               " var bo = document.createElement('object'); bo.data = made; track(bo, 'bo'); document.body.appendChild(bo);"
+               " var go = document.createElement('object'); go.data = gone; track(go, 'go'); document.body.appendChild(go);"
+               " var be = document.createElement('embed'); be.src = made; track(be, 'be'); document.body.appendChild(be);");
+    page->realm->run_pending();
+    CHECK(page->boolean("made !== gone && made.startsWith('blob:https://example.test/') && made.length === 'blob:https://example.test/'.length + 36"));
+    CHECK(page->boolean("bo.contentWindow != null && bo.contentWindow.which === 'blob' && ev.bol === 1 && !ev.boe"));
+    CHECK(page->boolean("ev.bel === 1 && window.length === 5 && window[4] != null && window[4].which === 'blob'"));
+    CHECK(page->boolean("go.contentWindow === null && ev.goe === 1 && !ev.gol"));
+    // A blob: URL's document nests no deeper than a fetched one: a document
+    // that shows its own blob: URL again is refused once two of the documents
+    // it would be inside have that URL, and one that makes a new URL each time
+    // stops ten windows below the page. Each document stops itself at twenty.
+    page->eval(R"JS(var deepest = { self: 0, fresh: 0 };
+        var nester = function (kind) {
+            return '<!DOCTYPE html><body><script>var d = 0, w = window; while (w !== w.parent && d < 30) { d++; w = w.parent; }'
+                + ' w.deepest.' + kind + ' = Math.max(w.deepest.' + kind + ', d);'
+                + ' if (d < 20) { var n = document.createElement("object");'
+                + (kind === 'self' ? ' n.data = location.href;' : ' n.data = URL.createObjectURL(new Blob([w.nester("fresh")], { type: "text/html" }));')
+                + ' document.body.appendChild(n); }</' + 'script></body>';
+        };
+        var ns = document.createElement('object'); ns.data = URL.createObjectURL(new Blob([nester('self')], { type: 'text/html' })); document.body.appendChild(ns);
+        var nf = document.createElement('object'); nf.data = URL.createObjectURL(new Blob([nester('fresh')], { type: 'text/html' })); document.body.appendChild(nf);)JS");
+    page->realm->run_pending();
+    CHECK(page->boolean("deepest.self === 2"));
+    CHECK(page->boolean("deepest.fresh === 10"));
+    CHECK(page->boolean("(function () { try { URL.createObjectURL({}); return false; } catch (e) { return e instanceof TypeError; } })()"));
     CHECK_EQ(page->console + nested->console + media->console + hidden->console + changed->console, "");
     changed.reset();
     hidden.reset();

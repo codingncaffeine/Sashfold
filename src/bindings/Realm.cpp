@@ -2139,8 +2139,35 @@ void Realm::Internals::update_embedder(dom::Element& element)
         return;
     }
     std::optional<FrameDocument> answer;
-    if (std::optional<std::vector<FrameAncestor>> const ancestors = frame_ancestors(*this); ancestors && hooks.frame_document)
+    // A window ten frames below the page opens none of its own, whatever the
+    // URL, as for an iframe; the load fails.
+    std::optional<std::vector<FrameAncestor>> const ancestors = frame_ancestors(*this);
+    if (!ancestors) {
+    } else if (target->scheme == "blob") {
+        // A blob: URL is resolved in the blob URL store rather than fetched
+        // (File API §8.4): the Blob's bytes and type, of the origin that made
+        // the URL, under this document's object-src and policy. A URL not in
+        // the store, never made or revoked, is a network error. A document the
+        // host fetches is refused once two of the documents the frame would be
+        // inside have its URL, since a page that frames itself once is fine; a
+        // Blob's document that shows its own URL is refused alike.
+        std::string const address = target->serialize(true);
+        auto const entry = agent.blob_urls.find(address);
+        net::RequestGuard const guard = hooks.policy ? hooks.policy->guard(net::ResourceKind::Object) : net::RequestGuard {};
+        auto const named = std::count_if(ancestors->begin(), ancestors->end(),
+            [&](FrameAncestor const& ancestor) { return ancestor.address == address; });
+        if (entry != agent.blob_urls.end() && named < 2 && !(guard.refusal && guard.refusal(*target, false))) {
+            answer = FrameDocument {};
+            answer->bytes = entry->second.bytes;
+            answer->content_type = entry->second.type;
+            answer->url = *target;
+            answer->origin = entry->second.origin;
+            if (hooks.policy)
+                answer->policy = *hooks.policy;
+        }
+    } else if (hooks.frame_document) {
         answer = hooks.frame_document(element, url, hooks.policy, *ancestors, target);
+    }
     // A load that failed — a network error, a refusal, or an HTTP status that
     // is not a success — is an object's error and fallback (§4.8.7 names a 404),
     // and an embed's load with nothing to show, as Chrome fires it

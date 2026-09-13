@@ -7542,6 +7542,7 @@ html/semantics/embedded-content/the-object-element/historical.html	object's code
 html/semantics/embedded-content/the-object-element/historical.html	object's typeMustMatch IDL attribute should not be supported
 html/semantics/embedded-content/the-object-element/historical.html	object's typemustmatch content attribute should not be supported
 html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	about: allowed in object
+html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	blob: allowed in object
 html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	data: allowed in object
 html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	http: allowed in object
 html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	https: allowed in object

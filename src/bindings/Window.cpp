@@ -710,6 +710,25 @@ js::NativeFunction::Callback replaceable(std::string_view name)
     };
 }
 
+// A version 4 UUID in its string form (RFC 9562 §5.4): what crypto.randomUUID
+// answers and what a blob: URL is named by.
+std::string random_uuid()
+{
+    std::random_device device;
+    std::uniform_int_distribution<int> digit(0, 15);
+    std::string out;
+    static constexpr std::string_view pattern = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+    for (char const c : pattern) {
+        if (c == 'x')
+            out += "0123456789abcdef"[digit(device)];
+        else if (c == 'y')
+            out += "89ab"[digit(device) % 4];
+        else
+            out += c;
+    }
+    return out;
+}
+
 } // namespace
 
 // --- install_window ---------------------------------------------------------------------------------
@@ -1360,19 +1379,7 @@ void install_window(Realm::Internals& in)
     js::Object* crypto = interpreter.new_object();
     global->put(interpreter.key("crypto"), js::Value::object(crypto), js::builtin_attributes);
     js::define_method(interpreter, *crypto, "randomUUID", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        std::random_device device;
-        std::uniform_int_distribution<int> digit(0, 15);
-        std::string out;
-        static constexpr std::string_view pattern = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
-        for (char const c : pattern) {
-            if (c == 'x')
-                out += "0123456789abcdef"[digit(device)];
-            else if (c == 'y')
-                out += "89ab"[digit(device) % 4];
-            else
-                out += c;
-        }
-        return internals_of(interp).string(out);
+        return internals_of(interp).string(random_uuid());
     });
     js::define_method(interpreter, *crypto, "getRandomValues", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         // Web Crypto §10.1.1: an integer typed array of at most 65536
@@ -1579,10 +1586,35 @@ void install_window(Realm::Internals& in)
                 }
                 return js::Value::boolean(net::parse_url(*text, base ? &*base : nullptr).has_value());
             });
-            js::define_method(interpreter, url_constructor, "createObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-                return internals_of(interp).string("blob:" + internals_of(interp).url.serialize_origin() + "/00000000-0000-4000-8000-000000000000");
+            // URL.createObjectURL (File API §8.3): a new blob: URL, the
+            // serialized origin of the document asking and a random UUID, put
+            // in the blob URL store for the Blob given.
+            js::define_method(interpreter, url_constructor, "createObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+                Realm::Internals& internals = internals_of(interp);
+                js::Value const given = js::argument(args, 0);
+                auto const* const blob = given.is_object() ? dynamic_cast<BlobObject const*>(given.as_object()) : nullptr;
+                if (!blob)
+                    return interp.throw_type_error("Failed to execute 'createObjectURL' on 'URL': parameter 1 is not of type 'Blob'.");
+                std::string made = "blob:" + internals.origin_url.serialize_origin() + "/" + random_uuid();
+                internals.agent.blob_urls[made] = Agent::BlobUrlEntry { blob->bytes, blob->type, internals.origin_url };
+                return internals.string(made);
             });
-            js::define_method(interpreter, url_constructor, "revokeObjectURL", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+            // URL.revokeObjectURL (File API §8.3): the URL's entry leaves the
+            // store, when a document of the origin that made it asks.
+            js::define_method(interpreter, url_constructor, "revokeObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+                Realm::Internals& internals = internals_of(interp);
+                std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
+                if (!text)
+                    return std::nullopt;
+                std::optional<net::Url> const url = net::parse_url(*text);
+                if (!url || url->scheme != "blob")
+                    return js::Value::undefined();
+                auto const entry = internals.agent.blob_urls.find(url->serialize(true));
+                if (entry != internals.agent.blob_urls.end()
+                    && entry->second.origin.serialize_origin() == internals.origin_url.serialize_origin())
+                    internals.agent.blob_urls.erase(entry);
+                return js::Value::undefined();
+            });
         }
     }
     js::Object* params_proto = define_interface(in, "URLSearchParams", nullptr,
