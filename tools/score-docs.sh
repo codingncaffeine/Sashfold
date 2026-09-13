@@ -28,4 +28,22 @@ sed -i -E "/WPT CSS reference tests<\/a>/ s|[0-9]+ / [0-9]+|${passed} / ${total}
 
 printf '%s / %s (%s%%) over %s directories (CSS2 and %s css-* ones)\n' "$passed" "$total" "$pct" "$dirs" "$((dirs - 1))"
 grep -n "$passed / $total" README.md docs/index.html
-printf 'the wiki Measurements table wants the same figure\n'
+
+# The scripted suite, scored by subtest: its own table, row and tile.
+harness="./$build/tests/wpt_testharness"
+[ -f "$harness.exe" ] && harness="$harness.exe"
+"$harness" wpt tests/wpt/harness-directories.txt tests/wpt/harness-passing.txt \
+    --revision tests/wpt/REVISION --json docs/wpt-harness.json --html docs/wpt-harness.html > /dev/null 2>&1 || true
+hpassed=$(grep -o '"passed": [0-9]*' docs/wpt-harness.json | head -1 | grep -o '[0-9]*')
+htotal=$(grep -o '"total": [0-9]*' docs/wpt-harness.json | head -1 | grep -o '[0-9]*')
+hfiles=$(grep -o '"files": [0-9]*' docs/wpt-harness.json | head -1 | grep -o '[0-9]*')
+hpct=$(awk -v p="$hpassed" -v t="$htotal" 'BEGIN { printf "%.1f", 100 * p / t }')
+hcomma=$(printf '%s' "$htotal" | sed -E ':a; s/([0-9])([0-9]{3})($|,)/\1,\2\3/; ta')
+[ "$(count 'subtests over' README.md)" = 1 ] || { printf 'README harness row moved\n'; exit 1; }
+[ "$(count 'WPT scripted tests</a>' docs/index.html)" = 1 ] || { printf 'the harness tile moved\n'; exit 1; }
+sed -i -E "s|[0-9,]+ subtests over [0-9,]+ test files|${hcomma} subtests over ${hfiles} test files|" README.md
+sed -i -E "/subtests over/ s|\*\*[0-9]+ / [0-9]+ \([0-9.]+%\)\*\*|**${hpassed} / ${htotal} (${hpct}%)**|" README.md
+sed -i -E "/WPT scripted tests<\/a>/ s|[0-9]+ / [0-9]+|${hpassed} / ${htotal}|; /WPT scripted tests<\/a>/ s|[0-9.]+%, by directory|${hpct}%, by directory|" docs/index.html
+printf '%s / %s (%s%%) subtests over %s test files\n' "$hpassed" "$htotal" "$hpct" "$hfiles"
+grep -n "$hpassed / $htotal" README.md docs/index.html
+printf 'the wiki Measurements table wants the same two figures\n'

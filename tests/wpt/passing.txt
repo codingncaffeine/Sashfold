@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9405 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9406 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -7160,6 +7160,7 @@ css/css-grid/table-grid-item-dynamic-003.html
 css/css-grid/table-grid-item-dynamic-004.html
 css/css-grid/whitespace-reattach.html
 css/css-overflow/abspos-shrink-to-fit-with-scrollable-descendant.html
+css/css-overflow/before-after-pseudo-element-scrolling.html
 css/css-overflow/button-with-scrollable-descendant.html
 css/css-overflow/clip-001.html
 css/css-overflow/clip-002.html

@@ -267,6 +267,19 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/css)
   set_tests_properties(wpt_reftest PROPERTIES TIMEOUT 1800)
 endif()
 
+# The suite's testharness.js tests — the scripted ones, scored by subtest —
+# from the same checkout (tools/wpt-fetch.sh adds their directories).
+add_executable(wpt_testharness wpt_testharness.cpp)
+target_link_libraries(wpt_testharness PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/dom)
+  add_test(NAME wpt_testharness
+    COMMAND wpt_testharness ${CMAKE_SOURCE_DIR}/wpt
+      ${CMAKE_CURRENT_SOURCE_DIR}/wpt/harness-directories.txt
+      ${CMAKE_CURRENT_SOURCE_DIR}/wpt/harness-passing.txt
+      --revision ${CMAKE_CURRENT_SOURCE_DIR}/wpt/REVISION)
+  set_tests_properties(wpt_testharness PROPERTIES TIMEOUT 1800)
+endif()
+
 # test262, the ECMAScript conformance suite, scored against the checkout
 # tools/test262-fetch.sh makes at test262/ (a fresh clone has none). The
 # baseline names every passing test and only grows.
