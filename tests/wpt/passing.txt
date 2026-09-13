@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9406 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9409 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -7913,7 +7913,9 @@ css/css-text/text-align/text-align-last-start.html
 css/css-text/text-align/text-align-last-wins-001.html
 css/css-text/text-align/text-align-match-parent-001.html
 css/css-text/text-align/text-align-match-parent-01.html
+css/css-text/text-align/text-align-match-parent-02.html
 css/css-text/text-align/text-align-match-parent-03.html
+css/css-text/text-align/text-align-match-parent-04.html
 css/css-text/text-align/text-align-match-parent-05.html
 css/css-text/text-align/text-align-match-parent-root-logical.html
 css/css-text/text-align/text-align-match-parent-root-ltr.html
@@ -9291,6 +9293,7 @@ css/selectors/dir-selector-ltr-002.html
 css/selectors/dir-selector-ltr-003.html
 css/selectors/floating-first-letter-05d0.html
 css/selectors/floating-first-letter-feff.html
+css/selectors/focus-within-012.html
 css/selectors/focus-within-013.html
 css/selectors/has-style-sharing-001.html
 css/selectors/has-style-sharing-002.html

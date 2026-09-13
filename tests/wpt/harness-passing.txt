@@ -207,69 +207,69 @@ dom/events/passive-by-default.html	mousewheel listener is non-passive with {pass
 dom/events/passive-by-default.html	mousewheel listener is non-passive with {passive:false} for HTMLBodyElement
 dom/events/passive-by-default.html	mousewheel listener is non-passive with {passive:false} for HTMLDivElement
 dom/events/passive-by-default.html	mousewheel listener is non-passive with {passive:false} for HTMLHtmlElement
-dom/events/passive-by-default.html	mousewheel listener is non-passive with {passive:false} for Object
+dom/events/passive-by-default.html	mousewheel listener is non-passive with {passive:false} for Window
 dom/events/passive-by-default.html	mousewheel listener is non-passive with {passive:undefined} for HTMLDivElement
 dom/events/passive-by-default.html	mousewheel listener is passive with {passive:true} for Document
 dom/events/passive-by-default.html	mousewheel listener is passive with {passive:true} for HTMLBodyElement
 dom/events/passive-by-default.html	mousewheel listener is passive with {passive:true} for HTMLDivElement
 dom/events/passive-by-default.html	mousewheel listener is passive with {passive:true} for HTMLHtmlElement
-dom/events/passive-by-default.html	mousewheel listener is passive with {passive:true} for Object
+dom/events/passive-by-default.html	mousewheel listener is passive with {passive:true} for Window
 dom/events/passive-by-default.html	touchend listener is non-passive by default for Document
 dom/events/passive-by-default.html	touchend listener is non-passive by default for HTMLBodyElement
 dom/events/passive-by-default.html	touchend listener is non-passive by default for HTMLDivElement
 dom/events/passive-by-default.html	touchend listener is non-passive by default for HTMLHtmlElement
-dom/events/passive-by-default.html	touchend listener is non-passive by default for Object
+dom/events/passive-by-default.html	touchend listener is non-passive by default for Window
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:false} for Document
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:false} for HTMLBodyElement
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:false} for HTMLDivElement
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:false} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchend listener is non-passive with {passive:false} for Object
+dom/events/passive-by-default.html	touchend listener is non-passive with {passive:false} for Window
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:undefined} for Document
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:undefined} for HTMLBodyElement
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:undefined} for HTMLDivElement
 dom/events/passive-by-default.html	touchend listener is non-passive with {passive:undefined} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchend listener is non-passive with {passive:undefined} for Object
+dom/events/passive-by-default.html	touchend listener is non-passive with {passive:undefined} for Window
 dom/events/passive-by-default.html	touchend listener is passive with {passive:true} for Document
 dom/events/passive-by-default.html	touchend listener is passive with {passive:true} for HTMLBodyElement
 dom/events/passive-by-default.html	touchend listener is passive with {passive:true} for HTMLDivElement
 dom/events/passive-by-default.html	touchend listener is passive with {passive:true} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchend listener is passive with {passive:true} for Object
+dom/events/passive-by-default.html	touchend listener is passive with {passive:true} for Window
 dom/events/passive-by-default.html	touchmove listener is non-passive by default for HTMLDivElement
 dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:false} for Document
 dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:false} for HTMLBodyElement
 dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:false} for HTMLDivElement
 dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:false} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:false} for Object
+dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:false} for Window
 dom/events/passive-by-default.html	touchmove listener is non-passive with {passive:undefined} for HTMLDivElement
 dom/events/passive-by-default.html	touchmove listener is passive with {passive:true} for Document
 dom/events/passive-by-default.html	touchmove listener is passive with {passive:true} for HTMLBodyElement
 dom/events/passive-by-default.html	touchmove listener is passive with {passive:true} for HTMLDivElement
 dom/events/passive-by-default.html	touchmove listener is passive with {passive:true} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchmove listener is passive with {passive:true} for Object
+dom/events/passive-by-default.html	touchmove listener is passive with {passive:true} for Window
 dom/events/passive-by-default.html	touchstart listener is non-passive by default for HTMLDivElement
 dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:false} for Document
 dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:false} for HTMLBodyElement
 dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:false} for HTMLDivElement
 dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:false} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:false} for Object
+dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:false} for Window
 dom/events/passive-by-default.html	touchstart listener is non-passive with {passive:undefined} for HTMLDivElement
 dom/events/passive-by-default.html	touchstart listener is passive with {passive:true} for Document
 dom/events/passive-by-default.html	touchstart listener is passive with {passive:true} for HTMLBodyElement
 dom/events/passive-by-default.html	touchstart listener is passive with {passive:true} for HTMLDivElement
 dom/events/passive-by-default.html	touchstart listener is passive with {passive:true} for HTMLHtmlElement
-dom/events/passive-by-default.html	touchstart listener is passive with {passive:true} for Object
+dom/events/passive-by-default.html	touchstart listener is passive with {passive:true} for Window
 dom/events/passive-by-default.html	wheel listener is non-passive by default for HTMLDivElement
 dom/events/passive-by-default.html	wheel listener is non-passive with {passive:false} for Document
 dom/events/passive-by-default.html	wheel listener is non-passive with {passive:false} for HTMLBodyElement
 dom/events/passive-by-default.html	wheel listener is non-passive with {passive:false} for HTMLDivElement
 dom/events/passive-by-default.html	wheel listener is non-passive with {passive:false} for HTMLHtmlElement
-dom/events/passive-by-default.html	wheel listener is non-passive with {passive:false} for Object
+dom/events/passive-by-default.html	wheel listener is non-passive with {passive:false} for Window
 dom/events/passive-by-default.html	wheel listener is non-passive with {passive:undefined} for HTMLDivElement
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for Document
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for HTMLBodyElement
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for HTMLDivElement
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for HTMLHtmlElement
-dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for Object
+dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for Window
 dom/events/remove-all-listeners.html	Nested usage of once listeners should work.
 dom/events/remove-all-listeners.html	Removing all listeners and then adding a new one should work.
 dom/events/scrolling/scroll-event-fired-to-element.html	scrollTop and scrollLeft being set with invalid scroll offset.
@@ -791,7 +791,9 @@ dom/nodes/Document-adoptNode.html	Adopting an Element called ':good:times:' shou
 dom/nodes/Document-constructor.html	new Document(): URL parsing
 dom/nodes/Document-constructor.html	new Document(): characterSet aliases
 dom/nodes/Document-constructor.html	new Document(): children
+dom/nodes/Document-contentType/contentType/contenttype_datauri_02.html	Data URI document.contentType === 'text/html' when data URI MIME type is set
 dom/nodes/Document-contentType/contentType/contenttype_html.html	HTM document.contentType === 'text/html'
+dom/nodes/Document-contentType/contentType/contenttype_javascripturi.html	Javascript URI document.contentType === 'text/html'
 dom/nodes/Document-contentType/contentType/createHTMLDocument.html	document.implementation.createHTMLDocument: document.contentType === 'text/html'
 dom/nodes/Document-createComment.html	createComment("-b")
 dom/nodes/Document-createComment.html	createComment("\\v")
@@ -3126,7 +3128,11 @@ dom/nodes/Element-remove.html	element should support remove()
 dom/nodes/Element-remove.html	remove() should work if element does have a parent
 dom/nodes/Element-remove.html	remove() should work if element does have a parent and siblings
 dom/nodes/Element-remove.html	remove() should work if element doesn't have a parent
+dom/nodes/Element-removeAttribute.html	removeAttribute should remove the first attribute, irrespective of namespace, when the first attribute is in a namespace
+dom/nodes/Element-removeAttribute.html	removeAttribute should remove the first attribute, irrespective of namespace, when the first attribute is not in a namespace
+dom/nodes/Element-removeAttributeNS.html	removeAttributeNS should take a local name.
 dom/nodes/Element-setAttribute-crbug-1138487.html	Attributes first seen in mixed ASCII case should not be corrupted.
+dom/nodes/Element-setAttribute.html	setAttribute should change the first attribute, irrespective of namespace
 dom/nodes/Element-setAttribute.html	setAttribute should lowercase before setting
 dom/nodes/Element-siblingElement-null.html	Null test
 dom/nodes/Element-tagName.html	tagName should not upper-case for other non-HTML namespaces
@@ -3683,6 +3689,9 @@ dom/nodes/MutationObserver-sanity.html	Should not throw if characterDataOldValue
 dom/nodes/MutationObserver-sanity.html	Should not throw if childList is true
 dom/nodes/MutationObserver-takeRecords.html	No more records present
 dom/nodes/MutationObserver-takeRecords.html	unreachabled test
+dom/nodes/Node-appendChild.html	Adopting a non-orphan
+dom/nodes/Node-appendChild.html	Adopting an orphan
+dom/nodes/Node-appendChild.html	Appending a document
 dom/nodes/Node-appendChild.html	Appending null to a comment
 dom/nodes/Node-appendChild.html	Appending null to a doctype
 dom/nodes/Node-appendChild.html	Appending null to a text node
@@ -3702,7 +3711,9 @@ dom/nodes/Node-cloneNode-document-with-doctype.html	Created with DOMParser
 dom/nodes/Node-cloneNode-document-with-doctype.html	Created with the createHTMLDocument
 dom/nodes/Node-cloneNode-external-stylesheet-no-bc.sub.html	cloneNode on a stylesheet link in a browsing-context-less document
 dom/nodes/Node-cloneNode-svg.html	cloned <svg> should have the right properties
+dom/nodes/Node-cloneNode-svg.html	cloned <svg>'s xmlns:xlink attribute should have the right properties
 dom/nodes/Node-cloneNode-svg.html	cloned <use> should have the right properties
+dom/nodes/Node-cloneNode-svg.html	cloned <use>'s xlink:href attribute should have the right properties
 dom/nodes/Node-cloneNode.html	createComment
 dom/nodes/Node-cloneNode.html	createDocumentFragment
 dom/nodes/Node-cloneNode.html	createElement with attributes
@@ -3930,22 +3941,31 @@ dom/nodes/Node-parentNode.html	Document
 dom/nodes/Node-parentNode.html	Element
 dom/nodes/Node-parentNode.html	Removed iframe
 dom/nodes/Node-parentNode.html	Root element
+dom/nodes/Node-removeChild.html	Calling removeChild on a comment from a frame document with no children should throw NOT_FOUND_ERR.
 dom/nodes/Node-removeChild.html	Calling removeChild on a comment from a synthetic document with no children should throw NOT_FOUND_ERR.
 dom/nodes/Node-removeChild.html	Calling removeChild on a comment from the main document with no children should throw NOT_FOUND_ERR.
+dom/nodes/Node-removeChild.html	Calling removeChild on a element from a frame document with no children should throw NOT_FOUND_ERR.
 dom/nodes/Node-removeChild.html	Calling removeChild on a element from a synthetic document with no children should throw NOT_FOUND_ERR.
 dom/nodes/Node-removeChild.html	Calling removeChild on a element from the main document with no children should throw NOT_FOUND_ERR.
+dom/nodes/Node-removeChild.html	Calling removeChild on a text from a frame document with no children should throw NOT_FOUND_ERR.
 dom/nodes/Node-removeChild.html	Calling removeChild on a text from a synthetic document with no children should throw NOT_FOUND_ERR.
 dom/nodes/Node-removeChild.html	Calling removeChild on a text from the main document with no children should throw NOT_FOUND_ERR.
+dom/nodes/Node-removeChild.html	Passing a detached comment from a frame document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a detached comment from a synthetic document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a detached comment from the main document to removeChild should not affect it.
+dom/nodes/Node-removeChild.html	Passing a detached element from a frame document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a detached element from a synthetic document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a detached element from the main document to removeChild should not affect it.
+dom/nodes/Node-removeChild.html	Passing a detached text from a frame document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a detached text from a synthetic document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a detached text from the main document to removeChild should not affect it.
+dom/nodes/Node-removeChild.html	Passing a non-detached comment from a frame document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a non-detached comment from a synthetic document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a non-detached comment from the main document to removeChild should not affect it.
+dom/nodes/Node-removeChild.html	Passing a non-detached element from a frame document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a non-detached element from a synthetic document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a non-detached element from the main document to removeChild should not affect it.
+dom/nodes/Node-removeChild.html	Passing a non-detached text from a frame document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a non-detached text from a synthetic document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a non-detached text from the main document to removeChild should not affect it.
 dom/nodes/Node-removeChild.html	Passing a value that is not a Node reference to removeChild should throw TypeError.
@@ -5771,25 +5791,47 @@ dom/nodes/attributes-namednodemap.html	an attribute with a null namespace should
 dom/nodes/attributes-namednodemap.html	an attribute with a set namespace should be accessible as a field on the `attributes` field of an Element
 dom/nodes/attributes-namednodemap.html	setting an attribute should not overwrite the length property of an `NamedNodeMap` object
 dom/nodes/attributes-namednodemap.html	setting an attribute should not overwrite the methods defined by prototype ancestors of an `NamedNodeMap` object
+dom/nodes/attributes.html	A namespace is required to use a prefix.
 dom/nodes/attributes.html	Attributes should work in document fragments.
 dom/nodes/attributes.html	Entities in attributes should have been expanded while parsing.
+dom/nodes/attributes.html	First set attribute is returned by getAttribute
+dom/nodes/attributes.html	First set attribute is returned with mapped attribute set first
+dom/nodes/attributes.html	First set attribute is returned with mapped attribute set later
+dom/nodes/attributes.html	Non-HTML element with upper-case attribute
+dom/nodes/attributes.html	Only lowercase attributes are returned on HTML elements (mixed case attribute)
+dom/nodes/attributes.html	Only lowercase attributes are returned on HTML elements (upper case attribute)
+dom/nodes/attributes.html	Setting the same attribute with another prefix should not change the prefix
 dom/nodes/attributes.html	Specified attributes should be accessible.
 dom/nodes/attributes.html	Style attributes are not normalized
+dom/nodes/attributes.html	The XMLNS namespace should require xmlns as prefix or qualified name
+dom/nodes/attributes.html	The xml prefix should not be allowed for arbitrary namespaces
+dom/nodes/attributes.html	The xmlns prefix should not be allowed for arbitrary namespaces
+dom/nodes/attributes.html	The xmlns qualified name should not be allowed for arbitrary namespaces
 dom/nodes/attributes.html	Unset attributes return null
 dom/nodes/attributes.html	When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (setAttribute)
 dom/nodes/attributes.html	When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (setAttributeNS)
 dom/nodes/attributes.html	When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (toggleAttribute)
+dom/nodes/attributes.html	When qualifiedName does not match the QName production, an INVALID_CHARACTER_ERR exception is to be thrown.
+dom/nodes/attributes.html	XML-namespaced attributes don't need an xml prefix
+dom/nodes/attributes.html	getAttributeNames tests
 dom/nodes/attributes.html	null and the empty string should result in a null namespace.
 dom/nodes/attributes.html	setAttribute should lowercase its name argument (mixed case attribute)
 dom/nodes/attributes.html	setAttribute should lowercase its name argument (upper case attribute)
 dom/nodes/attributes.html	setAttribute should not change the order of previously set attributes.
 dom/nodes/attributes.html	setAttribute should not throw even if a load is not allowed
 dom/nodes/attributes.html	setAttribute should not throw even when qualifiedName starts with 'xmlns'
+dom/nodes/attributes.html	setAttribute should set the attribute with the given qualified name
+dom/nodes/attributes.html	setAttribute should set the first attribute with the given name
 dom/nodes/attributes.html	setAttributeNode, if it fires mutation events, should fire one with the new node when resetting an existing attribute
 dom/nodes/attributes.html	toggleAttribute should lowercase its name argument (mixed case attribute)
 dom/nodes/attributes.html	toggleAttribute should lowercase its name argument (upper case attribute)
 dom/nodes/attributes.html	toggleAttribute should not change the order of previously set attributes.
 dom/nodes/attributes.html	toggleAttribute should not throw even when qualifiedName starts with 'xmlns'
+dom/nodes/attributes.html	toggleAttribute should set the attribute with the given qualified name
+dom/nodes/attributes.html	toggleAttribute should set the first attribute with the given name
+dom/nodes/attributes.html	xmlns should be allowed as local name
+dom/nodes/attributes.html	xmlns should be allowed as prefix in the XMLNS namespace
+dom/nodes/attributes.html	xmlns should be allowed as qualified name in the XMLNS namespace
 dom/nodes/case.html	createElement ABC
 dom/nodes/case.html	createElement Abc
 dom/nodes/case.html	createElement abc
@@ -5805,7 +5847,84 @@ dom/nodes/case.html	getAttribute Abc
 dom/nodes/case.html	getAttribute abc
 dom/nodes/case.html	getAttribute Ä
 dom/nodes/case.html	getAttribute ä
+dom/nodes/case.html	getAttributeNS ABC
+dom/nodes/case.html	getAttributeNS Abc
 dom/nodes/case.html	getAttributeNS abc
+dom/nodes/case.html	getAttributeNS http://FOO,ABC,ABC
+dom/nodes/case.html	getAttributeNS http://FOO,ABC,Abc
+dom/nodes/case.html	getAttributeNS http://FOO,ABC,abc
+dom/nodes/case.html	getAttributeNS http://FOO,ABC,Ä
+dom/nodes/case.html	getAttributeNS http://FOO,ABC,ä
+dom/nodes/case.html	getAttributeNS http://FOO,Abc,ABC
+dom/nodes/case.html	getAttributeNS http://FOO,Abc,Abc
+dom/nodes/case.html	getAttributeNS http://FOO,Abc,abc
+dom/nodes/case.html	getAttributeNS http://FOO,Abc,Ä
+dom/nodes/case.html	getAttributeNS http://FOO,Abc,ä
+dom/nodes/case.html	getAttributeNS http://FOO,abc,ABC
+dom/nodes/case.html	getAttributeNS http://FOO,abc,Abc
+dom/nodes/case.html	getAttributeNS http://FOO,abc,abc
+dom/nodes/case.html	getAttributeNS http://FOO,abc,Ä
+dom/nodes/case.html	getAttributeNS http://FOO,abc,ä
+dom/nodes/case.html	getAttributeNS http://FOO,Ä,ABC
+dom/nodes/case.html	getAttributeNS http://FOO,Ä,Abc
+dom/nodes/case.html	getAttributeNS http://FOO,Ä,abc
+dom/nodes/case.html	getAttributeNS http://FOO,Ä,Ä
+dom/nodes/case.html	getAttributeNS http://FOO,Ä,ä
+dom/nodes/case.html	getAttributeNS http://FOO,ä,ABC
+dom/nodes/case.html	getAttributeNS http://FOO,ä,Abc
+dom/nodes/case.html	getAttributeNS http://FOO,ä,abc
+dom/nodes/case.html	getAttributeNS http://FOO,ä,Ä
+dom/nodes/case.html	getAttributeNS http://FOO,ä,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ABC,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ABC,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ABC,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ABC,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ABC,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Abc,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Abc,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Abc,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Abc,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Abc,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,abc,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,abc,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,abc,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,abc,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,abc,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Ä,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Ä,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Ä,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Ä,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,Ä,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ä,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ä,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ä,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ä,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/1999/xhtml,ä,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ABC,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ABC,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ABC,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ABC,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ABC,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Abc,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Abc,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Abc,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Abc,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Abc,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,abc,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,abc,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,abc,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,abc,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,abc,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Ä,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Ä,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Ä,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Ä,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,Ä,ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ä,ABC
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ä,Abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ä,abc
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ä,Ä
+dom/nodes/case.html	getAttributeNS http://www.w3.org/2000/svg,ä,ä
 dom/nodes/case.html	getAttributeNS Ä
 dom/nodes/case.html	getAttributeNS ä
 dom/nodes/case.html	getElementsByTagName ABC
@@ -5843,7 +5962,84 @@ dom/nodes/case.html	setAttribute Abc
 dom/nodes/case.html	setAttribute abc
 dom/nodes/case.html	setAttribute Ä
 dom/nodes/case.html	setAttribute ä
+dom/nodes/case.html	setAttributeNS ABC
+dom/nodes/case.html	setAttributeNS Abc
 dom/nodes/case.html	setAttributeNS abc
+dom/nodes/case.html	setAttributeNS http://FOO,ABC,ABC
+dom/nodes/case.html	setAttributeNS http://FOO,ABC,Abc
+dom/nodes/case.html	setAttributeNS http://FOO,ABC,abc
+dom/nodes/case.html	setAttributeNS http://FOO,ABC,Ä
+dom/nodes/case.html	setAttributeNS http://FOO,ABC,ä
+dom/nodes/case.html	setAttributeNS http://FOO,Abc,ABC
+dom/nodes/case.html	setAttributeNS http://FOO,Abc,Abc
+dom/nodes/case.html	setAttributeNS http://FOO,Abc,abc
+dom/nodes/case.html	setAttributeNS http://FOO,Abc,Ä
+dom/nodes/case.html	setAttributeNS http://FOO,Abc,ä
+dom/nodes/case.html	setAttributeNS http://FOO,abc,ABC
+dom/nodes/case.html	setAttributeNS http://FOO,abc,Abc
+dom/nodes/case.html	setAttributeNS http://FOO,abc,abc
+dom/nodes/case.html	setAttributeNS http://FOO,abc,Ä
+dom/nodes/case.html	setAttributeNS http://FOO,abc,ä
+dom/nodes/case.html	setAttributeNS http://FOO,Ä,ABC
+dom/nodes/case.html	setAttributeNS http://FOO,Ä,Abc
+dom/nodes/case.html	setAttributeNS http://FOO,Ä,abc
+dom/nodes/case.html	setAttributeNS http://FOO,Ä,Ä
+dom/nodes/case.html	setAttributeNS http://FOO,Ä,ä
+dom/nodes/case.html	setAttributeNS http://FOO,ä,ABC
+dom/nodes/case.html	setAttributeNS http://FOO,ä,Abc
+dom/nodes/case.html	setAttributeNS http://FOO,ä,abc
+dom/nodes/case.html	setAttributeNS http://FOO,ä,Ä
+dom/nodes/case.html	setAttributeNS http://FOO,ä,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ABC,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ABC,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ABC,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ABC,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ABC,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Abc,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Abc,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Abc,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Abc,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Abc,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,abc,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,abc,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,abc,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,abc,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,abc,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Ä,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Ä,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Ä,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Ä,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,Ä,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ä,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ä,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ä,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ä,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/1999/xhtml,ä,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ABC,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ABC,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ABC,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ABC,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ABC,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Abc,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Abc,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Abc,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Abc,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Abc,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,abc,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,abc,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,abc,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,abc,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,abc,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Ä,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Ä,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Ä,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Ä,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,Ä,ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,ABC
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,Abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,abc
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,Ä
+dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,ä
 dom/nodes/case.html	setAttributeNS Ä
 dom/nodes/case.html	setAttributeNS ä
 dom/nodes/create-element-realm-after-adoption.html	Precondition: the host's node document and relevant realm differ after adoption
@@ -5948,22 +6144,285 @@ dom/nodes/svg-template-querySelector.html	querySelector works on template conten
 dom/nodes/svg-template-querySelector.html	querySelector works on template contents fragments with SVG elements
 dom/nodes/svg-template-querySelector.html	querySelector works on template contents fragments with nested SVG elements
 dom/ranges/Range-commonAncestorContainer-2.html	Normal Ranges
+html/browsers/origin/api/file-scheme-origin.tentative.any.html	`Origin.from('file://')` opaque origins.
+html/browsers/origin/api/origin-comparison.any.html	Comparison of `Origin.from(<url-string>)` opaque origins.
+html/browsers/origin/api/origin-comparison.any.html	Comparison of `new Origin()` opaque origins.
+html/browsers/origin/api/origin-comparison.any.html	Comparison of tuple origins.
+html/browsers/origin/api/origin-comparison.any.html	Comparisons are schemeful.
+html/browsers/origin/api/origin-from-global.any.html	Origin.from(globalThis) is a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="about:blank">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="blob:https://example.com/some-guid">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="blob:weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="blob:weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="data:text/plain,opaque">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="ftp://example.com/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="ftp://ftp.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="http://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="http://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://127.0.0.1/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://[::1]/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://example.com/path?query#fragment">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://has.a.port:1234/and/path">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://sub.site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://trailing.slash/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://user:pass@site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://xn--mlauted-m2a.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="https://ümlauted.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="ws://ws.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a href="wss://wss.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<a>) throws.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="about:blank">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="blob:https://example.com/some-guid">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="blob:weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="blob:weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="data:text/plain,opaque">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="ftp://example.com/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="ftp://ftp.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="http://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="http://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://127.0.0.1/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://[::1]/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://example.com/path?query#fragment">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://has.a.port:1234/and/path">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://sub.site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://trailing.slash/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://user:pass@site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://xn--mlauted-m2a.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="https://ümlauted.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="ws://ws.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area href="wss://wss.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(<area>) throws.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(MathML <a>) throws.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="about:blank">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="blob:https://example.com/some-guid">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="blob:weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="blob:weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="data:text/plain,opaque">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="ftp://example.com/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="ftp://ftp.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="http://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="http://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://127.0.0.1/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://[::1]/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://example.com/path?query#fragment">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://has.a.port:1234/and/path">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://sub.site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://trailing.slash/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://user:pass@site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://xn--mlauted-m2a.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="https://ümlauted.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="ws://ws.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a href="wss://wss.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="about:blank">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="blob:https://example.com/some-guid">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="blob:weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="blob:weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="data:text/plain,opaque">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="ftp://example.com/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="ftp://ftp.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="http://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="http://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://127.0.0.1/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://[::1]/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://example.com/path?query#fragment">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://has.a.port:1234/and/path">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://sub.site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://sub.site.example:123">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://trailing.slash/">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://user:pass@site.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://xn--mlauted-m2a.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="https://ümlauted.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="weird-hierarchical-protocol://host/path?etc">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="weird-protocol:whatever">) returns an opaque origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="ws://ws.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a xlink:href="wss://wss.example">) returns a tuple origin.
+html/browsers/origin/api/origin-from-hyperlinkelementutils.window.html	Origin.from(SVG <a>) throws.
+html/browsers/origin/api/origin-from-location.window.html	Origin.from(Location) throws for cross-origin frames.
+html/browsers/origin/api/origin-from-location.window.html	Origin.from(window.location) throws.
+html/browsers/origin/api/origin-from-messageevent-opaque.window.html	Origin.from(MessageEvent) returns an opaque origin for a sandboxed frame.
+html/browsers/origin/api/origin-from-messageevent-opaque.window.html	Origin.from(MessageEvent) returns the same opaque origin for each message from a sandboxed frame.
+html/browsers/origin/api/origin-from-messageevent.window.html	Constructed `MessageEvent` objects have no real origins.
+html/browsers/origin/api/origin-from-messageevent.window.html	Origin.from(MessageEvent) returns a tuple origin for messages from cross-origin frames.
+html/browsers/origin/api/origin-from-messageevent.window.html	Origin.from(MessageEvent) returns a tuple origin for messages from same-origin frames.
+html/browsers/origin/api/origin-from-messageevent.window.html	Origin.from(MessageEvent) returns an opaque origin for messages from sandboxed frames.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("about:blank")) is an opaque origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("blob:https://example.com/some-guid")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("blob:weird-hierarchical-protocol://host/path?etc")) is an opaque origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("blob:weird-protocol:whatever")) is an opaque origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("data:text/plain,opaque")) is an opaque origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("ftp://example.com/")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("ftp://ftp.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("http://site.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("http://sub.site.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://127.0.0.1/")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://[::1]/")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://example.com/path?query#fragment")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://has.a.port:1234/and/path")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://site.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://site.example:123")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://sub.site.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://sub.site.example:123")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://trailing.slash/")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://user:pass@site.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://xn--mlauted-m2a.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("https://ümlauted.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("weird-hierarchical-protocol://host/path?etc")) is an opaque origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("weird-protocol:whatever")) is an opaque origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("ws://ws.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-origin.any.html	Origin.from(Origin.from("wss://wss.example")) is an tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("") throws a TypeError.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("about:blank") is an opaque origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("blob:https://example.com/some-guid") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("blob:weird-hierarchical-protocol://host/path?etc") is an opaque origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("blob:weird-protocol:whatever") is an opaque origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("data:text/plain,opaque") is an opaque origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("ftp://example.com/") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("ftp://ftp.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("http://site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("http://sub.site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://127.0.0.1/") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://[::1]/") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://example.com/path?query#fragment") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://has.a.port:1234/and/path") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://site.example:123") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://sub.site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://sub.site.example:123") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://trailing.slash/") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://user:pass@site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://xn--mlauted-m2a.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("https://ümlauted.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("not-valid") throws a TypeError.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("weird-hierarchical-protocol://host/path?etc") is an opaque origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("weird-protocol:whatever") is an opaque origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("ws://ws.example") is a tuple origin.
+html/browsers/origin/api/origin-from-string.any.html	Origin.from("wss://wss.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("") throws a TypeError.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("about:blank") is an opaque origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("blob:https://example.com/some-guid") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("blob:weird-hierarchical-protocol://host/path?etc") is an opaque origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("blob:weird-protocol:whatever") is an opaque origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("data:text/plain,opaque") is an opaque origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("ftp://example.com/") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("ftp://ftp.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("http://site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("http://sub.site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://127.0.0.1/") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://[::1]/") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://example.com/path?query#fragment") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://has.a.port:1234/and/path") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://site.example:123") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://sub.site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://sub.site.example:123") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://trailing.slash/") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://user:pass@site.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://xn--mlauted-m2a.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("https://ümlauted.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("not-valid") throws a TypeError.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("weird-hierarchical-protocol://host/path?etc") is an opaque origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("weird-protocol:whatever") is an opaque origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("ws://ws.example") is a tuple origin.
+html/browsers/origin/api/origin-from-url.any.html	Origin.from("wss://wss.example") is a tuple origin.
+html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) returns a tuple origin for same-origin frames.
+html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) returns an opaque origin for a data URL source.
+html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) throws for cross-origin frames.
+html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) throws for sandboxed frames.
+html/browsers/origin/api/origin-from-window.window.html	Origin.from(window) returns a tuple origin.
+html/browsers/origin/api/origin-from.any.html	Origin.from(1) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(1.1) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from([object Object]) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(function Object() { [native code] }) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(function Origin() { [native code] }) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(function from() { [native code] }) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(null) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(true) throws a TypeError.
+html/browsers/origin/api/origin-from.any.html	Origin.from(undefined) throws a TypeError.
+html/browsers/origin/cross-origin-objects/cross-origin-due-to-document-domain-only.html	Cross-origin due to document.domain
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-caching.html	Cross-origin Location `href` setter is cached
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-caching.html	Cross-origin Location `replace` method is cached
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-caching.html	Cross-origin Window accessors are cached
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-caching.html	Cross-origin Window methods are cached
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-length.html	Cross-origin Location `href` setter has correct 'length'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-length.html	Cross-origin Location `replace` method has correct 'length'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-length.html	Cross-origin Window accessors have correct 'length'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-length.html	Cross-origin Window methods have correct 'length'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-name.html	Cross-origin Location `href` setter has correct 'name'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-name.html	Cross-origin Location `replace` method has correct 'name'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-name.html	Cross-origin Window accessors have correct 'name'
+html/browsers/origin/cross-origin-objects/cross-origin-objects-function-name.html	Cross-origin Window methods have correct 'name'
+html/browsers/origin/cross-origin-objects/cross-origin-objects.html	Basic sanity-checking (cross-origin)
+html/browsers/origin/cross-origin-objects/cross-origin-objects.html	Basic sanity-checking (cross-site)
+html/browsers/origin/cross-origin-objects/cross-origin-objects.html	Basic sanity-checking (same-origin + document.domain)
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin location.href getter throws SecurityError in lexical realm
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin location.href setter throws TypeError in lexical realm on invalid |this| value
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin location.href setter throws TypeError in lexical realm on non-coercible URL argument
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin window.location setter throws TypeError in lexical realm on invalid |this| value
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin window.location setter throws TypeError in lexical realm on non-coercible URL argument
 html/browsers/origin/inheritance/about-blank-iframe.html	about:blank in child browsing context aliases security origin
+html/browsers/origin/inheritance/javascript-url.html	javascript: aliases security origin
+html/browsers/origin/origin-keyed-agent-clusters/document-domain.sub.https.html	The registrable domain suffix check must happen before the bail-out
+html/browsers/origin/origin-of-data-document.html	The origin of a 'data:' document in a frame is opaque.
 html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html	basics
 html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html	current document
 html/browsers/origin/relaxing-the-same-origin-restriction/document_domain.html	new Document()
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access allowed if different-origin but both set document.domain to parent domain.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access allowed if same-origin and both set document.domain to existing value.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access allowed if same-origin with no 'document.domain' modification. (Sanity check)
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access disallowed again if same-origin, both set document-domain to existing value, then one sets to parent.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access disallowed if same-origin but only one sets document.domain.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access evolves correctly for cross-origin objects when we join up via document.domain and then diverge again.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access evolves correctly for non-cross-origin objects when we join up via document.domain and then diverge again.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access is not revoked to Document object when we stop being same effective script origin due to document.domain.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access is not revoked to random object when we stop being same effective script origin due to document.domain.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access is revoked to Location object when we stop being same effective script origin due to document.domain.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access is revoked to Window object when we stop being same effective script origin due to document.domain.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_access_details.sub.html	Access not allowed if different-origin with no 'document.domain' modification. (Sanity check)
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter.html	failed setting of document.domain
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter.html	failed setting of document.domain for documents without browsing context
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter_srcdoc.html	srcdoc can access when parent modifies 'document.domain'.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter_srcdoc.html	srcdoc can access with no 'document.domain' modification.
+html/browsers/origin/relaxing-the-same-origin-restriction/document_domain_setter_srcdoc.html	srcdoc can access with valid 'document.domain'.
+html/browsers/origin/relaxing-the-same-origin-restriction/sandboxed-document_domain.html	Sandboxed document.domain 1
+html/browsers/origin/relaxing-the-same-origin-restriction/sandboxed-document_domain.html	Sandboxed document.domain 2
+html/browsers/origin/relaxing-the-same-origin-restriction/sandboxed-document_domain.html	Sandboxed document.domain 3
 html/browsers/the-window-object/Document-defaultView.html	Document created with HTML DOMParser
 html/browsers/the-window-object/Document-defaultView.html	Document created with XML DOMParser
 html/browsers/the-window-object/Document-defaultView.html	Document created with createDocument
 html/browsers/the-window-object/Document-defaultView.html	Document created with createHTMLDocument
 html/browsers/the-window-object/Document-defaultView.html	Document created with the Document constructor
 html/browsers/the-window-object/Document-defaultView.html	Document in a browsing context
+html/browsers/the-window-object/Window-document.html	Document in a browsing context
 html/browsers/the-window-object/accessing-other-browsing-contexts/indexed-browsing-contexts-01.html	The window's length must return zero if it has no child browsing context
 html/browsers/the-window-object/accessing-other-browsing-contexts/iterator.html	window[@@iterator]
+html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	Child browsing context has a child browsing context
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	No child browsing contexts
+html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	One iframe inserted into the document
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	iframe not inserted into the document
+html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	window.length in child frame
+html/browsers/the-window-object/closed-attribute.window.html	closed and cross-origin nested browsing context
+html/browsers/the-window-object/closed-attribute.window.html	closed and cross-site nested browsing context
+html/browsers/the-window-object/closed-attribute.window.html	closed and same-origin nested browsing context
 html/browsers/the-window-object/defaultstatus.html	The window.defaultStatus and window.defaultstatus attributes are not supported
 html/browsers/the-window-object/focus.window.html	focus
+html/browsers/the-window-object/historical.window.html	showModalDialog() has been removed from the platform
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be enumerable
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be set if the element is not reachable from the Document
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must return an element as-is if its name attribute matches
@@ -5975,6 +6434,7 @@ html/browsers/the-window-object/named-access-on-the-window-object/changing.html	
 html/browsers/the-window-object/named-access-on-the-window-object/changing.html	Changing an attribute must update the named properties (id)
 html/browsers/the-window-object/named-access-on-the-window-object/changing.html	Changing an attribute must update the named properties (name)
 html/browsers/the-window-object/named-access-on-the-window-object/changing.html	Changing an attribute that is not id or name must not cause errors
+html/browsers/the-window-object/named-access-on-the-window-object/cross-global-npo.html	Named access across globals
 html/browsers/the-window-object/named-access-on-the-window-object/doc-no-window.html	A document without a Window must not cause errors
 html/browsers/the-window-object/named-access-on-the-window-object/existing-prop.html	A named property must not be set if a property already exists
 html/browsers/the-window-object/named-access-on-the-window-object/existing-prop.html	A named property must not be set if a property already exists, even if undefined
@@ -6003,6 +6463,7 @@ html/browsers/the-window-object/named-access-on-the-window-object/multi-match.ht
 html/browsers/the-window-object/named-access-on-the-window-object/name-attribute-elements.html	Only elements with specific local names may be returned if their name attribute matches
 html/browsers/the-window-object/named-access-on-the-window-object/name-attribute-elements.html	Only elements with specific local names may be returned if their name attribute matches (negative test)
 html/browsers/the-window-object/named-access-on-the-window-object/name-attribute-elements.html	Removing an element for which the name attribute is not tracked, must not cause errors upon removing it
+html/browsers/the-window-object/named-access-on-the-window-object/named-objects.html	Check if the first nested browsing context is returned by window['c']
 html/browsers/the-window-object/named-access-on-the-window-object/named-objects.html	Check if window['a'] contains all embed, form, img, and object elements, and their order
 html/browsers/the-window-object/named-access-on-the-window-object/named-objects.html	Check if window['b'] returns the elements with the id='b'
 html/browsers/the-window-object/named-access-on-the-window-object/named-objects.html	Check if window['d'] returns the element with id='d'
@@ -6012,11 +6473,22 @@ html/browsers/the-window-object/named-access-on-the-window-object/navigated-name
 html/browsers/the-window-object/named-access-on-the-window-object/navigated-named-objects.window.html	Window's associated Document object is used for finding named objects (<iframe> via srcdoc <iframe>)
 html/browsers/the-window-object/named-access-on-the-window-object/navigated-named-objects.window.html	Window's associated Document object is used for finding named objects (<object> via srcdoc <iframe>)
 html/browsers/the-window-object/named-access-on-the-window-object/nested-context.html	A named property that matches an element that contains a nested browsing context must return the element if using id
+html/browsers/the-window-object/named-access-on-the-window-object/nested-context.html	A named property that matches any element that contains a nested browsing context, must return the WindowProxy of that context
+html/browsers/the-window-object/named-access-on-the-window-object/prototype.html	Property on EventTarget.prototype.
+html/browsers/the-window-object/named-access-on-the-window-object/prototype.html	Property on Object.prototype.
+html/browsers/the-window-object/named-access-on-the-window-object/prototype.html	Property on Window.prototype.
 html/browsers/the-window-object/named-access-on-the-window-object/removing.html	Removing a non-element node must not cause errors
 html/browsers/the-window-object/named-access-on-the-window-object/removing.html	Removing an element must update the named properties
 html/browsers/the-window-object/named-access-on-the-window-object/strict-mode-redefine-readonly-property.html	Adding/removing form with a name referring to a non-configurable property
+html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	Dynamic name
 html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	Ghost name
 html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	Static id
+html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	Static name
+html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	Static name on the prototype
+html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	constructor
+html/browsers/the-window-object/named-access-on-the-window-object/window-named-properties.html	duplicate property names
+html/browsers/the-window-object/named-access-on-the-window-object/window-null-names.html	Named access with null characters
+html/browsers/the-window-object/noopener-noreferrer-BarProp.window.html	All bars visible
 html/browsers/the-window-object/open-close/open-features-tokenization-noopener.html	After "noopener", tokenization should skip window features separators that are not "=" or ","
 html/browsers/the-window-object/open-close/open-features-tokenization-noopener.html	Feature "noopener" should be converted to ASCII lowercase
 html/browsers/the-window-object/open-close/open-features-tokenization-noopener.html	Integer values other than 0 should activate the feature
@@ -6030,19 +6502,163 @@ html/browsers/the-window-object/open-close/open-features-tokenization-noreferrer
 html/browsers/the-window-object/open-close/open-features-tokenization-noreferrer.html	Tokenizing "noreferrer" should ignore window feature separators except "," after initial "=" and before value
 html/browsers/the-window-object/open-close/open-features-tokenization-noreferrer.html	Tokenizing "noreferrer" should read characters until first window feature separator as `value`
 html/browsers/the-window-object/proxy-getOwnPropertyDescriptor.html	Document proxy target, custom trap, non-existent value attribute
+html/browsers/the-window-object/proxy-getOwnPropertyDescriptor.html	Location proxy target, forwarding trap, [LegacyUnforgeable] "reload" method
 html/browsers/the-window-object/proxy-getOwnPropertyDescriptor.html	Window proxy target, custom trap, "onclick" event handler attribute
 html/browsers/the-window-object/proxy-getOwnPropertyDescriptor.html	Window target, forwarding trap, [LegacyUnforgeable] "document" attribute
+html/browsers/the-window-object/proxy-getOwnPropertyDescriptor.html	Window target, no trap, "name" attribute
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.alert is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.clearInterval is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.clearTimeout is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.confirm is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.devicePixelRatio is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.document is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.external is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.frameElement is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.getComputedStyle is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.getSelection is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.history is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.innerHeight is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.innerWidth is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.localStorage is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.locationbar is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.matchMedia is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.menubar is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.moveBy is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.moveTo is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.name is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.navigator is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onabort is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onafterprint is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onbeforeprint is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onbeforeunload is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onblur is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oncancel is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oncanplay is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oncanplaythrough is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onchange is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onclick is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onclose is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oncontextmenu is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oncuechange is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondblclick is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondrag is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondragend is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondragenter is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondragleave is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondragover is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondragstart is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondrop is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ondurationchange is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onemptied is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onended is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onerror is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onfocus is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onhashchange is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oninput is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.oninvalid is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onkeydown is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onkeypress is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onkeyup is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onload is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onloadeddata is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onloadedmetadata is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onloadstart is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onmessage is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onmousedown is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onmousemove is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onmouseout is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onmouseover is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onmouseup is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onoffline is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ononline is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onpagehide is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onpageshow is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onpause is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onplay is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onplaying is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onpopstate is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onprogress is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onratechange is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onreset is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onresize is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onscroll is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onseeked is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onseeking is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onselect is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onstalled is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onstorage is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onsubmit is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onsuspend is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.ontimeupdate is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onunload is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onvolumechange is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.onwaiting is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.open is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.pageXOffset is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.pageYOffset is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.personalbar is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.print is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.prompt is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.resizeBy is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.resizeTo is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.screen is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.screenX is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.screenY is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.scroll is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.scrollBy is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.scrollTo is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.scrollbars is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.sessionStorage is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.setInterval is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.setTimeout is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.status is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.statusbar is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.stop is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception must be thrown when window.toolbar is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.blur is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.close is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.closed is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.focus is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.frames is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.length is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.location is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.opener is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.parent is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.postMessage is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.self is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.top is accessed from a different origin.
+html/browsers/the-window-object/security-window/window-security.https.html	A SecurityError exception should not be thrown when window.window is accessed from a different origin.
 html/browsers/the-window-object/security-window/window-security.https.html	Window Security testing
+html/browsers/the-window-object/self-et-al.window.html	iframeWindow.frames before and after removal
+html/browsers/the-window-object/self-et-al.window.html	iframeWindow.globalThis before and after removal
+html/browsers/the-window-object/self-et-al.window.html	iframeWindow.self before and after removal
+html/browsers/the-window-object/self-et-al.window.html	iframeWindow.window before and after removal
 html/browsers/the-window-object/window-aliases.html	frames should be the global object
 html/browsers/the-window-object/window-aliases.html	self should be the global object
 html/browsers/the-window-object/window-aliases.html	window should be the global object
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	Window prototype: document-tree child navigable with target name 1 (named access)
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	Window prototype: document-tree child navigable with target name 2 (named access)
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	Window prototype: document-tree child navigable with target name 3 (named access)
 html/browsers/the-window-object/window-indexed-access-vs-named-access.html	Window prototype: element with id 0 (named access)
 html/browsers/the-window-object/window-indexed-access-vs-named-access.html	Window prototype: element with id 4 (named access)
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: document-tree child navigable with index 0 (indexed access)
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: document-tree child navigable with index 1 (indexed access)
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: document-tree child navigable with index 2 (indexed access)
+html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: document-tree child navigable with target name 3 (named access)
 html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: element with id 4 (named access)
 html/browsers/the-window-object/window-indexed-properties-strict.html	Borderline numeric key: 2 ** 32 - 1 is not an index (strict mode)
+html/browsers/the-window-object/window-indexed-properties-strict.html	Borderline numeric key: 2 ** 32 - 2 is an index (strict mode)
 html/browsers/the-window-object/window-indexed-properties-strict.html	Indexed properties of the window object (strict mode)
+html/browsers/the-window-object/window-indexed-properties-strict.html	Indexed properties of the window object (strict mode) 1
+html/browsers/the-window-object/window-indexed-properties-strict.html	Indexed properties of the window object (strict mode) 2
+html/browsers/the-window-object/window-indexed-properties-strict.html	Indexed properties of the window object (strict mode) 3
 html/browsers/the-window-object/window-indexed-properties.html	Borderline numeric key: 2 ** 32 - 1 is not an index
+html/browsers/the-window-object/window-indexed-properties.html	Borderline numeric key: 2 ** 32 - 2 is an index
+html/browsers/the-window-object/window-indexed-properties.html	Ensure indexed properties have the correct configuration
 html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode)
+html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode) 1
+html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode) 2
+html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode) 3
 html/browsers/the-window-object/window-properties.https.html	Constructor Properties of the Global Object
 html/browsers/the-window-object/window-properties.https.html	Constructor Property: Array
 html/browsers/the-window-object/window-properties.https.html	Constructor Property: Boolean
@@ -6078,18 +6694,179 @@ html/browsers/the-window-object/window-properties.https.html	Value Properties of
 html/browsers/the-window-object/window-properties.https.html	Value Property: Infinity
 html/browsers/the-window-object/window-properties.https.html	Value Property: NaN
 html/browsers/the-window-object/window-properties.https.html	Value Property: undefined
+html/browsers/the-window-object/window-properties.https.html	Window attribute: name
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onabort
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onafterprint
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onbeforeprint
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onbeforeunload
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onblur
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oncancel
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oncanplay
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oncanplaythrough
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onchange
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onclick
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onclose
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oncontextmenu
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oncuechange
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondblclick
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondrag
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondragend
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondragenter
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondragleave
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondragover
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondragstart
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondrop
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ondurationchange
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onemptied
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onended
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onerror
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onfocus
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onhashchange
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oninput
+html/browsers/the-window-object/window-properties.https.html	Window attribute: oninvalid
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onkeydown
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onkeypress
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onkeyup
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onload
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onloadeddata
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onloadedmetadata
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onloadstart
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onmessage
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onmousedown
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onmousemove
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onmouseout
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onmouseover
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onmouseup
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onoffline
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ononline
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onpagehide
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onpageshow
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onpause
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onplay
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onplaying
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onpopstate
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onprogress
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onratechange
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onreset
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onresize
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onscroll
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onseeked
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onseeking
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onselect
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onstalled
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onstorage
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onsubmit
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onsuspend
+html/browsers/the-window-object/window-properties.https.html	Window attribute: ontimeupdate
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onunload
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onvolumechange
+html/browsers/the-window-object/window-properties.https.html	Window attribute: onwaiting
+html/browsers/the-window-object/window-properties.https.html	Window attribute: opener
+html/browsers/the-window-object/window-properties.https.html	Window attribute: status
 html/browsers/the-window-object/window-properties.https.html	Window interface
+html/browsers/the-window-object/window-properties.https.html	Window method: alert
+html/browsers/the-window-object/window-properties.https.html	Window method: atob
+html/browsers/the-window-object/window-properties.https.html	Window method: blur
+html/browsers/the-window-object/window-properties.https.html	Window method: btoa
+html/browsers/the-window-object/window-properties.https.html	Window method: clearInterval
+html/browsers/the-window-object/window-properties.https.html	Window method: clearTimeout
+html/browsers/the-window-object/window-properties.https.html	Window method: close
+html/browsers/the-window-object/window-properties.https.html	Window method: confirm
+html/browsers/the-window-object/window-properties.https.html	Window method: focus
+html/browsers/the-window-object/window-properties.https.html	Window method: getComputedStyle
+html/browsers/the-window-object/window-properties.https.html	Window method: getSelection
+html/browsers/the-window-object/window-properties.https.html	Window method: matchMedia
+html/browsers/the-window-object/window-properties.https.html	Window method: moveBy
+html/browsers/the-window-object/window-properties.https.html	Window method: moveTo
+html/browsers/the-window-object/window-properties.https.html	Window method: open
+html/browsers/the-window-object/window-properties.https.html	Window method: postMessage
+html/browsers/the-window-object/window-properties.https.html	Window method: print
+html/browsers/the-window-object/window-properties.https.html	Window method: prompt
+html/browsers/the-window-object/window-properties.https.html	Window method: queueMicrotask
+html/browsers/the-window-object/window-properties.https.html	Window method: resizeBy
+html/browsers/the-window-object/window-properties.https.html	Window method: resizeTo
+html/browsers/the-window-object/window-properties.https.html	Window method: scroll
+html/browsers/the-window-object/window-properties.https.html	Window method: scrollBy
+html/browsers/the-window-object/window-properties.https.html	Window method: scrollTo
+html/browsers/the-window-object/window-properties.https.html	Window method: setInterval
+html/browsers/the-window-object/window-properties.https.html	Window method: setTimeout
+html/browsers/the-window-object/window-properties.https.html	Window method: stop
+html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: frameElement
+html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: history
+html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: localStorage
+html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: navigator
+html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: sessionStorage
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: frames
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: self
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: window
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: devicePixelRatio
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: external
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: frames
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: innerHeight
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: innerWidth
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: length
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: locationbar
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: menubar
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: origin
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: outerHeight
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: outerWidth
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: pageXOffset
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: pageYOffset
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: parent
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: personalbar
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: screen
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: screenLeft
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: screenTop
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: screenX
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: screenY
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: scrollX
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: scrollY
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: scrollbars
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: self
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: statusbar
+html/browsers/the-window-object/window-properties.https.html	Window replaceable attribute: toolbar
+html/browsers/the-window-object/window-properties.https.html	Window unforgeable attribute: document
+html/browsers/the-window-object/window-properties.https.html	Window unforgeable attribute: location
+html/browsers/the-window-object/window-properties.https.html	Window unforgeable attribute: top
+html/browsers/the-window-object/window-properties.https.html	Window unforgeable attribute: window
+html/browsers/the-window-object/window-properties.https.html	constructor
+html/browsers/the-window-object/window-prototype-chain.html	EventTarget.prototype
+html/browsers/the-window-object/window-prototype-chain.html	Object.prototype
+html/browsers/the-window-object/window-prototype-chain.html	Window.prototype
+html/browsers/the-window-object/window-prototype-chain.html	window object
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to 
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to 42
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to Symbol()
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to [object Object]
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to function() { return "hi" }
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to hi
+html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to undefined
+html/browsers/windows/browsing-context-window.html	HTML Test: Newly-Created browsing context Window and `this`
 html/browsers/windows/browsing-context.html	Check that browsing context has new, ready HTML document
 html/browsers/windows/browsing-context.html	Check that new document nodes extant, empty
+html/browsers/windows/document-domain-nested-navigate.window.html	Navigated frame to about:blank and document.domain
+html/browsers/windows/document-domain-nested-set.window.html	Initial about:blank frame and document.domain in the frame
+html/browsers/windows/document-domain-nested.window.html	Initial about:blank frame and document.domain
+html/browsers/windows/document-domain-removed-iframe.html	No removal, document.domain
 html/browsers/windows/document-domain-removed-iframe.html	No removal, no document.domain
+html/browsers/windows/document-domain-removed-iframe.html	Removal, document.domain
 html/browsers/windows/document-domain-removed-iframe.html	Removal, no document.domain
+html/browsers/windows/nested-browsing-contexts/frameElement-siblings.sub.html	it must give a "SecurityError" DOMException if the pages are different-origin domain
+html/browsers/windows/nested-browsing-contexts/frameElement-siblings.sub.html	it must return the iframe element if the pages are same-origin domain
+html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The SecurityError must be thrown if the window accesses to frameElement attribute of a Window which does not have the same effective script origin
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if it is not a nested browsing context
+html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if the container's document does not have the same effective script origin
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe>
+html/browsers/windows/nested-browsing-contexts/window-parent-null.html	`window.parent` is null when browsing context container element removed
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for multiple nested browsing contexts
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for top-level browsing context
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` on single nested browsing context
+html/browsers/windows/nested-browsing-contexts/window-top-null.html	`window.top` is null when browsing context container element removed
 html/browsers/windows/nested-browsing-contexts/window-top.html	One nested iframe
 html/browsers/windows/nested-browsing-contexts/window-top.html	Top level browsing context
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLFormControlsCollection legacycaller should not be supported
@@ -6123,12 +6900,117 @@ html/infrastructure/common-dom-interfaces/collections/htmloptionscollection.html
 html/infrastructure/common-dom-interfaces/collections/htmloptionscollection.html	namedItem name attribute
 html/infrastructure/common-dom-interfaces/collections/htmloptionscollection.html	namedItem name attribute multiple attributes one element
 html/infrastructure/conformance-requirements/extensibility/foreign.html	foreign content
+html/infrastructure/safe-passing-of-structured-data/cross-origin-transfer-resizable-arraybuffer.html	postMessaging resizable ArrayBuffer to OOPIF
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	A detached ArrayBuffer cannot be transferred
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	A detached platform object cannot be transferred
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	A subclass instance will deserialize as its closest serializable superclass
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	An object whose interface is deleted from the global must still deserialize
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	An object whose interface is deleted from the global object must still be received
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, Blob NUL
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, Blob basic
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, Blob empty
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, Blob paired surrogates (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, Blob unpaired high surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, Blob unpaired low surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Blob object, two Blobs
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Boolean objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Date objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array Number objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array RegExp object, RegExp empty
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array RegExp object, RegExp flags and lastIndex
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array RegExp object, RegExp new line
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array RegExp object, RegExp slash
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array RegExp object, RegExp sticky flag
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array RegExp object, RegExp unicode flag
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array String objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array primitives
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array sparse
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array with circular reference
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array with identical property values
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Array with non-index property
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	ArrayBuffer
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	BigInt -9007199254740994n
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Blob NUL
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Blob basic
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Blob empty
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Blob paired surrogates (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Blob unpaired high surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Blob unpaired low surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Boolean false
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Boolean true
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Date -0
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Date -8.64e15
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Date 0
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Date 8.64e15
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Empty Error object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Error object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	EvalError object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	File basic
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Length-tracking DataView
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Length-tracking DataView is transferable
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Length-tracking TypedArray
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Length-tracking TypedArray is transferable
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	MessagePort
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number -0
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number -9007199254740992
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number -9007199254740994
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number -Infinity
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number 0
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number 0.2
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number 9007199254740992
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number 9007199254740994
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number Infinity
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Number NaN
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Blob object, Blob NUL
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Blob object, Blob basic
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Blob object, Blob empty
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Blob object, Blob paired surrogates (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Blob object, Blob unpaired high surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Blob object, Blob unpaired low surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Boolean objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Date objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object Number objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object RegExp object, RegExp empty
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object RegExp object, RegExp flags and lastIndex
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object RegExp object, RegExp new line
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object RegExp object, RegExp slash
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object RegExp object, RegExp sticky flag
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object RegExp object, RegExp unicode flag
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object String objects
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object primitives
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with a getter that throws
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with circular reference
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with identical property values
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with index property and length
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with non-configurable property
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with non-enumerable property
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with non-writable property
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Object with property on prototype
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	ObjectPrototype must lose its exotic-ness when cloned
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RangeError object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	ReferenceError object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RegExp empty
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RegExp flags and lastIndex
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RegExp new line
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RegExp slash
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RegExp sticky flag
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	RegExp unicode flag
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Resizable ArrayBuffer
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Resizable ArrayBuffer is transferable
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Serializing OOB DataView throws
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Serializing OOB TypedArray throws
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Serializing a non-serializable platform object fails
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	String NUL
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	String astral character
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	String empty string
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	String lone high surrogate
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	String lone low surrogate
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	SyntaxError object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Transferring OOB DataView throws
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Transferring OOB TypedArray throws
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	Transferring a non-transferable platform object fails
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	TypeError object
+html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	URIError object
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive BigInt, -0n
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive BigInt, -9007199254740994000900719925474099400090071992547409940009007199254740994000n
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive BigInt, -9007199254740994000n
@@ -6154,16 +7036,147 @@ html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	prim
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive undefined
 html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/no-coop-coep.https.any.html	SharedArrayBuffer constructor does not exist without COOP+COEP
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-extra.html	Errors sent across realms should preserve their type
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (same-origin iframe)
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (same-origin iframe)
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (same-origin iframe)
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (same-origin iframe)
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on DOMException
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on Error
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on EvalError
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on RangeError
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on ReferenceError
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on SyntaxError
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on TypeError
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on URIError
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on a thrown DOMException
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack via [[Stack]] internal slot, not as own property
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer ArrayBuffer detached while the message was serialized
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer MessagePort detached while the message was serialized
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer all objects
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer the same ArrayBuffer twice
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer the same MessagePort twice
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Serialize should make the ArrayBuffer detached, so it cannot be transferred again
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Serialize should make the MessagePort detached, so it cannot be transferred again
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Serialize should throw before a detached ArrayBuffer is found
+html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Serialize should throw before a detached MessagePort is found
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	A detached ArrayBuffer cannot be transferred
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	A detached platform object cannot be transferred
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	A subclass instance will deserialize as its closest serializable superclass
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	An object whose interface is deleted from the global must still deserialize
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	An object whose interface is deleted from the global object must still be received
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, Blob NUL
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, Blob basic
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, Blob empty
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, Blob paired surrogates (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, Blob unpaired high surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, Blob unpaired low surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Blob object, two Blobs
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Boolean objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Date objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array Number objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array RegExp object, RegExp empty
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array RegExp object, RegExp flags and lastIndex
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array RegExp object, RegExp new line
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array RegExp object, RegExp slash
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array RegExp object, RegExp sticky flag
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array RegExp object, RegExp unicode flag
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array String objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array primitives
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array sparse
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array with circular reference
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array with identical property values
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Array with non-index property
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	ArrayBuffer
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	BigInt -9007199254740994n
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Blob NUL
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Blob basic
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Blob empty
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Blob paired surrogates (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Blob unpaired high surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Blob unpaired low surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Boolean false
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Boolean true
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Date -0
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Date -8.64e15
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Date 0
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Date 8.64e15
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Empty Error object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Error object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	EvalError object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	File basic
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Length-tracking DataView
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Length-tracking DataView is transferable
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Length-tracking TypedArray
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Length-tracking TypedArray is transferable
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	MessagePort
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number -0
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number -9007199254740992
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number -9007199254740994
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number -Infinity
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number 0
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number 0.2
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number 9007199254740992
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number 9007199254740994
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number Infinity
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Number NaN
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Blob object, Blob NUL
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Blob object, Blob basic
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Blob object, Blob empty
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Blob object, Blob paired surrogates (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Blob object, Blob unpaired high surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Blob object, Blob unpaired low surrogate (invalid utf-8)
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Boolean objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Date objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object Number objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object RegExp object, RegExp empty
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object RegExp object, RegExp flags and lastIndex
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object RegExp object, RegExp new line
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object RegExp object, RegExp slash
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object RegExp object, RegExp sticky flag
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object RegExp object, RegExp unicode flag
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object String objects
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object primitives
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with a getter that throws
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with circular reference
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with identical property values
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with index property and length
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with non-configurable property
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with non-enumerable property
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with non-writable property
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Object with property on prototype
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	ObjectPrototype must lose its exotic-ness when cloned
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RangeError object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	ReferenceError object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RegExp empty
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RegExp flags and lastIndex
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RegExp new line
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RegExp slash
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RegExp sticky flag
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	RegExp unicode flag
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Resizable ArrayBuffer
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Resizable ArrayBuffer is transferable
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Serializing OOB DataView throws
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Serializing OOB TypedArray throws
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Serializing a non-serializable platform object fails
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	String NUL
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	String astral character
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	String empty string
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	String lone high surrogate
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	String lone low surrogate
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	SyntaxError object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Transferring OOB DataView throws
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Transferring OOB TypedArray throws
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	Transferring a non-transferable platform object fails
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	TypeError object
+html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	URIError object
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	primitive BigInt, -0n
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	primitive BigInt, -9007199254740994000900719925474099400090071992547409940009007199254740994000n
 html/infrastructure/safe-passing-of-structured-data/window-postmessage.window.html	primitive BigInt, -9007199254740994000n
@@ -6204,6 +7217,10 @@ html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getti
 html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <script>.src
 html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <track>.src
 html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <video>.src
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location [PutForwards]
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location.assign()
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location.href
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location.replace()
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme bitcoin (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme data (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme ftps (getting <a>.href)
@@ -6294,13 +7311,20 @@ html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL con
 html/infrastructure/urls/terminology-0/document-base-url.html	The fallback base URL of a document containing no base element is the document's address.
 html/semantics/embedded-content/the-iframe-element/change_parentage.html	Change the frame heriarchy
 html/semantics/embedded-content/the-iframe-element/content_document_changes_only_after_load_matures.html	contentDocument should only change after a load matures.
+html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-cross-site.sub.html	Below-viewport iframes load lazily
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-cross-site.sub.html	In-viewport iframes load eagerly
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-in-scroller-cross-site.sub.html	Test that lazy-loaded iframes load when near viewport.
+html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-nested-cross-site.sub.html	Below-viewport iframe nested in a cross-site frame loads lazily
+html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-nested-cross-site.sub.html	In-viewport iframe nested in a cross-site frame loads eagerly
+html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-nested-cross-site.sub.html	In-viewport iframes load eagerly
+html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	Below-viewport left iframe loads lazily
+html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	Below-viewport right iframe loads lazily
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	In-viewport left iframe loads eagerly
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	In-viewport right iframe loads eagerly
 html/semantics/embedded-content/the-iframe-element/document-getters-return-null-for-cross-origin.html	HTMLIFrameElement.contentDocument for cross-origin document
 html/semantics/embedded-content/the-iframe-element/historical.html	iframe.allowPaymentRequest should not be supported
 html/semantics/embedded-content/the-iframe-element/historical.html	iframe.seamless should not be supported
+html/semantics/embedded-content/the-iframe-element/iframe-append-to-child-document.html	Append iframe element to its own child document
 html/semantics/embedded-content/the-iframe-element/iframe-display-none-with-object.html	Load event triggered on window
 html/semantics/embedded-content/the-iframe-element/iframe-first-load-canceled-second-load-blank.html	about:blank navigation is asynchronous, even if the initial one is canceled.
 html/semantics/embedded-content/the-iframe-element/iframe-load-event.html	load event of initial about:blank
@@ -6317,20 +7341,55 @@ html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroll
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-nav-location-replace-set-src.html	Navigating iframe loading='lazy' and then setting src: location.replace
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-reload-location-reload.html	Reloading iframe loading='lazy' before it is loaded: location.reload
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy.html	In-viewport iframes load eagerly
+html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	navigating an existing iframe: X-Frame-Options prevents embedding
+html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	navigating an existing iframe: nonexistent host
 html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	new iframe: X-Frame-Options prevents embedding
 html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	new iframe: nonexistent host
 html/semantics/embedded-content/the-iframe-element/iframe-nosrc.html	iframe.contentDocument should not be changed
 html/semantics/embedded-content/the-iframe-element/iframe-nosrc.html	load event of iframe should not be fired after processing the element
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_01.htm	javascript: URL creating a document in an about:blank iframe
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	ArrayBuffer: javascript:new ArrayBuffer(8)
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	String object: javascript:new String("foo")
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	TypeError: javascript:new TypeError("foo")
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	array: javascript:["foo"]
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	boolean: javascript:true
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	empty string: javascript:""
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	function: javascript:(() => { return function() {}; })()
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	global: javascript:window
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	host object: javascript:document
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	null: javascript:null
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	number: javascript:1
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	object: javascript:{"foo": "bar"}
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	regexp: javascript:/foo/
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	string: javascript:"foo"
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	undefined: javascript:void(0)
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_initial_insertion.html	javascript: URL in iframe src, initial insertion check
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_loading_lazy.htm	javascript: URL in iframe src and loading="lazy"
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_not_about_blank.html	javascript: URL in iframe src, initial src is not about:blank
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_remove_srcdoc.html	javascript: URL in iframe src, removing srcdoc
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_xhr.html	Image load should not trigger load event for non-initial javascript URL load
+html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_xhr.html	Load event for initial javascript URL load should be fired after script execution
+html/semantics/embedded-content/the-iframe-element/iframe_navigate_ancestor-1.sub.html	A => B => B: B should be able to navigate B.
+html/semantics/embedded-content/the-iframe-element/iframe_navigate_javascript_url.htm	location.href = 'javascript:"foo"' should fire a load event
 html/semantics/embedded-content/the-iframe-element/iframe_navigate_javascript_url.htm	location.href = 'javascript:1' should not fire a load event
+html/semantics/embedded-content/the-iframe-element/iframe_sandbox_allow_script.html	iframe_sandbox_allow_scripts
 html/semantics/embedded-content/the-iframe-element/iframe_sandbox_block_modals-2.html	Frames without `allow-modals` should not be able to open modal dialogs
 html/semantics/embedded-content/the-iframe-element/iframe_sandbox_block_modals-3.html	Frames without `allow-modals` should not be able to open modal dialogs
+html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigate_ancestor-1.html	Check that sandboxed iframe can not navigate their ancestors
+html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigate_ancestor-2.html	Check that unsandboxed iframe can navigate their ancestors
+html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigate_descendants.html	Check that sandboxed iframe can navigate their descendants
+html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigate_history_go_back.html	Check that sandboxed iframe can not navigate their ancestors
+html/semantics/embedded-content/the-iframe-element/iframe_sandbox_navigate_itself.html	Check that sandboxed iframe can navigate itself
+html/semantics/embedded-content/the-iframe-element/move-node-local-root.html	Event handler-bearing node moved across local roots in the same tab/page
 html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_01.html	moving modified IFRAME in document (original page about:blank, DOM modification)
 html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_02.html	moving modified IFRAME in document (original page about:blank, document.write modification)
 html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_03.html	moving modified IFRAME in document (original page from server, DOM modification)
 html/semantics/embedded-content/the-iframe-element/move_iframe_in_dom_04.html	moving modified IFRAME in document (original page from server, document.write modification)
 html/semantics/embedded-content/the-iframe-element/sandbox-ascii-case-insensitive.html	iframe 'sandbox' ASCII case insensitive, allow-same-orİgin
+html/semantics/embedded-content/the-iframe-element/sandbox-ascii-case-insensitive.html	iframe 'sandbox' ASCII case insensitive, allow-ſcripts
 html/semantics/embedded-content/the-iframe-element/sandbox_001.htm	Allow script execution inside iframe with sandbox attribute when sandbox='allow-scripts'.
 html/semantics/embedded-content/the-iframe-element/sandbox_004.htm	Fallback content is always displayed for sandboxed PDFs
+html/semantics/embedded-content/the-iframe-element/sandbox_005.htm	Block script execution inside iframe with sandbox attribute.
 html/semantics/embedded-content/the-iframe-element/sandbox_011.htm	DOMTokenList add(DomString)
 html/semantics/embedded-content/the-iframe-element/sandbox_011.htm	DOMTokenList case sensitivity
 html/semantics/embedded-content/the-iframe-element/sandbox_011.htm	DOMTokenList contains(DomString)
@@ -6352,7 +7411,10 @@ html/semantics/embedded-content/the-iframe-element/sandbox_024.htm	document.cook
 html/semantics/embedded-content/the-iframe-element/sandbox_025.htm	Allow parent content to access sandbox child iframe content when sandbox='allow-same-origin'
 html/semantics/embedded-content/the-iframe-element/sandbox_026.htm	Allow localStorage and sessionStorage access inside iframe with sandbox='allow-same-origin allow-scripts'
 html/semantics/embedded-content/the-iframe-element/sandbox_027.htm	Allow XMLHttpRequest in an iframe with the sandbox attribute if sandbox='allow-same-origin'.
+html/semantics/embedded-content/the-iframe-element/sandbox_028.htm	Block sandbox iframe from accessing other content from the same origin.
+html/semantics/embedded-content/the-iframe-element/sandbox_029.htm	Block document.cookie inside iframe with the sandbox attribute.
 html/semantics/embedded-content/the-iframe-element/sandbox_030.htm	Block parent content to access sandbox child iframe content when sandbox attribute exists
+html/semantics/embedded-content/the-iframe-element/sandbox_031.htm	Block localStorage and sessionStorage inside iframe with the sandbox attribute.
 html/semantics/embedded-content/the-iframe-element/sandbox_032.htm	Block XMLHttpRequest in an iframe with the sandbox attribute.
 html/semantics/embedded-content/the-iframe-element/srcdoc-anchor.html	Verify srcdoc content loads when src is about:srcdoc#foo.
 html/semantics/embedded-content/the-iframe-element/srcdoc-attribute-reset.html	Verify that the frame reloads with empty body after we remove srcdoc.
@@ -8738,6 +9800,7 @@ html/webappapis/scripting/events/event-handler-javascript.html	Event handlers st
 html/webappapis/scripting/events/event-handler-onresize.html	meta.onresize should set the meta.onresize handler
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/body-element-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Window, with a synthetic Event
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Document, with a synthetic Event
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/frameset-element-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Window, with a synthetic Event
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/script-element.html	error event behaves normally (return true does not cancel; one arg) on a script element, with a 404 error
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/script-element.html	error event behaves normally (return true does not cancel; one arg) on a script element, with a synthetic Event
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Window, with a synthetic Event
@@ -8778,6 +9841,12 @@ html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-detached-iframe.html	Thenable job created by reaction job for rejection should run even if it belongs to detached iframe
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-detached-iframe.html	Thenable job for fulfilled promise should run even if it belongs to detached iframe
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-detached-iframe.html	Thenable job for rejected promise should run even if it belongs to detached iframe
+html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Fulfillment handler on fulfilled promise
+html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Fulfillment handler on pending-then-fulfilled promise
+html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Rejection handler on pending-then-rejected promise
+html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Rejection handler on rejected promise
+html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Sanity check: this all works as expected with no promises involved
+html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Thenable resolution
 html/webappapis/scripting/processing-model-2/runtime-error-cross-origin.html	window.onerror - runtime error in <script src=//www1...> (column)
 html/webappapis/scripting/processing-model-2/runtime-error-in-attribute.html	window.onerror - runtime error in attribute (column)
 html/webappapis/scripting/processing-model-2/runtime-error-in-setInterval.html	window.onerror - runtime error in setInterval (column)
@@ -8814,22 +9883,136 @@ html/webappapis/scripting/processing-model-2/window-onerror-parse-error.html	cor
 html/webappapis/scripting/processing-model-2/window-onerror-runtime-error-throw.html	correct number of calls to window.onerror
 html/webappapis/scripting/processing-model-2/window-onerror-runtime-error.html	correct number of calls to window.onerror
 html/webappapis/scripting/reporterror.any.html	self.reportError() doesn't invoke getters
+html/webappapis/structured-clone/structured-clone-cross-realm-method.html	Array instance
+html/webappapis/structured-clone/structured-clone-cross-realm-method.html	Date instance
+html/webappapis/structured-clone/structured-clone-cross-realm-method.html	Object instance
+html/webappapis/structured-clone/structured-clone-cross-realm-method.html	RegExp instance
+html/webappapis/structured-clone/structured-clone.any.html	A detached ArrayBuffer cannot be transferred
+html/webappapis/structured-clone/structured-clone.any.html	A detached platform object cannot be transferred
+html/webappapis/structured-clone/structured-clone.any.html	A subclass instance will deserialize as its closest serializable superclass
+html/webappapis/structured-clone/structured-clone.any.html	An object whose interface is deleted from the global must still deserialize
+html/webappapis/structured-clone/structured-clone.any.html	An object whose interface is deleted from the global object must still be received
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, Blob NUL
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, Blob basic
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, Blob empty
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, Blob paired surrogates (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, Blob unpaired high surrogate (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, Blob unpaired low surrogate (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Array Blob object, two Blobs
+html/webappapis/structured-clone/structured-clone.any.html	Array Boolean objects
+html/webappapis/structured-clone/structured-clone.any.html	Array Date objects
+html/webappapis/structured-clone/structured-clone.any.html	Array Number objects
+html/webappapis/structured-clone/structured-clone.any.html	Array RegExp object, RegExp empty
+html/webappapis/structured-clone/structured-clone.any.html	Array RegExp object, RegExp flags and lastIndex
+html/webappapis/structured-clone/structured-clone.any.html	Array RegExp object, RegExp new line
+html/webappapis/structured-clone/structured-clone.any.html	Array RegExp object, RegExp slash
+html/webappapis/structured-clone/structured-clone.any.html	Array RegExp object, RegExp sticky flag
+html/webappapis/structured-clone/structured-clone.any.html	Array RegExp object, RegExp unicode flag
+html/webappapis/structured-clone/structured-clone.any.html	Array String objects
+html/webappapis/structured-clone/structured-clone.any.html	Array primitives
 html/webappapis/structured-clone/structured-clone.any.html	Array sparse
+html/webappapis/structured-clone/structured-clone.any.html	Array with circular reference
+html/webappapis/structured-clone/structured-clone.any.html	Array with identical property values
+html/webappapis/structured-clone/structured-clone.any.html	Array with non-index property
+html/webappapis/structured-clone/structured-clone.any.html	ArrayBuffer
+html/webappapis/structured-clone/structured-clone.any.html	BigInt -9007199254740994n
+html/webappapis/structured-clone/structured-clone.any.html	Blob NUL
+html/webappapis/structured-clone/structured-clone.any.html	Blob basic
+html/webappapis/structured-clone/structured-clone.any.html	Blob empty
+html/webappapis/structured-clone/structured-clone.any.html	Blob paired surrogates (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Blob unpaired high surrogate (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Blob unpaired low surrogate (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Boolean false
+html/webappapis/structured-clone/structured-clone.any.html	Boolean true
+html/webappapis/structured-clone/structured-clone.any.html	Date -0
+html/webappapis/structured-clone/structured-clone.any.html	Date -8.64e15
+html/webappapis/structured-clone/structured-clone.any.html	Date 0
+html/webappapis/structured-clone/structured-clone.any.html	Date 8.64e15
+html/webappapis/structured-clone/structured-clone.any.html	Empty Error object
+html/webappapis/structured-clone/structured-clone.any.html	Error object
+html/webappapis/structured-clone/structured-clone.any.html	EvalError object
+html/webappapis/structured-clone/structured-clone.any.html	File basic
+html/webappapis/structured-clone/structured-clone.any.html	Length-tracking DataView
+html/webappapis/structured-clone/structured-clone.any.html	Length-tracking DataView is transferable
+html/webappapis/structured-clone/structured-clone.any.html	Length-tracking TypedArray
+html/webappapis/structured-clone/structured-clone.any.html	Length-tracking TypedArray is transferable
+html/webappapis/structured-clone/structured-clone.any.html	MessagePort
+html/webappapis/structured-clone/structured-clone.any.html	Number -0
+html/webappapis/structured-clone/structured-clone.any.html	Number -9007199254740992
+html/webappapis/structured-clone/structured-clone.any.html	Number -9007199254740994
+html/webappapis/structured-clone/structured-clone.any.html	Number -Infinity
+html/webappapis/structured-clone/structured-clone.any.html	Number 0
+html/webappapis/structured-clone/structured-clone.any.html	Number 0.2
+html/webappapis/structured-clone/structured-clone.any.html	Number 9007199254740992
+html/webappapis/structured-clone/structured-clone.any.html	Number 9007199254740994
+html/webappapis/structured-clone/structured-clone.any.html	Number Infinity
+html/webappapis/structured-clone/structured-clone.any.html	Number NaN
+html/webappapis/structured-clone/structured-clone.any.html	Object Blob object, Blob NUL
+html/webappapis/structured-clone/structured-clone.any.html	Object Blob object, Blob basic
+html/webappapis/structured-clone/structured-clone.any.html	Object Blob object, Blob empty
+html/webappapis/structured-clone/structured-clone.any.html	Object Blob object, Blob paired surrogates (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Object Blob object, Blob unpaired high surrogate (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Object Blob object, Blob unpaired low surrogate (invalid utf-8)
+html/webappapis/structured-clone/structured-clone.any.html	Object Boolean objects
+html/webappapis/structured-clone/structured-clone.any.html	Object Date objects
+html/webappapis/structured-clone/structured-clone.any.html	Object Number objects
+html/webappapis/structured-clone/structured-clone.any.html	Object RegExp object, RegExp empty
+html/webappapis/structured-clone/structured-clone.any.html	Object RegExp object, RegExp flags and lastIndex
+html/webappapis/structured-clone/structured-clone.any.html	Object RegExp object, RegExp new line
+html/webappapis/structured-clone/structured-clone.any.html	Object RegExp object, RegExp slash
+html/webappapis/structured-clone/structured-clone.any.html	Object RegExp object, RegExp sticky flag
+html/webappapis/structured-clone/structured-clone.any.html	Object RegExp object, RegExp unicode flag
+html/webappapis/structured-clone/structured-clone.any.html	Object String objects
+html/webappapis/structured-clone/structured-clone.any.html	Object primitives
 html/webappapis/structured-clone/structured-clone.any.html	Object with a getter that throws
+html/webappapis/structured-clone/structured-clone.any.html	Object with circular reference
+html/webappapis/structured-clone/structured-clone.any.html	Object with identical property values
 html/webappapis/structured-clone/structured-clone.any.html	Object with index property and length
 html/webappapis/structured-clone/structured-clone.any.html	Object with non-configurable property
 html/webappapis/structured-clone/structured-clone.any.html	Object with non-enumerable property
 html/webappapis/structured-clone/structured-clone.any.html	Object with non-writable property
 html/webappapis/structured-clone/structured-clone.any.html	Object with property on prototype
 html/webappapis/structured-clone/structured-clone.any.html	ObjectPrototype must lose its exotic-ness when cloned
+html/webappapis/structured-clone/structured-clone.any.html	RangeError object
+html/webappapis/structured-clone/structured-clone.any.html	ReferenceError object
+html/webappapis/structured-clone/structured-clone.any.html	RegExp empty
+html/webappapis/structured-clone/structured-clone.any.html	RegExp flags and lastIndex
+html/webappapis/structured-clone/structured-clone.any.html	RegExp new line
+html/webappapis/structured-clone/structured-clone.any.html	RegExp slash
+html/webappapis/structured-clone/structured-clone.any.html	RegExp sticky flag
+html/webappapis/structured-clone/structured-clone.any.html	RegExp unicode flag
+html/webappapis/structured-clone/structured-clone.any.html	Resizable ArrayBuffer
+html/webappapis/structured-clone/structured-clone.any.html	Resizable ArrayBuffer is transferable
+html/webappapis/structured-clone/structured-clone.any.html	Serializing OOB DataView throws
+html/webappapis/structured-clone/structured-clone.any.html	Serializing OOB TypedArray throws
+html/webappapis/structured-clone/structured-clone.any.html	Serializing a non-serializable platform object fails
+html/webappapis/structured-clone/structured-clone.any.html	String NUL
+html/webappapis/structured-clone/structured-clone.any.html	String astral character
+html/webappapis/structured-clone/structured-clone.any.html	String empty string
+html/webappapis/structured-clone/structured-clone.any.html	String lone high surrogate
+html/webappapis/structured-clone/structured-clone.any.html	String lone low surrogate
+html/webappapis/structured-clone/structured-clone.any.html	SyntaxError object
+html/webappapis/structured-clone/structured-clone.any.html	Transferring OOB DataView throws
+html/webappapis/structured-clone/structured-clone.any.html	Transferring OOB TypedArray throws
+html/webappapis/structured-clone/structured-clone.any.html	Transferring a non-transferable platform object fails
+html/webappapis/structured-clone/structured-clone.any.html	TypeError object
+html/webappapis/structured-clone/structured-clone.any.html	URIError object
+html/webappapis/structured-clone/structured-clone.any.html	primitive BigInt, -0n
+html/webappapis/structured-clone/structured-clone.any.html	primitive BigInt, -9007199254740994000900719925474099400090071992547409940009007199254740994000n
+html/webappapis/structured-clone/structured-clone.any.html	primitive BigInt, -9007199254740994000n
+html/webappapis/structured-clone/structured-clone.any.html	primitive BigInt, 0n
 html/webappapis/structured-clone/structured-clone.any.html	primitive false
 html/webappapis/structured-clone/structured-clone.any.html	primitive null
+html/webappapis/structured-clone/structured-clone.any.html	primitive number, -0
 html/webappapis/structured-clone/structured-clone.any.html	primitive number, -9007199254740992
 html/webappapis/structured-clone/structured-clone.any.html	primitive number, -9007199254740994
+html/webappapis/structured-clone/structured-clone.any.html	primitive number, -Infinity
 html/webappapis/structured-clone/structured-clone.any.html	primitive number, 0
 html/webappapis/structured-clone/structured-clone.any.html	primitive number, 0.2
 html/webappapis/structured-clone/structured-clone.any.html	primitive number, 9007199254740992
 html/webappapis/structured-clone/structured-clone.any.html	primitive number, 9007199254740994
+html/webappapis/structured-clone/structured-clone.any.html	primitive number, Infinity
+html/webappapis/structured-clone/structured-clone.any.html	primitive number, NaN
 html/webappapis/structured-clone/structured-clone.any.html	primitive string, NUL
 html/webappapis/structured-clone/structured-clone.any.html	primitive string, astral character
 html/webappapis/structured-clone/structured-clone.any.html	primitive string, empty string
@@ -12003,6 +13186,196 @@ url/a-element-xhtml.xhtml	Loading data…
 url/a-element.html	Loading data…
 url/a-element.html	Test that embedded 0x0A is stripped
 url/failure.html	Loading data…
+url/failure.html	Location's href: asdf://%43|/ should throw
+url/failure.html	Location's href: data://:443 should throw
+url/failure.html	Location's href: data://[:1] should throw
+url/failure.html	Location's href: data://test:test should throw
+url/failure.html	Location's href: file://%43%3A should throw
+url/failure.html	Location's href: file://%43%7C should throw
+url/failure.html	Location's href: file://%43%7C/ should throw
+url/failure.html	Location's href: file://%43| should throw
+url/failure.html	Location's href: file://%C2%AD/p should throw
+url/failure.html	Location's href: file://C%7C should throw
+url/failure.html	Location's href: file://[example]/ should throw
+url/failure.html	Location's href: file://example%/ should throw
+url/failure.html	Location's href: file://example:1/ should throw
+url/failure.html	Location's href: file://example:test/ should throw
+url/failure.html	Location's href: file://­/p should throw
+url/failure.html	Location's href: ftp://example.com%80/ should throw
+url/failure.html	Location's href: ftp://example.com%A0/ should throw
+url/failure.html	Location's href: http://# should throw
+url/failure.html	Location's href: http://0..0x300./ should throw
+url/failure.html	Location's href: http://0..0x300/ should throw
+url/failure.html	Location's href: http://01.2.3.4.5 should throw
+url/failure.html	Location's href: http://01.2.3.4.5. should throw
+url/failure.html	Location's href: http://09.2.3.4 should throw
+url/failure.html	Location's href: http://09.2.3.4. should throw
+url/failure.html	Location's href: http://0999999999999999999/ should throw
+url/failure.html	Location's href: http://0x1.2.3.4.5 should throw
+url/failure.html	Location's href: http://0x1.2.3.4.5. should throw
+url/failure.html	Location's href: http://0x100.2.3.4 should throw
+url/failure.html	Location's href: http://0x100.2.3.4. should throw
+url/failure.html	Location's href: http://1.2.3.08 should throw
+url/failure.html	Location's href: http://1.2.3.08. should throw
+url/failure.html	Location's href: http://1.2.3.09 should throw
+url/failure.html	Location's href: http://? should throw
+url/failure.html	Location's href: http://@/www.example.com should throw
+url/failure.html	Location's href: http://@:www.example.com should throw
+url/failure.html	Location's href: http://[::127.0.0.0.1] should throw
+url/failure.html	Location's href: http://[www.google.com]/ should throw
+url/failure.html	Location's href: http://a b/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://a b/ should throw
+url/failure.html	Location's href: http://a%b/ should throw
+url/failure.html	Location's href: http://a:b@/www.example.com should throw
+url/failure.html	Location's href: http://a<b should throw
+url/failure.html	Location's href: http://a>b should throw
+url/failure.html	Location's href: http://a[b/ should throw
+url/failure.html	Location's href: http://a]b/ should throw
+url/failure.html	Location's href: http://a^b should throw
+url/failure.html	Location's href: http://a|b/ should throw
+url/failure.html	Location's href: http://ab/ should throw
+url/failure.html	Location's href: http://foo.09 should throw
+url/failure.html	Location's href: http://foo.09. should throw
+url/failure.html	Location's href: http://foo.0XFfFfFfFfFfFfFfFfFfAcE123 should throw
+url/failure.html	Location's href: http://foo.0x should throw
+url/failure.html	Location's href: http://foo.0x4 should throw
+url/failure.html	Location's href: http://foo.0x4. should throw
+url/failure.html	Location's href: http://foo.1.2.3.4 should throw
+url/failure.html	Location's href: http://foo.1.2.3.4. should throw
+url/failure.html	Location's href: http://foo.2.3.4 should throw
+url/failure.html	Location's href: http://foo.2.3.4. should throw
+url/failure.html	Location's href: http://foo:-80/ should throw
+url/failure.html	Location's href: http://ho%00st/ should throw
+url/failure.html	Location's href: http://ho%01st/ should throw
+url/failure.html	Location's href: http://ho%02st/ should throw
+url/failure.html	Location's href: http://ho%03st/ should throw
+url/failure.html	Location's href: http://ho%04st/ should throw
+url/failure.html	Location's href: http://ho%05st/ should throw
+url/failure.html	Location's href: http://ho%06st/ should throw
+url/failure.html	Location's href: http://ho%07st/ should throw
+url/failure.html	Location's href: http://ho%08st/ should throw
+url/failure.html	Location's href: http://ho%09st/ should throw
+url/failure.html	Location's href: http://ho%0Ast/ should throw
+url/failure.html	Location's href: http://ho%0Bst/ should throw
+url/failure.html	Location's href: http://ho%0Cst/ should throw
+url/failure.html	Location's href: http://ho%0Dst/ should throw
+url/failure.html	Location's href: http://ho%0Est/ should throw
+url/failure.html	Location's href: http://ho%0Fst/ should throw
+url/failure.html	Location's href: http://ho%10st/ should throw
+url/failure.html	Location's href: http://ho%11st/ should throw
+url/failure.html	Location's href: http://ho%12st/ should throw
+url/failure.html	Location's href: http://ho%13st/ should throw
+url/failure.html	Location's href: http://ho%14st/ should throw
+url/failure.html	Location's href: http://ho%15st/ should throw
+url/failure.html	Location's href: http://ho%16st/ should throw
+url/failure.html	Location's href: http://ho%17st/ should throw
+url/failure.html	Location's href: http://ho%18st/ should throw
+url/failure.html	Location's href: http://ho%19st/ should throw
+url/failure.html	Location's href: http://ho%1Ast/ should throw
+url/failure.html	Location's href: http://ho%1Bst/ should throw
+url/failure.html	Location's href: http://ho%1Cst/ should throw
+url/failure.html	Location's href: http://ho%1Dst/ should throw
+url/failure.html	Location's href: http://ho%1Est/ should throw
+url/failure.html	Location's href: http://ho%1Fst/ should throw
+url/failure.html	Location's href: http://ho%20st/ should throw
+url/failure.html	Location's href: http://ho%23st/ should throw
+url/failure.html	Location's href: http://ho%25st/ should throw
+url/failure.html	Location's href: http://ho%2Fst/ should throw
+url/failure.html	Location's href: http://ho%3Ast/ should throw
+url/failure.html	Location's href: http://ho%3Cst/ should throw
+url/failure.html	Location's href: http://ho%3Est/ should throw
+url/failure.html	Location's href: http://ho%3Fst/ should throw
+url/failure.html	Location's href: http://ho%40st/ should throw
+url/failure.html	Location's href: http://ho%5Bst/ should throw
+url/failure.html	Location's href: http://ho%5Cst/ should throw
+url/failure.html	Location's href: http://ho%5Dst/ should throw
+url/failure.html	Location's href: http://ho%7Cst/ should throw
+url/failure.html	Location's href: http://ho%7Fst/ should throw
+url/failure.html	Location's href: http://user:pass@/ should throw
+url/failure.html	Location's href: http://user@/www.example.com should throw
+url/failure.html	Location's href: http://💩.123/ should throw
+url/failure.html	Location's href: https:// y should throw
+url/failure.html	Location's href: https://%43%7C/ should throw
+url/failure.html	Location's href: https://%C2%AD/ should throw
+url/failure.html	Location's href: https://%EF%BF%BD should throw
+url/failure.html	Location's href: https://0x100000000/test should throw
+url/failure.html	Location's href: https://256.0.0.1/test should throw
+url/failure.html	Location's href: https://[0:.0] should throw
+url/failure.html	Location's href: https://[0:0:] should throw
+url/failure.html	Location's href: https://[0:1.00.0.0.0] should throw
+url/failure.html	Location's href: https://[0:1.23.23] should throw
+url/failure.html	Location's href: https://[0:1.290.0.0.0] should throw
+url/failure.html	Location's href: https://[0:1:2:3:4:5:192.0.02.1]/ should throw
+url/failure.html	Location's href: https://[0:1:2:3:4:5:6:7.0.0.0.1] should throw
+url/failure.html	Location's href: https://[0::0::0] should throw
+url/failure.html	Location's href: https://[192.0.2.1::]/ should throw
+url/failure.html	Location's href: https://example.com%80/ should throw
+url/failure.html	Location's href: https://example.com%A0/ should throw
+url/failure.html	Location's href: https://x x:12 should throw
+url/failure.html	Location's href: https://­/ should throw
+url/failure.html	Location's href: https://� should throw
+url/failure.html	Location's href: https://￿y should throw
+url/failure.html	Location's href: intent://:443 should throw
+url/failure.html	Location's href: intent://[:1] should throw
+url/failure.html	Location's href: intent://test:test should throw
+url/failure.html	Location's href: javascript://:443 should throw
+url/failure.html	Location's href: javascript://[:1] should throw
+url/failure.html	Location's href: javascript://test:test should throw
+url/failure.html	Location's href: mailto://:443 should throw
+url/failure.html	Location's href: mailto://[:1] should throw
+url/failure.html	Location's href: mailto://test:test should throw
+url/failure.html	Location's href: non-special://[:80/ should throw
+url/failure.html	Location's href: non-special://host\\a should throw
+url/failure.html	Location's href: sc://:/ should throw
+url/failure.html	Location's href: sc://:12/ should throw
+url/failure.html	Location's href: sc://@/ should throw
+url/failure.html	Location's href: sc://a b/ should throw
+url/failure.html	Location's href: sc://a b/ should throw
+url/failure.html	Location's href: sc://a<b should throw
+url/failure.html	Location's href: sc://a>b should throw
+url/failure.html	Location's href: sc://a[b/ should throw
+url/failure.html	Location's href: sc://a\\b/ should throw
+url/failure.html	Location's href: sc://a]b/ should throw
+url/failure.html	Location's href: sc://a^b should throw
+url/failure.html	Location's href: sc://a|b/ should throw
+url/failure.html	Location's href: sc://te@s:t@/ should throw
+url/failure.html	Location's href: stun://:443 should throw
+url/failure.html	Location's href: stun://[:1] should throw
+url/failure.html	Location's href: stun://test:test should throw
+url/failure.html	Location's href: turn://:443 should throw
+url/failure.html	Location's href: turn://[:1] should throw
+url/failure.html	Location's href: turn://test:test should throw
+url/failure.html	Location's href: urn://:443 should throw
+url/failure.html	Location's href: urn://[:1] should throw
+url/failure.html	Location's href: urn://test:test should throw
 url/failure.html	URL's constructor's base argument:  should throw
 url/failure.html	URL's constructor's base argument: # should throw
 url/failure.html	URL's constructor's base argument: ? should throw
@@ -12612,6 +13985,8 @@ url/historical.any.html	Constructor only takes strings
 url/historical.any.html	Setting URL's href attribute and base URLs
 url/historical.any.html	URL.domainToASCII should be undefined
 url/historical.any.html	URL.domainToUnicode should be undefined
+url/historical.any.html	URL: no structured serialize/deserialize support
+url/historical.any.html	URLSearchParams: no structured serialize/deserialize support
 url/historical.any.html	searchParams on location object
 url/percent-encoding.window.html	Loading data…
 url/toascii.window.html	lookout.net (using <a>)
