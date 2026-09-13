@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9251 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9261 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -302,6 +302,7 @@ css/CSS2/bidi-text/bidi-box-model-009.xht
 css/CSS2/bidi-text/bidi-box-model-010.xht
 css/CSS2/bidi-text/bidi-box-model-011.xht
 css/CSS2/bidi-text/bidi-box-model-012.xht
+css/CSS2/bidi-text/bidi-box-model-013.xht
 css/CSS2/bidi-text/bidi-box-model-014.xht
 css/CSS2/bidi-text/bidi-box-model-015.xht
 css/CSS2/bidi-text/bidi-box-model-016.xht
@@ -310,6 +311,7 @@ css/CSS2/bidi-text/bidi-box-model-018.xht
 css/CSS2/bidi-text/bidi-box-model-019.xht
 css/CSS2/bidi-text/bidi-box-model-020.xht
 css/CSS2/bidi-text/bidi-box-model-021.xht
+css/CSS2/bidi-text/bidi-box-model-022.xht
 css/CSS2/bidi-text/bidi-box-model-023.xht
 css/CSS2/bidi-text/bidi-box-model-024.xht
 css/CSS2/bidi-text/bidi-box-model-025.xht
@@ -318,6 +320,7 @@ css/CSS2/bidi-text/bidi-box-model-027.xht
 css/CSS2/bidi-text/bidi-box-model-028.xht
 css/CSS2/bidi-text/bidi-box-model-029.xht
 css/CSS2/bidi-text/bidi-box-model-030.xht
+css/CSS2/bidi-text/bidi-box-model-031.xht
 css/CSS2/bidi-text/bidi-box-model-032.xht
 css/CSS2/bidi-text/bidi-box-model-033.xht
 css/CSS2/bidi-text/bidi-box-model-034.xht
@@ -326,6 +329,7 @@ css/CSS2/bidi-text/bidi-box-model-036.xht
 css/CSS2/bidi-text/bidi-box-model-037.xht
 css/CSS2/bidi-text/bidi-box-model-038.xht
 css/CSS2/bidi-text/bidi-box-model-039.xht
+css/CSS2/bidi-text/bidi-box-model-040.xht
 css/CSS2/bidi-text/bidi-box-model-041.xht
 css/CSS2/bidi-text/bidi-box-model-042.xht
 css/CSS2/bidi-text/bidi-box-model-043.xht
@@ -936,7 +940,11 @@ css/CSS2/box/ltr-basic.xht
 css/CSS2/box/ltr-ib.xht
 css/CSS2/box/ltr-span-only-ib.xht
 css/CSS2/box/ltr-span-only.xht
+css/CSS2/box/rtl-basic.xht
+css/CSS2/box/rtl-ib.xht
 css/CSS2/box/rtl-linebreak.xht
+css/CSS2/box/rtl-span-only-ib.xht
+css/CSS2/box/rtl-span-only.xht
 css/CSS2/cascade-import/cascade-import-dynamic-001.xht
 css/CSS2/cascade-import/cascade-import-dynamic-002.xht
 css/CSS2/cascade-import/cascade-import-dynamic-003.xht
@@ -7348,6 +7356,7 @@ css/css-text/boundary-shaping/boundary-shaping-005.html
 css/css-text/boundary-shaping/boundary-shaping-006.html
 css/css-text/boundary-shaping/boundary-shaping-007.html
 css/css-text/boundary-shaping/boundary-shaping-008.html
+css/css-text/boundary-shaping/boundary-shaping-009.html
 css/css-text/boundary-shaping/boundary-shaping-010.html
 css/css-text/hanging-punctuation/hanging-punctuation-inline-001.html
 css/css-text/hanging-punctuation/hanging-punctuation-last-rtl.html
@@ -8169,6 +8178,7 @@ css/css-text/white-space/pre-wrap-tab-003.html
 css/css-text/white-space/pre-wrap-tab-004.html
 css/css-text/white-space/pre-wrap-tab-005.html
 css/css-text/white-space/pre-wrap-tab-006.html
+css/css-text/white-space/tab-bidi-001.html
 css/css-text/white-space/text-wrap-balance-004.html
 css/css-text/white-space/text-wrap-balance-align-001.html
 css/css-text/white-space/text-wrap-balance-before-after-001.html

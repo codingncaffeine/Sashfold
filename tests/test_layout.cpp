@@ -1832,6 +1832,71 @@ int main(int argc, char** argv)
         CHECK(texts == expected);
     }
 
+    // --- The edges of inline boxes in bidirectional text ------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // CSS 2.1 §8.6: a box's margin, border and padding sit at the ends of
+        // its content in visual order — its opening side where its own
+        // direction starts — whichever way the text inside was reordered.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 300px }
+</style></head><body>
+  <div dir="ltr"><span style="border-left: 3px solid">&#x5D0;&#x5D1;</span> cd</div>
+  <div dir="ltr"><span style="border-right: 4px solid">&#x5D2;&#x5D3;</span> ef</div>
+  <div dir="rtl"><span id="rbox" dir="rtl" style="border-left: 2px solid; margin-left: 5px">&#x5D4;</span></div>
+  <div dir="ltr"><span id="nbox" style="direction: rtl; padding-left: 6px; background: gray">gh</span></div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const x_of = [&](std::u32string_view text, float expected) {
+            for (layout::TextRun const* const run : runs) {
+                if (run->text == text) {
+                    CHECK_EQ(run->x, expected);
+                    return;
+                }
+            }
+            CHECK(false);
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* const attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* const found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        // A left-to-right box around right-to-left text: its left border
+        // before the text, its right border after it.
+        x_of(U"\x05D1\x05D0", 3.0f);
+        x_of(U"cd", 33.0f);
+        x_of(U"\x05D3\x05D2", 0.0f);
+        x_of(U"ef", 34.0f);
+        // A right-to-left box closes on its left: its margin and border there
+        // stand left of its letter, at the start of the right-aligned line.
+        x_of(U"\x05D4", 290.0f);
+        layout::Fragment const* const rbox = find_box(page.result.root, "rbox");
+        CHECK(rbox != nullptr);
+        if (rbox) {
+            CHECK_EQ(rbox->x, 288.0f);
+            CHECK_EQ(rbox->width, 12.0f);
+        }
+        // With nothing reordered, a right-to-left box's left padding is still
+        // on its left.
+        x_of(U"gh", 6.0f);
+        layout::Fragment const* const nbox = find_box(page.result.root, "nbox");
+        CHECK(nbox != nullptr);
+        if (nbox) {
+            CHECK_EQ(nbox->x, 0.0f);
+            CHECK_EQ(nbox->width, 26.0f);
+        }
+    }
+
     // --- Lowercasing a final sigma -----------------------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

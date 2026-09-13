@@ -2049,12 +2049,15 @@ struct Layouter {
     // What an inline box's edge takes on the line where it opens or closes:
     // its margin, border and padding on that side (CSS 2.1 §8.4 — the
     // vertical ones take no room, the horizontal ones do). A box broken over
-    // several lines has these at its two ends only.
+    // several lines has these at its two ends only. The side it opens on is
+    // the one its own direction starts from: the left for ltr, the right
+    // for rtl (§8.6).
     float inline_edge(ComputedStyle const& style, bool opening, float containing_width) const
     {
-        return opening ? resolve(style.margin_left, containing_width) + style.border_left.width
+        bool const left = opening == (style.direction != css::Direction::Rtl);
+        return left ? resolve(style.margin_left, containing_width) + style.border_left.width
                 + resolve(style.padding_left, containing_width)
-                       : resolve(style.margin_right, containing_width) + style.border_right.width
+                    : resolve(style.margin_right, containing_width) + style.border_right.width
                 + resolve(style.padding_right, containing_width);
     }
 
@@ -2744,6 +2747,8 @@ struct Layouter {
             // itself, and does not save a space in front of it at the line's
             // end.
             bool box_edge = false;
+            // Which of its box's two edges this is: the one the box opens with.
+            bool edge_opens = false;
             // The bidirectional level the item this came from resolved to.
             // Rule L2 reads it to settle the order the line is drawn in.
             std::uint8_t level = 0;
@@ -3184,6 +3189,66 @@ struct Layouter {
                     }
                 }
             }
+            // CSS 2.1 §8.6: an inline box's margin, border and padding are
+            // drawn in visual order — its opening side at the end its own
+            // direction starts from, its closing side at the other — wherever
+            // the reordering left the entries they came in. Innermost first,
+            // so a box's edges also hold the edges of the boxes inside it.
+            if (std::any_of(line.begin(), line.end(), [](Placed const& placed) { return placed.box_edge; })) {
+                struct EdgedBox {
+                    std::size_t from;
+                    std::size_t to;
+                    ComputedStyle const* style;
+                    std::size_t depth;
+                };
+                std::vector<EdgedBox> edged;
+                for (BoxRun const& run : box_runs)
+                    edged.push_back({ run.from, run.to, run.style, run.depth });
+                for (std::size_t d = 0; d < open_boxes.size(); ++d)
+                    edged.push_back({ open_boxes[d].from, line.size(), open_boxes[d].style, d });
+                std::stable_sort(edged.begin(), edged.end(),
+                    [](EdgedBox const& a, EdgedBox const& b) { return a.depth > b.depth; });
+                for (EdgedBox const& box : edged) {
+                    std::size_t const from = std::min(box.from, line.size());
+                    std::size_t const to = std::min(box.to, line.size());
+                    if (from >= to)
+                        continue;
+                    std::optional<std::size_t> opens;
+                    std::optional<std::size_t> closes;
+                    if (line[from].box_edge && line[from].edge_opens && line[from].style == box.style)
+                        opens = from;
+                    if (line[to - 1].box_edge && !line[to - 1].edge_opens && line[to - 1].style == box.style)
+                        closes = to - 1;
+                    if (!opens && !closes)
+                        continue;
+                    std::size_t anchor = visual.size();
+                    for (std::size_t k = 0; k < visual.size(); ++k) {
+                        if (visual[k] == opens || visual[k] == closes)
+                            anchor = std::min(anchor, k);
+                    }
+                    std::erase_if(visual, [&](std::size_t entry) { return entry == opens || entry == closes; });
+                    anchor = std::min(anchor, visual.size());
+                    std::optional<std::size_t> low;
+                    std::optional<std::size_t> high;
+                    for (std::size_t k = 0; k < visual.size(); ++k) {
+                        if (visual[k] < from || visual[k] >= to)
+                            continue;
+                        if (!low)
+                            low = k;
+                        high = k;
+                    }
+                    bool const rtl_box = box.style->direction == css::Direction::Rtl;
+                    std::optional<std::size_t> const left_side = rtl_box ? closes : opens;
+                    std::optional<std::size_t> const right_side = rtl_box ? opens : closes;
+                    std::size_t const before = low.value_or(anchor);
+                    std::size_t const after = high ? *high + 1 : anchor;
+                    // The later position first, so the earlier one stands.
+                    if (right_side)
+                        visual.insert(visual.begin() + static_cast<std::ptrdiff_t>(after), *right_side);
+                    if (left_side)
+                        visual.insert(visual.begin() + static_cast<std::ptrdiff_t>(before), *left_side);
+                }
+            }
             // Where each entry begins and ends once it is placed, so the
             // inline boxes around them can be drawn — they are no longer in
             // the order the entries were collected, so a box takes the room
@@ -3305,8 +3370,12 @@ struct Layouter {
                     left = std::min(left, entry_left[i]);
                     right = std::max(right, entry_right[i]);
                 }
-                left += run.opened_here ? resolve(s.margin_left, content_width) : 0.0f;
-                right -= run.closed_here ? resolve(s.margin_right, content_width) : 0.0f;
+                // The side a box opens on is its own direction's start.
+                bool const rtl_box = s.direction == css::Direction::Rtl;
+                bool const left_edge = rtl_box ? run.closed_here : run.opened_here;
+                bool const right_edge = rtl_box ? run.opened_here : run.closed_here;
+                left += left_edge ? resolve(s.margin_left, content_width) : 0.0f;
+                right -= right_edge ? resolve(s.margin_right, content_width) : 0.0f;
                 text::FaceMetrics const face = fonts_for(s).primary().metrics(s.font_size);
                 float const top = baseline - face.ascent - resolve(s.padding_top, content_width)
                     - s.border_top.width;
@@ -3316,11 +3385,11 @@ struct Layouter {
                 // carries on to draws neither the border it never reached
                 // nor the one it has not come to yet.
                 ComputedStyle const* drawn = run.style;
-                if (!run.opened_here || !run.closed_here) {
+                if (!left_edge || !right_edge) {
                     std::shared_ptr<ComputedStyle> const copy = owned_copy(s);
-                    if (!run.opened_here)
+                    if (!left_edge)
                         copy->border_left.width = 0;
-                    if (!run.closed_here)
+                    if (!right_edge)
                         copy->border_right.width = 0;
                     drawn = copy.get();
                 }
@@ -3670,6 +3739,7 @@ struct Layouter {
                 if (edge > 0) {
                     Placed placed({}, item.style, false, edge, item.element);
                     placed.box_edge = true;
+                    placed.edge_opens = opening;
                     placed.aligned = item.aligned;
                     place(std::move(placed));
                     line_width += edge;
