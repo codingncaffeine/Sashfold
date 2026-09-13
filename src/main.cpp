@@ -2,6 +2,7 @@
 #include "bindings/Realm.h"
 #include "core/Ascii.h"
 #include "core/Bitmap.h"
+#include "core/Json.h"
 #include "core/Png.h"
 #include "core/Unicode.h"
 #include "css/Parser.h"
@@ -1147,6 +1148,69 @@ bool write_text_file_atomically(std::filesystem::path const& path, std::string c
     return !error;
 }
 
+// The containers the window offers, from the profile's containers.json:
+// [{"name": "Work", "color": "#f59e0b"}, …], in order. A profile without
+// the file gets one with four containers to start from.
+std::vector<ui::Browser::Container> containers_from(std::string_view text)
+{
+    std::vector<ui::Browser::Container> containers;
+    std::optional<JsonValue> const parsed = JsonValue::parse(text);
+    if (!parsed || !parsed->is_array())
+        return containers;
+    for (JsonValue const& value : parsed->as_array()) {
+        JsonValue const* const name = value.is_object() ? value.get("name") : nullptr;
+        if (!name || !name->is_string() || name->as_string().empty())
+            continue;
+        bool duplicate = false;
+        for (ui::Browser::Container const& existing : containers)
+            duplicate = duplicate || existing.name == name->as_string();
+        if (duplicate)
+            continue;
+        ui::Browser::Container container;
+        container.name = name->as_string();
+        container.color = Color::rgb(0x8f, 0x96, 0xa3);
+        if (JsonValue const* const color = value.get("color"); color && color->is_string()) {
+            if (std::optional<Color> const parsed_color = ui::parse_theme_color(color->as_string()))
+                container.color = *parsed_color;
+        }
+        containers.push_back(std::move(container));
+    }
+    return containers;
+}
+
+std::vector<ui::Browser::Container> load_containers(std::filesystem::path const& path)
+{
+    if (std::optional<std::string> const text = read_text_file(path))
+        return containers_from(*text);
+    static constexpr char const* defaults = "[\n"
+                                            "  {\"name\": \"Personal\", \"color\": \"#3b82f6\"},\n"
+                                            "  {\"name\": \"Work\", \"color\": \"#f59e0b\"},\n"
+                                            "  {\"name\": \"Banking\", \"color\": \"#22c55e\"},\n"
+                                            "  {\"name\": \"Shopping\", \"color\": \"#ec4899\"}\n"
+                                            "]\n";
+    write_text_file_atomically(path, defaults);
+    return containers_from(defaults);
+}
+
+// A container's cookie file in the profile: cookies.txt for the default,
+// cookies-<name>.txt for the rest, the name held to letters, digits,
+// dashes and underscores.
+std::filesystem::path cookie_file(std::filesystem::path const& profile, std::string_view container)
+{
+    if (container.empty())
+        return profile / "cookies.txt";
+    std::string safe;
+    for (char const c : container)
+        safe += is_ascii_alphanumeric(static_cast<unsigned char>(c)) || c == '-' || c == '_' ? c : '_';
+    return profile / ("cookies-" + safe + ".txt");
+}
+
+std::int64_t unix_seconds_now()
+{
+    using namespace std::chrono;
+    return duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+}
+
 // The user's Downloads folder, when the OS has the convention and it exists.
 std::string default_downloads_directory()
 {
@@ -1235,6 +1299,11 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
     ui::Browser browser(loader, load_theme(theme_path), width, height);
     platform::use_process_clipboard(true); // a script never touches the real clipboard
     browser.set_downloads_directory(downloads);
+    // The four containers a fresh profile gets, so a script can open tabs
+    // in them and step through them the way the window does.
+    browser.set_containers(containers_from(
+        "[{\"name\": \"Personal\", \"color\": \"#3b82f6\"}, {\"name\": \"Work\", \"color\": \"#f59e0b\"}, "
+        "{\"name\": \"Banking\", \"color\": \"#22c55e\"}, {\"name\": \"Shopping\", \"color\": \"#ec4899\"}]"));
     ui::ScriptResult const result = ui::run_script(browser, script, update_goldens, std::cout);
     return result.ok() ? 0 : 1;
 }
@@ -1257,17 +1326,33 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
 
-    // The session: the tabs of the last run come back from the profile's
-    // file, each page fetched when its tab is shown, and a URL on the
-    // command line opens beside them; the file is written back whenever
-    // the session changes — at most once a second, and once more at the
-    // end — so a crash loses a second of it at most.
-    std::filesystem::path const session_path
-        = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile) / "session.json";
+    // The profile: the containers offered, the cookie jars (the default's
+    // and one per container), every page's localStorage, and the session
+    // — the tabs of the last run come back, each page fetched when its tab
+    // is shown, and a URL on the command line opens beside them. Each
+    // file is written back whenever what it holds changes — at most once
+    // a second, and once more at the end — whole or not at all, so a
+    // crash loses a second of it at most.
+    std::filesystem::path const profile_path = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile);
     std::string saved_session;
+    std::uint64_t saved_storage = 0;
+    std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
     bool restored = false;
-    if (!session_path.empty()) {
-        if (std::optional<std::string> const text = read_text_file(session_path)) {
+    if (!profile_path.empty()) {
+        browser.set_containers(load_containers(profile_path / "containers.json"));
+        std::int64_t const now = unix_seconds_now();
+        std::vector<std::string> names { "" };
+        for (ui::Browser::Container const& container : browser.containers())
+            names.push_back(container.name);
+        for (std::string const& name : names) {
+            if (std::optional<std::string> const text = read_text_file(cookie_file(profile_path, name)))
+                loader.cookies(name).load(*text, now);
+            saved_cookies[name] = loader.cookies(name).changes();
+        }
+        if (std::optional<std::string> const text = read_text_file(profile_path / "storage.json"))
+            browser.restore_storage(*text);
+        saved_storage = browser.storage_changes();
+        if (std::optional<std::string> const text = read_text_file(profile_path / "session.json")) {
             restored = browser.restore_session(*text);
             if (restored)
                 saved_session = browser.session_json();
@@ -1279,22 +1364,50 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         browser.new_tab();
         browser.navigate(start_url);
     }
-    auto last_session_write = std::chrono::steady_clock::now();
-    // Writes the session when it changed; true when a write is still owed
-    // because the last one was less than a second ago.
-    auto const save_session = [&](bool regardless) {
-        if (session_path.empty())
-            return false;
-        std::string session = browser.session_json();
-        if (session == saved_session)
+    auto last_profile_write = std::chrono::steady_clock::now();
+    // Writes whatever of the profile changed; true when a write is still
+    // owed because the last one was less than a second ago.
+    auto const save_profile = [&](bool regardless) {
+        if (profile_path.empty())
             return false;
         auto const now = std::chrono::steady_clock::now();
-        if (!regardless && now - last_session_write < std::chrono::seconds(1))
-            return true;
-        if (write_text_file_atomically(session_path, session))
-            saved_session = std::move(session);
-        last_session_write = now;
-        return false;
+        bool const throttled = !regardless && now - last_profile_write < std::chrono::seconds(1);
+        bool owed = false;
+        if (std::string session = browser.session_json(); session != saved_session) {
+            if (throttled) {
+                owed = true;
+            } else {
+                if (write_text_file_atomically(profile_path / "session.json", session))
+                    saved_session = std::move(session);
+                last_profile_write = now;
+            }
+        }
+        if (browser.storage_changes() != saved_storage) {
+            if (throttled) {
+                owed = true;
+            } else {
+                if (write_text_file_atomically(profile_path / "storage.json", browser.storage_json()))
+                    saved_storage = browser.storage_changes();
+                last_profile_write = now;
+            }
+        }
+        std::vector<std::string> names { "" };
+        for (std::string const& name : loader.container_names())
+            names.push_back(name);
+        for (std::string const& name : names) {
+            net::CookieJar& jar = loader.cookies(name);
+            auto const written = saved_cookies.find(name);
+            if (written != saved_cookies.end() && written->second == jar.changes())
+                continue;
+            if (throttled) {
+                owed = true;
+            } else {
+                if (write_text_file_atomically(cookie_file(profile_path, name), jar.serialize()))
+                    saved_cookies[name] = jar.changes();
+                last_profile_write = now;
+            }
+        }
+        return owed;
     };
 
     std::error_code error;
@@ -1386,21 +1499,21 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             }
         }
-        bool const session_owed = save_session(false);
+        bool const profile_owed = save_profile(false);
         if (!browser.has_pending_load()) {
             // Sleep until input, the theme check, the next page timer, or
-            // the session write that is owed.
+            // the profile write that is owed.
             int timeout = theme_path.empty() ? -1 : 500;
             if (std::optional<double> const due = browser.next_timer_ms()) {
                 int const ms = static_cast<int>(std::ceil(*due));
                 timeout = timeout < 0 ? ms : std::min(timeout, ms);
             }
-            if (session_owed)
+            if (profile_owed)
                 timeout = timeout < 0 ? 1000 : std::min(timeout, 1000);
             window->wait(timeout);
         }
     }
-    save_session(true);
+    save_profile(true);
     return 0;
 }
 

@@ -131,5 +131,40 @@ int main()
         CHECK_EQ(jar.cookie_header(page, &same, now), std::string("ok=1"));
     }
 
+    // The jar as a cookies.txt file and back: an HttpOnly cookie, a
+    // domain cookie with a date, a secure one and a session one each keep
+    // what they are; one that expired between is left behind; the header
+    // the copy assembles is the header the original sends; comments and
+    // broken lines are skipped; a second read replaces, never doubles.
+    {
+        CookieJar jar;
+        Url const site = url_of("https://example.com/dir/page");
+        CHECK_EQ(jar.changes(), std::uint64_t { 0 });
+        jar.store(site, nullptr,
+            set_cookie({ "sid=abc; HttpOnly; Path=/", "theme=dark; Expires=Wed, 09 Jun 2031 10:18:14 GMT; Domain=example.com",
+                "s=1; Secure", "old=1; Max-Age=1" }),
+            now);
+        CHECK_EQ(jar.size(), std::size_t { 4 });
+        CHECK(jar.changes() >= 4);
+        std::string const text = jar.serialize();
+        CHECK(text.starts_with("# Netscape HTTP Cookie File\n"));
+        CHECK(text.find("#HttpOnly_example.com\tFALSE\t/\tFALSE\t0\tsid\tabc\n") != std::string::npos);
+        CHECK(text.find(".example.com\tTRUE\t/dir\tFALSE\t1938766694\ttheme\tdark\n") != std::string::npos);
+        CHECK(text.find("example.com\tFALSE\t/dir\tTRUE\t0\ts\t1\n") != std::string::npos);
+        CHECK(text.find("\told\t1\n") != std::string::npos);
+        CookieJar copy;
+        copy.load(text, now + 5);
+        CHECK_EQ(copy.size(), std::size_t { 3 });
+        CHECK(copy.changes() >= 3);
+        CHECK_EQ(copy.cookie_header(site, nullptr, now + 5), jar.cookie_header(site, nullptr, now + 5));
+        // Over plain http the secure cookie stays home; the longer path first.
+        CHECK_EQ(copy.cookie_header(url_of("http://example.com/dir/x"), nullptr, now + 5), std::string("theme=dark; sid=abc"));
+        CHECK_EQ(copy.serialize(), copy.serialize());
+        copy.load("# a comment\nnot a cookie line\n\tshort\n", now);
+        CHECK_EQ(copy.size(), std::size_t { 3 });
+        copy.load(text, now + 5);
+        CHECK_EQ(copy.size(), std::size_t { 3 });
+    }
+
     return sashfold::test::report("cookies");
 }

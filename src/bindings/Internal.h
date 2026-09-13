@@ -202,14 +202,18 @@ public:
 };
 
 // localStorage and sessionStorage: a map of strings, reachable as
-// properties too (storage.key = "v").
+// properties too (storage.key = "v"). The area is the host's when it
+// gave one (localStorage, per origin, outliving the document), else the
+// object's own.
 class StorageObject final : public js::Object {
 public:
-    explicit StorageObject(js::Object* prototype)
+    explicit StorageObject(js::Object* prototype, StorageArea* backing = nullptr)
         : Object(prototype, Class::Host)
+        , m_backing(backing)
     {
     }
-    std::vector<std::pair<std::string, std::string>> items; // insertion order, for key(n)
+    StorageArea& area() { return m_backing ? *m_backing : m_own; }
+    StorageArea const& area() const { return m_backing ? *m_backing : m_own; }
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
     std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
@@ -218,6 +222,11 @@ public:
     std::string const* find(std::string_view key) const;
     void put_item(std::string key, std::string value);
     bool remove_item(std::string_view key);
+    void clear_items();
+
+private:
+    StorageArea* m_backing = nullptr;
+    StorageArea m_own;
 };
 
 // A URL object (`new URL(…)`) and its searchParams.

@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<title>cookie</title>
+<p>Reads the cookie it set the last time.</p>
+<script>
+  var seen = document.cookie;
+  document.cookie = 'seen=1';
+  document.title = 'cookie=' + (seen || 'none');
+</script>

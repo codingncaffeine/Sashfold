@@ -33,13 +33,16 @@ namespace sashfold::ui {
 // Where documents come from: the shell's loader goes through the fetch
 // choke point with the session's cookie jar and cache; tests inject canned
 // pages. This is also the seam a renderer-process boundary would cut at.
+// Every request names the container its tab is in (empty for the
+// default): a container has a cookie jar of its own, so a site in one
+// never sees the cookies it set in another.
 class Loader {
 public:
     virtual ~Loader() = default;
     // `referrer` is already policy-shaped (empty = send none); bypass_cache
     // is a user reload.
     virtual net::FetchResult load(net::Url const& url, std::string const& referrer,
-        bool bypass_cache)
+        bool bypass_cache, std::string_view container = {})
         = 0;
     // A resource a page asks for — a stylesheet, a picture, a script, a
     // font — fetched on the page's behalf: the same session, with
@@ -50,13 +53,14 @@ public:
     // that serves only documents says so.
     virtual net::FetchResult load_subresource(net::Url const& url, net::Url const& first_party,
         std::string const& referrer, net::ResourceKind kind = net::ResourceKind::Other,
-        net::RequestGuard const& guard = {})
+        net::RequestGuard const& guard = {}, std::string_view container = {})
     {
         (void)url;
         (void)first_party;
         (void)referrer;
         (void)kind;
         (void)guard;
+        (void)container;
         return { std::nullopt, "this loader serves documents only" };
     }
     // A request a page's script makes — fetch(), XMLHttpRequest — carried
@@ -66,26 +70,29 @@ public:
     // honoured as above.
     virtual net::FetchResult load_resource(net::Url const& url, net::Url const& first_party,
         std::string const& referrer, net::ResourceRequest const& request,
-        net::RequestGuard const& guard = {})
+        net::RequestGuard const& guard = {}, std::string_view container = {})
     {
         (void)url;
         (void)first_party;
         (void)referrer;
         (void)request;
         (void)guard;
+        (void)container;
         return { std::nullopt, "this loader serves documents only" };
     }
     // document.cookie: the Cookie header the page would send, and a
     // Set-Cookie line a script wrote. A loader without a jar keeps none.
-    virtual std::string cookies_for(net::Url const& url)
+    virtual std::string cookies_for(net::Url const& url, std::string_view container = {})
     {
         (void)url;
+        (void)container;
         return {};
     }
-    virtual void set_cookie(net::Url const& url, std::string_view set_cookie_line)
+    virtual void set_cookie(net::Url const& url, std::string_view set_cookie_line, std::string_view container = {})
     {
         (void)url;
         (void)set_cookie_line;
+        (void)container;
     }
     // How many requests the session's blocklists have refused so far.
     virtual std::size_t blocked_requests() const { return 0; }
@@ -234,6 +241,33 @@ public:
     bool has_pending_load() const;
     // Performs one queued load; true when it did.
     bool tick();
+
+    // --- Containers ---------------------------------------------------------
+    // A container keeps a set of tabs apart from the rest: its own cookie
+    // jar (the loader's) and its own web storage, so a site opened in one
+    // never sees what it set in another. The default container has no
+    // name. The shell offers the containers it was given, in order; a tab
+    // shows its container's colour along its top edge.
+    struct Container {
+        std::string name;
+        Color color;
+    };
+    void set_containers(std::vector<Container> containers);
+    std::vector<Container> const& containers() const;
+    // A new tab in the container named (the default when the name is
+    // empty); Ctrl+Shift+N opens one in the container after the active
+    // tab's, round to the default.
+    void new_tab_in(std::string const& container);
+    std::string const& active_container() const;
+
+    // --- Storage ------------------------------------------------------------
+    // Every page's localStorage — an area per container and origin, kept
+    // by the shell across the pages that share it — as JSON, the way the
+    // profile keeps it between runs, and read back; and a count that moves
+    // with every change a page makes, so a host writes it when it has.
+    std::string storage_json() const;
+    bool restore_storage(std::string_view json);
+    std::uint64_t storage_changes() const;
 
     // --- Sessions -----------------------------------------------------------
     // The open tabs — each history entry's URL, title and scroll position,

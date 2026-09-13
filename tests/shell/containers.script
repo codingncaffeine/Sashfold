@@ -1,0 +1,65 @@
+# Containers: a tab in a container has a cookie jar and a localStorage of
+# its own, kept apart from the default container's and from every other
+# container's; a page's storage outlives the page within its container;
+# a link opened in a new tab stays in the container; and a session round
+# trip brings each tab back in its container.
+resize 800 500
+open storage.html
+assert-title n=1
+open storage.html
+assert-title n=2
+open cookie.html
+assert-title cookie=none
+open cookie.html
+assert-title cookie=seen=1
+assert-container
+
+# The Work container starts empty and keeps its own count.
+new-tab Work
+assert-container Work
+open storage.html
+assert-title n=1
+open cookie.html
+assert-title cookie=none
+open cookie.html
+assert-title cookie=seen=1
+open storage.html
+assert-title n=2
+
+# Back in the default container the count went on from where it was.
+select-tab 0
+assert-container
+open storage.html
+assert-title n=3
+
+# A plain new tab is in the default container; Ctrl+Shift+N opens one in
+# the container after the active tab's, round to the default.
+new-tab
+assert-container
+key ctrl+shift+n
+assert-container Personal
+key ctrl+shift+n
+assert-container Work
+close-tab 4
+close-tab 3
+close-tab 2
+select-tab 1
+assert-container Work
+new-tab Banking
+assert-container Banking
+open storage.html
+assert-title n=1
+
+# The session keeps each tab's container.
+session-save
+close-tab 2
+close-tab 1
+close-tab 0
+assert-tabs 1
+session-restore
+assert-tabs 3
+assert-container Banking
+select-tab 1
+assert-container Work
+select-tab 0
+assert-container

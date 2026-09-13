@@ -8,8 +8,10 @@
 // site-level grouping needs the public-suffix list, which arrives with the
 // content-blocking era — and honest about it.
 //
-// The jar is session-only for now: nothing touches disk until the profile
-// story decides what persistence should mean.
+// The jar keeps no file of its own: it serializes to and reads from the
+// Netscape cookies.txt format — what curl and wget read and write — and
+// the shell's profile decides where that file lives and when it is
+// written.
 
 #include "net/Http.h"
 #include "net/Url.h"
@@ -45,9 +47,22 @@ public:
 
     std::size_t size() const { return m_cookies.size(); }
 
+    // The jar as a Netscape cookies.txt file: one cookie per line —
+    // domain (a leading dot where subdomains count), the subdomain flag,
+    // path, the secure flag, the expiry in Unix seconds (0 for a session
+    // cookie), name, value — an HttpOnly cookie's line prefixed
+    // `#HttpOnly_` as curl writes it. And a file read back, added to what
+    // the jar holds, a cookie already expired left out.
+    std::string serialize() const;
+    void load(std::string_view text, std::int64_t now);
+    // Moves whenever a cookie is stored, replaced, dropped or read in: a
+    // host writes the jar out when it has moved.
+    std::uint64_t changes() const { return m_changes; }
+
 private:
     std::vector<Cookie> m_cookies;
     std::int64_t m_counter = 0; // creation tiebreaker
+    std::uint64_t m_changes = 0;
 };
 
 // Exposed for tests: RFC 6265 §5.1.1 cookie-date -> unix seconds.

@@ -23,7 +23,7 @@ namespace sashfold::bindings {
 
 std::string const* StorageObject::find(std::string_view key) const
 {
-    for (auto const& [name, value] : items) {
+    for (auto const& [name, value] : area().items) {
         if (name == key)
             return &value;
     }
@@ -32,22 +32,35 @@ std::string const* StorageObject::find(std::string_view key) const
 
 void StorageObject::put_item(std::string key, std::string value)
 {
-    for (auto& [name, existing] : items) {
+    StorageArea& storage = area();
+    ++storage.changes;
+    for (auto& [name, existing] : storage.items) {
         if (name == key) {
             existing = std::move(value);
             return;
         }
     }
-    items.emplace_back(std::move(key), std::move(value));
+    storage.items.emplace_back(std::move(key), std::move(value));
 }
 
 bool StorageObject::remove_item(std::string_view key)
 {
-    auto const it = std::find_if(items.begin(), items.end(), [key](auto const& item) { return item.first == key; });
-    if (it == items.end())
+    StorageArea& storage = area();
+    auto const it = std::find_if(storage.items.begin(), storage.items.end(), [key](auto const& item) { return item.first == key; });
+    if (it == storage.items.end())
         return false;
-    items.erase(it);
+    storage.items.erase(it);
+    ++storage.changes;
     return true;
+}
+
+void StorageObject::clear_items()
+{
+    StorageArea& storage = area();
+    if (storage.items.empty())
+        return;
+    storage.items.clear();
+    ++storage.changes;
 }
 
 std::optional<js::PropertyDescriptor> StorageObject::get_own_property(js::PropertyKey const& key) const
@@ -95,7 +108,7 @@ bool StorageObject::delete_property(js::PropertyKey const& key)
 std::vector<js::PropertyKey> StorageObject::own_keys() const
 {
     std::vector<js::PropertyKey> keys;
-    for (auto const& [name, value] : items)
+    for (auto const& [name, value] : area().items)
         keys.push_back(heap()->key(name));
     for (js::PropertyKey const& key : Object::own_keys())
         keys.push_back(key);
@@ -1001,7 +1014,7 @@ void install_window(Realm::Internals& in)
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
-        return js::Value::number(static_cast<double>((*storage)->items.size()));
+        return js::Value::number(static_cast<double>((*storage)->area().items.size()));
     });
     js::define_method(interpreter, *storage_proto, "key", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
@@ -1010,9 +1023,9 @@ void install_window(Realm::Internals& in)
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
-        if (*index < 0 || *index >= static_cast<double>((*storage)->items.size()))
+        if (*index < 0 || *index >= static_cast<double>((*storage)->area().items.size()))
             return js::Value::null();
-        return internals_of(interp).string((*storage)->items[static_cast<std::size_t>(*index)].first);
+        return internals_of(interp).string((*storage)->area().items[static_cast<std::size_t>(*index)].first);
     });
     js::define_method(interpreter, *storage_proto, "getItem", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
@@ -1049,11 +1062,21 @@ void install_window(Realm::Internals& in)
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
-        (*storage)->items.clear();
+        (*storage)->clear_items();
         return js::Value::undefined();
     });
-    for (std::string_view const name : { "localStorage", "sessionStorage" })
-        global->put(interpreter.key(name), js::Value::object(interpreter.heap().allocate<StorageObject>(storage_proto)), js::builtin_attributes);
+    // localStorage is the host's area for the origin when it keeps one —
+    // a page at an opaque origin (data:, about:) has none to share —
+    // sessionStorage the document's own.
+    StorageArea* local_area = nullptr;
+    if (in.hooks.local_storage) {
+        // Local files share one area, as the browsers give them.
+        std::string const origin = in.url.scheme == "file" ? std::string("file://") : in.url.serialize_origin();
+        if (origin != "null")
+            local_area = in.hooks.local_storage(origin);
+    }
+    global->put(interpreter.key("localStorage"), js::Value::object(interpreter.heap().allocate<StorageObject>(storage_proto, local_area)), js::builtin_attributes);
+    global->put(interpreter.key("sessionStorage"), js::Value::object(interpreter.heap().allocate<StorageObject>(storage_proto)), js::builtin_attributes);
 
     // Performance.
     js::Object* performance = interpreter.new_object();

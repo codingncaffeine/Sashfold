@@ -1236,6 +1236,40 @@ void test_content_security_policy()
     CHECK_EQ(third->realm->stats().scripts_run, 0);
 }
 
+void test_local_storage_areas()
+{
+    // localStorage is the host's area for the origin, shared by every
+    // document there and counting each change; sessionStorage stays the
+    // document's; another origin is another area; an opaque origin gets
+    // none of the host's and keeps its own.
+    std::map<std::string, bindings::StorageArea> areas;
+    bindings::HostHooks hooks;
+    hooks.local_storage = [&areas](std::string const& origin) { return &areas[origin]; };
+    auto first = std::make_unique<Page>(
+        "<script>localStorage.setItem('a', '1'); localStorage.b = '2'; sessionStorage.setItem('s', 'x');</script>",
+        "https://example.test/one.html", hooks);
+    first->load();
+    CHECK_EQ(areas.size(), 1u);
+    CHECK_EQ(areas["https://example.test"].items.size(), 2u);
+    CHECK_EQ(areas["https://example.test"].changes, std::uint64_t { 2 });
+    auto second = std::make_unique<Page>(
+        "<script>document.title = localStorage.length + ':' + localStorage.getItem('a') + ':' + localStorage.b + ':' + localStorage.key(1) + ':' + sessionStorage.length;"
+        " localStorage.removeItem('a'); delete localStorage.b; localStorage.c = '3'; localStorage.clear(); localStorage.clear();</script>",
+        "https://example.test/two.html", hooks);
+    second->load();
+    CHECK_EQ(second->string("document.title"), "2:1:2:b:0");
+    CHECK_EQ(areas["https://example.test"].items.size(), 0u);
+    CHECK_EQ(areas["https://example.test"].changes, std::uint64_t { 6 }); // an empty clear counts nothing
+    auto other = std::make_unique<Page>("<script>localStorage.x = 'y';</script>", "https://other.test/", hooks);
+    other->load();
+    CHECK_EQ(areas.size(), 2u);
+    CHECK_EQ(areas["https://other.test"].items.size(), 1u);
+    auto opaque = std::make_unique<Page>("<script>localStorage.q = '1'; document.title = localStorage.length;</script>", "data:text/html,x", hooks);
+    opaque->load();
+    CHECK_EQ(areas.size(), 2u);
+    CHECK_EQ(opaque->string("document.title"), "1");
+}
+
 } // namespace
 
 int main()
@@ -1262,5 +1296,6 @@ int main()
     test_binary_data();
     test_fetch_and_xhr();
     test_content_security_policy();
+    test_local_storage_areas();
     return test::report("test_bindings");
 }

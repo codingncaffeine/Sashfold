@@ -113,8 +113,23 @@ std::function<std::optional<std::string>(net::Url&)> ShellLoader::hop_refusal(ne
     };
 }
 
+net::CookieJar& ShellLoader::cookies(std::string_view container)
+{
+    if (container.empty())
+        return m_cookies;
+    return m_container_jars[std::string(container)];
+}
+
+std::vector<std::string> ShellLoader::container_names() const
+{
+    std::vector<std::string> names;
+    for (auto const& [name, jar] : m_container_jars)
+        names.push_back(name);
+    return names;
+}
+
 net::FetchResult ShellLoader::load(net::Url const& url, std::string const& referrer,
-    bool bypass_cache)
+    bool bypass_cache, std::string_view container)
 {
     net::RequestGuard const none;
     if (std::optional<std::string> refused = refusal(url, nullptr, net::ResourceKind::Document, none, false))
@@ -122,7 +137,7 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
     if (url.scheme == "file")
         return load_file(url);
     net::FetchOptions options;
-    options.cookie_jar = &m_cookies;
+    options.cookie_jar = &cookies(container);
     options.first_party = nullptr; // a navigation is its own first party
     options.referrer = referrer;
     options.cache = bypass_cache ? nullptr : &m_cache;
@@ -133,7 +148,7 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
 }
 
 net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::Url const& first_party,
-    std::string const& referrer, net::ResourceKind kind, net::RequestGuard const& guard)
+    std::string const& referrer, net::ResourceKind kind, net::RequestGuard const& guard, std::string_view container)
 {
     net::Url const url = guard.upgrade_insecure ? net::upgraded_insecure(requested) : requested;
     if (std::optional<std::string> refused = refusal(url, &first_party, kind, guard, false))
@@ -147,7 +162,7 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
         return load_file(url);
     }
     net::FetchOptions options;
-    options.cookie_jar = &m_cookies;
+    options.cookie_jar = &cookies(container);
     options.first_party = &first_party;
     options.referrer = referrer;
     options.cache = &m_cache;
@@ -157,7 +172,8 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
 }
 
 net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url const& first_party,
-    std::string const& referrer, net::ResourceRequest const& request, net::RequestGuard const& guard)
+    std::string const& referrer, net::ResourceRequest const& request, net::RequestGuard const& guard,
+    std::string_view container)
 {
     net::ResourceKind const kind = request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr;
     net::Url const url = guard.upgrade_insecure ? net::upgraded_insecure(requested) : requested;
@@ -171,7 +187,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
         return load_file(url);
     }
     net::FetchOptions options;
-    options.cookie_jar = request.credentials ? &m_cookies : nullptr;
+    options.cookie_jar = request.credentials ? &cookies(container) : nullptr;
     options.first_party = &first_party;
     options.referrer = referrer;
     options.cache = &m_cache;
@@ -184,19 +200,19 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     return net::fetch(url, options);
 }
 
-std::string ShellLoader::cookies_for(net::Url const& url)
+std::string ShellLoader::cookies_for(net::Url const& url, std::string_view container)
 {
     using namespace std::chrono;
     // The page is its own first party: what document.cookie sees is what
     // a navigation to the page would send.
-    return m_cookies.cookie_header(url, nullptr, duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+    return cookies(container).cookie_header(url, nullptr, duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
 }
 
-void ShellLoader::set_cookie(net::Url const& url, std::string_view set_cookie_line)
+void ShellLoader::set_cookie(net::Url const& url, std::string_view set_cookie_line, std::string_view container)
 {
     using namespace std::chrono;
     std::vector<net::Header> const headers { net::Header { "Set-Cookie", std::string(set_cookie_line) } };
-    m_cookies.store(url, nullptr, headers, duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+    cookies(container).store(url, nullptr, headers, duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
 }
 
 }

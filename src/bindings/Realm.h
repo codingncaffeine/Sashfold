@@ -30,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace sashfold::bindings {
 
@@ -39,6 +40,13 @@ struct LayoutBox {
     float y = 0;
     float width = 0;
     float height = 0;
+};
+
+// A web storage area: the items in insertion order (key(n) counts on
+// it), and a count that moves with every change made to them.
+struct StorageArea {
+    std::vector<std::pair<std::string, std::string>> items;
+    std::uint64_t changes = 0;
 };
 
 // What the page's host provides to its scripts. Every hook is optional;
@@ -99,6 +107,11 @@ struct HostHooks {
     std::function<void(dom::Element const& form, dom::Element const* submitter)> submit_form;
     // console.* output and every uncaught error, by level.
     std::function<void(std::string_view level, std::string_view message)> console;
+    // The localStorage area for an origin, owned by the host and outliving
+    // the realm: the page reads and writes it in place and counts each
+    // change, so the host can write the area out when the count moves.
+    // Without it a page's localStorage lives and dies with the document.
+    std::function<StorageArea*(std::string const& origin)> local_storage;
 
     float viewport_width = 1024; // CSS px, for innerWidth and matchMedia
     float viewport_height = 768;

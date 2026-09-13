@@ -29,6 +29,7 @@
 #include <ctime>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <utility>
 
@@ -379,6 +380,10 @@ struct Browser::Impl {
         // fetches, runs and applies. Shared with the closures that fetch
         // for the page, so a tab may move in the vector under them.
         std::shared_ptr<net::ContentSecurityPolicy> policy;
+        // The container the tab is in: its cookie jar and its storage are
+        // that container's, kept apart from every other's. Empty for the
+        // default container.
+        std::string container;
         // The realm's mutation count the styles and layout below reflect;
         // when the realm has moved on, they are computed again before use.
         std::uint64_t page_mutations = 0;
@@ -469,6 +474,13 @@ struct Browser::Impl {
     std::vector<Tab> tabs;
     std::size_t active = 0;
     std::vector<Pending> pending;
+    // The containers the shell offers, in order (see Browser::Container).
+    std::vector<Browser::Container> containers;
+    // Every page's localStorage, an area per container and origin (the
+    // key is the container's name, a newline, the origin), kept for as
+    // long as the shell runs and handed to each realm at that origin;
+    // node-based, so a realm's pointer into it holds.
+    std::map<std::string, bindings::StorageArea> storage;
 
     std::string address;
     bool address_focus = false;
@@ -556,15 +568,125 @@ struct Browser::Impl {
         return entry;
     }
 
-    void add_blank_tab()
+    void add_blank_tab(std::string container = {})
     {
         Tab tab;
+        tab.container = std::move(container);
         tab.history.push_back(blank_entry());
         tabs.push_back(std::move(tab));
         active = tabs.size() - 1;
         render(tabs[active]);
         sync_address();
         dirty = true;
+    }
+
+    // --- Containers -----------------------------------------------------------
+
+    Browser::Container const* container_named(std::string_view name) const
+    {
+        if (name.empty())
+            return nullptr;
+        for (Browser::Container const& container : containers)
+            if (container.name == name)
+                return &container;
+        return nullptr;
+    }
+
+    // The container after the active tab's, in the order offered; after
+    // the last comes the default.
+    std::string next_container() const
+    {
+        Tab const* const tab = active_tab();
+        if (!tab || containers.empty())
+            return {};
+        if (tab->container.empty())
+            return containers.front().name;
+        for (std::size_t i = 0; i < containers.size(); ++i) {
+            if (containers[i].name == tab->container)
+                return i + 1 < containers.size() ? containers[i + 1].name : std::string();
+        }
+        return containers.front().name;
+    }
+
+    // --- Storage ----------------------------------------------------------------
+
+    static std::string storage_key(std::string_view container, std::string_view origin)
+    {
+        return std::string(container) + "\n" + std::string(origin);
+    }
+
+    bindings::StorageArea* storage_area(std::string_view container, std::string_view origin)
+    {
+        return &storage[storage_key(container, origin)];
+    }
+
+    std::string storage_json() const
+    {
+        std::string out = "{\n  \"version\": 1,\n  \"areas\": [\n";
+        bool first = true;
+        for (auto const& [key, area] : storage) {
+            if (area.items.empty())
+                continue;
+            std::size_t const newline = key.find('\n');
+            std::string const container = key.substr(0, newline);
+            std::string const origin = newline == std::string::npos ? std::string() : key.substr(newline + 1);
+            out += first ? "    {" : ",\n    {";
+            first = false;
+            out += "\"container\": " + json_quoted(container) + ", \"origin\": " + json_quoted(origin) + ", \"items\": [";
+            for (std::size_t i = 0; i < area.items.size(); ++i) {
+                out += i == 0 ? "\n      [" : ",\n      [";
+                out += json_quoted(area.items[i].first) + ", " + json_quoted(area.items[i].second) + "]";
+            }
+            out += area.items.empty() ? "]}" : "\n    ]}";
+        }
+        out += first ? "  ]\n}\n" : "\n  ]\n}\n";
+        return out;
+    }
+
+    bool restore_storage(std::string_view text)
+    {
+        std::optional<JsonValue> const parsed = JsonValue::parse(text);
+        if (!parsed || !parsed->is_object())
+            return false;
+        JsonValue const* const areas = parsed->get("areas");
+        if (!areas || !areas->is_array())
+            return false;
+        for (JsonValue const& area_value : areas->as_array()) {
+            if (!area_value.is_object())
+                continue;
+            JsonValue const* const origin = area_value.get("origin");
+            JsonValue const* const items = area_value.get("items");
+            if (!origin || !origin->is_string() || !items || !items->is_array())
+                continue;
+            std::string container;
+            if (JsonValue const* const name = area_value.get("container"); name && name->is_string())
+                container = name->as_string();
+            bindings::StorageArea& area = *storage_area(container, origin->as_string());
+            for (JsonValue const& item : items->as_array()) {
+                if (!item.is_array() || item.as_array().size() != 2 || !item.as_array()[0].is_string()
+                    || !item.as_array()[1].is_string())
+                    continue;
+                std::string const& key = item.as_array()[0].as_string();
+                bool replaced = false;
+                for (auto& [existing, value] : area.items) {
+                    if (existing == key) {
+                        value = item.as_array()[1].as_string();
+                        replaced = true;
+                    }
+                }
+                if (!replaced)
+                    area.items.emplace_back(key, item.as_array()[1].as_string());
+            }
+        }
+        return true;
+    }
+
+    std::uint64_t storage_changes() const
+    {
+        std::uint64_t total = 0;
+        for (auto const& [key, area] : storage)
+            total += area.changes;
+        return total;
     }
 
     // --- Sessions -------------------------------------------------------------
@@ -602,7 +724,8 @@ struct Browser::Impl {
             + ",\n  \"tabs\": [\n";
         for (std::size_t t = 0; t < tabs.size(); ++t) {
             Tab const& tab = tabs[t];
-            out += "    {\"index\": " + std::to_string(tab.index) + ", \"entries\": [\n";
+            out += "    {\"index\": " + std::to_string(tab.index) + ", \"container\": " + json_quoted(tab.container)
+                + ", \"entries\": [\n";
             for (std::size_t e = 0; e < tab.history.size(); ++e) {
                 HistoryEntry const& entry = tab.history[e];
                 out += "      {\"url\": " + json_quoted(entry.url.serialize()) + ", \"final_url\": "
@@ -657,6 +780,8 @@ struct Browser::Impl {
             tab.index = tab.history.size() - 1;
             if (JsonValue const* const index = tab_value.get("index"); index && index->is_number() && index->as_number() >= 0)
                 tab.index = std::min(static_cast<std::size_t>(index->as_number()), tab.history.size() - 1);
+            if (JsonValue const* const container = tab_value.get("container"); container && container->is_string())
+                tab.container = container->as_string();
             tab.scroll_y = tab.history[tab.index].scroll_y;
             restored.push_back(std::move(tab));
         }
@@ -1256,19 +1381,21 @@ struct Browser::Impl {
     {
         dom::Document* const document = tab.document.get();
         net::Url const page_url = url;
+        std::string const container = tab.container;
         bindings::HostHooks hooks;
         hooks.policy = tab.policy.get();
-        hooks.fetch_script = [this, page_url](net::Url const& target, net::RequestGuard const& guard) -> std::optional<std::string> {
+        hooks.fetch_script = [this, page_url, container](net::Url const& target, net::RequestGuard const& guard) -> std::optional<std::string> {
             net::FetchResult result = loader.load_subresource(target, page_url, referrer_for(&page_url, target),
-                net::ResourceKind::Script, guard);
+                net::ResourceKind::Script, guard, container);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
             return std::string(result.response->body.begin(), result.response->body.end());
         };
-        hooks.fetch_resource = [this, page_url](net::Url const& target, net::ResourceRequest const& request,
+        hooks.fetch_resource = [this, page_url, container](net::Url const& target, net::ResourceRequest const& request,
                                    net::RequestGuard const& guard) {
-            return loader.load_resource(target, page_url, referrer_for(&page_url, target), request, guard);
+            return loader.load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
         };
+        hooks.local_storage = [this, container](std::string const& origin) { return storage_area(container, origin); };
         hooks.now = [this] { return script_now(); };
         hooks.should_stop = [this] {
             return std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);
@@ -1309,8 +1436,8 @@ struct Browser::Impl {
             Tab* const owner = tab_of(document);
             return { 0, owner ? static_cast<int>(std::lround(to_css_px(owner->scroll_y))) : 0 };
         };
-        hooks.cookie_get = [this, page_url] { return loader.cookies_for(page_url); };
-        hooks.cookie_set = [this, page_url](std::string_view line) { loader.set_cookie(page_url, line); };
+        hooks.cookie_get = [this, page_url, container] { return loader.cookies_for(page_url, container); };
+        hooks.cookie_set = [this, page_url, container](std::string_view line) { loader.set_cookie(page_url, line, container); };
         hooks.control_value = [this, document](dom::Element const& element) -> std::optional<std::string> {
             Tab* const owner = tab_of(document);
             if (!owner)
@@ -1406,7 +1533,8 @@ struct Browser::Impl {
         auto const fetch_kind = [&](net::ResourceKind kind) {
             return [&, kind](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
                 net::RequestGuard const guard = policy ? policy->guard(kind, std::string(nonce)) : net::RequestGuard {};
-                net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url), kind, guard);
+                net::FetchResult result
+                    = loader.load_subresource(url, page_url, referrer_for(&page_url, url), kind, guard, tab.container);
                 if (!result.response || result.response->status != 200)
                     return std::nullopt;
                 std::string const* header = net::find_header(result.response->headers, "content-type");
@@ -1441,8 +1569,8 @@ struct Browser::Impl {
         restyle(tab);
         auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
             net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Image) : net::RequestGuard {};
-            net::FetchResult result
-                = loader.load_subresource(url, page_url, referrer_for(&page_url, url), net::ResourceKind::Image, guard);
+            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url),
+                net::ResourceKind::Image, guard, tab.container);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
             return std::move(result.response->body);
@@ -1797,7 +1925,7 @@ struct Browser::Impl {
             if (!inner) {
                 fail_entry(entry, load.url, "view-source: needs a URL after it");
             } else {
-                net::FetchResult result = loader.load(*inner, "", load.mode == Mode::Reload);
+                net::FetchResult result = loader.load(*inner, "", load.mode == Mode::Reload, tab.container);
                 if (!result.response) {
                     fail_entry(entry, *inner, result.error);
                 } else {
@@ -1814,7 +1942,7 @@ struct Browser::Impl {
             if (!inner) {
                 fail_entry(entry, load.url, "reader: needs a URL after it");
             } else {
-                net::FetchResult result = loader.load(*inner, "", load.mode == Mode::Reload);
+                net::FetchResult result = loader.load(*inner, "", load.mode == Mode::Reload, tab.container);
                 if (!result.response) {
                     fail_entry(entry, *inner, result.error);
                 } else {
@@ -1828,14 +1956,14 @@ struct Browser::Impl {
             }
         } else {
             std::string const referrer = referrer_for(from ? &from->final_url : nullptr, load.url);
-            net::FetchResult result = loader.load(load.url, referrer, load.mode == Mode::Reload);
+            net::FetchResult result = loader.load(load.url, referrer, load.mode == Mode::Reload, tab.container);
             if (!result.response && load.https_first
                 && result.error.find("could not connect") != std::string::npos) {
                 // HTTPS-first: a host that does not answer on 443 gets one
                 // plain-HTTP try, and the address bar says so.
                 net::Url http = load.url;
                 http.scheme = "http";
-                net::FetchResult retry = loader.load(http, referrer, load.mode == Mode::Reload);
+                net::FetchResult retry = loader.load(http, referrer, load.mode == Mode::Reload, tab.container);
                 if (retry.response) {
                     result = std::move(retry);
                     entry.url = http;
@@ -1980,11 +2108,12 @@ struct Browser::Impl {
     }
 
     // A new tab opens on the new-tab page, the address bar empty and
-    // focused: the blank entry becomes the page, in place.
-    void new_tab()
+    // focused: the blank entry becomes the page, in place. In a container
+    // when one is named; the status line says which.
+    void new_tab_in(std::string const& container)
     {
         blur_address();
-        add_blank_tab();
+        add_blank_tab(container);
         if (HistoryEntry* const entry = tabs[active].current()) {
             entry->url = *net::parse_url("about:newtab");
             entry->final_url = entry->url;
@@ -1992,9 +2121,13 @@ struct Browser::Impl {
             render(tabs[active]);
             sync_address();
         }
+        if (!container.empty())
+            tabs[active].status = "New tab in the " + container + " container";
         focus_address(false);
         refresh_hover();
     }
+
+    void new_tab() { new_tab_in({}); }
 
     // The pictures the theme's folder holds, as file: URLs in name order,
     // begun at the one whose turn it is: each new tab opens on the next
@@ -3653,10 +3786,13 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // A link opened in a new tab stays in the tab's container.
     void open_in_new_tab(net::Url const& url)
     {
+        Tab const* const from = active_tab();
+        std::string const container = from ? from->container : std::string();
         blur_address();
-        add_blank_tab();
+        add_blank_tab(container);
         queue(active, url, Mode::Push);
     }
 
@@ -3753,6 +3889,10 @@ struct Browser::Impl {
             switch (key.letter) {
             case U'L': focus_address(true); return;
             case U'T': new_tab(); return;
+            case U'N':
+                if (key.shift)
+                    new_tab_in(next_container()); // the container after this tab's, round to the default
+                return;
             case U'W': close_tab(active); return;
             case U'R': reload(); return;
             case U'A':
@@ -4083,6 +4223,12 @@ struct Browser::Impl {
                 // Only the top corners round: the toolbar paints over the rest.
                 frame.fill_round_rect(Rect { rect.x, rect.y, rect.width, rect.height + t.tab_corner_radius },
                     t.tab_corner_radius, background);
+            }
+            // A tab in a container wears the container's colour along its top.
+            if (Browser::Container const* const container = container_named(tabs[i].container)) {
+                int const stripe = std::max(2, t.border_width * 2);
+                frame.fill_rect(Rect { rect.x + t.tab_corner_radius, rect.y, std::max(0, rect.width - 2 * t.tab_corner_radius), stripe },
+                    container->color);
             }
             Rect const close = c.tab_close_buttons[i];
             float text_x = static_cast<float>(rect.x + t.padding + 2);
@@ -4529,6 +4675,24 @@ bool Browser::tick()
 
 std::string Browser::session_json() const { return m_impl->session_json(); }
 bool Browser::restore_session(std::string_view json) { return m_impl->restore_session(json); }
+
+void Browser::set_containers(std::vector<Container> containers)
+{
+    m_impl->containers = std::move(containers);
+    m_impl->dirty = true;
+}
+std::vector<Browser::Container> const& Browser::containers() const { return m_impl->containers; }
+void Browser::new_tab_in(std::string const& container) { m_impl->new_tab_in(container); }
+std::string const& Browser::active_container() const
+{
+    static std::string const none;
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab ? tab->container : none;
+}
+
+std::string Browser::storage_json() const { return m_impl->storage_json(); }
+bool Browser::restore_storage(std::string_view json) { return m_impl->restore_storage(json); }
+std::uint64_t Browser::storage_changes() const { return m_impl->storage_changes(); }
 
 bool Browser::run_scripts()
 {

@@ -21,7 +21,8 @@
 //                        under that point has moved its content
 //   type <text>          type into whatever has focus
 //   key <chord>          e.g. Enter, Escape, ctrl+l, alt+left, ctrl+shift+tab
-//   back | forward | reload | new-tab | close-tab [n] | select-tab <n>
+//   back | forward | reload | new-tab [<container>] | close-tab [n] | select-tab <n>
+//   assert-container <name>   the active tab's container ("" = the default)
 //   resize <w> <h>
 //   screenshot <path>    write the frame as PNG
 //   assert-golden <png>  frame bytes equal the file (--update-goldens blesses)

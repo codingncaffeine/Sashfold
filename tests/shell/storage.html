@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<title>storage</title>
+<p>Counts its visits in localStorage.</p>
+<script>
+  var n = Number(localStorage.getItem('n') || 0) + 1;
+  localStorage.setItem('n', n);
+  document.title = 'n=' + n;
+</script>

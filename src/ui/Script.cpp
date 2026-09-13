@@ -307,7 +307,9 @@ struct Runner {
             browser.reload();
             settle();
         } else if (command == "new-tab") {
-            browser.new_tab();
+            browser.new_tab_in(argument); // in the container named, the default when none
+        } else if (command == "assert-container") {
+            expect_equal("assert-container", browser.active_container(), argument);
         } else if (command == "close-tab") {
             std::optional<int> const index = int_arg(0);
             if (!args.empty() && (!index || *index < 0))

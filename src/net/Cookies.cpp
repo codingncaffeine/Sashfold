@@ -307,14 +307,17 @@ void CookieJar::store(Url const& url, Url const* first_party,
         if (match != m_cookies.end()) {
             cookie.created = match->created;
             *match = std::move(cookie);
+            ++m_changes;
         } else if (!cookie.expires || *cookie.expires > now) {
             cookie.created = ++m_counter;
             m_cookies.push_back(std::move(cookie));
+            ++m_changes;
         }
     }
 
     // Expiry sweep, then caps.
-    std::erase_if(m_cookies, [&](Cookie const& c) { return c.expires && *c.expires <= now; });
+    if (std::erase_if(m_cookies, [&](Cookie const& c) { return c.expires && *c.expires <= now; }) > 0)
+        ++m_changes;
     auto const domain_count = [&](std::string const& domain) {
         return static_cast<std::size_t>(std::count_if(m_cookies.begin(), m_cookies.end(),
             [&](Cookie const& c) { return c.domain == domain; }));
@@ -331,6 +334,7 @@ void CookieJar::store(Url const& url, Url const* first_party,
                         oldest = it;
                 m_cookies.erase(oldest);
                 evicted = true;
+                ++m_changes;
                 break;
             }
         }
@@ -341,6 +345,105 @@ void CookieJar::store(Url const& url, Url const* first_party,
             if (it->created < oldest->created)
                 oldest = it;
         m_cookies.erase(oldest);
+        ++m_changes;
+    }
+}
+
+std::string CookieJar::serialize() const
+{
+    std::string out = "# Netscape HTTP Cookie File\n"
+                      "# https://curl.se/docs/http-cookies.html\n"
+                      "# Written by Sashfold; a line is domain, subdomains, path, secure, expiry, name, value.\n\n";
+    std::vector<Cookie const*> ordered;
+    for (Cookie const& cookie : m_cookies)
+        ordered.push_back(&cookie);
+    std::sort(ordered.begin(), ordered.end(), [](Cookie const* a, Cookie const* b) { return a->created < b->created; });
+    for (Cookie const* cookie : ordered) {
+        // A tab or a newline inside a field would break the line: such a
+        // cookie is not written.
+        auto const clean = [](std::string const& text) {
+            return text.find('\t') == std::string::npos && text.find('\n') == std::string::npos
+                && text.find('\r') == std::string::npos;
+        };
+        if (!clean(cookie->name) || !clean(cookie->value) || !clean(cookie->domain) || !clean(cookie->path))
+            continue;
+        if (cookie->http_only)
+            out += "#HttpOnly_";
+        out += cookie->host_only ? cookie->domain : "." + cookie->domain;
+        out += cookie->host_only ? "\tFALSE\t" : "\tTRUE\t";
+        out += cookie->path;
+        out += cookie->secure ? "\tTRUE\t" : "\tFALSE\t";
+        out += std::to_string(cookie->expires ? *cookie->expires : std::int64_t { 0 });
+        out += '\t';
+        out += cookie->name;
+        out += '\t';
+        out += cookie->value;
+        out += '\n';
+    }
+    return out;
+}
+
+void CookieJar::load(std::string_view text, std::int64_t now)
+{
+    std::size_t start = 0;
+    while (start < text.size()) {
+        std::size_t end = text.find('\n', start);
+        if (end == std::string_view::npos)
+            end = text.size();
+        std::string_view line = text.substr(start, end - start);
+        start = end + 1;
+        if (!line.empty() && line.back() == '\r')
+            line.remove_suffix(1);
+        Cookie cookie;
+        if (line.starts_with("#HttpOnly_")) {
+            cookie.http_only = true;
+            line.remove_prefix(10);
+        } else if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        std::vector<std::string_view> fields;
+        std::size_t field_start = 0;
+        while (true) {
+            std::size_t const tab = line.find('\t', field_start);
+            fields.push_back(line.substr(field_start, tab == std::string_view::npos ? std::string_view::npos : tab - field_start));
+            if (tab == std::string_view::npos)
+                break;
+            field_start = tab + 1;
+        }
+        if (fields.size() != 7)
+            continue;
+        std::string_view domain = fields[0];
+        bool const dotted = domain.starts_with(".");
+        if (dotted)
+            domain.remove_prefix(1);
+        if (domain.empty() || fields[5].empty())
+            continue;
+        cookie.domain = ascii_lowercase(domain);
+        cookie.host_only = !(dotted || ascii_ci_equals(fields[1], "TRUE"));
+        cookie.path = fields[2].starts_with("/") ? std::string(fields[2]) : std::string("/");
+        cookie.secure = ascii_ci_equals(fields[3], "TRUE");
+        std::int64_t expires = 0;
+        auto const [ptr, ec] = std::from_chars(fields[4].data(), fields[4].data() + fields[4].size(), expires);
+        if (ec != std::errc {} || ptr != fields[4].data() + fields[4].size())
+            continue;
+        if (expires > 0) {
+            if (expires <= now)
+                continue;
+            cookie.expires = expires;
+        }
+        cookie.name = std::string(fields[5]);
+        cookie.value = std::string(fields[6]);
+        auto const match = std::find_if(m_cookies.begin(), m_cookies.end(), [&](Cookie const& c) {
+            return c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path;
+        });
+        if (match != m_cookies.end()) {
+            cookie.created = match->created;
+            *match = std::move(cookie);
+        } else {
+            cookie.created = ++m_counter;
+            m_cookies.push_back(std::move(cookie));
+        }
+        ++m_changes;
     }
 }
 
