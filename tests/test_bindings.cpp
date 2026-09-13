@@ -2095,6 +2095,51 @@ std::string string_in(bindings::Realm* realm, std::string_view source)
     return outcome.value.as_string()->to_utf8();
 }
 
+// A frame's navigable keeps one target name (HTML §7.3.1): its iframe's name
+// attribute when the navigable is made, then whatever window.name sets, across
+// every document the frame goes on to; the attribute changed later does not
+// touch it. window.name is that name, and a window with no navigable — its
+// frame removed, or gone on to another document, or its realm ended — has none
+// to read or to set. The parent names its frames by it.
+void test_a_navigable_keeps_its_target_name()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/dir/a.html"] = "<script>var which = 'a';</script>";
+    documents["https://example.test/dir/b.html"] = "<script>var which = 'b';</script>";
+    documents["https://example.test/dir/probe.html"] = "<script>var which = 'probe'; var oldName = parent.oldNameGetter.call(undefined); var ownName = window.name;</script>";
+    documents["https://other.test/c.html"] = "<script>var which = 'c';</script>";
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f name=first src="a.html"></iframe><iframe id=g src="a.html"></iframe>
+<iframe id=x name=cross src="https://other.test/c.html"></iframe>
+<iframe id=n srcdoc="<iframe name=inner></iframe>"></iframe>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    page->load();
+    page->eval("var f = document.getElementById('f'), g = document.getElementById('g'), x = document.getElementById('x'), n = document.getElementById('n');"
+               " var fw = f.contentWindow, gw = g.contentWindow, xw = x.contentWindow;");
+    CHECK(page->boolean("fw.name === 'first' && gw.name === '' && window.first === fw"));
+
+    // A name a script gives stays with the frame as it navigates.
+    page->eval("fw.name = 'renamed'; gw.name = 'given'; f.src = 'b.html'; g.src = 'b.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("fw.which === 'b' && fw.name === 'renamed'"));
+    CHECK(page->boolean("gw.which === 'b' && gw.name === 'given'"));
+    CHECK(page->boolean("window.renamed === fw && window.given === gw && window.first === undefined"));
+
+    // The attribute changed afterwards is not read again; the window the frame
+    // left, still running while the next document parses, has no name.
+    page->eval("f.setAttribute('name', 'attr'); var oldNameGetter = Object.getOwnPropertyDescriptor(fw, 'name').get; f.src = 'probe.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("fw.which === 'probe' && fw.name === 'renamed' && window.attr === undefined"));
+    CHECK(page->boolean("fw.oldName === '' && fw.ownName === 'renamed'"));
+
+    // Removed, the frame's window neither reads nor keeps a name; nor once its
+    // realm has ended.
+    CHECK(page->boolean("(function () { var held = gw; g.remove(); var a = held.name; held.name = 'again'; return a === '' && held.name === '' && g.getAttribute('name') === null; })()"));
+    CHECK(page->boolean("gw.name = 'leak'; gw.name === ''"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 // A frame navigates. In a frame's realm the Location's setters, assign,
 // replace and reload, and the window's location setter, navigate that frame,
 // not the page: the URL is parsed against the base of the document whose
@@ -2790,6 +2835,7 @@ int main()
     test_the_origin_interface();
     test_attributes_in_namespaces();
     test_a_frame_navigates();
+    test_a_navigable_keeps_its_target_name();
     test_every_iframe_has_a_window();
     test_javascript_urls_in_frames();
     test_the_sandbox_attribute();

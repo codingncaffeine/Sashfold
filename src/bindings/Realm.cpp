@@ -1545,18 +1545,20 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     // already made a sandboxed one's origin its own.
     if (answer.srcdoc && answer.origin.serialize() == origin_url.serialize())
         opened.realm->internals().domain.share(domain);
-    // The WindowProxy the iframe's frame already has, when the frame goes on
-    // to another document; the new realm's own for a frame opened afresh.
+    // The navigable the iframe's frame already has, when the frame goes on to
+    // another document, and its WindowProxy with its name; a new one, with the
+    // new realm's WindowProxy and the iframe's name, for a frame opened afresh.
     Internals& opened_internals = opened.realm->internals();
     auto const navigable = navigables.find(&iframe);
     if (navigable != navigables.end()) {
-        navigable->second->stand_for(*opened_internals.realm_record);
-        interpreter.set_global_this(*opened_internals.realm_record, navigable->second);
+        navigable->second.window_proxy->stand_for(*opened_internals.realm_record);
+        interpreter.set_global_this(*opened_internals.realm_record, navigable->second.window_proxy);
     } else {
-        navigables[&iframe] = static_cast<WindowProxyObject*>(opened_internals.realm_record->global_this);
+        ChildNavigable& made = navigables[&iframe];
+        made.window_proxy = static_cast<WindowProxyObject*>(opened_internals.realm_record->global_this);
+        if (dom::Attr const* const frame_name = iframe.find_attribute("name"))
+            made.target_name = frame_name->value;
     }
-    if (dom::Attr const* const frame_name = iframe.find_attribute("name"))
-        opened_internals.window_name = frame_name->value;
     // A reopened frame counts on from its predecessor, so no picture of the
     // old document stands for the new one.
     opened.realm->internals().mutations = mutations_from;
@@ -1570,6 +1572,24 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     else
         html::parse_document_bytes_into(opened_document, text, &opened_realm);
     opened_realm.document_parsed();
+}
+
+std::string* Realm::Internals::navigable_target_name()
+{
+    if (ended || discarded)
+        return nullptr;
+    if (parent_realm == nullptr)
+        return &top_level_target_name;
+    auto const found = parent_realm->navigables.find(frame_element);
+    if (found == parent_realm->navigables.end() || &found->second.window_proxy->record() != realm_record)
+        return nullptr;
+    return &found->second.target_name;
+}
+
+std::string const* Realm::Internals::child_target_name(ChildFrame const& child) const
+{
+    auto const found = navigables.find(child.container);
+    return found == navigables.end() ? nullptr : &found->second.target_name;
 }
 
 ChildFrame const* Realm::Internals::frame_of(dom::Element const& iframe) const
@@ -2183,8 +2203,8 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.session_storage_object);
     for (auto const& [name, prototype] : in.prototypes)
         tracer.visit(prototype);
-    for (auto const& [iframe, proxy] : in.navigables)
-        tracer.visit(proxy);
+    for (auto const& [iframe, navigable] : in.navigables)
+        tracer.visit(navigable.window_proxy);
     for (auto const& [name, value] : in.window_values)
         tracer.visit(value);
     for (auto const& [name, member] : in.cross_origin_members) {

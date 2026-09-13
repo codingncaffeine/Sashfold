@@ -659,9 +659,9 @@ public:
         // A frame of the document by its name comes first, as its WindowProxy
         // (HTML §7.2.2.3, the child navigables' target names).
         for (ChildFrame const* const child : child_navigables(internals())) {
-            Realm::Internals& frame = child->realm->internals();
-            if (frame.window_name == name)
-                return js::PropertyDescriptor::data(js::Value::object(frame.window_proxy()), js::Writable | js::Configurable);
+            std::string const* const target_name = internals().child_target_name(*child);
+            if (target_name && *target_name == name)
+                return js::PropertyDescriptor::data(js::Value::object(child->realm->internals().window_proxy()), js::Writable | js::Configurable);
         }
         std::vector<dom::Node*> found;
         collect_named(internals().document, name, found);
@@ -761,13 +761,22 @@ void install_window(Realm::Internals& in)
         Realm::Internals& internals = internals_of(interp);
         return js::Value::object(internals.wrap(internals.document));
     });
+    // name is the target name of the window's navigable: none to read or to
+    // set once the window has no navigable (HTML §7.2.2). The value is still
+    // converted first, and a conversion that throws still throws (WebIDL
+    // §3.7.6).
     define_getter(
-        in, *global, "name", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string(internals_of(interp).window_name); },
+        in, *global, "name",
+        [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            std::string const* const target_name = internals_of(interp).navigable_target_name();
+            return internals_of(interp).string(target_name ? *target_name : std::string());
+        },
         [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
             std::optional<std::string> const text = internals_of(interp).to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
-            internals_of(interp).window_name = *text;
+            if (std::string* const target_name = internals_of(interp).navigable_target_name())
+                *target_name = *text;
             return js::Value::undefined();
         });
     global->put(interpreter.key("status"), in.string(""), js::default_attributes);

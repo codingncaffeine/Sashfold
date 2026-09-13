@@ -6445,6 +6445,7 @@ html/browsers/the-window-object/closed-attribute.window.html	closed and same-ori
 html/browsers/the-window-object/defaultstatus.html	The window.defaultStatus and window.defaultstatus attributes are not supported
 html/browsers/the-window-object/focus.window.html	focus
 html/browsers/the-window-object/historical.window.html	showModalDialog() has been removed from the platform
+html/browsers/the-window-object/name-attribute.window.html	Window object's name IDL attribute
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be enumerable
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be set if the element is not reachable from the Document
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must return an element as-is if its name attribute matches

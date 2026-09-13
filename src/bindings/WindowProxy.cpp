@@ -461,7 +461,8 @@ std::optional<std::optional<js::PropertyDescriptor>> WindowProxyObject::get_own_
     if (key.is_atom() && m_record->host_defined != nullptr) {
         std::string const name = key.as_atom()->to_utf8();
         for (ChildFrame const* const child : child_navigables(internals())) {
-            if (child->realm->internals().window_name == name)
+            std::string const* const target_name = internals().child_target_name(*child);
+            if (target_name && *target_name == name)
                 return std::optional<js::PropertyDescriptor>(js::PropertyDescriptor::data(js::Value::object(child->realm->internals().window_proxy()), js::Configurable));
         }
     }

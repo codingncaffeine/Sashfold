@@ -695,7 +695,16 @@ struct Realm::Internals {
         std::shared_ptr<std::optional<std::string>> m_value = std::make_shared<std::optional<std::string>>();
     };
     OriginDomain domain;
-    std::string window_name; // window.name, the frame's name to its parent
+    // A page's navigable's target name (HTML §7.3.1); a frame's is its
+    // parent's record of the frame, in `navigables`.
+    std::string top_level_target_name;
+    // The target name of this window's navigable, which window.name reads and
+    // sets; null for a window with none: its realm ended, its frame removed or
+    // gone on to another document, or no longer the window its navigable's
+    // WindowProxy stands for (HTML §7.2.2, the name getter's steps).
+    std::string* navigable_target_name();
+    // A frame of this document's target name, as its navigable holds it.
+    std::string const* child_target_name(ChildFrame const&) const;
     // This document's sandboxing flags: its iframe's sandbox attribute as it
     // stood when the frame navigated, with the flags of the document that
     // iframe is in (HTML's "determine the creation sandboxing flags"); none
@@ -708,9 +717,17 @@ struct Realm::Internals {
     // The frames of this document that have realms, in the order they were
     // opened; after the agent, so that they end before it.
     std::vector<ChildFrame> child_frames;
-    // The WindowProxy of each iframe's frame here: one for as long as the
-    // iframe stays in the tree, following it from document to document.
-    std::unordered_map<dom::Element const*, WindowProxyObject*> navigables;
+    // The navigable of each iframe's frame here, for as long as the iframe
+    // stays in the tree: its WindowProxy, following it from document to
+    // document, and its target name, the iframe's name attribute when the
+    // navigable was made and then what window.name sets. A document the frame
+    // goes on to keeps the name (HTML §7.4.1, a document state's navigable
+    // target name is its predecessor's); the attribute is not read again.
+    struct ChildNavigable {
+        WindowProxyObject* window_proxy = nullptr;
+        std::string target_name;
+    };
+    std::unordered_map<dom::Element const*, ChildNavigable> navigables;
     // The window's members another origin may reach, as they were installed
     // (HTML §7.2.3.4): a script replacing one of its own (window.frames = …)
     // does not change what another origin is shown.
