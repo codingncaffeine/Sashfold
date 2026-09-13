@@ -1047,6 +1047,15 @@ js::Object* Realm::wrap(dom::Node& node) { return m_internals->wrap(node); }
 js::Object* Realm::window() const { return m_internals->realm_record->intrinsics.global; }
 std::string const& Realm::ready_state() const { return m_internals->ready_state; }
 std::uint64_t Realm::mutation_count() const { return m_internals->mutations; }
+net::Url const& Realm::origin_url() const { return m_internals->origin_url; }
+
+std::uint64_t Realm::tree_mutation_count() const
+{
+    std::uint64_t count = m_internals->mutations;
+    for (ChildFrame const& listed : m_internals->child_frames)
+        count += listed.realm->tree_mutation_count();
+    return count;
+}
 void Realm::note_mutation() { ++m_internals->mutations; }
 ScriptStats const& Realm::stats() const { return m_internals->stats; }
 
@@ -1139,13 +1148,15 @@ void Realm::Internals::open_frame(dom::Element& iframe)
 {
     if (!hooks.frame_document)
         return;
-    // Ten frames deep, as far as the painter draws them.
-    int depth = 0;
-    for (Internals const* up = parent_realm; up != nullptr; up = up->parent_realm)
-        ++depth;
-    if (depth >= 10)
+    // The documents this frame is inside, the page first: the framing rules
+    // read the chain, and it goes ten frames deep, as the painter draws them.
+    std::vector<FrameAncestor> ancestors;
+    for (Internals const* up = this; up != nullptr; up = up->parent_realm)
+        ancestors.push_back(FrameAncestor { up->url.serialize(true), up->origin_url });
+    if (ancestors.size() > 10)
         return;
-    std::optional<FrameDocument> answer = hooks.frame_document(iframe, url, hooks.policy);
+    std::reverse(ancestors.begin(), ancestors.end());
+    std::optional<FrameDocument> answer = hooks.frame_document(iframe, url, hooks.policy, ancestors);
     if (!answer)
         return;
     std::string const type = ascii_lower(answer->content_type);

@@ -1,5 +1,6 @@
 #include "Test.h"
 
+#include "bindings/Realm.h"
 #include "core/Bitmap.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
@@ -27,8 +28,9 @@
 // about being framed (X-Frame-Options, frame-ancestors over it), the page's
 // frame-src over what is fetched, a fetched document's own policy over what
 // it fetches, and the page's policy kept by srcdoc and data: documents. A
-// frame drawn before taken as it was until its size changes; and the
-// border an iframe has, and frameborder taking it away.
+// frame drawn before taken as it was until its size changes; the border an
+// iframe has, and frameborder taking it away; what a frame's realm is
+// answered with, and a frame that has a realm drawn from its live document.
 
 using namespace sashfold;
 
@@ -286,6 +288,75 @@ int main()
         CHECK_EQ(borders["zero"], 0.0f);
         CHECK_EQ(borders["no"], 0.0f);
         CHECK_EQ(borders["one"], 8.0f);
+    }
+
+    // What the host answers a frame's realm with: an srcdoc as text with its
+    // parent's origin, a fetched document under its own URL, a document the
+    // rules refuse as nothing, and a page named twice up the chain of
+    // documents a frame is inside as nothing.
+    {
+        Server server;
+        server.files["https://example.test/green.html"] = html_file(green_page);
+        server.files["https://example.test/deny.html"] = html_file(green_page, { net::Header { "X-Frame-Options", "DENY" } });
+        server.files["https://example.test/page.html"] = html_file(green_page);
+        net::Url const base = *net::parse_url("https://example.test/page.html");
+        std::vector<bindings::FrameAncestor> const page_only { bindings::FrameAncestor { base.serialize(true), base } };
+        std::function<dom::Element*(dom::Node&)> const first_iframe = [&first_iframe](dom::Node& node) -> dom::Element* {
+            if (node.is_element() && static_cast<dom::Element&>(node).is_html("iframe"))
+                return &static_cast<dom::Element&>(node);
+            for (dom::Node* const child : node.children()) {
+                if (dom::Element* const found = first_iframe(*child))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const answer_for = [&](std::string const& markup, std::vector<bindings::FrameAncestor> const& chain) {
+            dom::Document document;
+            html::parse_document_bytes_into(document, markup);
+            dom::Element* const iframe = first_iframe(document);
+            return iframe ? ui::frame_document_for(*iframe, base, nullptr, chain, server.fetcher())
+                          : std::optional<bindings::FrameDocument>();
+        };
+        std::optional<bindings::FrameDocument> const srcdoc = answer_for("<iframe srcdoc='<p>x</p>'></iframe>", page_only);
+        CHECK(srcdoc && srcdoc->srcdoc && std::string(srcdoc->bytes.begin(), srcdoc->bytes.end()) == "<p>x</p>");
+        CHECK(srcdoc && srcdoc->origin.serialize_origin() == "https://example.test" && srcdoc->url.serialize() == "about:srcdoc");
+        std::optional<bindings::FrameDocument> const fetched = answer_for("<iframe src='green.html'></iframe>", page_only);
+        CHECK(fetched && !fetched->srcdoc && fetched->url.serialize() == "https://example.test/green.html");
+        CHECK(!answer_for("<iframe src='deny.html'></iframe>", page_only));
+        CHECK(answer_for("<iframe src='page.html'></iframe>", page_only).has_value());
+        std::vector<bindings::FrameAncestor> const twice { page_only[0], page_only[0] };
+        CHECK(!answer_for("<iframe src='page.html'></iframe>", twice));
+    }
+
+    // A frame whose document has a realm of its own is drawn from that live
+    // document: what the frame's script did shows, where a frame drawn without
+    // a realm parses its markup with scripting off.
+    {
+        Server server;
+        net::Url const base = *net::parse_url("https://example.test/page.html");
+        std::string const markup = head
+            + "<iframe srcdoc=\"<body style='margin:0'><script>document.body.style.background = '#00ff00'</script>\"></iframe>";
+        auto const pixel_drawn = [&](bool with_realm) {
+            dom::Document document;
+            bindings::HostHooks hooks;
+            hooks.frame_document = [&server](dom::Element const& iframe, net::Url const& frame_base, net::ContentSecurityPolicy* policy,
+                                       std::vector<bindings::FrameAncestor> const& ancestors) {
+                return ui::frame_document_for(iframe, frame_base, policy, ancestors, server.fetcher());
+            };
+            bindings::Realm realm(document, base, std::move(hooks));
+            html::parse_document_bytes_into(document, markup, &realm);
+            realm.document_parsed();
+            css::MediaContext const media { 400, 900, 1 };
+            css::StyleMap const styles
+                = css::resolve_styles(document, css::collect_stylesheets(document, &base, {}, media), media, &base);
+            layout::LayoutResult laid = layout::layout_document(document, styles, 400, nullptr, nullptr, 900);
+            ui::draw_frames(base, laid, server.fetcher(), 1.0f, nullptr, nullptr, with_realm ? &realm : nullptr);
+            Bitmap canvas(400, 900, laid.canvas_background);
+            paint::paint_page(canvas, laid);
+            return canvas.pixel(50, 30);
+        };
+        CHECK(same(pixel_drawn(true), lime));
+        CHECK(!same(pixel_drawn(false), lime));
     }
 
     return test::report("frames");

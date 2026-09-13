@@ -1348,7 +1348,7 @@ struct Browser::Impl {
         // at the same size is taken as it was. Their documents set fonts of
         // their own, so the page's are put back.
         if (HistoryEntry const* const entry = tab.current()) {
-            draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames);
+            draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames, tab.realm.get());
             text::FontManager::instance().set_page_fonts(tab.fonts);
         }
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
@@ -1396,7 +1396,7 @@ struct Browser::Impl {
     // since they were last computed. Called before anything reads them.
     void ensure_fresh(Tab& tab)
     {
-        if (!tab.realm || !tab.document || tab.page_mutations == tab.realm->mutation_count())
+        if (!tab.realm || !tab.document || tab.page_mutations == tab.realm->tree_mutation_count())
             return;
         refresh_page(tab);
         dirty = true;
@@ -1585,6 +1585,16 @@ struct Browser::Impl {
         hooks.viewport_height = static_cast<float>(to_css_px(media.height));
         hooks.device_scale = scale;
         hooks.user_agent = std::string(net::user_agent());
+        // A frame's document gets a realm of its own, fetched through the tab
+        // that shows the page, by the framing rules its frames are drawn by.
+        hooks.frame_document = [this, document](dom::Element const& iframe, net::Url const& base,
+                                   net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors)
+            -> std::optional<bindings::FrameDocument> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            return frame_document_for(iframe, base, policy, ancestors, frame_fetcher(*owner));
+        };
         return std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
     }
 
@@ -1678,7 +1688,7 @@ struct Browser::Impl {
             }
         }
         relayout(tab);
-        tab.page_mutations = tab.realm ? tab.realm->mutation_count() : 0;
+        tab.page_mutations = tab.realm ? tab.realm->tree_mutation_count() : 0;
     }
 
     // (An entry a session restored keeps the title it was saved with until

@@ -17,9 +17,13 @@
 // ten deep (Gecko's limit), and a page's whole tree of frames is drawn
 // within a budget of frames and of pixels.
 //
-// Not drawn yet: a frame's scripts and its load event, input into a frame,
-// scrolling inside one, a frame document that is not markup.
+// A frame whose document has a realm of its own — opened by the page's realm
+// with its scripts running — is drawn from that live document instead.
+//
+// Not drawn yet: input into a frame, scrolling inside one, a frame document
+// that is not markup.
 
+#include "bindings/Realm.h"
 #include "core/Bitmap.h"
 #include "layout/Layout.h"
 #include "net/Csp.h"
@@ -61,6 +65,7 @@ struct DrawnFrame {
     int width = 0;
     int height = 0;
     std::shared_ptr<Bitmap const> bitmap;
+    std::uint64_t mutations = 0; // a live frame's documents' count when it was drawn
 };
 using DrawnFrames = std::unordered_map<dom::Element const*, DrawnFrame>;
 
@@ -69,8 +74,18 @@ using DrawnFrames = std::unordered_map<dom::Element const*, DrawnFrame>;
 // device px per CSS px. A frame's document sets the process's page fonts to
 // its own, so a caller that measures or paints text afterwards sets its
 // page's again. With `drawn`, a frame drawn before is taken from it, and it
-// is left holding this page's frames alone.
+// is left holding this page's frames alone. With `realm`, the realm of the
+// page's document, a frame whose document has a realm there is drawn from
+// that live document, and its own frames from theirs.
 void draw_frames(net::Url const& base, layout::LayoutResult& page, FrameFetcher const& fetch, float device_scale,
-    net::ContentSecurityPolicy* policy = nullptr, DrawnFrames* drawn = nullptr);
+    net::ContentSecurityPolicy* policy = nullptr, DrawnFrames* drawn = nullptr, bindings::Realm* realm = nullptr);
+
+// An iframe's document as the framing rules let it through, for a realm of
+// its own: what its srcdoc or src names for the document at `base` under
+// `policy`, inside `ancestors` (the page first). What
+// bindings::HostHooks::frame_document answers, by the rules a frame drawn
+// without a realm is held to.
+std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& iframe, net::Url const& base,
+    net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors, FrameFetcher const& fetch);
 
 }

@@ -1337,8 +1337,8 @@ void test_local_storage_areas()
 void test_frames_have_realms_of_their_own()
 {
     bindings::HostHooks hooks;
-    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base,
-                               net::ContentSecurityPolicy const* policy) -> std::optional<bindings::FrameDocument> {
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt;

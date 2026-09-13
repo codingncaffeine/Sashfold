@@ -444,6 +444,12 @@ private:
             };
             hooks.viewport_width = media.width;
             hooks.viewport_height = media.height;
+            // A frame's document gets a realm of its own, served by the rules
+            // the frames are drawn by.
+            hooks.frame_document = [this](dom::Element const& iframe, net::Url const& base,
+                                       net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors) {
+                return ui::frame_document_for(iframe, base, policy, ancestors, frame_fetcher());
+            };
             realm = std::make_unique<bindings::Realm>(*document, *url, std::move(hooks));
             oracle.set_realm(realm.get());
         }
@@ -480,10 +486,21 @@ private:
             = ui::collect_background_images(styles, fetch_image);
         layout::LayoutResult page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height));
-        // The frames' documents, from the same tree: a file a frame's src
-        // names (markup by its extension), a data: URL, or its srcdoc.
-        ui::FrameFetcher const frames = [this](net::Url const& target, net::Url const&, net::ResourceKind kind,
-                                            net::RequestGuard const&) -> std::optional<ui::FrameResponse> {
+        // The frames: one whose document has a realm is drawn from it.
+        ui::draw_frames(*url, page, frame_fetcher(), 1.0f, nullptr, nullptr, realm.get());
+        text::FontManager::instance().set_page_fonts(fonts);
+        auto canvas = std::make_shared<Bitmap>(viewport_width, viewport_height, page.canvas_background);
+        paint::paint_page(*canvas, page, 0, 0, &backgrounds);
+        rendered->bitmap = std::move(canvas);
+        return rendered;
+    }
+
+    // The frames' documents and what they fetch, from the same tree: a file a
+    // frame's src names (markup by its extension), a data: URL, or its srcdoc.
+    ui::FrameFetcher frame_fetcher() const
+    {
+        return [this](net::Url const& target, net::Url const&, net::ResourceKind kind,
+                   net::RequestGuard const&) -> std::optional<ui::FrameResponse> {
             std::optional<std::string> const bytes = read_url(target);
             if (!bytes)
                 return std::nullopt;
@@ -497,12 +514,6 @@ private:
                     : "application/octet-stream";
             return ui::FrameResponse { std::vector<std::uint8_t>(bytes->begin(), bytes->end()), type, target, {} };
         };
-        ui::draw_frames(*url, page, frames, 1.0f);
-        text::FontManager::instance().set_page_fonts(fonts);
-        auto canvas = std::make_shared<Bitmap>(viewport_width, viewport_height, page.canvas_background);
-        paint::paint_page(*canvas, page, 0, 0, &backgrounds);
-        rendered->bitmap = std::move(canvas);
-        return rendered;
     }
 
     std::optional<std::string> read_url(net::Url const& target) const

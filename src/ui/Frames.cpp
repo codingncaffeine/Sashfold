@@ -62,7 +62,23 @@ struct Drawn {
 };
 
 void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecurityPolicy* policy, Walk& walk,
-    int depth, DrawnFrames* drawn);
+    int depth, DrawnFrames* drawn, bindings::Realm* realm);
+
+std::shared_ptr<Bitmap const> render_document(dom::Document& document, net::Url const& document_url,
+    net::ContentSecurityPolicy& policy, int width, int height, Walk& walk, int depth, bindings::Realm* realm);
+
+// What a frame shows, as the framing rules let it through: the response (an
+// srcdoc's text, a data: URL's payload, or what was fetched), whether it is
+// srcdoc text, and the policy the document keeps — the page's for srcdoc and
+// data:, its response's own otherwise.
+struct Opened {
+    FrameResponse response;
+    bool srcdoc = false;
+    net::ContentSecurityPolicy policy;
+};
+
+std::optional<Opened> open_document(dom::Element const& element, std::optional<net::Url> const& url, net::Url const& base,
+    net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch);
 
 bool starts_with_ci(std::string_view text, std::string_view lowercase_prefix)
 {
@@ -171,12 +187,21 @@ std::shared_ptr<Bitmap const> render_frame(FrameResponse const& frame, bool srcd
     else
         html::parse_document_bytes_into(*document, text_of(frame.bytes));
     bindings::adopt_meta_policies(policy, *document);
+    return render_document(*document, frame.url, policy, width, height, walk, depth, nullptr);
+}
+
+// A frame's document, parsed or live, drawn at the frame's size under its
+// policy, `depth` frames deep; `realm`, when the document has one, is where
+// its own frames' live documents are found.
+std::shared_ptr<Bitmap const> render_document(dom::Document& document, net::Url const& document_url,
+    net::ContentSecurityPolicy& policy, int width, int height, Walk& walk, int depth, bindings::Realm* realm)
+{
     // The frame is its document's viewport.
     css::MediaContext const media { static_cast<float>(width), static_cast<float>(height), walk.device_scale };
     auto const fetch_kind = [&](net::ResourceKind kind) {
         return [&, kind](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
             std::optional<FrameResponse> response
-                = walk.fetch ? walk.fetch(url, frame.url, kind, policy.guard(kind, std::string(nonce))) : std::nullopt;
+                = walk.fetch ? walk.fetch(url, document_url, kind, policy.guard(kind, std::string(nonce))) : std::nullopt;
             if (!response)
                 return std::nullopt;
             return css::FetchedSheet { std::move(response->bytes), std::move(response->content_type) };
@@ -186,29 +211,29 @@ std::shared_ptr<Bitmap const> render_frame(FrameResponse const& frame, bool srcd
         dom::Attr const* const nonce = style.find_attribute("nonce");
         return !policy.inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
     };
-    std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, &frame.url,
+    std::vector<css::SheetSource> const sheets = css::collect_stylesheets(document, &document_url,
         fetch_kind(net::ResourceKind::Stylesheet), media, inline_check);
     std::vector<text::PageFont> const fonts = css::collect_page_fonts(sheets, fetch_kind(net::ResourceKind::Font), media);
     text::FontManager::instance().set_page_fonts(fonts);
-    css::StyleSet style_set(sheets, media, &frame.url);
+    css::StyleSet style_set(sheets, media, &document_url);
     style_set.set_style_attribute_check([&policy](dom::Element const&, std::string_view text) {
         return !policy.inline_refusal(net::InlineKind::StyleAttribute, {}, text);
     });
-    css::StyleMap const styles = css::resolve_styles(*document, style_set);
+    css::StyleMap const styles = css::resolve_styles(document, style_set);
     ImageFetcher const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
         std::optional<FrameResponse> response = walk.fetch
-            ? walk.fetch(url, frame.url, net::ResourceKind::Image, policy.guard(net::ResourceKind::Image))
+            ? walk.fetch(url, document_url, net::ResourceKind::Image, policy.guard(net::ResourceKind::Image))
             : std::nullopt;
         if (!response)
             return std::nullopt;
         return std::move(response->bytes);
     };
-    layout::ImageMap const images = collect_images(*document, &frame.url, fetch_image, media);
+    layout::ImageMap const images = collect_images(document, &document_url, fetch_image, media);
     layout::BackgroundImages const backgrounds = collect_background_images(styles, fetch_image);
-    layout::LayoutResult page = layout::layout_document(*document, styles, static_cast<float>(width), &images, nullptr,
+    layout::LayoutResult page = layout::layout_document(document, styles, static_cast<float>(width), &images, nullptr,
         static_cast<float>(height), walk.device_scale);
     if (depth < max_depth)
-        draw_in(frame.url, page, &policy, walk, depth, nullptr);
+        draw_in(document_url, page, &policy, walk, depth, nullptr, realm);
     // Its frames set fonts of their own; its own are put back to paint by.
     text::FontManager::instance().set_page_fonts(fonts);
     // A frame's canvas is transparent unless its document gives it a color,
@@ -232,6 +257,21 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
     if (walk.frames_left <= 0 || pixels > walk.pixels_left)
         return { nullptr, false };
     --walk.frames_left;
+    std::optional<Opened> opened = open_document(element, url, base, policy, walk.ancestors, walk.fetch);
+    if (!opened)
+        return {};
+    walk.pixels_left -= pixels;
+    walk.ancestors.push_back(Ancestor { opened->srcdoc ? std::string("about:srcdoc") : opened->response.url.serialize(true),
+        opened->srcdoc ? base : opened->response.url });
+    std::shared_ptr<Bitmap const> bitmap
+        = render_frame(opened->response, opened->srcdoc, opened->policy, width, height, walk, depth + 1);
+    walk.ancestors.pop_back();
+    return { std::move(bitmap), true };
+}
+
+std::optional<Opened> open_document(dom::Element const& element, std::optional<net::Url> const& url, net::Url const& base,
+    net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch)
+{
     FrameResponse response;
     bool srcdoc = false;
     // An srcdoc or data: document keeps the policy of the document it is
@@ -241,7 +281,7 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
         response = FrameResponse { std::vector<std::uint8_t>(text->value.begin(), text->value.end()), "text/html", base, {} };
         srcdoc = true;
     } else {
-        if (!url || !may_frame(*url, walk.ancestors))
+        if (!url || !may_frame(*url, ancestors))
             return {};
         net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Subdocument) : net::RequestGuard {};
         if (url->scheme == "data") {
@@ -254,7 +294,7 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
             response = FrameResponse { std::move(payload->bytes), std::move(payload->mime_type), *url, {} };
         } else {
             std::optional<FrameResponse> fetched
-                = walk.fetch ? walk.fetch(*url, base, net::ResourceKind::Subdocument, guard) : std::nullopt;
+                = fetch ? fetch(*url, base, net::ResourceKind::Subdocument, guard) : std::nullopt;
             if (!fetched)
                 return {};
             response = std::move(*fetched);
@@ -272,19 +312,35 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
             else if (ascii_ci_equals(header.name, "content-security-policy-report-only"))
                 own.add_header(header.value, true);
         }
-        if (!may_be_framed(response, own, walk.ancestors))
+        if (!may_be_framed(response, own, ancestors))
             return {};
     }
+    return Opened { std::move(response), srcdoc, std::move(own) };
+}
+
+// A frame drawn from the live document its realm holds, under that
+// document's policy and within the same budget.
+Drawn draw_live(bindings::Realm& frame, int width, int height, Walk& walk, int depth)
+{
+    long long const pixels = static_cast<long long>(width) * height;
+    if (pixels > max_frame_pixels)
+        return {};
+    if (walk.frames_left <= 0 || pixels > walk.pixels_left)
+        return { nullptr, false };
+    net::ContentSecurityPolicy* const frame_policy = frame.hooks().policy;
+    if (!frame_policy)
+        return {};
+    --walk.frames_left;
     walk.pixels_left -= pixels;
-    walk.ancestors.push_back(
-        Ancestor { srcdoc ? std::string("about:srcdoc") : response.url.serialize(true), srcdoc ? base : response.url });
-    std::shared_ptr<Bitmap const> bitmap = render_frame(response, srcdoc, own, width, height, walk, depth + 1);
+    walk.ancestors.push_back(Ancestor { frame.url().serialize(true), frame.origin_url() });
+    std::shared_ptr<Bitmap const> bitmap
+        = render_document(frame.document(), frame.url(), *frame_policy, width, height, walk, depth + 1, &frame);
     walk.ancestors.pop_back();
     return { std::move(bitmap), true };
 }
 
 void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecurityPolicy* policy, Walk& walk,
-    int depth, DrawnFrames* drawn)
+    int depth, DrawnFrames* drawn, bindings::Realm* realm)
 {
     std::vector<layout::Fragment*> frames;
     find_frames(page.root, frames);
@@ -307,21 +363,27 @@ void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecur
             if (url && url->scheme != "about")
                 source = "src:" + url->serialize();
         }
+        // A frame whose document has a realm here is drawn from that live
+        // document; its picture stands only while those documents are unchanged.
+        bindings::Realm* const live = realm ? realm->frame_realm(element) : nullptr;
+        std::uint64_t const mutations = live ? live->tree_mutation_count() : 0;
         if (drawn) {
             auto const it = drawn->find(&element);
             if (it != drawn->end() && it->second.source == source && it->second.width == width
-                && it->second.height == height) {
+                && it->second.height == height && it->second.mutations == mutations) {
                 box.bitmap = it->second.bitmap;
                 kept.emplace(&element, it->second);
                 continue;
             }
         }
         Drawn result;
-        if (!source.empty() && width > 0 && height > 0)
+        if (live && width > 0 && height > 0)
+            result = draw_live(*live, width, height, walk, depth);
+        else if (!source.empty() && width > 0 && height > 0)
             result = draw_one(element, url, base, policy, width, height, walk, depth);
         box.bitmap = result.bitmap;
         if (drawn && result.settled)
-            kept.emplace(&element, DrawnFrame { source, width, height, result.bitmap });
+            kept.emplace(&element, DrawnFrame { source, width, height, result.bitmap, mutations });
     }
     if (drawn)
         *drawn = std::move(kept);
@@ -330,11 +392,42 @@ void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecur
 }
 
 void draw_frames(net::Url const& base, layout::LayoutResult& page, FrameFetcher const& fetch, float device_scale,
-    net::ContentSecurityPolicy* policy, DrawnFrames* drawn)
+    net::ContentSecurityPolicy* policy, DrawnFrames* drawn, bindings::Realm* realm)
 {
     Walk walk(fetch, device_scale);
     walk.ancestors.push_back(Ancestor { base.serialize(true), base });
-    draw_in(base, page, policy, walk, 0, drawn);
+    draw_in(base, page, policy, walk, 0, drawn, realm);
+}
+
+std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& iframe, net::Url const& base,
+    net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors, FrameFetcher const& fetch)
+{
+    // What the frame shows, as HTML processes its attributes and draw_in reads
+    // them: srcdoc first, then a src that parses and is not about:.
+    std::optional<net::Url> url;
+    if (!iframe.find_attribute("srcdoc")) {
+        dom::Attr const* const src = iframe.find_attribute("src");
+        if (!src || src->value.empty())
+            return std::nullopt;
+        url = net::parse_url(src->value, &base);
+        if (!url || url->scheme == "about")
+            return std::nullopt;
+    }
+    std::vector<Ancestor> chain;
+    for (bindings::FrameAncestor const& ancestor : ancestors)
+        chain.push_back(Ancestor { ancestor.address, ancestor.origin });
+    std::optional<Opened> opened = open_document(iframe, url, base, policy, chain, fetch);
+    if (!opened)
+        return std::nullopt;
+    bindings::FrameDocument answer;
+    answer.bytes = std::move(opened->response.bytes);
+    answer.content_type = std::move(opened->response.content_type);
+    answer.url = opened->srcdoc ? *net::parse_url("about:srcdoc") : opened->response.url;
+    // An srcdoc document has its parent's origin; a data: URL's is opaque.
+    answer.origin = opened->srcdoc ? (chain.empty() ? base : chain.back().origin) : opened->response.url;
+    answer.srcdoc = opened->srcdoc;
+    answer.policy = std::move(opened->policy);
+    return answer;
 }
 
 }

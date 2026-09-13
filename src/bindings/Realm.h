@@ -49,6 +49,13 @@ struct StorageArea {
     std::uint64_t changes = 0;
 };
 
+// A document a frame is inside, for the framing rules: its URL without the
+// fragment (about:srcdoc for an srcdoc document) and the URL of its origin.
+struct FrameAncestor {
+    std::string address;
+    net::Url origin;
+};
+
 // An iframe's document as the host found it, once the framing rules let it
 // through: its bytes and their type, the URL it has, the URL of its origin
 // (an srcdoc document's is its parent's), whether the bytes are srcdoc text
@@ -127,10 +134,12 @@ struct HostHooks {
     std::function<StorageArea*(std::string const& origin)> local_storage;
     // An iframe's document, for a realm of its own in this page's agent: what
     // its srcdoc or src names for the document at `base` under `policy`, as
-    // the framing rules let it through; nullopt when there is nothing to show.
-    // Without it a frame's document has no realm, and contentDocument is null.
+    // the framing rules let it through for a frame inside `ancestors` (the
+    // page first, the document at `base` last); nullopt when there is nothing
+    // to show. Without it a frame's document has no realm, and
+    // contentDocument is null.
     std::function<std::optional<FrameDocument>(dom::Element const& iframe, net::Url const& base,
-        net::ContentSecurityPolicy const* policy)> frame_document;
+        net::ContentSecurityPolicy* policy, std::vector<FrameAncestor> const& ancestors)> frame_document;
 
     float viewport_width = 1024; // CSS px, for innerWidth and matchMedia
     float viewport_height = 768;
@@ -203,6 +212,9 @@ public:
     dom::Document& document();
     // The document's URL as scripts see it: history.pushState moves it.
     net::Url const& url() const;
+    // The URL of the document's origin: its own, or an srcdoc document's
+    // parent's.
+    net::Url const& origin_url() const;
     HostHooks& hooks();
 
     // --- Wrappers -----------------------------------------------------------
@@ -260,6 +272,9 @@ public:
     // Every change a script made to the tree, an attribute or a style: the
     // host re-styles and re-lays out when this moves.
     std::uint64_t mutation_count() const;
+    // This document's count with those of its frames that have realms here,
+    // at any depth: what a host that draws the frames watches.
+    std::uint64_t tree_mutation_count() const;
     void note_mutation();
 
     ScriptStats const& stats() const;

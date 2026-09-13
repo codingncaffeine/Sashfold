@@ -747,6 +747,14 @@ int render_page(std::string const& path, std::string const& output, int viewport
         hooks.viewport_height = media.height / g_device_scale;
         hooks.device_scale = g_device_scale;
         hooks.user_agent = std::string(net::user_agent());
+        // A frame's document gets a realm of its own, by the framing rules the
+        // frames are drawn by, unless the page's sandbox keeps scripts off.
+        if (loaded.policy->sandbox_allows_scripts()) {
+            hooks.frame_document = [&loaded](dom::Element const& iframe, net::Url const& base,
+                                       net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors) {
+                return ui::frame_document_for(iframe, base, policy, ancestors, frame_fetcher(loaded));
+            };
+        }
         realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));
         oracle.set_realm(realm.get());
     }
@@ -788,7 +796,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale);
     // The page's frames: a frame's document under the page's frame-src, what
     // that document fetches under its own policy.
-    ui::draw_frames(loaded.url, page, frame_fetcher(loaded), g_device_scale, loaded.policy.get());
+    ui::draw_frames(loaded.url, page, frame_fetcher(loaded), g_device_scale, loaded.policy.get(), nullptr, realm.get());
     text::FontManager::instance().set_page_fonts(fonts);
     auto const t5 = clock::now();
     if (extras.dump_layout) {
