@@ -5,6 +5,8 @@
 #include "net/Url.h"
 #include "platform/Net.h"
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -39,6 +41,31 @@ FetchResponse ok(Headers headers, std::string const& body = "body", int status =
 std::string body_text(FetchResponse const& response)
 {
     return std::string(response.body.begin(), response.body.end());
+}
+
+// The stored response for the URL when it may be served as it is; null
+// when there is none or it is stale.
+FetchResponse const* fresh_hit(HttpCache& cache, Url const& url, std::int64_t at)
+{
+    HttpCache::Lookup const found = cache.lookup(url, at);
+    return found.fresh ? found.response : nullptr;
+}
+
+// Serves the responses in turn, one connection each, keeping what each
+// connection asked; then exits.
+void serve_each(platform::TcpListener& listener, std::vector<std::string> responses, std::vector<std::string>* requests)
+{
+    for (std::string const& response : responses) {
+        auto client = listener.accept();
+        if (!client)
+            return;
+        std::uint8_t buffer[4096];
+        std::ptrdiff_t const got = client->receive(buffer, sizeof buffer);
+        if (requests)
+            requests->emplace_back(reinterpret_cast<char const*>(buffer), got > 0 ? static_cast<std::size_t>(got) : 0);
+        (void)client->send_all(reinterpret_cast<std::uint8_t const*>(response.data()), response.size());
+        client->close();
+    }
 }
 
 // Serves `times` connections with a fixed response, then exits.
@@ -87,7 +114,7 @@ int main()
                  .value_or(0),
         now + 60); // first instance wins
     CHECK(!fresh_until(Headers { { "Cache-Control", "max-age=60, no-store" } }, now).has_value());
-    CHECK(!fresh_until(Headers { { "Cache-Control", "no-cache" } }, now).has_value());
+    CHECK_EQ(fresh_until(Headers { { "Cache-Control", "no-cache" } }, now).value_or(-1), now); // kept, never served without asking
     CHECK(!fresh_until(Headers { { "Cache-Control", "max-age=60" }, { "Cache-Control", "no-store" } },
         now)
                .has_value()); // directives split across lines still combine
@@ -120,23 +147,23 @@ int main()
 
     // --- Storage policy -------------------------------------------------------
     {
-        MemoryCache cache;
+        HttpCache cache;
         Url const page = url_of("http://example.com/a?x=1#section");
         CHECK(cache.store(page, ok({ { "Cache-Control", "max-age=60" } }, "hello"), now));
         CHECK_EQ(cache.size(), std::size_t { 1 });
-        FetchResponse const* const hit = cache.lookup(url_of("http://example.com/a?x=1"), now + 59);
+        FetchResponse const* const hit = fresh_hit(cache, url_of("http://example.com/a?x=1"), now + 59);
         CHECK(hit != nullptr);
         if (hit) {
             CHECK(hit->from_cache);
             CHECK_EQ(hit->status, 200);
             CHECK_EQ(body_text(*hit), "hello");
         }
-        CHECK(cache.lookup(page, now + 60) == nullptr); // the boundary is exclusive
-        CHECK(cache.lookup(url_of("http://example.com/a?x=2"), now) == nullptr);
-        CHECK(cache.lookup(url_of("https://example.com/a?x=1"), now) == nullptr);
+        CHECK(fresh_hit(cache, page, now + 60) == nullptr); // the boundary is exclusive
+        CHECK(fresh_hit(cache, url_of("http://example.com/a?x=2"), now) == nullptr);
+        CHECK(fresh_hit(cache, url_of("https://example.com/a?x=1"), now) == nullptr);
     }
     {
-        MemoryCache cache;
+        HttpCache cache;
         Url const page = url_of("http://example.com/");
         CHECK(!cache.store(page, ok({ { "Cache-Control", "max-age=60" } }, "x", 404), now));
         CHECK(!cache.store(page, ok({ { "Cache-Control", "no-store" } }), now));
@@ -147,13 +174,13 @@ int main()
     }
     {
         // Set-Cookie never rides a cache hit; the other headers do.
-        MemoryCache cache;
+        HttpCache cache;
         Url const page = url_of("http://example.com/");
         CHECK(cache.store(page,
             ok({ { "Set-Cookie", "sid=1" }, { "Content-Type", "text/html" },
                 { "Cache-Control", "max-age=60" }, { "set-cookie", "t=2" } }),
             now));
-        FetchResponse const* const hit = cache.lookup(page, now);
+        FetchResponse const* const hit = fresh_hit(cache, page, now);
         CHECK(hit != nullptr);
         if (hit) {
             CHECK(find_header(hit->headers, "set-cookie") == nullptr);
@@ -166,7 +193,7 @@ int main()
         // after stale entries have been swept. Each 200-byte entry costs
         // 243 bytes (body + 20-byte key + 23 bytes of Cache-Control), so
         // three fit in 800 and a fourth does not.
-        MemoryCache cache(800, 400);
+        HttpCache cache(800, 400);
         Url const big = url_of("http://example.com/big");
         CHECK(!cache.store(big, ok({ { "Cache-Control", "max-age=60" } }, std::string(401, 'b')), now));
         Url const a = url_of("http://example.com/a");
@@ -179,22 +206,22 @@ int main()
         CHECK_EQ(cache.size(), std::size_t { 3 });
         // At now+10, a is stale: it is swept and b, c stay.
         CHECK(cache.store(d, ok({ { "Cache-Control", "max-age=60" } }, std::string(200, 'd')), now + 10));
-        CHECK(cache.lookup(a, now + 10) == nullptr);
-        CHECK(cache.lookup(b, now + 10) != nullptr);
-        CHECK(cache.lookup(c, now + 10) != nullptr);
-        CHECK(cache.lookup(d, now + 10) != nullptr);
+        CHECK(fresh_hit(cache, a, now + 10) == nullptr);
+        CHECK(fresh_hit(cache, b, now + 10) != nullptr);
+        CHECK(fresh_hit(cache, c, now + 10) != nullptr);
+        CHECK(fresh_hit(cache, d, now + 10) != nullptr);
         // Another entry no longer fits: b, the oldest fresh one, goes.
         Url const e = url_of("http://example.com/e");
         CHECK(cache.store(e, ok({ { "Cache-Control", "max-age=60" } }, std::string(200, 'e')), now + 11));
-        CHECK(cache.lookup(b, now + 11) == nullptr);
-        CHECK(cache.lookup(c, now + 11) != nullptr);
-        CHECK(cache.lookup(e, now + 11) != nullptr);
+        CHECK(fresh_hit(cache, b, now + 11) == nullptr);
+        CHECK(fresh_hit(cache, c, now + 11) != nullptr);
+        CHECK(fresh_hit(cache, e, now + 11) != nullptr);
         CHECK(cache.bytes() <= 1000);
         // Re-storing a key replaces it without double counting.
         std::size_t const before = cache.bytes();
         CHECK(cache.store(e, ok({ { "Cache-Control", "max-age=60" } }, std::string(200, 'E')), now + 12));
         CHECK_EQ(cache.bytes(), before);
-        FetchResponse const* const hit = cache.lookup(e, now + 12);
+        FetchResponse const* const hit = fresh_hit(cache, e, now + 12);
         CHECK(hit && body_text(*hit) == std::string(200, 'E'));
     }
 
@@ -207,7 +234,7 @@ int main()
                 std::string("HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\n"
                             "Set-Cookie: sid=1\r\nContent-Length: 5\r\n\r\nfresh"),
                 1);
-            MemoryCache cache;
+            HttpCache cache;
             FetchOptions options;
             options.cache = &cache;
             Url const url = url_of(loopback(*listener, "/page"));
@@ -239,7 +266,7 @@ int main()
             std::thread server(serve, std::ref(*listener),
                 std::string("HTTP/1.1 200 OK\r\nCache-Control: no-store\r\nContent-Length: 4\r\n\r\nlive"),
                 2);
-            MemoryCache cache;
+            HttpCache cache;
             FetchOptions options;
             options.cache = &cache;
             Url const url = url_of(loopback(*listener, "/live"));
@@ -267,7 +294,7 @@ int main()
             std::thread target_server(serve, std::ref(*target),
                 std::string("HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\nContent-Length: 6\r\n\r\nlanded"),
                 1);
-            MemoryCache cache;
+            HttpCache cache;
             FetchOptions options;
             options.cache = &cache;
             Url const start = url_of(loopback(*entry, "/start"));
@@ -283,8 +310,197 @@ int main()
                 CHECK_EQ(second.response->final_url.serialize(), loopback(*target, "/landed"));
             }
             entry_server.join();
-            CHECK(cache.lookup(start, now) == nullptr); // only the 200 was stored
+            CHECK(fresh_hit(cache, start, now) == nullptr); // only the 200 was stored
         }
+    }
+
+    // --- Heuristic freshness, validators, no-cache ---------------------------
+    {
+        // 1'700'000'000 is Tue, 14 Nov 2023 22:13:20 GMT; the Last-Modified
+        // dates below are ten days and two years earlier.
+        Headers const dated { { "Date", "Tue, 14 Nov 2023 22:13:20 GMT" }, { "Last-Modified", "Sat, 04 Nov 2023 22:13:20 GMT" } };
+        CHECK_EQ(fresh_until(dated, now).value_or(0), now + 86400); // a tenth of ten days
+        Headers const old { { "Date", "Tue, 14 Nov 2023 22:13:20 GMT" }, { "Last-Modified", "Sun, 14 Nov 2021 22:13:20 GMT" } };
+        CHECK_EQ(fresh_until(old, now).value_or(0), now + 7 * 86400); // a week at most
+        Headers const undated { { "Last-Modified", "Sat, 04 Nov 2023 22:13:20 GMT" } };
+        CHECK_EQ(fresh_until(undated, now).value_or(0), now + 86400); // from our clock without a Date
+        CHECK_EQ(fresh_until(dated, now, 404).value_or(-1), now); // heuristics are for a 200; the validator keeps it
+        CHECK_EQ(fresh_until(Headers { { "ETag", "\"v1\"" } }, now).value_or(-1), now); // a validator alone: kept to revalidate
+        CHECK_EQ(fresh_until(Headers { { "Cache-Control", "no-cache" }, { "ETag", "\"v1\"" } }, now).value_or(-1), now);
+        CHECK_EQ(fresh_until(Headers { { "Cache-Control", "max-age=60" }, { "Last-Modified", "Sat, 04 Nov 2023 22:13:20 GMT" } }, now).value_or(0),
+            now + 60); // explicit beats heuristic
+
+        HttpCache cache;
+        Url const page = url_of("http://example.com/tagged");
+        CHECK(cache.store(page, ok({ { "ETag", "\"v1\"" }, { "Cache-Control", "max-age=0" } }, "one"), now));
+        HttpCache::Lookup const found = cache.lookup(page, now);
+        CHECK(found.response != nullptr && !found.fresh);
+        CHECK_EQ(found.etag, "\"v1\"");
+        CHECK(fresh_hit(cache, page, now) == nullptr);
+        // A 304 renews it: the new headers replace the old, the body stays,
+        // and a Content-Length that describes no body is left out.
+        FetchResponse const* const renewed = cache.refresh(page,
+            Headers { { "ETag", "\"v1\"" }, { "Cache-Control", "max-age=60" }, { "X-Renewed", "yes" }, { "Content-Length", "999" } },
+            now + 5);
+        CHECK(renewed != nullptr);
+        if (renewed) {
+            CHECK_EQ(body_text(*renewed), "one");
+            CHECK(renewed->from_cache);
+            CHECK(find_header(renewed->headers, "x-renewed") != nullptr);
+            CHECK(find_header(renewed->headers, "content-length") == nullptr);
+        }
+        CHECK(fresh_hit(cache, page, now + 60) != nullptr);
+        CHECK(fresh_hit(cache, page, now + 66) == nullptr);
+        // A 304 that says no-store takes the entry with it.
+        CHECK(cache.refresh(page, Headers { { "Cache-Control", "no-store" } }, now + 70) == nullptr);
+        CHECK_EQ(cache.size(), std::size_t { 0 });
+        CHECK(cache.refresh(page, Headers {}, now) == nullptr);
+    }
+
+    // --- Through the choke point: a stale copy is revalidated -----------------
+    {
+        auto listener = platform::TcpListener::listen_loopback();
+        CHECK(listener.has_value());
+        if (listener) {
+            std::vector<std::string> requests;
+            std::thread server(serve_each, std::ref(*listener),
+                std::vector<std::string> {
+                    "HTTP/1.1 200 OK\r\nETag: \"v1\"\r\nCache-Control: max-age=0\r\nContent-Length: 5\r\n\r\nfirst",
+                    "HTTP/1.1 304 Not Modified\r\nETag: \"v1\"\r\nCache-Control: max-age=60\r\n\r\n" },
+                &requests);
+            HttpCache cache;
+            FetchOptions options;
+            options.cache = &cache;
+            Url const url = url_of(loopback(*listener, "/tagged"));
+            FetchResult const first = fetch(url, options);
+            CHECK(first.response && !first.response->from_cache && body_text(*first.response) == "first");
+            FetchResult const second = fetch(url, options);
+            server.join();
+            listener->close();
+            CHECK(second.response.has_value());
+            if (second.response) {
+                CHECK(second.response->from_cache);
+                CHECK_EQ(second.response->status, 200);
+                CHECK_EQ(body_text(*second.response), "first");
+            }
+            CHECK_EQ(requests.size(), std::size_t { 2 });
+            if (requests.size() == 2) {
+                CHECK(requests[0].find("If-None-Match") == std::string::npos);
+                CHECK(requests[1].find("If-None-Match: \"v1\"\r\n") != std::string::npos);
+            }
+            // Renewed for a minute: the next one costs no connection at all.
+            FetchResult const third = fetch(url, options);
+            CHECK(third.response && third.response->from_cache && body_text(*third.response) == "first");
+        }
+    }
+    {
+        // The origin has something new: a 200 replaces the copy, and the
+        // next conditional request carries the new validator.
+        auto listener = platform::TcpListener::listen_loopback();
+        CHECK(listener.has_value());
+        if (listener) {
+            std::vector<std::string> requests;
+            std::thread server(serve_each, std::ref(*listener),
+                std::vector<std::string> {
+                    "HTTP/1.1 200 OK\r\nLast-Modified: Sat, 04 Nov 2023 22:13:20 GMT\r\nCache-Control: max-age=0\r\nContent-Length: 3\r\n\r\nold",
+                    "HTTP/1.1 200 OK\r\nETag: \"v2\"\r\nCache-Control: max-age=0\r\nContent-Length: 3\r\n\r\nnew",
+                    "HTTP/1.1 304 Not Modified\r\n\r\n" },
+                &requests);
+            HttpCache cache;
+            FetchOptions options;
+            options.cache = &cache;
+            Url const url = url_of(loopback(*listener, "/changing"));
+            FetchResult const first = fetch(url, options);
+            FetchResult const second = fetch(url, options);
+            FetchResult const third = fetch(url, options);
+            server.join();
+            CHECK(first.response && body_text(*first.response) == "old");
+            CHECK(second.response && !second.response->from_cache && body_text(*second.response) == "new");
+            CHECK(third.response && third.response->from_cache && body_text(*third.response) == "new");
+            CHECK_EQ(requests.size(), std::size_t { 3 });
+            if (requests.size() == 3) {
+                CHECK(requests[1].find("If-Modified-Since: Sat, 04 Nov 2023 22:13:20 GMT\r\n") != std::string::npos);
+                CHECK(requests[2].find("If-None-Match: \"v2\"\r\n") != std::string::npos);
+                CHECK(requests[2].find("If-Modified-Since") == std::string::npos);
+            }
+        }
+    }
+
+    // --- The directory: what is stored comes back next time --------------------
+    {
+        std::filesystem::path const dir = std::filesystem::temp_directory_path() / ("sashfold-cache-test-" + std::to_string(now % 100000));
+        std::error_code error;
+        std::filesystem::remove_all(dir, error);
+        Url const page = url_of("http://example.com/kept");
+        Url const other = url_of("http://example.com/other");
+        auto const files_in = [&] {
+            std::size_t files = 0;
+            for (auto const& entry : std::filesystem::directory_iterator(dir, error)) {
+                (void)entry;
+                ++files;
+            }
+            return files;
+        };
+        {
+            HttpCache cache;
+            cache.set_directory(dir.string());
+            CHECK_EQ(cache.directory(), dir.string());
+            CHECK(cache.store(page, ok({ { "Cache-Control", "max-age=60" }, { "Content-Type", "text/plain" } }, "disk body"), now));
+            CHECK(cache.store(other, ok({ { "ETag", "\"o1\"" }, { "Cache-Control", "max-age=0" } }, "stale but tagged"), now));
+            CHECK_EQ(cache.disk_bytes(), std::size_t { 9 + 16 });
+            CHECK_EQ(files_in(), std::size_t { 4 });
+        }
+        {
+            HttpCache again;
+            again.set_directory(dir.string());
+            CHECK_EQ(again.size(), std::size_t { 2 });
+            CHECK_EQ(again.disk_bytes(), std::size_t { 25 });
+            std::size_t const before = again.bytes(); // the headers; no body loaded yet
+            FetchResponse const* const hit = fresh_hit(again, page, now + 30);
+            CHECK(hit != nullptr);
+            if (hit) {
+                CHECK_EQ(body_text(*hit), "disk body");
+                CHECK(hit->from_cache);
+                CHECK(find_header(hit->headers, "content-type") != nullptr);
+            }
+            CHECK(again.bytes() > before); // the body is in memory now
+            HttpCache::Lookup const stale = again.lookup(other, now + 30);
+            CHECK(stale.response != nullptr && !stale.fresh && stale.etag == "\"o1\"");
+        }
+        {
+            // A body file that went takes its entry with it; a stray body is
+            // swept; a text that is not the cache's is removed.
+            for (auto const& entry : std::filesystem::directory_iterator(dir, error)) {
+                if (entry.path().extension() == ".body")
+                    std::filesystem::remove(entry.path(), error);
+            }
+            {
+                std::ofstream stray(dir / "stray.body", std::ios::binary);
+                stray << "orphan";
+                std::ofstream junk(dir / "junk.meta", std::ios::binary);
+                junk << "not a cache file\n";
+            }
+            HttpCache third;
+            third.set_directory(dir.string());
+            CHECK_EQ(third.size(), std::size_t { 0 });
+            CHECK_EQ(files_in(), std::size_t { 0 });
+        }
+        {
+            // A cap on the directory: the oldest entry leaves, files and all.
+            HttpCache small(100000, 100000, 30);
+            small.set_directory(dir.string());
+            CHECK(small.store(page, ok({ { "Cache-Control", "max-age=60" } }, std::string(20, 'a')), now));
+            CHECK(small.store(other, ok({ { "Cache-Control", "max-age=60" } }, std::string(20, 'b')), now + 1));
+            CHECK_EQ(small.size(), std::size_t { 1 });
+            CHECK(fresh_hit(small, page, now + 1) == nullptr);
+            CHECK(fresh_hit(small, other, now + 1) != nullptr);
+            CHECK_EQ(small.disk_bytes(), std::size_t { 20 });
+            CHECK_EQ(files_in(), std::size_t { 2 });
+            small.clear();
+            CHECK_EQ(small.disk_bytes(), std::size_t { 0 });
+            CHECK_EQ(files_in(), std::size_t { 0 });
+        }
+        std::filesystem::remove_all(dir, error);
     }
 
     return sashfold::test::report("cache");

@@ -403,6 +403,7 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
     std::vector<Header> headers = options.headers;
     std::vector<std::uint8_t> body = options.body;
     bool redirected = false;
+    bool revalidation_off = false; // after a 304 for a copy that went meanwhile: ask plainly
     auto const lowered = [](std::string_view name) {
         std::string out(name);
         for (char& c : out) {
@@ -424,13 +425,23 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
 
         // A fresh cached copy answers before any connection is made — on
         // every hop, so a redirect into a cached page costs one round trip.
+        // A stale copy with a validator sends it along, so the origin may
+        // answer 304 and spare the body.
+        std::string revalidate_etag;
+        std::string revalidate_modified;
         if (options.cache && method == "GET") {
-            if (FetchResponse const* const hit = options.cache->lookup(current, unix_now())) {
-                FetchResponse copy = *hit;
+            HttpCache::Lookup const hit = options.cache->lookup(current, unix_now());
+            if (hit.response && hit.fresh) {
+                FetchResponse copy = *hit.response;
                 copy.redirected = redirected;
                 return { std::move(copy), "" };
             }
+            if (hit.response && !revalidation_off) {
+                revalidate_etag = hit.etag;
+                revalidate_modified = hit.last_modified;
+            }
         }
+        bool const revalidating = !revalidate_etag.empty() || !revalidate_modified.empty();
 
         std::uint16_t const port = current.port.value_or(secure ? 443 : 80);
         std::string const key = origin_key(secure, current.host, port);
@@ -477,6 +488,10 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
                 continue;
             request += header.name + ": " + header.value + "\r\n";
         }
+        if (!revalidate_etag.empty() && find_header(headers, "if-none-match") == nullptr)
+            request += "If-None-Match: " + revalidate_etag + "\r\n";
+        if (!revalidate_modified.empty() && find_header(headers, "if-modified-since") == nullptr)
+            request += "If-Modified-Since: " + revalidate_modified + "\r\n";
         if (!options.referrer.empty())
             request += "Referer: " + options.referrer + "\r\n";
         if (options.cookie_jar) {
@@ -527,6 +542,19 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         // Set-Cookie applies on every hop, redirects included.
         if (options.cookie_jar)
             options.cookie_jar->store(current, options.first_party, raw->headers, unix_now());
+
+        // 304: the stored copy stands, renewed by what came back with it.
+        if (revalidating && raw->status == 304) {
+            if (FetchResponse const* const renewed = options.cache->refresh(current, raw->headers, unix_now())) {
+                FetchResponse copy = *renewed;
+                copy.redirected = redirected;
+                return { std::move(copy), "" };
+            }
+            // The copy went while the exchange ran: once more, plainly.
+            revalidation_off = true;
+            --hop;
+            continue;
+        }
 
         if (raw->status >= 300 && raw->status < 400 && options.follow_redirects) {
             if (std::string const* const location = find_header(raw->headers, "location")) {

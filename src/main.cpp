@@ -1365,6 +1365,10 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
     browser.set_theme_presets(theme_presets_beside(theme_path));
+    // The cache lives in the profile too: what was fetched last time is
+    // there, and a page that has not changed costs a conditional request.
+    if (!profile_path.empty())
+        loader.cache().set_directory((profile_path / "cache").string());
 
     // The profile: the containers offered, the cookie jars (the default's
     // and one per container), every page's localStorage, and the session

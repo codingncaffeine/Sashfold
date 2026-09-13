@@ -42,7 +42,7 @@ public:
     void set_blocklists(net::Blocklists lists) { m_blocklists = std::move(lists); }
     net::Blocklists const& blocklists() const { return m_blocklists; }
 
-    net::MemoryCache& cache() { return m_cache; }
+    net::HttpCache& cache() { return m_cache; }
     net::ConnectionPool& pool() { return m_pool; }
     // The cookie jar of a container — the default's for an empty name —
     // made on first use; and the names of the containers that have one.
@@ -62,7 +62,7 @@ private:
 
     net::CookieJar m_cookies; // the default container's
     std::map<std::string, net::CookieJar> m_container_jars; // by name; the cache and the pool are shared
-    net::MemoryCache m_cache;
+    net::HttpCache m_cache;
     net::ConnectionPool m_pool;
     net::Blocklists m_blocklists;
     std::size_t m_blocked = 0;

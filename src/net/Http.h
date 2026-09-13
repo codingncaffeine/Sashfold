@@ -29,7 +29,7 @@ struct FetchResponse {
     std::vector<Header> headers;
     std::vector<std::uint8_t> body; // after content decoding
     Url final_url; // where the redirect chain landed
-    bool from_cache = false; // served by the MemoryCache, no network touched
+    bool from_cache = false; // served by the HttpCache, no network touched
     bool redirected = false; // at least one redirect was followed on the way
 };
 
@@ -50,7 +50,7 @@ struct ResourceRequest {
 
 class ConnectionPool;
 class CookieJar;
-class MemoryCache;
+class HttpCache;
 
 struct FetchOptions {
     int max_redirects = 20;
@@ -66,7 +66,7 @@ struct FetchOptions {
     std::string referrer;
     // The session cache: consulted before every connection
     // and fed by every cacheable 200. Null means no caching at all.
-    MemoryCache* cache = nullptr;
+    HttpCache* cache = nullptr;
     // The session's persistent connections: a request goes out on a pooled
     // connection to its origin when one is idle, and the connection it used
     // is kept when the response leaves it reusable. Null means one
