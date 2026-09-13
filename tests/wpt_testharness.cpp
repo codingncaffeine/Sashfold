@@ -523,6 +523,12 @@ public:
             return wrapper(*rel, rel->substr(0, rel->size() - 9) + ".any.js", true, url);
         if (rel->ends_with(".window.html"))
             return wrapper(*rel, rel->substr(0, rel->size() - 12) + ".window.js", false, url);
+        // A directory is answered with a listing of its entries, as the
+        // suite's server answers one, rather than with an empty body: a
+        // frame pointed at another site's root has a document of that origin.
+        std::error_code error;
+        if (std::filesystem::is_directory(m_root / *rel, error))
+            return Served { directory_listing(*rel), "text/html", {} };
         std::optional<std::string> body = read_file(m_root / *rel);
         if (!body)
             return std::nullopt;
@@ -537,6 +543,41 @@ public:
     std::filesystem::path const& root() const { return m_root; }
 
 private:
+    // The page the suite's server makes for a directory: a link to each
+    // entry, the subdirectories marked with a slash.
+    std::string directory_listing(std::string const& rel) const
+    {
+        auto const escaped = [](std::string const& text) {
+            std::string out;
+            for (char const c : text) {
+                if (c == '&')
+                    out += "&amp;";
+                else if (c == '<')
+                    out += "&lt;";
+                else if (c == '>')
+                    out += "&gt;";
+                else if (c == '"')
+                    out += "&quot;";
+                else
+                    out += c;
+            }
+            return out;
+        };
+        std::vector<std::string> names;
+        std::error_code error;
+        for (auto const& entry : std::filesystem::directory_iterator(m_root / rel, error))
+            names.push_back(entry.path().filename().string() + (entry.is_directory(error) ? "/" : ""));
+        std::sort(names.begin(), names.end());
+        std::string const path = "/" + rel + (rel.empty() || rel.ends_with('/') ? "" : "/");
+        std::string page = "<!DOCTYPE html>\n<title>Directory listing for " + escaped(path) + "</title>\n<h1>Directory listing for "
+            + escaped(path) + "</h1>\n<ul>\n";
+        if (!rel.empty())
+            page += "<li class=\"dir\"><a href=\"..\">..</a></li>\n";
+        for (std::string const& name : names)
+            page += "<li class=\"" + std::string(name.ends_with('/') ? "dir" : "file") + "\"><a href=\"" + escaped(name) + "\">" + escaped(name) + "</a></li>\n";
+        return page + "</ul>\n";
+    }
+
     // A .headers file beside a resource: one header per line.
     std::vector<net::Header> headers_for(std::string const& rel, net::Url const& url) const
     {
