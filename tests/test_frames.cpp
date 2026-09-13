@@ -45,11 +45,12 @@ struct File {
     std::string body;
     std::vector<net::Header> headers;
     std::string type;
+    int status = 200;
 };
 
 File html_file(std::string body, std::vector<net::Header> headers = {})
 {
-    return File { std::move(body), std::move(headers), "text/html" };
+    return File { std::move(body), std::move(headers), "text/html", 200 };
 }
 
 // Serves the files a test names and counts what is asked of it. A request
@@ -79,7 +80,7 @@ struct Server {
             if (!file)
                 return std::nullopt;
             return ui::FrameResponse { std::vector<std::uint8_t>(file->body.begin(), file->body.end()), file->type, url,
-                file->headers };
+                file->headers, file->status };
         };
     }
 };
@@ -357,6 +358,64 @@ int main()
         };
         CHECK(same(pixel_drawn(true), lime));
         CHECK(!same(pixel_drawn(false), lime));
+    }
+
+    // The page's policy over what a frame's document is fetched for (CSP3
+    // §6.8.1, the effective directive): object-src for an object's or an
+    // embed's, frame-src for an iframe's, and neither for the other.
+    {
+        net::Url const base = *net::parse_url("https://example.test/page.html");
+        std::string const address = "https://example.test/o.html";
+        net::Url const target = *net::parse_url(address);
+        std::vector<bindings::FrameAncestor> const page_only { bindings::FrameAncestor { base.serialize(true), base } };
+        struct Asked {
+            bool answered = false;
+            int fetches = 0;
+            int refusals = 0;
+            int status = 0;
+        };
+        auto const ask = [&](std::string const& header, std::string const& markup, bool as_target, int file_status = 200) {
+            Server server;
+            server.files[address] = html_file(green_page);
+            server.files[address].status = file_status;
+            net::ContentSecurityPolicy policy(base);
+            policy.add_header(header, false);
+            dom::Document document;
+            html::parse_document_bytes_into(document, markup);
+            std::function<dom::Element*(dom::Node&)> const first_element = [&first_element](dom::Node& node) -> dom::Element* {
+                for (dom::Node* const child : node.children()) {
+                    if (child->is_element()) {
+                        dom::Element& element = static_cast<dom::Element&>(*child);
+                        if (element.is_html("object") || element.is_html("embed") || element.is_html("iframe"))
+                            return &element;
+                    }
+                    if (dom::Element* const found = first_element(*child))
+                        return found;
+                }
+                return nullptr;
+            };
+            Asked asked;
+            if (dom::Element* const element = first_element(document)) {
+                std::optional<bindings::FrameDocument> const answer = ui::frame_document_for(*element, base, &policy, page_only,
+                    as_target ? std::optional<net::Url>(target) : std::nullopt, server.fetcher());
+                asked.answered = answer.has_value();
+                asked.status = answer ? answer->status : 0;
+            }
+            asked.fetches = server.fetches.count(address) ? server.fetches[address] : 0;
+            asked.refusals = server.refusals.count(address) ? server.refusals[address] : 0;
+            return asked;
+        };
+        Asked const object = ask("frame-src *; object-src 'none'", "<object data='https://example.test/o.html'></object>", true);
+        CHECK(!object.answered && object.refusals == 1 && object.fetches == 0);
+        Asked const embed = ask("frame-src *; object-src 'none'", "<embed src='https://example.test/o.html'>", true);
+        CHECK(!embed.answered && embed.refusals == 1 && embed.fetches == 0);
+        Asked const refused_iframe = ask("frame-src 'none'; object-src *", "<iframe src='https://example.test/o.html'></iframe>", false);
+        CHECK(!refused_iframe.answered && refused_iframe.refusals == 1 && refused_iframe.fetches == 0);
+        Asked const fetched_iframe = ask("frame-src *; object-src 'none'", "<iframe src='https://example.test/o.html'></iframe>", false);
+        CHECK(fetched_iframe.answered && fetched_iframe.fetches == 1 && fetched_iframe.refusals == 0);
+        // The status the document came with goes with it.
+        Asked const missing = ask("frame-src *", "<iframe src='https://example.test/o.html'></iframe>", false, 404);
+        CHECK(missing.answered && missing.status == 404 && fetched_iframe.status == 200);
     }
 
     return test::report("frames");

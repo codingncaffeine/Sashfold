@@ -270,6 +270,15 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
     return { std::move(bitmap), true };
 }
 
+// What a frame's document is fetched as, which names the directive of the
+// page's policy that guards it (CSP3 §6.8.1, the effective directive):
+// object-src for an object's or an embed's, whose request destinations are
+// "object" and "embed"; frame-src for an iframe's or a frame's.
+net::ResourceKind document_kind(dom::Element const& element)
+{
+    return element.is_html("object") || element.is_html("embed") ? net::ResourceKind::Object : net::ResourceKind::Subdocument;
+}
+
 std::optional<Opened> open_document(dom::Element const& element, bool from_srcdoc, std::optional<net::Url> const& url,
     net::Url const& base, net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch)
 {
@@ -279,23 +288,23 @@ std::optional<Opened> open_document(dom::Element const& element, bool from_srcdo
     // in; a fetched one has its response's own.
     bool inherits = true;
     if (dom::Attr const* const text = from_srcdoc ? element.find_attribute("srcdoc") : nullptr) {
-        response = FrameResponse { std::vector<std::uint8_t>(text->value.begin(), text->value.end()), "text/html", base, {} };
+        response = FrameResponse { std::vector<std::uint8_t>(text->value.begin(), text->value.end()), "text/html", base, {}, 200 };
         srcdoc = true;
     } else {
         if (!url || !may_frame(*url, ancestors))
             return {};
-        net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Subdocument) : net::RequestGuard {};
+        net::ResourceKind const kind = document_kind(element);
+        net::RequestGuard const guard = policy ? policy->guard(kind) : net::RequestGuard {};
         if (url->scheme == "data") {
-            // Never fetched, so the page's frame-src is asked here.
+            // Never fetched, so the page's frame-src or object-src is asked here.
             if (guard.refusal && guard.refusal(*url, false))
                 return {};
             std::optional<net::DataUrlPayload> payload = net::parse_data_url(*url);
             if (!payload)
                 return {};
-            response = FrameResponse { std::move(payload->bytes), std::move(payload->mime_type), *url, {} };
+            response = FrameResponse { std::move(payload->bytes), std::move(payload->mime_type), *url, {}, 200 };
         } else {
-            std::optional<FrameResponse> fetched
-                = fetch ? fetch(*url, base, net::ResourceKind::Subdocument, guard) : std::nullopt;
+            std::optional<FrameResponse> fetched = fetch ? fetch(*url, base, kind, guard) : std::nullopt;
             if (!fetched)
                 return {};
             response = std::move(*fetched);
@@ -429,6 +438,7 @@ std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& if
     answer.origin = opened->srcdoc ? (chain.empty() ? base : chain.back().origin) : opened->response.url;
     answer.srcdoc = opened->srcdoc;
     answer.policy = std::move(opened->policy);
+    answer.status = opened->response.status;
     return answer;
 }
 

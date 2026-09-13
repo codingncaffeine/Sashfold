@@ -105,6 +105,12 @@ void test_options()
     CHECK(!blocked(list, "http://script.example/a.png", "http://site.example/", ResourceKind::Image));
     CHECK(!blocked(list, "http://noimage.example/a.png", "http://site.example/", ResourceKind::Image));
     CHECK(blocked(list, "http://noimage.example/a.js", "http://site.example/", ResourceKind::Script));
+    // object names what an object or an embed fetches, apart from other; a
+    // rule with no type option covers it too.
+    FilterList const objects = FilterList::parse("||object.example^$object\n||any.example^\n", "objects");
+    CHECK(blocked(objects, "http://object.example/a.swf", "http://site.example/", ResourceKind::Object)
+        && !blocked(objects, "http://object.example/a", "http://site.example/", ResourceKind::Other));
+    CHECK(blocked(objects, "http://any.example/a.html", "http://site.example/", ResourceKind::Object));
     // Party, by registrable domain.
     CHECK(blocked(list, "http://third.example/a", "http://site.example/"));
     CHECK(!blocked(list, "http://third.example/a", "http://www.third.example/"));

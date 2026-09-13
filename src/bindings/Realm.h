@@ -59,7 +59,9 @@ struct FrameAncestor {
 // An iframe's document as the host found it, once the framing rules let it
 // through: its bytes and their type, the URL it has, the URL of its origin
 // (an srcdoc document's is its parent's), whether the bytes are srcdoc text
-// rather than a response to decode, and its Content Security Policy.
+// rather than a response to decode, its Content Security Policy, and the
+// HTTP status it came with (200 for one never fetched): an object shows its
+// fallback for an error status, where an iframe shows the error page.
 struct FrameDocument {
     std::vector<std::uint8_t> bytes;
     std::string content_type;
@@ -67,6 +69,7 @@ struct FrameDocument {
     net::Url origin;
     bool srcdoc = false;
     std::optional<net::ContentSecurityPolicy> policy;
+    int status = 200;
 };
 
 // What the page's host provides to its scripts. Every hook is optional;

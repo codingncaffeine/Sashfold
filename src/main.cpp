@@ -335,14 +335,15 @@ ui::ImageFetcher image_fetcher(LoadedPage const& page, int* failures = nullptr)
 }
 
 // The page's frames and what their documents fetch, through its own
-// session: a frame's document whatever its status, as a window shows a
-// server's error page in a frame, and anything else only when it arrived.
+// session: a frame's document, an object's or an embed's whatever its status,
+// which goes with it, as a window shows a server's error page in a frame, and
+// anything else only when it arrived.
 ui::FrameFetcher frame_fetcher(LoadedPage const& page)
 {
     return [&page](net::Url const& url, net::Url const&, net::ResourceKind kind,
                net::RequestGuard const& guard) -> std::optional<ui::FrameResponse> {
         net::FetchResult result = page.loader->load_subresource(url, page.url, "", kind, guard);
-        bool const document = kind == net::ResourceKind::Subdocument;
+        bool const document = kind == net::ResourceKind::Subdocument || kind == net::ResourceKind::Object;
         if (!result.response || (!document && result.response->status != 200)) {
             std::cerr << (document ? "frame " : "frame resource ") << url.serialize() << ": "
                       << describe_failure(result) << "\n";
@@ -350,7 +351,7 @@ ui::FrameFetcher frame_fetcher(LoadedPage const& page)
         }
         std::string const* const type = net::find_header(result.response->headers, "content-type");
         return ui::FrameResponse { std::move(result.response->body), type ? *type : "", result.response->final_url,
-            std::move(result.response->headers) };
+            std::move(result.response->headers), result.response->status };
     };
 }
 

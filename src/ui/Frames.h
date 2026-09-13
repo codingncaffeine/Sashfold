@@ -42,17 +42,20 @@
 namespace sashfold::ui {
 
 // What a fetch for a frame brought back: the body, the Content-Type it came
-// with (empty for none), the URL it came from in the end, and the response's
-// headers, which a document's policy and framing rules are read from.
+// with (empty for none), the URL it came from in the end, the response's
+// headers, which a document's policy and framing rules are read from, and its
+// HTTP status (200 for a document that was never fetched).
 struct FrameResponse {
     std::vector<std::uint8_t> bytes;
     std::string content_type;
     net::Url url;
     std::vector<net::Header> headers;
+    int status = 200;
 };
 
 // Fetches `url` for the document at `from`: a frame's document (kind
-// Subdocument) for the document the frame is in, or a stylesheet, a font or
+// Subdocument for an iframe or frame, Object for an object or embed) for the
+// document the frame is in, whatever its status, or a stylesheet, a font or
 // a picture for a frame's document — under the guard of that document's
 // policy. nullopt when it cannot be had.
 using FrameFetcher = std::function<std::optional<FrameResponse>(net::Url const& url, net::Url const& from,

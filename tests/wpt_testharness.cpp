@@ -738,16 +738,18 @@ TestResult run_test(Server const& server, std::string const& id)
         if (target.serialize_path().ends_with(".py"))
             return std::nullopt;
         std::optional<Served> served = server.serve(target);
+        int status = 200;
         if (!served) {
             // A file the suite's server does not have is its 404 answer, a
-            // document of the URL's origin like any other; a host it does not
-            // serve has no answer at all.
+            // document of the URL's origin like any other, with that status;
+            // a host it does not serve has no answer at all.
             if (!server.rel_path_for(target))
                 return std::nullopt;
             served = Served { R"({"error": {"code": 404, "message": null}})", "application/json", {} };
+            status = 404;
         }
         return ui::FrameResponse { std::vector<std::uint8_t>(served->body.begin(), served->body.end()),
-            served->content_type, target, std::move(served->headers) };
+            served->content_type, target, std::move(served->headers), status };
     };
     auto document = std::make_unique<dom::Document>();
     bindings::LayoutOracle oracle(*document, *url, fetch_sheet, media);

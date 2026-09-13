@@ -1314,8 +1314,9 @@ struct Browser::Impl {
     }
 
     // Fetches for a tab's frames through the loader, with the page as first
-    // party: a frame's document whatever its status, as a tab shows a
-    // server's error page, and anything else only when it arrived.
+    // party: a frame's document, an object's or an embed's whatever its
+    // status, which goes with it, as a tab shows a server's error page, and
+    // anything else only when it arrived.
     FrameFetcher frame_fetcher(Tab& tab)
     {
         HistoryEntry const* const entry = tab.current();
@@ -1325,11 +1326,12 @@ struct Browser::Impl {
                    net::RequestGuard const& guard) -> std::optional<FrameResponse> {
             net::FetchResult result
                 = loader.load_subresource(url, page_url, referrer_for(&from, url), kind, guard, container);
-            if (!result.response || (kind != net::ResourceKind::Subdocument && result.response->status != 200))
+            bool const document = kind == net::ResourceKind::Subdocument || kind == net::ResourceKind::Object;
+            if (!result.response || (!document && result.response->status != 200))
                 return std::nullopt;
             std::string const* const type = net::find_header(result.response->headers, "content-type");
             return FrameResponse { std::move(result.response->body), type ? *type : "", result.response->final_url,
-                std::move(result.response->headers) };
+                std::move(result.response->headers), result.response->status };
         };
     }
 

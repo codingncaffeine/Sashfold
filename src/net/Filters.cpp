@@ -11,7 +11,7 @@ namespace sashfold::net {
 
 namespace {
 
-constexpr std::uint16_t all_kinds = 0x1FF;
+constexpr std::uint16_t all_kinds = 0x3FF;
 // What a rule with no type option applies to: everything a page requests;
 // a navigation only when the rule says `document`.
 constexpr std::uint16_t page_kinds = all_kinds & ~static_cast<std::uint16_t>(ResourceKind::Document);
@@ -261,7 +261,9 @@ bool FilterList::add_rule(std::string_view line)
             type(ResourceKind::Document);
         else if (name == "media")
             type(ResourceKind::Media);
-        else if (name == "other" || name == "object" || name == "ping" || name == "beacon" || name == "websocket")
+        else if (name == "object")
+            type(ResourceKind::Object);
+        else if (name == "other" || name == "ping" || name == "beacon" || name == "websocket")
             type(ResourceKind::Other);
         else if (name == "all")
             (negated ? types_out : types_in) |= all_kinds;

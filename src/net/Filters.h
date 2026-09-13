@@ -35,6 +35,7 @@ enum class ResourceKind : std::uint16_t {
     Xhr = 1 << 6, // fetch() and XMLHttpRequest
     Media = 1 << 7,
     Other = 1 << 8,
+    Object = 1 << 9, // an object's or an embed's document
 };
 
 struct FilterRequest {

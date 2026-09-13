@@ -225,6 +225,8 @@ std::string_view effective_directive_for(ResourceKind kind)
         return "media-src";
     case ResourceKind::Subdocument:
         return "frame-src";
+    case ResourceKind::Object:
+        return "object-src";
     case ResourceKind::Xhr:
     case ResourceKind::Other:
         return "connect-src";
@@ -265,6 +267,8 @@ std::string_view thing_named(ResourceKind kind)
         return "media";
     case ResourceKind::Subdocument:
         return "frame";
+    case ResourceKind::Object:
+        return "object";
     case ResourceKind::Xhr:
     case ResourceKind::Other:
     case ResourceKind::Document:

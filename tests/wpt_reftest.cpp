@@ -509,11 +509,11 @@ private:
             std::string type;
             if (path.ends_with(".css"))
                 type = "text/css";
-            else if (kind == net::ResourceKind::Subdocument)
+            else if (kind == net::ResourceKind::Subdocument || kind == net::ResourceKind::Object)
                 type = path.ends_with(".html") || path.ends_with(".htm") || path.ends_with(".xht") || path.ends_with(".xhtml")
                     ? "text/html"
                     : "application/octet-stream";
-            return ui::FrameResponse { std::vector<std::uint8_t>(bytes->begin(), bytes->end()), type, target, {} };
+            return ui::FrameResponse { std::vector<std::uint8_t>(bytes->begin(), bytes->end()), type, target, {}, 200 };
         };
     }
 
