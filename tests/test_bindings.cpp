@@ -1763,6 +1763,16 @@ function threw(f, name) { try { f(); } catch (e) { return e.name === name; } ret
                         " (function () { try { hrefSetter.call({}, 'x'); } catch (e) { return e instanceof TypeError; } return false; })()"));
     CHECK(page->boolean("(function () { try { w.location.href = Symbol(); } catch (e) { return e instanceof TypeError; } return false; })()"
                         " && (function () { try { w.location = Symbol(); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    // window.location's setter forwards to the Location's href setter, as a
+    // [[Set]] from the setter's own realm ([PutForwards=href], WebIDL §3.7.6):
+    // a URL that is no string throws from that href setter, the frame's own
+    // for a frame of the same origin, the asking realm's for another origin.
+    CHECK(page->boolean("var locationSetter = Object.getOwnPropertyDescriptor(window, 'location').set;"
+                        " (function () { try { locationSetter.call(s, Symbol()); } catch (e) { return e instanceof s.TypeError && !(e instanceof TypeError); } return false; })()"));
+    CHECK(page->boolean("(function () { try { locationSetter.call(w, Symbol()); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    // Only the setter forwards; the getter takes no argument, so it converts
+    // none and a symbol passed to it is ignored.
+    CHECK(page->boolean("Object.getOwnPropertyDescriptor(window, 'location').get.call(window, Symbol()) === location"));
     // The window's bars, window.external and the media event handlers.
     CHECK(page->boolean("locationbar.visible === true && toolbar instanceof BarProp && typeof external.AddSearchProvider === 'function' && 'oncanplay' in window && onended === null"));
     // The window's own members check `this`: another origin's window only for

@@ -6396,6 +6396,7 @@ html/browsers/origin/cross-origin-objects/window-location-and-location-href-cros
 html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin location.href setter throws TypeError in holder's realm on non-coercible URL argument
 html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin window.location getter throws TypeError in holder's realm on invalid |this| value
 html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin window.location setter throws TypeError in holder's realm on invalid |this| value
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin window.location` setter throws TypeError in holder's realm on non-coercible URL argument
 html/browsers/origin/inheritance/about-blank-iframe.html	about:blank in child browsing context aliases security origin
 html/browsers/origin/inheritance/about-srcdoc.html	about:srcdoc aliases security origin
 html/browsers/origin/inheritance/javascript-url.html	javascript: aliases security origin
