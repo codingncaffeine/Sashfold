@@ -3,3 +3,5 @@
 *.yml text eol=lf
 *.png binary
 *.jpg binary
+# Streams and the originals they decode to, compared byte for byte.
+tests/fixtures/brotli/* binary
