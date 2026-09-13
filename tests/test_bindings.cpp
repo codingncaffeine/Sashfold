@@ -1736,6 +1736,7 @@ function threw(f, name) { try { f(); } catch (e) { return e.name === name; } ret
     // Another origin: its frames and its CrossOriginProperties, nothing more.
     CHECK(page->boolean("w.parent === window && w.top === window && w.self === w && w.frames === w && w.window === w && w.closed === false"));
     CHECK(page->boolean("w.length === 2 && typeof w[0] === 'object' && w.donotleakme === w[1] && w.then === undefined"));
+    CHECK(page->boolean("threw(function () { return w['']; }, 'SecurityError')"));
     CHECK(page->boolean("document.getElementById('other').contentDocument === null"));
     CHECK(page->boolean("threw(function () { return w.secret; }, 'SecurityError') && threw(function () { return w.document; }, 'SecurityError')"));
     CHECK(page->boolean("threw(function () { w.secret = 1; }, 'SecurityError') && threw(function () { delete w.parent; }, 'SecurityError')"));
@@ -2136,6 +2137,11 @@ void test_a_navigable_keeps_its_target_name()
     // realm has ended.
     CHECK(page->boolean("(function () { var held = gw; g.remove(); var a = held.name; held.name = 'again'; return a === '' && held.name === '' && g.getAttribute('name') === null; })()"));
     CHECK(page->boolean("gw.name = 'leak'; gw.name === ''"));
+
+    // A frame of another origin is named by the name it gives itself too, as
+    // browsers name it, and not by an empty one.
+    string_in(frame_realm_of(*page, "x"), "window.name = 'secret'; ''");
+    CHECK(page->boolean("window.secret === xw && window.cross === undefined"));
     CHECK_EQ(page->console, "");
     page.reset();
 }

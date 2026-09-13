@@ -657,12 +657,10 @@ public:
         if (name.empty())
             return std::nullopt;
         // A frame of the document by its name comes first, as its WindowProxy
-        // (HTML §7.2.2.3, the child navigables' target names).
-        for (ChildFrame const* const child : child_navigables(internals())) {
-            std::string const* const target_name = internals().child_target_name(*child);
-            if (target_name && *target_name == name)
-                return js::PropertyDescriptor::data(js::Value::object(child->realm->internals().window_proxy()), js::Writable | js::Configurable);
-        }
+        // (HTML §7.2.2.3, the child navigables' target names); then the
+        // elements the name picks out.
+        if (js::Object* const child = named_child(internals(), name))
+            return js::PropertyDescriptor::data(js::Value::object(child), js::Writable | js::Configurable);
         std::vector<dom::Node*> found;
         collect_named(internals().document, name, found);
         if (found.empty())

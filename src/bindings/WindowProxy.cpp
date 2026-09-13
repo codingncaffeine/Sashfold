@@ -222,6 +222,25 @@ std::vector<ChildFrame const*> child_navigables(Realm::Internals const& in)
     return children;
 }
 
+// HTML's document-tree child navigable target name property set skips an
+// empty name and keeps the first frame of each name, then keeps only the
+// frames whose documents are same origin with the window. No browser keeps
+// that last rule: Chromium's FrameTree::ScopedChild returns the first child
+// of the name whatever its origin, and Firefox and Safari name a frame of
+// another origin by the name it gave itself (cross-origin-named-access.sub.html
+// on wpt.fyi), so a frame is named here whatever its origin.
+js::Object* named_child(Realm::Internals const& window, std::string_view name)
+{
+    if (name.empty())
+        return nullptr;
+    for (ChildFrame const* const child : child_navigables(window)) {
+        std::string const* const target_name = window.child_target_name(*child);
+        if (target_name && *target_name == name)
+            return child->realm->internals().window_proxy();
+    }
+    return nullptr;
+}
+
 WindowProxyObject* as_window_proxy(js::Value const& value)
 {
     if (!value.is_object() || !value.as_object()->is_proxy())
@@ -459,12 +478,8 @@ std::optional<std::optional<js::PropertyDescriptor>> WindowProxyObject::get_own_
     if (std::optional<js::PropertyDescriptor> const shown = cross_origin_property(interpreter, key))
         return shown;
     if (key.is_atom() && m_record->host_defined != nullptr) {
-        std::string const name = key.as_atom()->to_utf8();
-        for (ChildFrame const* const child : child_navigables(internals())) {
-            std::string const* const target_name = internals().child_target_name(*child);
-            if (target_name && *target_name == name)
-                return std::optional<js::PropertyDescriptor>(js::PropertyDescriptor::data(js::Value::object(child->realm->internals().window_proxy()), js::Configurable));
-        }
+        if (js::Object* const child = named_child(internals(), key.as_atom()->to_utf8()))
+            return std::optional<js::PropertyDescriptor>(js::PropertyDescriptor::data(js::Value::object(child), js::Configurable));
     }
     return cross_origin_fallback(interpreter, key);
 }

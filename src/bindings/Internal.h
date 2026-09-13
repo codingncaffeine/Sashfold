@@ -547,6 +547,9 @@ std::optional<js::Value> throw_security_error(js::Interpreter&);
 // The frames of a window's document that have windows here, in tree order
 // (the document-tree child navigables).
 std::vector<ChildFrame const*> child_navigables(Realm::Internals const&);
+// The WindowProxy of the first of those frames, in tree order, whose target
+// name is this one, which must not be empty (HTML §7.2.2.3); null for none.
+js::Object* named_child(Realm::Internals const&, std::string_view name);
 // A Location member behind the object it is called on, as that object's
 // window runs it, with the security check unless another origin may call it.
 js::NativeFunction::Callback location_member(js::NativeFunction::Callback, bool shown_to_other_origins);
