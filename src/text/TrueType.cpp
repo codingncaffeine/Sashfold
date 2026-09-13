@@ -36,6 +36,12 @@ constexpr std::uint32_t tag_os2 = make_tag('O', 'S', '/', '2');
 constexpr std::uint32_t tag_cff = make_tag('C', 'F', 'F', ' ');
 constexpr std::uint32_t tag_kern = make_tag('k', 'e', 'r', 'n');
 constexpr std::uint32_t tag_gpos = make_tag('G', 'P', 'O', 'S');
+constexpr std::uint32_t tag_cblc = make_tag('C', 'B', 'L', 'C');
+constexpr std::uint32_t tag_cbdt = make_tag('C', 'B', 'D', 'T');
+constexpr std::uint32_t tag_sbix = make_tag('s', 'b', 'i', 'x');
+constexpr std::uint32_t tag_colr = make_tag('C', 'O', 'L', 'R');
+constexpr std::uint32_t tag_cpal = make_tag('C', 'P', 'A', 'L');
+constexpr std::uint32_t tag_png = make_tag('p', 'n', 'g', ' ');
 
 // Nothing a font can say moves an offset past this: keeps every table
 // offset inside 32 bits and a hostile file from asking for the world.
@@ -277,12 +283,15 @@ std::vector<FaceInfo> TrueTypeFont::scan_file(std::string const& path)
         // ordinary loaders can read it.
         TrueTypeFont face;
         bool has_glyf = false;
+        bool color = false;
         for (std::size_t i = 0; i < table_count; ++i) {
             std::uint32_t const tag = records_reader.u32(i * 16);
             std::uint32_t const offset = records_reader.u32(i * 16 + 8);
             std::uint32_t const length = records_reader.u32(i * 16 + 12);
             if (tag == tag_glyf || tag == tag_cff)
                 has_glyf = has_glyf || length != 0;
+            if (tag == tag_cbdt || tag == tag_sbix || tag == tag_colr)
+                color = color || length != 0;
             if (tag != tag_head && tag != tag_name && tag != tag_os2)
                 continue;
             if (length == 0 || length > 1u << 20)
@@ -310,7 +319,7 @@ std::vector<FaceInfo> TrueTypeFont::scan_file(std::string const& path)
         if (face.m_family.empty())
             continue;
         FaceInfo info { path, index, face.m_family, face.m_subfamily, face.m_weight_class, face.m_italic,
-            has_glyf, { 0, 0, 0, 0 } };
+            has_glyf || color, { 0, 0, 0, 0 }, color };
         if (face.m_os2.length >= 58) {
             for (std::size_t i = 0; i < 4; ++i)
                 info.unicode_ranges[i] = face_reader.u32(face.m_os2.offset + 42 + i * 4);
@@ -403,6 +412,7 @@ bool TrueTypeFont::load(std::size_t face_index)
     load_names();
     load_os2();
     load_kerning();
+    load_color();
     // CFF outlines, when there is no glyf table to draw from.
     if (!m_has_glyf && m_has_cff) {
         if (std::optional<CffFont> cff = CffFont::parse(m_bytes, m_cff_table.offset, m_cff_table.length))
@@ -447,6 +457,11 @@ bool TrueTypeFont::load_directory(std::uint32_t offset)
             break;
         case tag_kern: m_kern = table; break;
         case tag_gpos: m_gpos = table; break;
+        case tag_cblc: m_cblc = table; break;
+        case tag_cbdt: m_cbdt = table; break;
+        case tag_sbix: m_sbix = table; break;
+        case tag_colr: m_colr = table; break;
+        case tag_cpal: m_cpal = table; break;
         default: break;
         }
     }
@@ -1023,6 +1038,320 @@ std::int16_t TrueTypeFont::kern_table_adjustment(std::uint32_t subtable, std::ui
             return reader.i16(pairs + mid * 6 + 4);
     }
     return 0;
+}
+
+void TrueTypeFont::load_color()
+{
+    Reader const reader { m_bytes };
+    constexpr std::size_t most = 64;
+    // CBLC: one record per strike — its size (ppemY), its glyph range and
+    // the index subtables that map the range into CBDT.
+    if (m_cblc.length >= 8 && m_cbdt.present()) {
+        std::size_t const sizes = std::min<std::size_t>(reader.u32(m_cblc.offset + 4), most);
+        for (std::size_t i = 0; i < sizes; ++i) {
+            std::size_t const at = m_cblc.offset + 8 + i * 48;
+            if (!reader.has(at, 48))
+                break;
+            Strike strike;
+            strike.offset = static_cast<std::uint32_t>(m_cblc.offset + reader.u32(at));
+            strike.count = reader.u32(at + 8);
+            strike.first_glyph = reader.u16(at + 40);
+            strike.last_glyph = reader.u16(at + 42);
+            strike.ppem = reader.u8(at + 45);
+            if (strike.ppem == 0 || strike.count == 0 || strike.offset >= m_bytes.size())
+                continue;
+            m_strikes.push_back(strike);
+        }
+    }
+    // sbix: one strike per size, each an offset per glyph and one past the last.
+    if (m_sbix.length >= 8) {
+        std::size_t const strikes = std::min<std::size_t>(reader.u32(m_sbix.offset + 4), most);
+        for (std::size_t i = 0; i < strikes; ++i) {
+            std::size_t const at = m_sbix.offset + reader.u32(m_sbix.offset + 8 + i * 4);
+            if (!reader.has(at, 4))
+                continue;
+            Strike strike;
+            strike.sbix = true;
+            strike.ppem = reader.u16(at);
+            strike.offset = static_cast<std::uint32_t>(at);
+            if (strike.ppem == 0)
+                continue;
+            m_strikes.push_back(strike);
+        }
+    }
+    std::sort(m_strikes.begin(), m_strikes.end(), [](Strike const& a, Strike const& b) { return a.ppem < b.ppem; });
+
+    // COLR version 0 with the first CPAL palette.
+    if (m_colr.length >= 14 && m_cpal.length >= 14 && reader.u16(m_colr.offset) == 0) {
+        std::uint32_t const base_count = reader.u16(m_colr.offset + 2);
+        std::size_t const base_records = m_colr.offset + reader.u32(m_colr.offset + 4);
+        std::size_t const layer_records = m_colr.offset + reader.u32(m_colr.offset + 8);
+        std::uint32_t const layer_count = reader.u16(m_colr.offset + 12);
+        std::uint16_t const entries = reader.u16(m_cpal.offset + 2);
+        std::uint16_t const palettes = reader.u16(m_cpal.offset + 4);
+        std::uint16_t const records = reader.u16(m_cpal.offset + 6);
+        std::size_t const colors = m_cpal.offset + reader.u32(m_cpal.offset + 8);
+        std::uint16_t const first = reader.u16(m_cpal.offset + 12);
+        if (base_count != 0 && entries != 0 && palettes != 0 && first + entries <= records
+            && reader.has(base_records, static_cast<std::size_t>(base_count) * 6)
+            && reader.has(layer_records, static_cast<std::size_t>(layer_count) * 4)
+            && reader.has(colors + static_cast<std::size_t>(first) * 4, static_cast<std::size_t>(entries) * 4)) {
+            m_color_glyph_count = base_count;
+            m_color_base_records = static_cast<std::uint32_t>(base_records);
+            m_color_layer_records = static_cast<std::uint32_t>(layer_records);
+            m_color_layer_count = layer_count;
+            m_palette_records = static_cast<std::uint32_t>(colors + static_cast<std::size_t>(first) * 4);
+            m_palette_size = entries;
+        }
+    }
+}
+
+std::vector<TrueTypeFont::ColorLayer> TrueTypeFont::color_layers(std::uint16_t glyph) const
+{
+    std::vector<ColorLayer> layers;
+    if (m_color_glyph_count == 0)
+        return layers;
+    Reader const reader { m_bytes };
+    // The base glyph records are sorted by glyph.
+    std::size_t low = 0;
+    std::size_t high = m_color_glyph_count;
+    while (low < high) {
+        std::size_t const mid = (low + high) / 2;
+        std::size_t const record = m_color_base_records + mid * 6;
+        std::uint16_t const candidate = reader.u16(record);
+        if (candidate < glyph) {
+            low = mid + 1;
+        } else if (candidate > glyph) {
+            high = mid;
+        } else {
+            std::size_t const first = reader.u16(record + 2);
+            std::size_t const count = std::min<std::size_t>(reader.u16(record + 4), 256);
+            for (std::size_t k = 0; k < count && first + k < m_color_layer_count; ++k) {
+                std::size_t const layer = m_color_layer_records + (first + k) * 4;
+                ColorLayer out;
+                out.glyph = reader.u16(layer);
+                std::uint16_t const palette = reader.u16(layer + 2);
+                if (palette == 0xFFFF) {
+                    out.foreground = true;
+                } else if (palette < m_palette_size) {
+                    std::size_t const color = m_palette_records + static_cast<std::size_t>(palette) * 4;
+                    out.blue = reader.u8(color);
+                    out.green = reader.u8(color + 1);
+                    out.red = reader.u8(color + 2);
+                    out.alpha = reader.u8(color + 3);
+                } else {
+                    continue;
+                }
+                layers.push_back(out);
+            }
+            break;
+        }
+    }
+    return layers;
+}
+
+std::optional<TrueTypeFont::BitmapGlyph> TrueTypeFont::bitmap_glyph(std::uint16_t glyph, float size) const
+{
+    if (m_strikes.empty())
+        return std::nullopt;
+    // The strike nearest the size: the smallest at or above it, then the
+    // rest of those, then the ones below from the largest down — the first
+    // that has the glyph.
+    std::vector<Strike const*> order;
+    for (Strike const& strike : m_strikes) {
+        if (static_cast<float>(strike.ppem) >= size)
+            order.push_back(&strike);
+    }
+    for (std::size_t i = m_strikes.size(); i-- > 0;) {
+        if (static_cast<float>(m_strikes[i].ppem) < size)
+            order.push_back(&m_strikes[i]);
+    }
+    for (Strike const* strike : order) {
+        std::optional<BitmapGlyph> found = strike->sbix ? sbix_glyph(*strike, glyph) : cblc_glyph(*strike, glyph);
+        if (found)
+            return found;
+    }
+    return std::nullopt;
+}
+
+std::optional<TrueTypeFont::BitmapGlyph> TrueTypeFont::cblc_glyph(Strike const& strike, std::uint16_t glyph) const
+{
+    Reader const reader { m_bytes };
+    if (glyph < strike.first_glyph || glyph > strike.last_glyph)
+        return std::nullopt;
+    std::size_t const array = strike.offset;
+    std::size_t const subtables = std::min<std::size_t>(strike.count, 512);
+    for (std::size_t i = 0; i < subtables; ++i) {
+        std::size_t const entry = array + i * 8;
+        if (!reader.has(entry, 8))
+            return std::nullopt;
+        std::uint16_t const first = reader.u16(entry);
+        std::uint16_t const last = reader.u16(entry + 2);
+        if (glyph < first || glyph > last)
+            continue;
+        std::size_t const sub = array + reader.u32(entry + 4);
+        if (!reader.has(sub, 8))
+            return std::nullopt;
+        std::uint16_t const index_format = reader.u16(sub);
+        std::uint16_t const image_format = reader.u16(sub + 2);
+        std::size_t const image_data = m_cbdt.offset + reader.u32(sub + 4);
+        BitmapGlyph out;
+        out.ppem = strike.ppem;
+        // The big metrics an index subtable can carry: height, width, the
+        // bearings to the picture's left and top, the advance.
+        auto const big_metrics = [&](std::size_t at) {
+            out.height = reader.u8(at);
+            out.width = reader.u8(at + 1);
+            out.left = static_cast<std::int8_t>(reader.u8(at + 2));
+            out.bottom = static_cast<std::int8_t>(reader.u8(at + 3)) - out.height;
+        };
+        std::size_t at = 0;
+        std::size_t length = 0;
+        std::size_t const k = static_cast<std::size_t>(glyph - first);
+        switch (index_format) {
+        case 1: {
+            std::size_t const offsets = sub + 8 + k * 4;
+            if (!reader.has(offsets, 8))
+                return std::nullopt;
+            std::uint32_t const from = reader.u32(offsets);
+            std::uint32_t const to = reader.u32(offsets + 4);
+            if (to <= from)
+                return std::nullopt;
+            at = image_data + from;
+            length = to - from;
+            break;
+        }
+        case 3: {
+            std::size_t const offsets = sub + 8 + k * 2;
+            if (!reader.has(offsets, 4))
+                return std::nullopt;
+            std::uint16_t const from = reader.u16(offsets);
+            std::uint16_t const to = reader.u16(offsets + 2);
+            if (to <= from)
+                return std::nullopt;
+            at = image_data + from;
+            length = static_cast<std::size_t>(to - from);
+            break;
+        }
+        case 2: {
+            std::uint32_t const image_size = reader.u32(sub + 8);
+            big_metrics(sub + 12);
+            at = image_data + k * image_size;
+            length = image_size;
+            break;
+        }
+        case 4: {
+            std::size_t const count = std::min<std::size_t>(reader.u32(sub + 8), 65536);
+            if (!reader.has(sub + 12, (count + 1) * 4))
+                return std::nullopt;
+            for (std::size_t j = 0; j < count; ++j) {
+                std::size_t const pair = sub + 12 + j * 4;
+                if (reader.u16(pair) != glyph)
+                    continue;
+                std::uint16_t const from = reader.u16(pair + 2);
+                std::uint16_t const to = reader.u16(pair + 6);
+                if (to <= from)
+                    return std::nullopt;
+                at = image_data + from;
+                length = static_cast<std::size_t>(to - from);
+                break;
+            }
+            if (length == 0)
+                return std::nullopt;
+            break;
+        }
+        case 5: {
+            std::uint32_t const image_size = reader.u32(sub + 8);
+            big_metrics(sub + 12);
+            std::size_t const count = std::min<std::size_t>(reader.u32(sub + 20), 65536);
+            if (!reader.has(sub + 24, count * 2))
+                return std::nullopt;
+            std::size_t low = 0;
+            std::size_t high = count;
+            bool found = false;
+            while (low < high) {
+                std::size_t const mid = (low + high) / 2;
+                std::uint16_t const candidate = reader.u16(sub + 24 + mid * 2);
+                if (candidate < glyph) {
+                    low = mid + 1;
+                } else if (candidate > glyph) {
+                    high = mid;
+                } else {
+                    at = image_data + mid * image_size;
+                    length = image_size;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return std::nullopt;
+            break;
+        }
+        default:
+            return std::nullopt;
+        }
+        // The image: its own metrics when the format carries them, then the PNG.
+        std::size_t png_at = at;
+        std::size_t png_length = 0;
+        if (image_format == 17) {
+            if (length < 9)
+                return std::nullopt;
+            out.height = reader.u8(at);
+            out.width = reader.u8(at + 1);
+            out.left = static_cast<std::int8_t>(reader.u8(at + 2));
+            out.bottom = static_cast<std::int8_t>(reader.u8(at + 3)) - out.height;
+            png_at = at + 9;
+            png_length = std::min<std::size_t>(reader.u32(at + 5), length - 9);
+        } else if (image_format == 18) {
+            if (length < 12)
+                return std::nullopt;
+            big_metrics(at);
+            png_at = at + 12;
+            png_length = std::min<std::size_t>(reader.u32(at + 8), length - 12);
+        } else if (image_format == 19) {
+            if (length < 4)
+                return std::nullopt;
+            png_at = at + 4;
+            png_length = std::min<std::size_t>(reader.u32(at), length - 4);
+        } else {
+            return std::nullopt;
+        }
+        if (png_length < 8 || !reader.has(png_at, png_length))
+            return std::nullopt;
+        out.png.assign(m_bytes.begin() + static_cast<std::ptrdiff_t>(png_at),
+            m_bytes.begin() + static_cast<std::ptrdiff_t>(png_at + png_length));
+        return out;
+    }
+    return std::nullopt;
+}
+
+std::optional<TrueTypeFont::BitmapGlyph> TrueTypeFont::sbix_glyph(Strike const& strike, std::uint16_t glyph) const
+{
+    Reader const reader { m_bytes };
+    if (glyph >= m_glyph_count)
+        return std::nullopt;
+    std::size_t const offsets = static_cast<std::size_t>(strike.offset) + 4 + static_cast<std::size_t>(glyph) * 4;
+    if (!reader.has(offsets, 8))
+        return std::nullopt;
+    std::uint32_t const from = reader.u32(offsets);
+    std::uint32_t const to = reader.u32(offsets + 4);
+    if (to < from || to - from < 16)
+        return std::nullopt;
+    std::size_t const data = strike.offset + from;
+    if (!reader.has(data, to - from))
+        return std::nullopt;
+    // A graphic's origin offsets name its bottom-left corner from the pen;
+    // only PNG graphics are read (not 'dupe', which points at another
+    // glyph's, nor JPEG or TIFF).
+    if (reader.u32(data + 4) != tag_png)
+        return std::nullopt;
+    BitmapGlyph out;
+    out.ppem = strike.ppem;
+    out.left = reader.i16(data);
+    out.bottom = reader.i16(data + 2);
+    out.png.assign(m_bytes.begin() + static_cast<std::ptrdiff_t>(data + 8),
+        m_bytes.begin() + static_cast<std::ptrdiff_t>(data + (to - from)));
+    return out;
 }
 
 std::int16_t TrueTypeFont::kerning(std::uint16_t left, std::uint16_t right) const

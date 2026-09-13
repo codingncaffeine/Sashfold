@@ -1,7 +1,12 @@
 #include "Test.h"
 
+#include "core/Bitmap.h"
+#include "core/Png.h"
 #include "text/Face.h"
 #include "text/TrueTypeWriter.h"
+
+#include <filesystem>
+#include <fstream>
 
 #include "text/Rasterizer.h"
 #include "text/SashfoldMono.h"
@@ -643,6 +648,125 @@ int main(int argc, char** argv)
     }
     CHECK(!mono.has_kerning());
     CHECK_EQ(mono.kerning(a_glyph, space), 0);
+
+    // --- Colour: pictures from CBDT and sbix, layers from COLR/CPAL -----------------------
+    // A picture 4 px square at 16 ppem, standing 1 px right of the pen with
+    // its bottom 2 px below the baseline, drawn at 32 px lands 8 px square
+    // at (12, 26) on a 40 px bitmap whose baseline is at 30.
+    {
+        Bitmap const red(4, 4, Color::rgb(255, 0, 0));
+        std::vector<std::uint8_t> const png = encode_png(red);
+        CHECK(png.size() > 8);
+        for (text::WriterBitmapTable const table : { text::WriterBitmapTable::Cbdt, text::WriterBitmapTable::Sbix }) {
+            text::FontDescription description;
+            description.family = "Picture";
+            description.units_per_em = 1000;
+            description.ascender = 800;
+            description.descender = -200;
+            for (int i = 0; i < 3; ++i) {
+                text::WriterGlyph glyph;
+                glyph.advance = 1000;
+                description.glyphs.push_back(glyph);
+            }
+            description.mappings = { { 0x1F600, 1 }, { U'a', 2 } };
+            description.bitmap_glyphs = { { 1, png, 1, -2, 4, 4 } };
+            description.bitmap_ppem = 16;
+            description.bitmap_table = table;
+            std::vector<std::uint8_t> const bytes = text::write_truetype(description);
+            std::optional<TrueTypeFont> const font = TrueTypeFont::parse(bytes);
+            if (!CHECK(font.has_value()))
+                continue;
+            CHECK(font->has_outlines()); // a picture is something to draw
+            CHECK(font->has_bitmap_glyphs());
+            CHECK(!font->has_color_layers());
+            std::optional<TrueTypeFont::BitmapGlyph> const picture = font->bitmap_glyph(1, 16);
+            if (CHECK(picture.has_value())) {
+                CHECK(picture->png == png);
+                CHECK_EQ(picture->ppem, 16);
+                CHECK_EQ(picture->left, 1);
+                CHECK_EQ(picture->bottom, -2);
+                if (table == text::WriterBitmapTable::Cbdt) {
+                    CHECK_EQ(picture->width, 4);
+                    CHECK_EQ(picture->height, 4);
+                } else {
+                    CHECK_EQ(picture->width, 0); // sbix keeps no metrics: the picture's own size
+                }
+            }
+            CHECK(!font->bitmap_glyph(2, 16).has_value()); // a glyph without a picture
+            CHECK(font->bitmap_glyph(1, 100).has_value()); // the one strike answers every size
+            std::vector<text::FaceInfo> const catalogued = [&] {
+                std::filesystem::path const path = std::filesystem::temp_directory_path() / "sashfold-picture.ttf";
+                {
+                    std::ofstream out(path, std::ios::binary);
+                    out.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                }
+                std::vector<text::FaceInfo> infos = TrueTypeFont::scan_file(path.string());
+                std::filesystem::remove(path);
+                return infos;
+            }();
+            if (CHECK_EQ(catalogued.size(), 1u)) {
+                CHECK(catalogued[0].has_outlines);
+                CHECK(catalogued[0].color);
+            }
+            std::unique_ptr<text::Face> const face_with_pictures = text::make_truetype_face(*font);
+            Bitmap target(40, 40, Color::rgb(255, 255, 255));
+            face_with_pictures->draw_glyph(target, 1, 10, 30, 32, Color::rgb(0, 0, 255), false, false);
+            CHECK(target.pixel(13, 27) == Color::rgb(255, 0, 0));
+            CHECK(target.pixel(19, 33) == Color::rgb(255, 0, 0));
+            CHECK(target.pixel(11, 27) == Color::rgb(255, 255, 255));
+            CHECK(target.pixel(13, 25) == Color::rgb(255, 255, 255));
+            CHECK(target.pixel(20, 27) == Color::rgb(255, 255, 255));
+            CHECK(target.pixel(13, 34) == Color::rgb(255, 255, 255));
+            // The glyph with no picture and no outline draws nothing.
+            face_with_pictures->draw_glyph(target, 2, 10, 30, 32, Color::rgb(0, 0, 255), false, false);
+            CHECK(target.pixel(5, 20) == Color::rgb(255, 255, 255));
+        }
+    }
+    // Layers: glyph 1 is glyph 2 (the left half of the em square) in the
+    // palette's red under glyph 3 (the right half) in the text's own colour.
+    {
+        text::FontDescription description;
+        description.family = "Layers";
+        description.units_per_em = 1000;
+        description.ascender = 800;
+        description.descender = -200;
+        auto const square = [](std::int16_t from, std::int16_t to) {
+            text::WriterGlyph glyph;
+            glyph.advance = 1000;
+            glyph.outline.points = { { from, 0, true }, { from, 1000, true }, { to, 1000, true }, { to, 0, true } };
+            glyph.outline.contour_ends = { 3 };
+            return glyph;
+        };
+        description.glyphs = { text::WriterGlyph {}, text::WriterGlyph {}, square(0, 500), square(500, 1000) };
+        description.glyphs[1].advance = 1000;
+        description.mappings = { { 0x1F600, 1 } };
+        description.color_glyphs = { { 1, { { 2, 0 }, { 3, 0xFFFF } } } };
+        description.palette = { { 255, 0, 0, 255 } };
+        std::vector<std::uint8_t> const bytes = text::write_truetype(description);
+        std::optional<TrueTypeFont> const font = TrueTypeFont::parse(bytes);
+        if (CHECK(font.has_value())) {
+            CHECK(font->has_color_layers());
+            CHECK(!font->has_bitmap_glyphs());
+            std::vector<TrueTypeFont::ColorLayer> const layers = font->color_layers(1);
+            if (CHECK_EQ(layers.size(), 2u)) {
+                CHECK_EQ(layers[0].glyph, 2);
+                CHECK(!layers[0].foreground);
+                CHECK_EQ(layers[0].red, 255);
+                CHECK_EQ(layers[0].green, 0);
+                CHECK_EQ(layers[0].alpha, 255);
+                CHECK_EQ(layers[1].glyph, 3);
+                CHECK(layers[1].foreground);
+            }
+            CHECK(font->color_layers(2).empty());
+            std::unique_ptr<text::Face> const face_with_layers = text::make_truetype_face(*font);
+            Bitmap target(40, 40, Color::rgb(255, 255, 255));
+            face_with_layers->draw_glyph(target, 1, 10, 30, 20, Color::rgb(0, 0, 255), false, false);
+            CHECK(target.pixel(14, 20) == Color::rgb(255, 0, 0));
+            CHECK(target.pixel(25, 20) == Color::rgb(0, 0, 255));
+            CHECK(target.pixel(5, 20) == Color::rgb(255, 255, 255));
+            CHECK(target.pixel(35, 20) == Color::rgb(255, 255, 255));
+        }
+    }
 
     // --- The world's fonts, when the machine has them -------------------------------------
     for (char const* path : { "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/times.ttf",

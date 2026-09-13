@@ -96,6 +96,9 @@ public:
     // The first catalogued face with a glyph for the code point, loading
     // faces as needed and remembering the answer; null when none has it.
     Face const* fallback_for(char32_t code_point);
+    // The same among the colour faces alone — the bitmap and layered
+    // fonts: what draws a smiling face as a picture.
+    Face const* color_face_for(char32_t code_point);
 
 private:
     struct PageFace {
@@ -123,6 +126,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<FontStack>> m_stacks;
     std::vector<std::unique_ptr<FontStack>> m_retired_stacks; // superseded, kept for the layouts holding them
     std::unordered_map<char32_t, Face const*> m_fallbacks;
+    std::unordered_map<char32_t, Face const*> m_color_fallbacks;
     std::vector<PageFace> m_page_faces; // the current page's, in declaration order
     std::unordered_map<std::string, std::unique_ptr<Face>> m_page_face_cache; // by family, weight, slant, bytes
 };

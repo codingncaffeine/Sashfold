@@ -460,8 +460,10 @@ std::vector<std::uint8_t> load_east_asian(std::string const& path)
     });
 }
 
-// emoji-data.txt: the Extended_Pictographic code points (LB30b).
-std::vector<std::uint8_t> load_extended_pictographic(std::string const& path)
+// emoji-data.txt: the code points with one of its properties —
+// Extended_Pictographic (LB30b), Emoji_Presentation (what is drawn as a
+// picture by default, which the font fallback reads).
+std::vector<std::uint8_t> load_emoji_property(std::string const& path, std::string const& property)
 {
     constexpr std::size_t code_points = 0x110000;
     std::vector<std::uint8_t> values(code_points, 0);
@@ -473,7 +475,7 @@ std::vector<std::uint8_t> load_extended_pictographic(std::string const& path)
         if (body.empty())
             continue;
         std::vector<std::string> const fields = split(body, ';');
-        if (fields.size() < 2 || trim(fields[1]) != "Extended_Pictographic")
+        if (fields.size() < 2 || trim(fields[1]) != property)
             continue;
         char32_t first = 0;
         char32_t last = 0;
@@ -486,12 +488,12 @@ std::vector<std::uint8_t> load_extended_pictographic(std::string const& path)
 
 void emit_line_break(std::string const& path, std::vector<std::uint8_t> const& classes,
     std::vector<std::uint8_t> const& east_asian, std::vector<std::uint8_t> const& pictographic,
-    UnicodeData const& data)
+    std::vector<std::uint8_t> const& emoji_presentation, UnicodeData const& data)
 {
     // One sorted, disjoint table over the code space: a run of code points
-    // that share a class and the flags LB15, LB19a, LB21a, LB30 and LB30b
-    // read becomes one entry, and AL with no flags — the default almost
-    // everywhere — is left out.
+    // that share a class and the flags LB15, LB19a, LB21a, LB30, LB30b and
+    // the font fallback read becomes one entry, and AL with no flags — the
+    // default almost everywhere — is left out.
     std::size_t const al = line_break_class_index("AL");
     struct Run {
         char32_t first;
@@ -510,6 +512,8 @@ void emit_line_break(std::string const& path, std::vector<std::uint8_t> const& c
             flags |= 4;
         if (pictographic[c] && !in_ranges(data.assigned_ranges, c))
             flags |= 8;
+        if (emoji_presentation[c])
+            flags |= 16;
         if (classes[c] == al && flags == 0)
             continue;
         if (!runs.empty() && runs.back().last + 1 == c && runs.back().klass == classes[c] && runs.back().flags == flags)
@@ -527,7 +531,8 @@ void emit_line_break(std::string const& path, std::vector<std::uint8_t> const& c
         "// dictionary is at hand — beside the flags\n"
         "// the rules read alongside it: East_Asian_Width F, W or H (LB19a,\n"
         "// LB21a, LB30), the Pi and Pf categories of a quotation mark (LB15,\n"
-        "// LB19) and Extended_Pictographic on an unassigned code point (LB30b).\n"
+        "// LB19), Extended_Pictographic on an unassigned code point (LB30b) and\n"
+        "// Emoji_Presentation, which the font fallback reads to draw a picture.\n"
         "// AL with no flag is the default and is left out of the table, so what\n"
         "// is here is every run that differs from it; the runs are sorted and\n"
         "// disjoint, for binary search.");
@@ -539,7 +544,8 @@ void emit_line_break(std::string const& path, std::vector<std::uint8_t> const& c
     out << "inline constexpr std::uint8_t line_break_east_asian = 1;\n"
         << "inline constexpr std::uint8_t line_break_initial_quote = 2;\n"
         << "inline constexpr std::uint8_t line_break_final_quote = 4;\n"
-        << "inline constexpr std::uint8_t line_break_unassigned_pictographic = 8;\n\n";
+        << "inline constexpr std::uint8_t line_break_unassigned_pictographic = 8;\n"
+        << "inline constexpr std::uint8_t line_break_emoji_presentation = 16;\n\n";
     out << "struct LineBreakRange {\n    char32_t first;\n    char32_t last;\n    LineBreakClass klass;\n"
         << "    std::uint8_t flags;\n};\n\n";
     out << "inline constexpr LineBreakRange line_break_ranges[] = {\n";
@@ -1020,12 +1026,15 @@ int main(int argc, char** argv)
 
     std::vector<std::uint8_t> const line_break = load_line_break(data_dir + "/LineBreak.txt", unicode_data);
     std::vector<std::uint8_t> const east_asian = load_east_asian(data_dir + "/EastAsianWidth.txt");
-    std::vector<std::uint8_t> const pictographic = load_extended_pictographic(data_dir + "/emoji-data.txt");
+    std::vector<std::uint8_t> const pictographic = load_emoji_property(data_dir + "/emoji-data.txt", "Extended_Pictographic");
+    std::vector<std::uint8_t> const emoji_presentation
+        = load_emoji_property(data_dir + "/emoji-data.txt", "Emoji_Presentation");
 
     emit_idna(repo + "/src/net/IdnaData.h", idna);
     emit_normalization(repo + "/src/core/NormalizationData.h", unicode_data, excluded);
     emit_case(repo + "/src/core/CaseData.h", unicode_data);
     emit_bidi(repo + "/src/core/BidiData.h", bidi, mirrors, brackets);
-    emit_line_break(repo + "/src/core/LineBreakData.h", line_break, east_asian, pictographic, unicode_data);
+    emit_line_break(repo + "/src/core/LineBreakData.h", line_break, east_asian, pictographic, emoji_presentation,
+        unicode_data);
     return 0;
 }

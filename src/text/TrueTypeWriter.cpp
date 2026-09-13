@@ -826,6 +826,152 @@ std::vector<std::uint8_t> write_truetype(FontDescription const& font)
         }
     }
 
+    // --- CBDT + CBLC, or sbix: the pictures, when there are any ------------------------
+    Buffer cbdt;
+    Buffer cblc;
+    Buffer sbix;
+    if (!font.bitmap_glyphs.empty() && font.bitmap_ppem != 0) {
+        std::vector<WriterBitmapGlyph const*> pictures;
+        for (WriterBitmapGlyph const& picture : font.bitmap_glyphs) {
+            if (picture.glyph < font.glyphs.size())
+                pictures.push_back(&picture);
+        }
+        std::sort(pictures.begin(), pictures.end(),
+            [](WriterBitmapGlyph const* a, WriterBitmapGlyph const* b) { return a->glyph < b->glyph; });
+        auto const clamp8 = [](int value) {
+            return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
+        };
+        auto const clamp_i8 = [](int value) {
+            return static_cast<std::uint8_t>(static_cast<std::int8_t>(std::clamp(value, -128, 127)));
+        };
+        if (!pictures.empty() && font.bitmap_table == WriterBitmapTable::Cbdt) {
+            std::uint16_t const first = pictures.front()->glyph;
+            std::uint16_t const last = pictures.back()->glyph;
+            // CBDT: the header, then each picture as small metrics, a
+            // length and the PNG (image format 17); CBLC: one strike whose
+            // one index subtable (format 1) lists an offset per glyph in
+            // the range and one past the last.
+            cbdt.u16(3);
+            cbdt.u16(0);
+            std::vector<std::uint32_t> picture_offsets;
+            std::size_t next = 0;
+            for (std::uint16_t glyph = first;; ++glyph) {
+                picture_offsets.push_back(static_cast<std::uint32_t>(cbdt.size() - 4));
+                if (next < pictures.size() && pictures[next]->glyph == glyph) {
+                    WriterBitmapGlyph const& picture = *pictures[next++];
+                    cbdt.u8(clamp8(picture.height));
+                    cbdt.u8(clamp8(picture.width));
+                    cbdt.u8(clamp_i8(picture.left));
+                    cbdt.u8(clamp_i8(picture.bottom + picture.height));
+                    cbdt.u8(clamp8(picture.width));
+                    cbdt.u32(static_cast<std::uint32_t>(picture.png.size()));
+                    cbdt.append(picture.png);
+                }
+                if (glyph == last)
+                    break;
+            }
+            picture_offsets.push_back(static_cast<std::uint32_t>(cbdt.size() - 4));
+            cblc.u16(3);
+            cblc.u16(0);
+            cblc.u32(1);
+            std::size_t const index_tables_size = 8 + 8 + picture_offsets.size() * 4;
+            cblc.u32(56); // the index subtable array follows the one size record
+            cblc.u32(static_cast<std::uint32_t>(index_tables_size));
+            cblc.u32(1);
+            cblc.u32(0);
+            for (int i = 0; i < 24; ++i)
+                cblc.u8(0); // the line metrics, horizontal and vertical: unsaid
+            cblc.u16(first);
+            cblc.u16(last);
+            cblc.u8(static_cast<std::uint8_t>(font.bitmap_ppem));
+            cblc.u8(static_cast<std::uint8_t>(font.bitmap_ppem));
+            cblc.u8(32);
+            cblc.u8(1);
+            cblc.u16(first);
+            cblc.u16(last);
+            cblc.u32(8);
+            cblc.u16(1);
+            cblc.u16(17);
+            cblc.u32(4);
+            for (std::uint32_t const offset : picture_offsets)
+                cblc.u32(offset);
+        } else if (!pictures.empty()) {
+            // sbix: one strike, an offset per glyph and one past the last,
+            // each graphic its origin offsets, 'png ' and the bytes.
+            sbix.u16(1);
+            sbix.u16(1);
+            sbix.u32(1);
+            sbix.u32(12);
+            Buffer strike;
+            strike.u16(font.bitmap_ppem);
+            strike.u16(72);
+            std::size_t const offsets_at = strike.size();
+            for (std::size_t i = 0; i <= font.glyphs.size(); ++i)
+                strike.u32(0);
+            std::size_t next = 0;
+            for (std::size_t glyph = 0; glyph < font.glyphs.size(); ++glyph) {
+                strike.u32_at(offsets_at + glyph * 4, static_cast<std::uint32_t>(strike.size()));
+                if (next < pictures.size() && pictures[next]->glyph == glyph) {
+                    WriterBitmapGlyph const& picture = *pictures[next++];
+                    strike.i16(static_cast<std::int16_t>(std::clamp(picture.left, -32768, 32767)));
+                    strike.i16(static_cast<std::int16_t>(std::clamp(picture.bottom, -32768, 32767)));
+                    strike.tag('p', 'n', 'g', ' ');
+                    strike.append(picture.png);
+                }
+            }
+            strike.u32_at(offsets_at + font.glyphs.size() * 4, static_cast<std::uint32_t>(strike.size()));
+            sbix.append(strike.bytes);
+        }
+    }
+
+    // --- COLR + CPAL: the colour layers, when there are any ------------------------------
+    Buffer colr;
+    Buffer cpal;
+    if (!font.color_glyphs.empty() && !font.palette.empty()) {
+        std::vector<WriterColorGlyph const*> bases;
+        for (WriterColorGlyph const& base : font.color_glyphs) {
+            if (base.glyph < font.glyphs.size() && !base.layers.empty())
+                bases.push_back(&base);
+        }
+        std::sort(bases.begin(), bases.end(),
+            [](WriterColorGlyph const* a, WriterColorGlyph const* b) { return a->glyph < b->glyph; });
+        if (!bases.empty()) {
+            std::size_t layer_count = 0;
+            for (WriterColorGlyph const* base : bases)
+                layer_count += base->layers.size();
+            colr.u16(0);
+            colr.u16(static_cast<std::uint16_t>(bases.size()));
+            colr.u32(14);
+            colr.u32(static_cast<std::uint32_t>(14 + bases.size() * 6));
+            colr.u16(static_cast<std::uint16_t>(layer_count));
+            std::uint16_t first_layer = 0;
+            for (WriterColorGlyph const* base : bases) {
+                colr.u16(base->glyph);
+                colr.u16(first_layer);
+                colr.u16(static_cast<std::uint16_t>(base->layers.size()));
+                first_layer = static_cast<std::uint16_t>(first_layer + base->layers.size());
+            }
+            for (WriterColorGlyph const* base : bases) {
+                for (auto const& [glyph, palette_index] : base->layers) {
+                    colr.u16(glyph);
+                    colr.u16(palette_index);
+                }
+            }
+            cpal.u16(0);
+            cpal.u16(static_cast<std::uint16_t>(font.palette.size()));
+            cpal.u16(1);
+            cpal.u16(static_cast<std::uint16_t>(font.palette.size()));
+            cpal.u32(14);
+            cpal.u16(0);
+            for (WriterPaletteColor const& color : font.palette) {
+                cpal.u8(color.blue);
+                cpal.u8(color.green);
+                cpal.u8(color.red);
+                cpal.u8(color.alpha);
+            }
+        }
+    }
+
     // --- the file: directory, then the tables in tag order -----------------------------
     struct Entry {
         std::uint32_t tag;
@@ -842,6 +988,16 @@ std::vector<std::uint8_t> write_truetype(FontDescription const& font)
         entries.push_back({ make_tag('k', 'e', 'r', 'n'), &kern.bytes });
     if (!gpos.bytes.empty())
         entries.push_back({ make_tag('G', 'P', 'O', 'S'), &gpos.bytes });
+    if (!cbdt.bytes.empty()) {
+        entries.push_back({ make_tag('C', 'B', 'D', 'T'), &cbdt.bytes });
+        entries.push_back({ make_tag('C', 'B', 'L', 'C'), &cblc.bytes });
+    }
+    if (!sbix.bytes.empty())
+        entries.push_back({ make_tag('s', 'b', 'i', 'x'), &sbix.bytes });
+    if (!colr.bytes.empty()) {
+        entries.push_back({ make_tag('C', 'O', 'L', 'R'), &colr.bytes });
+        entries.push_back({ make_tag('C', 'P', 'A', 'L'), &cpal.bytes });
+    }
     std::sort(entries.begin(), entries.end(), [](Entry const& a, Entry const& b) { return a.tag < b.tag; });
     Buffer file;
     auto const table_count = static_cast<std::uint16_t>(entries.size());

@@ -1,6 +1,7 @@
 #include "text/FontManager.h"
 
 #include "core/Ascii.h"
+#include "core/LineBreak.h"
 #include "platform/Fonts.h"
 
 #include <algorithm>
@@ -64,12 +65,13 @@ std::vector<std::string_view> generic_candidates(std::string_view generic)
 }
 
 // Faces worth asking first when the page's own fonts lack a glyph: broad
-// Latin and symbol coverage, then the CJK workhorses.
-constexpr std::array<std::string_view, 22> fallback_families { "Segoe UI", "Arial Unicode MS", "Noto Sans",
+// Latin and symbol coverage, then the CJK workhorses, then the colour
+// emoji fonts for what nothing else has.
+constexpr std::array<std::string_view, 24> fallback_families { "Segoe UI", "Arial Unicode MS", "Noto Sans",
     "DejaVu Sans", "Segoe UI Symbol", "Segoe UI Historic", "Arial", "Helvetica", "Times New Roman",
     "Lucida Sans Unicode", "Apple Symbols", "Yu Gothic", "Meiryo", "MS Gothic", "Microsoft YaHei",
     "Microsoft JhengHei", "Malgun Gothic", "Hiragino Sans", "PingFang SC", "Noto Sans CJK JP",
-    "Noto Sans CJK SC", "Segoe UI Emoji" };
+    "Noto Sans CJK SC", "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji" };
 
 bool has_font_extension(std::filesystem::path const& path)
 {
@@ -93,6 +95,14 @@ std::uint64_t fnv1a(std::vector<std::uint8_t> const& bytes)
 
 Face const& FontStack::face_for(char32_t code_point) const
 {
+    // A character drawn as a picture by default — a smiling face, a flag
+    // — goes to a colour face when the machine has one for it, before any
+    // face on the stack with a black-and-white glyph for it, as Firefox
+    // and Chrome give it.
+    if (m_manager && m_manager->system_fonts() && is_emoji_presentation(code_point)) {
+        if (Face const* face = m_manager->color_face_for(code_point))
+            return *face;
+    }
     for (Face const* face : m_faces) {
         if (face->glyph_index(code_point) != 0)
             return *face;
@@ -154,6 +164,7 @@ void FontManager::add_font_file(std::string const& path)
     }
     retire_stacks();
     m_fallbacks.clear();
+    m_color_fallbacks.clear();
 }
 
 void FontManager::set_system_fonts(bool enabled)
@@ -163,6 +174,7 @@ void FontManager::set_system_fonts(bool enabled)
     m_system_fonts = enabled;
     retire_stacks();
     m_fallbacks.clear();
+    m_color_fallbacks.clear();
 }
 
 // A stack, once handed out, is referenced by every text run laid out with
@@ -387,12 +399,6 @@ Face const* FontManager::fallback_for(char32_t code_point)
         return it->second;
     scan();
     Face const* found = nullptr;
-    for (auto const& [index, face] : m_loaded) {
-        if (face && face->glyph_index(code_point) != 0) {
-            found = face.get();
-            break;
-        }
-    }
     auto const try_index = [&](std::size_t index) {
         if (found)
             return;
@@ -402,6 +408,17 @@ Face const* FontManager::fallback_for(char32_t code_point)
         if (Face const* face = load(index); face && face->glyph_index(code_point) != 0)
             found = face;
     };
+    // What is drawn as a picture by default goes to a colour font first: a
+    // text face with a black-and-white smiling face would otherwise win by
+    // being loaded already.
+    if (is_emoji_presentation(code_point))
+        found = color_face_for(code_point);
+    for (auto const& [index, face] : m_loaded) {
+        if (found)
+            break;
+        if (face && face->glyph_index(code_point) != 0)
+            found = face.get();
+    }
     for (std::string_view const family : fallback_families) {
         auto const it = m_by_family.find(lowercased(family));
         if (it == m_by_family.end())
@@ -415,6 +432,23 @@ Face const* FontManager::fallback_for(char32_t code_point)
             try_index(index);
     }
     m_fallbacks.emplace(code_point, found);
+    return found;
+}
+
+Face const* FontManager::color_face_for(char32_t code_point)
+{
+    if (auto const it = m_color_fallbacks.find(code_point); it != m_color_fallbacks.end())
+        return it->second;
+    scan();
+    Face const* found = nullptr;
+    for (std::size_t index = 0; index < m_catalogue.size() && !found; ++index) {
+        FaceInfo const& info = m_catalogue[index];
+        if (!info.color || info.italic || info.weight_class > 500)
+            continue;
+        if (Face const* face = load(index); face && face->glyph_index(code_point) != 0)
+            found = face;
+    }
+    m_color_fallbacks.emplace(code_point, found);
     return found;
 }
 

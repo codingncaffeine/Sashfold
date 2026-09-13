@@ -1,8 +1,11 @@
 #include "text/Face.h"
 
+#include "core/Png.h"
 #include "text/Rasterizer.h"
 #include "text/SashfoldMono.h"
 
+#include <cmath>
+#include <memory>
 #include <unordered_map>
 #include <utility>
 
@@ -121,8 +124,20 @@ public:
         int const size_q = static_cast<int>(size * 4.0f + 0.5f);
         if (glyph == 0 || glyph > 0xFFFF || size_q <= 0)
             return; // 0 is "no glyph": the caller falls back, this face draws nothing
-        GlyphMask const& mask = mask_for(static_cast<std::uint16_t>(glyph), size_q,
-            bold && !m_font.is_bold(), italic && !m_font.is_italic());
+        auto const id = static_cast<std::uint16_t>(glyph);
+        // A colour glyph first: its layers in their palette colours, or its
+        // picture from a bitmap strike. Neither is emboldened or slanted.
+        if (m_font.has_color_layers() && draw_layers(target, id, x, baseline_y, size_q, color))
+            return;
+        if (m_font.has_bitmap_glyphs() && draw_picture(target, id, x, baseline_y, size))
+            return;
+        GlyphMask const& mask = mask_for(id, size_q, bold && !m_font.is_bold(), italic && !m_font.is_italic());
+        blend_mask(target, mask, x, baseline_y, color);
+    }
+
+private:
+    static void blend_mask(Bitmap& target, GlyphMask const& mask, float x, float baseline_y, Color color)
+    {
         if (mask.empty())
             return;
         int const origin_x = static_cast<int>(x + 0.5f) + mask.left;
@@ -141,7 +156,73 @@ public:
         }
     }
 
-private:
+    // COLR: the glyph's layers, first to last, each an outline in its
+    // palette colour — or in the text's own where the layer asks for it.
+    bool draw_layers(Bitmap& target, std::uint16_t glyph, float x, float baseline_y, int size_q, Color color) const
+    {
+        std::vector<TrueTypeFont::ColorLayer> const layers = m_font.color_layers(glyph);
+        if (layers.empty())
+            return false;
+        for (TrueTypeFont::ColorLayer const& layer : layers) {
+            Color const fill = layer.foreground ? color : Color::rgba(layer.red, layer.green, layer.blue, layer.alpha);
+            blend_mask(target, mask_for(layer.glyph, size_q, false, false), x, baseline_y, fill);
+        }
+        return true;
+    }
+
+    // A bitmap strike's picture of the glyph, decoded once per size and
+    // drawn scaled from the strike's ppem to the size, set where the
+    // strike's metrics put it: `left` px from the pen, its bottom `bottom`
+    // px above the baseline.
+    struct Picture {
+        Bitmap bitmap;
+        std::uint16_t ppem = 0;
+        int left = 0;
+        int bottom = 0;
+        int width = 0;
+        int height = 0;
+    };
+
+    bool draw_picture(Bitmap& target, std::uint16_t glyph, float x, float baseline_y, float size) const
+    {
+        Picture const* const picture = picture_for(glyph, size);
+        if (!picture || picture->width <= 0 || picture->height <= 0)
+            return false;
+        float const scale = size / static_cast<float>(picture->ppem);
+        int const left = static_cast<int>(std::lround(x + static_cast<float>(picture->left) * scale));
+        int const top = static_cast<int>(
+            std::lround(baseline_y - static_cast<float>(picture->bottom + picture->height) * scale));
+        int const width = std::max(1, static_cast<int>(std::lround(static_cast<float>(picture->width) * scale)));
+        int const height = std::max(1, static_cast<int>(std::lround(static_cast<float>(picture->height) * scale)));
+        target.draw_scaled(picture->bitmap, Rect { left, top, width, height });
+        return true;
+    }
+
+    Picture const* picture_for(std::uint16_t glyph, float size) const
+    {
+        // The strike a size gets is the strike its neighbours get, so the
+        // key is the size in whole px: a page's few emoji sizes decode once.
+        std::uint32_t const px = static_cast<std::uint32_t>(std::min(size, 65535.0f));
+        std::uint32_t const key = static_cast<std::uint32_t>(glyph) << 16 | px;
+        if (auto const it = m_pictures.find(key); it != m_pictures.end())
+            return it->second.get();
+        std::unique_ptr<Picture> picture;
+        if (std::optional<TrueTypeFont::BitmapGlyph> const data = m_font.bitmap_glyph(glyph, size)) {
+            if (std::optional<Bitmap> decoded = decode_png(data->png, 4u * 1024u * 1024u)) {
+                picture = std::make_unique<Picture>(Picture { std::move(*decoded), data->ppem, data->left,
+                    data->bottom, data->width, data->height });
+                // A strike without metrics (sbix) sizes the picture by itself.
+                if (picture->width <= 0 || picture->height <= 0) {
+                    picture->width = picture->bitmap.width();
+                    picture->height = picture->bitmap.height();
+                }
+            }
+        }
+        auto const [it, inserted] = m_pictures.emplace(key, std::move(picture));
+        (void)inserted;
+        return it->second.get();
+    }
+
     GlyphMask const& mask_for(std::uint16_t glyph, int size_q, bool embolden, bool oblique) const
     {
         MaskKey const key { glyph, size_q, embolden, oblique };
@@ -158,6 +239,7 @@ private:
     TrueTypeFont m_font;
     bool m_monospace = false;
     mutable std::unordered_map<MaskKey, GlyphMask, MaskKeyHash> m_masks;
+    mutable std::unordered_map<std::uint32_t, std::unique_ptr<Picture>> m_pictures; // null: no picture at that size
 };
 
 } // namespace

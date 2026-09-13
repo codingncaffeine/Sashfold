@@ -422,6 +422,11 @@ bool is_pictograph_like(C c)
 
 } // namespace
 
+bool is_emoji_presentation(char32_t code_point)
+{
+    return (line_break_flags(code_point) & line_break_emoji_presentation) != 0;
+}
+
 bool is_other_space_separator(char32_t code_point)
 {
     return code_point == 0x1680 || (code_point >= 0x2000 && code_point <= 0x200A) || code_point == 0x202F

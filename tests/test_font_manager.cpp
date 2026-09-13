@@ -1,11 +1,15 @@
 #include "Test.h"
 
+#include "core/Bitmap.h"
+#include "core/Png.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueTypeWriter.h"
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -21,6 +25,16 @@ using namespace sashfold;
 using text::FontManager;
 using text::FontRequest;
 using text::FontStack;
+
+namespace {
+
+// A 4 px red square as a PNG: the picture the test's emoji font draws.
+std::vector<std::uint8_t> core_png_4x4_red()
+{
+    return encode_png(Bitmap(4, 4, Color::rgb(255, 0, 0)));
+}
+
+}
 
 int main()
 {
@@ -114,6 +128,29 @@ int main()
     }
 
     // --- System fonts --------------------------------------------------------------------
+    // A colour font handed over by name joins the catalogue, and an emoji
+    // falls back to it before any face with a black-and-white glyph — on a
+    // machine with a colour emoji font of its own, to that one or this.
+    std::filesystem::path const picture_font = std::filesystem::temp_directory_path() / "sashfold-emoji-test.ttf";
+    {
+        text::FontDescription description;
+        description.family = "Sashfold Test Emoji";
+        description.units_per_em = 1000;
+        description.ascender = 800;
+        description.descender = -200;
+        for (int i = 0; i < 2; ++i) {
+            text::WriterGlyph glyph;
+            glyph.advance = 1000;
+            description.glyphs.push_back(glyph);
+        }
+        description.mappings = { { 0x1F600, 1 } };
+        description.bitmap_glyphs = { { 1, core_png_4x4_red(), 0, 0, 4, 4 } };
+        description.bitmap_ppem = 16;
+        std::vector<std::uint8_t> const bytes = text::write_truetype(description);
+        std::ofstream out(picture_font, std::ios::binary);
+        out.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    manager.add_font_file(picture_font.string());
     manager.set_system_fonts(true);
     CHECK(manager.system_fonts());
     std::vector<text::FaceInfo> const& catalogue = manager.catalogue();
@@ -122,6 +159,18 @@ int main()
         CHECK(!info.family.empty());
         CHECK(info.has_outlines);
     }
+    {
+        FontStack const& text_face = manager.resolve(FontRequest { { "sans-serif" }, 400, false });
+        text::Face const& smile = text_face.face_for(0x1F600);
+        CHECK(&smile != &builtin);
+        CHECK(smile.glyph_index(0x1F600) != 0);
+        std::size_t colour_faces = 0;
+        for (text::FaceInfo const& info : catalogue)
+            colour_faces += info.color ? 1 : 0;
+        CHECK(colour_faces >= 1);
+        std::cout << "  U+1F600 falls back to " << smile.family() << " (" << colour_faces << " colour faces catalogued)\n";
+    }
+    std::filesystem::remove(picture_font);
 
     FontStack const& serif = manager.resolve(FontRequest { { "serif" }, 400, false });
     FontStack const& sans = manager.resolve(FontRequest { { "sans-serif" }, 400, false });

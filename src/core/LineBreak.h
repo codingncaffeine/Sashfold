@@ -50,6 +50,11 @@ constexpr std::uint8_t line_break_tailor_clusters = 64;
 // preserved spaces do.
 bool is_other_space_separator(char32_t code_point);
 
+// Emoji_Presentation: a code point drawn as a picture by default — a
+// smiling face, a flag — which a colour font should draw before any face
+// with a black-and-white glyph for it gets the chance.
+bool is_emoji_presentation(char32_t code_point);
+
 // One entry per boundary of the text: [0] is before the first character
 // (never a break), [i] is before character i, [size] is the end of the
 // text, which is always a break. `tailoring` holds a character's flags

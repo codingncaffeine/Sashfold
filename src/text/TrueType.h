@@ -4,9 +4,11 @@
 // code point into an outline and an advance: head, maxp, hhea, hmtx, loca,
 // glyf (simple and composite), cmap (formats 0, 4, 6, 12), name, OS/2 —
 // and, for CFF-flavored OpenType, the `CFF ` table's charstrings through
-// the interpreter in Cff.h. Fonts are attacker-controlled data: every
-// offset is bounds-checked, a malformed glyph fails alone instead of
-// taking the face with it, and a harness fuzzes the parser.
+// the interpreter in Cff.h; the kerning in GPOS or `kern`; and colour: a
+// glyph as a PNG from a bitmap strike (CBDT/CBLC, sbix) or as outlines
+// layered in palette colours (COLR/CPAL). Fonts are attacker-controlled
+// data: every offset is bounds-checked, a malformed glyph fails alone
+// instead of taking the face with it, and a harness fuzzes the parser.
 
 #include <array>
 #include <cstddef>
@@ -48,8 +50,9 @@ struct FaceInfo {
     std::string subfamily;
     std::uint16_t weight_class = 400;
     bool italic = false;
-    bool has_outlines = true; // a glyf table or a CFF table with charstrings
+    bool has_outlines = true; // something to draw from: glyf, CFF charstrings, bitmap strikes or colour layers
     std::array<std::uint32_t, 4> unicode_ranges { 0, 0, 0, 0 }; // OS/2 ulUnicodeRange1-4; all zero when unsaid
+    bool color = false; // a colour font: bitmap strikes (CBDT, sbix) or COLR layers
 
     bool claims(char32_t code_point) const
     {
@@ -88,9 +91,15 @@ public:
     std::uint16_t weight_class() const { return m_weight_class; } // 400 regular, 700 bold
     bool is_italic() const { return m_italic; }
     bool is_bold() const { return m_weight_class >= 600; }
-    // Whether the face can draw: a glyf table, or a CFF table that parsed.
-    bool has_outlines() const { return m_has_glyf || m_cff != nullptr; }
+    // Whether the face can draw: a glyf table, a CFF table that parsed, a
+    // bitmap strike or colour layers.
+    bool has_outlines() const
+    {
+        return m_has_glyf || m_cff != nullptr || has_bitmap_glyphs() || has_color_layers();
+    }
     bool has_cff() const { return m_has_cff; }
+    bool has_bitmap_glyphs() const { return !m_strikes.empty(); }
+    bool has_color_layers() const { return m_color_glyph_count != 0; }
     std::string const& family_name() const { return m_family; }
     std::string const& subfamily_name() const { return m_subfamily; }
 
@@ -111,6 +120,38 @@ public:
     // rewritten as quadratics; nullopt for a malformed glyph. An empty
     // outline (no contours) is a valid result: spaces.
     std::optional<GlyphOutline> outline(std::uint16_t glyph) const;
+
+    // A glyph as a picture: the PNG the bitmap strike nearest `size`
+    // holds for it, with where the picture sits — in px at the strike's
+    // ppem, from the pen: `left` to its left edge, `bottom` from the
+    // baseline up to its bottom edge (so a picture standing on the
+    // baseline has bottom 0). `width` and `height` are the strike's
+    // metrics, or 0 when the strike gives none (sbix) and the picture's
+    // own size is the size. nullopt when no strike has the glyph or the
+    // image is not a PNG.
+    struct BitmapGlyph {
+        std::vector<std::uint8_t> png;
+        std::uint16_t ppem = 0;
+        int left = 0;
+        int bottom = 0;
+        int width = 0;
+        int height = 0;
+    };
+    std::optional<BitmapGlyph> bitmap_glyph(std::uint16_t glyph, float size) const;
+
+    // A glyph as layers of outlines in colour (COLR version 0 with the
+    // first CPAL palette): drawn first to last, each the outline of
+    // `glyph` filled with the colour, or with the text's own colour when
+    // `foreground` is set. Empty for a glyph without layers.
+    struct ColorLayer {
+        std::uint16_t glyph = 0;
+        std::uint8_t red = 0;
+        std::uint8_t green = 0;
+        std::uint8_t blue = 0;
+        std::uint8_t alpha = 255;
+        bool foreground = false;
+    };
+    std::vector<ColorLayer> color_layers(std::uint16_t glyph) const;
 
 private:
     struct Table {
@@ -136,6 +177,7 @@ private:
     void load_names();
     void load_os2();
     void load_kerning();
+    void load_color();
     std::int16_t gpos_pair_adjustment(std::uint32_t subtable, std::uint16_t left, std::uint16_t right) const;
     std::int16_t kern_table_adjustment(std::uint32_t subtable, std::uint16_t left, std::uint16_t right) const;
     bool outline_into(std::uint16_t glyph, GlyphOutline& out, int depth) const;
@@ -145,9 +187,32 @@ private:
     bool glyph_span(std::uint16_t glyph, std::uint32_t& offset, std::uint32_t& length) const;
     std::string name_string(std::uint16_t name_id) const;
 
+    // A bitmap strike: a size's worth of pictures. CBLC's index subtables
+    // are walked per glyph; sbix's strike holds one offset per glyph.
+    struct Strike {
+        std::uint16_t ppem = 0;
+        bool sbix = false;
+        std::uint32_t offset = 0; // CBLC: the index subtable array; sbix: the strike
+        std::uint32_t count = 0; // CBLC: index subtables in the array
+        std::uint16_t first_glyph = 0; // CBLC: the strike's glyph range
+        std::uint16_t last_glyph = 0;
+    };
+    std::optional<BitmapGlyph> cblc_glyph(Strike const& strike, std::uint16_t glyph) const;
+    std::optional<BitmapGlyph> sbix_glyph(Strike const& strike, std::uint16_t glyph) const;
+
     std::vector<std::uint8_t> m_bytes;
     Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2, m_cff_table, m_kern,
-        m_gpos;
+        m_gpos, m_cblc, m_cbdt, m_sbix, m_colr, m_cpal;
+    std::vector<Strike> m_strikes; // sorted by ppem
+    // COLR version 0: the base glyph records (sorted by glyph) and the
+    // layer records they index, as offsets into the table; CPAL's first
+    // palette as colour records.
+    std::uint32_t m_color_glyph_count = 0;
+    std::uint32_t m_color_base_records = 0;
+    std::uint32_t m_color_layer_records = 0;
+    std::uint32_t m_color_layer_count = 0;
+    std::uint32_t m_palette_records = 0; // absolute offset of the first palette's first colour
+    std::uint16_t m_palette_size = 0;
     // Where the kerning is read from, found once: the pair positioning
     // subtables (formats 1 and 2) of every `kern` feature lookup in GPOS,
     // or, when GPOS names none, the horizontal format 0 subtables of the

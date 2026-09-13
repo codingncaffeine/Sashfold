@@ -42,6 +42,14 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
                 (void)font->kerning(static_cast<std::uint16_t>(left), static_cast<std::uint16_t>(right));
         }
         (void)font->kerning(0xFFFF, 0xFFFF);
+        // So are the colour tables: a picture and the layers of the first
+        // glyphs at a few sizes.
+        for (std::size_t glyph = 0; glyph < std::min<std::size_t>(glyphs, 64); ++glyph) {
+            auto const g = static_cast<std::uint16_t>(glyph);
+            for (float const size : { 12.0f, 40.0f, 200.0f })
+                (void)font->bitmap_glyph(g, size);
+            (void)font->color_layers(g);
+        }
     }
     return 0;
 }
