@@ -1661,6 +1661,11 @@ void test_an_iframe_has_the_initial_about_blank_document()
     page->eval("var lateLoad = false; made.addEventListener('load', function () { lateLoad = true; });");
     page->realm->run_pending();
     CHECK(page->boolean("loads.made === 1 && !lateLoad && made.contentWindow === atOnce"));
+    // A document a script made has no browsing context, so an iframe put into
+    // it gets no navigable and no window (HTML §4.8.5: only an iframe
+    // connected to a document with a browsing context creates one).
+    CHECK(page->boolean("(function () { var pd = new DOMParser().parseFromString('<body></body>', 'text/html'); var o = pd.createElement('iframe');"
+                        " pd.body.appendChild(o); return o.contentWindow === null && o.contentDocument === null; })()"));
     // Pointed at an srcdoc afterwards: navigated, a new window behind the same
     // WindowProxy, one more load.
     page->eval("var blankArray = atOnce.Array; made.srcdoc = '<script>var which = \"srcdoc\";</script>';");

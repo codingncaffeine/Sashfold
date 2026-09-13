@@ -1739,8 +1739,10 @@ bool Realm::Internals::open_blank_frame(dom::Element& iframe)
     // (HTML §4.8.5), and its load too when the iframe names nothing else: a
     // listener added after the insertion never sees that load. One whose src
     // or srcdoc names a document keeps it only until it navigates there, with
-    // that document's load alone.
-    if (!iframe.is_connected() || realm.frame_realm(iframe) != nullptr)
+    // that document's load alone. An iframe in another document of this
+    // realm's, one a script made, is in a document with no browsing context,
+    // and gets no navigable at all.
+    if (!iframe.is_connected() || &iframe.document() != document || realm.frame_realm(iframe) != nullptr)
         return true;
     bool const script = javascript_src(iframe, url).has_value();
     bool const names_document = !script && !frame_source(iframe, url).empty();
