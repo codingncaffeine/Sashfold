@@ -558,13 +558,16 @@ void install_window_proxy(Realm::Internals&, std::vector<js::PropertyKey> const&
 // An iframe's document with a realm of its own in its page's agent: the
 // policy, the document, and the Realm last, so that the Realm ends first;
 // what the frame was opened from, as the painter keys its attributes, or the
-// URL it navigated to on its own, which no attributes name; and whether the
+// URL it navigated to on its own, which no attributes name; whether the
 // document is the frame's initial about:blank one (HTML's "is initial
-// about:blank"), which a javascript: URL's first run is told by.
+// about:blank"), which a javascript: URL's first run is told by; and whether
+// that document stands only until the navigation the iframe's src or srcdoc
+// names, as it does for such an iframe from its insertion on.
 struct ChildFrame {
     dom::Element* container = nullptr;
     std::string source;
     bool initial_blank = false;
+    bool awaiting_navigation = false;
     std::unique_ptr<net::ContentSecurityPolicy> policy;
     std::unique_ptr<dom::Document> document;
     std::unique_ptr<Realm> realm;
@@ -816,6 +819,9 @@ struct Realm::Internals {
     std::unordered_set<dom::Element const*> started_scripts; // "already started" (§4.12.1)
     html::TreeBuilder* active_parser = nullptr; // set while the parser runs a script
     std::string ready_state = "loading";
+    // document.contentType: the MIME type the document arrived as, a frame's
+    // from its host's answer, whatever the document is shown as.
+    std::string document_content_type = "text/html";
     dom::Element* current_script = nullptr;
     js::Value current_event; // window.event
     std::uint64_t mutations = 0;

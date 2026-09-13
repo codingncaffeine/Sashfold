@@ -1598,12 +1598,15 @@ void test_a_frames_document_follows_its_iframe()
     page->realm->run_pending();
     CHECK(page->boolean("typeof cTimerRan === 'undefined' && typeof innerTimerRan === 'undefined' && typeof neverRuns === 'undefined'"));
 
-    // A script-inserted iframe opens after the script, once, with a load.
+    // A script-inserted iframe has its initial about:blank document at once,
+    // with no load, and opens what its srcdoc names after the script, once,
+    // with a load, behind the same WindowProxy.
     page->eval("var e = document.createElement('iframe'); e.id = 'e';"
                " e.srcdoc = \"<script>parent.eOpened = (parent.eOpened || 0) + 1;</script>\"; document.body.appendChild(e);"
-               " var openedLater = e.contentWindow === null;");
+               " var eAtOnce = e.contentWindow;"
+               " var blankAtOnce = eAtOnce !== null && e.contentDocument.URL === 'about:blank' && loads.e === undefined && typeof eOpened === 'undefined';");
     page->realm->run_pending();
-    CHECK(page->boolean("openedLater && eOpened === 1 && loads.e === 1 && e.contentWindow !== null"));
+    CHECK(page->boolean("blankAtOnce && eOpened === 1 && loads.e === 1 && e.contentWindow === eAtOnce"));
     // Removed from inside, by its own script, at the page's ask.
     page->eval("e.contentWindow.eval('frameElement.remove()');");
     CHECK(page->boolean("document.getElementById('e') === null && eOpened === 1"));
@@ -2217,6 +2220,82 @@ void test_a_frame_navigates()
     hashed.reset();
 }
 
+// Every iframe has a window from its insertion on (HTML §4.8.5): the initial
+// about:blank document, of its parent's origin, which the document its src
+// or srcdoc names replaces behind the same WindowProxy, with that document's
+// load alone. A frame whose document cannot be shown keeps its window: an
+// empty error document of a new opaque origin for one the host has no answer
+// for, and an empty document of its own origin for one that is not markup.
+void test_every_iframe_has_a_window()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/doc.html"] = "<script>var which = 'doc';</script>";
+    bindings::HostHooks hooks = hooks_serving(documents);
+    auto const serving = hooks.frame_document;
+    hooks.frame_document = [serving](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors,
+                               std::optional<net::Url> const& target) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const src = iframe.find_attribute("src");
+        if (!target && src && src->value == "/sub/pic.png") {
+            bindings::FrameDocument picture;
+            picture.content_type = "image/png";
+            picture.bytes = { 0x89, 'P', 'N', 'G' };
+            picture.url = *net::parse_url("https://example.test/sub/pic.png");
+            picture.origin = picture.url;
+            return picture;
+        }
+        return serving(iframe, base, policy, ancestors, target);
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var loads = {}; document.addEventListener('load', function (e) { if (e.target.tagName === 'IFRAME') loads[e.target.id] = (loads[e.target.id] || 0) + 1; }, true);</script>
+<iframe id=doc src="/sub/doc.html"></iframe>
+<script>var doc = document.getElementById('doc'); var docAtParse = doc.contentWindow;
+var docBlank = docAtParse !== null && doc.contentDocument.URL === 'about:blank' && loads.doc === undefined;</script>
+<iframe id=missing src="/sub/missing.html"></iframe>
+<iframe id=pic src="/sub/pic.png"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->eval("var missing = document.getElementById('missing'); var pic = document.getElementById('pic');"
+               " function reach(w) { try { return typeof w.document; } catch (e) { return e.name; } }");
+    // During the parse, the initial about:blank; then the document named.
+    CHECK(page->boolean("docBlank"));
+    CHECK(page->boolean("doc.contentWindow === docAtParse && docAtParse.which === 'doc' && loads.doc === 1"));
+    // No answer: a window of another origin, and the load.
+    CHECK(page->boolean("missing.contentWindow !== null && missing.contentDocument === null && loads.missing === 1"));
+    CHECK_EQ(page->string("reach(missing.contentWindow)"), "SecurityError");
+    // Not markup: an empty document of its own origin.
+    CHECK(page->boolean("pic.contentDocument !== null && pic.contentDocument.URL === 'https://example.test/sub/pic.png' && pic.contentDocument.contentType === 'image/png'"
+                        " && pic.contentDocument.body !== null && pic.contentDocument.body.childNodes.length === 0 && loads.pic === 1"));
+
+    // Script-inserted: the window at once, the document after the script.
+    page->eval("var late = document.createElement('iframe'); late.id = 'late'; late.src = '/sub/doc.html'; document.body.appendChild(late);"
+               " var lateAtOnce = late.contentWindow; var lateBlank = lateAtOnce !== null && late.contentDocument.URL === 'about:blank' && loads.late === undefined;"
+               " var gone = document.createElement('iframe'); gone.id = 'gone'; gone.src = '/sub/gone.html'; document.body.appendChild(gone);"
+               " var goneAtOnce = gone.contentWindow;");
+    CHECK(page->boolean("lateBlank && goneAtOnce !== null"));
+    page->realm->run_pending();
+    CHECK(page->boolean("late.contentWindow === lateAtOnce && lateAtOnce.which === 'doc' && loads.late === 1"));
+    CHECK(page->boolean("gone.contentWindow !== null && gone.contentWindow === goneAtOnce && gone.contentDocument === null && loads.gone === 1"));
+    // A src emptied before the frame navigates names about:blank, which the
+    // frame navigates to, with a load, though it shows an about:blank already.
+    page->eval("var emptied = document.createElement('iframe'); emptied.id = 'emptied'; emptied.src = '/sub/doc.html'; document.body.appendChild(emptied);"
+               " var emptiedAtOnce = emptied.contentWindow; emptied.src = '';");
+    page->realm->run_pending();
+    CHECK(page->boolean("emptiedAtOnce !== null && emptied.contentWindow === emptiedAtOnce && emptied.contentDocument.URL === 'about:blank' && loads.emptied === 1"));
+
+    // A navigation by Location to what the host cannot answer keeps the
+    // window; setting the src it has brings its document back.
+    page->eval("docAtParse.location.href = '/sub/nowhere.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("doc.contentWindow === docAtParse && doc.contentDocument === null && loads.doc === 2"));
+    CHECK_EQ(page->string("reach(docAtParse)"), "SecurityError");
+    page->eval("doc.setAttribute('src', doc.getAttribute('src'));");
+    page->realm->run_pending();
+    CHECK(page->boolean("doc.contentWindow === docAtParse && docAtParse.which === 'doc' && loads.doc === 3"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 // javascript: URLs in frames (HTML §7.4.2.2, "navigate to a javascript: URL").
 // An iframe whose src is one gets the initial about:blank document at once;
 // the script runs in that document's realm, after the script that inserted
@@ -2711,6 +2790,7 @@ int main()
     test_the_origin_interface();
     test_attributes_in_namespaces();
     test_a_frame_navigates();
+    test_every_iframe_has_a_window();
     test_javascript_urls_in_frames();
     test_the_sandbox_attribute();
     test_structured_clone_values();

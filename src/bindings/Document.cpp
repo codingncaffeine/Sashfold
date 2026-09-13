@@ -260,7 +260,9 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     });
     for (std::string_view const name : { "characterSet", "charset", "inputEncoding" })
         document_getter(in, *document, name, [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("UTF-8"); });
-    document_getter(in, *document, "contentType", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("text/html"); });
+    document_getter(in, *document, "contentType", [](Realm::Internals& internals, dom::Document& d) -> Native {
+        return internals.string(&d == &internals.document ? internals.document_content_type : "text/html");
+    });
     document_getter(in, *document, "compatMode", [](Realm::Internals& internals, dom::Document& d) -> Native {
         return internals.string(d.quirks_mode == dom::QuirksMode::Yes ? "BackCompat" : "CSS1Compat");
     });

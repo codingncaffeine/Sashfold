@@ -791,9 +791,14 @@ dom/nodes/Document-adoptNode.html	Adopting an Element called ':good:times:' shou
 dom/nodes/Document-constructor.html	new Document(): URL parsing
 dom/nodes/Document-constructor.html	new Document(): characterSet aliases
 dom/nodes/Document-constructor.html	new Document(): children
+dom/nodes/Document-contentType/contentType/contenttype_css.html	CSS document.contentType === 'text/css'
 dom/nodes/Document-contentType/contentType/contenttype_datauri_02.html	Data URI document.contentType === 'text/html' when data URI MIME type is set
+dom/nodes/Document-contentType/contentType/contenttype_gif.html	GIF document.contentType === 'image/gif'
 dom/nodes/Document-contentType/contentType/contenttype_html.html	HTM document.contentType === 'text/html'
 dom/nodes/Document-contentType/contentType/contenttype_javascripturi.html	Javascript URI document.contentType === 'text/html'
+dom/nodes/Document-contentType/contentType/contenttype_jpg.html	JPG document.contentType === 'image/jpeg'
+dom/nodes/Document-contentType/contentType/contenttype_png.html	PNG document.contentType === 'image/png'
+dom/nodes/Document-contentType/contentType/contenttype_txt.html	TXT document.contentType === 'text/plain'
 dom/nodes/Document-contentType/contentType/createHTMLDocument.html	document.implementation.createHTMLDocument: document.contentType === 'text/html'
 dom/nodes/Document-createComment.html	createComment("-b")
 dom/nodes/Document-createComment.html	createComment("\\v")
@@ -802,18 +807,28 @@ dom/nodes/Document-createComment.html	createComment("a-")
 dom/nodes/Document-createComment.html	createComment(null)
 dom/nodes/Document-createComment.html	createComment(undefined)
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in bare_mathml.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in bare_mathml.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in bare_svg.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in bare_svg.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in bare_xhtml.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in bare_xhtml.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in created HTML document
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in created HTML document by DOMParser ('text/html')
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in current document
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in empty.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in empty.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in mathml.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in mathml.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in minimal_html.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in minimal_html.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in svg.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in svg.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in xhtml.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in xhtml.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in xhtml_ns_changed.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in xhtml_ns_changed.xhtml
 dom/nodes/Document-createElement-namespace.html	Created element's namespace in xhtml_ns_removed.html
+dom/nodes/Document-createElement-namespace.html	Created element's namespace in xhtml_ns_removed.xhtml
 dom/nodes/Document-createElement.html	createElement("") in HTML document
 dom/nodes/Document-createElement.html	createElement("-foo") in HTML document
 dom/nodes/Document-createElement.html	createElement(".foo") in HTML document
@@ -6376,7 +6391,13 @@ html/browsers/origin/cross-origin-objects/window-location-and-location-href-cros
 html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin location.href setter throws TypeError in lexical realm on non-coercible URL argument
 html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin window.location setter throws TypeError in lexical realm on invalid |this| value
 html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Cross-origin window.location setter throws TypeError in lexical realm on non-coercible URL argument
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin location.href getter throws TypeError in holder's realm on invalid |this| value
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin location.href setter throws TypeError in holder's realm on invalid |this| value
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin location.href setter throws TypeError in holder's realm on non-coercible URL argument
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin window.location getter throws TypeError in holder's realm on invalid |this| value
+html/browsers/origin/cross-origin-objects/window-location-and-location-href-cross-realm-set.html	Same-origin window.location setter throws TypeError in holder's realm on invalid |this| value
 html/browsers/origin/inheritance/about-blank-iframe.html	about:blank in child browsing context aliases security origin
+html/browsers/origin/inheritance/about-srcdoc.html	about:srcdoc aliases security origin
 html/browsers/origin/inheritance/javascript-url.html	javascript: aliases security origin
 html/browsers/origin/origin-keyed-agent-clusters/document-domain.sub.https.html	The registrable domain suffix check must happen before the bail-out
 html/browsers/origin/origin-of-data-document.html	The origin of a 'data:' document in a frame is opaque.
@@ -6410,6 +6431,7 @@ html/browsers/the-window-object/Document-defaultView.html	Document created with 
 html/browsers/the-window-object/Document-defaultView.html	Document created with the Document constructor
 html/browsers/the-window-object/Document-defaultView.html	Document in a browsing context
 html/browsers/the-window-object/Window-document.html	Document in a browsing context
+html/browsers/the-window-object/accessing-other-browsing-contexts/indexed-browsing-contexts-01.html	The window's length must return the number of child browsing contexts
 html/browsers/the-window-object/accessing-other-browsing-contexts/indexed-browsing-contexts-01.html	The window's length must return zero if it has no child browsing context
 html/browsers/the-window-object/accessing-other-browsing-contexts/iterator.html	window[@@iterator]
 html/browsers/the-window-object/accessing-other-browsing-contexts/window_length.html	Child browsing context has a child browsing context
@@ -6646,6 +6668,8 @@ html/browsers/the-window-object/window-indexed-access-vs-named-access.html	Windo
 html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: document-tree child navigable with index 2 (indexed access)
 html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: document-tree child navigable with target name 3 (named access)
 html/browsers/the-window-object/window-indexed-access-vs-named-access.html	WindowProxy: element with id 4 (named access)
+html/browsers/the-window-object/window-indexed-properties-delete-no-cache.html	Absence of index '0' is not cached
+html/browsers/the-window-object/window-indexed-properties-delete-no-cache.html	Presence of index '0' is not cached
 html/browsers/the-window-object/window-indexed-properties-strict.html	Borderline numeric key: 2 ** 32 - 1 is not an index (strict mode)
 html/browsers/the-window-object/window-indexed-properties-strict.html	Borderline numeric key: 2 ** 32 - 2 is an index (strict mode)
 html/browsers/the-window-object/window-indexed-properties-strict.html	Indexed properties of the window object (strict mode)
@@ -6796,6 +6820,12 @@ html/browsers/the-window-object/window-properties.https.html	Window readonly att
 html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: localStorage
 html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: navigator
 html/browsers/the-window-object/window-properties.https.html	Window readonly attribute: sessionStorage
+html/browsers/the-window-object/window-properties.https.html	Window readonly getter in detached iframe: frames
+html/browsers/the-window-object/window-properties.https.html	Window readonly getter in detached iframe: self
+html/browsers/the-window-object/window-properties.https.html	Window readonly getter in detached iframe: window
+html/browsers/the-window-object/window-properties.https.html	Window readonly getter in iframe: frames
+html/browsers/the-window-object/window-properties.https.html	Window readonly getter in iframe: self
+html/browsers/the-window-object/window-properties.https.html	Window readonly getter in iframe: window
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: frames
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: self
 html/browsers/the-window-object/window-properties.https.html	Window readonly getter: window
@@ -6841,6 +6871,7 @@ html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Sett
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to function() { return "hi" }
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to hi
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to undefined
+html/browsers/windows/browsing-context-names/choose-default-001.html	A embedded browsing context has empty-string default name
 html/browsers/windows/browsing-context-window.html	HTML Test: Newly-Created browsing context Window and `this`
 html/browsers/windows/browsing-context.html	Check that browsing context has new, ready HTML document
 html/browsers/windows/browsing-context.html	Check that new document nodes extant, empty
@@ -7327,8 +7358,11 @@ html/semantics/embedded-content/the-iframe-element/historical.html	iframe.seamle
 html/semantics/embedded-content/the-iframe-element/iframe-append-to-child-document.html	Append iframe element to its own child document
 html/semantics/embedded-content/the-iframe-element/iframe-display-none-with-object.html	Load event triggered on window
 html/semantics/embedded-content/the-iframe-element/iframe-first-load-canceled-second-load-blank.html	about:blank navigation is asynchronous, even if the initial one is canceled.
+html/semantics/embedded-content/the-iframe-element/iframe-load-event.html	load event of blob URL
 html/semantics/embedded-content/the-iframe-element/iframe-load-event.html	load event of initial about:blank
 html/semantics/embedded-content/the-iframe-element/iframe-loading-eager.html	Test that iframes with loading='eager' load immediately regardless of their position with respect to the viewport.
+html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-history-pushState.html	History state change for iframe loading='lazy' before it is loaded: history.pushState
+html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-history-replaceState.html	History state change for iframe loading='lazy' before it is loaded: history.replaceState
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-script-disabled-iframe.html	Iframes with loading='lazy' in script disabled iframe are not handled\n       as 'lazy'
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroller-horizontal-far.html	Test that lazy-loaded iframes do not load when far from viewport.
 html/semantics/embedded-content/the-iframe-element/iframe-loading-lazy-in-scroller-horizontal.html	Test that lazy-loaded iframes load when near viewport.

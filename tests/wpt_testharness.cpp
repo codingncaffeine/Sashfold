@@ -732,9 +732,20 @@ TestResult run_test(Server const& server, std::string const& id)
     };
     ui::FrameFetcher const frame_fetcher = [&](net::Url const& target, net::Url const&, net::ResourceKind,
                                               net::RequestGuard const&) -> std::optional<ui::FrameResponse> {
-        std::optional<Served> served = server.serve(target);
-        if (!served)
+        // A .py file is a program the suite's server runs, which this runner
+        // cannot: a frame asking for one has no answer, as when a server
+        // cannot be reached, rather than a document of the program's text.
+        if (target.serialize_path().ends_with(".py"))
             return std::nullopt;
+        std::optional<Served> served = server.serve(target);
+        if (!served) {
+            // A file the suite's server does not have is its 404 answer, a
+            // document of the URL's origin like any other; a host it does not
+            // serve has no answer at all.
+            if (!server.rel_path_for(target))
+                return std::nullopt;
+            served = Served { R"({"error": {"code": 404, "message": null}})", "application/json", {} };
+        }
         return ui::FrameResponse { std::vector<std::uint8_t>(served->body.begin(), served->body.end()),
             served->content_type, target, std::move(served->headers) };
     };

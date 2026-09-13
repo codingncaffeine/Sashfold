@@ -1396,7 +1396,10 @@ void Realm::document_parsed()
     std::vector<dom::Element*> frames;
     collect_frames(in.document, frames);
     for (dom::Element* const frame : frames) {
-        if (frame_realm(*frame) != nullptr) {
+        auto const listed = std::find_if(in.child_frames.begin(), in.child_frames.end(),
+            [frame](ChildFrame const& child) { return child.container == frame; });
+        bool const opened = listed != in.child_frames.end();
+        if (opened && !listed->awaiting_navigation) {
             // An about:blank frame, opened and loaded as it was inserted; or
             // the initial about:blank document of one whose src is a
             // javascript: URL, which runs now, before the page's load, unless
@@ -1408,17 +1411,29 @@ void Realm::document_parsed()
             }
             continue;
         }
-        // What a script asked of the frame meanwhile is done here: a src it
-        // set to a javascript: URL runs in the initial about:blank document,
-        // before the page's load, as a parsed one does.
+        // The initial about:blank document a src or srcdoc stood in for gives
+        // way to what the attributes name now. What a script asked of the
+        // frame meanwhile is done here: a src it set to a javascript: URL runs
+        // in the initial about:blank document, before the page's load, as a
+        // parsed one does.
         in.frame_navigations.erase(frame);
         if (std::optional<net::Url> const script = javascript_src(*frame, in.url)) {
-            in.open_blank_frame(*frame);
+            if (opened) {
+                listed->awaiting_navigation = false;
+                listed->source = frame_source(*frame, in.url);
+            } else {
+                in.open_blank_frame(*frame);
+            }
             if (!in.inline_refused(net::InlineKind::Script, {}, script->serialize()))
                 in.run_javascript_url(*frame, *script, parsed_javascript_navigation(in));
             continue;
         }
-        in.open_frame(*frame);
+        std::uint64_t mutations_from = 0;
+        if (opened) {
+            mutations_from = listed->realm->tree_mutation_count() + 1;
+            in.close_frame(*frame, true);
+        }
+        in.open_frame(*frame, mutations_from);
         // Not at an iframe its own document's load took out of the tree.
         if (frame->is_connected())
             in.fire_frame_load(*frame);
@@ -1441,36 +1456,53 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     if (ancestors.size() > 10)
         return;
     std::reverse(ancestors.begin(), ancestors.end());
-    // The host answers for what a frame fetches; without a host's answer, a
-    // frame with something to show has no document here.
+    // Nothing to show at all — no src, an empty one, about:blank, or a
+    // navigation to about:blank, the initial one included — is an about:blank
+    // document (HTML §7.5.2), which is never fetched: empty, of this
+    // document's origin, under this document's policy, as an srcdoc document
+    // is. The host answers for everything else a frame shows.
+    bool const blank = target ? target->scheme == "about" && target->serialize(true) == "about:blank"
+                              : frame_source(iframe, url).empty();
     std::optional<FrameDocument> answer
-        = hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors, target) : std::nullopt;
+        = !blank && hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors, target) : std::nullopt;
     if (!answer) {
-        // Something to show that the host could not: no document. Nothing to
-        // show at all — no src, an empty one, about:blank, or a navigation to
-        // about:blank — is an about:blank document (HTML §7.5.2), which needs
-        // no host: empty, of this document's origin, under this document's
-        // policy, as an srcdoc document is.
-        bool const blank = target ? target->scheme == "about" && target->serialize(true) == "about:blank"
-                                  : frame_source(iframe, url).empty();
-        if (!blank)
-            return;
         answer = FrameDocument {};
         answer->content_type = "text/html";
-        answer->url = target ? *target : *net::parse_url("about:blank");
-        answer->origin = origin_url;
-        answer->srcdoc = true;
-        if (hooks.policy)
-            answer->policy = *hooks.policy;
+        if (blank) {
+            answer->url = target ? *target : *net::parse_url("about:blank");
+            answer->origin = origin_url;
+            answer->srcdoc = true;
+            if (hooks.policy)
+                answer->policy = *hooks.policy;
+        } else {
+            // Something to show that the host could not — a failed fetch, a
+            // document that refuses to be framed, a refused frame-src — is an
+            // error document, as HTML makes "a document for inline content
+            // that doesn't have a DOM" of a network error: empty, at the URL
+            // asked for, of a new opaque origin, so the frame keeps a window
+            // that no other document reaches into.
+            std::optional<net::Url> asked = target;
+            if (!asked) {
+                dom::Attr const* const src = iframe.find_attribute("srcdoc") ? nullptr : iframe.find_attribute("src");
+                asked = src ? net::parse_url(src->value, &url) : net::parse_url("about:srcdoc");
+            }
+            answer->url = asked ? *asked : *net::parse_url("about:blank");
+            answer->origin = *net::parse_url("about:blank");
+        }
     }
     open_frame_document(iframe, std::move(*answer), target ? "url:" + target->serialize() : frame_source(iframe, url), mutations_from, false);
 }
 
 void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument answer, std::string source, std::uint64_t mutations_from, bool initial_blank)
 {
+    // A document that is not markup — a picture, text, JSON — is shown here
+    // as an empty one at its URL and of its origin, so the frame still has
+    // its window.
     std::string const type = ascii_lower(answer.content_type);
-    if (!type.empty() && !type.starts_with("text/html") && !type.starts_with("application/xhtml"))
-        return;
+    if (!type.empty() && !type.starts_with("text/html") && !type.starts_with("application/xhtml")) {
+        answer.bytes.clear();
+        answer.content_type = "text/html";
+    }
     // The sandboxing flags the frame navigates with: its iframe's sandbox
     // attribute as it stands now, with this document's own. Without
     // allow-same-origin its document's origin is a new opaque one.
@@ -1507,6 +1539,7 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer.url, std::move(frame_hooks));
     opened.realm->internals().origin_url = answer.origin;
     opened.realm->internals().sandbox_flags = flags;
+    opened.realm->internals().document_content_type = type.empty() ? std::string("text/html") : mime_essence(type);
     // An srcdoc or about:blank document has this document's origin itself,
     // and so the domain document.domain gives either of them; a sandbox has
     // already made a sandboxed one's origin its own.
@@ -1671,24 +1704,26 @@ void Realm::Internals::frames_inserted(dom::Node& subtree)
 
 bool Realm::Internals::open_blank_frame(dom::Element& iframe)
 {
-    // The initial about:blank document before the next line, and its load
-    // too when the iframe names nothing else: a listener added after the
-    // insertion never sees that load.
+    // Every iframe has its initial about:blank document before the next line
+    // (HTML §4.8.5), and its load too when the iframe names nothing else: a
+    // listener added after the insertion never sees that load. One whose src
+    // or srcdoc names a document keeps it only until it navigates there, with
+    // that document's load alone.
     if (!iframe.is_connected() || realm.frame_realm(iframe) != nullptr)
         return true;
     bool const script = javascript_src(iframe, url).has_value();
-    if (!script && !frame_source(iframe, url).empty())
-        return false;
+    bool const names_document = !script && !frame_source(iframe, url).empty();
     open_frame(iframe, 0, *net::parse_url("about:blank"));
     // Keyed by its attributes, as a frame they opened is, not by the
-    // about:blank it was opened on.
+    // about:blank it was opened on — unless it awaits what they name.
     for (ChildFrame& listed : child_frames) {
         if (listed.container == &iframe) {
             listed.initial_blank = true;
-            listed.source = frame_source(iframe, url);
+            listed.awaiting_navigation = names_document;
+            listed.source = names_document ? std::string() : frame_source(iframe, url);
         }
     }
-    if (script)
+    if (script || names_document)
         return false;
     if (realm.frame_realm(iframe) != nullptr)
         fire_frame_load(iframe);
@@ -1763,7 +1798,7 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
         [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
     std::uint64_t mutations_from = 0;
     if (existing != child_frames.end()) {
-        if (!navigation.target && !navigation.reload && existing->source == key)
+        if (!navigation.target && !navigation.reload && existing->source == key && !existing->awaiting_navigation)
             return; // already showing it
         mutations_from = existing->realm->tree_mutation_count() + 1;
         close_frame(iframe, true);
