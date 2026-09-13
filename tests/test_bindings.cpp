@@ -2152,6 +2152,13 @@ void test_a_navigable_keeps_its_target_name()
     // browsers name it, and not by an empty one.
     string_in(frame_realm_of(*page, "x"), "window.name = 'secret'; ''");
     CHECK(page->boolean("window.secret === xw && window.cross === undefined"));
+
+    // A frame removed takes its frames' navigables with it: their windows are
+    // closed at once, with no parent, top or name, as the frame's own is —
+    // read in the same script, before any of their realms has ended.
+    CHECK_EQ(page->string("(function () { var nw = n.contentWindow, iw = nw.inner; n.remove();"
+                          " return [nw.closed, iw.parent === null, iw.top === null, iw.closed, iw.name].join(':'); })()"),
+        "true:true:true:true:");
     CHECK_EQ(page->console, "");
     page.reset();
 }

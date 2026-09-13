@@ -6446,6 +6446,7 @@ html/browsers/the-window-object/closed-attribute.window.html	closed and same-ori
 html/browsers/the-window-object/defaultstatus.html	The window.defaultStatus and window.defaultstatus attributes are not supported
 html/browsers/the-window-object/focus.window.html	focus
 html/browsers/the-window-object/historical.window.html	showModalDialog() has been removed from the platform
+html/browsers/the-window-object/length-attribute.window.html	Window object's length IDL attribute (and named access)
 html/browsers/the-window-object/name-attribute.window.html	Window object's name IDL attribute
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be enumerable
 html/browsers/the-window-object/named-access-on-the-window-object/basics.html	A named property must not be set if the element is not reachable from the Document
@@ -6896,10 +6897,12 @@ html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-o
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe>
 html/browsers/windows/nested-browsing-contexts/window-parent-null.html	`window.parent` is null when browsing context container element removed
+html/browsers/windows/nested-browsing-contexts/window-parent-null.html	`window.parent` null when parent browsing context container removed
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for multiple nested browsing contexts
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for top-level browsing context
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` on single nested browsing context
 html/browsers/windows/nested-browsing-contexts/window-top-null.html	`window.top` is null when browsing context container element removed
+html/browsers/windows/nested-browsing-contexts/window-top-null.html	`window.top`null when any ancestor browsing context container removed
 html/browsers/windows/nested-browsing-contexts/window-top.html	One nested iframe
 html/browsers/windows/nested-browsing-contexts/window-top.html	Top level browsing context
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLFormControlsCollection legacycaller should not be supported

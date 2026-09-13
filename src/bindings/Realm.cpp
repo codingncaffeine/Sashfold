@@ -1218,6 +1218,17 @@ void erase_loop_work(Realm::Internals& in)
         erase_loop_work(listed.realm->internals());
 }
 
+// The windows of a document whose navigable is destroyed, and of every
+// document in its frames: a child navigable is destroyed with the document
+// it is in (HTML §7.3.1, destroying a document), so each of them is closed,
+// with no parent, top or name, from now on.
+void discard_windows(Realm::Internals& in)
+{
+    in.discarded = true;
+    for (ChildFrame const& listed : in.child_frames)
+        discard_windows(listed.realm->internals());
+}
+
 } // namespace
 
 Realm::Internals::HostEntry::HostEntry(Agent& the_agent)
@@ -1626,9 +1637,9 @@ void Realm::Internals::close_frame(dom::Element const& iframe, bool keep_window_
         return;
     // Nothing of its runs again, its own frames' included; the realm itself
     // ends when the host's last entry into the agent has returned, and its
-    // window is closed from now on.
+    // window and its frames' windows are closed from now on.
     trace("frame closed: " + (it->source.empty() ? std::string("about:blank") : it->source));
-    it->realm->internals().discarded = true;
+    discard_windows(it->realm->internals());
     erase_loop_work(it->realm->internals());
     agent.closing.push_back(std::move(*it));
     child_frames.erase(it);
