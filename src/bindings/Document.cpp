@@ -277,12 +277,18 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             std::optional<dom::Document*> const d = this_document(interp, this_value);
             if (!d)
                 return std::nullopt;
+            // A document sandboxed into an opaque origin has no cookies to read
+            // or write: document.cookie is a SecurityError there.
+            if (internals_of(interp).sandbox_flags & sandboxing::origin)
+                return internals_of(interp).throw_dom_exception("SecurityError", "The document is sandboxed and lacks the 'allow-same-origin' flag.");
             return internals_of(interp).string(cookie_string(internals_of(interp)));
         },
         [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
             std::optional<dom::Document*> const d = this_document(interp, this_value);
             if (!d)
                 return std::nullopt;
+            if (internals_of(interp).sandbox_flags & sandboxing::origin)
+                return internals_of(interp).throw_dom_exception("SecurityError", "The document is sandboxed and lacks the 'allow-same-origin' flag.");
             std::optional<std::string> const text = internals_of(interp).to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
@@ -314,7 +320,11 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
-            if (*d != &internals.document || internals.origin_url.serialize_origin() == "null")
+            if (*d != &internals.document)
+                return internals.throw_dom_exception("SecurityError", "Failed to set the 'domain' property on 'Document': Assignment is forbidden for this document.");
+            if (internals.sandbox_flags & sandboxing::document_domain)
+                return internals.throw_dom_exception("SecurityError", "Failed to set the 'domain' property on 'Document': Assignment is forbidden for sandboxed iframes.");
+            if (internals.origin_url.serialize_origin() == "null")
                 return internals.throw_dom_exception("SecurityError", "Failed to set the 'domain' property on 'Document': Assignment is forbidden for this document.");
             std::string const original = internals.domain.value_or(internals.origin_url.serialize_host());
             // The value as a host alone: no port, path, query or credentials.

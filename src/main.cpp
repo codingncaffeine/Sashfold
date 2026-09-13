@@ -751,8 +751,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
         // frames are drawn by, unless the page's sandbox keeps scripts off.
         if (loaded.policy->sandbox_allows_scripts()) {
             hooks.frame_document = [&loaded](dom::Element const& iframe, net::Url const& base,
-                                       net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors) {
-                return ui::frame_document_for(iframe, base, policy, ancestors, frame_fetcher(loaded));
+                                       net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors,
+                                       std::optional<net::Url> const& target) {
+                return ui::frame_document_for(iframe, base, policy, ancestors, target, frame_fetcher(loaded));
             };
         }
         realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));

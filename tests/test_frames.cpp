@@ -314,7 +314,7 @@ int main()
             dom::Document document;
             html::parse_document_bytes_into(document, markup);
             dom::Element* const iframe = first_iframe(document);
-            return iframe ? ui::frame_document_for(*iframe, base, nullptr, chain, server.fetcher())
+            return iframe ? ui::frame_document_for(*iframe, base, nullptr, chain, std::nullopt, server.fetcher())
                           : std::optional<bindings::FrameDocument>();
         };
         std::optional<bindings::FrameDocument> const srcdoc = answer_for("<iframe srcdoc='<p>x</p>'></iframe>", page_only);
@@ -340,8 +340,8 @@ int main()
             dom::Document document;
             bindings::HostHooks hooks;
             hooks.frame_document = [&server](dom::Element const& iframe, net::Url const& frame_base, net::ContentSecurityPolicy* policy,
-                                       std::vector<bindings::FrameAncestor> const& ancestors) {
-                return ui::frame_document_for(iframe, frame_base, policy, ancestors, server.fetcher());
+                                       std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const& target) {
+                return ui::frame_document_for(iframe, frame_base, policy, ancestors, target, server.fetcher());
             };
             bindings::Realm realm(document, base, std::move(hooks));
             html::parse_document_bytes_into(document, markup, &realm);

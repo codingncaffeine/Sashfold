@@ -77,8 +77,8 @@ struct Opened {
     net::ContentSecurityPolicy policy;
 };
 
-std::optional<Opened> open_document(dom::Element const& element, std::optional<net::Url> const& url, net::Url const& base,
-    net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch);
+std::optional<Opened> open_document(dom::Element const& element, bool from_srcdoc, std::optional<net::Url> const& url,
+    net::Url const& base, net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch);
 
 bool starts_with_ci(std::string_view text, std::string_view lowercase_prefix)
 {
@@ -257,7 +257,8 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
     if (walk.frames_left <= 0 || pixels > walk.pixels_left)
         return { nullptr, false };
     --walk.frames_left;
-    std::optional<Opened> opened = open_document(element, url, base, policy, walk.ancestors, walk.fetch);
+    std::optional<Opened> opened
+        = open_document(element, element.find_attribute("srcdoc") != nullptr, url, base, policy, walk.ancestors, walk.fetch);
     if (!opened)
         return {};
     walk.pixels_left -= pixels;
@@ -269,15 +270,15 @@ Drawn draw_one(dom::Element const& element, std::optional<net::Url> const& url, 
     return { std::move(bitmap), true };
 }
 
-std::optional<Opened> open_document(dom::Element const& element, std::optional<net::Url> const& url, net::Url const& base,
-    net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch)
+std::optional<Opened> open_document(dom::Element const& element, bool from_srcdoc, std::optional<net::Url> const& url,
+    net::Url const& base, net::ContentSecurityPolicy* policy, std::vector<Ancestor> const& ancestors, FrameFetcher const& fetch)
 {
     FrameResponse response;
     bool srcdoc = false;
     // An srcdoc or data: document keeps the policy of the document it is
     // in; a fetched one has its response's own.
     bool inherits = true;
-    if (dom::Attr const* const text = element.find_attribute("srcdoc")) {
+    if (dom::Attr const* const text = from_srcdoc ? element.find_attribute("srcdoc") : nullptr) {
         response = FrameResponse { std::vector<std::uint8_t>(text->value.begin(), text->value.end()), "text/html", base, {} };
         srcdoc = true;
     } else {
@@ -397,23 +398,26 @@ void draw_frames(net::Url const& base, layout::LayoutResult& page, FrameFetcher 
 }
 
 std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& iframe, net::Url const& base,
-    net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors, FrameFetcher const& fetch)
+    net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors,
+    std::optional<net::Url> const& target, FrameFetcher const& fetch)
 {
     // What the frame shows, as HTML processes its attributes and draw_in reads
-    // them: srcdoc first, then a src that parses and is not about:.
-    std::optional<net::Url> url;
-    if (!iframe.find_attribute("srcdoc")) {
+    // them: srcdoc first, then a src that parses and is not about:; or the URL
+    // the frame navigates to on its own, whatever its attributes say.
+    std::optional<net::Url> url = target;
+    bool const from_srcdoc = !target && iframe.find_attribute("srcdoc") != nullptr;
+    if (!target && !from_srcdoc) {
         dom::Attr const* const src = iframe.find_attribute("src");
         if (!src || src->value.empty())
             return std::nullopt;
         url = net::parse_url(src->value, &base);
-        if (!url || url->scheme == "about")
-            return std::nullopt;
     }
+    if (!from_srcdoc && (!url || url->scheme == "about"))
+        return std::nullopt;
     std::vector<Ancestor> chain;
     for (bindings::FrameAncestor const& ancestor : ancestors)
         chain.push_back(Ancestor { ancestor.address, ancestor.origin });
-    std::optional<Opened> opened = open_document(iframe, url, base, policy, chain, fetch);
+    std::optional<Opened> opened = open_document(iframe, from_srcdoc, url, base, policy, chain, fetch);
     if (!opened)
         return std::nullopt;
     bindings::FrameDocument answer;

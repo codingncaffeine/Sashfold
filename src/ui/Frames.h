@@ -82,10 +82,11 @@ void draw_frames(net::Url const& base, layout::LayoutResult& page, FrameFetcher 
 
 // An iframe's document as the framing rules let it through, for a realm of
 // its own: what its srcdoc or src names for the document at `base` under
-// `policy`, inside `ancestors` (the page first). What
-// bindings::HostHooks::frame_document answers, by the rules a frame drawn
-// without a realm is held to.
+// `policy` — or `target`, when the frame navigates there on its own — inside
+// `ancestors` (the page first). What bindings::HostHooks::frame_document
+// answers, by the rules a frame drawn without a realm is held to.
 std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& iframe, net::Url const& base,
-    net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors, FrameFetcher const& fetch);
+    net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors,
+    std::optional<net::Url> const& target, FrameFetcher const& fetch);
 
 }

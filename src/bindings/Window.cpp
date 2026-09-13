@@ -188,19 +188,28 @@ Native clear_timer(js::Interpreter& interpreter, Args args)
 
 // --- Location ----------------------------------------------------------------------------
 
-void navigate_to(Realm::Internals& in, std::string const& target)
+// The realm of the script that asks a Location to navigate: the incumbent
+// realm, whose document HTML's "Location-object navigate" takes as the source
+// the sandbox is asked about. The href setter parses the URL against the
+// entry settings object's base URL, which the interpreter does not track; the
+// incumbent realm's document stands in for it, and differs only when script
+// of one realm calls a function of another that sets the Location.
+Realm::Internals& navigating_realm(js::Interpreter& interpreter)
 {
-    std::optional<net::Url> const url = net::parse_url(target, &in.url);
-    if (!url) {
-        in.console("error", "location: '" + target + "' is not a URL");
-        return;
-    }
-    if (in.hooks.navigate) {
-        in.trace("navigate: " + url->serialize());
-        in.hooks.navigate(*url);
-    } else {
-        in.url = *url;
-    }
+    js::RealmRecord* const incumbent = interpreter.incumbent_realm();
+    if (incumbent != nullptr && incumbent->host_defined != nullptr)
+        return static_cast<Realm*>(incumbent->host_defined)->internals();
+    return internals_of(interpreter);
+}
+
+// HTML's "Location-object navigate" of the Location's own realm, at the ask of
+// the script running; a navigation its sandbox refuses is a SecurityError.
+Native navigate_location(js::Interpreter& interpreter, net::Url const& url, bool reload = false)
+{
+    Realm::Internals& in = internals_of(interpreter);
+    if (!in.navigate_from_location(url, navigating_realm(interpreter), reload))
+        return in.throw_dom_exception("SecurityError", "A sandboxed document may not navigate this window.");
+    return js::Value::undefined();
 }
 
 // Sets one part of the URL and navigates to the result.
@@ -212,14 +221,22 @@ Native set_url_part(js::Interpreter& interpreter, std::string_view part, js::Val
         return std::nullopt;
     net::Url url = in.url;
     if (part == "href") {
-        navigate_to(in, *text);
-        return js::Value::undefined();
+        // The href setter, which assign, replace and the window's location
+        // setter share: the URL parsed against the base URL of the document
+        // whose script asked, one that does not parse a SyntaxError.
+        std::optional<net::Url> const parsed = net::parse_url(*text, &navigating_realm(interpreter).base_url());
+        if (!parsed)
+            return in.throw_dom_exception("SyntaxError", "'" + *text + "' is not a valid URL.");
+        return navigate_location(interpreter, *parsed);
     }
     if (part == "hash") {
         std::string fragment = *text;
         if (fragment.starts_with('#'))
             fragment.erase(0, 1);
         url.fragment = fragment;
+        // The fragment the URL already has navigates nowhere.
+        if (url.fragment == in.url.fragment)
+            return js::Value::undefined();
     } else if (part == "search") {
         std::string query = *text;
         if (query.starts_with('?'))
@@ -256,13 +273,7 @@ Native set_url_part(js::Interpreter& interpreter, std::string_view part, js::Val
             return js::Value::undefined();
         url = *parsed;
     }
-    if (in.hooks.navigate) {
-        in.trace("navigate: " + url.serialize());
-        in.hooks.navigate(url);
-    } else {
-        in.url = url;
-    }
-    return js::Value::undefined();
+    return navigate_location(interpreter, url);
 }
 
 std::string url_part(net::Url const& url, std::string_view part)
@@ -1076,10 +1087,7 @@ void install_window(Realm::Internals& in)
         return set_url_part(interp, "href", js::argument(args, 0));
     });
     location_method("reload", 0, false, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        if (internals.hooks.navigate)
-            internals.hooks.navigate(internals.url);
-        return js::Value::undefined();
+        return navigate_location(interp, internals_of(interp).url, true);
     });
     location_method("toString", 0, false, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).string(internals_of(interp).url.serialize());
@@ -1270,8 +1278,22 @@ void install_window(Realm::Internals& in)
         if (origin != "null")
             local_area = in.hooks.local_storage(origin);
     }
-    global->put(interpreter.key("localStorage"), js::Value::object(interpreter.heap().allocate<StorageObject>(storage_proto, local_area)), js::builtin_attributes);
-    global->put(interpreter.key("sessionStorage"), js::Value::object(interpreter.heap().allocate<StorageObject>(storage_proto)), js::builtin_attributes);
+    // A document sandboxed into an opaque origin has neither: reading one is a
+    // SecurityError, as there is no storage key for such an origin.
+    in.local_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, local_area);
+    in.session_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto);
+    define_getter(in, *global, "localStorage", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        if (internals.sandbox_flags & sandboxing::origin)
+            return internals.throw_dom_exception("SecurityError", "The document is sandboxed and lacks the 'allow-same-origin' flag.");
+        return js::Value::object(internals.local_storage_object);
+    });
+    define_getter(in, *global, "sessionStorage", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        if (internals.sandbox_flags & sandboxing::origin)
+            return internals.throw_dom_exception("SecurityError", "The document is sandboxed and lacks the 'allow-same-origin' flag.");
+        return js::Value::object(internals.session_storage_object);
+    });
 
     // Performance.
     js::Object* performance = interpreter.new_object();

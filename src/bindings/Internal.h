@@ -506,13 +506,58 @@ void install_window_proxy(Realm::Internals&, std::vector<js::PropertyKey> const&
 
 // An iframe's document with a realm of its own in its page's agent: the
 // policy, the document, and the Realm last, so that the Realm ends first;
-// and what the frame was opened from, as the painter keys it.
+// what the frame was opened from, as the painter keys its attributes, or the
+// URL it navigated to on its own, which no attributes name; and whether the
+// document is the frame's initial about:blank one (HTML's "is initial
+// about:blank"), which a javascript: URL's first run is told by.
 struct ChildFrame {
     dom::Element* container = nullptr;
     std::string source;
+    bool initial_blank = false;
     std::unique_ptr<net::ContentSecurityPolicy> policy;
     std::unique_ptr<dom::Document> document;
     std::unique_ptr<Realm> realm;
+};
+
+// The sandboxing flags (HTML §7.6.2, "sandboxing flag set") as bits: every
+// flag an iframe's sandbox attribute can set, the engine acting on those its
+// features reach — scripts, origin, navigation and top-level navigation.
+namespace sandboxing {
+inline constexpr std::uint32_t navigation = 1U << 0;
+inline constexpr std::uint32_t auxiliary_navigation = 1U << 1;
+inline constexpr std::uint32_t top_navigation = 1U << 2; // without user activation
+inline constexpr std::uint32_t top_navigation_by_user_activation = 1U << 3;
+inline constexpr std::uint32_t origin = 1U << 4;
+inline constexpr std::uint32_t forms = 1U << 5;
+inline constexpr std::uint32_t pointer_lock = 1U << 6;
+inline constexpr std::uint32_t scripts = 1U << 7;
+inline constexpr std::uint32_t automatic_features = 1U << 8;
+inline constexpr std::uint32_t document_domain = 1U << 9;
+inline constexpr std::uint32_t propagates_to_auxiliary = 1U << 10;
+inline constexpr std::uint32_t modals = 1U << 11;
+inline constexpr std::uint32_t orientation_lock = 1U << 12;
+inline constexpr std::uint32_t presentation = 1U << 13;
+inline constexpr std::uint32_t downloads = 1U << 14;
+inline constexpr std::uint32_t custom_protocols_navigation = 1U << 15;
+}
+
+// HTML's "parse a sandboxing directive": the flags a sandbox attribute's
+// tokens, split on ASCII whitespace and compared ASCII case-insensitively,
+// leave set.
+std::uint32_t parse_sandboxing_directive(std::string_view tokens);
+
+// A navigation of an iframe's frame, carried out in a task after the script
+// that asked: to what the iframe's attributes name when `target` is null (an
+// insertion, a changed src or srcdoc), else to `target` (the frame's Location
+// set, a reload). The origin of the document that asked, and whether that was
+// the frame's own, are what a javascript: URL is checked against. A reload
+// opens the frame anew even from attributes that name what it shows.
+struct FrameNavigation {
+    std::optional<net::Url> target;
+    net::Url initiator_origin;
+    bool initiator_is_frame = false;
+    bool initial_insertion = false;
+    bool reload = false;
 };
 
 // The agent a page's documents run in (HTML §8.1.2, the similar-origin
@@ -597,6 +642,15 @@ struct Realm::Internals {
     };
     OriginDomain domain;
     std::string window_name; // window.name, the frame's name to its parent
+    // This document's sandboxing flags: its iframe's sandbox attribute as it
+    // stood when the frame navigated, with the flags of the document that
+    // iframe is in (HTML's "determine the creation sandboxing flags"); none
+    // for a page's.
+    std::uint32_t sandbox_flags = 0;
+    // The URL a relative one is parsed against: the document's own, or for an
+    // about:srcdoc or about:blank frame document the parent's (HTML §2.4.1,
+    // the fallback base URL).
+    net::Url const& base_url() const;
     // The frames of this document that have realms, in the order they were
     // opened; after the agent, so that they end before it.
     std::vector<ChildFrame> child_frames;
@@ -615,9 +669,16 @@ struct Realm::Internals {
     js::Object* window_proxy() const;
     bool is_window(js::Object const*) const;
     // Opens an iframe's document in a realm of its own here, when the host
-    // answers for it, its mutation count starting past `mutations_from`; and
-    // the frame of an iframe, when it has this origin.
-    void open_frame(dom::Element& iframe, std::uint64_t mutations_from = 0);
+    // answers for what its attributes name, or for `target`, its mutation
+    // count starting past `mutations_from`; and the frame of an iframe, when it
+    // has this origin.
+    void open_frame(dom::Element& iframe, std::uint64_t mutations_from = 0,
+        std::optional<net::Url> const& target = std::nullopt);
+    // Opens a frame on a document already in hand — the host's answer, an
+    // about:blank document, a javascript: URL's result — under the sandboxing
+    // flags the iframe navigates with, keyed by `source`: what the iframe's
+    // attributes name, or the URL the frame navigated to without them.
+    void open_frame_document(dom::Element& iframe, FrameDocument answer, std::string source, std::uint64_t mutations_from, bool initial_blank);
     ChildFrame const* frame_of(dom::Element const& iframe) const;
     // Closes an iframe's frame here: its loop work erased, its window gone
     // at once, its realm ended at the agent's next safe point. A frame that
@@ -635,14 +696,29 @@ struct Realm::Internals {
     // in a task after the script that inserted it, as does an iframe whose
     // src or srcdoc a script changed.
     void frames_inserted(dom::Node& subtree);
-    // An iframe of this document with nothing to show, as it is inserted by
-    // the parser or a script: its initial about:blank document and that
-    // document's load, both before the next line (HTML §4.8.5); and the
+    // An iframe of this document as it is inserted by the parser or a script:
+    // with nothing to show, its initial about:blank document and that
+    // document's load, both before the next line (HTML §4.8.5); with a
+    // javascript: URL for its src, the initial about:blank document alone, for
+    // the URL to run in. True when that is all the insertion does. And the
     // iframe's load event.
-    void open_blank_frame(dom::Element& iframe);
+    bool open_blank_frame(dom::Element& iframe);
     void fire_frame_load(dom::Element& iframe);
-    void schedule_frame_navigation(dom::Element& iframe);
-    void navigate_frame(dom::Element& iframe);
+    // The navigation of each iframe of this document last asked for, by its
+    // number: a queued navigation that is no longer the last does nothing, as
+    // a later navigation replaces an ongoing one.
+    std::unordered_map<dom::Element const*, std::uint64_t> frame_navigations;
+    void schedule_frame_navigation(dom::Element& iframe, FrameNavigation navigation);
+    void navigate_frame(dom::Element& iframe, std::uint64_t number, FrameNavigation const& navigation);
+    // Runs a javascript: URL in the document of an iframe's frame (HTML's
+    // "navigate to a javascript: URL"): a string result replaces the document.
+    void run_javascript_url(dom::Element& iframe, net::Url const& url, FrameNavigation const& navigation);
+    // HTML's "Location-object navigate": the document of this realm goes to
+    // `url` at the ask of script in `source` — a page's through its host, a
+    // frame's as its iframe's navigation, the fragment alone at once; false,
+    // navigating nothing, when the sandbox does not let `source` navigate it,
+    // which a reload does not ask.
+    bool navigate_from_location(net::Url const& url, Internals& source, bool reload);
     // Holds the agent's host_depth for a public entry of the realm; the last
     // one out ends the frames closed meanwhile.
     struct HostEntry {
@@ -701,6 +777,8 @@ struct Realm::Internals {
     std::unordered_map<dom::Element const*, bool> fallback_checked;
     dom::Element const* fallback_focus = nullptr;
     js::Object* location = nullptr;
+    js::Object* local_storage_object = nullptr;
+    js::Object* session_storage_object = nullptr;
     js::Object* history_state_holder = nullptr;
     js::Value history_state;
     int history_length = 1;
@@ -724,7 +802,8 @@ struct Realm::Internals {
     // eval, Function, a timer's string: refused unless the policy allows
     // 'unsafe-eval'; the message is the EvalError's.
     std::optional<std::string> compile_strings_refusal();
-    // A sandbox directive without allow-scripts: no script runs at all.
+    // A sandbox without allow-scripts, the iframe's or a sandbox directive's:
+    // no script runs at all.
     bool scripts_sandboxed() const;
     // Every entry from the host into script goes through these: the
     // microtask checkpoint on the way out, the time accounted.

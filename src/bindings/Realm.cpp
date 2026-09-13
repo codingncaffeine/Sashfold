@@ -190,12 +190,16 @@ std::string attribute_or_empty(dom::Element const& element, std::string_view nam
 namespace {
 
 // An attribute a script wrote is a mutation; an iframe's src or srcdoc, in no
-// namespace, navigates its frame.
+// namespace, navigates its frame (HTML §4.8.5, "process the iframe
+// attributes"), though not to what it already shows from those very
+// attributes (see navigate_frame); a src beside an srcdoc names nothing.
 void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name)
 {
     in.realm.note_mutation();
-    if (namespace_uri.empty() && (local_name == "src" || local_name == "srcdoc") && element.is_html("iframe"))
-        in.schedule_frame_navigation(element);
+    if (!namespace_uri.empty() || !element.is_html("iframe"))
+        return;
+    if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
+        in.schedule_frame_navigation(element, FrameNavigation {});
 }
 
 // Erases an attribute, then reports it written by its namespace and local
@@ -274,6 +278,42 @@ std::string frame_source(dom::Element const& iframe, net::Url const& base)
     if (!url || url->scheme == "about")
         return "";
     return "src:" + url->serialize();
+}
+
+std::uint32_t parse_sandboxing_directive(std::string_view text)
+{
+    std::vector<std::string> tokens;
+    for (std::string const& token : split_tokens(text))
+        tokens.push_back(ascii_lower(token));
+    auto const has = [&tokens](std::string_view token) { return std::find(tokens.begin(), tokens.end(), token) != tokens.end(); };
+    std::uint32_t flags = sandboxing::navigation | sandboxing::document_domain;
+    if (!has("allow-popups"))
+        flags |= sandboxing::auxiliary_navigation;
+    if (!has("allow-top-navigation"))
+        flags |= sandboxing::top_navigation;
+    if (!has("allow-top-navigation-by-user-activation") && !has("allow-top-navigation"))
+        flags |= sandboxing::top_navigation_by_user_activation;
+    if (!has("allow-same-origin"))
+        flags |= sandboxing::origin;
+    if (!has("allow-forms"))
+        flags |= sandboxing::forms;
+    if (!has("allow-pointer-lock"))
+        flags |= sandboxing::pointer_lock;
+    if (!has("allow-scripts"))
+        flags |= sandboxing::scripts | sandboxing::automatic_features;
+    if (!has("allow-popups-to-escape-sandbox"))
+        flags |= sandboxing::propagates_to_auxiliary;
+    if (!has("allow-modals"))
+        flags |= sandboxing::modals;
+    if (!has("allow-orientation-lock"))
+        flags |= sandboxing::orientation_lock;
+    if (!has("allow-presentation"))
+        flags |= sandboxing::presentation;
+    if (!has("allow-downloads"))
+        flags |= sandboxing::downloads;
+    if (!has("allow-top-navigation-to-custom-protocols") && !has("allow-popups") && !has("allow-top-navigation"))
+        flags |= sandboxing::custom_protocols_navigation;
+    return flags;
 }
 
 std::optional<dom::Node*> this_node(js::Interpreter& interpreter, js::Value const& this_value)
@@ -561,7 +601,17 @@ std::optional<std::string> Realm::Internals::compile_strings_refusal()
 
 bool Realm::Internals::scripts_sandboxed() const
 {
-    return hooks.policy != nullptr && !hooks.policy->sandbox_allows_scripts();
+    return (sandbox_flags & sandboxing::scripts) != 0 || (hooks.policy != nullptr && !hooks.policy->sandbox_allows_scripts());
+}
+
+net::Url const& Realm::Internals::base_url() const
+{
+    if (parent_realm != nullptr && url.scheme == "about") {
+        std::string const address = url.serialize(true);
+        if (address == "about:srcdoc" || address == "about:blank")
+            return parent_realm->base_url();
+    }
+    return url;
 }
 
 void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view where)
@@ -1293,6 +1343,29 @@ void collect_frames(dom::Node const& node, std::vector<dom::Element*>& out)
     }
 }
 
+// The javascript: URL an iframe's src names, when it has no srcdoc to show
+// instead (HTML §4.8.5, "process the iframe attributes").
+std::optional<net::Url> javascript_src(dom::Element const& iframe, net::Url const& base)
+{
+    if (iframe.find_attribute("srcdoc"))
+        return std::nullopt;
+    dom::Attr const* const src = iframe.find_attribute("src");
+    std::optional<net::Url> url = src ? net::parse_url(src->value, &base) : std::nullopt;
+    if (!url || url->scheme != "javascript")
+        return std::nullopt;
+    return url;
+}
+
+// The navigation a javascript: src makes as the page's parse ends: the page's,
+// and the iframe's initial insertion.
+FrameNavigation parsed_javascript_navigation(Realm::Internals const& in)
+{
+    FrameNavigation navigation;
+    navigation.initiator_origin = in.origin_url;
+    navigation.initial_insertion = true;
+    return navigation;
+}
+
 } // namespace
 
 void Realm::document_parsed()
@@ -1323,8 +1396,28 @@ void Realm::document_parsed()
     std::vector<dom::Element*> frames;
     collect_frames(in.document, frames);
     for (dom::Element* const frame : frames) {
-        if (frame_realm(*frame) != nullptr)
-            continue; // an about:blank frame, opened and loaded as it was inserted
+        if (frame_realm(*frame) != nullptr) {
+            // An about:blank frame, opened and loaded as it was inserted; or
+            // the initial about:blank document of one whose src is a
+            // javascript: URL, which runs now, before the page's load, unless
+            // a script has asked for a navigation of the frame since.
+            if (!in.frame_navigations.contains(frame)) {
+                if (std::optional<net::Url> const script = javascript_src(*frame, in.url);
+                    script && !in.inline_refused(net::InlineKind::Script, {}, script->serialize()))
+                    in.run_javascript_url(*frame, *script, parsed_javascript_navigation(in));
+            }
+            continue;
+        }
+        // What a script asked of the frame meanwhile is done here: a src it
+        // set to a javascript: URL runs in the initial about:blank document,
+        // before the page's load, as a parsed one does.
+        in.frame_navigations.erase(frame);
+        if (std::optional<net::Url> const script = javascript_src(*frame, in.url)) {
+            in.open_blank_frame(*frame);
+            if (!in.inline_refused(net::InlineKind::Script, {}, script->serialize()))
+                in.run_javascript_url(*frame, *script, parsed_javascript_navigation(in));
+            continue;
+        }
         in.open_frame(*frame);
         // Not at an iframe its own document's load took out of the tree.
         if (frame->is_connected())
@@ -1336,7 +1429,7 @@ void Realm::document_parsed()
     dispatch_event(nullptr, "pageshow");
 }
 
-void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from)
+void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from, std::optional<net::Url> const& target)
 {
     if (realm.frame_realm(iframe) != nullptr)
         return;
@@ -1351,31 +1444,47 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     // The host answers for what a frame fetches; without a host's answer, a
     // frame with something to show has no document here.
     std::optional<FrameDocument> answer
-        = hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors) : std::nullopt;
+        = hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors, target) : std::nullopt;
     if (!answer) {
         // Something to show that the host could not: no document. Nothing to
-        // show at all — no src, an empty one, about:blank — is the initial
-        // about:blank document (HTML §7.5.2), which needs no host: empty, of
-        // this document's origin, under this document's policy, as an srcdoc
-        // document is.
-        if (!frame_source(iframe, url).empty())
+        // show at all — no src, an empty one, about:blank, or a navigation to
+        // about:blank — is an about:blank document (HTML §7.5.2), which needs
+        // no host: empty, of this document's origin, under this document's
+        // policy, as an srcdoc document is.
+        bool const blank = target ? target->scheme == "about" && target->serialize(true) == "about:blank"
+                                  : frame_source(iframe, url).empty();
+        if (!blank)
             return;
         answer = FrameDocument {};
         answer->content_type = "text/html";
-        answer->url = *net::parse_url("about:blank");
+        answer->url = target ? *target : *net::parse_url("about:blank");
         answer->origin = origin_url;
         answer->srcdoc = true;
         if (hooks.policy)
             answer->policy = *hooks.policy;
     }
-    std::string const type = ascii_lower(answer->content_type);
+    open_frame_document(iframe, std::move(*answer), target ? "url:" + target->serialize() : frame_source(iframe, url), mutations_from, false);
+}
+
+void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument answer, std::string source, std::uint64_t mutations_from, bool initial_blank)
+{
+    std::string const type = ascii_lower(answer.content_type);
     if (!type.empty() && !type.starts_with("text/html") && !type.starts_with("application/xhtml"))
         return;
+    // The sandboxing flags the frame navigates with: its iframe's sandbox
+    // attribute as it stands now, with this document's own. Without
+    // allow-same-origin its document's origin is a new opaque one.
+    std::uint32_t flags = sandbox_flags;
+    if (dom::Attr const* const sandbox = iframe.find_attribute("sandbox"))
+        flags |= parse_sandboxing_directive(sandbox->value);
+    if (flags & sandboxing::origin)
+        answer.origin = *net::parse_url("about:blank");
     ChildFrame opened;
     opened.container = &iframe;
-    opened.source = frame_source(iframe, url);
-    opened.policy = answer->policy ? std::make_unique<net::ContentSecurityPolicy>(std::move(*answer->policy))
-                                   : std::make_unique<net::ContentSecurityPolicy>(answer->url);
+    opened.source = std::move(source);
+    opened.initial_blank = initial_blank;
+    opened.policy = answer.policy ? std::make_unique<net::ContentSecurityPolicy>(std::move(*answer.policy))
+                                  : std::make_unique<net::ContentSecurityPolicy>(answer.url);
     opened.document = std::make_unique<dom::Document>();
     // What the frame's realm asks its host for goes where the page's requests
     // go; the boxes, controls and navigation of the page are not the frame's.
@@ -1395,11 +1504,13 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     frame_hooks.viewport_height = hooks.viewport_height;
     frame_hooks.device_scale = hooks.device_scale;
     frame_hooks.user_agent = hooks.user_agent;
-    opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer->url, std::move(frame_hooks));
-    opened.realm->internals().origin_url = answer->origin;
+    opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer.url, std::move(frame_hooks));
+    opened.realm->internals().origin_url = answer.origin;
+    opened.realm->internals().sandbox_flags = flags;
     // An srcdoc or about:blank document has this document's origin itself,
-    // and so the domain document.domain gives either of them.
-    if (answer->srcdoc && answer->origin.serialize() == origin_url.serialize())
+    // and so the domain document.domain gives either of them; a sandbox has
+    // already made a sandboxed one's origin its own.
+    if (answer.srcdoc && answer.origin.serialize() == origin_url.serialize())
         opened.realm->internals().domain.share(domain);
     // The WindowProxy the iframe's frame already has, when the frame goes on
     // to another document; the new realm's own for a frame opened afresh.
@@ -1420,8 +1531,8 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     dom::Document& opened_document = *opened.document;
     trace("frame opened: " + (opened.source.empty() ? std::string("about:blank") : opened.source) + " in " + url.serialize(true));
     child_frames.push_back(std::move(opened));
-    std::string_view const text(reinterpret_cast<char const*>(answer->bytes.data()), answer->bytes.size());
-    if (answer->srcdoc)
+    std::string_view const text(reinterpret_cast<char const*>(answer.bytes.data()), answer.bytes.size());
+    if (answer.srcdoc)
         html::parse_document_into(opened_document, decode_utf8(text), &opened_realm);
     else
         html::parse_document_bytes_into(opened_document, text, &opened_realm);
@@ -1451,6 +1562,7 @@ Realm* Realm::frame_realm(dom::Element const& iframe)
 
 void Realm::Internals::close_frame(dom::Element const& iframe, bool keep_window_proxy)
 {
+    frame_navigations.erase(&iframe);
     // An iframe leaving the tree takes its frame's WindowProxy with it: put
     // back in, it has a new frame and a new one.
     if (!keep_window_proxy)
@@ -1548,22 +1660,39 @@ void Realm::Internals::frames_inserted(dom::Node& subtree)
     for (dom::Node* const node : nodes) {
         if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("iframe"))
             continue;
-        if (Internals* const owner = realm_of(node->document())) {
-            owner->open_blank_frame(*static_cast<dom::Element*>(node));
-            owner->schedule_frame_navigation(*static_cast<dom::Element*>(node));
+        dom::Element& iframe = *static_cast<dom::Element*>(node);
+        if (Internals* const owner = realm_of(node->document()); owner && !owner->open_blank_frame(iframe)) {
+            FrameNavigation navigation;
+            navigation.initial_insertion = true;
+            owner->schedule_frame_navigation(iframe, std::move(navigation));
         }
     }
 }
 
-void Realm::Internals::open_blank_frame(dom::Element& iframe)
+bool Realm::Internals::open_blank_frame(dom::Element& iframe)
 {
-    // The initial about:blank document and its load, both before the next
-    // line: a listener added after the insertion never sees that load.
-    if (!iframe.is_connected() || !frame_source(iframe, url).empty() || realm.frame_realm(iframe) != nullptr)
-        return;
-    open_frame(iframe);
+    // The initial about:blank document before the next line, and its load
+    // too when the iframe names nothing else: a listener added after the
+    // insertion never sees that load.
+    if (!iframe.is_connected() || realm.frame_realm(iframe) != nullptr)
+        return true;
+    bool const script = javascript_src(iframe, url).has_value();
+    if (!script && !frame_source(iframe, url).empty())
+        return false;
+    open_frame(iframe, 0, *net::parse_url("about:blank"));
+    // Keyed by its attributes, as a frame they opened is, not by the
+    // about:blank it was opened on.
+    for (ChildFrame& listed : child_frames) {
+        if (listed.container == &iframe) {
+            listed.initial_blank = true;
+            listed.source = frame_source(iframe, url);
+        }
+    }
+    if (script)
+        return false;
     if (realm.frame_realm(iframe) != nullptr)
         fire_frame_load(iframe);
+    return true;
 }
 
 void Realm::Internals::fire_frame_load(dom::Element& iframe)
@@ -1579,7 +1708,7 @@ void Realm::frame_inserted(dom::Element& iframe)
     in.open_blank_frame(iframe);
 }
 
-void Realm::Internals::schedule_frame_navigation(dom::Element& iframe)
+void Realm::Internals::schedule_frame_navigation(dom::Element& iframe, FrameNavigation navigation)
 {
     if (!iframe.is_connected())
         return;
@@ -1587,30 +1716,204 @@ void Realm::Internals::schedule_frame_navigation(dom::Element& iframe)
     if (!owner)
         return;
     // The iframe lives as long as its document, and the task as long as the
-    // document's realm: it goes when that realm ends.
-    owner->post_task([owner, &iframe] { owner->navigate_frame(iframe); });
+    // document's realm: it goes when that realm ends. Only the navigation
+    // asked for last goes ahead, as a new navigation ends an ongoing one.
+    std::uint64_t const number = owner->agent.next_sequence++;
+    owner->frame_navigations[&iframe] = number;
+    owner->post_task([owner, &iframe, number, navigation = std::move(navigation)] { owner->navigate_frame(iframe, number, navigation); });
 }
 
-void Realm::Internals::navigate_frame(dom::Element& iframe)
+void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number, FrameNavigation const& navigation)
 {
-    // Only an iframe still in this document; and not again for what its
-    // frame already shows — a frame the parse opened is not opened twice.
+    // Only an iframe still in this document, and only the navigation of it
+    // asked for last: a later one, or the parse's opening of the frame, has
+    // taken this one's place.
     if (&iframe.document() != &document || !iframe.is_connected())
         return;
-    std::string const key = frame_source(iframe, url);
+    auto const pending = frame_navigations.find(&iframe);
+    if (pending == frame_navigations.end() || pending->second != number)
+        return;
+    frame_navigations.erase(pending);
+    // A javascript: URL, navigated to or named by a src, runs in the frame's
+    // document; a src's is run at the ask of the iframe's document, under its
+    // policy.
+    if (navigation.target && navigation.target->scheme == "javascript") {
+        run_javascript_url(iframe, *navigation.target, navigation);
+        return;
+    }
+    if (!navigation.target) {
+        if (std::optional<net::Url> const script = javascript_src(iframe, url)) {
+            if (inline_refused(net::InlineKind::Script, {}, script->serialize()))
+                return;
+            FrameNavigation from_attributes = navigation;
+            from_attributes.initiator_origin = origin_url;
+            run_javascript_url(iframe, *script, from_attributes);
+            return;
+        }
+    }
+    // Anything else closes the frame and opens it anew — though not for
+    // attributes that name what the frame shows, opened from those very
+    // attributes and not navigated elsewhere since, unless to reload it. HTML
+    // navigates again even then; but until the old document's beforeunload
+    // and unload are fired, a page that sets an iframe's src from that
+    // iframe's own load would navigate it without end, so the frame is left
+    // as it is.
+    std::string const key = navigation.target ? navigation.target->serialize() : frame_source(iframe, url);
     auto const existing = std::find_if(child_frames.begin(), child_frames.end(),
         [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
     std::uint64_t mutations_from = 0;
     if (existing != child_frames.end()) {
-        if (existing->source == key)
+        if (!navigation.target && !navigation.reload && existing->source == key)
             return; // already showing it
         mutations_from = existing->realm->tree_mutation_count() + 1;
         close_frame(iframe, true);
     }
     trace("frame navigates: " + (key.empty() ? std::string("about:blank") : key));
-    open_frame(iframe, mutations_from);
+    open_frame(iframe, mutations_from, navigation.target);
     if (iframe.is_connected())
         fire_frame_load(iframe);
+}
+
+void Realm::Internals::run_javascript_url(dom::Element& iframe, net::Url const& script_url, FrameNavigation const& navigation)
+{
+    auto const existing = std::find_if(child_frames.begin(), child_frames.end(),
+        [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
+    if (existing == child_frames.end())
+        return; // no document for it to run in
+    Realm& frame = *existing->realm;
+    Internals& target = frame.internals();
+    bool const initial_blank = existing->initial_blank;
+    // Only a document of the origin of the frame's document runs script in it.
+    std::string const active = target.origin_url.serialize_origin();
+    if (!navigation.initiator_is_frame && (active == "null" || navigation.initiator_origin.serialize_origin() != active))
+        return;
+    // HTML's "evaluate a javascript: URL": what follows the scheme,
+    // percent-decoded, run as a classic script in the frame's document — not
+    // at all where its sandbox keeps scripts off — whose string completion is
+    // the markup of the document that replaces it.
+    std::string const text = script_url.serialize();
+    auto const hex = [](char c) {
+        return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+    };
+    std::string source;
+    for (std::size_t i = std::string_view("javascript:").size(); i < text.size(); ++i) {
+        if (text[i] == '%' && i + 2 < text.size() && hex(text[i + 1]) >= 0 && hex(text[i + 2]) >= 0) {
+            source += static_cast<char>(hex(text[i + 1]) * 16 + hex(text[i + 2]));
+            i += 2;
+        } else {
+            source += text[i];
+        }
+    }
+    std::optional<std::string> result;
+    if (!target.scripts_sandboxed()) {
+        Entry const entry(target);
+        ++target.stats.scripts_run;
+        js::Outcome const outcome = interpreter.run_script(std::string_view(source), "javascript: URL");
+        if (!outcome.ok) {
+            ++target.stats.scripts_failed;
+            if (interpreter.terminated())
+                target.console("error", "script stopped: javascript: URL");
+            else
+                target.report_uncaught(outcome.value, "javascript: URL");
+        } else if (outcome.value.is_string()) {
+            // Read before the entry's checkpoint can collect it.
+            result = outcome.value.as_string()->to_utf8();
+        }
+    }
+    // The script may have closed or replaced the frame itself.
+    if (realm.frame_realm(iframe) != &frame || !iframe.is_connected())
+        return;
+    if (!result) {
+        // The document stays; the insertion's own load event is still owed.
+        if (navigation.initial_insertion && initial_blank)
+            fire_frame_load(iframe);
+        return;
+    }
+    // A new document from the string, at the old one's URL, of the origin of
+    // the document that asked, under the old one's policy.
+    FrameDocument answer;
+    answer.bytes.assign(result->begin(), result->end());
+    answer.content_type = "text/html";
+    answer.url = target.url;
+    answer.origin = navigation.initiator_origin;
+    answer.srcdoc = true;
+    if (target.hooks.policy)
+        answer.policy = *target.hooks.policy;
+    std::uint64_t const mutations_from = frame.tree_mutation_count() + 1;
+    trace("frame navigates: " + text);
+    close_frame(iframe, true);
+    open_frame_document(iframe, std::move(answer), navigation.target ? "url:" + script_url.serialize() : frame_source(iframe, url), mutations_from, false);
+    if (iframe.is_connected())
+        fire_frame_load(iframe);
+}
+
+namespace {
+
+// HTML's "allowed by sandboxing to navigate": script in `source`'s document
+// may navigate its own document and its descendants' whatever its sandbox;
+// another frame only without the sandboxed navigation flag; the top only
+// without the sandboxed top-level navigation flag (no user activation is
+// tracked, so the flag without it is the one asked).
+bool allowed_by_sandboxing(Realm::Internals const& source, Realm::Internals const& target)
+{
+    if (&source == &target)
+        return true;
+    if (target.parent_realm == nullptr)
+        return (source.sandbox_flags & sandboxing::top_navigation) == 0;
+    for (Realm::Internals const* up = target.parent_realm; up != nullptr; up = up->parent_realm) {
+        if (up == &source)
+            return true;
+    }
+    return (source.sandbox_flags & sandboxing::navigation) == 0;
+}
+
+} // namespace
+
+bool Realm::Internals::navigate_from_location(net::Url const& target_url, Internals& source, bool reload)
+{
+    // A reload asks no sandbox: Location's reload() reloads the navigable of
+    // the Location's own document, which is not a navigation by `source`.
+    if (!reload && !allowed_by_sandboxing(source, *this))
+        return false;
+    // A page with a host is navigated by its host, fragment and all.
+    if (parent_realm == nullptr && hooks.navigate) {
+        trace("navigate: " + target_url.serialize());
+        hooks.navigate(target_url);
+        return true;
+    }
+    // The fragment alone, on this document (HTML's "navigate to a fragment"):
+    // the URL at once, and hashchange at the window after the script when the
+    // fragment is not the one the URL had (HTML's "update document for history
+    // step application").
+    if (!reload && target_url.fragment && target_url.serialize(true) == url.serialize(true)) {
+        trace("navigate to a fragment: " + target_url.serialize());
+        bool const changed = target_url.fragment != url.fragment;
+        url = target_url;
+        if (changed)
+            post_task([this] { realm.dispatch_event(nullptr, "hashchange"); });
+        return true;
+    }
+    // A page with no host to navigate it keeps the URL alone.
+    if (parent_realm == nullptr || frame_element == nullptr) {
+        url = target_url;
+        return true;
+    }
+    // A frame's navigation is its iframe's, in a task after the script; the
+    // document of a frame that has closed navigates nothing.
+    if (parent_realm->realm.frame_realm(*frame_element) != &realm)
+        return true;
+    if (target_url.scheme == "javascript" && source.inline_refused(net::InlineKind::Script, {}, target_url.serialize()))
+        return true;
+    FrameNavigation navigation;
+    // A reload of an srcdoc document reads the srcdoc again.
+    if (!reload || url.serialize(true) != "about:srcdoc")
+        navigation.target = target_url;
+    navigation.reload = reload;
+    navigation.initiator_origin = source.origin_url;
+    navigation.initiator_is_frame = &source == this;
+    trace("navigate: " + target_url.serialize());
+    parent_realm->schedule_frame_navigation(*frame_element, std::move(navigation));
+    return true;
 }
 
 // --- Events from the host ----------------------------------------------------------------
@@ -1841,6 +2144,8 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.current_event);
     tracer.visit(in.history_state);
     tracer.visit(in.location);
+    tracer.visit(in.local_storage_object);
+    tracer.visit(in.session_storage_object);
     for (auto const& [name, prototype] : in.prototypes)
         tracer.visit(prototype);
     for (auto const& [iframe, proxy] : in.navigables)

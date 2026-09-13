@@ -1588,12 +1588,12 @@ struct Browser::Impl {
         // A frame's document gets a realm of its own, fetched through the tab
         // that shows the page, by the framing rules its frames are drawn by.
         hooks.frame_document = [this, document](dom::Element const& iframe, net::Url const& base,
-                                   net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors)
-            -> std::optional<bindings::FrameDocument> {
+                                   net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors,
+                                   std::optional<net::Url> const& target) -> std::optional<bindings::FrameDocument> {
             Tab* const owner = tab_of(document);
             if (!owner)
                 return std::nullopt;
-            return frame_document_for(iframe, base, policy, ancestors, frame_fetcher(*owner));
+            return frame_document_for(iframe, base, policy, ancestors, target, frame_fetcher(*owner));
         };
         return std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
     }

@@ -1340,7 +1340,7 @@ void test_frames_have_realms_of_their_own()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt;
@@ -1401,7 +1401,7 @@ void test_a_frames_window_events_are_its_own()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt;
@@ -1436,7 +1436,7 @@ void test_a_frames_detached_nodes_go_with_it()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt;
@@ -1469,7 +1469,7 @@ void test_messages_between_windows()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt;
@@ -1517,7 +1517,7 @@ void test_a_frames_document_follows_its_iframe()
     documents["https://example.test/dir/second.html"] = "<script>var which = 'second';</script>";
     bindings::HostHooks hooks;
     hooks.frame_document = [&documents](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         bindings::FrameDocument answer;
         answer.content_type = "text/html";
         if (policy)
@@ -1621,7 +1621,7 @@ void test_an_iframe_has_the_initial_about_blank_document()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt; // nothing the host can show: about:blank is the realm's own
@@ -1681,7 +1681,7 @@ void test_a_window_of_another_origin_shows_little()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         bindings::FrameDocument answer;
         answer.content_type = "text/html";
         dom::Attr const* const src = iframe.find_attribute("src");
@@ -1796,7 +1796,7 @@ void test_document_domain_relaxes_the_same_origin_rule()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         bindings::FrameDocument answer;
         answer.content_type = "text/html";
         dom::Attr const* const src = iframe.find_attribute("src");
@@ -1855,7 +1855,7 @@ void test_the_origin_interface()
 {
     bindings::HostHooks hooks;
     hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
         dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
         if (!srcdoc)
             return std::nullopt;
@@ -2034,6 +2034,427 @@ void test_attributes_in_namespaces()
     page.reset();
 }
 
+// A host for the frame tests below: an srcdoc's text, of its parent's origin;
+// a src, or a URL the frame navigates to, from `documents` by URL without the
+// fragment, of that URL's origin; nothing for the rest.
+bindings::HostHooks hooks_serving(std::map<std::string, std::string> const& documents)
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [&documents](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors,
+                               std::optional<net::Url> const& target) -> std::optional<bindings::FrameDocument> {
+        bindings::FrameDocument answer;
+        answer.content_type = "text/html";
+        if (policy)
+            answer.policy = *policy;
+        dom::Attr const* const srcdoc = target ? nullptr : iframe.find_attribute("srcdoc");
+        if (srcdoc) {
+            answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+            answer.url = *net::parse_url("about:srcdoc");
+            answer.origin = ancestors.empty() ? base : ancestors.back().origin;
+            answer.srcdoc = true;
+            return answer;
+        }
+        dom::Attr const* const src = iframe.find_attribute("src");
+        std::optional<net::Url> const url = target ? target : src ? net::parse_url(src->value, &base) : std::nullopt;
+        if (!url)
+            return std::nullopt;
+        auto const it = documents.find(url->serialize(true));
+        if (it == documents.end())
+            return std::nullopt;
+        answer.bytes.assign(it->second.begin(), it->second.end());
+        answer.url = *url;
+        answer.origin = *url;
+        return answer;
+    };
+    return hooks;
+}
+
+// The realm of the frame of the page's iframe with this id, whatever its origin.
+bindings::Realm* frame_realm_of(Page& page, std::string const& id)
+{
+    dom::Node* const node = page.realm->node_of(page.eval("document.getElementById('" + id + "')").value);
+    return node && node->is_element() ? page.realm->frame_realm(static_cast<dom::Element&>(*node)) : nullptr;
+}
+
+// A string a realm answers, run there as the host runs script.
+std::string string_in(bindings::Realm* realm, std::string_view source)
+{
+    if (!realm) {
+        test::fail("no realm to evaluate: " + std::string(source), __FILE__, __LINE__);
+        return "";
+    }
+    js::Outcome const outcome = realm->run(source, "<test>");
+    if (!outcome.ok || !outcome.value.is_string()) {
+        test::fail("not a string: " + std::string(source), __FILE__, __LINE__);
+        return "";
+    }
+    return outcome.value.as_string()->to_utf8();
+}
+
+// A frame navigates. In a frame's realm the Location's setters, assign,
+// replace and reload, and the window's location setter, navigate that frame,
+// not the page: the URL is parsed against the base of the document whose
+// script asked, and one that does not parse throws a SyntaxError DOMException
+// of the Location's realm. A change of the fragment alone updates the URL at
+// once and fires hashchange when the fragment differs, keeping the document;
+// anything else reopens the frame after the script, with one load event at
+// the iframe, whose src stays as it was. Once the frame has navigated
+// elsewhere, setting src or srcdoc to the value it already has takes it back
+// to what the attribute names; and of two changes in one script the later is
+// the one navigated to. Script that navigates from inside the frame is run in
+// the frame's own realm, where the entry and the incumbent realm are one.
+void test_a_frame_navigates()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/first.html"] = "<script>var which = 'first';</script>";
+    documents["https://example.test/sub/second.html"] = "<script>var which = 'second';</script>";
+    documents["https://example.test/sub/third.html"] = "<script>var which = 'third, against the frame';</script>";
+    documents["https://example.test/dir/third.html"] = "<script>var which = 'third'; var hashes = [];"
+                                                       " addEventListener('hashchange', function () { hashes.push(location.hash); });</script>";
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var loads = {}; document.addEventListener('load', function (e) { if (e.target.tagName === 'IFRAME') loads[e.target.id] = (loads[e.target.id] || 0) + 1; }, true);</script>
+<iframe id=f src="/sub/first.html"></iframe>
+<iframe id=g srcdoc="<script>var which = 'g';</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    page->load();
+    page->eval("var f = document.getElementById('f'); var g = document.getElementById('g');");
+    CHECK(page->boolean("loads.f === 1 && f.contentWindow.which === 'first' && loads.g === 1"));
+
+    // From inside the frame, against its own document's URL: the same window
+    // until the script is done, then a new one behind the same WindowProxy.
+    page->eval("var first = f.contentWindow, firstArray = first.Array;");
+    CHECK_EQ(string_in(frame_realm_of(*page, "f"), "location.href = 'second.html'; String(which)"), "first");
+    CHECK(page->boolean("f.contentWindow === first && first.Array === firstArray && loads.f === 1"));
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow === first && first.Array !== firstArray && f.contentWindow.which === 'second' && loads.f === 2"));
+    CHECK(page->boolean("f.contentDocument.URL === 'https://example.test/sub/second.html' && f.getAttribute('src') === '/sub/first.html'"));
+
+    // From the page, against the page's URL.
+    page->eval("var second = f.contentWindow, secondArray = second.Array; second.location.assign('third.html');");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow === second && second.Array !== secondArray && f.contentWindow.which === 'third' && loads.f === 3"));
+
+    // A URL that does not parse throws, as the Location's realm's DOMException;
+    // the page's own Location throws the same.
+    CHECK(page->boolean("!URL.canParse('https://exa mple.test/') && (function () { try { f.contentWindow.location = 'https://exa mple.test/'; }"
+                        " catch (e) { return e instanceof f.contentWindow.DOMException && e.name === 'SyntaxError' && e.code === 12; } return false; })()"));
+    CHECK(page->boolean("(function () { try { location.href = 'https://exa mple.test/'; } catch (e) { return e instanceof DOMException && e.name === 'SyntaxError'; } return false; })()"));
+
+    // The fragment alone: the URL at once, hashchange after, the same document.
+    page->eval("var third = f.contentWindow, thirdArray = third.Array; third.location.hash = 'part'; var hashAtOnce = third.location.href; third.location.href = 'third.html#other';");
+    CHECK_EQ(page->string("hashAtOnce"), "https://example.test/dir/third.html#part");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow === third && third.Array === thirdArray && loads.f === 3"));
+    // One hashchange for each, both run after the script: each listener reads
+    // the URL as it stands by then.
+    CHECK_EQ(page->string("JSON.stringify(third.hashes)"), R"(["#other","#other"])");
+    // The fragment the URL already has fires nothing, set as the hash or in
+    // the whole URL.
+    page->eval("third.location.hash = 'other'; third.location.hash = '#other'; third.location.href = 'third.html#other';");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow === third && third.Array === thirdArray && loads.f === 3"));
+    CHECK_EQ(page->string("JSON.stringify(third.hashes)"), R"(["#other","#other"])");
+
+    // A reload reopens the document at its URL.
+    page->eval("third.location.reload();");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow === third && third.Array !== thirdArray && f.contentWindow.which === 'third' && loads.f === 4"));
+    CHECK_EQ(page->string("f.contentWindow.location.href"), "https://example.test/dir/third.html#other");
+
+    // replace from the page; the window's location setter from inside.
+    page->eval("f.contentWindow.location.replace('/sub/first.html');");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow.which === 'first' && loads.f === 5"));
+    string_in(frame_realm_of(*page, "f"), "window.location = 'second.html'; ''");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow.which === 'second' && loads.f === 6"));
+
+    // Of two navigations asked in one script only the later happens: a
+    // Location's and then a changed src; two changed srcdocs.
+    page->eval("f.contentWindow.location.href = '/sub/second.html'; f.src = '/sub/third.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow.which === 'third, against the frame' && loads.f === 7"));
+    page->eval("g.srcdoc = \"<script>var which = 'g2';</script>\"; g.srcdoc = \"<script>var which = 'g3';</script>\";");
+    page->realm->run_pending();
+    CHECK(page->boolean("g.contentWindow.which === 'g3' && loads.g === 2"));
+
+    // A frame its Location took elsewhere no longer shows what its attributes
+    // name: setting src or srcdoc to the value it has brings that back.
+    page->eval("f.contentWindow.location.href = '/sub/second.html'; g.contentWindow.location.href = '/sub/second.html';");
+    page->realm->run_pending();
+    CHECK(page->boolean("f.contentWindow.which === 'second' && loads.f === 8 && g.contentWindow.which === 'second' && loads.g === 3"));
+    page->eval("f.setAttribute('src', f.getAttribute('src')); g.srcdoc = g.getAttribute('srcdoc');");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("String(f.contentWindow.which)"), "third, against the frame");
+    CHECK_EQ(page->string("String(g.contentWindow.which)"), "g3");
+    CHECK(page->boolean("loads.f === 9 && loads.g === 4"));
+    // A reload of an srcdoc document opens it anew, from the srcdoc.
+    page->eval("var gShown = g.contentWindow, gArray = gShown.Array; gShown.location.reload();");
+    page->realm->run_pending();
+    CHECK(page->boolean("g.contentWindow === gShown && gShown.Array !== gArray && g.contentWindow.which === 'g3' && loads.g === 5"));
+    // The same holds for a document made by a javascript: URL its Location
+    // navigated to.
+    page->eval("g.contentWindow.location.href = 'javascript:\"<p id=made>made</p>\"';");
+    page->realm->run_pending();
+    CHECK(page->boolean("g.contentDocument.getElementById('made') !== null && loads.g === 6"));
+    page->eval("g.srcdoc = g.getAttribute('srcdoc');");
+    page->realm->run_pending();
+    CHECK(page->boolean("g.contentWindow.which === 'g3' && loads.g === 7"));
+    CHECK(page->navigations.empty());
+    CHECK_EQ(page->console, "");
+    page.reset();
+
+    // A page's own hash: its host navigates, but not to the fragment the URL
+    // already has.
+    auto hashed = std::make_unique<Page>("<!DOCTYPE html>", "https://example.test/dir/page.html#here");
+    hashed->load();
+    hashed->eval("location.hash = 'here'; location.hash = '#here';");
+    CHECK(hashed->navigations.empty());
+    hashed->eval("location.hash = 'there';");
+    CHECK_EQ(hashed->navigations.size(), 1u);
+    CHECK_EQ(hashed->console, "");
+    hashed.reset();
+}
+
+// javascript: URLs in frames (HTML §7.4.2.2, "navigate to a javascript: URL").
+// An iframe whose src is one gets the initial about:blank document at once;
+// the script runs in that document's realm, after the script that inserted
+// the iframe, or before the page's load for one the parser inserted. A string
+// result replaces the frame's document with one parsed from it, at the old
+// document's URL, with a load event; anything else leaves the document, with
+// the load event of the initial insertion only. A frame navigated to one by its
+// Location, or by a changed src, is treated the same, even when a script
+// changes a parser-inserted iframe's src to one before the page is parsed.
+// Only script of the origin of the frame's document runs one there: not the
+// page's in a frame sandboxed into an opaque origin, nor in a frame of
+// another origin.
+void test_javascript_urls_in_frames()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/first.html"] = "<script>var which = 'first';</script>";
+    documents["https://other.test/doc.html"] = "<script>var which = 'other';</script>";
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var loads = {}; document.addEventListener('load', function (e) { if (e.target.tagName === 'IFRAME') loads[e.target.id] = (loads[e.target.id] || 0) + 1; }, true);</script>
+<iframe id=p src="javascript:'<p id=parsed>parsed</p>'"></iframe>
+<iframe id=n src="javascript:parent.parsedRan = (parent.parsedRan || 0) + 1"></iframe>
+<iframe id=late src="/sub/first.html"></iframe>
+<script>document.getElementById('late').src = "javascript:'<b id=js>js</b>'";</script>
+<iframe id=boxed sandbox=allow-scripts src="javascript:'<p id=replaced>replaced</p>'"></iframe>
+<iframe id=other src="https://other.test/doc.html"></iframe>
+<script>var pageLoadSaw = null; onload = function () { pageLoadSaw = [loads.p, loads.n].join(); };</script>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    page->load();
+    page->eval("var p = document.getElementById('p'); var n = document.getElementById('n');");
+    CHECK(page->boolean("pageLoadSaw === '1,1' && parsedRan === 1"));
+    CHECK(page->boolean("(function (late) { return late.contentDocument !== null && late.contentDocument.getElementById('js') !== null && loads.late === 1; })(document.getElementById('late'))"));
+    // The page's origin is not the opaque one of the sandboxed frame's
+    // document, nor the other frame's: neither runs the page's URL.
+    CHECK_EQ(string_in(frame_realm_of(*page, "boxed"), "document.getElementById('replaced') === null ? 'kept' : 'replaced'"), "kept");
+    page->eval("document.getElementById('other').src = \"javascript:'<p id=replaced>replaced</p>'\";");
+    page->realm->run_pending();
+    CHECK_EQ(string_in(frame_realm_of(*page, "other"), "String(window.which) + (document.getElementById('replaced') === null ? ' kept' : ' replaced')"), "other kept");
+    CHECK(page->boolean("p.contentDocument.getElementById('parsed').textContent === 'parsed' && p.contentDocument.URL === 'about:blank'"));
+    CHECK(page->boolean("n.contentDocument.URL === 'about:blank' && n.contentDocument.body.childNodes.length === 0"));
+
+    // Script-inserted: about:blank at once, the script after, in the frame.
+    page->eval(R"JS(var s = document.createElement('iframe'); s.id = 's'; s.src = 'javascript:"<b id=made>" + (window !== parent) + "</b>"';
+document.body.appendChild(s); var sBlank = s.contentWindow;
+var atOnce = sBlank !== null && s.contentDocument.URL === 'about:blank' && loads.s === undefined;
+var u = document.createElement('iframe'); u.id = 'u'; u.src = 'javascript:parent.insertedRan = true; 1'; document.body.appendChild(u);)JS");
+    CHECK(page->boolean("atOnce"));
+    page->realm->run_pending();
+    CHECK(page->boolean("s.contentWindow === sBlank && s.contentDocument.getElementById('made').textContent === 'true' && s.contentDocument.URL === 'about:blank' && loads.s === 1"));
+    CHECK(page->boolean("insertedRan === true && loads.u === 1 && u.contentDocument.body.childNodes.length === 0"));
+
+    // Navigated to one: a string replaces the document; a number does not,
+    // and fires no load; nor does a changed src to one.
+    page->eval(R"JS(var sMade = s.contentWindow, madeArray = sMade.Array; sMade.location.href = 'javascript:"<i id=again>again</i>"'; var sameAfterScript = s.contentWindow === sMade && sMade.Array === madeArray;)JS");
+    CHECK(page->boolean("sameAfterScript"));
+    page->realm->run_pending();
+    CHECK(page->boolean("s.contentWindow === sMade && sMade.Array !== madeArray && s.contentDocument.getElementById('again') !== null && loads.s === 2"));
+    page->eval(R"JS(var sAgain = s.contentWindow, againArray = sAgain.Array; sAgain.location.href = 'javascript:parent.laterRan = true; 7'; u.src = 'javascript:parent.srcRan = (parent.srcRan || 0) + 1; 2';)JS");
+    page->realm->run_pending();
+    CHECK(page->boolean("laterRan === true && s.contentWindow === sAgain && sAgain.Array === againArray && s.contentDocument.getElementById('again') !== null && loads.s === 2"));
+    CHECK(page->boolean("srcRan === 1 && loads.u === 1"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
+// The iframe's sandbox attribute (HTML §7.6.2), its tokens ASCII
+// case-insensitive, read when the frame navigates rather than when the
+// attribute changes. Without allow-scripts no script runs in the frame, a
+// javascript: URL's included, nor in a frame inside it whatever that frame's
+// own sandbox says; without allow-same-origin its document's origin is opaque
+// — window.origin "null", localStorage and document.cookie refused with a
+// SecurityError, frameElement and the page's contentDocument null, its
+// requests made as the opaque origin's, without credentials — while the page
+// and the frame still reach each other's window, as postMessage needs;
+// without allow-top-navigation it may not navigate the top, though it may
+// reload it; and sandboxed at all it may navigate itself and its own frames
+// but not a sibling.
+void test_the_sandbox_attribute()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/first.html"] = "<script>var which = 'first';</script>";
+    documents["https://example.test/sub/fetch-opaque.html"] = "<script>var x = new XMLHttpRequest(); x.open('GET', 'opaque.txt'); x.send();</script>";
+    documents["https://example.test/sub/fetch-same.html"] = "<script>var x = new XMLHttpRequest(); x.open('GET', 'same.txt'); x.send();</script>";
+    std::string const probe = "<body><script>var r = [origin]; try { localStorage.length; r.push('storage'); } catch (e) { r.push(e.name); }"
+                              " try { document.cookie; r.push('cookie'); } catch (e) { r.push(e.name); } r.push(parent === window ? 'self' : 'parent', frameElement ? 'element' : 'none');"
+                              " document.body.setAttribute('data-probe', r.join(' ')); parent.postMessage(origin, '*');</script>";
+    std::string const markup = R"HTML(<!DOCTYPE html>
+<script>var messages = []; addEventListener('message', function (e) { messages.push(e.data + ' ' + e.origin + ' ' + (e.source === document.getElementById(e.origin === 'null' ? 'opaque' : 'same').contentWindow)); });</script>
+<iframe id=none sandbox srcdoc="<script>parent.noneRan = true;</script>"></iframe>
+<iframe id=noscripts sandbox="allow-same-origin" srcdoc="<script>parent.noScriptsRan = true;</script>"></iframe>
+<iframe id=jsurl sandbox="allow-same-origin" src="javascript:parent.jsUrlRan = true; 1"></iframe>
+<iframe id=opaque sandbox="allow-scripts" srcdoc="PROBE"></iframe>
+<iframe id=same sandbox="allow-scripts allow-same-origin" srcdoc="PROBE"></iframe>
+<iframe id=upper sandbox=" ALLOW-SCRIPTS	Allow-Same-Origin " srcdoc="<script>parent.upperRan = true;</script>"></iframe>
+<iframe id=long sandbox="allow-ſcripts allow-same-origin" srcdoc="<script>parent.longRan = true;</script>"></iframe>
+<iframe id=top1 sandbox="allow-scripts allow-same-origin" srcdoc="<script>try { top.location.href = 'elsewhere.html'; parent.topResult = 'navigated'; } catch (e) { parent.topResult = e.name; }</script>"></iframe>
+<iframe id=top2 sandbox="allow-scripts allow-same-origin allow-top-navigation" srcdoc="<script>top.location.href = 'allowed.html'; parent.topAllowed = true;</script>"></iframe>
+<iframe id=reload sandbox="allow-scripts allow-same-origin" srcdoc="<script>try { top.location.reload(); parent.reloadResult = 'reloaded'; } catch (e) { parent.reloadResult = e.name; }</script>"></iframe>
+<iframe id=sib srcdoc="<script>var which = 'sibling';</script>"></iframe>
+<iframe id=nav sandbox="allow-scripts allow-same-origin" srcdoc="<script>function tryToNavigate(target) { try { target.location.href = '/sub/first.html'; return 'navigated'; } catch (e) { return e.name; } }</script><iframe id=kid srcdoc='<script>var which = 1</script>'></iframe>"></iframe>
+<iframe id=outer sandbox="allow-same-origin" srcdoc="<iframe srcdoc='<script>document.title = 1</script>'></iframe><iframe sandbox='allow-scripts allow-same-origin' srcdoc='<script>document.title = 1</script>'></iframe>"></iframe>
+<iframe id=open srcdoc="<iframe srcdoc='<script>document.title = 1</script>'></iframe>"></iframe>
+<iframe id=fetchOpaque sandbox="allow-scripts" src="/sub/fetch-opaque.html"></iframe>
+<iframe id=fetchSame sandbox="allow-scripts allow-same-origin" src="/sub/fetch-same.html"></iframe>
+<iframe id=fetchSrcdoc srcdoc="<script>var x = new XMLHttpRequest(); x.open('GET', 'https://example.test/sub/srcdoc.txt'); x.send();</script>"></iframe>)HTML";
+    std::string html;
+    for (std::size_t at = 0; at < markup.size();) {
+        std::size_t const found = markup.find("PROBE", at);
+        html += markup.substr(at, found == std::string::npos ? std::string::npos : found - at);
+        if (found == std::string::npos)
+            break;
+        html += probe;
+        at = found + 5;
+    }
+    auto page = std::make_unique<Page>(html, "https://example.test/dir/page.html", hooks_serving(documents));
+    for (std::string const name : { "opaque", "same", "srcdoc", "named" }) {
+        net::FetchResponse response;
+        response.status = 200;
+        response.status_text = "OK";
+        response.body.assign(name.begin(), name.end());
+        // The opaque origin's request is a CORS one, which this lets through.
+        if (name == "opaque")
+            response.headers.push_back(net::Header { "Access-Control-Allow-Origin", "*" });
+        // Allowed to the page's origin alone, which an opaque origin is not.
+        if (name == "named")
+            response.headers.push_back(net::Header { "Access-Control-Allow-Origin", "https://example.test" });
+        page->responses["https://example.test/sub/" + name + ".txt"] = response;
+    }
+    page->load();
+    page->realm->run_pending();
+    // No script at all without allow-scripts.
+    bindings::Realm* const none = frame_realm_of(*page, "none");
+    CHECK(none != nullptr && none->stats().scripts_run == 0 && none->stats().scripts_refused == 1);
+    CHECK(page->boolean("typeof noScriptsRan === 'undefined' && typeof jsUrlRan === 'undefined'"));
+    // An opaque origin without allow-same-origin, the page's with it; either
+    // way the frame reaches its parent, and the page the frame's window, but
+    // only a document of its own origin.
+    CHECK_EQ(string_in(frame_realm_of(*page, "opaque"), "document.body.getAttribute('data-probe')"), "null SecurityError SecurityError parent none");
+    CHECK_EQ(string_in(frame_realm_of(*page, "same"), "document.body.getAttribute('data-probe')"), "https://example.test storage cookie parent element");
+    CHECK(page->boolean("document.getElementById('opaque').contentWindow !== null && document.getElementById('opaque').contentDocument === null"));
+    CHECK(page->boolean("document.getElementById('same').contentWindow !== null && document.getElementById('same').contentDocument !== null"));
+    CHECK_EQ(page->string("messages.join()"), "null null true,https://example.test https://example.test true");
+    // No script inside a frame without allow-scripts, whatever its own sandbox
+    // attribute says; a frame inside an unsandboxed one runs its script.
+    CHECK_EQ(page->string("JSON.stringify(Array.from(document.getElementById('outer').contentDocument.querySelectorAll('iframe'), function (i) { return i.contentDocument.title; })"
+                          ".concat(document.getElementById('open').contentDocument.querySelector('iframe').contentDocument.title))"),
+        R"(["","","1"])");
+    // Requests as the opaque origin: no credentials, and Origin: null; with
+    // the page's origin, or an srcdoc document's inherited one, credentials.
+    auto const requested = [&page](std::string const& line) { return std::find(page->requests.begin(), page->requests.end(), line) != page->requests.end(); };
+    CHECK(requested("GET https://example.test/sub/opaque.txt (no credentials)"));
+    CHECK(requested("GET https://example.test/sub/same.txt"));
+    CHECK(requested("GET https://example.test/sub/srcdoc.txt"));
+    page->request_headers.clear();
+    string_in(frame_realm_of(*page, "fetchOpaque"), "var y = new XMLHttpRequest(); y.open('GET', 'opaque.txt'); y.send(); ''");
+    page->realm->run_pending();
+    CHECK(std::find(page->request_headers.begin(), page->request_headers.end(), "Origin: null") != page->request_headers.end());
+    // A response allowed to the page's origin alone is refused to the opaque one.
+    string_in(frame_realm_of(*page, "fetchOpaque"), "var named = 'waiting'; var z = new XMLHttpRequest(); z.onload = function () { named = 'loaded'; };"
+                                                    " z.onerror = function () { named = 'refused'; }; z.open('GET', 'named.txt'); z.send(); ''");
+    page->realm->run_pending();
+    CHECK_EQ(string_in(frame_realm_of(*page, "fetchOpaque"), "named"), "refused");
+    CHECK_EQ(page->console, "warn:XMLHttpRequest https://example.test/sub/named.txt: the CORS check on https://example.test/sub/named.txt failed|");
+    page->console.clear();
+    // Tokens compare ASCII case-insensitively, and only so.
+    CHECK(page->boolean("upperRan === true && typeof longRan === 'undefined'"));
+    // The top, only with allow-top-navigation; a reload of it asks no sandbox.
+    CHECK(page->boolean("topResult === 'SecurityError' && topAllowed === true"));
+    CHECK_EQ(page->string("String(reloadResult)"), "reloaded");
+    std::string navigated;
+    for (net::Url const& url : page->navigations)
+        navigated += url.serialize() + " ";
+    CHECK_EQ(navigated, "https://example.test/dir/allowed.html https://example.test/dir/page.html ");
+    // Its own frames, not a sibling.
+    page->eval("var nav = document.getElementById('nav'); var sib = document.getElementById('sib'); var kid = nav.contentDocument.getElementById('kid');"
+               " var toSibling = nav.contentWindow.tryToNavigate(sib.contentWindow); var toChild = nav.contentWindow.tryToNavigate(kid.contentWindow);");
+    CHECK(page->boolean("toSibling === 'SecurityError' && toChild === 'navigated' && kid.contentWindow.which === 1"));
+    page->realm->run_pending();
+    CHECK(page->boolean("sib.contentWindow.which === 'sibling' && kid.contentWindow.which === 'first'"));
+    // Itself.
+    page->eval("var toItself = nav.contentWindow.tryToNavigate(nav.contentWindow);");
+    CHECK(page->boolean("toItself === 'navigated'"));
+    page->realm->run_pending();
+    CHECK(page->boolean("nav.contentWindow.which === 'first'"));
+    // A changed attribute waits for the next navigation.
+    page->eval("var same = document.getElementById('same'); var sameWindow = same.contentWindow; same.sandbox = 'allow-scripts';");
+    page->realm->run_pending();
+    CHECK(page->boolean("same.contentWindow === sameWindow && sameWindow.origin === 'https://example.test'"));
+    page->eval("same.srcdoc = same.getAttribute('srcdoc') + ' ';");
+    page->realm->run_pending();
+    CHECK(page->boolean("same.contentWindow === sameWindow && same.contentDocument === null"));
+    CHECK_EQ(string_in(frame_realm_of(*page, "same"), "document.body.getAttribute('data-probe')"), "null SecurityError SecurityError parent none");
+    // A frame sandboxed into an opaque origin reaches its parent and the top
+    // as windows of another origin, whatever origin its URL has.
+    CHECK_EQ(string_in(frame_realm_of(*page, "opaque"), "(function () { try { return typeof parent.document; } catch (e) { return e.name; } })()"), "SecurityError");
+    CHECK_EQ(string_in(frame_realm_of(*page, "opaque"), "top === parent ? 'top' : 'self'"), "top");
+    // Nor may the page run a javascript: URL in it through its Location.
+    page->eval("document.getElementById('opaque').contentWindow.location.href = \"javascript:'<p id=injected>injected</p>'\";");
+    page->realm->run_pending();
+    CHECK_EQ(string_in(frame_realm_of(*page, "opaque"), "document.getElementById('injected') === null ? 'kept' : 'injected'"), "kept");
+    // A sandboxed frame may not navigate a parent that is not the top.
+    page->eval(R"JS(var nested = sib.contentDocument.createElement('iframe'); nested.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+nested.srcdoc = "<script>try { parent.location.href = '/sub/first.html'; parent.ancestorResult = 'navigated'; } catch (e) { parent.ancestorResult = e.name; }</script>";
+sib.contentDocument.body.appendChild(nested);)JS");
+    page->realm->run_pending();
+    CHECK(page->boolean("sib.contentWindow.ancestorResult === 'SecurityError' && sib.contentWindow.which === 'sibling'"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+
+    // A sandboxed document may not set document.domain, even with its page's
+    // origin; the same document unsandboxed may.
+    auto domains = std::make_unique<Page>("<!DOCTYPE html><iframe id=boxed sandbox='allow-scripts allow-same-origin' src=/sub/first.html></iframe>"
+                                          "<iframe id=open src=/sub/first.html></iframe>",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    domains->load();
+    domains->realm->run_pending();
+    std::string const set_domain = "(function () { try { document.domain = document.domain; return 'set ' + document.domain; } catch (e) { return e.name + ' ' + document.domain; } })()";
+    CHECK_EQ(string_in(frame_realm_of(*domains, "boxed"), set_domain), "SecurityError example.test");
+    CHECK_EQ(string_in(frame_realm_of(*domains, "open"), set_domain), "set example.test");
+    CHECK_EQ(domains->console, "");
+    domains.reset();
+
+    // Under a file: page, whose URLs all serialize their origin as "null", a
+    // sandbox's opaque origin is still of no URL.
+    std::map<std::string, std::string> files;
+    files["file:///sub/fetch-opaque.html"] = documents["https://example.test/sub/fetch-opaque.html"];
+    auto local = std::make_unique<Page>("<!DOCTYPE html><iframe sandbox=allow-scripts src=/sub/fetch-opaque.html></iframe>", "file:///dir/page.html", hooks_serving(files));
+    net::FetchResponse open_response;
+    open_response.status = 200;
+    open_response.status_text = "OK";
+    open_response.headers.push_back(net::Header { "Access-Control-Allow-Origin", "*" });
+    local->responses["file:///sub/opaque.txt"] = open_response;
+    local->load();
+    local->realm->run_pending();
+    CHECK(std::find(local->requests.begin(), local->requests.end(), "GET file:///sub/opaque.txt (no credentials)") != local->requests.end());
+    CHECK_EQ(local->console, "");
+    local.reset();
+}
+
 } // namespace
 
 int main()
@@ -2073,5 +2494,8 @@ int main()
     test_document_domain_relaxes_the_same_origin_rule();
     test_the_origin_interface();
     test_attributes_in_namespaces();
+    test_a_frame_navigates();
+    test_javascript_urls_in_frames();
+    test_the_sandbox_attribute();
     return test::report("test_bindings");
 }

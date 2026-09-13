@@ -1132,11 +1132,17 @@ std::optional<RequestObject*> make_request(js::Interpreter& interp, js::Value co
 
 // ---- the fetching (Fetch §4)
 
+// Is `url` of the origin of the document that asks? That is the document's
+// origin, not its URL's: an srcdoc document's is inherited, not read from
+// about:srcdoc, and a sandbox without allow-same-origin makes it a new opaque
+// origin that no URL has.
 bool is_same_origin(Realm::Internals& in, net::Url const& url)
 {
     if (url.scheme == "data" || url.scheme == "about" || url.scheme == "blob")
         return true;
-    return url.serialize_origin() == in.url.serialize_origin();
+    if (in.sandbox_flags & sandboxing::origin)
+        return false;
+    return url.serialize_origin() == in.origin_url.serialize_origin();
 }
 
 // Does a cross-origin request need a preflight (Fetch §4.7)? A method
@@ -1204,8 +1210,8 @@ FetchOutcome perform_fetch(Realm::Internals& in, PageRequest const& page_request
         outcome.error = "a same-origin request to " + page_request.url.serialize_origin();
         return outcome;
     }
-    std::string const origin = in.url.serialize_origin();
-    bool const credentials = page_request.credentials == FetchCredentials::Include || (page_request.credentials == FetchCredentials::SameOrigin && same_origin);
+    std::string const origin = in.origin_url.serialize_origin();
+    bool const credentials =page_request.credentials == FetchCredentials::Include || (page_request.credentials == FetchCredentials::SameOrigin && same_origin);
     std::vector<net::Header> headers = page_request.headers;
     if (net::find_header(headers, "accept") == nullptr)
         headers.push_back({ "Accept", "*/*" });

@@ -447,8 +447,9 @@ private:
             // A frame's document gets a realm of its own, served by the rules
             // the frames are drawn by.
             hooks.frame_document = [this](dom::Element const& iframe, net::Url const& base,
-                                       net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors) {
-                return ui::frame_document_for(iframe, base, policy, ancestors, frame_fetcher());
+                                       net::ContentSecurityPolicy* policy, std::vector<bindings::FrameAncestor> const& ancestors,
+                                       std::optional<net::Url> const& target) {
+                return ui::frame_document_for(iframe, base, policy, ancestors, target, frame_fetcher());
             };
             realm = std::make_unique<bindings::Realm>(*document, *url, std::move(hooks));
             oracle.set_realm(realm.get());

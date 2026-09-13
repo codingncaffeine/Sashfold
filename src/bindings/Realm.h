@@ -133,13 +133,16 @@ struct HostHooks {
     // Without it a page's localStorage lives and dies with the document.
     std::function<StorageArea*(std::string const& origin)> local_storage;
     // An iframe's document, for a realm of its own in this page's agent: what
-    // its srcdoc or src names for the document at `base` under `policy`, as
+    // its srcdoc or src names for the document at `base` under `policy` — or,
+    // when `target` is given, what that URL names, the frame navigating there
+    // on its own (its Location set, a reload) whatever its attributes say — as
     // the framing rules let it through for a frame inside `ancestors` (the
     // page first, the document at `base` last); nullopt when there is nothing
     // to show. Without it a frame's document has no realm, and
     // contentDocument is null.
     std::function<std::optional<FrameDocument>(dom::Element const& iframe, net::Url const& base,
-        net::ContentSecurityPolicy* policy, std::vector<FrameAncestor> const& ancestors)> frame_document;
+        net::ContentSecurityPolicy* policy, std::vector<FrameAncestor> const& ancestors,
+        std::optional<net::Url> const& target)> frame_document;
 
     // A line for each step of the event loop and the frames worth seeing — a
     // timer set or fired, a task run, a frame opened, closed or navigated, a

@@ -807,8 +807,8 @@ TestResult run_test(Server const& server, std::string const& id)
     hooks.viewport_height = media.height;
     hooks.user_agent = "Mozilla/5.0 (X11; Linux x86_64) Sashfold/0.0 wpt";
     hooks.frame_document = [&](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
-                               std::vector<bindings::FrameAncestor> const& ancestors) {
-        return ui::frame_document_for(iframe, base, policy, ancestors, frame_fetcher);
+                               std::vector<bindings::FrameAncestor> const& ancestors, std::optional<net::Url> const& target) {
+        return ui::frame_document_for(iframe, base, policy, ancestors, target, frame_fetcher);
     };
     auto realm = std::make_unique<bindings::Realm>(*document, *url, std::move(hooks));
     oracle.set_realm(realm.get());
