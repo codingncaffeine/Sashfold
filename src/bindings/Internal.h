@@ -332,6 +332,10 @@ struct Realm::Internals {
     std::unordered_map<std::string, net::Url> inline_module_bases;
     int inline_modules = 0;
     bool module_credentials_include = false;
+    // The root <script>'s nonce and whether the parser inserted it: the
+    // policy judges every fetch of the graph by them.
+    std::string module_nonce;
+    bool module_parser_inserted = true;
     std::unordered_set<dom::Element const*> started_scripts; // "already started" (§4.12.1)
     html::TreeBuilder* active_parser = nullptr; // set while the parser runs a script
     std::string ready_state = "loading";
@@ -359,6 +363,17 @@ struct Realm::Internals {
     void console(std::string_view level, std::string_view message) const;
     // Reports an uncaught exception: the console, the count, window.onerror.
     void report_uncaught(js::Value const& thrown, std::string_view where);
+
+    // The document's Content Security Policy, asked through these: the
+    // head's <meta> policies are adopted first each time.
+    void adopt_meta_policies();
+    net::RequestGuard request_guard(net::ResourceKind kind, std::string nonce = {}, bool parser_inserted = true);
+    bool inline_refused(net::InlineKind kind, std::string_view nonce, std::string_view source);
+    // eval, Function, a timer's string: refused unless the policy allows
+    // 'unsafe-eval'; the message is the EvalError's.
+    std::optional<std::string> compile_strings_refusal();
+    // A sandbox directive without allow-scripts: no script runs at all.
+    bool scripts_sandboxed() const;
     // Every entry from the host into script goes through these: the
     // microtask checkpoint on the way out, the time accounted.
     struct Entry {

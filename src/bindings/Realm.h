@@ -19,6 +19,7 @@
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
 #include "js/Interpreter.h"
+#include "net/Csp.h"
 #include "net/Http.h"
 #include "net/Url.h"
 
@@ -45,14 +46,22 @@ struct LayoutBox {
 // attribute's value, no navigation).
 struct HostHooks {
     // A classic script's source for <script src=…>, fetched on the page's
-    // behalf and decoded to UTF-8; nullopt when it cannot be had.
-    std::function<std::optional<std::string>(net::Url const&)> fetch_script;
-    // A request a script makes — fetch(), XMLHttpRequest — carried out on
-    // the page's behalf: the method, headers and body as given, cookies
-    // only when the request allows them; the response with its status,
-    // headers, body and final URL, or the error. Without it every such
-    // request is a network error.
-    std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&)> fetch_resource;
+    // behalf and decoded to UTF-8; nullopt when it cannot be had. The
+    // guard is the page's policy's say on the URL and on every redirect
+    // hop: a host honours it before any request leaves.
+    std::function<std::optional<std::string>(net::Url const&, net::RequestGuard const&)> fetch_script;
+    // A request a script makes — fetch(), XMLHttpRequest, a module graph —
+    // carried out on the page's behalf: the method, headers and body as
+    // given, cookies only when the request allows them, the guard honoured
+    // as above; the response with its status, headers, body and final
+    // URL, or the error. Without it every such request is a network error.
+    std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&)> fetch_resource;
+    // The document's Content Security Policy, which the realm asks about
+    // every inline script, handler attribute and string it would compile,
+    // and whose guards it hands the fetches above; null for a page with
+    // none. The realm adopts the policies its <meta> elements carry into
+    // it as they appear.
+    net::ContentSecurityPolicy* policy = nullptr;
     // The clock timers run on, in milliseconds. Wall time by default; the
     // replay and the tests give a virtual one so a timer fires when the
     // script says, deterministically.
@@ -137,6 +146,7 @@ struct ScriptStats {
     int modules_run = 0; // of those, module scripts
     int scripts_failed = 0; // of those, ended by an uncaught exception
     int scripts_skipped = 0; // a type the engine does not run (JSON, a template, an import map)
+    int scripts_refused = 0; // inline scripts and handlers the page's Content Security Policy refused
     int external_fetched = 0;
     int external_failed = 0;
     int timers_fired = 0;
@@ -144,6 +154,11 @@ struct ScriptStats {
     int uncaught_errors = 0; // in any callback: scripts, timers, listeners
     double script_ms = 0; // time inside the engine, all entries together
 };
+
+// Every <meta http-equiv=content-security-policy> in the document's head
+// enforced (HTML §4.2.5.3): the realm does this before each check it
+// makes, and a host that parsed without a realm does it once after.
+void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const& document);
 
 class Realm final : public js::RootProvider, public html::ScriptRunner {
 public:

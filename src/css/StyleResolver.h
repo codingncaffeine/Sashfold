@@ -8,7 +8,9 @@
 #include "css/Stylesheets.h"
 
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -20,6 +22,10 @@ class Element;
 namespace sashfold::css {
 
 using StyleMap = std::unordered_map<dom::Element const*, ComputedStyle>;
+
+// Whether a style="" attribute may apply to its element (the page's
+// Content Security Policy says); an attribute refused is not there.
+using StyleAttributeCheck = std::function<bool(dom::Element const& element, std::string_view text)>;
 
 struct RuleSet;
 
@@ -42,6 +48,9 @@ public:
     // compound names no id, class or type. A perf figure, not a feature.
     std::size_t universal_count() const;
     MediaContext const& media() const;
+    // The page's say on style attributes, asked for each one at every
+    // resolution; none set means every attribute applies.
+    void set_style_attribute_check(StyleAttributeCheck check);
 
 private:
     friend StyleMap resolve_styles(dom::Document const& document, StyleSet const& set);

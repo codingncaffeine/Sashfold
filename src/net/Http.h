@@ -88,6 +88,12 @@ struct FetchOptions {
     // what a page load does. A request that must not hang the caller (a
     // revocation list inside a handshake) sets a bound.
     int receive_timeout_ms = 0;
+    // Asked before every redirect is followed, with the hop's URL — which
+    // it may rewrite (an upgrade to https) — and answering the refusal
+    // that ends the fetch, or nullopt to let the hop go. The caller's
+    // blocklists and the page's Content Security Policy judge each hop
+    // the way they judged the first request.
+    std::function<std::optional<std::string>(Url& next)> hop_refusal;
 };
 
 struct FetchResult {

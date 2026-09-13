@@ -27,6 +27,9 @@ public:
     LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media);
     // The realm whose mutation count says when the answers are stale.
     void set_realm(Realm* realm) { m_realm = realm; }
+    // The document's Content Security Policy, whose say on inline styles
+    // the answers here honour as the render does.
+    void set_policy(net::ContentSecurityPolicy* policy) { m_policy = policy; }
     // Puts layout_box and computed_style on the hooks, answering from here.
     void install(HostHooks& hooks);
 
@@ -41,6 +44,7 @@ private:
     css::SheetFetcher m_fetch;
     css::MediaContext m_media;
     Realm* m_realm = nullptr;
+    net::ContentSecurityPolicy* m_policy = nullptr;
     bool m_computed = false;
     std::uint64_t m_mutations = 0;
     // The sheets parsed and compiled once per set of stylesheet elements:

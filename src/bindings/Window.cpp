@@ -133,6 +133,10 @@ Native set_timer(js::Interpreter& interpreter, Args args, bool repeat)
         if (!text)
             return std::nullopt;
         handler = js::Value::string(*text);
+        // §8.6 step 9.3: a string the page's policy will not let compile
+        // schedules nothing (EnsureCSPDoesNotBlockStringCompilation).
+        if (in.compile_strings_refusal())
+            return js::Value::number(0);
     }
     double delay = 0;
     if (args.size() > 1) {

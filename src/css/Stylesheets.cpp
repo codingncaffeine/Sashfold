@@ -76,15 +76,16 @@ struct Collector {
     SheetFetcher const& fetch;
     std::vector<SheetSource>& out;
     MediaContext const& media;
+    InlineSheetCheck const& check;
     std::set<std::string> visited;
 
-    void add_fetched(net::Url const& url, int depth)
+    void add_fetched(net::Url const& url, int depth, std::string_view nonce)
     {
         std::string const key = url.serialize(true);
         if (visited.contains(key) || out.size() >= max_sheets || !fetch)
             return;
         visited.insert(key);
-        std::optional<FetchedSheet> const fetched = fetch(url);
+        std::optional<FetchedSheet> const fetched = fetch(url, nonce);
         if (!fetched)
             return;
         add_text(decode_stylesheet(fetched->bytes, fetched->content_type), url, depth);
@@ -95,7 +96,7 @@ struct Collector {
         if (depth < max_import_depth) {
             for (std::string const& href : import_urls(text, media)) {
                 if (std::optional<net::Url> const target = net::parse_url(href, url ? &*url : nullptr))
-                    add_fetched(*target, depth + 1);
+                    add_fetched(*target, depth + 1, {});
             }
         }
         out.push_back(SheetSource { std::move(text), url });
@@ -124,6 +125,9 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
                 if (end != std::string::npos && end >= start + 9)
                     text = text.substr(start + 9, end - (start + 9));
             }
+            // The page's policy judges the element's text as written.
+            if (collector.check && !collector.check(element, text))
+                return;
             collector.add_text(std::move(text),
                 base ? std::optional<net::Url>(*base) : std::nullopt, 0);
             return;
@@ -146,7 +150,7 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
             if (href.empty())
                 return;
             if (std::optional<net::Url> const target = net::parse_url(href, base))
-                collector.add_fetched(*target, 0);
+                collector.add_fetched(*target, 0, attribute(element, "nonce"));
             return;
         }
     }
@@ -157,10 +161,10 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
 } // namespace
 
 std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net::Url const* base,
-    SheetFetcher const& fetch, MediaContext const& media)
+    SheetFetcher const& fetch, MediaContext const& media, InlineSheetCheck const& check)
 {
     std::vector<SheetSource> sheets;
-    Collector collector { fetch, sheets, media, {} };
+    Collector collector { fetch, sheets, media, check, {} };
     walk(document, base, collector);
     return sheets;
 }
@@ -446,7 +450,7 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
                 auto it = fetched.find(key);
                 if (it == fetched.end()) {
                     std::optional<std::vector<std::uint8_t>> bytes;
-                    if (std::optional<FetchedSheet> got = fetch(*url);
+                    if (std::optional<FetchedSheet> got = fetch(*url, {});
                         got && !got->bytes.empty() && got->bytes.size() <= max_font_bytes)
                         bytes = std::move(got->bytes);
                     it = fetched.emplace(key, std::move(bytes)).first;

@@ -17,6 +17,7 @@
 
 namespace sashfold::dom {
 class Document;
+class Element;
 }
 
 namespace sashfold::text {
@@ -35,8 +36,15 @@ struct FetchedSheet {
     std::string content_type; // the Content-Type header, for its charset; may be empty
 };
 
-// Fetches one stylesheet on the document's behalf; nullopt when it cannot be had.
-using SheetFetcher = std::function<std::optional<FetchedSheet>(net::Url const&)>;
+// Fetches one stylesheet on the document's behalf; nullopt when it cannot
+// be had. `nonce` is the <link>'s nonce attribute, for the page's
+// Content Security Policy to judge the request by; empty for an @import,
+// a font, or an element without one.
+using SheetFetcher = std::function<std::optional<FetchedSheet>(net::Url const&, std::string_view nonce)>;
+
+// Whether a <style> element's text may apply (the page's Content
+// Security Policy says); one refused contributes nothing.
+using InlineSheetCheck = std::function<bool(dom::Element const& style, std::string_view text)>;
 
 // What media queries are answered against: a screen of this size, with a
 // fine pointer that hovers, a light color scheme, and no scripting.
@@ -55,9 +63,10 @@ struct MediaContext {
 // Relative references resolve against `base` (the document's URL); with no
 // base or no fetcher, only <style> elements contribute. A sheet that cannot
 // be fetched is simply absent; imports go a few levels deep and never twice.
-// Sheets whose media condition the context fails are left out.
+// Sheets whose media condition the context fails are left out, and so is
+// a <style> the check refuses.
 std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net::Url const* base,
-    SheetFetcher const& fetch, MediaContext const& media = {});
+    SheetFetcher const& fetch, MediaContext const& media = {}, InlineSheetCheck const& check = {});
 
 std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::string_view content_type);
 

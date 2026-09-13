@@ -373,6 +373,11 @@ struct Browser::Impl {
         // its realm still held wrappers into it; the sanitizer lane caught it.)
         std::unique_ptr<bindings::Realm> realm;
         std::unique_ptr<dom::Document> document;
+        // The page's Content Security Policy: from the entry's headers and
+        // the document's <meta> elements, asked about everything the page
+        // fetches, runs and applies. Shared with the closures that fetch
+        // for the page, so a tab may move in the vector under them.
+        std::shared_ptr<net::ContentSecurityPolicy> policy;
         // The realm's mutation count the styles and layout below reflect;
         // when the realm has moved on, they are computed again before use.
         std::uint64_t page_mutations = 0;
@@ -990,6 +995,11 @@ struct Browser::Impl {
             net::Url const* const page_url
                 = tab.index < tab.history.size() ? &tab.history[tab.index].final_url : nullptr;
             tab.style_set.emplace(tab.sheets, media, page_url);
+            if (net::ContentSecurityPolicy* const policy = tab.policy.get()) {
+                tab.style_set->set_style_attribute_check([policy](dom::Element const&, std::string_view text) {
+                    return !policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);
+                });
+            }
             tab.style_media = media;
         }
         tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
@@ -1107,15 +1117,17 @@ struct Browser::Impl {
         dom::Document* const document = tab.document.get();
         net::Url const page_url = url;
         bindings::HostHooks hooks;
-        hooks.fetch_script = [this, page_url](net::Url const& target) -> std::optional<std::string> {
+        hooks.policy = tab.policy.get();
+        hooks.fetch_script = [this, page_url](net::Url const& target, net::RequestGuard const& guard) -> std::optional<std::string> {
             net::FetchResult result = loader.load_subresource(target, page_url, referrer_for(&page_url, target),
-                net::ResourceKind::Script);
+                net::ResourceKind::Script, guard);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
             return std::string(result.response->body.begin(), result.response->body.end());
         };
-        hooks.fetch_resource = [this, page_url](net::Url const& target, net::ResourceRequest const& request) {
-            return loader.load_resource(target, page_url, referrer_for(&page_url, target), request);
+        hooks.fetch_resource = [this, page_url](net::Url const& target, net::ResourceRequest const& request,
+                                   net::RequestGuard const& guard) {
+            return loader.load_resource(target, page_url, referrer_for(&page_url, target), request, guard);
         };
         hooks.now = [this] { return script_now(); };
         hooks.should_stop = [this] {
@@ -1218,7 +1230,7 @@ struct Browser::Impl {
                 return;
             std::optional<net::Url> const target = get_submission_url(form,
                 submitter ? submitter : default_submitter(form), &owner->controls, entry->final_url);
-            if (target)
+            if (target && submission_allowed(*owner, *target))
                 queue(index_of(*owner), *target, Mode::Push);
         };
         hooks.console = [this, document](std::string_view level, std::string_view message) {
@@ -1250,9 +1262,11 @@ struct Browser::Impl {
         // first party and the usual referrer policy; a sheet that fails to
         // load is simply absent.
         net::Url const& page_url = entry->final_url;
+        net::ContentSecurityPolicy* const policy = tab.policy.get();
         auto const fetch_kind = [&](net::ResourceKind kind) {
-            return [&, kind](net::Url const& url) -> std::optional<css::FetchedSheet> {
-                net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url), kind);
+            return [&, kind](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+                net::RequestGuard const guard = policy ? policy->guard(kind, std::string(nonce)) : net::RequestGuard {};
+                net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url), kind, guard);
                 if (!result.response || result.response->status != 200)
                     return std::nullopt;
                 std::string const* header = net::find_header(result.response->headers, "content-type");
@@ -1263,7 +1277,17 @@ struct Browser::Impl {
         auto const fetch_font = fetch_kind(net::ResourceKind::Font);
         std::string const signature = sheet_signature(*tab.document);
         if (signature != tab.sheet_signature || !tab.style_set) {
-            tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context());
+            // The head's <meta> policies, for a page parsed without scripts.
+            if (policy)
+                bindings::adopt_meta_policies(*policy, *tab.document);
+            css::InlineSheetCheck inline_check;
+            if (policy) {
+                inline_check = [policy](dom::Element const& style, std::string_view text) {
+                    dom::Attr const* const nonce = style.find_attribute("nonce");
+                    return !policy->inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
+                };
+            }
+            tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context(), inline_check);
             // The lists' element-hiding rules for this page, last, so their
             // !important beats the page's own.
             if (net::Blocklists const* const lists = loader.content_lists()) {
@@ -1276,8 +1300,9 @@ struct Browser::Impl {
         }
         restyle(tab);
         auto const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Image) : net::RequestGuard {};
             net::FetchResult result
-                = loader.load_subresource(url, page_url, referrer_for(&page_url, url), net::ResourceKind::Image);
+                = loader.load_subresource(url, page_url, referrer_for(&page_url, url), net::ResourceKind::Image, guard);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
             return std::move(result.response->body);
@@ -1370,12 +1395,29 @@ struct Browser::Impl {
         tab.selection.reset();
         tab.page_mutations = ~std::uint64_t(0); // nothing computed yet: the first question computes
         tab.scroll_y = entry->scroll_y;
+        // The page's policy, from its headers now and from its <meta>
+        // elements as the parse meets them; every violation is a console
+        // line of the page's.
+        tab.policy = std::make_shared<net::ContentSecurityPolicy>(entry->final_url);
+        tab.policy->set_reporter([this, document = tab.document.get()](std::string_view message) {
+            if (Tab* const owner = tab_of(document)) {
+                if (owner->console.size() >= 500)
+                    owner->console.erase(owner->console.begin());
+                owner->console.push_back("error: " + std::string(message));
+            }
+        });
+        for (std::string const& header : entry->csp_headers)
+            tab.policy->add_header(header, false);
+        for (std::string const& header : entry->csp_report_only_headers)
+            tab.policy->add_header(header, true);
         // The page is parsed with its scripts running, each as its end tag
         // goes by; a script that asks for a box gets the page laid out as
-        // it stands.
+        // it stands. A document sandboxed without allow-scripts parses with
+        // scripting off, so its <noscript> content shows.
         tab.realm = make_realm(tab, entry->final_url);
         script_started = std::chrono::steady_clock::now();
-        html::parse_document_bytes_into(*tab.document, source, tab.realm.get());
+        html::parse_document_bytes_into(*tab.document, source,
+            tab.policy->sandbox_allows_scripts() ? tab.realm.get() : nullptr);
         tab.realm->document_parsed();
         refresh_page(tab);
         if (entry->scroll_y == 0 && entry->final_url.fragment && !entry->final_url.fragment->empty())
@@ -1665,6 +1707,12 @@ struct Browser::Impl {
                 entry.from_cache = response.from_cache;
                 if (std::string const* const type = net::find_header(response.headers, "content-type"))
                     entry.content_type = *type;
+                for (net::Header const& header : response.headers) {
+                    if (ascii_ci_equals(header.name, "content-security-policy"))
+                        entry.csp_headers.push_back(header.value);
+                    else if (ascii_ci_equals(header.name, "content-security-policy-report-only"))
+                        entry.csp_report_only_headers.push_back(header.value);
+                }
                 std::string const* const disposition
                     = net::find_header(response.headers, "content-disposition");
                 bool const attachment = disposition && starts_with_ci(trim(*disposition), "attachment");
@@ -3150,7 +3198,28 @@ struct Browser::Impl {
             dirty = true;
             return;
         }
+        if (!submission_allowed(tab, *url))
+            return;
         queue(active, *url, Mode::Push);
+    }
+
+    // The page's policy's say on a form submission: a sandbox without
+    // allow-forms submits nothing, and form-action judges the target.
+    bool submission_allowed(Tab& tab, net::Url const& target)
+    {
+        if (!tab.policy)
+            return true;
+        if (!tab.policy->sandbox_allows_forms()) {
+            tab.status = "This page's policy sandboxes it without forms";
+            dirty = true;
+            return false;
+        }
+        if (tab.policy->form_action_refusal(target)) {
+            tab.status = "This form's target is refused by the page's Content Security Policy";
+            dirty = true;
+            return false;
+        }
+        return true;
     }
 
     // A click on a control: focus for every kind, a toggle for a box, a

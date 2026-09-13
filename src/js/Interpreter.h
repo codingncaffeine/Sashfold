@@ -440,6 +440,15 @@ public:
     // and its generator/async kin, and an `onclick="…"` attribute).
     std::optional<Value> compile_function(std::u16string_view parameters, std::u16string_view body,
         Environment* scope = nullptr, DynamicFunctionKind kind = DynamicFunctionKind::Normal);
+    // CreateDynamicFunction (§20.2.1.1.1) proper — `Function` and its kin —
+    // which asks the host first: HostEnsureCanCompileStrings, below.
+    std::optional<Value> create_dynamic_function(std::u16string_view parameters, std::u16string_view body,
+        DynamicFunctionKind kind = DynamicFunctionKind::Normal);
+    // HostEnsureCanCompileStrings (§19.2.1.2): asked before eval, direct
+    // or indirect, and before Function and its kin compile a string; a
+    // message back is the EvalError thrown instead. Unset, every string
+    // compiles. The page's Content Security Policy answers it.
+    std::function<std::optional<std::string>()> on_compile_strings;
 
     // Limits and instrumentation.
     void set_call_depth_limit(int depth) { m_call_depth_limit = depth; }

@@ -31,6 +31,11 @@ struct PageRequest {
     FetchCredentials credentials = FetchCredentials::SameOrigin;
     FetchRedirect redirect = FetchRedirect::Follow;
     std::string destination; // "script" for a module script; empty for the page's own fetches
+    // For the page's Content Security Policy: the root <script>'s nonce
+    // when the request is a module graph's, and whether the parser
+    // inserted that element.
+    std::string nonce;
+    bool parser_inserted = true;
 };
 
 struct FetchOutcome {

@@ -1,0 +1,45 @@
+# Content Security Policy: a page's policy — from its <meta> element
+# here, as a data: page has no headers — judged as the shell fetches,
+# runs and applies what the page carries. Every refused host is one that
+# never answers, so a request that slipped through would be a network
+# error, never a false pass; each refusal is a console line of the page's.
+resize 800 500
+open data:text/html,<meta http-equiv="Content-Security-Policy" content="img-src 'none'; script-src 'unsafe-inline'"><title>Policy</title><p>Page</p><img src="http://never.test/a.png" alt="a"><script>document.title = 'Scripted'</script>
+assert-title Scripted
+assert-text Page
+assert-console Refused to load the image 'http://never.test/a.png' because it violates the following Content Security Policy directive: "img-src 'none'".
+
+# An inline script needs its nonce; the one without is refused and the
+# one with it runs.
+open data:text/html,<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-abc'"><title>Before</title><script>document.title = 'Ran'</script><script nonce="abc">document.title = document.title + ' nonced'</script>
+assert-title Before nonced
+assert-console Refused to execute inline script
+
+# Styles: a <style> and a style attribute the policy refuses are not
+# there, and what element.style writes is not inline style, so it stays.
+open data:text/html,<meta http-equiv="Content-Security-Policy" content="style-src 'none'"><title>Styles</title><style>.hide{display:none}</style><p class="hide">Sheet</p><p style="display:none">Attribute</p><p id="cssom">Cssom</p><script>document.getElementById('cssom').style.display = 'none'</script>
+assert-title Styles
+assert-text Sheet
+assert-text Attribute
+assert-no-text Cssom
+assert-console Refused to apply inline style
+
+# With 'unsafe-inline' both apply.
+open data:text/html,<meta http-equiv="Content-Security-Policy" content="style-src 'unsafe-inline'"><title>Allowed</title><style>.hide{display:none}</style><p class="hide">Sheet</p><p style="display:none">Attribute</p><p>Shown</p>
+assert-title Allowed
+assert-no-text Sheet
+assert-no-text Attribute
+assert-text Shown
+
+# eval needs 'unsafe-eval'.
+open data:text/html,<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'"><title>Eval</title><script>try { eval('1'); document.title = 'evaluated' } catch (e) { document.title = e.name }</script>
+assert-title EvalError
+assert-console Refused to evaluate a string as JavaScript
+
+# A form whose target form-action refuses goes nowhere.
+open data:text/html,<meta http-equiv="Content-Security-Policy" content="form-action 'none'"><title>Form</title><form action="http://never.test/submit"><input name="q" value="x"><input type="submit" value="Go"></form>
+focus q
+key Enter
+assert-title Form
+assert-status refused by the page's Content Security Policy
+assert-console Refused to send form data to 'http://never.test/submit?q=x'

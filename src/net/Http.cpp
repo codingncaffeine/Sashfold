@@ -530,9 +530,13 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
 
         if (raw->status >= 300 && raw->status < 400 && options.follow_redirects) {
             if (std::string const* const location = find_header(raw->headers, "location")) {
-                std::optional<Url> const next = parse_url(*location, &current);
+                std::optional<Url> next = parse_url(*location, &current);
                 if (!next)
                     return { std::nullopt, "unparseable redirect Location: " + *location };
+                if (options.hop_refusal) {
+                    if (std::optional<std::string> refused = options.hop_refusal(*next))
+                        return { std::nullopt, std::move(*refused) };
+                }
                 current = *next;
                 current.fragment.reset(); // fragments do not travel
                 redirected = true;

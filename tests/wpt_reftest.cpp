@@ -398,7 +398,7 @@ private:
         ++renders;
         css::MediaContext const media { static_cast<float>(viewport_width),
             static_cast<float>(viewport_height) };
-        auto const fetch_sheet = [&](net::Url const& target) -> std::optional<css::FetchedSheet> {
+        auto const fetch_sheet = [&](net::Url const& target, std::string_view) -> std::optional<css::FetchedSheet> {
             std::optional<std::string> const bytes = read_url(target);
             if (!bytes)
                 return std::nullopt;
@@ -418,8 +418,9 @@ private:
         double script_clock = 0;
         if (lowercased(*source).find("<script") != std::string::npos) {
             bindings::HostHooks hooks;
-            hooks.fetch_script = [this](net::Url const& target) { return read_url(target); };
-            hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request) -> net::FetchResult {
+            hooks.fetch_script = [this](net::Url const& target, net::RequestGuard const&) { return read_url(target); };
+            hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request,
+                                       net::RequestGuard const&) -> net::FetchResult {
                 if (request.method != "GET")
                     return { std::nullopt, "the reftest runner serves files only" };
                 std::optional<std::string> const text = read_url(target);

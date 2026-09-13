@@ -87,22 +87,37 @@ net::FetchResult load_file(net::Url const& url)
 } // namespace
 
 std::optional<std::string> ShellLoader::refusal(net::Url const& url, net::Url const* first_party,
-    net::ResourceKind kind)
+    net::ResourceKind kind, net::RequestGuard const& guard, bool redirected)
 {
-    if (m_blocklists.empty())
-        return std::nullopt;
-    std::optional<net::Blocklists::Block> const block
-        = m_blocklists.blocks(net::FilterRequest { &url, first_party, kind });
-    if (!block)
-        return std::nullopt;
-    ++m_blocked;
-    return (block->nefarious ? "kept off by " : "blocked by ") + block->list + ": " + block->rule;
+    if (!m_blocklists.empty()) {
+        std::optional<net::Blocklists::Block> const block
+            = m_blocklists.blocks(net::FilterRequest { &url, first_party, kind });
+        if (block) {
+            ++m_blocked;
+            return (block->nefarious ? "kept off by " : "blocked by ") + block->list + ": " + block->rule;
+        }
+    }
+    if (guard.refusal)
+        return guard.refusal(url, redirected);
+    return std::nullopt;
+}
+
+std::function<std::optional<std::string>(net::Url&)> ShellLoader::hop_refusal(net::Url const* first_party,
+    net::ResourceKind kind, net::RequestGuard const& guard)
+{
+    // The lists and the guard outlive the fetch they are asked during.
+    return [this, first_party, kind, &guard](net::Url& next) -> std::optional<std::string> {
+        if (guard.upgrade_insecure)
+            next = net::upgraded_insecure(next);
+        return refusal(next, first_party, kind, guard, true);
+    };
 }
 
 net::FetchResult ShellLoader::load(net::Url const& url, std::string const& referrer,
     bool bypass_cache)
 {
-    if (std::optional<std::string> refused = refusal(url, nullptr, net::ResourceKind::Document))
+    net::RequestGuard const none;
+    if (std::optional<std::string> refused = refusal(url, nullptr, net::ResourceKind::Document, none, false))
         return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file")
         return load_file(url);
@@ -112,13 +127,16 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
     options.referrer = referrer;
     options.cache = bypass_cache ? nullptr : &m_cache;
     options.pool = &m_pool;
+    // A navigation redirected onto a listed site is refused where it lands.
+    options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
     return net::fetch(url, options);
 }
 
-net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url const& first_party,
-    std::string const& referrer, net::ResourceKind kind)
+net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::Url const& first_party,
+    std::string const& referrer, net::ResourceKind kind, net::RequestGuard const& guard)
 {
-    if (std::optional<std::string> refused = refusal(url, &first_party, kind))
+    net::Url const url = guard.upgrade_insecure ? net::upgraded_insecure(requested) : requested;
+    if (std::optional<std::string> refused = refusal(url, &first_party, kind, guard, false))
         return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file") {
         // A local page may reference local files, and so may the shell's
@@ -134,14 +152,16 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& url, net::Url con
     options.referrer = referrer;
     options.cache = &m_cache;
     options.pool = &m_pool;
+    options.hop_refusal = hop_refusal(&first_party, kind, guard);
     return net::fetch(url, options);
 }
 
-net::FetchResult ShellLoader::load_resource(net::Url const& url, net::Url const& first_party,
-    std::string const& referrer, net::ResourceRequest const& request)
+net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url const& first_party,
+    std::string const& referrer, net::ResourceRequest const& request, net::RequestGuard const& guard)
 {
-    if (std::optional<std::string> refused = refusal(url, &first_party,
-            request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr))
+    net::ResourceKind const kind = request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr;
+    net::Url const url = guard.upgrade_insecure ? net::upgraded_insecure(requested) : requested;
+    if (std::optional<std::string> refused = refusal(url, &first_party, kind, guard, false))
         return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file") {
         if (first_party.scheme != "file")
@@ -160,6 +180,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& url, net::Url const&
     options.headers = request.headers;
     options.body = request.body;
     options.follow_redirects = request.follow_redirects;
+    options.hop_refusal = hop_refusal(&first_party, kind, guard);
     return net::fetch(url, options);
 }
 

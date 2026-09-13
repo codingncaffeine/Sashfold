@@ -47,7 +47,7 @@ std::optional<Value> dynamic_function(Interpreter& in, Args arguments, DynamicFu
             parameters += (*text)->data();
         }
     }
-    return in.compile_function(parameters, body, nullptr, kind);
+    return in.create_dynamic_function(parameters, body, kind);
 }
 
 // A constructor like %GeneratorFunction%: called or constructed, it makes

@@ -31,7 +31,7 @@ struct FakeFetcher {
     std::map<std::string, std::string> sheets; // url -> text
     std::vector<std::string> requested;
 
-    std::optional<css::FetchedSheet> operator()(net::Url const& url)
+    std::optional<css::FetchedSheet> operator()(net::Url const& url, std::string_view)
     {
         requested.push_back(url.serialize());
         auto const it = sheets.find(url.serialize());
@@ -100,7 +100,7 @@ int main()
   <link rel="stylesheet" href="https://cdn.test/x.css" type="text/css" media="screen, print">
 </head><body><p id="p">text</p></body></html>)"));
     std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, &base,
-        [&](net::Url const& url) { return fetcher(url); });
+        [&](net::Url const& url, std::string_view nonce) { return fetcher(url, nonce); });
     // In order: the first <style>, b (imported by a, whose import of a is a
     // cycle), a itself, the last <style>, then x. Print, alternate,
     // disabled, wrongly typed and missing sheets are absent.
@@ -141,7 +141,7 @@ int main()
     auto const deep_document = html::parse_document(std::string_view(
         R"(<link rel="stylesheet" href="https://deep.test/0.css"><p id="p">x</p>)"));
     std::vector<css::SheetSource> const deep_sheets = css::collect_stylesheets(*deep_document, nullptr,
-        [&](net::Url const& url) { return deep(url); });
+        [&](net::Url const& url, std::string_view nonce) { return deep(url, nonce); });
     CHECK_EQ(deep_sheets.size(), 5u); // levels 4, 3, 2, 1, 0
     CHECK(!deep_sheets.empty() && deep_sheets.back().text.find("rgb(0,") != std::string::npos);
 
@@ -205,7 +205,7 @@ int main()
             base },
     };
     std::vector<text::PageFont> const fonts = css::collect_page_fonts(font_sheets,
-        [&](net::Url const& url) { return font_fetcher(url); }, font_media);
+        [&](net::Url const& url, std::string_view nonce) { return font_fetcher(url, nonce); }, font_media);
     if (CHECK_EQ(fonts.size(), 3u)) {
         CHECK_EQ(fonts[0].family, std::string("A"));
         CHECK_EQ(fonts[0].bytes.size(), 4u);
@@ -393,7 +393,7 @@ int main()
         auto const loaded = html::parse_document_bytes(
             std::string(result.response->body.begin(), result.response->body.end()));
         std::vector<css::SheetSource> const loaded_sheets = css::collect_stylesheets(*loaded,
-            &result.response->final_url, [&](net::Url const& url) -> std::optional<css::FetchedSheet> {
+            &result.response->final_url, [&](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
                 net::FetchResult sub = loader.load_subresource(url, result.response->final_url, "");
                 if (!sub.response || sub.response->status != 200)
                     return std::nullopt;

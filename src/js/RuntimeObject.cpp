@@ -1262,7 +1262,7 @@ void install_function(Interpreter& in)
                     parameters += (*text)->data();
                 }
             }
-            return interp.compile_function(parameters, body);
+            return interp.create_dynamic_function(parameters, body);
         });
     i.function_constructor = constructor;
 

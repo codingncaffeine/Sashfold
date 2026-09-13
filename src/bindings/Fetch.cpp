@@ -1234,7 +1234,9 @@ FetchOutcome perform_fetch(Realm::Internals& in, PageRequest const& page_request
             joined += (joined.empty() ? "" : ",") + name;
         if (!joined.empty())
             preflight.headers.push_back({ "Access-Control-Request-Headers", joined });
-        net::FetchResult const result = in.hooks.fetch_resource(page_request.url, preflight);
+        net::FetchResult const result = in.hooks.fetch_resource(page_request.url, preflight,
+            in.request_guard(page_request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr,
+                page_request.nonce, page_request.parser_inserted));
         if (!result.response) {
             outcome.error = "preflight: " + result.error;
             return outcome;
@@ -1271,7 +1273,9 @@ FetchOutcome perform_fetch(Realm::Internals& in, PageRequest const& page_request
     request.credentials = credentials;
     request.follow_redirects = page_request.redirect == FetchRedirect::Follow;
     request.destination = page_request.destination;
-    net::FetchResult result = in.hooks.fetch_resource(page_request.url, request);
+    net::FetchResult result = in.hooks.fetch_resource(page_request.url, request,
+        in.request_guard(page_request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr,
+            page_request.nonce, page_request.parser_inserted));
     if (!result.response) {
         outcome.error = result.error;
         return outcome;

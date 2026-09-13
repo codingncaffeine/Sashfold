@@ -1940,6 +1940,7 @@ struct RuleSet {
 
     MediaContext media;
     std::optional<net::Url> document_url; // the base for style attributes' URLs
+    StyleAttributeCheck attribute_check; // the page's say on each style attribute; none passes all
 
     void compile_sheet(std::string_view text, bool user_agent, int& order,
         std::shared_ptr<net::Url const> const& base)
@@ -3201,8 +3202,13 @@ struct Resolver {
         }
 
         std::vector<Declaration> attribute_declarations;
-        dom::Attr const* const style_attribute
+        dom::Attr const* style_attribute
             = with_style_attribute ? element.find_attribute("style") : nullptr;
+        // A style attribute the page's policy refuses is not there; one
+        // element.style wrote is not inline style and always is.
+        if (style_attribute && !style_attribute->from_cssom && set.attribute_check
+            && !set.attribute_check(element, style_attribute->value))
+            style_attribute = nullptr;
         if (style_attribute) {
             attribute_declarations = parse_declaration_list(style_attribute->value);
             int order = 1 << 20;
@@ -5668,6 +5674,11 @@ StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& m
 StyleSet::~StyleSet() = default;
 StyleSet::StyleSet(StyleSet&&) noexcept = default;
 StyleSet& StyleSet::operator=(StyleSet&&) noexcept = default;
+
+void StyleSet::set_style_attribute_check(StyleAttributeCheck check)
+{
+    m_rules->attribute_check = std::move(check);
+}
 
 std::size_t StyleSet::rule_count() const { return m_rules->rules.size(); }
 

@@ -125,12 +125,24 @@ void LayoutOracle::ensure()
     // carrying them changed; every mutation still cascades and lays out.
     std::string signature = sheet_signature(m_document);
     if (!m_style_set || signature != m_sheet_signature) {
-        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(m_document, &m_base, m_fetch, m_media);
+        css::InlineSheetCheck check;
+        if (m_policy) {
+            check = [this](dom::Element const& style, std::string_view text) {
+                dom::Attr const* const nonce = style.find_attribute("nonce");
+                return !m_policy->inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
+            };
+        }
+        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(m_document, &m_base, m_fetch, m_media, check);
         // The page's own fonts answer its measurements, as they do the
         // render: a test that measures text in Ahem and then sets a width
         // from it must measure in Ahem.
         text::FontManager::instance().set_page_fonts(css::collect_page_fonts(sheets, m_fetch, m_media));
         m_style_set.emplace(sheets, m_media, &m_base);
+        if (m_policy) {
+            m_style_set->set_style_attribute_check([this](dom::Element const&, std::string_view text) {
+                return !m_policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);
+            });
+        }
         m_sheet_signature = std::move(signature);
     }
     m_styles = css::resolve_styles(m_document, *m_style_set);

@@ -1,5 +1,6 @@
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
+#include "core/Ascii.h"
 #include "core/Bitmap.h"
 #include "core/Png.h"
 #include "core/Unicode.h"
@@ -188,7 +189,44 @@ struct LoadedPage {
     std::string bytes;
     net::Url url; // where it landed: the base for the page's references
     std::unique_ptr<ui::ShellLoader> loader; // fetches the page's stylesheets with the same session
+    // The page's Content Security Policy, from its headers and then its
+    // <meta> elements; every fetch and inline block is judged by it.
+    std::unique_ptr<net::ContentSecurityPolicy> policy;
 };
+
+// The page's policy from its response headers, its violations named on
+// stderr as the console lines they would be.
+std::unique_ptr<net::ContentSecurityPolicy> page_policy(net::Url const& url, std::vector<net::Header> const* headers)
+{
+    auto policy = std::make_unique<net::ContentSecurityPolicy>(url);
+    policy->set_reporter([](std::string_view message) { std::cerr << "console.error: " << message << "\n"; });
+    if (headers) {
+        for (net::Header const& header : *headers) {
+            if (ascii_ci_equals(header.name, "content-security-policy"))
+                policy->add_header(header.value, false);
+            else if (ascii_ci_equals(header.name, "content-security-policy-report-only"))
+                policy->add_header(header.value, true);
+        }
+    }
+    return policy;
+}
+
+// The policy's say on the page's <style> elements and style attributes,
+// for the collector and the resolver.
+css::InlineSheetCheck inline_sheet_check(net::ContentSecurityPolicy& policy)
+{
+    return [&policy](dom::Element const& style, std::string_view text) {
+        dom::Attr const* const nonce = style.find_attribute("nonce");
+        return !policy.inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
+    };
+}
+
+css::StyleAttributeCheck style_attribute_check(net::ContentSecurityPolicy& policy)
+{
+    return [&policy](dom::Element const&, std::string_view text) {
+        return !policy.inline_refusal(net::InlineKind::StyleAttribute, {}, text);
+    };
+}
 
 // The blocklists folder the render and bench modes' loaders read, set from
 // the command line before either runs; empty reads none.
@@ -238,8 +276,12 @@ std::optional<LoadedPage> load_page(std::string const& source)
     if (url->scheme != "file")
         std::cerr << "fetched " << result.response->final_url.serialize() << " ("
                   << result.response->status << ", " << result.response->body.size() << " bytes)\n";
-    return LoadedPage { std::string(result.response->body.begin(), result.response->body.end()),
-        result.response->final_url, std::move(loader) };
+    LoadedPage page;
+    page.bytes.assign(result.response->body.begin(), result.response->body.end());
+    page.url = result.response->final_url;
+    page.policy = page_policy(page.url, &result.response->headers);
+    page.loader = std::move(loader);
+    return page;
 }
 
 // Why a subresource did not arrive: the fetch error, or the status.
@@ -250,14 +292,18 @@ std::string describe_failure(net::FetchResult const& result)
     return "status " + std::to_string(result.response->status);
 }
 
-// The page's stylesheets, fetched through its own session; a failure is
-// named on stderr and counted when a counter is given.
-css::SheetFetcher sheet_fetcher(LoadedPage const& page, int* failures = nullptr)
+// The page's stylesheets — or, with the kind said, its fonts — fetched
+// through its own session under its policy's guard; a failure is named on
+// stderr and counted when a counter is given.
+css::SheetFetcher sheet_fetcher(LoadedPage const& page, int* failures = nullptr,
+    net::ResourceKind kind = net::ResourceKind::Stylesheet)
 {
-    return [&page, failures](net::Url const& url) -> std::optional<css::FetchedSheet> {
-        net::FetchResult result = page.loader->load_subresource(url, page.url, "");
+    return [&page, failures, kind](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+        net::RequestGuard const guard = page.policy ? page.policy->guard(kind, std::string(nonce)) : net::RequestGuard {};
+        net::FetchResult result = page.loader->load_subresource(url, page.url, "", kind, guard);
         if (!result.response || result.response->status != 200) {
-            std::cerr << "stylesheet " << url.serialize() << ": " << describe_failure(result) << "\n";
+            std::cerr << (kind == net::ResourceKind::Font ? "font " : "stylesheet ") << url.serialize() << ": "
+                      << describe_failure(result) << "\n";
             if (failures)
                 ++*failures;
             return std::nullopt;
@@ -271,7 +317,8 @@ css::SheetFetcher sheet_fetcher(LoadedPage const& page, int* failures = nullptr)
 ui::ImageFetcher image_fetcher(LoadedPage const& page, int* failures = nullptr)
 {
     return [&page, failures](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
-        net::FetchResult result = page.loader->load_subresource(url, page.url, "");
+        net::RequestGuard const guard = page.policy ? page.policy->guard(net::ResourceKind::Image) : net::RequestGuard {};
+        net::FetchResult result = page.loader->load_subresource(url, page.url, "", net::ResourceKind::Image, guard);
         if (!result.response || result.response->status != 200) {
             std::cerr << "image " << url.serialize() << ": " << describe_failure(result) << "\n";
             if (failures)
@@ -360,6 +407,7 @@ std::optional<RenderLoad> load_for_render(std::string const& source)
     RenderLoad load;
     load.page.url = *url;
     load.page.loader = make_render_loader();
+    load.page.policy = page_policy(*url, nullptr);
     auto const started = clock::now();
     net::FetchResult result = load.page.loader->load(*url, "", false);
     load.fetch_ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
@@ -380,6 +428,7 @@ std::optional<RenderLoad> load_for_render(std::string const& source)
     net::FetchResponse& response = *result.response;
     load.status = response.status;
     load.page.url = response.final_url;
+    load.page.policy = page_policy(response.final_url, &response.headers);
     load.bytes = response.body.size();
     if (std::string const* const type = net::find_header(response.headers, "content-type"))
         load.content_type = *type;
@@ -666,20 +715,22 @@ int render_page(std::string const& path, std::string const& output, int viewport
     // the page laid out as it stands.
     auto document = std::make_unique<dom::Document>();
     bindings::LayoutOracle oracle(*document, loaded.url, sheet_fetcher(loaded), media);
+    oracle.set_policy(loaded.policy.get());
     std::unique_ptr<bindings::Realm> realm;
     double script_clock = 0;
     if (extras.scripts) {
         bindings::HostHooks hooks;
-        hooks.fetch_script = [&loaded](net::Url const& url) -> std::optional<std::string> {
-            net::FetchResult result = loaded.loader->load_subresource(url, loaded.url, "");
+        hooks.policy = loaded.policy.get();
+        hooks.fetch_script = [&loaded](net::Url const& url, net::RequestGuard const& guard) -> std::optional<std::string> {
+            net::FetchResult result = loaded.loader->load_subresource(url, loaded.url, "", net::ResourceKind::Script, guard);
             if (!result.response || result.response->status != 200) {
                 std::cerr << "script " << url.serialize() << ": " << describe_failure(result) << "\n";
                 return std::nullopt;
             }
             return std::string(result.response->body.begin(), result.response->body.end());
         };
-        hooks.fetch_resource = [&loaded](net::Url const& url, net::ResourceRequest const& request) {
-            return loaded.loader->load_resource(url, loaded.url, "", request);
+        hooks.fetch_resource = [&loaded](net::Url const& url, net::ResourceRequest const& request, net::RequestGuard const& guard) {
+            return loaded.loader->load_resource(url, loaded.url, "", request, guard);
         };
         hooks.now = [&script_clock] { return script_clock; };
         hooks.should_stop = [started] { return clock::now() - started > std::chrono::seconds(30); };
@@ -694,7 +745,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
         realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));
         oracle.set_realm(realm.get());
     }
-    html::parse_document_bytes_into(*document, loaded.bytes, realm.get());
+    // A document sandboxed without allow-scripts parses with scripting off.
+    html::parse_document_bytes_into(*document, loaded.bytes,
+        loaded.policy->sandbox_allows_scripts() ? realm.get() : nullptr);
     if (realm) {
         realm->document_parsed();
         for (int i = 0; i < 200 && realm->has_pending_timers(); ++i) {
@@ -706,17 +759,20 @@ int render_page(std::string const& path, std::string const& output, int viewport
         }
     }
     auto const t1 = clock::now();
+    bindings::adopt_meta_policies(*loaded.policy, *document);
     std::vector<css::SheetSource> sheets = css::collect_stylesheets(*document, &loaded.url,
-        sheet_fetcher(loaded, &sheet_failures), media);
+        sheet_fetcher(loaded, &sheet_failures), media, inline_sheet_check(*loaded.policy));
     if (loaded.loader) {
         if (std::optional<css::SheetSource> hiding = ui::cosmetic_sheet(loaded.loader->blocklists(), loaded.url, *document))
             sheets.push_back(std::move(*hiding));
     }
     std::vector<text::PageFont> const fonts
-        = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures), media);
+        = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures, net::ResourceKind::Font), media);
     text::FontManager::instance().set_page_fonts(fonts);
     auto const t2 = clock::now();
-    css::StyleMap const styles = css::resolve_styles(*document, sheets, media, &loaded.url);
+    css::StyleSet style_set(sheets, media, &loaded.url);
+    style_set.set_style_attribute_check(style_attribute_check(*loaded.policy));
+    css::StyleMap const styles = css::resolve_styles(*document, style_set);
     auto const t3 = clock::now();
     layout::ImageMap const images = ui::collect_images(*document, &loaded.url,
         image_fetcher(loaded, &image_failures), media);
@@ -785,7 +841,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << "  \"images\": { \"count\": " << images.size() << ", \"failed\": " << image_failures
             << " },\n"
             << "  \"fonts\": " << fonts.size() << ",\n"
-            << "  \"blocked\": " << loaded.loader->blocked_requests() << ",\n";
+            << "  \"blocked\": " << loaded.loader->blocked_requests() << ",\n"
+            << "  \"csp\": { \"policies\": " << loaded.policy->policies().size() << ", \"refused\": " << loaded.policy->refusals() << " },\n";
         if (realm) {
             bindings::ScriptStats const& scripts = realm->stats();
             out << "  \"scripts\": { \"run\": " << scripts.scripts_run << ", \"modules\": " << scripts.modules_run << ", \"failed\": " << scripts.scripts_failed
@@ -941,7 +998,9 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
     auto const sheets_started = clock::now();
     std::vector<css::SheetSource> const sheets = [&] {
         auto const first = html::parse_document_bytes(loaded->bytes);
-        std::vector<css::SheetSource> collected = css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media);
+        bindings::adopt_meta_policies(*loaded->policy, *first);
+        std::vector<css::SheetSource> collected = css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media,
+            inline_sheet_check(*loaded->policy));
         if (loaded->loader) {
             if (std::optional<css::SheetSource> hiding = ui::cosmetic_sheet(loaded->loader->blocklists(), loaded->url, *first))
                 collected.push_back(std::move(*hiding));
@@ -949,7 +1008,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         return collected;
     }();
     text::FontManager::instance().set_page_fonts(
-        css::collect_page_fonts(sheets, sheet_fetcher(*loaded), media));
+        css::collect_page_fonts(sheets, sheet_fetcher(*loaded, nullptr, net::ResourceKind::Font), media));
     double const sheets_ms = ms(clock::now() - sheets_started).count();
     std::size_t image_count = 0;
     double images_ms = 0;
@@ -969,7 +1028,8 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         auto const t0 = clock::now();
         auto document = html::parse_document_bytes(loaded->bytes);
         auto const t1 = clock::now();
-        css::StyleSet const style_set(sheets, media, &loaded->url);
+        css::StyleSet style_set(sheets, media, &loaded->url);
+        style_set.set_style_attribute_check(style_attribute_check(*loaded->policy));
         auto const t1b = clock::now();
         css::StyleMap const styles = css::resolve_styles(*document, style_set);
         auto const t2 = clock::now();

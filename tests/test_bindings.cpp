@@ -44,14 +44,23 @@ struct Page {
             console += std::string(level) + ":" + std::string(message) + "|";
         };
         hooks.now = [this] { return clock; };
-        hooks.fetch_script = [this](net::Url const& target) -> std::optional<std::string> {
+        // The page's guard is honoured the way the shell's loader honours
+        // it: a refused URL is not served.
+        hooks.fetch_script = [this](net::Url const& target, net::RequestGuard const& guard) -> std::optional<std::string> {
+            if (guard.refusal && guard.refusal(target, false))
+                return std::nullopt;
             fetched.push_back(target.serialize());
             auto const it = scripts.find(target.serialize());
             if (it == scripts.end())
                 return std::nullopt;
             return it->second;
         };
-        hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request) -> net::FetchResult {
+        hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request,
+                                   net::RequestGuard const& guard) -> net::FetchResult {
+            if (guard.refusal) {
+                if (std::optional<std::string> refused = guard.refusal(target, false))
+                    return { std::nullopt, std::move(*refused) };
+            }
             std::string line = request.method + " " + target.serialize();
             if (!request.body.empty())
                 line += " " + std::string(request.body.begin(), request.body.end());
@@ -1127,6 +1136,106 @@ void test_fetch_and_xhr()
     CHECK(page->console.find("error:") == std::string::npos);
 }
 
+void test_content_security_policy()
+{
+    // The document's policy as the realm applies it: an inline script
+    // without its nonce or hash is refused and the next one runs; a
+    // handler attribute needs 'unsafe-hashes'; eval, Function and a
+    // timer's string need 'unsafe-eval'; an external script's URL is
+    // judged with its nonce; fetch() is connect-src's.
+    std::vector<std::string> violations;
+    std::string const page_url = "https://example.test/dir/page.html";
+    net::ContentSecurityPolicy policy(*net::parse_url(page_url));
+    policy.set_reporter([&violations](std::string_view message) { violations.emplace_back(message); });
+    policy.add_header("script-src 'self' 'nonce-n1' '" + net::ContentSecurityPolicy::sha256_source("log.push('hashed');")
+            + "'; connect-src 'self'",
+        false);
+    bindings::HostHooks hooks;
+    hooks.policy = &policy;
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html><head>
+<script>var log = ['refused'];</script>
+<script nonce="n1">var log = ['nonced'];</script>
+<script>log.push('hashed');</script>
+<script nonce="n1">
+  try { eval('1'); log.push('eval-ran'); } catch (e) { log.push('eval:' + e.name + ':' + (e.message.indexOf("'unsafe-eval'") >= 0)); }
+  try { new Function('return 1'); log.push('function-ran'); } catch (e) { log.push('function:' + e.name); }
+  log.push('timer:' + setTimeout('log.push("timer-ran")', 0));
+</script>
+<script src="ok.js" nonce="zzz"></script>
+<script src="https://cdn.test/lib.js"></script>
+<script src="https://cdn.test/nonced.js" nonce="n1"></script>
+</head><body onload="log.push('handler')"><p id="p" onclick="log.push('click')">x</p>
+<script nonce="n1">fetch('https://api.test/x').catch(function () {}); fetch('/api/ok').catch(function () {});</script>
+</body>)HTML",
+        page_url, hooks);
+    page->scripts["https://example.test/dir/ok.js"] = "log.push('ok');";
+    page->scripts["https://cdn.test/lib.js"] = "log.push('lib');";
+    page->scripts["https://cdn.test/nonced.js"] = "log.push('cdn-nonced');";
+    page->load();
+    page->realm->run_pending();
+    page->eval("document.getElementById('p').dispatchEvent(new Event('click'))");
+    CHECK_EQ(page->string("log.join(' ')"), "nonced hashed eval:EvalError:true function:EvalError timer:0 ok cdn-nonced");
+    CHECK_EQ(page->fetched.size(), 2u);
+    CHECK_EQ(page->fetched[0], "https://example.test/dir/ok.js");
+    CHECK_EQ(page->fetched[1], "https://cdn.test/nonced.js");
+    CHECK_EQ(page->requests.size(), 1u);
+    CHECK_EQ(page->requests[0], "GET https://example.test/api/ok");
+    CHECK_EQ(page->realm->stats().scripts_refused, 3); // the inline script, the two handlers
+    auto const reported = [&violations](std::string_view part) {
+        for (std::string const& line : violations)
+            if (line.find(part) != std::string::npos)
+                return true;
+        return false;
+    };
+    CHECK(reported("Refused to execute inline script"));
+    CHECK(reported("Refused to load the script 'https://cdn.test/lib.js'"));
+    CHECK(reported("Refused to evaluate a string as JavaScript"));
+    CHECK(reported("Refused to execute inline event handler"));
+    CHECK(reported("Refused to connect to 'https://api.test/x'"));
+    CHECK(page->console.find("lib.js could not be loaded") != std::string::npos);
+
+    // A <meta> policy in the head takes effect for what follows it, and
+    // under 'strict-dynamic' a script a trusted script inserted loads
+    // while a parser-inserted one needs its nonce. A report-only header
+    // speaks and refuses nothing.
+    violations.clear();
+    net::ContentSecurityPolicy meta_policy(*net::parse_url(page_url));
+    meta_policy.set_reporter([&violations](std::string_view message) { violations.emplace_back(message); });
+    meta_policy.add_header("script-src 'none'", true);
+    bindings::HostHooks meta_hooks;
+    meta_hooks.policy = &meta_policy;
+    auto second = std::make_unique<Page>(R"HTML(<!DOCTYPE html><head>
+<script>var log = ['before-meta'];</script>
+<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-m' 'strict-dynamic'">
+<script>log.push('after-meta');</script>
+<script nonce="m">log.push('nonced'); var s = document.createElement('script'); s.src = 'https://cdn.test/dyn.js'; document.head.appendChild(s);</script>
+<script src="https://cdn.test/parser.js" nonce="m"></script>
+<script src="https://cdn.test/parser2.js"></script>
+</head><body></body>)HTML",
+        page_url, meta_hooks);
+    second->scripts["https://cdn.test/dyn.js"] = "log.push('dyn');";
+    second->scripts["https://cdn.test/parser.js"] = "log.push('parser');";
+    second->scripts["https://cdn.test/parser2.js"] = "log.push('parser2');";
+    second->load();
+    CHECK_EQ(second->string("log.join(' ')"), "before-meta nonced dyn parser");
+    CHECK_EQ(second->fetched.size(), 2u);
+    CHECK_EQ(meta_policy.policies().size(), 2u);
+    CHECK(reported("[Report Only] Refused to execute inline script"));
+    CHECK(reported("Refused to load the script 'https://cdn.test/parser2.js'"));
+
+    // A sandbox without allow-scripts: nothing runs.
+    net::ContentSecurityPolicy boxed(*net::parse_url(page_url));
+    boxed.add_header("sandbox allow-forms", false);
+    bindings::HostHooks boxed_hooks;
+    boxed_hooks.policy = &boxed;
+    auto third = std::make_unique<Page>(R"HTML(<!DOCTYPE html><script>window.ran = 1;</script><body onload="window.loaded = 1"></body>)HTML",
+        page_url, boxed_hooks);
+    third->load();
+    CHECK_EQ(third->string("typeof ran + ':' + typeof loaded"), "undefined:undefined");
+    CHECK_EQ(third->realm->stats().scripts_refused, 2);
+    CHECK_EQ(third->realm->stats().scripts_run, 0);
+}
+
 } // namespace
 
 int main()
@@ -1152,5 +1261,6 @@ int main()
     test_dom_parser_and_foreign_documents();
     test_binary_data();
     test_fetch_and_xhr();
+    test_content_security_policy();
     return test::report("test_bindings");
 }

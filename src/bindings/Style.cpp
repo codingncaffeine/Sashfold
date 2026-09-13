@@ -126,9 +126,14 @@ void write_declarations(Realm::Internals& in, dom::Element& element, std::vector
     if (declarations.empty()) {
         if (element.has_attribute("style"))
             set_attribute(in, element, "style", "");
-        return;
+    } else {
+        set_attribute(in, element, "style", serialize_declarations(declarations));
     }
-    set_attribute(in, element, "style", serialize_declarations(declarations));
+    // The CSSOM wrote it: not inline style, so a style policy lets it be.
+    for (dom::Attr& attribute : element.attributes()) {
+        if (attribute.local_name == "style" && attribute.prefix.empty())
+            attribute.from_cssom = true;
+    }
 }
 
 // camelCase to the dashed property name; cssFloat is float.

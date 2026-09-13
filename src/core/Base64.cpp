@@ -72,4 +72,34 @@ std::optional<std::vector<std::uint8_t>> base64_decode(std::string_view input)
     return output;
 }
 
+std::string base64_encode(std::span<std::uint8_t const> bytes)
+{
+    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((bytes.size() + 2) / 3 * 4);
+    std::size_t i = 0;
+    for (; i + 3 <= bytes.size(); i += 3) {
+        std::uint32_t const triple = (static_cast<std::uint32_t>(bytes[i]) << 16)
+            | (static_cast<std::uint32_t>(bytes[i + 1]) << 8) | bytes[i + 2];
+        out += alphabet[(triple >> 18) & 63];
+        out += alphabet[(triple >> 12) & 63];
+        out += alphabet[(triple >> 6) & 63];
+        out += alphabet[triple & 63];
+    }
+    if (std::size_t const rest = bytes.size() - i; rest == 1) {
+        std::uint32_t const triple = static_cast<std::uint32_t>(bytes[i]) << 16;
+        out += alphabet[(triple >> 18) & 63];
+        out += alphabet[(triple >> 12) & 63];
+        out += "==";
+    } else if (rest == 2) {
+        std::uint32_t const triple = (static_cast<std::uint32_t>(bytes[i]) << 16)
+            | (static_cast<std::uint32_t>(bytes[i + 1]) << 8);
+        out += alphabet[(triple >> 18) & 63];
+        out += alphabet[(triple >> 12) & 63];
+        out += alphabet[(triple >> 6) & 63];
+        out += '=';
+    }
+    return out;
+}
+
 }

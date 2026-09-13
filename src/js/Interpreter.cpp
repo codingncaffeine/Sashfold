@@ -1563,6 +1563,11 @@ Environment* Interpreter::Impl::variable_environment_of(Environment* environment
 std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source, Environment* scope, bool strict_caller, Value this_value, bool direct,
     PrivateEnvironment* private_environment, Program const* caller)
 {
+    // PerformEval step 2: HostEnsureCanCompileStrings.
+    if (self.on_compile_strings) {
+        if (std::optional<std::string> const refused = self.on_compile_strings())
+            return self.throw_error(ErrorType::EvalError, *refused);
+    }
     ParseOptions options;
     options.strict = direct && strict_caller;
     if (direct) {
@@ -2665,6 +2670,17 @@ std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environmen
     // No caller program: the `eval` function's own context has no script or
     // module, so eval code reached this way inherits none either.
     return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true, private_environment, nullptr);
+}
+
+std::optional<Value> Interpreter::create_dynamic_function(std::u16string_view parameters, std::u16string_view body,
+    DynamicFunctionKind kind)
+{
+    // CreateDynamicFunction step 3: HostEnsureCanCompileStrings.
+    if (on_compile_strings) {
+        if (std::optional<std::string> const refused = on_compile_strings())
+            return throw_error(ErrorType::EvalError, *refused);
+    }
+    return compile_function(parameters, body, nullptr, kind);
 }
 
 std::optional<Value> Interpreter::compile_function(std::u16string_view parameters, std::u16string_view body, Environment* scope,

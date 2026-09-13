@@ -2,6 +2,7 @@
 
 #include "bindings/Fetching.h"
 
+#include "core/Ascii.h"
 #include "html/Serializer.h"
 #include "js/Module.h"
 #include "js/Strings.h"
@@ -161,6 +162,7 @@ void set_attribute(Realm::Internals& in, dom::Element& element, std::string_view
     for (dom::Attr& attribute : element.attributes()) {
         if (attribute.local_name == name && attribute.prefix.empty()) {
             attribute.value = std::move(value);
+            attribute.from_cssom = false; // set by a script as text: inline style again
             in.realm.note_mutation();
             return;
         }
@@ -384,6 +386,68 @@ void Realm::Internals::console(std::string_view level, std::string_view message)
         hooks.console(level, message);
 }
 
+// --- The document's Content Security Policy ----------------------------------------------
+
+void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const& document)
+{
+    // HTML §4.2.5.3: a <meta http-equiv=content-security-policy> that is a
+    // child of the head, with a content attribute, enforces its policy.
+    for (dom::Node const* child : document.children()) {
+        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("html"))
+            continue;
+        for (dom::Node const* html_child : child->children()) {
+            if (!html_child->is_element() || !static_cast<dom::Element const*>(html_child)->is_html("head"))
+                continue;
+            for (dom::Node const* head_child : html_child->children()) {
+                if (!head_child->is_element())
+                    continue;
+                auto const& meta = *static_cast<dom::Element const*>(head_child);
+                if (!meta.is_html("meta"))
+                    continue;
+                dom::Attr const* const equiv = meta.find_attribute("http-equiv");
+                dom::Attr const* const content = meta.find_attribute("content");
+                if (equiv && content && ascii_ci_equals(equiv->value, "content-security-policy"))
+                    policy.add_meta(content->value);
+            }
+        }
+    }
+}
+
+void Realm::Internals::adopt_meta_policies()
+{
+    if (hooks.policy)
+        bindings::adopt_meta_policies(*hooks.policy, document);
+}
+
+net::RequestGuard Realm::Internals::request_guard(net::ResourceKind kind, std::string nonce, bool parser_inserted)
+{
+    if (!hooks.policy)
+        return {};
+    adopt_meta_policies();
+    return hooks.policy->guard(kind, std::move(nonce), parser_inserted);
+}
+
+bool Realm::Internals::inline_refused(net::InlineKind kind, std::string_view nonce, std::string_view source)
+{
+    if (!hooks.policy)
+        return false;
+    adopt_meta_policies();
+    return hooks.policy->inline_refusal(kind, nonce, source).has_value();
+}
+
+std::optional<std::string> Realm::Internals::compile_strings_refusal()
+{
+    if (!hooks.policy)
+        return std::nullopt;
+    adopt_meta_policies();
+    return hooks.policy->eval_refusal();
+}
+
+bool Realm::Internals::scripts_sandboxed() const
+{
+    return hooks.policy != nullptr && !hooks.policy->sandbox_allows_scripts();
+}
+
 void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view where)
 {
     ++stats.uncaught_errors;
@@ -572,6 +636,12 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
     if (started_scripts.contains(&script))
         return;
     started_scripts.insert(&script);
+    // Step 3 of the sandboxing: a document sandboxed without allow-scripts
+    // runs none.
+    if (scripts_sandboxed()) {
+        ++stats.scripts_refused;
+        return;
+    }
     std::string type = ascii_lower(trimmed(attribute_or_empty(script, "type")));
     if (type.empty()) {
         std::string const language = ascii_lower(trimmed(attribute_or_empty(script, "language")));
@@ -592,11 +662,12 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
     }
     std::string source;
     std::string name;
+    std::string const nonce = attribute_or_empty(script, "nonce");
     if (dom::Attr const* src = script.find_attribute("src")) {
         std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &url);
         std::optional<std::string> fetched;
         if (resolved && hooks.fetch_script)
-            fetched = hooks.fetch_script(*resolved);
+            fetched = hooks.fetch_script(*resolved, request_guard(net::ResourceKind::Script, nonce, from_parser));
         if (!fetched) {
             ++stats.external_failed;
             console("error", "script " + (resolved ? resolved->serialize() : src->value) + " could not be loaded");
@@ -617,6 +688,11 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
     } else {
         source = html::text_content(script);
         name = url.serialize() + " (inline)";
+        // §4.12.1.1 step 20: the inline check, the text as written.
+        if (inline_refused(net::InlineKind::Script, nonce, source)) {
+            ++stats.scripts_refused;
+            return;
+        }
     }
     execute_script(script, source, name);
 }
@@ -697,6 +773,8 @@ std::optional<std::string> Realm::Internals::fetch_module_source(std::string con
     request.mode = FetchMode::Cors;
     request.credentials = include_credentials ? FetchCredentials::Include : FetchCredentials::SameOrigin;
     request.destination = "script";
+    request.nonce = module_nonce;
+    request.parser_inserted = module_parser_inserted;
     FetchOutcome const outcome = perform_fetch(*this, request);
     if (!outcome.ok) {
         error = outcome.error.empty() ? std::string("it could not be fetched") : outcome.error;
@@ -729,6 +807,8 @@ void Realm::Internals::prepare_module_script(dom::Element& script, bool from_par
 {
     dom::Attr const* const cross = script.find_attribute("crossorigin");
     module_credentials_include = cross != nullptr && ascii_lower(trimmed(cross->value)) == "use-credentials";
+    module_nonce = attribute_or_empty(script, "nonce");
+    module_parser_inserted = from_parser;
     js::ModuleRecord* record = nullptr;
     std::string name;
     std::string error;
@@ -752,9 +832,14 @@ void Realm::Internals::prepare_module_script(dom::Element& script, bool from_par
         if (record == nullptr)
             ++stats.external_failed;
     } else {
+        std::string const text = html::text_content(script);
+        if (inline_refused(net::InlineKind::Script, module_nonce, text)) {
+            ++stats.scripts_refused;
+            return;
+        }
         name = inline_module_key();
         inline_module_bases.emplace(name, url);
-        record = interpreter.parse_module(js::utf16_from_utf8(html::text_content(script)), name);
+        record = interpreter.parse_module(js::utf16_from_utf8(text), name);
         if (record == nullptr)
             error = interpreter.describe(interpreter.take_exception());
     }
@@ -833,6 +918,9 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     interpreter.on_console = [this](std::string_view level, std::string_view message) {
         m_internals->console(level, message);
     };
+    // HostEnsureCanCompileStrings: the page's policy's say on eval and
+    // Function, and on a string a timer would compile.
+    interpreter.on_compile_strings = [this]() { return m_internals->compile_strings_refusal(); };
     // The module map is the document's: its keys are URLs, and the realm
     // resolves and fetches modules for the engine (§8.1.7).
     in.install_module_hooks();

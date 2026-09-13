@@ -77,16 +77,22 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
         auto it = map->find(key);
         if (attribute) {
             if (it == map->end() || (it->second.from_attribute && it->second.source != attribute->value)) {
-                std::u16string const body = js::utf16_from_utf8(attribute->value);
-                std::optional<js::Value> compiled = in.interpreter.compile_function(u"event", body);
                 EventHandler handler;
                 handler.from_attribute = true;
                 handler.source = attribute->value;
-                if (compiled) {
-                    handler.function = *compiled;
+                // A handler the page's policy refuses is remembered with
+                // no function: asked once, not at every dispatch.
+                if (in.scripts_sandboxed() || in.inline_refused(net::InlineKind::ScriptAttribute, {}, attribute->value)) {
+                    ++in.stats.scripts_refused;
                 } else {
-                    js::Value const thrown = in.interpreter.take_exception();
-                    in.report_uncaught(thrown, from_body ? "<body on" + key + ">" : "on" + key + " attribute");
+                    std::u16string const body = js::utf16_from_utf8(attribute->value);
+                    std::optional<js::Value> compiled = in.interpreter.compile_function(u"event", body);
+                    if (compiled) {
+                        handler.function = *compiled;
+                    } else {
+                        js::Value const thrown = in.interpreter.take_exception();
+                        in.report_uncaught(thrown, from_body ? "<body on" + key + ">" : "on" + key + " attribute");
+                    }
                 }
                 (*map)[key] = handler;
             }

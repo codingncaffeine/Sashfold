@@ -7,11 +7,16 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
 namespace sashfold {
 
 std::optional<std::vector<std::uint8_t>> base64_decode(std::string_view input);
+
+// The standard alphabet with padding, as a policy names a hash.
+std::string base64_encode(std::span<std::uint8_t const> bytes);
 
 }

@@ -96,6 +96,10 @@ struct Attr {
     std::string value;
     std::string prefix; // "" for ordinary attributes
     std::string namespace_uri; // "" for none
+    // A style attribute written through element.style rather than by
+    // markup or setAttribute: a page's style policy governs the latter
+    // two and lets this one through, as the CSSOM is not inline style.
+    bool from_cssom = false;
 
     // The name as the html5lib tree format prints and sorts it.
     std::string display_name() const

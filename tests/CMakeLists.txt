@@ -12,6 +12,7 @@ sashfold_test(test_font)
 sashfold_test(test_gif)
 sashfold_test(test_bmp)
 sashfold_test(test_filters)
+sashfold_test(test_csp)
 sashfold_test(test_svg)
 # The generated bindings must be what the IDL generates: regenerate with
 # the bindings-regen target when this fails.
@@ -147,6 +148,9 @@ add_test(NAME shell_newtab_pictures
 add_test(NAME shell_blocking
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/blocking.script
     --blocklists ${CMAKE_CURRENT_SOURCE_DIR}/shell/blocklists
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_csp
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/csp.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_hidpi
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script
