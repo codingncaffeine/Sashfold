@@ -1806,6 +1806,32 @@ int main(int argc, char** argv)
             CHECK(run->text.find(char32_t { 0x00AD }) == std::u32string::npos);
     }
 
+    // --- text-transform: math-auto -----------------------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // A text node of one character is drawn as its mathematical italic
+        // form (h's lives among the Letterlike Symbols); a longer one, or a
+        // character with no italic form, is drawn as written.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .math { text-transform: math-auto }
+</style></head><body>
+  <div class="math">x</div>
+  <div class="math">h</div>
+  <div class="math">xy</div>
+  <div class="math">&#x2202;</div>
+  <div class="math">1</div>
+  <div>z</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        std::vector<std::u32string> texts;
+        for (layout::TextRun const* const run : runs)
+            texts.push_back(run->text);
+        std::vector<std::u32string> const expected { U"\x1D465", U"\x210E", U"xy", U"\x1D715", U"1", U"z" };
+        CHECK(texts == expected);
+    }
+
     // --- Lowercasing a final sigma -----------------------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

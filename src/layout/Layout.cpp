@@ -1894,6 +1894,14 @@ struct Layouter {
 
     static std::u32string transformed(std::u32string_view text, css::TextTransform transform)
     {
+        // math-auto (MathML Core's transform): a text node of one character
+        // is drawn as its mathematical italic form, a longer one as written.
+        if (transform == css::TextTransform::MathAuto) {
+            std::u32string lone(text);
+            if (lone.size() == 1)
+                lone[0] = to_math_italic(lone[0]);
+            return lone;
+        }
         std::u32string out;
         out.reserve(text.size());
         bool at_word_start = true;
@@ -1901,6 +1909,7 @@ struct Layouter {
             char32_t const c = text[i];
             switch (transform) {
             case css::TextTransform::None:
+            case css::TextTransform::MathAuto:
                 out.push_back(c);
                 break;
             case css::TextTransform::Uppercase:

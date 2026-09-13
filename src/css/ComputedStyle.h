@@ -557,12 +557,15 @@ enum class BorderStyle : std::uint8_t {
 };
 
 // css-text-3 §2.1: what the rendered text is turned into, without touching
-// the document. `full-width` and `full-size-kana` are not written.
+// the document. `math-auto` (css-text-4, for MathML) draws a text node of
+// one character as its mathematical italic form. `full-width` and
+// `full-size-kana` are not written.
 enum class TextTransform : std::uint8_t {
     None,
     Capitalize,
     Uppercase,
     Lowercase,
+    MathAuto,
 };
 
 enum class TextDecorationLine : std::uint8_t {

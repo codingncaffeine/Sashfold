@@ -401,6 +401,7 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case TextTransform::Capitalize: return "capitalize";
         case TextTransform::Uppercase: return "uppercase";
         case TextTransform::Lowercase: return "lowercase";
+        case TextTransform::MathAuto: return "math-auto";
         }
     }
     if (name == "white-space") {

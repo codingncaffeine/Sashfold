@@ -5452,9 +5452,9 @@ struct Resolver {
             return;
         }
         if (name == "text-transform") {
-            // none | capitalize | uppercase | lowercase. The full-width and
-            // full-size-kana keywords are not written, and a declaration
-            // naming one is dropped rather than half-applied.
+            // none | capitalize | uppercase | lowercase | math-auto. The
+            // full-width and full-size-kana keywords are not written, and a
+            // declaration naming one is dropped rather than half-applied.
             if (values.size() != 1)
                 return;
             if (is_ident(values[0], "none"))
@@ -5465,6 +5465,8 @@ struct Resolver {
                 style.text_transform = TextTransform::Uppercase;
             else if (is_ident(values[0], "lowercase"))
                 style.text_transform = TextTransform::Lowercase;
+            else if (is_ident(values[0], "math-auto"))
+                style.text_transform = TextTransform::MathAuto;
             return;
         }
         if (name == "vertical-align") {

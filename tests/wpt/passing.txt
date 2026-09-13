@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9249 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9251 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -7904,6 +7904,8 @@ css/css-text/text-spacing-trim/text-spacing-trim-start-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-start-oof-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-subset-001.html
 css/css-text/text-spacing-trim/text-spacing-trim-trim-all-001.html
+css/css-text/text-transform/math/text-transform-math-auto-001.html
+css/css-text/text-transform/math/text-transform-math-auto-002.html
 css/css-text/text-transform/text-transform-capitalize-001.html
 css/css-text/text-transform/text-transform-capitalize-003.html
 css/css-text/text-transform/text-transform-capitalize-005.html

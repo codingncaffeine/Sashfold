@@ -65,6 +65,13 @@ char32_t to_uppercase(char32_t);
 char32_t to_lowercase(char32_t);
 char32_t to_titlecase(char32_t);
 
+// MathML's italic mapping, which `text-transform: math-auto` draws a lone
+// character with: the Latin and Greek letters, the dotless i and j and a
+// few Greek symbols to their forms among the Mathematical Alphanumeric
+// Symbols (U+210E for h, which that block leaves to Letterlike Symbols).
+// A code point with no italic form comes back unchanged.
+char32_t to_math_italic(char32_t);
+
 // The bidirectional algorithm and the directions a code point carries live
 // in core/Bidi.h.
 
