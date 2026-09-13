@@ -319,6 +319,8 @@ int main()
     {
         // A space the line kept — a no-break space, an en, em or thin one —
         // is not selected, and the letter behind it is not dressed either.
+        // A no-break space glues the letter to itself; a line may end after
+        // the other three (UAX #14), so their letter is a run of its own.
         for (std::u32string_view const space : { U" ", U" ", U" ", U" " }) {
             std::string html = R"HTML(<!DOCTYPE html><style>
                 p::first-letter { color: green; font-size: 32px }
@@ -328,6 +330,8 @@ int main()
             html += "A word</p>";
             Page const page = lay_out(html);
             layout::TextRun const* first = find_run(page, std::u32string(space) + U"A");
+            if (!first)
+                first = find_run(page, U"A");
             CHECK(first != nullptr);
             CHECK(first && !is_green(first->style->color));
             CHECK(first && first->style->font_size == 16);

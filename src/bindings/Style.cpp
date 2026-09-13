@@ -410,6 +410,32 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case WhiteSpace::NoWrap: return "nowrap";
         case WhiteSpace::PreWrap: return "pre-wrap";
         case WhiteSpace::PreLine: return "pre-line";
+        case WhiteSpace::BreakSpaces: return "break-spaces";
+        }
+    }
+    if (name == "word-break") {
+        switch (style.word_break) {
+        case WordBreak::Normal: return "normal";
+        case WordBreak::BreakAll: return "break-all";
+        case WordBreak::KeepAll: return "keep-all";
+        case WordBreak::BreakWord: return "break-word";
+        case WordBreak::Manual: return "manual";
+        }
+    }
+    if (name == "overflow-wrap" || name == "word-wrap") {
+        switch (style.overflow_wrap) {
+        case OverflowWrap::Normal: return "normal";
+        case OverflowWrap::BreakWord: return "break-word";
+        case OverflowWrap::Anywhere: return "anywhere";
+        }
+    }
+    if (name == "line-break") {
+        switch (style.line_break) {
+        case LineBreakMode::Auto: return "auto";
+        case LineBreakMode::Loose: return "loose";
+        case LineBreakMode::Normal: return "normal";
+        case LineBreakMode::Strict: return "strict";
+        case LineBreakMode::Anywhere: return "anywhere";
         }
     }
     if (name == "direction")

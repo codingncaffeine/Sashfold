@@ -34,6 +34,9 @@
 //   src/core/CaseData.h           the simple upper/lower/title case mappings,
 //                                 packed into runs by distance and step, for
 //                                 text-transform
+//   src/core/LineBreakData.h      the Line_Break classes (LB1 applied) with the
+//                                 East_Asian_Width, Pi/Pf and unassigned-
+//                                 pictographic flags UAX #14's rules read
 
 #include <algorithm>
 #include <cstdint>
@@ -195,6 +198,12 @@ struct UnicodeData {
     std::vector<std::pair<char32_t, char32_t>> simple_uppercase;
     std::vector<std::pair<char32_t, char32_t>> simple_lowercase;
     std::vector<std::pair<char32_t, char32_t>> simple_titlecase;
+    // For line breaking: the initial and final quotation punctuation (Pi,
+    // Pf) that LB15 and LB19 tell apart, and every assigned code point,
+    // so LB30b can name the unassigned pictographic ones.
+    std::vector<std::pair<char32_t, char32_t>> initial_punctuation_ranges;
+    std::vector<std::pair<char32_t, char32_t>> final_punctuation_ranges;
+    std::vector<std::pair<char32_t, char32_t>> assigned_ranges;
 };
 
 // One run of code points that all move by the same distance at the same
@@ -264,6 +273,9 @@ UnicodeData load_unicode_data(std::string const& path)
     std::vector<std::pair<char32_t, char32_t>> marks;
     std::vector<std::pair<char32_t, char32_t>> punctuation;
     std::vector<std::pair<char32_t, char32_t>> skipped;
+    std::vector<std::pair<char32_t, char32_t>> initial_quotes;
+    std::vector<std::pair<char32_t, char32_t>> final_quotes;
+    std::vector<std::pair<char32_t, char32_t>> assigned;
     char32_t range_first = 0;
     bool in_range = false;
     std::string range_category;
@@ -292,16 +304,22 @@ UnicodeData load_unicode_data(std::string const& path)
                 punctuation.push_back({ range_first, code_point });
             if (is_first_letter_skipped_category(range_category))
                 skipped.push_back({ range_first, code_point });
+            assigned.push_back({ range_first, code_point });
             continue;
         }
         (void)in_range;
 
+        assigned.push_back({ code_point, code_point });
         if (category == "Mn" || category == "Mc" || category == "Me")
             marks.push_back({ code_point, code_point });
         if (is_first_letter_punctuation_category(category))
             punctuation.push_back({ code_point, code_point });
         if (is_first_letter_skipped_category(category))
             skipped.push_back({ code_point, code_point });
+        if (category == "Pi")
+            initial_quotes.push_back({ code_point, code_point });
+        if (category == "Pf")
+            final_quotes.push_back({ code_point, code_point });
         if (ccc != 0)
             data.nonzero_ccc.push_back({ code_point, static_cast<std::uint8_t>(ccc) });
 
@@ -330,7 +348,208 @@ UnicodeData load_unicode_data(std::string const& path)
     data.mark_ranges = merged(std::move(marks));
     data.punctuation_ranges = merged(std::move(punctuation));
     data.skipped_ranges = merged(std::move(skipped));
+    data.initial_punctuation_ranges = merged(std::move(initial_quotes));
+    data.final_punctuation_ranges = merged(std::move(final_quotes));
+    data.assigned_ranges = merged(std::move(assigned));
     return data;
+}
+
+// --- LineBreak.txt, EastAsianWidth.txt, emoji-data.txt ----------------------
+
+std::string hex(char32_t value);
+std::string generated_banner(std::string const& what);
+
+// The line-break classes of UAX #14 after LB1 has resolved AI, SG and XX
+// to AL and a combining mark of class SA to CM — CJ and the rest of SA
+// are kept as they are, for the rules to resolve by CSS's line-break
+// property and by whether a dictionary is at hand — in the order the
+// engine's own enum lists them; the generator writes the names out.
+constexpr char const* line_break_class_names[] = {
+    "BK", "CR", "LF", "CM", "NL", "WJ", "ZW", "GL", "SP", "ZWJ", "B2", "BA", "BB", "HY", "CB",
+    "CL", "CP", "EX", "IN", "NS", "OP", "QU", "IS", "NU", "PO", "PR", "SY", "AK", "AL", "AP",
+    "AS", "EB", "EM", "H2", "H3", "HL", "ID", "JL", "JV", "JT", "RI", "VF", "VI", "CJ", "SA",
+};
+
+std::size_t line_break_class_index(std::string const& name)
+{
+    for (std::size_t i = 0; i < std::size(line_break_class_names); ++i) {
+        if (name == line_break_class_names[i])
+            return i;
+    }
+    std::cerr << "gen-unicode: unknown Line_Break class '" << name << "'\n";
+    std::exit(1);
+}
+
+bool in_ranges(std::vector<std::pair<char32_t, char32_t>> const& ranges, char32_t c)
+{
+    auto const it = std::upper_bound(ranges.begin(), ranges.end(), std::pair<char32_t, char32_t> { c, 0x10FFFF },
+        [](auto const& a, auto const& b) { return a.first < b.first; });
+    if (it == ranges.begin())
+        return false;
+    auto const before = std::prev(it);
+    return c >= before->first && c <= before->second;
+}
+
+// A property file of "first..last ; value" lines with @missing defaults:
+// every code point's value, as an index into `names` — or, for a file
+// whose values are not a closed set, whatever `resolve` makes of the text.
+template<typename Resolve>
+std::vector<std::uint8_t> load_property(std::string const& path, Resolve&& resolve)
+{
+    constexpr std::size_t code_points = 0x110000;
+    std::vector<std::uint8_t> values(code_points, 0);
+    std::ifstream file = open_or_die(path);
+    std::string line;
+    std::vector<std::pair<std::string, std::string>> missing;
+    std::vector<std::pair<std::string, std::string>> listed;
+    while (std::getline(file, line)) {
+        std::size_t const at = line.find("@missing:");
+        if (at != std::string::npos) {
+            std::vector<std::string> const fields = split(trim(line.substr(at + 9)), ';');
+            if (fields.size() >= 2)
+                missing.push_back({ trim(fields[0]), trim(fields[1]) });
+            continue;
+        }
+        std::size_t const hash = line.find('#');
+        std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+        if (body.empty())
+            continue;
+        std::vector<std::string> const fields = split(body, ';');
+        if (fields.size() >= 2)
+            listed.push_back({ trim(fields[0]), trim(fields[1]) });
+    }
+    auto const apply = [&](std::vector<std::pair<std::string, std::string>> const& entries) {
+        for (auto const& [range, name] : entries) {
+            char32_t first = 0;
+            char32_t last = 0;
+            parse_code_point_range(range, first, last);
+            if (last >= code_points)
+                continue;
+            for (char32_t c = first; c <= last; ++c)
+                values[c] = static_cast<std::uint8_t>(resolve(name, c));
+        }
+    };
+    apply(missing);
+    apply(listed);
+    return values;
+}
+
+// LineBreak.txt with LB1 applied but for CJ and SA: the raw classes AI,
+// SG and XX become AL, and a combining mark of class SA becomes CM. CJ
+// stays, since whether a small kana may start a line is the style's to
+// say (css-text-3 line-break: NS under strict, ID under loose and
+// normal); the rest of SA stays, since it is AL only where a dictionary
+// finds the words, and breaks between clusters where none does.
+std::vector<std::uint8_t> load_line_break(std::string const& path, UnicodeData const& data)
+{
+    return load_property(path, [&](std::string const& name, char32_t c) {
+        if (name == "AI" || name == "SG" || name == "XX")
+            return line_break_class_index("AL");
+        if (name == "SA" && in_ranges(data.mark_ranges, c))
+            return line_break_class_index("CM");
+        return line_break_class_index(name);
+    });
+}
+
+// EastAsianWidth.txt: whether a code point is East Asian in the sense
+// UAX #14's LB19a, LB21a and LB30 use — F, W or H.
+std::vector<std::uint8_t> load_east_asian(std::string const& path)
+{
+    return load_property(path, [](std::string const& name, char32_t) {
+        return name == "F" || name == "W" || name == "H" ? 1 : 0;
+    });
+}
+
+// emoji-data.txt: the Extended_Pictographic code points (LB30b).
+std::vector<std::uint8_t> load_extended_pictographic(std::string const& path)
+{
+    constexpr std::size_t code_points = 0x110000;
+    std::vector<std::uint8_t> values(code_points, 0);
+    std::ifstream file = open_or_die(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::size_t const hash = line.find('#');
+        std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+        if (body.empty())
+            continue;
+        std::vector<std::string> const fields = split(body, ';');
+        if (fields.size() < 2 || trim(fields[1]) != "Extended_Pictographic")
+            continue;
+        char32_t first = 0;
+        char32_t last = 0;
+        parse_code_point_range(trim(fields[0]), first, last);
+        for (char32_t c = first; c <= last && c < code_points; ++c)
+            values[c] = 1;
+    }
+    return values;
+}
+
+void emit_line_break(std::string const& path, std::vector<std::uint8_t> const& classes,
+    std::vector<std::uint8_t> const& east_asian, std::vector<std::uint8_t> const& pictographic,
+    UnicodeData const& data)
+{
+    // One sorted, disjoint table over the code space: a run of code points
+    // that share a class and the flags LB15, LB19a, LB21a, LB30 and LB30b
+    // read becomes one entry, and AL with no flags — the default almost
+    // everywhere — is left out.
+    std::size_t const al = line_break_class_index("AL");
+    struct Run {
+        char32_t first;
+        char32_t last;
+        std::uint8_t klass;
+        std::uint8_t flags;
+    };
+    std::vector<Run> runs;
+    for (char32_t c = 0; c < classes.size(); ++c) {
+        std::uint8_t flags = 0;
+        if (east_asian[c])
+            flags |= 1;
+        if (in_ranges(data.initial_punctuation_ranges, c))
+            flags |= 2;
+        if (in_ranges(data.final_punctuation_ranges, c))
+            flags |= 4;
+        if (pictographic[c] && !in_ranges(data.assigned_ranges, c))
+            flags |= 8;
+        if (classes[c] == al && flags == 0)
+            continue;
+        if (!runs.empty() && runs.back().last + 1 == c && runs.back().klass == classes[c] && runs.back().flags == flags)
+            runs.back().last = c;
+        else
+            runs.push_back({ c, c, classes[c], flags });
+    }
+
+    std::ofstream out(path);
+    out << generated_banner(
+        "The Line_Break property of every code point (UAX #14), read from\n"
+        "// LineBreak.txt with LB1 applied but for CJ and SA — AI, SG and XX are\n"
+        "// AL, a combining mark of class SA is CM, and CJ and the rest of SA are\n"
+        "// left for the rules to resolve by the style and by whether a\n"
+        "// dictionary is at hand — beside the flags\n"
+        "// the rules read alongside it: East_Asian_Width F, W or H (LB19a,\n"
+        "// LB21a, LB30), the Pi and Pf categories of a quotation mark (LB15,\n"
+        "// LB19) and Extended_Pictographic on an unassigned code point (LB30b).\n"
+        "// AL with no flag is the default and is left out of the table, so what\n"
+        "// is here is every run that differs from it; the runs are sorted and\n"
+        "// disjoint, for binary search.");
+    out << "namespace sashfold {\n\n";
+    out << "enum class LineBreakClass : std::uint8_t {\n";
+    for (char const* const name : line_break_class_names)
+        out << "    " << name << ",\n";
+    out << "};\n\n";
+    out << "inline constexpr std::uint8_t line_break_east_asian = 1;\n"
+        << "inline constexpr std::uint8_t line_break_initial_quote = 2;\n"
+        << "inline constexpr std::uint8_t line_break_final_quote = 4;\n"
+        << "inline constexpr std::uint8_t line_break_unassigned_pictographic = 8;\n\n";
+    out << "struct LineBreakRange {\n    char32_t first;\n    char32_t last;\n    LineBreakClass klass;\n"
+        << "    std::uint8_t flags;\n};\n\n";
+    out << "inline constexpr LineBreakRange line_break_ranges[] = {\n";
+    for (Run const& run : runs) {
+        out << "    { " << hex(run.first) << ", " << hex(run.last) << ", LineBreakClass::"
+            << line_break_class_names[run.klass] << ", " << static_cast<unsigned>(run.flags) << " },\n";
+    }
+    out << "};\n\n";
+    out << "}\n";
+    std::cout << "wrote " << path << " (" << runs.size() << " ranges that are not the AL default)\n";
 }
 
 std::set<char32_t> load_full_composition_exclusions(std::string const& path)
@@ -799,9 +1018,14 @@ int main(int argc, char** argv)
     std::vector<std::pair<char32_t, char32_t>> const mirrors
         = load_bidi_mirroring(data_dir + "/BidiMirroring.txt");
 
+    std::vector<std::uint8_t> const line_break = load_line_break(data_dir + "/LineBreak.txt", unicode_data);
+    std::vector<std::uint8_t> const east_asian = load_east_asian(data_dir + "/EastAsianWidth.txt");
+    std::vector<std::uint8_t> const pictographic = load_extended_pictographic(data_dir + "/emoji-data.txt");
+
     emit_idna(repo + "/src/net/IdnaData.h", idna);
     emit_normalization(repo + "/src/core/NormalizationData.h", unicode_data, excluded);
     emit_case(repo + "/src/core/CaseData.h", unicode_data);
     emit_bidi(repo + "/src/core/BidiData.h", bidi, mirrors, brackets);
+    emit_line_break(repo + "/src/core/LineBreakData.h", line_break, east_asian, pictographic, unicode_data);
     return 0;
 }

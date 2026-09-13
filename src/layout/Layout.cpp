@@ -2,6 +2,7 @@
 
 #include "core/Ascii.h"
 #include "core/Bidi.h"
+#include "core/LineBreak.h"
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "layout/GridAlgorithm.h"
@@ -170,7 +171,184 @@ struct InlineItem {
     // Null for the block's own text, which has no inline box.
     ComputedStyle const* aligned = nullptr;
     std::vector<dom::Node const*> nodes; // Kind::Table: the table parts the anonymous table wraps
+    // Whether a line may end in front of this item (UAX #14 over the text
+    // of its paragraph, see wrap_opportunities). A word is cut at the
+    // opportunities inside it before it is laid out, so every piece after
+    // the first carries true.
+    bool break_before = true;
 };
+
+// What an item spells to the line breaker: its text; U+FFFC for an atomic
+// inline, which a line may end on either side of (css-text-3 §5.4);
+// nothing for a box out of the flow or the edge of an inline box, neither
+// of which makes an opportunity of its own (§5.1).
+bool is_atomic_inline(InlineItem const& item)
+{
+    return item.kind == InlineItem::Kind::Image || item.kind == InlineItem::Kind::Control
+        || item.kind == InlineItem::Kind::Block || item.kind == InlineItem::Kind::Table;
+}
+
+// The invisible characters with a say in where a line ends and in nothing
+// else: a zero width space is a break opportunity, a word joiner (U+2060,
+// and U+FEFF) forbids one, a zero width joiner forbids one after itself.
+// They stay in a word's text for the breaker's sake and come out before
+// the word is measured or drawn.
+bool is_break_control(char32_t c)
+{
+    return c == 0x200B || c == 0x200D || c == 0x2060 || c == 0xFEFF;
+}
+
+std::u32string without_break_controls(std::u32string_view text)
+{
+    std::u32string out;
+    out.reserve(text.size());
+    for (char32_t const c : text) {
+        if (!is_break_control(c))
+            out.push_back(c);
+    }
+    return out;
+}
+
+// Whether a character is a space a word may end with: a preserved space
+// where white-space keeps spaces, or any other space separator (Zs but
+// for the space and the no-break space). Such a tail is never a place to
+// end a line in front of, so it is never sliced off: under pre-wrap and
+// under the collapsing values it hangs past the line's end, counted for
+// neither the fit nor the alignment (css-text-3 §4.1.3); under
+// break-spaces it takes its room and overflows when it must.
+bool is_trailing_space(char32_t c, WhiteSpace mode)
+{
+    if (c == U' ')
+        return mode == WhiteSpace::PreWrap || mode == WhiteSpace::BreakSpaces;
+    return is_other_space_separator(c);
+}
+
+// Where a word's trailing spaces begin: the index past its last other character.
+std::size_t trailing_spaces_from(std::u32string_view word, WhiteSpace mode)
+{
+    std::size_t kept = word.size();
+    while (kept > 0 && is_trailing_space(word[kept - 1], mode))
+        --kept;
+    return kept;
+}
+
+// How CSS tailors the line breaker for a character, from its style: the
+// white-space, word-break and line-break properties (css-text-3 §3,
+// §5.2, §5.3).
+std::uint8_t line_break_tailoring(ComputedStyle const& style)
+{
+    // No dictionary yet for the scripts that need one, so their lines end
+    // between clusters (css-text-3 §5.1: some fallback must be made) —
+    // unless word-break: manual asks for no word finding at all.
+    std::uint8_t flags = style.word_break == css::WordBreak::Manual ? 0 : line_break_tailor_clusters;
+    if (style.white_space == WhiteSpace::BreakSpaces)
+        flags |= line_break_tailor_break_spaces;
+    if (style.word_break == css::WordBreak::BreakAll)
+        flags |= line_break_tailor_break_all;
+    if (style.word_break == css::WordBreak::KeepAll)
+        flags |= line_break_tailor_keep_all;
+    if (style.line_break == css::LineBreakMode::Loose || style.line_break == css::LineBreakMode::Normal)
+        flags |= line_break_tailor_normal;
+    if (style.line_break == css::LineBreakMode::Loose)
+        flags |= line_break_tailor_loose;
+    if (style.line_break == css::LineBreakMode::Anywhere)
+        flags |= line_break_tailor_anywhere;
+    return flags;
+}
+
+// The soft wrap opportunities of a run of items: UAX #14 over the text of
+// each paragraph — the run up to a forced break — tells every item whether
+// a line may end in front of it, and a word with an opportunity inside it
+// is cut into the pieces between them, so a line can end at any of them:
+// after a hyphen or a slash, between ideographs. A word that keeps its
+// spaces (white-space: nowrap, pre) is left whole. `levels` (when it holds
+// anything) is cut alongside, a piece taking its word's level. A mandatory
+// break inside a word (U+2028, a form feed) is taken as a soft one: CSS
+// forces a line end at a segment break or a <br>, and those arrive as
+// items of their own.
+std::vector<InlineItem> wrap_opportunities(std::vector<InlineItem> const& items, std::vector<std::uint8_t>& levels)
+{
+    constexpr char32_t object = 0xFFFC;
+    constexpr char32_t no_break_space = 0xA0;
+    std::vector<InlineItem> out;
+    std::vector<std::uint8_t> out_levels;
+    out.reserve(items.size());
+    auto const paragraph = [&](std::size_t first, std::size_t last) {
+        std::u32string text;
+        std::vector<std::uint8_t> tailoring;
+        std::vector<std::size_t> position(last - first);
+        for (std::size_t i = first; i < last; ++i) {
+            position[i - first] = text.size();
+            if (items[i].kind == InlineItem::Kind::Word || items[i].kind == InlineItem::Kind::Space) {
+                text += items[i].text;
+                tailoring.insert(tailoring.end(), items[i].text.size(), line_break_tailoring(*items[i].style));
+            } else if (is_atomic_inline(items[i])) {
+                text.push_back(object);
+                tailoring.push_back(line_break_tailoring(*items[i].style));
+            }
+        }
+        std::vector<LineBreak> breaks = line_break_opportunities(text, tailoring);
+        // A line may end either side of an atomic inline even beside a
+        // no-break space, which would glue anything else to it (LB12).
+        for (std::size_t i = first; i < last; ++i) {
+            if (!is_atomic_inline(items[i]))
+                continue;
+            std::size_t const p = position[i - first];
+            if (p > 0 && text[p - 1] == no_break_space)
+                breaks[p] = LineBreak::Allowed;
+            if (p + 1 < text.size() && text[p + 1] == no_break_space)
+                breaks[p + 1] = LineBreak::Allowed;
+        }
+        for (std::size_t i = first; i < last; ++i) {
+            InlineItem const& item = items[i];
+            std::size_t const p = position[i - first];
+            // The end of the text is a break for the text's sake (LB3), not
+            // for an edge or an out-of-flow box standing there. An inline
+            // box's opening edge stays with what follows it: the item right
+            // after one shares its position, and the edge is the one that
+            // answers for the two.
+            bool const before = p < text.size() && breaks[p] != LineBreak::None
+                && !(i > first && items[i - 1].kind == InlineItem::Kind::BoxStart);
+            std::uint8_t const level = levels.empty() ? 0 : levels[i];
+            bool const whole = item.kind != InlineItem::Kind::Word || item.text.empty()
+                || item.style->white_space == WhiteSpace::NoWrap
+                || item.style->white_space == WhiteSpace::Pre;
+            if (whole) {
+                out.push_back(item);
+                out.back().break_before = before;
+                if (!levels.empty())
+                    out_levels.push_back(level);
+                continue;
+            }
+            std::size_t from = 0;
+            for (std::size_t to = 1; to <= item.text.size(); ++to) {
+                if (to < item.text.size() && breaks[p + to] == LineBreak::None)
+                    continue;
+                InlineItem piece = item;
+                piece.text = item.text.substr(from, to - from);
+                piece.break_before = from == 0 ? before : true;
+                out.push_back(std::move(piece));
+                if (!levels.empty())
+                    out_levels.push_back(level);
+                from = to;
+            }
+        }
+    };
+    std::size_t first = 0;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        if (items[i].kind != InlineItem::Kind::HardBreak && items[i].kind != InlineItem::Kind::SoftBreak)
+            continue;
+        paragraph(first, i);
+        out.push_back(items[i]);
+        if (!levels.empty())
+            out_levels.push_back(levels[i]);
+        first = i + 1;
+    }
+    paragraph(first, items.size());
+    if (!levels.empty())
+        levels = std::move(out_levels);
+    return out;
+}
 
 // Gives the items appended since `first` the alignment of the inline box
 // they were collected in, when they have none nearer and the box has one.
@@ -1667,7 +1845,8 @@ struct Layouter {
         if (style->text_transform != css::TextTransform::None)
             text = changed;
         WhiteSpace const mode = style->white_space;
-        bool const preserve_spaces = mode == WhiteSpace::Pre || mode == WhiteSpace::PreWrap;
+        bool const preserve_spaces = mode == WhiteSpace::Pre || mode == WhiteSpace::PreWrap
+            || mode == WhiteSpace::BreakSpaces;
         bool const preserve_newlines = preserve_spaces || mode == WhiteSpace::PreLine;
 
         std::u32string word;
@@ -1678,8 +1857,10 @@ struct Layouter {
             }
         };
         for (char32_t const c : text) {
-            if (is_default_ignorable(c))
-                continue; // invisible by definition: no glyph, no advance, no break
+            // Invisible by definition: no glyph, no advance — and, but for
+            // the few the line breaker reads, no say in where a line ends.
+            if (is_default_ignorable(c) && !is_break_control(c))
+                continue;
             bool const is_newline = c == U'\n';
             bool const is_space = c == U' ' || c == U'\t' || c == U'\f' || c == U'\r';
             if (is_newline && preserve_newlines) {
@@ -2393,7 +2574,15 @@ struct Layouter {
         std::vector<InlineItem> split_items;
         std::vector<std::uint8_t> item_levels;
         bool const reorders = resolve_bidi(source_items, block_style, split_items, item_levels);
-        std::vector<InlineItem> const& items = split_items.empty() ? source_items : split_items;
+        std::vector<InlineItem> const& bidi_items = split_items.empty() ? source_items : split_items;
+        // Where the lines may end: each item learns whether one may end in
+        // front of it, and a word is cut at the opportunities inside it. A
+        // block that never wraps has no use for any of it.
+        bool const allow_wrap = block_style.white_space != WhiteSpace::NoWrap
+            && block_style.white_space != WhiteSpace::Pre;
+        std::vector<InlineItem> const wrapped_items
+            = allow_wrap ? wrap_opportunities(bidi_items, item_levels) : std::vector<InlineItem>();
+        std::vector<InlineItem> const& items = allow_wrap ? wrapped_items : bidi_items;
 
         struct Placed {
             Placed(std::u32string the_text, ComputedStyle const* the_style, bool space, float the_width,
@@ -2440,6 +2629,9 @@ struct Layouter {
             // The bidirectional level the item this came from resolved to.
             // Rule L2 reads it to settle the order the line is drawn in.
             std::uint8_t level = 0;
+            // The width of the spaces this text ends with, which hang past
+            // a line's end rather than count toward its fit or alignment.
+            float hang = 0;
         };
 
         // An inline box's run along one line: what to paint it as, and where
@@ -2504,6 +2696,21 @@ struct Layouter {
         };
         std::vector<OpenBox> open_boxes;
         std::vector<BoxRun> box_runs; // finished on the line being built
+        // Where the line being built could last have ended: the item a line
+        // may end in front of, and what the line held — its entries, its
+        // width, the box bookkeeping — when that item came up. When an item
+        // that allows no line end in front of it does not fit, the line ends
+        // here instead and the items since are read again onto the next
+        // one: "foo<b>bar</b>" wraps as one word, not at its tag.
+        struct Opportunity {
+            std::size_t item;
+            std::size_t entries;
+            float width;
+            std::vector<OpenBox> open_boxes;
+            std::size_t box_runs;
+            std::size_t absolutes;
+        };
+        std::optional<Opportunity> opportunity;
         // `unicode-bidi: plaintext` gives every paragraph the direction its
         // own first strongly directional character carries (UAX #9 P2/P3)
         // instead of the block's; a paragraph ends at a forced break. With
@@ -2556,6 +2763,7 @@ struct Layouter {
         // forced break: those keep their start alignment under
         // text-align: justify (CSS 2.1 §16.2), the rest are stretched.
         auto const flush_line = [&](bool last_line = false) {
+            opportunity.reset(); // the next line has no past to back up into yet
             // What this line adds, so that a frame whose ascenders face its
             // block end can turn the finished line over inside its own box.
             std::size_t const runs_before = out.runs.size();
@@ -2579,6 +2787,24 @@ struct Layouter {
                 for (LineAbsolute& absolute : line_absolutes)
                     absolute.index -= absolute.index > i ? 1 : 0;
             }
+            // What hangs past the line's end — a preserved space, an
+            // ideographic space — is drawn but not measured for the fit or
+            // the alignment: the last entry that is not an edge gives it
+            // up. Before a forced break — a <br>, the end of the block —
+            // pre-wrap's spaces hang only when they would overflow
+            // (css-text-3 §4.1.3): when they fit they count, so that a
+            // centred line keeps the symmetry its leading spaces gave it.
+            float hung = 0;
+            for (std::size_t i = line.size(); i-- > 0;) {
+                if (line[i].box_edge)
+                    continue;
+                bool const conditional = last_line && line[i].style
+                    && line[i].style->white_space == WhiteSpace::PreWrap;
+                if (!(conditional && line_width <= line_avail + 0.01f))
+                    hung = line[i].hang;
+                break;
+            }
+            line_width -= hung;
             // The line box (CSS 2.1 §10.8): every box on the line reaches
             // some way above and below the baseline it is aligned to — the
             // strut of the block's own font, text by its ascent and descent
@@ -2768,6 +2994,11 @@ struct Layouter {
                 x += (line_avail - line_width) / 2.0f;
             else if (align == css::TextAlign::Right)
                 x += line_avail - line_width;
+            // A right-to-left line is drawn from its end, so what hangs past
+            // that end comes first: it starts that much further left, and
+            // the rest lands where the alignment put it.
+            if (paragraph_rtl)
+                x -= hung;
             // Where each inline-level box out of the flow would have begun,
             // now that the line's content has been placed (css-position-3
             // §3.5.2). Its hypothetical box takes no room, so its
@@ -3146,13 +3377,51 @@ struct Layouter {
             }
         };
 
-        bool const allow_wrap = block_style.white_space != WhiteSpace::NoWrap
-            && block_style.white_space != WhiteSpace::Pre;
+        // An item a line may end in front of, met with something on the
+        // line already: where the line could end, should a later item on
+        // it turn out to allow no end in front of itself.
+        auto const note_opportunity = [&](std::size_t index) {
+            if (allow_wrap && items[index].break_before && !line.empty())
+                opportunity = Opportunity { index, line.size(), line_width, open_boxes, box_runs.size(),
+                    line_absolutes.size() };
+        };
+        // Ends the line in front of an item it has no room for, when a line
+        // may end there. When none may, and the line could end at an
+        // earlier item — with nothing since that must not be laid out twice:
+        // an inline-block, a float, an absolute box — the line ends there
+        // instead, and the answer is that item, for the loop to read from
+        // again. Else the line ends in front of the item anyway, an
+        // emergency the word is then sliced for below.
+        auto const end_line_before = [&](std::size_t index) -> std::optional<std::size_t> {
+            if (!items[index].break_before && opportunity) {
+                bool clean = true;
+                for (std::size_t k = opportunity->item; k <= index; ++k) {
+                    InlineItem::Kind const kind = items[k].kind;
+                    if (kind == InlineItem::Kind::Float || kind == InlineItem::Kind::Absolute
+                        || kind == InlineItem::Kind::Block || kind == InlineItem::Kind::Table)
+                        clean = false;
+                }
+                if (clean) {
+                    std::size_t const again = opportunity->item;
+                    line.erase(line.begin() + static_cast<std::ptrdiff_t>(opportunity->entries), line.end());
+                    line_width = opportunity->width;
+                    open_boxes = opportunity->open_boxes;
+                    box_runs.resize(opportunity->box_runs);
+                    line_absolutes.resize(opportunity->absolutes);
+                    flush_line();
+                    return again;
+                }
+            }
+            flush_line();
+            return std::nullopt;
+        };
 
-        for (InlineItem const& item : items) {
-            current_level = item_levels.empty()
-                ? 0
-                : item_levels[static_cast<std::size_t>(&item - items.data())];
+        // An opportunity is only ever noted with something on the line, so
+        // the item to read again is never the first: stepping back one and
+        // letting the loop step forward lands on it.
+        for (std::size_t index = 0; index < items.size(); ++index) {
+            InlineItem const& item = items[index];
+            current_level = item_levels.empty() ? 0 : item_levels[index];
             if (item.kind == InlineItem::Kind::Absolute) {
                 // Its static position. The two are different rectangles
                 // (css-position-3 §3.5.2): an inline-level box would have
@@ -3186,8 +3455,13 @@ struct Layouter {
                 // run's ends still bracket what is inside it either way.
                 bool const opening = item.kind == InlineItem::Kind::BoxStart;
                 float const edge = inline_edge(*item.style, opening, content_width);
-                if (allow_wrap && edge > 0 && !line.empty() && line_width + edge > line_avail)
-                    flush_line();
+                note_opportunity(index);
+                if (allow_wrap && edge > 0 && !line.empty() && line_width + edge > line_avail) {
+                    if (std::optional<std::size_t> const again = end_line_before(index)) {
+                        index = *again - 1;
+                        continue;
+                    }
+                }
                 if (opening)
                     open_boxes.push_back(OpenBox { item.style, item.element, line.size(), true });
                 if (edge > 0) {
@@ -3225,8 +3499,7 @@ struct Layouter {
                 // The break ends a paragraph, so the next one reads its own
                 // direction from the text that follows it.
                 if (plaintext)
-                    paragraph_rtl
-                        = paragraph_from(static_cast<std::size_t>(&item - items.data()) + 1);
+                    paragraph_rtl = paragraph_from(index + 1);
                 if (item.clear != css::Clear::None) {
                     y = floats.cleared_y(item.clear, y);
                     start_line();
@@ -3266,8 +3539,13 @@ struct Layouter {
                     measure = float_width(*item.element, *item.style, content_width);
                 }
                 float const outer = measure.outer();
-                if (allow_wrap && !line.empty() && line_width + outer > line_avail)
-                    flush_line();
+                note_opportunity(index);
+                if (allow_wrap && !line.empty() && line_width + outer > line_avail) {
+                    if (std::optional<std::size_t> const again = end_line_before(index)) {
+                        index = *again - 1;
+                        continue;
+                    }
+                }
                 if (allow_wrap)
                     widen_for(outer);
                 Placed placed({}, item.style, false, outer, item.element);
@@ -3309,8 +3587,13 @@ struct Layouter {
                 InlineEdges edges = inline_edges(*item.style, content_width);
                 edges.left = edges.right = edges.top = edges.bottom = 0;
                 float const width = edges.margin_left + spec.size.width + edges.margin_right;
-                if (allow_wrap && !line.empty() && line_width + width > line_avail)
-                    flush_line();
+                note_opportunity(index);
+                if (allow_wrap && !line.empty() && line_width + width > line_avail) {
+                    if (std::optional<std::size_t> const again = end_line_before(index)) {
+                        index = *again - 1;
+                        continue;
+                    }
+                }
                 if (allow_wrap)
                     widen_for(width);
                 Placed placed({}, item.style, false, width, item.element);
@@ -3352,8 +3635,13 @@ struct Layouter {
                 InlineEdges const edges = inline_edges(*item.style, content_width);
                 float const width = edges.margin_left + edges.left + size->width + edges.right
                     + edges.margin_right;
-                if (allow_wrap && !line.empty() && line_width + width > line_avail)
-                    flush_line();
+                note_opportunity(index);
+                if (allow_wrap && !line.empty() && line_width + width > line_avail) {
+                    if (std::optional<std::size_t> const again = end_line_before(index)) {
+                        index = *again - 1;
+                        continue;
+                    }
+                }
                 if (allow_wrap)
                     widen_for(width);
                 Placed placed({}, item.style, false, width, item.element);
@@ -3369,26 +3657,50 @@ struct Layouter {
                 line_width += width;
                 continue;
             }
-            std::u32string word = item.text;
+            std::u32string word = without_break_controls(item.text);
             float width = measure(*item.style, word);
-            if (allow_wrap && !line.empty() && line_width + width > line_avail)
-                flush_line();
+            // The spaces the word ends with (see is_trailing_space): where
+            // they begin, what they measure, and how much of that hangs past
+            // the line's end — all of it, but under break-spaces.
+            WhiteSpace const mode = item.style->white_space;
+            std::size_t head = trailing_spaces_from(word, mode);
+            auto const tail_width = [&] {
+                return head < word.size() ? measure(*item.style, std::u32string_view(word).substr(head)) : 0.0f;
+            };
+            float tail = tail_width();
+            float hang = mode == WhiteSpace::BreakSpaces ? 0.0f : tail;
+            note_opportunity(index);
+            if (allow_wrap && !line.empty() && line_width + width - hang > line_avail) {
+                if (std::optional<std::size_t> const again = end_line_before(index)) {
+                    index = *again - 1;
+                    continue;
+                }
+            }
             if (allow_wrap)
-                widen_for(width);
-            if (allow_wrap && line_avail > 0) {
+                widen_for(width - hang);
+            // overflow-wrap (css-text-3 §5.5): a word too wide for a whole
+            // line is sliced where it must be under break-word and anywhere
+            // (and word-break: break-word), and left to overflow under
+            // normal, the way every browser leaves it.
+            bool const slices = item.style->overflow_wrap != css::OverflowWrap::Normal
+                || item.style->word_break == css::WordBreak::BreakWord;
+            if (allow_wrap && slices && line_avail > 0) {
                 // Emergency break: slice a word that cannot fit a whole line,
-                // at the last glyph that still fits (one at least).
-                while (line.empty() && width > line_avail) {
+                // at the last glyph that still fits (one at least). The
+                // trailing spaces are never sliced: those that hang are
+                // outside the fit already, and those that take their room
+                // (break-spaces) go over whole, a break in front of them.
+                while (line.empty() && width - hang > line_avail) {
                     std::size_t fit = 0;
                     float fit_width = 0;
                     if (fonts_for(*item.style).faces().size() == 1) {
                         // Fixed pitch: the count is a division.
                         float const advance = measure(*item.style, U" ");
                         fit = std::max<std::size_t>(1, static_cast<std::size_t>(line_avail / advance));
-                        fit = std::min(fit, word.size());
+                        fit = std::min(fit, head);
                         fit_width = static_cast<float>(fit) * advance;
                     } else {
-                        for (std::size_t i = 0; i < word.size(); ++i) {
+                        for (std::size_t i = 0; i < head; ++i) {
                             float const glyph_width
                                 = measure(*item.style, std::u32string_view(word).substr(i, 1));
                             if (fit > 0 && fit_width + glyph_width > line_avail)
@@ -3397,8 +3709,12 @@ struct Layouter {
                             ++fit;
                         }
                     }
-                    if (fit >= word.size())
-                        break;
+                    if (fit >= head) {
+                        if (head == word.size())
+                            break;
+                        fit = head;
+                        fit_width = width - tail;
+                    }
                     Placed slice(word.substr(0, fit), item.style, false, fit_width, item.element);
                     slice.aligned = item.aligned;
                     place(std::move(slice));
@@ -3406,10 +3722,14 @@ struct Layouter {
                     flush_line();
                     word = word.substr(fit);
                     width = measure(*item.style, word);
+                    head = trailing_spaces_from(word, mode);
+                    tail = tail_width();
+                    hang = mode == WhiteSpace::BreakSpaces ? 0.0f : tail;
                 }
             }
             Placed placed(std::move(word), item.style, false, width, item.element);
             placed.aligned = item.aligned;
+            placed.hang = hang;
             place(std::move(placed));
             line_width += width;
         }
@@ -4588,11 +4908,20 @@ struct Layouter {
         float max = 0; // everything on one line
     };
 
-    // The min-content and max-content widths of a run of inline items.
-    Intrinsic inline_intrinsic(std::vector<InlineItem> const& items) const
+    // The min-content and max-content widths of a run of inline items. The
+    // narrowest line holds the widest piece a line may not end inside, so
+    // the words are cut at their break opportunities first, as layout cuts
+    // them: a run of ideographs is as narrow as its widest one.
+    // `indent` is the block's text-indent when these items open its first
+    // line: that line is longer by it, so the widest line is, and so is
+    // the narrowest when its first piece is what sets it.
+    Intrinsic inline_intrinsic(std::vector<InlineItem> const& source_items, float indent = 0) const
     {
+        std::vector<std::uint8_t> no_levels;
+        std::vector<InlineItem> const items = wrap_opportunities(source_items, no_levels);
         Intrinsic result;
-        float line = 0;
+        float line = indent;
+        float first = indent; // what the first piece on the first line carries besides itself
         float pending_space = 0;
         auto const add = [&](float width) {
             if (line > 0)
@@ -4600,11 +4929,38 @@ struct Layouter {
             pending_space = 0;
             line += width;
         };
+        // The narrowest line a piece asks for: the piece, and the indent
+        // when it is the first of the block.
+        auto const narrowest = [&](float width) {
+            result.min = std::max(result.min, width + first);
+            first = 0;
+        };
         for (InlineItem const& item : items) {
             switch (item.kind) {
             case InlineItem::Kind::Word: {
-                float const width = measure(*item.style, item.text);
-                result.min = std::max(result.min, width);
+                std::u32string const word = without_break_controls(item.text);
+                float const width = measure(*item.style, word);
+                // The spaces a word ends with hang past a line's end, so
+                // they do not hold the narrowest line open — but under
+                // break-spaces, where they take their room.
+                WhiteSpace const mode = item.style->white_space;
+                std::size_t const head = trailing_spaces_from(word, mode);
+                float const hang = head < word.size() && mode != WhiteSpace::BreakSpaces
+                    ? measure(*item.style, std::u32string_view(word).substr(head))
+                    : 0.0f;
+                // overflow-wrap: anywhere (and word-break: break-word) may
+                // slice the word anywhere, and its slices count here: the
+                // narrowest line is one glyph. break-word slices the same
+                // but does not count (css-text-3 §5.5).
+                bool const anywhere = item.style->overflow_wrap == css::OverflowWrap::Anywhere
+                    || item.style->word_break == css::WordBreak::BreakWord;
+                float piece = width - hang;
+                if (anywhere) {
+                    piece = 0;
+                    for (std::size_t i = 0; i < head; ++i)
+                        piece = std::max(piece, measure(*item.style, std::u32string_view(word).substr(i, 1)));
+                }
+                narrowest(piece);
                 add(width);
                 break;
             }
@@ -4620,7 +4976,7 @@ struct Layouter {
                 float const edge
                     = inline_edge(*item.style, item.kind == InlineItem::Kind::BoxStart, 0);
                 if (edge != 0) {
-                    result.min = std::max(result.min, edge);
+                    result.min = std::max(result.min, edge + first);
                     add(edge);
                 }
                 break;
@@ -4640,20 +4996,20 @@ struct Layouter {
                 float const width = size
                     ? edges.margin_left + edges.left + size->width + edges.right + edges.margin_right
                     : 0;
-                result.min = std::max(result.min, width);
+                narrowest(width);
                 add(width);
                 break;
             }
             case InlineItem::Kind::Float:
             case InlineItem::Kind::Block: {
                 Intrinsic const box = block_intrinsic(*item.element, *item.style);
-                result.min = std::max(result.min, box.min);
+                narrowest(box.min);
                 add(box.max);
                 break;
             }
             case InlineItem::Kind::Table: {
                 Intrinsic const box = table_intrinsic_widths(item.nodes, *item.style, item.element);
-                result.min = std::max(result.min, box.min);
+                narrowest(box.min);
                 add(box.max);
                 break;
             }
@@ -4661,7 +5017,7 @@ struct Layouter {
                 InlineEdges const edges = inline_edges(*item.style, 0);
                 float const width = edges.margin_left + control_spec(*item.element, *item.style, 0).size.width
                     + edges.margin_right;
-                result.min = std::max(result.min, width);
+                narrowest(width);
                 add(width);
                 break;
             }
@@ -4762,18 +5118,23 @@ struct Layouter {
     Intrinsic nodes_intrinsic_widths(std::vector<dom::Node const*> const& children, ComputedStyle const& style,
         dom::Element const* owner, bool anonymous) const
     {
+        // text-indent lengthens the block's first line, which the first run
+        // of inline content opens; a percentage measures nothing here.
+        float indent_owed = resolve(style.text_indent, 0);
         std::vector<InlineItem> pending;
         if (!contains_block_in(children)) {
             collect_inline_nodes(children, owner, &style, pending, anonymous);
             apply_first_letter(pending, style);
-            return inline_intrinsic(pending);
+            return inline_intrinsic(pending, indent_owed);
         }
         Intrinsic result;
         bool first_letter_owed = style.first_letter != nullptr;
         auto const flush = [&] {
             if (first_letter_owed && apply_first_letter(pending, style))
                 first_letter_owed = false;
-            Intrinsic const run = inline_intrinsic(pending);
+            Intrinsic const run = inline_intrinsic(pending, indent_owed);
+            if (!pending.empty())
+                indent_owed = 0;
             result.min = std::max(result.min, run.min);
             result.max = std::max(result.max, run.max);
             pending.clear();

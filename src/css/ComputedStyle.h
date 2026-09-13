@@ -491,6 +491,41 @@ enum class WhiteSpace : std::uint8_t {
     NoWrap,
     PreWrap,
     PreLine,
+    BreakSpaces, // pre-wrap whose spaces take room at a line's end instead of hanging past it
+};
+
+// word-break (css-text-3 §5.2, css-text-4 for manual). break-word is
+// normal with the breaking of overflow-wrap: anywhere; auto-phrase is
+// normal, the fallback the spec names for an engine without a phrase
+// dictionary; manual turns off the finding of word boundaries in the
+// scripts that write no spaces (Thai and its neighbours), which here
+// means no line ends inside their runs.
+enum class WordBreak : std::uint8_t {
+    Normal,
+    BreakAll,
+    KeepAll,
+    BreakWord,
+    Manual,
+};
+
+// overflow-wrap (css-text-3 §5.5): whether a word too wide for a line is
+// sliced where it must be — break-word and anywhere — or left to overflow
+// (normal). Only anywhere's slices count toward a min-content width.
+enum class OverflowWrap : std::uint8_t {
+    Normal,
+    BreakWord,
+    Anywhere,
+};
+
+// line-break (css-text-3 §5.3). auto and strict keep a small kana from
+// starting a line, loose and normal let it, and anywhere breaks around
+// every character; the rest of what loose relaxes is not written.
+enum class LineBreakMode : std::uint8_t {
+    Auto,
+    Loose,
+    Normal,
+    Strict,
+    Anywhere,
 };
 
 enum class BorderStyle : std::uint8_t {
@@ -937,6 +972,9 @@ struct ComputedStyle {
     TextAlignLast text_align_last = TextAlignLast::Auto;
     TextJustify text_justify = TextJustify::Auto;
     WhiteSpace white_space = WhiteSpace::Normal;
+    WordBreak word_break = WordBreak::Normal;
+    LineBreakMode line_break = LineBreakMode::Auto;
+    OverflowWrap overflow_wrap = OverflowWrap::Normal;
     TextTransform text_transform = TextTransform::None;
     ListStyleType list_style_type = ListStyleType::Disc;
     ListStylePosition list_style_position = ListStylePosition::Outside;

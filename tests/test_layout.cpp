@@ -55,7 +55,7 @@ constexpr std::string_view page_html = R"(<!doctype html>
 <html><head><style>
   body { font-family: "Sashfold Mono"; font-size: 16px; margin: 8px; line-height: 20px }
   h1 { font-size: 32px }
-  .narrow { width: 100px }
+  .narrow { width: 100px; overflow-wrap: anywhere }
   .sans { font-family: sans-serif }
 </style></head><body>
 <h1>Heading text here</h1>

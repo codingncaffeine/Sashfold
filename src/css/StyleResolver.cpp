@@ -2511,6 +2511,9 @@ struct Resolver {
         style.word_spacing = parent.word_spacing;
         style.text_indent = parent.text_indent;
         style.white_space = parent.white_space;
+        style.word_break = parent.word_break;
+        style.line_break = parent.line_break;
+        style.overflow_wrap = parent.overflow_wrap;
         style.text_transform = parent.text_transform;
         style.list_style_type = parent.list_style_type;
         style.list_style_position = parent.list_style_position;
@@ -2899,6 +2902,9 @@ struct Resolver {
             { "word-spacing", true, [](S& to, S const& from) { to.word_spacing = from.word_spacing; }, 0 },
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
             { "white-space", true, [](S& to, S const& from) { to.white_space = from.white_space; }, 0 },
+            { "word-break", true, [](S& to, S const& from) { to.word_break = from.word_break; }, 0 },
+            { "line-break", true, [](S& to, S const& from) { to.line_break = from.line_break; }, 0 },
+            { "overflow-wrap", true, [](S& to, S const& from) { to.overflow_wrap = from.overflow_wrap; }, 0 },
             { "text-transform", true,
                 [](S& to, S const& from) { to.text_transform = from.text_transform; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
@@ -5329,6 +5335,52 @@ struct Resolver {
                 style.white_space = WhiteSpace::PreWrap;
             else if (is_ident(values[0], "pre-line"))
                 style.white_space = WhiteSpace::PreLine;
+            else if (is_ident(values[0], "break-spaces"))
+                style.white_space = WhiteSpace::BreakSpaces;
+            return;
+        }
+        if (name == "word-break") {
+            // normal | break-all | keep-all | break-word | auto-phrase, the
+            // last being normal: see the enum.
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "normal") || is_ident(values[0], "auto-phrase"))
+                style.word_break = WordBreak::Normal;
+            else if (is_ident(values[0], "break-all"))
+                style.word_break = WordBreak::BreakAll;
+            else if (is_ident(values[0], "keep-all"))
+                style.word_break = WordBreak::KeepAll;
+            else if (is_ident(values[0], "break-word"))
+                style.word_break = WordBreak::BreakWord;
+            else if (is_ident(values[0], "manual"))
+                style.word_break = WordBreak::Manual;
+            return;
+        }
+        if (name == "overflow-wrap" || name == "word-wrap") {
+            // normal | break-word | anywhere; word-wrap is the old name.
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "normal"))
+                style.overflow_wrap = OverflowWrap::Normal;
+            else if (is_ident(values[0], "break-word"))
+                style.overflow_wrap = OverflowWrap::BreakWord;
+            else if (is_ident(values[0], "anywhere"))
+                style.overflow_wrap = OverflowWrap::Anywhere;
+            return;
+        }
+        if (name == "line-break") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto"))
+                style.line_break = LineBreakMode::Auto;
+            else if (is_ident(values[0], "loose"))
+                style.line_break = LineBreakMode::Loose;
+            else if (is_ident(values[0], "normal"))
+                style.line_break = LineBreakMode::Normal;
+            else if (is_ident(values[0], "strict"))
+                style.line_break = LineBreakMode::Strict;
+            else if (is_ident(values[0], "anywhere"))
+                style.line_break = LineBreakMode::Anywhere;
             return;
         }
         if (name == "text-transform") {
