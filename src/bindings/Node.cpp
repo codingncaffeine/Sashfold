@@ -766,7 +766,7 @@ void install_node(Realm::Internals& in, js::Object& node)
         return js::Value::object(internals.wrap(n.document()));
     });
     node_getter(in, node, "isConnected", [](Realm::Internals& internals, dom::Node& n) -> Native {
-        return js::Value::boolean(&n.root() == &internals.document || (n.root().type() == dom::NodeType::Document && &n.root() != &internals.document));
+        return js::Value::boolean(&n.root() == internals.document || (n.root().type() == dom::NodeType::Document && &n.root() != internals.document));
     });
     node_getter(in, node, "baseURI", [](Realm::Internals& internals, dom::Node&) -> Native { return internals.string(internals.url.serialize()); });
     node_method(in, node, "hasChildNodes", 0, [](Realm::Internals&, dom::Node& n, Args) -> Native { return js::Value::boolean(!n.children().empty()); });
@@ -1223,9 +1223,9 @@ void install_element(Realm::Internals& in, js::Object& element)
                 return js::Value::undefined();
             if (parent->type() == dom::NodeType::Document)
                 return internals.throw_dom_exception("NoModificationAllowedError", "This element has no parent element");
-            dom::Element* context = parent->is_element() ? static_cast<dom::Element*>(parent) : body_element(internals.document);
+            dom::Element* context = parent->is_element() ? static_cast<dom::Element*>(parent) : body_element(*internals.document);
             if (!context)
-                context = internals.document.create<dom::Element>(std::string(dom::ns::html), "body");
+                context = internals.document->create<dom::Element>(std::string(dom::ns::html), "body");
             std::vector<dom::Node*> const children = parse_markup(internals, *context, *markup);
             dom::Node* reference = next_sibling_of(e);
             internals.frames_removed(e);
@@ -1595,7 +1595,7 @@ void install_nodes(Realm::Internals& in)
             std::optional<std::string> data = args.empty() ? std::optional<std::string>("") : internals.to_utf8(args[0]);
             if (!data)
                 return std::nullopt;
-            dom::Text* node_ptr = internals.document.create<dom::Text>();
+            dom::Text* node_ptr = internals.document->create<dom::Text>();
             node_ptr->data = std::move(*data);
             return js::Value::object(internals.wrap(*node_ptr));
         });
@@ -1605,7 +1605,7 @@ void install_nodes(Realm::Internals& in)
             std::optional<std::string> data = args.empty() ? std::optional<std::string>("") : internals.to_utf8(args[0]);
             if (!data)
                 return std::nullopt;
-            dom::Comment* node_ptr = internals.document.create<dom::Comment>();
+            dom::Comment* node_ptr = internals.document->create<dom::Comment>();
             node_ptr->data = std::move(*data);
             return js::Value::object(internals.wrap(*node_ptr));
         });
@@ -1615,7 +1615,7 @@ void install_nodes(Realm::Internals& in)
     js::Object* fragment = define_interface(in, "DocumentFragment", node,
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            return js::Value::object(internals.wrap(*internals.document.create<dom::DocumentFragment>()));
+            return js::Value::object(internals.wrap(*internals.document->create<dom::DocumentFragment>()));
         });
     install_parent_node(in, *fragment);
     // ShadowRoot: the interface object alone. attachShadow refuses with

@@ -651,7 +651,7 @@ struct Agent {
 
 struct Realm::Internals {
     Realm& realm;
-    dom::Document& document;
+    dom::Document* document; // never null
     net::Url url;
     HostHooks hooks;
     // Documents scripts made (DOMParser, createHTMLDocument): owned for the

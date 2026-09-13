@@ -218,7 +218,7 @@ std::vector<ChildFrame const*> child_navigables(Realm::Internals const& in)
     if (in.ended || in.discarded || in.child_frames.empty())
         return children;
     std::vector<dom::Element const*> iframes;
-    collect_iframes(in.document, iframes);
+    collect_iframes(*in.document, iframes);
     for (dom::Element const* const iframe : iframes) {
         for (ChildFrame const& frame : in.child_frames) {
             if (frame.container == iframe) {

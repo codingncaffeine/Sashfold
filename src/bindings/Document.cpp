@@ -240,28 +240,28 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return js::Value::undefined();
         });
     document_getter(in, *document, "URL", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return internals.string(&d == &internals.document ? internals.url.serialize() : "about:blank");
+        return internals.string(&d == internals.document ? internals.url.serialize() : "about:blank");
     });
     document_getter(in, *document, "documentURI", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return internals.string(&d == &internals.document ? internals.url.serialize() : "about:blank");
+        return internals.string(&d == internals.document ? internals.url.serialize() : "about:blank");
     });
     document_getter(in, *document, "location", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        if (&d != &internals.document || !internals.location)
+        if (&d != internals.document || !internals.location)
             return js::Value::null();
         return js::Value::object(internals.location);
     });
     document_getter(in, *document, "defaultView", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        if (&d != &internals.document)
+        if (&d != internals.document)
             return js::Value::null();
         return js::Value::object(internals.window_proxy());
     });
     document_getter(in, *document, "readyState", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return internals.string(&d == &internals.document ? internals.ready_state : "complete");
+        return internals.string(&d == internals.document ? internals.ready_state : "complete");
     });
     for (std::string_view const name : { "characterSet", "charset", "inputEncoding" })
         document_getter(in, *document, name, [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("UTF-8"); });
     document_getter(in, *document, "contentType", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return internals.string(&d == &internals.document ? internals.document_content_type : "text/html");
+        return internals.string(&d == internals.document ? internals.document_content_type : "text/html");
     });
     document_getter(in, *document, "compatMode", [](Realm::Internals& internals, dom::Document& d) -> Native {
         return internals.string(d.quirks_mode == dom::QuirksMode::Yes ? "BackCompat" : "CSS1Compat");
@@ -322,7 +322,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
-            if (*d != &internals.document)
+            if (*d != internals.document)
                 return internals.throw_dom_exception("SecurityError", "Failed to set the 'domain' property on 'Document': Assignment is forbidden for this document.");
             if (internals.sandbox_flags & sandboxing::document_domain)
                 return internals.throw_dom_exception("SecurityError", "Failed to set the 'domain' property on 'Document': Assignment is forbidden for sandboxed iframes.");
@@ -584,7 +584,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             }
             if (newline)
                 text += '\n';
-            if (&d == &internals.document && internals.active_parser) {
+            if (&d == internals.document && internals.active_parser) {
                 internals.active_parser->insert_input(decode_utf8(text));
                 return js::Value::undefined();
             }
@@ -642,7 +642,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         std::optional<std::string> system_id = internals.to_utf8(js::argument(args, 2));
         if (!name || !public_id || !system_id)
             return std::nullopt;
-        dom::DocumentType* doctype = internals.document.create<dom::DocumentType>();
+        dom::DocumentType* doctype = internals.document->create<dom::DocumentType>();
         doctype->name = std::move(*name);
         doctype->public_identifier = std::move(*public_id);
         doctype->system_identifier = std::move(*system_id);

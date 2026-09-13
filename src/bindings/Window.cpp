@@ -662,7 +662,7 @@ public:
         if (js::Object* const child = named_child(internals(), name))
             return js::PropertyDescriptor::data(js::Value::object(child), js::Writable | js::Configurable);
         std::vector<dom::Node*> found;
-        collect_named(internals().document, name, found);
+        collect_named(*internals().document, name, found);
         if (found.empty())
             return std::nullopt;
         js::Value value;
@@ -757,7 +757,7 @@ void install_window(Realm::Internals& in)
     });
     define_getter(in, *global, "document", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
-        return js::Value::object(internals.wrap(internals.document));
+        return js::Value::object(internals.wrap(*internals.document));
     });
     // name is the target name of the window's navigable: none to read or to
     // set once the window has no navigable (HTML §7.2.2). The value is still

@@ -493,7 +493,7 @@ void reflect_long(Realm::Internals& in, js::Object& prototype, std::string_view 
 
 Realm::Internals::Internals(Realm& the_realm, dom::Document& the_document, net::Url the_url, HostHooks the_hooks)
     : realm(the_realm)
-    , document(the_document)
+    , document(&the_document)
     , url(std::move(the_url))
     , hooks(std::move(the_hooks))
     , own_agent(std::make_unique<Agent>())
@@ -506,7 +506,7 @@ Realm::Internals::Internals(Realm& the_realm, dom::Document& the_document, net::
 
 Realm::Internals::Internals(Realm& the_realm, Agent& the_agent, dom::Document& the_document, net::Url the_url, HostHooks the_hooks)
     : realm(the_realm)
-    , document(the_document)
+    , document(&the_document)
     , url(std::move(the_url))
     , hooks(std::move(the_hooks))
     , agent(the_agent)
@@ -572,7 +572,7 @@ void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const
 void Realm::Internals::adopt_meta_policies()
 {
     if (hooks.policy)
-        bindings::adopt_meta_policies(*hooks.policy, document);
+        bindings::adopt_meta_policies(*hooks.policy, *document);
 }
 
 net::RequestGuard Realm::Internals::request_guard(net::ResourceKind kind, std::string nonce, bool parser_inserted)
@@ -1266,7 +1266,7 @@ Realm::~Realm()
         // go of the nodes they point into. Its record passes to the agent's
         // stand-in, so a native of this realm that a script still holds
         // answers from an empty document rather than from freed memory.
-        detach_wrappers(in.document);
+        detach_wrappers(*in.document);
         for (std::unique_ptr<dom::Document> const& extra : in.extra_documents)
             detach_wrappers(*extra);
         // What a script still holds of this window is judged by the origin
@@ -1280,7 +1280,7 @@ Realm::~Realm()
 }
 
 js::Interpreter& Realm::interpreter() { return m_internals->interpreter; }
-dom::Document& Realm::document() { return m_internals->document; }
+dom::Document& Realm::document() { return *m_internals->document; }
 net::Url const& Realm::url() const { return m_internals->url; }
 HostHooks& Realm::hooks() { return m_internals->hooks; }
 js::Object* Realm::wrap(dom::Node& node) { return m_internals->wrap(node); }
@@ -1388,7 +1388,7 @@ void Realm::document_parsed()
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     in.active_parser = nullptr;
     in.ready_state = "interactive";
-    dispatch_event(&in.document, "readystatechange");
+    dispatch_event(in.document, "readystatechange");
     // The deferred scripts, in order; each was fetched when the parser met
     // it, a module's graph with it.
     std::vector<Internals::PendingScript> deferred = std::move(in.deferred_scripts);
@@ -1399,13 +1399,13 @@ void Realm::document_parsed()
         else
             in.execute_script(*pending.element, pending.source, pending.name);
     }
-    dispatch_event(&in.document, "DOMContentLoaded", EventInit { true, false, false });
+    dispatch_event(in.document, "DOMContentLoaded", EventInit { true, false, false });
     // A page's load waits on its frames' documents, so every iframe the
     // parse left in the tree has fired its load event, in tree order, by the
     // time the window fires its own. A frame's document the host answers for
     // is parsed and loaded in a realm of its own first.
     std::vector<dom::Element*> frames;
-    collect_frames(in.document, frames);
+    collect_frames(*in.document, frames);
     for (dom::Element* const frame : frames) {
         auto const listed = std::find_if(in.child_frames.begin(), in.child_frames.end(),
             [frame](ChildFrame const& child) { return child.container == frame; });
@@ -1450,7 +1450,7 @@ void Realm::document_parsed()
             in.fire_frame_load(*frame);
     }
     in.ready_state = "complete";
-    dispatch_event(&in.document, "readystatechange");
+    dispatch_event(in.document, "readystatechange");
     dispatch_event(nullptr, "load");
     dispatch_event(nullptr, "pageshow");
 }
@@ -1654,7 +1654,7 @@ Realm::Internals* Realm::Internals::realm_of(dom::Document const& target)
     while (!pending.empty()) {
         Internals* const at = pending.back();
         pending.pop_back();
-        if (&at->document == &target)
+        if (at->document == &target)
             return at;
         for (std::unique_ptr<dom::Document> const& extra : at->extra_documents) {
             if (extra.get() == &target)
@@ -1794,7 +1794,7 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
     // Only an iframe still in this document, and only the navigation of it
     // asked for last: a later one, or the parse's opening of the frame, has
     // taken this one's place.
-    if (&iframe.document() != &document || !iframe.is_connected())
+    if (&iframe.document() != document || !iframe.is_connected())
         return;
     auto const pending = frame_navigations.find(&iframe);
     if (pending == frame_navigations.end() || pending->second != number)
@@ -2042,7 +2042,7 @@ bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit
     event->alt_key = init.alt;
     event->meta_key = init.meta;
     event->repeat = init.repeat;
-    js::Object* target_object = target ? in.wrap(*target) : in.wrap(in.document);
+    js::Object* target_object = target ? in.wrap(*target) : in.wrap(*in.document);
     return in.dispatch(*event, target_object);
 }
 
@@ -2202,7 +2202,7 @@ void Realm::trace_roots(js::Tracer& tracer)
 {
     Internals& in = *m_internals;
     // The connected tree is one opaque root (ADR 0001 §2).
-    trace_tree(in.document, tracer);
+    trace_tree(*in.document, tracer);
     for (ListenerEntry const& entry : in.window_listeners)
         tracer.visit(entry.listener.callback);
     for (auto const& [type, handler] : in.window_handlers)

@@ -61,7 +61,7 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
     bool from_body = false;
     if (!element && in.is_window(target) && is_window_event_type(type)) {
         // The body's onload="…" is the window's handler.
-        for (dom::Node* child : in.document.children()) {
+        for (dom::Node* child : in.document->children()) {
             if (!child->is_element())
                 continue;
             for (dom::Node* grandchild : child->children()) {
@@ -560,7 +560,7 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
             path.push_back(ancestor_wrapper);
         }
         // The document's parent is the window, except for load (§2.9.1).
-        if (&node->root() == &document && event.type != "load")
+        if (&node->root() == document && event.type != "load")
             path.push_back(window_proxy());
     }
     js::Value const previous_event = current_event;
@@ -715,7 +715,7 @@ void install_events(Realm::Internals& in)
             if (NodeWrapper* wrapper = internals.wrapper_of(js::Value::object(current))) {
                 for (dom::Node* node = &wrapper->node(); node; node = node->parent())
                     path->push(js::Value::object(internals.wrap(*node)));
-                if (&wrapper->node().root() == &internals.document && (*e)->type != "load")
+                if (&wrapper->node().root() == internals.document && (*e)->type != "load")
                     path->push(js::Value::object(interp.global_this()));
             } else {
                 path->push(js::Value::object(current));

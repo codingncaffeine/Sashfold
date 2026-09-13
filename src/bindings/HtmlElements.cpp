@@ -172,7 +172,7 @@ void install_labels(Realm::Internals& in, js::Object& proto)
 {
     element_getter(in, proto, "labels", [](Realm::Internals& internals, dom::Element& e) -> Native {
         std::vector<dom::Node*> descendants;
-        collect_descendants(internals.document, descendants);
+        collect_descendants(*internals.document, descendants);
         std::vector<dom::Node*> labels;
         std::string const id = attribute_or_empty(e, "id");
         for (dom::Node* node : descendants) {
@@ -193,7 +193,7 @@ void install_form_control_common(Realm::Internals& in, js::Object& proto)
 {
     element_getter(in, proto, "form", [](Realm::Internals& internals, dom::Element& e) -> Native {
         if (dom::Attr const* form_id = e.find_attribute("form")) {
-            if (dom::Element* owner = element_by_id(internals.document, form_id->value))
+            if (dom::Element* owner = element_by_id(*internals.document, form_id->value))
                 return js::Value::object(internals.wrap(*owner));
         }
         for (dom::Node* node = e.parent(); node; node = node->parent()) {
@@ -263,7 +263,7 @@ std::string option_value(dom::Element const& option)
 std::vector<dom::Node*> form_controls(Realm::Internals& in, dom::Element& form)
 {
     std::vector<dom::Node*> descendants;
-    collect_descendants(in.document, descendants);
+    collect_descendants(*in.document, descendants);
     std::vector<dom::Node*> controls;
     std::string const form_id = attribute_or_empty(form, "id");
     for (dom::Node* node : descendants) {
@@ -365,7 +365,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     element_getter(in, html_element, "offsetParent", [](Realm::Internals& internals, dom::Element& e) -> Native {
         if (e.is_html("body") || e.is_html("html"))
             return js::Value::null();
-        return internals.realm.wrap_or_null(body_element(internals.document));
+        return internals.realm.wrap_or_null(body_element(*internals.document));
     });
     auto const offset = [](int which) {
         return [which](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -531,7 +531,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_getter(in, proto, "files", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         element_getter(in, proto, "list", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* list = e.find_attribute("list");
-            return internals.realm.wrap_or_null(list ? element_by_id(internals.document, list->value) : nullptr);
+            return internals.realm.wrap_or_null(list ? element_by_id(*internals.document, list->value) : nullptr);
         });
         element_accessor(
             in, proto, "indeterminate", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::boolean(false); },
@@ -851,7 +851,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         js::Object& label = proto_of("HTMLLabelElement");
         element_getter(in, label, "control", [](Realm::Internals& internals, dom::Element& e) -> Native {
             if (dom::Attr const* target = e.find_attribute("for"))
-                return internals.realm.wrap_or_null(element_by_id(internals.document, target->value));
+                return internals.realm.wrap_or_null(element_by_id(*internals.document, target->value));
             std::vector<dom::Node*> descendants;
             collect_descendants(e, descendants);
             for (dom::Node* node : descendants) {
@@ -1134,7 +1134,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         [](js::Interpreter& interp, js::Value const&, Args) -> Native { return interp.throw_type_error("Please use the 'new' operator"); },
         [](js::Interpreter& interp, Args args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            dom::Element* img = internals.document.create<dom::Element>(std::string(dom::ns::html), "img");
+            dom::Element* img = internals.document->create<dom::Element>(std::string(dom::ns::html), "img");
             for (std::size_t i = 0; i < 2 && i < args.size(); ++i) {
                 if (args[i].is_undefined())
                     continue;
@@ -1151,12 +1151,12 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         [](js::Interpreter& interp, js::Value const&, Args) -> Native { return interp.throw_type_error("Please use the 'new' operator"); },
         [](js::Interpreter& interp, Args args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            dom::Element* option = internals.document.create<dom::Element>(std::string(dom::ns::html), "option");
+            dom::Element* option = internals.document->create<dom::Element>(std::string(dom::ns::html), "option");
             if (!args.empty() && !args[0].is_undefined()) {
                 std::optional<std::string> text = internals.to_utf8(args[0]);
                 if (!text)
                     return std::nullopt;
-                dom::Text* node = internals.document.create<dom::Text>();
+                dom::Text* node = internals.document->create<dom::Text>();
                 node->data = std::move(*text);
                 option->append_child(*node);
             }
