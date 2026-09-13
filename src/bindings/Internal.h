@@ -92,6 +92,17 @@ private:
     dom::Node* m_node;
 };
 
+// An origin (HTML §7.1.1): a tuple of a scheme, a host and a port, or an
+// opaque origin, which has no parts and is known by its identity alone — a
+// number no other opaque origin in the process has.
+struct Origin {
+    std::string scheme;
+    std::string host; // serialized, IPv6 in brackets
+    std::optional<std::uint16_t> port; // absent when the scheme's default
+    std::uint64_t opaque_id = 0; // nonzero for an opaque origin
+    bool opaque() const { return opaque_id != 0; }
+};
+
 // An Event (DOM §2.2) and its subclasses: one C++ class, the interface
 // told apart by the prototype and the fields it fills.
 class EventObject final : public js::Object {
@@ -150,6 +161,9 @@ public:
     std::string origin;
     js::Value source_value;
     js::Value ports;
+    // The origin of the document whose window posted the message (HTML
+    // §9.3.3), which Origin.from extracts; none for a constructed event.
+    std::optional<Origin> sender_origin;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -544,6 +558,9 @@ struct Realm::Internals {
     // The URL of this document's origin: its own, or an srcdoc document's
     // parent's.
     net::Url origin_url;
+    // The identity of that origin when it is opaque, given the first time it
+    // is asked for (document_origin) and kept for the realm's life.
+    std::uint64_t opaque_origin_id = 0;
     // For a frame's realm, the realm of the document its iframe is in and
     // that iframe; null for a page's.
     Internals* parent_realm = nullptr;
@@ -800,6 +817,16 @@ void install_binary(Realm::Internals&); // Binary.cpp: TextEncoder, TextDecoder,
 void install_fetch(Realm::Internals&); // Fetch.cpp: Headers, Request, Response, FormData, fetch
 void install_xhr(Realm::Internals&); // Xhr.cpp: XMLHttpRequest
 void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSignal, MessageChannel, MessagePort, postMessage
+void install_origin(Realm::Internals&); // Origin.cpp: Origin
+
+// Origins (Origin.cpp): a URL's origin, a new opaque one each time for a URL
+// without a tuple; and the origin of a realm's document, its opaque origin
+// one identity for as long as the realm lasts.
+Origin origin_of_url(net::Url const&);
+Origin document_origin(Realm::Internals&);
+// The value of an SVG element's href attribute, else of its xlink:href (SVG 2
+// §16.1.1); null for neither (Node.cpp).
+std::string const* svg_href(dom::Element const&);
 
 // Objects the style file makes for the node bindings.
 js::Value make_token_list(Realm::Internals&, dom::Element&, std::string attribute); // classList, relList

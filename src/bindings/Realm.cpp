@@ -633,7 +633,7 @@ js::Object* Realm::Internals::prototype_for(dom::Node const& node) const
             return prototype("HTMLElement");
         }
         if (element.namespace_uri() == dom::ns::svg)
-            return prototype("SVGElement");
+            return prototype(element.local_name() == "a" ? "SVGAElement" : "SVGElement");
         return prototype("Element");
     }
     }
@@ -997,6 +997,7 @@ void install_interfaces(Realm::Internals& in)
     install_fetch(in);
     install_xhr(in);
     install_tasks(in);
+    install_origin(in);
     install_window_proxy(in, language_globals);
 }
 

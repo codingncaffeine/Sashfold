@@ -1843,6 +1843,142 @@ void test_document_domain_relaxes_the_same_origin_rule()
     page.reset();
 }
 
+// The Origin interface (HTML §7.1.1): an origin as an object. `new Origin()`
+// is a fresh opaque origin; Origin.from reads one out of a URL string, a URL,
+// an Origin, a hyperlink element (<a>, <area>, the SVG <a> by its href or
+// xlink:href), a message a window posted and a window of the caller's origin,
+// and throws a TypeError for anything else. Opaque origins compare by
+// identity, which a document keeps for its own origin and a message carries
+// from its sender; isSameSite compares the scheme and the registrable domain.
+// The SVG <a>'s href is an SVGAnimatedString reflecting the attribute.
+void test_the_origin_interface()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        // The iframe with the id "opaque" shows a document of an opaque
+        // origin, as a data: URL's document is.
+        dom::Attr const* const id = iframe.find_attribute("id");
+        bool const opaque = id && id->value == "opaque";
+        answer.url = *net::parse_url(opaque ? "data:text/html,frame" : "about:srcdoc");
+        answer.origin = opaque ? answer.url : base;
+        answer.srcdoc = !opaque;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var messages = []; addEventListener('message', function (e) { messages.push({ data: e.data, origin: Origin.from(e) }); });</script>
+<svg><a id=parsedLink xlink:href="https://parsed.example/"></a></svg>
+<iframe id=same srcdoc="<script>parent.postMessage('same', '*');</script>"></iframe>
+<iframe id=opaque srcdoc="<script>var received = []; addEventListener('message', function (e) { received.push({ data: e.data, origin: Origin.from(e) }); }); postMessage('first', '*'); postMessage('second', '*');</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    // No script of the page reaches a window of another origin until a window
+    // proxy guards it, so the page is handed the opaque frame's window here,
+    // as a message's source would hand it, and posts it a message.
+    dom::Node* const opaque_node = page->realm->node_of(page->eval("document.getElementById('opaque')").value);
+    bindings::Realm* const opaque_realm = opaque_node && opaque_node->is_element()
+        ? page->realm->frame_realm(*static_cast<dom::Element*>(opaque_node))
+        : nullptr;
+    CHECK(opaque_realm != nullptr);
+    if (!opaque_realm)
+        return;
+    js::Interpreter& interpreter = page->realm->interpreter();
+    page->realm->window()->put(interpreter.key("opaqueWindow"), js::Value::object(opaque_realm->window()), js::default_attributes);
+    page->eval("opaqueWindow.postMessage('from the page', '*');");
+    page->realm->run_pending();
+    // A boolean from a script run in the opaque frame's own realm.
+    auto const in_opaque_frame = [&opaque_realm](std::string_view source) {
+        js::Outcome const outcome = opaque_realm->run(source, "<test>");
+        return outcome.ok && outcome.value.is_boolean() && outcome.value.as_boolean();
+    };
+
+    // The constructor: a new opaque origin each time, same origin and same
+    // site with itself alone.
+    CHECK(page->boolean("typeof Origin === 'function' && new Origin().opaque === true && Object.prototype.toString.call(new Origin()) === '[object Origin]'"));
+    CHECK(page->boolean("(function () { var a = new Origin(), b = new Origin(); return a.isSameOrigin(a) && a.isSameSite(a) && !a.isSameOrigin(b) && !a.isSameSite(b); })()"));
+    // Strings, parsed as URLs: tuple origins compare by scheme, host and port;
+    // sites by the scheme and the registrable domain.
+    CHECK(page->boolean("(function () { var a = Origin.from('https://a.example'); return !a.opaque"
+                        " && a.isSameOrigin(Origin.from('https://a.example:443/path?q#f'))"
+                        " && !a.isSameOrigin(Origin.from('https://a.example:8443'))"
+                        " && !a.isSameOrigin(Origin.from('https://b.a.example'))"
+                        " && a.isSameSite(Origin.from('https://b.a.example')) && Origin.from('https://b.a.example').isSameSite(Origin.from('https://c.a.example:99'))"
+                        " && !a.isSameSite(Origin.from('https://b.example')) && !a.isSameSite(Origin.from('https://a.b.example'))"
+                        " && !Origin.from('http://a.example').isSameOrigin(a) && !Origin.from('http://a.example').isSameSite(a); })()"));
+    CHECK(page->boolean("Origin.from('https://\xC3\xBCmlauted.example').isSameOrigin(Origin.from('https://xn--mlauted-m2a.example'))"
+                        " && Origin.from('https://user:pass@site.example').isSameOrigin(Origin.from('https://site.example'))"
+                        " && Origin.from('blob:https://example.com/some-guid').isSameOrigin(Origin.from('https://example.com'))"
+                        " && Origin.from('https://127.0.0.1/').isSameSite(Origin.from('https://127.0.0.1:8080/'))"
+                        " && !Origin.from('https://127.0.0.1/').isSameSite(Origin.from('https://127.0.0.2/'))"
+                        " && Origin.from('https://[::1]/').isSameOrigin(Origin.from('https://[0::1]:443'))"));
+    // An opaque origin from a string is a new one each time, kept by an
+    // Origin made from it.
+    CHECK(page->boolean("(function () { var d = Origin.from('data:text/plain,x'); return d.opaque && d.isSameOrigin(d) && d.isSameSite(d)"
+                        " && !d.isSameOrigin(Origin.from('data:text/plain,x')) && !d.isSameSite(Origin.from('data:text/plain,x'))"
+                        " && Origin.from(d).isSameOrigin(d) && Origin.from(d) !== d"
+                        " && Origin.from('weird-protocol:whatever').opaque && Origin.from('blob:weird-protocol:whatever').opaque"
+                        " && Origin.from('file:///path/to/a/file.txt').opaque && Origin.from('about:blank').opaque; })()"));
+    // A URL object's origin.
+    CHECK(page->boolean("Origin.from(new URL('https://site.example:123/p')).isSameOrigin(Origin.from('https://site.example:123')) && Origin.from(new URL('about:blank')).opaque"));
+    // Everything else throws this realm's TypeError: values that are not
+    // platform objects, strings that do not parse, a String object, a
+    // Location, a constructed MessageEvent, elements with no URL.
+    CHECK(page->boolean("[null, undefined, 1, 1.1, true, {}, Object, Origin, Origin.from, '', 'not-valid', new String('https://a.example'), location,"
+                        " new MessageEvent('message', { origin: 'https://example.test' }), document.createElement('a'), document.createElement('area'),"
+                        " document.createElement('div'), document.createElementNS('http://www.w3.org/2000/svg', 'a'),"
+                        " document.createElementNS('http://www.w3.org/1998/Math/MathML', 'a')].every(function (value) {"
+                        " try { Origin.from(value); } catch (e) { return e instanceof TypeError; } return false; })"));
+    CHECK(page->boolean("(function () { try { new Origin().isSameOrigin({}); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    CHECK(page->boolean("(function () { try { Object.getOwnPropertyDescriptor(Origin.prototype, 'opaque').get.call({}); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    // <a> and <area>: the origin of the href resolved against the document,
+    // an opaque one a new one each time.
+    CHECK(page->boolean("(function () { var a = document.createElement('a'); a.href = 'https://site.example/x'; var relative = document.createElement('a'); relative.href = 'other.html';"
+                        " var area = document.createElement('area'); area.href = 'data:,x';"
+                        " return Origin.from(a).isSameOrigin(Origin.from('https://site.example')) && Origin.from(relative).isSameOrigin(Origin.from('https://example.test'))"
+                        " && Origin.from(area).opaque && !Origin.from(area).isSameOrigin(Origin.from(area)); })()"));
+    // The SVG <a>: href an SVGAnimatedString over the href attribute, read
+    // from xlink:href when there is no href; the origin of what it reads.
+    CHECK(page->boolean("(function () { var a = document.createElementNS('http://www.w3.org/2000/svg', 'a');"
+                        " if (!(a instanceof SVGAElement) || !(a instanceof SVGElement) || !(a.href instanceof SVGAnimatedString) || a.href.baseVal !== '') return false;"
+                        " a.href.baseVal = 'https://site.example/y';"
+                        " return a.getAttribute('href') === 'https://site.example/y' && a.href.baseVal === 'https://site.example/y' && a.href.animVal === 'https://site.example/y'"
+                        " && Origin.from(a).isSameOrigin(Origin.from('https://site.example')); })()"));
+    CHECK(page->boolean("(function () { var a = document.createElementNS('http://www.w3.org/2000/svg', 'a');"
+                        " a.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', 'https://other.example/');"
+                        " if (a.href.baseVal !== 'https://other.example/' || !Origin.from(a).isSameOrigin(Origin.from('https://other.example'))) return false;"
+                        " a.setAttribute('href', 'data:,z'); return a.href.baseVal === 'data:,z' && Origin.from(a).opaque; })()"));
+    CHECK(page->boolean("(function () { var parsed = document.getElementById('parsedLink');"
+                        " return parsed.href.baseVal === 'https://parsed.example/' && Origin.from(parsed).isSameOrigin(Origin.from('https://parsed.example')); })()"));
+    // A window of this origin: its document's origin; an Origin made by
+    // another realm's from is that realm's, and compares all the same.
+    CHECK(page->boolean("!Origin.from(window).opaque && Origin.from(window).isSameOrigin(Origin.from('https://example.test'))"
+                        " && Origin.from(document.getElementById('same').contentWindow).isSameOrigin(Origin.from(window))"));
+    CHECK(page->boolean("(function () { var other = document.getElementById('same').contentWindow; var made = other.Origin.from('https://a.example');"
+                        " return made instanceof other.Origin && !(made instanceof Origin) && made.isSameOrigin(Origin.from('https://a.example')); })()"));
+    // A window of another origin gives this caller no origin.
+    CHECK(page->boolean("(function () { try { Origin.from(opaqueWindow); } catch (e) { return e instanceof TypeError; } return false; })()"));
+    // A document of an opaque origin keeps one identity for it, in its own
+    // Origin.from and in every message it posts.
+    CHECK(in_opaque_frame("(function () { var a = Origin.from(globalThis), b = Origin.from(window); return a.opaque && a.isSameOrigin(b)"
+                          " && !a.isSameOrigin(Origin.from('data:text/html,frame')); })()"));
+    // Messages: the origin of the document whose window posted them, not the
+    // receiver's.
+    CHECK(page->boolean("messages.length === 1 && messages[0].data === 'same' && messages[0].origin.isSameOrigin(Origin.from(window))"));
+    CHECK(in_opaque_frame("received.length === 3 && received[0].data === 'first' && received[0].origin.opaque"
+                          " && received[0].origin.isSameOrigin(received[1].origin) && received[1].origin.isSameOrigin(Origin.from(window))"));
+    CHECK(in_opaque_frame("received[2].data === 'from the page' && !received[2].origin.opaque && received[2].origin.isSameOrigin(Origin.from('https://example.test'))"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 } // namespace
 
 int main()
@@ -1880,5 +2016,6 @@ int main()
     test_an_iframe_has_the_initial_about_blank_document();
     test_a_window_of_another_origin_shows_little();
     test_document_domain_relaxes_the_same_origin_rule();
+    test_the_origin_interface();
     return test::report("test_bindings");
 }

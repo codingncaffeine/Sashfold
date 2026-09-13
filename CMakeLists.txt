@@ -50,6 +50,7 @@ add_library(sashfold_core STATIC
   src/bindings/HtmlElements.cpp
   src/bindings/LayoutOracle.cpp
   src/bindings/Node.cpp
+  src/bindings/Origin.cpp
   src/bindings/Realm.cpp
   src/bindings/Style.cpp
   src/bindings/Tasks.cpp

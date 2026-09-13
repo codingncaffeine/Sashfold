@@ -82,8 +82,10 @@ std::optional<MessagePortObject*> this_port(js::Interpreter& interp, js::Value c
     return interp.throw_type_error("Illegal invocation");
 }
 
-// Fires a MessageEvent carrying `data` at `target` (a port or the window).
-void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& data, std::string_view origin, js::Value const& source)
+// Fires a MessageEvent carrying `data` at `target` (a port or the window);
+// a message a window posted carries the origin of that window's document.
+void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& data, std::string_view origin, js::Value const& source,
+    std::optional<Origin> const& sender_origin = std::nullopt)
 {
     js::Interpreter::Roots const roots(in.interpreter);
     in.interpreter.root(js::Value::object(target));
@@ -95,6 +97,7 @@ void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& 
     event->detail_value = data;
     event->origin = std::string(origin);
     event->source_value = source;
+    event->sender_origin = sender_origin;
     event->is_trusted = true;
     in.dispatch(*event, target);
 }
@@ -251,9 +254,10 @@ void install_message_channel(Realm::Internals& in)
             required = parsed->serialize_origin();
         }
         bool const to_itself = &sender == &target;
+        Origin const sender_document_origin = document_origin(sender);
         auto payload = std::make_shared<js::Persistent>(interp.heap(), data);
         auto source = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(sender.window_proxy()));
-        target.post_task([&target, payload, source, required, sender_origin, to_itself] {
+        target.post_task([&target, payload, source, required, sender_origin, sender_document_origin, to_itself] {
             if (required) {
                 // An opaque origin matches nothing but the window itself.
                 std::string const own = target.origin_url.serialize_origin();
@@ -261,7 +265,7 @@ void install_message_channel(Realm::Internals& in)
                 if (opaque ? !to_itself : *required != own)
                     return;
             }
-            deliver_message(target, target.window_proxy(), payload->value(), sender_origin, source->value());
+            deliver_message(target, target.window_proxy(), payload->value(), sender_origin, source->value(), sender_document_origin);
         });
         return js::Value::undefined();
     });

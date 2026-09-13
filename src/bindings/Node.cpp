@@ -1382,6 +1382,80 @@ void install_character_data(Realm::Internals& in, js::Object& character_data, js
 
 } // namespace
 
+std::string const* svg_href(dom::Element const& element)
+{
+    // SVGURIReference: href, else the xlink:href SVG 2 keeps for old content —
+    // in the XLink namespace from the parser, named whole by setAttributeNS.
+    if (dom::Attr const* const href = element.find_attribute("href"))
+        return &href->value;
+    for (dom::Attr const& attribute : element.attributes()) {
+        if ((attribute.local_name == "href" && attribute.namespace_uri == dom::ns::xlink) || attribute.local_name == "xlink:href")
+            return &attribute.value;
+    }
+    return nullptr;
+}
+
+namespace {
+
+// An SVGAnimatedString (SVG 2 §4.4.7) over an element's href: baseVal reads
+// the attribute and writes href, and animVal, with no animation running,
+// reads what baseVal does.
+class AnimatedStringObject final : public ElementBackedObject {
+public:
+    AnimatedStringObject(js::Object* prototype, NodeWrapper& the_wrapper)
+        : ElementBackedObject(prototype, &the_wrapper)
+    {
+    }
+};
+
+std::optional<AnimatedStringObject*> this_animated_string(js::Interpreter& interp, js::Value const& this_value)
+{
+    if (this_value.is_object()) {
+        if (auto* animated = dynamic_cast<AnimatedStringObject*>(this_value.as_object()))
+            return animated;
+    }
+    return interp.throw_type_error("Illegal invocation");
+}
+
+// The SVG <a> element's interface, SVGAElement, as far as its href: what a
+// hyperlink's origin is read from.
+void install_svg_links(Realm::Internals& in, js::Object& svg_element)
+{
+    js::Object* animated_string = define_interface(in, "SVGAnimatedString", nullptr);
+    js::NativeFunction::Callback const read = [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<AnimatedStringObject*> const found = this_animated_string(interp, this_value);
+        if (!found)
+            return std::nullopt;
+        dom::Element const* const element = (*found)->element();
+        std::string const* const href = element ? svg_href(*element) : nullptr;
+        return internals_of(interp).string(href ? *href : std::string());
+    };
+    define_getter(in, *animated_string, "baseVal", read,
+        [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<AnimatedStringObject*> const found = this_animated_string(interp, this_value);
+            if (!found)
+                return std::nullopt;
+            std::optional<std::string> value = internals_of(interp).to_utf8(js::argument(args, 0));
+            if (!value)
+                return std::nullopt;
+            // The write is a mutation of the element's own document's realm.
+            if (dom::Element* const element = (*found)->element())
+                set_attribute((*found)->wrapper->realm().internals(), *element, "href", std::move(*value));
+            return js::Value::undefined();
+        });
+    define_getter(in, *animated_string, "animVal", read);
+
+    js::Object* anchor = define_interface(in, "SVGAElement", &svg_element);
+    element_getter(in, *anchor, "href", [](Realm::Internals& internals, dom::Element& e) -> Native {
+        js::Interpreter::Roots const roots(internals.interpreter);
+        NodeWrapper& wrapper = wrapper_for(internals, e);
+        internals.interpreter.root(js::Value::object(&wrapper));
+        return js::Value::object(internals.interpreter.heap().allocate<AnimatedStringObject>(internals.prototype("SVGAnimatedString"), wrapper));
+    });
+}
+
+} // namespace
+
 // --- install_nodes ---------------------------------------------------------------------------------
 
 void install_nodes(Realm::Internals& in)
@@ -1398,7 +1472,8 @@ void install_nodes(Realm::Internals& in)
     define_event_handlers(in, *element, global_event_types);
 
     js::Object* html_element = define_interface(in, "HTMLElement", element);
-    define_interface(in, "SVGElement", element);
+    js::Object* svg_element = define_interface(in, "SVGElement", element);
+    install_svg_links(in, *svg_element);
     define_interface(in, "MathMLElement", element);
     install_html_elements(in, *html_element);
 
