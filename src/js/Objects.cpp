@@ -1156,6 +1156,7 @@ void RegExpObject::trace(Tracer& tracer)
     Object::trace(tracer);
     tracer.visit(m_source);
     tracer.visit(m_flags);
+    tracer.visit(m_realm);
 }
 
 // ----------------------------------------------------------- Environment

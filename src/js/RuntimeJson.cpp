@@ -610,9 +610,18 @@ std::optional<Value> json_stringify(Interpreter& in, Args args)
     in.root(replacer);
     in.root(space);
     Stringifier stringifier { in, Value::undefined(), {}, false, {}, {}, {} };
+    // Step 4.b asks IsArray, which answers for a proxy's target and throws
+    // for a revoked proxy.
+    bool replacer_is_array = false;
+    if (!Interpreter::is_callable(replacer) && replacer.is_object()) {
+        std::optional<bool> const is_array = in.is_array(*replacer.as_object());
+        if (!is_array)
+            return std::nullopt;
+        replacer_is_array = *is_array;
+    }
     if (Interpreter::is_callable(replacer)) {
         stringifier.replacer_function = replacer;
-    } else if (Interpreter::is_array(replacer)) {
+    } else if (replacer_is_array) {
         // Step 4.b: the property list, strings and numbers only, in order
         // and without repeats.
         stringifier.has_property_list = true;

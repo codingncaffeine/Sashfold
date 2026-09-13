@@ -1,4 +1,4 @@
-# test262 tests passing (40324 of 41791) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
+# test262 tests passing (40358 of 41791) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
 # One test per line; a listed test that fails is a regression.
 # Re-bless with: test262_runner <checkout> <directories> <this file> --update
 test/annexB/built-ins/Date/prototype/getYear/B.2.4.js
@@ -63,8 +63,10 @@ test/annexB/built-ins/RegExp/prototype/compile/pattern-string-u.js
 test/annexB/built-ins/RegExp/prototype/compile/pattern-string.js
 test/annexB/built-ins/RegExp/prototype/compile/pattern-to-string-err.js
 test/annexB/built-ins/RegExp/prototype/compile/pattern-undefined.js
+test/annexB/built-ins/RegExp/prototype/compile/this-cross-realm-instance.js
 test/annexB/built-ins/RegExp/prototype/compile/this-not-object.js
 test/annexB/built-ins/RegExp/prototype/compile/this-obj-not-regexp.js
+test/annexB/built-ins/RegExp/prototype/compile/this-subclass-instance.js
 test/annexB/built-ins/RegExp/prototype/flags/order-after-compile.js
 test/annexB/built-ins/String/prototype/anchor/B.2.3.2.js
 test/annexB/built-ins/String/prototype/anchor/attr-tostring-err.js
@@ -1096,6 +1098,7 @@ test/built-ins/Array/constructor.js
 test/built-ins/Array/from/Array.from-descriptor.js
 test/built-ins/Array/from/Array.from-name.js
 test/built-ins/Array/from/Array.from_arity.js
+test/built-ins/Array/from/Array.from_forwards-length-for-array-likes.js
 test/built-ins/Array/from/array-like-has-length-but-no-indexes-with-values.js
 test/built-ins/Array/from/calling-from-valid-1-noStrict.js
 test/built-ins/Array/from/calling-from-valid-1-onlyStrict.js
@@ -1109,6 +1112,8 @@ test/built-ins/Array/from/get-iter-method-err.js
 test/built-ins/Array/from/items-is-arraybuffer.js
 test/built-ins/Array/from/items-is-null-throws.js
 test/built-ins/Array/from/iter-adv-err.js
+test/built-ins/Array/from/iter-cstm-ctor-err.js
+test/built-ins/Array/from/iter-cstm-ctor.js
 test/built-ins/Array/from/iter-get-iter-err.js
 test/built-ins/Array/from/iter-get-iter-val-err.js
 test/built-ins/Array/from/iter-map-fn-args.js
@@ -1117,16 +1122,21 @@ test/built-ins/Array/from/iter-map-fn-return.js
 test/built-ins/Array/from/iter-map-fn-this-arg.js
 test/built-ins/Array/from/iter-map-fn-this-non-strict.js
 test/built-ins/Array/from/iter-map-fn-this-strict.js
+test/built-ins/Array/from/iter-set-elem-prop-err.js
 test/built-ins/Array/from/iter-set-elem-prop-non-writable.js
 test/built-ins/Array/from/iter-set-elem-prop.js
+test/built-ins/Array/from/iter-set-length-err.js
 test/built-ins/Array/from/iter-set-length.js
 test/built-ins/Array/from/mapfn-is-not-callable-typeerror.js
 test/built-ins/Array/from/mapfn-is-symbol-throws.js
 test/built-ins/Array/from/mapfn-throws-exception.js
 test/built-ins/Array/from/not-a-constructor.js
+test/built-ins/Array/from/proto-from-ctor-realm.js
 test/built-ins/Array/from/source-array-boundary.js
+test/built-ins/Array/from/source-object-constructor.js
 test/built-ins/Array/from/source-object-iterator-1.js
 test/built-ins/Array/from/source-object-iterator-2.js
+test/built-ins/Array/from/source-object-length-set-elem-prop-err.js
 test/built-ins/Array/from/source-object-length-set-elem-prop-non-writable.js
 test/built-ins/Array/from/source-object-length.js
 test/built-ins/Array/from/source-object-missing.js
@@ -1194,6 +1204,7 @@ test/built-ins/Array/length/define-own-prop-length-no-value-order.js
 test/built-ins/Array/length/define-own-prop-length-overflow-order.js
 test/built-ins/Array/length/define-own-prop-length-overflow-realm.js
 test/built-ins/Array/name.js
+test/built-ins/Array/of/construct-this-with-the-number-of-arguments.js
 test/built-ins/Array/of/creates-a-new-array-from-arguments.js
 test/built-ins/Array/of/does-not-use-prototype-properties.js
 test/built-ins/Array/of/does-not-use-set-for-indices.js
@@ -1201,7 +1212,14 @@ test/built-ins/Array/of/length.js
 test/built-ins/Array/of/name.js
 test/built-ins/Array/of/not-a-constructor.js
 test/built-ins/Array/of/of.js
+test/built-ins/Array/of/proto-from-ctor-realm.js
+test/built-ins/Array/of/return-a-custom-instance.js
 test/built-ins/Array/of/return-a-new-array-object.js
+test/built-ins/Array/of/return-abrupt-from-contructor.js
+test/built-ins/Array/of/return-abrupt-from-data-property-using-proxy.js
+test/built-ins/Array/of/return-abrupt-from-data-property.js
+test/built-ins/Array/of/return-abrupt-from-setting-length.js
+test/built-ins/Array/of/sets-length.js
 test/built-ins/Array/prop-desc.js
 test/built-ins/Array/property-cast-boolean-primitive.js
 test/built-ins/Array/property-cast-nan-infinity.js
@@ -4285,6 +4303,7 @@ test/built-ins/AsyncFunction/instance-length.js
 test/built-ins/AsyncFunction/instance-prototype-property.js
 test/built-ins/AsyncFunction/is-a-constructor.js
 test/built-ins/AsyncFunction/is-not-a-global.js
+test/built-ins/AsyncFunction/proto-from-ctor-realm.js
 test/built-ins/AsyncGeneratorFunction/extensibility.js
 test/built-ins/AsyncGeneratorFunction/has-instance.js
 test/built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js
@@ -4300,6 +4319,8 @@ test/built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js
 test/built-ins/AsyncGeneratorFunction/is-a-constructor.js
 test/built-ins/AsyncGeneratorFunction/length.js
 test/built-ins/AsyncGeneratorFunction/name.js
+test/built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js
+test/built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js
 test/built-ins/AsyncGeneratorFunction/prototype/Symbol.toStringTag.js
 test/built-ins/AsyncGeneratorFunction/prototype/constructor.js
 test/built-ins/AsyncGeneratorFunction/prototype/extensibility.js
@@ -5833,10 +5854,13 @@ test/built-ins/Function/StrictFunction_restricted-properties.js
 test/built-ins/Function/call-bind-this-realm-undef.js
 test/built-ins/Function/call-bind-this-realm-value.js
 test/built-ins/Function/instance-name.js
+test/built-ins/Function/internals/Call/class-ctor-realm.js
 test/built-ins/Function/internals/Call/class-ctor.js
 test/built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js
 test/built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js
+test/built-ins/Function/internals/Construct/derived-return-val-realm.js
 test/built-ins/Function/internals/Construct/derived-return-val.js
+test/built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js
 test/built-ins/Function/internals/Construct/derived-this-uninitialized.js
 test/built-ins/Function/is-a-constructor.js
 test/built-ins/Function/length/15.3.3.2-1.js
@@ -5855,6 +5879,8 @@ test/built-ins/Function/length/S15.3.5.1_A4_T3.js
 test/built-ins/Function/private-identifiers-not-empty.js
 test/built-ins/Function/prop-desc.js
 test/built-ins/Function/property-order.js
+test/built-ins/Function/proto-from-ctor-realm-prototype.js
+test/built-ins/Function/proto-from-ctor-realm.js
 test/built-ins/Function/prototype/S15.3.3.1_A1.js
 test/built-ins/Function/prototype/S15.3.3.1_A2.js
 test/built-ins/Function/prototype/S15.3.3.1_A3.js
@@ -6166,6 +6192,8 @@ test/built-ins/GeneratorFunction/invoked-as-function-single-argument.js
 test/built-ins/GeneratorFunction/is-a-constructor.js
 test/built-ins/GeneratorFunction/length.js
 test/built-ins/GeneratorFunction/name.js
+test/built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js
+test/built-ins/GeneratorFunction/proto-from-ctor-realm.js
 test/built-ins/GeneratorFunction/prototype/Symbol.toStringTag.js
 test/built-ins/GeneratorFunction/prototype/constructor.js
 test/built-ins/GeneratorFunction/prototype/extensibility.js
@@ -6323,11 +6351,15 @@ test/built-ins/JSON/stringify/name.js
 test/built-ins/JSON/stringify/not-a-constructor.js
 test/built-ins/JSON/stringify/prop-desc.js
 test/built-ins/JSON/stringify/property-order.js
+test/built-ins/JSON/stringify/replacer-array-abrupt.js
 test/built-ins/JSON/stringify/replacer-array-duplicates.js
 test/built-ins/JSON/stringify/replacer-array-empty.js
 test/built-ins/JSON/stringify/replacer-array-number-object.js
 test/built-ins/JSON/stringify/replacer-array-number.js
 test/built-ins/JSON/stringify/replacer-array-order.js
+test/built-ins/JSON/stringify/replacer-array-proxy-revoked-realm.js
+test/built-ins/JSON/stringify/replacer-array-proxy-revoked.js
+test/built-ins/JSON/stringify/replacer-array-proxy.js
 test/built-ins/JSON/stringify/replacer-array-string-object.js
 test/built-ins/JSON/stringify/replacer-array-undefined.js
 test/built-ins/JSON/stringify/replacer-array-wrong-type.js
@@ -24455,6 +24487,7 @@ test/language/expressions/class/subclass-builtins/subclass-Error.js
 test/language/expressions/class/subclass-builtins/subclass-EvalError.js
 test/language/expressions/class/subclass-builtins/subclass-Float32Array.js
 test/language/expressions/class/subclass-builtins/subclass-Float64Array.js
+test/language/expressions/class/subclass-builtins/subclass-Function.js
 test/language/expressions/class/subclass-builtins/subclass-Int16Array.js
 test/language/expressions/class/subclass-builtins/subclass-Int32Array.js
 test/language/expressions/class/subclass-builtins/subclass-Int8Array.js
@@ -35652,6 +35685,7 @@ test/language/statements/class/subclass-builtins/subclass-Error.js
 test/language/statements/class/subclass-builtins/subclass-EvalError.js
 test/language/statements/class/subclass-builtins/subclass-Float32Array.js
 test/language/statements/class/subclass-builtins/subclass-Float64Array.js
+test/language/statements/class/subclass-builtins/subclass-Function.js
 test/language/statements/class/subclass-builtins/subclass-Int16Array.js
 test/language/statements/class/subclass-builtins/subclass-Int32Array.js
 test/language/statements/class/subclass-builtins/subclass-Int8Array.js

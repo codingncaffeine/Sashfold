@@ -514,9 +514,11 @@ public:
     std::optional<Value> compile_function(std::u16string_view parameters, std::u16string_view body,
         Environment* scope = nullptr, DynamicFunctionKind kind = DynamicFunctionKind::Normal);
     // CreateDynamicFunction (§20.2.1.1.1) proper — `Function` and its kin —
-    // which asks the host first: HostEnsureCanCompileStrings, below.
+    // which asks the host first: HostEnsureCanCompileStrings, below. The
+    // function's [[Prototype]] comes from new.target (null when called),
+    // and the function itself belongs to the running realm.
     std::optional<Value> create_dynamic_function(std::u16string_view parameters, std::u16string_view body,
-        DynamicFunctionKind kind = DynamicFunctionKind::Normal);
+        DynamicFunctionKind kind, Object* new_target);
     // HostEnsureCanCompileStrings (§19.2.1.2): asked before eval, direct
     // or indirect, and before Function and its kin compile a string; a
     // message back is the EvalError thrown instead. Unset, every string

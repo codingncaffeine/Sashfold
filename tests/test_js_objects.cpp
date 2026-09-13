@@ -1665,7 +1665,7 @@ void test_trace_under_stress(Fixture& fx)
     made.push_back(string_object);
     std::optional<js::Regex> regex = js::Regex::compile(u"a+", js::RegexFlags {});
     CHECK(regex.has_value());
-    js::RegExpObject* regexp = heap.allocate<js::RegExpObject>(nullptr, std::move(*regex), regexp_source, regexp_flags);
+    js::RegExpObject* regexp = heap.allocate<js::RegExpObject>(nullptr, std::move(*regex), regexp_source, regexp_flags, nullptr, true);
     top->put(k_regexp, js::Value::object(regexp));
     made.push_back(regexp);
 

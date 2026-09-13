@@ -563,19 +563,24 @@ std::optional<Value> index_of(Interpreter& in, Value const& this_value, Args arg
     return not_found;
 }
 
-std::optional<Value> array_from_values(Interpreter& in, std::vector<Value> const& values)
+// What Array.from and Array.of fill (§23.1.2.1 steps 5.a and 9, §23.1.2.3
+// step 4): `this` constructed — with the length, when there is one — if it
+// is a constructor, an array otherwise. This realm's own Array is made
+// directly, which nothing can tell from constructing it. The constructor
+// is the caller's to root.
+std::optional<Object*> construct_or_array(Interpreter& in, Value const& constructor, std::optional<double> length)
 {
-    // The values are the caller's and rooted by it.
-    std::optional<ArrayObject*> const array = array_create(in, 0);
-    if (!array)
-        return std::nullopt;
-    Interpreter::Roots const roots(in);
-    in.root(Value::object(*array));
-    for (std::size_t k = 0; k < values.size(); ++k) {
-        if (!create_at(in, **array, static_cast<double>(k), values[k]))
+    if (!Interpreter::is_constructor(constructor) || constructor.as_object() == in.intrinsics().array_constructor) {
+        std::optional<ArrayObject*> const array = array_create(in, length.value_or(0));
+        if (!array)
             return std::nullopt;
+        return *array;
     }
-    return Value::object(*array);
+    Value const count[1] = { Value::number(length.value_or(0)) };
+    std::optional<Value> const constructed = length ? in.construct(constructor, count) : in.construct(constructor, {});
+    if (!constructed)
+        return std::nullopt;
+    return constructed->as_object();
 }
 
 // Array(...) called or constructed (§23.1.1.1).
@@ -1312,24 +1317,40 @@ void install_array(Interpreter& in)
             return std::nullopt;
         return Value::boolean(*array);
     });
-    define_method(in, *constructor, "of", 0, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
-        // §23.1.2.3, over the realm's Array (no subclass constructors).
+    define_method(in, *constructor, "of", 0, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
+        // §23.1.2.3: `this` constructed with the count when it is a
+        // constructor, an array otherwise; the values defined in order,
+        // then the length set.
         Interpreter::Roots const roots(interp);
         std::vector<Value> values(args.begin(), args.end());
         for (Value const& value : values)
             interp.root(value);
-        return array_from_values(interp, values);
+        interp.root(this_value);
+        auto const length = static_cast<double>(values.size());
+        std::optional<Object*> const array = construct_or_array(interp, this_value, length);
+        if (!array)
+            return std::nullopt;
+        interp.root(Value::object(*array));
+        for (std::size_t k = 0; k < values.size(); ++k) {
+            if (!create_at(interp, **array, static_cast<double>(k), values[k]))
+                return std::nullopt;
+        }
+        if (!set_length(interp, **array, length))
+            return std::nullopt;
+        return Value::object(*array);
     });
-    define_method(in, *constructor, "from", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
+    define_method(in, *constructor, "from", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
         // §23.1.2.1: an iterable is walked with its @@iterator, read once;
-        // anything else is read as an array-like by its length. Both build
-        // the realm's Array (no subclass constructors).
+        // anything else is read as an array-like by its length. Both fill
+        // `this` constructed when it is a constructor, an array otherwise —
+        // for an iterable, before the iterator is asked for.
         Interpreter::Roots const roots(interp);
         Value const items = argument(args, 0);
         Value const mapper = argument(args, 1);
         if (!mapper.is_undefined() && !Interpreter::is_callable(mapper))
             return interp.throw_type_error(interp.describe(mapper) + " is not a function");
         Value const this_argument = argument(args, 2);
+        interp.root(this_value);
         interp.root(items);
         interp.root(mapper);
         interp.root(this_argument);
@@ -1338,13 +1359,16 @@ void install_array(Interpreter& in)
             return std::nullopt;
         if (!using_iterator->is_undefined()) {
             interp.root(*using_iterator);
+            std::optional<Object*> const constructed = construct_or_array(interp, this_value, std::nullopt);
+            if (!constructed)
+                return std::nullopt;
+            Object* array = *constructed;
+            interp.root(Value::object(array));
             std::optional<IteratorRecord> record = interp.get_iterator_from_method(items, *using_iterator);
             if (!record)
                 return std::nullopt;
             interp.root(record->iterator);
             interp.root(record->next_method);
-            ArrayObject* array = interp.new_array();
-            interp.root(Value::object(array));
             double k = 0;
             while (true) {
                 Interpreter::Roots const element_roots(interp);
@@ -1383,7 +1407,7 @@ void install_array(Interpreter& in)
         std::optional<double> const length = interp.length_of_array_like(**array_like);
         if (!length)
             return std::nullopt;
-        std::optional<ArrayObject*> const array = array_create(interp, *length);
+        std::optional<Object*> const array = construct_or_array(interp, this_value, *length);
         if (!array)
             return std::nullopt;
         interp.root(Value::object(*array));

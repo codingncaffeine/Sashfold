@@ -553,15 +553,17 @@ std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& fun
 {
     // PrepareForOrdinaryCall (§10.2.1.1): the callee's realm is current for
     // the call, and the caller's comes back however it ends.
+    RealmRecord* const caller_realm = self.m_realm;
     RealmScope const realm_scope(self, function.realm());
     FunctionNode const& node = function.node();
     if (node.is_async && !node.is_generator)
         return call_async_function(function, this_argument, arguments);
-    return run_script_function(function, this_argument, arguments, new_target, field_key, nullptr);
+    return run_script_function(function, this_argument, arguments, new_target, field_key, nullptr, caller_realm);
 }
 
 std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& function, Value const& this_argument,
-    std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key, PromiseCapability const* async_capability)
+    std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key, PromiseCapability const* async_capability,
+    RealmRecord* caller_realm)
 {
     FunctionNode const& node = function.node();
     Roots const roots(self);
@@ -733,12 +735,14 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
         if (!value)
             return std::nullopt;
     }
-    // [[Construct]] of a derived class (§10.2.2 steps 10–12): an object
-    // returned is the result, anything else but undefined a TypeError,
-    // and undefined yields the `this` that super() bound.
+    // [[Construct]] of a derived class (§10.2.2 steps 9–12), back in the
+    // caller's context: an object returned is the result, anything else but
+    // undefined a TypeError, and undefined yields the `this` that super()
+    // bound — each error made in the caller's realm.
     if (new_target != nullptr && node.is_derived_constructor) {
         if (value->is_object())
             return *value;
+        RealmScope const caller(self, caller_realm);
         if (!value->is_undefined())
             return self.throw_type_error("Derived constructors may only return object or undefined");
         if (!variable->this_initialized())
@@ -2701,14 +2705,39 @@ std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environmen
 }
 
 std::optional<Value> Interpreter::create_dynamic_function(std::u16string_view parameters, std::u16string_view body,
-    DynamicFunctionKind kind)
+    DynamicFunctionKind kind, Object* new_target)
 {
     // CreateDynamicFunction step 3: HostEnsureCanCompileStrings.
     if (on_compile_strings) {
         if (std::optional<std::string> const refused = on_compile_strings())
             return throw_error(ErrorType::EvalError, *refused);
     }
-    return compile_function(parameters, body, nullptr, kind);
+    Roots const roots(*this);
+    if (new_target != nullptr)
+        root(Value::object(new_target));
+    std::optional<Value> const function = compile_function(parameters, body, nullptr, kind);
+    if (!function)
+        return std::nullopt;
+    root(*function);
+    // Step 28, once the text has parsed: the [[Prototype]] from new.target,
+    // else the kind's function prototype of new.target's realm.
+    std::optional<Object*> const prototype = get_prototype_from_constructor(new_target, [kind](Intrinsics const& intrinsics) {
+        switch (kind) {
+        case DynamicFunctionKind::Generator:
+            return intrinsics.generator_function_prototype;
+        case DynamicFunctionKind::Async:
+            return intrinsics.async_function_prototype;
+        case DynamicFunctionKind::AsyncGenerator:
+            return intrinsics.async_generator_function_prototype;
+        case DynamicFunctionKind::Normal:
+            break;
+        }
+        return intrinsics.function_prototype;
+    });
+    if (!prototype)
+        return std::nullopt;
+    function->as_object()->set_prototype(*prototype);
+    return function;
 }
 
 std::optional<Value> Interpreter::compile_function(std::u16string_view parameters, std::u16string_view body, Environment* scope,
@@ -2779,9 +2808,12 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
 
 std::optional<Value> ScriptFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
-    // §10.2.1 step 2: a class constructor is only for `new`.
-    if (m_node->is_class_constructor)
+    // §10.2.1 steps 2–4: a class constructor is only for `new`, and the
+    // TypeError is made in the callee's context, with the class's realm.
+    if (m_node->is_class_constructor) {
+        Interpreter::RealmScope const realm_scope(interpreter, realm());
         return interpreter.throw_type_error("Class constructor " + (m_node->name ? m_node->name->to_utf8() : std::string()) + " cannot be invoked without 'new'");
+    }
     return interpreter.m_impl->call_script_function(*this, this_value, arguments, nullptr);
 }
 

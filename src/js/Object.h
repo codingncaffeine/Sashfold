@@ -520,16 +520,22 @@ private:
 
 class RegExpObject : public Object {
 public:
-    RegExpObject(Object* prototype, Regex regex, JsString* source, JsString* flags)
+    RegExpObject(Object* prototype, Regex regex, JsString* source, JsString* flags, RealmRecord* realm, bool legacy_features)
         : Object(prototype, Class::RegExp)
         , m_regex(std::move(regex))
         , m_source(source)
         , m_flags(flags)
+        , m_realm(realm)
+        , m_legacy_features(legacy_features)
     {
     }
     Regex const& regex() const { return m_regex; }
     JsString* source() const { return m_source; }
     JsString* flags() const { return m_flags; }
+    // The legacy RegExp features' slots: the realm the object was made in,
+    // and whether that realm's own RegExp made it rather than a subclass.
+    RealmRecord* realm() const { return m_realm; }
+    bool legacy_features() const { return m_legacy_features; }
     // RegExpInitialize over an existing object (B.2.4.1 compile).
     void reset(Regex regex, JsString* source, JsString* flags)
     {
@@ -543,6 +549,8 @@ private:
     Regex m_regex;
     JsString* m_source;
     JsString* m_flags;
+    RealmRecord* m_realm;
+    bool m_legacy_features;
 };
 
 // %ArrayIteratorPrototype%'s instances (§23.1.5.1): the array-like being

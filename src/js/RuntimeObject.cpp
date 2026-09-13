@@ -1245,7 +1245,7 @@ void install_function(Interpreter& in)
         [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
             return interp.intrinsics().function_constructor->construct(interp, args, nullptr);
         },
-        [](Interpreter& interp, Args args, Object*) -> std::optional<Value> {
+        [](Interpreter& interp, Args args, Object* new_target) -> std::optional<Value> {
             // CreateDynamicFunction (§20.2.1.1.1): the last argument is
             // the body, the rest join as the parameter list.
             Interpreter::Roots const roots(interp);
@@ -1264,7 +1264,7 @@ void install_function(Interpreter& in)
                     parameters += (*text)->data();
                 }
             }
-            return interp.create_dynamic_function(parameters, body);
+            return interp.create_dynamic_function(parameters, body, DynamicFunctionKind::Normal, new_target);
         });
     i.function_constructor = constructor;
 

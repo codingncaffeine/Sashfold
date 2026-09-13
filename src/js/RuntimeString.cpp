@@ -249,13 +249,18 @@ std::optional<Compiled> compile_regexp(Interpreter& in, Value const& pattern, Va
     return compiled;
 }
 
-std::optional<Value> regexp_create(Interpreter& in, Value const& pattern, Value const& flags, Object* prototype)
+// RegExpAlloc and RegExpInitialize (§22.2.3.2–3). The object keeps the
+// realm it was made in, and whether the legacy RegExp features are enabled
+// for it: always for RegExpCreate's, and for the constructor's only when
+// new.target is this realm's RegExp.
+std::optional<Value> regexp_create(Interpreter& in, Value const& pattern, Value const& flags, Object* prototype, bool legacy_features = true)
 {
     std::optional<Compiled> compiled = compile_regexp(in, pattern, flags);
     if (!compiled)
         return std::nullopt;
     Heap::NoCollect const guard(in.heap());
-    auto* object = in.heap().allocate<RegExpObject>(prototype, std::move(compiled->regex), compiled->source, compiled->flags);
+    auto* object = in.heap().allocate<RegExpObject>(prototype, std::move(compiled->regex), compiled->source, compiled->flags,
+        in.current_realm(), legacy_features);
     object->put(PropertyKey::atom(in.atoms().last_index), Value::number(0), Writable);
     return Value::object(object);
 }
@@ -766,7 +771,7 @@ std::optional<Value> construct_regexp(Interpreter& in, Args args, Object* new_ta
     std::optional<Object*> const prototype = in.get_prototype_from_constructor(new_target, &Intrinsics::regexp_prototype);
     if (!prototype)
         return std::nullopt;
-    return regexp_create(in, p, f, *prototype);
+    return regexp_create(in, p, f, *prototype, new_target == regexp_constructor);
 }
 
 // A flag getter (§22.2.6.5 and its siblings): the flag for a RegExp,
@@ -849,10 +854,16 @@ void install_regexp_library(Interpreter& in)
         return make_string(interp, u"/" + (*source_text)->data() + u"/" + (*flags_text)->data());
     });
     define_method(in, prototype, "compile", 2, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
-        // B.2.4.1: the object is re-initialized in place.
+        // B.2.4.1: the object is re-initialized in place — only one of this
+        // realm, and only one this realm's own RegExp made, as the legacy
+        // RegExp features have it.
         std::optional<RegExpObject*> const regexp = this_regexp_object(interp, this_value, "compile");
         if (!regexp)
             return std::nullopt;
+        if ((*regexp)->realm() != interp.current_realm())
+            return interp.throw_type_error("RegExp.prototype.compile requires a RegExp of its own realm");
+        if (!(*regexp)->legacy_features())
+            return interp.throw_type_error("RegExp.prototype.compile cannot recompile a RegExp subclass's instance");
         Interpreter::Roots const roots(interp);
         interp.root(this_value);
         Value pattern = argument(args, 0);

@@ -146,9 +146,11 @@ struct Interpreter::Impl {
     // run_script_function — the prologue, then the body on the machine.
     std::optional<Value> call_script_function(ScriptFunction& function, Value const& this_argument,
         std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key = nullptr);
+    // A derived constructor's result is judged back in the caller's context
+    // (§10.2.2 steps 9–12), so its errors are made in `caller_realm`.
     std::optional<Value> run_script_function(ScriptFunction& function, Value const& this_argument,
         std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key,
-        PromiseCapability const* async_capability);
+        PromiseCapability const* async_capability, RealmRecord* caller_realm = nullptr);
 
     // ---- classes
     Object* home_object_of(Context const& cx);

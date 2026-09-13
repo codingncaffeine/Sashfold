@@ -28,8 +28,9 @@ std::optional<GeneratorObject*> this_generator(Interpreter& in, Value const& thi
 }
 
 // CreateDynamicFunction (§20.2.1.1.1) for the generator and async kinds:
-// the last argument is the body, the rest join as the parameter list.
-std::optional<Value> dynamic_function(Interpreter& in, Args arguments, DynamicFunctionKind kind)
+// the last argument is the body, the rest join as the parameter list;
+// new.target is null when the constructor is called.
+std::optional<Value> dynamic_function(Interpreter& in, Args arguments, DynamicFunctionKind kind, Object* new_target)
 {
     Interpreter::Roots const roots(in);
     std::u16string parameters;
@@ -47,7 +48,7 @@ std::optional<Value> dynamic_function(Interpreter& in, Args arguments, DynamicFu
             parameters += (*text)->data();
         }
     }
-    return in.create_dynamic_function(parameters, body, kind);
+    return in.create_dynamic_function(parameters, body, kind, new_target);
 }
 
 // A constructor like %GeneratorFunction%: called or constructed, it makes
@@ -57,8 +58,8 @@ NativeFunction* dynamic_function_constructor(Interpreter& in, std::string_view n
 {
     NativeFunction* constructor = in.new_native(
         name, 1,
-        [kind](Interpreter& interp, Value const&, Args arguments) -> std::optional<Value> { return dynamic_function(interp, arguments, kind); },
-        [kind](Interpreter& interp, Args arguments, Object*) -> std::optional<Value> { return dynamic_function(interp, arguments, kind); });
+        [kind](Interpreter& interp, Value const&, Args arguments) -> std::optional<Value> { return dynamic_function(interp, arguments, kind, nullptr); },
+        [kind](Interpreter& interp, Args arguments, Object* new_target) -> std::optional<Value> { return dynamic_function(interp, arguments, kind, new_target); });
     constructor->set_prototype(in.intrinsics().function_constructor);
     constructor->put(PropertyKey::atom(in.atoms().prototype), Value::object(&function_prototype), frozen_attributes);
     function_prototype.put(PropertyKey::atom(in.atoms().constructor), Value::object(constructor), Configurable);

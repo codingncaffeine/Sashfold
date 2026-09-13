@@ -10,9 +10,13 @@
 // generator resumed through another realm's next() runs in its own; each
 // call puts its caller's realm back however it ends. A constructor whose
 // new.target has no object for a `prototype` takes the default from
-// new.target's realm, through bound functions and proxies; another realm's
-// %Array% as an array's constructor makes an array of this realm; and
-// Symbol.for keeps one registry for every realm.
+// new.target's realm, through bound functions and proxies — Function and
+// its kin too, while Array.from and Array.of construct `this`; another
+// realm's %Array% as an array's constructor makes an array of this realm;
+// and Symbol.for keeps one registry for every realm. A class constructor
+// called without `new` throws its own realm's error, a derived
+// constructor's result is judged in its caller's realm, and
+// RegExp.prototype.compile refuses another realm's object.
 
 using namespace sashfold;
 
@@ -101,6 +105,35 @@ int main()
                       "Object.getPrototypeOf(Reflect.construct(Array, [], new Proxy(E, {}))) === other.Array.prototype");
     CHECK_JS_TRUE(in, "Object.getPrototypeOf(Array.prototype.map.call(new other.Array(1, 2), function (x) { return x; })) === Array.prototype");
     CHECK_JS_TRUE(in, "other.Symbol.for('shared') === Symbol.for('shared') && other.Symbol.keyFor(Symbol.for('shared')) === 'shared'");
+    CHECK(in.current_realm() == a);
+
+    // A class constructor called without `new` throws its own realm's
+    // TypeError; a derived constructor's result is judged back in the
+    // caller's context, so those errors are the caller's realm's.
+    CHECK_JS_TRUE(in, "var OC = other.eval('(class {})');"
+                      "(function () { try { OC(); } catch (e) { return e instanceof other.TypeError; } })()");
+    CHECK_JS_TRUE(in, "var DR = other.eval('(class extends Object { constructor() { return null; } })');"
+                      "(function () { try { new DR(); } catch (e) { return e instanceof TypeError; } })()");
+    CHECK_JS_TRUE(in, "var DU = other.eval('(class extends Object { constructor() {} })');"
+                      "(function () { try { new DU(); } catch (e) { return e instanceof ReferenceError; } })()");
+    // Function and its kin take the [[Prototype]] from new.target's realm;
+    // the function made is the constructor's realm's.
+    CHECK_JS_TRUE(in, "var F = new other.Function(); F.prototype = null;"
+                      "var made = Reflect.construct(Function, ['return []'], F);"
+                      "Object.getPrototypeOf(made) === other.Function.prototype && Object.getPrototypeOf(made()) === Array.prototype");
+    CHECK_JS_TRUE(in, "Object.getPrototypeOf(Reflect.construct(Object.getPrototypeOf(function* () {}).constructor, [], F))"
+                      " === Object.getPrototypeOf(other.eval('(function* () {})'))");
+    // Array.from and Array.of construct `this`.
+    CHECK_JS_TRUE(in, "Object.getPrototypeOf(Array.from.call(F, [1])) === other.Object.prototype"
+                      " && Object.getPrototypeOf(Array.of.call(F, 1)) === other.Object.prototype");
+    CHECK_JS_TRUE(in, "function Pack() {} var packed = Array.of.call(Pack, 'a', 'b');"
+                      "packed instanceof Pack && packed.length === 2 && packed[1] === 'b'");
+    // RegExp.prototype.compile refuses another realm's object and a
+    // subclass's instance.
+    CHECK_JS_TRUE(in, "var otherRegExp = new other.RegExp('a');"
+                      "(function () { try { RegExp.prototype.compile.call(otherRegExp); } catch (e) { return e instanceof TypeError; } })()"
+                      " && otherRegExp.compile('b') === otherRegExp && otherRegExp.source === 'b'");
+    CHECK_JS_TRUE(in, "(function () { try { new (class extends RegExp {})('a').compile(); } catch (e) { return e instanceof TypeError; } })()");
     CHECK(in.current_realm() == a);
 
     return test::report("js realm");
