@@ -800,6 +800,25 @@ struct Realm::Internals {
     std::unordered_map<dom::Element const*, std::uint64_t> frame_navigations;
     void schedule_frame_navigation(dom::Element& iframe, FrameNavigation navigation);
     void navigate_frame(dom::Element& iframe, std::uint64_t number, FrameNavigation const& navigation);
+    // What each object and embed of this document represents, once decided
+    // (HTML §4.8.6, §4.8.7): a window for a document, an image, the object's
+    // fallback content, or nothing; kept only while the element is in the
+    // tree. And the update of each asked for last, by its number, as
+    // frame_navigations keeps navigations.
+    enum class Represents : std::uint8_t { Nothing, Navigable, Image, Fallback };
+    std::unordered_map<dom::Element const*, Represents> embedder_states;
+    std::unordered_map<dom::Element const*, std::uint64_t> embedder_updates;
+    // HTML's "(re)determine what the object element represents" and the embed
+    // element's setup steps, in a task after what asked for them: a queued
+    // update that is no longer the last does nothing.
+    void schedule_embedder_update(dom::Element& element);
+    void run_embedder_update(dom::Element& element, std::uint64_t number);
+    // The update itself, now: the element's window opened, navigated or
+    // closed, and its load or error event fired.
+    void update_embedder(dom::Element& element);
+    // Whether the element may show nothing of its own: inside a media element,
+    // inside an object that is not showing its fallback, or not rendered.
+    bool embedder_blocked(dom::Element const& element) const;
     // Runs a javascript: URL in the document of an iframe's frame (HTML's
     // "navigate to a javascript: URL"): a string result replaces the document.
     void run_javascript_url(dom::Element& iframe, net::Url const& url, FrameNavigation const& navigation);

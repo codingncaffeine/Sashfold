@@ -93,8 +93,13 @@ std::string_view text_of(std::vector<std::uint8_t> const& bytes)
 
 void find_frames(layout::Fragment& fragment, std::vector<layout::Fragment*>& out)
 {
-    if (fragment.element && bindings::is_navigable_container(*fragment.element) && fragment.image)
-        out.push_back(&fragment);
+    // An iframe's or a frame's document is drawn; an object's or an embed's
+    // window is not drawn yet.
+    if (fragment.element && fragment.image) {
+        bindings::ContainerKind const kind = bindings::container_kind(*fragment.element);
+        if (kind == bindings::ContainerKind::IFrame || kind == bindings::ContainerKind::Frame)
+            out.push_back(&fragment);
+    }
     for (layout::Fragment& child : fragment.children)
         find_frames(child, out);
 }

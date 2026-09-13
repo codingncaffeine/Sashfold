@@ -210,6 +210,20 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
         if (local_name == "src")
             in.schedule_frame_navigation(element, FrameNavigation {});
         return;
+    case ContainerKind::Object:
+        // What an object represents is decided again when its data attribute
+        // is set, changed or removed, and when its type changes while it has
+        // no data, in both cases while it has no classid (§4.8.7).
+        if (!element.find_attribute("classid")
+            && (local_name == "data" || (local_name == "type" && !element.find_attribute("data"))))
+            in.schedule_embedder_update(element);
+        return;
+    case ContainerKind::Embed:
+        // An embed runs its setup steps again when its src or type changes
+        // (§4.8.6).
+        if (local_name == "src" || local_name == "type")
+            in.schedule_embedder_update(element);
+        return;
     case ContainerKind::None:
         return;
     }
@@ -286,6 +300,10 @@ ContainerKind container_kind(dom::Element const& element)
         return ContainerKind::IFrame;
     if (element.is_html("frame"))
         return ContainerKind::Frame;
+    if (element.is_html("object"))
+        return ContainerKind::Object;
+    if (element.is_html("embed"))
+        return ContainerKind::Embed;
     return ContainerKind::None;
 }
 
@@ -1434,6 +1452,17 @@ void Realm::document_parsed()
     std::vector<dom::Element*> frames;
     collect_frames(*in.document, frames);
     for (dom::Element* const frame : frames) {
+        // An object or an embed decides what it represents here, for the
+        // parse inserted it and its load is owed before the page's: in tree
+        // order, so that an object's fallback is settled before the elements
+        // inside it decide. An update a script queued meanwhile is run now in
+        // its place.
+        if (ContainerKind const kind = container_kind(*frame); kind == ContainerKind::Object || kind == ContainerKind::Embed) {
+            bool const queued = in.embedder_updates.erase(frame) > 0;
+            if (queued || !in.embedder_states.contains(frame))
+                in.update_embedder(*frame);
+            continue;
+        }
         auto const listed = std::find_if(in.child_frames.begin(), in.child_frames.end(),
             [frame](ChildFrame const& child) { return child.container == frame; });
         bool const opened = listed != in.child_frames.end();
@@ -1478,16 +1507,30 @@ void Realm::document_parsed()
     dispatch_event(nullptr, "pageshow");
 }
 
-void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from, std::optional<net::Url> const& target)
+namespace {
+
+// The documents a frame of this document is inside, the page first: the
+// framing rules read the chain, and it goes ten frames deep, as the painter
+// draws them; nullopt for a frame deeper than that.
+std::optional<std::vector<FrameAncestor>> frame_ancestors(Realm::Internals const& in)
 {
-    // The documents this frame is inside, the page first: the framing rules
-    // read the chain, and it goes ten frames deep, as the painter draws them.
     std::vector<FrameAncestor> ancestors;
-    for (Internals const* up = this; up != nullptr; up = up->parent_realm)
+    for (Realm::Internals const* up = &in; up != nullptr; up = up->parent_realm)
         ancestors.push_back(FrameAncestor { up->url.serialize(true), up->origin_url });
     if (ancestors.size() > 10)
-        return;
+        return std::nullopt;
     std::reverse(ancestors.begin(), ancestors.end());
+    return ancestors;
+}
+
+} // namespace
+
+void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_from, std::optional<net::Url> const& target)
+{
+    std::optional<std::vector<FrameAncestor>> const chain = frame_ancestors(*this);
+    if (!chain)
+        return;
+    std::vector<FrameAncestor> const& ancestors = *chain;
     // Nothing to show at all — no src, an empty one, about:blank, or a
     // navigation to about:blank, the initial one included — is an about:blank
     // document (HTML §7.5.2), which is never fetched: empty, of this
@@ -1640,6 +1683,8 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
         window.close_frame(*container);
     window.navigables.clear();
     window.frame_navigations.clear();
+    window.embedder_states.clear();
+    window.embedder_updates.clear();
     // Its timers are cleared, as the unloading document cleanup steps clear
     // the window's map of active timers, and its tasks removed, as destroying
     // it removes the tasks whose document it is. The navigation running now is
@@ -1734,9 +1779,14 @@ void Realm::Internals::close_frame(dom::Element const& iframe, bool keep_window_
 {
     frame_navigations.erase(&iframe);
     // An iframe leaving the tree takes its frame's WindowProxy with it: put
-    // back in, it has a new frame and a new one.
-    if (!keep_window_proxy)
+    // back in, it has a new frame and a new one. An object or an embed takes
+    // what it represented and the update it waited on, both of which it
+    // decides again if it is put back.
+    if (!keep_window_proxy) {
         navigables.erase(&iframe);
+        embedder_states.erase(&iframe);
+        embedder_updates.erase(&iframe);
+    }
     auto const it = std::find_if(child_frames.begin(), child_frames.end(),
         [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
     if (it == child_frames.end())
@@ -1831,6 +1881,12 @@ void Realm::Internals::frames_inserted(dom::Node& subtree)
         if (!node->is_element() || !is_navigable_container(*static_cast<dom::Element*>(node)))
             continue;
         dom::Element& iframe = *static_cast<dom::Element*>(node);
+        // An object or an embed has no window at insertion: what it
+        // represents is decided in a task after the script (§4.8.6, §4.8.7).
+        if (ContainerKind const kind = container_kind(iframe); kind == ContainerKind::Object || kind == ContainerKind::Embed) {
+            schedule_embedder_update(iframe);
+            continue;
+        }
         if (Internals* const owner = realm_of(node->document()); owner && !owner->open_blank_frame(iframe)) {
             FrameNavigation navigation;
             navigation.initial_insertion = true;
@@ -1882,6 +1938,238 @@ void Realm::frame_inserted(dom::Element& iframe)
     in.open_blank_frame(iframe);
 }
 
+namespace {
+
+// An XML MIME type (MIME Sniffing §4.6): text/xml, application/xml, or a
+// subtype ending in +xml, image/svg+xml among them.
+bool is_xml_mime_type(std::string_view essence)
+{
+    return essence == "text/xml" || essence == "application/xml" || essence.ends_with("+xml");
+}
+
+// Whether an object or an embed shows a resource of this type as a document
+// in a window of its own: markup, any XML (SVG too), text and JSON. HTML's
+// object handler gives a window to every type that is not an image, and its
+// embed steps only to a plugin's; Chrome and Firefox both give one to exactly
+// the types they display as documents (embed-document.html, the embed and
+// object variants of name-attribute.window.html, and frameElement.sub.html's
+// SVG embed pass in both), and show fallback for an unknown type
+// (object-in-object-fallback-2.html), so this follows the browsers.
+bool shown_as_document(std::string_view essence)
+{
+    return essence.starts_with("text/") || essence == "application/json" || is_xml_mime_type(essence);
+}
+
+bool shown_as_image(std::string_view essence)
+{
+    return essence.starts_with("image/") && !is_xml_mime_type(essence);
+}
+
+// MIME Sniffing's rules for distinguishing if a resource is text or binary
+// (§7.1): a byte order mark says text; a binary data byte in the first 1445
+// says binary.
+bool looks_binary(std::vector<std::uint8_t> const& bytes)
+{
+    std::size_t const length = std::min<std::size_t>(bytes.size(), 1445);
+    if (length >= 2 && ((bytes[0] == 0xFE && bytes[1] == 0xFF) || (bytes[0] == 0xFF && bytes[1] == 0xFE)))
+        return false;
+    if (length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        return false;
+    for (std::size_t i = 0; i < length; ++i) {
+        std::uint8_t const byte = bytes[i];
+        if (byte <= 0x08 || byte == 0x0B || (byte >= 0x0E && byte <= 0x1A) || (byte >= 0x1C && byte <= 0x1F))
+            return true;
+    }
+    return false;
+}
+
+std::string essence_of(std::string_view type)
+{
+    return type.empty() ? std::string() : mime_essence(type);
+}
+
+// The object element's "determine the resource type" (§4.8.7): the response's
+// Content-Type unless it is application/octet-stream or text/plain that sniffs
+// as binary, where an image type attribute stands in; without a Content-Type,
+// the type attribute. Empty for a type still unknown.
+std::string object_resource_type(dom::Element const& object, FrameDocument const& answer)
+{
+    std::string const attribute = essence_of(attribute_or_empty(object, "type"));
+    if (!answer.content_type.empty()) {
+        std::string const given = essence_of(answer.content_type);
+        bool const binary = given == "application/octet-stream" || (given == "text/plain" && looks_binary(answer.bytes));
+        if (!binary)
+            return given;
+        return shown_as_image(attribute) ? attribute : std::string();
+    }
+    return attribute == "application/octet-stream" ? std::string() : attribute;
+}
+
+// An embed's type: its type attribute when that names a type shown as a
+// document or an image, which HTML's "determine the type of the content" puts
+// first; else the response's Content-Type.
+std::string embed_resource_type(dom::Element const& embed, FrameDocument const& answer)
+{
+    std::string const attribute = essence_of(attribute_or_empty(embed, "type"));
+    if (shown_as_document(attribute) || shown_as_image(attribute))
+        return attribute;
+    return essence_of(answer.content_type);
+}
+
+} // namespace
+
+void Realm::Internals::schedule_embedder_update(dom::Element& element)
+{
+    if (!element.is_connected())
+        return;
+    Internals* const owner = realm_of(element.document());
+    if (!owner)
+        return;
+    // As a frame's navigation: the element lives as long as its document, the
+    // task as long as the document's realm, and only the update asked for
+    // last goes ahead.
+    std::uint64_t const number = owner->agent.next_sequence++;
+    owner->embedder_updates[&element] = number;
+    owner->post_task([owner, &element, number] { owner->run_embedder_update(element, number); });
+}
+
+void Realm::Internals::run_embedder_update(dom::Element& element, std::uint64_t number)
+{
+    auto const pending = embedder_updates.find(&element);
+    if (pending == embedder_updates.end() || pending->second != number)
+        return;
+    embedder_updates.erase(pending);
+    update_embedder(element);
+}
+
+bool Realm::Internals::embedder_blocked(dom::Element const& element) const
+{
+    // An ancestor media element, or an ancestor object that is not showing its
+    // fallback content: one still to decide counts as showing something.
+    for (dom::Node const* up = element.parent(); up != nullptr; up = up->parent()) {
+        if (!up->is_element())
+            continue;
+        auto const& ancestor = static_cast<dom::Element const&>(*up);
+        if (ancestor.is_html("video") || ancestor.is_html("audio"))
+            return true;
+        if (ancestor.is_html("object")) {
+            auto const state = embedder_states.find(&ancestor);
+            if (state == embedder_states.end() || state->second != Represents::Fallback)
+                return true;
+        }
+    }
+    // Not being rendered: display: none on the element or an ancestor, which
+    // with no shadow trees are its flat-tree ancestors. A box of no size is
+    // rendered, and so is content-visibility: hidden. With no host to compute
+    // styles every element counts as rendered.
+    if (hooks.computed_style) {
+        for (dom::Node const* at = &element; at != nullptr; at = at->parent()) {
+            if (!at->is_element())
+                continue;
+            css::ComputedStyle const* const style = hooks.computed_style(static_cast<dom::Element const&>(*at));
+            if (style && style->display == css::Display::None)
+                return true;
+        }
+    }
+    return false;
+}
+
+void Realm::Internals::update_embedder(dom::Element& element)
+{
+    // An element of a document with a browsing context, fully active and in
+    // the tree; any other one is left as it is.
+    if (ended || discarded || &element.document() != document || !element.is_connected())
+        return;
+    bool const object = container_kind(element) == ContainerKind::Object;
+    auto const recorded = embedder_states.find(&element);
+    bool const was_fallback = recorded != embedder_states.end() && recorded->second == Represents::Fallback;
+    // What an object shows when it shows nothing of its own is its fallback
+    // content; an embed represents nothing.
+    Represents const nothing = object ? Represents::Fallback : Represents::Nothing;
+    // What the element comes to represent: anything but a window closes the one
+    // it had. The objects and embeds inside an object decide again when it
+    // starts or stops showing its fallback. Then the event, at an element the
+    // document it loaded has not taken out of the tree.
+    auto const settle = [this, &element, object, was_fallback](Represents represents, std::string_view event) {
+        if (represents != Represents::Navigable)
+            close_frame(element);
+        if (&element.document() != document || !element.is_connected())
+            return;
+        embedder_states[&element] = represents;
+        if (object && was_fallback != (represents == Represents::Fallback)) {
+            std::vector<dom::Node*> nodes;
+            walk_subtree(element, nodes);
+            for (dom::Node* const node : nodes) {
+                if (node == &element || !node->is_element())
+                    continue;
+                ContainerKind const kind = container_kind(*static_cast<dom::Element*>(node));
+                if (kind == ContainerKind::Object || kind == ContainerKind::Embed)
+                    schedule_embedder_update(*static_cast<dom::Element*>(node));
+            }
+        }
+        if (!event.empty())
+            realm.dispatch_event(&element, event);
+    };
+    if (embedder_blocked(element)) {
+        settle(nothing, {});
+        return;
+    }
+    // No data, or an empty one, is the object's fallback; no src, or an empty
+    // one, the embed's nothing. Neither fires an event.
+    dom::Attr const* const given = element.find_attribute(object ? "data" : "src");
+    if (!given || given->value.empty()) {
+        settle(nothing, {});
+        return;
+    }
+    // A URL that does not parse is an object's error and an embed's nothing. A
+    // javascript: URL is fetched as a network error, which Chrome and Firefox
+    // both treat alike: no load at an embed, an error at an object
+    // (embed-javascript-url.html, object-allowed-schemas.sub.window.html).
+    std::optional<net::Url> const target = net::parse_url(given->value, &base_url());
+    if (!target || target->scheme == "javascript") {
+        settle(nothing, object ? "error" : "");
+        return;
+    }
+    Realm* const shown = realm.frame_realm(element);
+    std::uint64_t const mutations_from = shown ? shown->tree_mutation_count() + 1 : 0;
+    // about:blank is never fetched: the window's document is an about:blank one.
+    if (target->serialize(true) == "about:blank") {
+        open_frame(element, mutations_from, target);
+        settle(realm.frame_realm(element) ? Represents::Navigable : nothing, "load");
+        return;
+    }
+    std::optional<FrameDocument> answer;
+    if (std::optional<std::vector<FrameAncestor>> const ancestors = frame_ancestors(*this); ancestors && hooks.frame_document)
+        answer = hooks.frame_document(element, url, hooks.policy, *ancestors, target);
+    // A load that failed — a network error, a refusal, or an HTTP status that
+    // is not a success — is an object's error and fallback (§4.8.7 names a 404),
+    // and an embed's load with nothing to show, as Chrome fires it
+    // (embed-network-error.sub.html).
+    if (!answer || answer->status < 200 || answer->status > 299) {
+        std::string_view failure_event = "load";
+        if (object)
+            failure_event = "error";
+        settle(nothing, failure_event);
+        return;
+    }
+    std::string const type = object ? object_resource_type(element, *answer) : embed_resource_type(element, *answer);
+    if (shown_as_document(type)) {
+        // A window, named as the element is now when it is made, navigated to
+        // the response; the document's load is the element's.
+        open_frame_document(element, std::move(*answer), "url:" + target->serialize(), mutations_from, false);
+        settle(realm.frame_realm(element) ? Represents::Navigable : nothing, "load");
+        return;
+    }
+    if (shown_as_image(type)) {
+        settle(Represents::Image, "load");
+        return;
+    }
+    // A type shown neither way: an object's fallback with no event, as both
+    // browsers show it for an unknown type; an embed's nothing, with the load
+    // it gets for a failed load. HTML's "display no plugin" fires none there.
+    settle(nothing, object ? "" : "load");
+}
+
 void Realm::Internals::schedule_frame_navigation(dom::Element& iframe, FrameNavigation navigation)
 {
     if (!iframe.is_connected())
@@ -1908,6 +2196,12 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
     if (pending == frame_navigations.end() || pending->second != number)
         return;
     frame_navigations.erase(pending);
+    // An object or an embed has no src or srcdoc to navigate by: a navigation
+    // to no URL of its own decides again what its attributes name.
+    if (ContainerKind const kind = container_kind(iframe); !navigation.target && (kind == ContainerKind::Object || kind == ContainerKind::Embed)) {
+        update_embedder(iframe);
+        return;
+    }
     // A javascript: URL, navigated to or named by a src, runs in the frame's
     // document; a src's is run at the ask of the iframe's document, under its
     // policy.

@@ -52,6 +52,19 @@ std::string default_value_of(dom::Element const& element)
     return attribute_or_empty(element, "value");
 }
 
+// The realm of the document a container shows, found through the realm of the
+// container's own document rather than the realm this getter runs in, which
+// for an element made in one document and inserted into another is the realm
+// it was made in, not the one that lists its frame.
+// Null when it shows none; a container in a document whose window has closed,
+// or that its frame has gone on from, is in no frame's tree any more and
+// answers null, as its navigable is destroyed with that document (HTML §7.3.1).
+Realm* content_realm(Realm::Internals& internals, dom::Element const& container)
+{
+    Realm::Internals* const owner = internals.realm_of(container.document());
+    return owner ? owner->realm.frame_realm(container) : nullptr;
+}
+
 } // namespace
 
 std::string control_value_of(Realm::Internals& in, dom::Element const& element)
@@ -926,25 +939,38 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             });
         // A frame's WindowProxy, whatever its document's origin, and its
         // document, when that has the origin of the script asking (HTML
-        // §4.8.5, §16.3.2); null when the iframe or frame has no document here.
-        for (std::string_view const name : { "HTMLIFrameElement", "HTMLFrameElement" }) {
+        // §4.8.5, §4.8.7, §16.3.2); null when the element has no document here.
+        for (std::string_view const name : { "HTMLIFrameElement", "HTMLFrameElement", "HTMLObjectElement" }) {
             js::Object& container = proto_of(name);
             element_getter(in, container, "contentWindow", [](Realm::Internals& internals, dom::Element& e) -> Native {
-                Realm* const frame = internals.realm.frame_realm(e);
+                Realm* const frame = content_realm(internals, e);
                 return frame ? js::Value::object(frame->internals().window_proxy()) : js::Value::null();
             });
             element_getter(in, container, "contentDocument", [](Realm::Internals& internals, dom::Element& e) -> Native {
-                Realm* const frame = internals.realm.frame_realm(e);
+                Realm* const frame = content_realm(internals, e);
                 if (!frame || !is_platform_object_same_origin(internals.interpreter, *frame->internals().realm_record))
                     return js::Value::null();
                 return js::Value::object(frame->wrap(frame->document()));
             });
         }
-        for (std::string_view const name : { "HTMLEmbedElement", "HTMLObjectElement" }) {
-            js::Object& proto = proto_of(name);
-            element_getter(in, proto, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-            element_getter(in, proto, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        // getSVGDocument() (§4.8.5, §4.8.6, §4.8.7): the content document, when
+        // it is one of the origin of the script asking and was made from an
+        // image/svg+xml response; null otherwise.
+        for (std::string_view const name : { "HTMLIFrameElement", "HTMLEmbedElement", "HTMLObjectElement" }) {
+            element_method(in, proto_of(name), "getSVGDocument", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+                Realm* const frame = content_realm(internals, e);
+                if (!frame || !is_platform_object_same_origin(internals.interpreter, *frame->internals().realm_record))
+                    return js::Value::null();
+                if (frame->internals().document_content_type != "image/svg+xml")
+                    return js::Value::null();
+                return js::Value::object(frame->wrap(frame->document()));
+            });
         }
+        // An embed has no contentWindow or contentDocument in HTML's IDL; both
+        // answer null, as before.
+        js::Object& embed = proto_of("HTMLEmbedElement");
+        element_getter(in, embed, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        element_getter(in, embed, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         js::Object& canvas = proto_of("HTMLCanvasElement");
         element_method(in, canvas, "getContext", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
         element_method(in, canvas, "toDataURL", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native { return internals.string("data:,"); });

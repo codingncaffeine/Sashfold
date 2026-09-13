@@ -3906,6 +3906,7 @@ dom/nodes/Node-insertBefore.html	Should check that 'node' is not an ancestor of 
 dom/nodes/Node-insertBefore.html	Should check whether 'child' is a child of 'parent' before checking whether 'node' can be inserted into the document given the kids the document has right now.
 dom/nodes/Node-insertBefore.html	Should check whether 'child' is a child of 'parent' before checking whether 'node' is of a type that can have a parent of the type that 'parent' is.
 dom/nodes/Node-insertBefore.html	Should check whether 'child' is a child of 'parent' before checking whether 'node' is of a type that can have a parent.
+dom/nodes/Node-isConnected.html	Test with iframes
 dom/nodes/Node-isConnected.html	Test with ordinary child nodes
 dom/nodes/Node-isEqualNode.html	comments should be compared on data
 dom/nodes/Node-isEqualNode.html	document fragments should not be compared based on properties
@@ -6522,6 +6523,7 @@ html/browsers/the-window-object/named-access-on-the-window-object/named-objects.
 html/browsers/the-window-object/named-access-on-the-window-object/navigated-named-objects.window.html	Window's associated Document object is used for finding named objects (<div> via srcdoc <iframe>)
 html/browsers/the-window-object/named-access-on-the-window-object/navigated-named-objects.window.html	Window's associated Document object is used for finding named objects (<iframe> via srcdoc <iframe>)
 html/browsers/the-window-object/named-access-on-the-window-object/navigated-named-objects.window.html	Window's associated Document object is used for finding named objects (<object> via srcdoc <iframe>)
+html/browsers/the-window-object/named-access-on-the-window-object/navigated-named-objects.window.html	Window's associated Document object is used for finding named objects (<object> with browsing ccontext via srcdoc <iframe)>
 html/browsers/the-window-object/named-access-on-the-window-object/nested-context.html	A named property that matches an element that contains a nested browsing context must return the element if using id
 html/browsers/the-window-object/named-access-on-the-window-object/nested-context.html	A named property that matches any element that contains a nested browsing context, must return the WindowProxy of that context
 html/browsers/the-window-object/named-access-on-the-window-object/prototype.html	Property on EventTarget.prototype.
@@ -6914,20 +6916,33 @@ html/browsers/windows/document-domain-removed-iframe.html	Removal, no document.d
 html/browsers/windows/nested-browsing-contexts/frameElement-siblings.sub.html	it must give a "SecurityError" DOMException if the pages are different-origin domain
 html/browsers/windows/nested-browsing-contexts/frameElement-siblings.sub.html	it must return the iframe element if the pages are same-origin domain
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The SecurityError must be thrown if the window accesses to frameElement attribute of a Window which does not have the same effective script origin
+html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return its container element if it is a nested browsing context
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if it is not a nested browsing context
 html/browsers/windows/nested-browsing-contexts/frameElement.sub.html	The window's frameElement attribute must return null if the container's document does not have the same effective script origin
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <embed name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <embed name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <embed>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <frame name=>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <frame name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <frame>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe name=>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <iframe>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <object name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <object name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	cross-origin <object>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <embed name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <embed name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <embed>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <frame name=>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <frame name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <frame>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe name=initialvalue>
 html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <iframe>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <object name=>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <object name=initialvalue>
+html/browsers/windows/nested-browsing-contexts/name-attribute.window.html	same-origin <object>
 html/browsers/windows/nested-browsing-contexts/window-parent-null.html	`window.parent` is null when browsing context container element removed
 html/browsers/windows/nested-browsing-contexts/window-parent-null.html	`window.parent` null when parent browsing context container removed
 html/browsers/windows/nested-browsing-contexts/window-parent.html	`window.parent` for multiple nested browsing contexts
@@ -6937,6 +6952,7 @@ html/browsers/windows/nested-browsing-contexts/window-top-null.html	`window.top`
 html/browsers/windows/nested-browsing-contexts/window-top-null.html	`window.top`null when any ancestor browsing context container removed
 html/browsers/windows/nested-browsing-contexts/window-top.html	One nested iframe
 html/browsers/windows/nested-browsing-contexts/window-top.html	Top level browsing context
+html/browsers/windows/nested-browsing-contexts/window-top.html	Two nested iframes
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLFormControlsCollection legacycaller should not be supported
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLOptionsCollection legacycaller should not be supported
 html/infrastructure/common-dom-interfaces/collections/htmlallcollection.html	legacy caller is not a constructor
@@ -7377,11 +7393,29 @@ html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme 
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, base
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, url
 html/infrastructure/urls/terminology-0/document-base-url.html	The fallback base URL of a document containing no base element is the document's address.
+html/semantics/embedded-content/the-embed-element/document-getters-return-null-for-cross-origin.html	HTMLEmbedElement.getSVGDocument() for cross-origin document
+html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	about: allowed in embed
+html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	blob: allowed in embed
+html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	data: allowed in embed
+html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	http: allowed in embed
+html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	https: allowed in embed
+html/semantics/embedded-content/the-embed-element/embed-change-src.html	Verifies that embed elements reload with new content when the src attribute is changed.
 html/semantics/embedded-content/the-embed-element/embed-dimension.html	Check the actual length of the embed element's height
 html/semantics/embedded-content/the-embed-element/embed-dimension.html	Check the actual length of the embed element's width
+html/semantics/embedded-content/the-embed-element/embed-document-under-content-visibility-focus.html	ensure onload happens
+html/semantics/embedded-content/the-embed-element/embed-document-under-content-visibility-gbcr.html	ensure onload happens
+html/semantics/embedded-content/the-embed-element/embed-document.html	Test document type embedding
 html/semantics/embedded-content/the-embed-element/embed-ignored-in-media-element.html	Test embed being ignored inside media element
+html/semantics/embedded-content/the-embed-element/embed-in-object-fallback-2.html	Test <embed> nesting inside <object>
+html/semantics/embedded-content/the-embed-element/embed-in-object-fallback.html	Check that the right things loaded
 html/semantics/embedded-content/the-embed-element/embed-in-object-fallback.html	We have the right embed element
 html/semantics/embedded-content/the-embed-element/embed-javascript-url.html	javascript: in src attribute should do nothing
+html/semantics/embedded-content/the-embed-element/embed-javascript-url.html	location.href = 'javascript:"test"' should fire a load event
+html/semantics/embedded-content/the-embed-element/embed-javascript-url.html	location.href = 'javascript:1' should not fire a load event
+html/semantics/embedded-content/the-embed-element/embed-network-error.sub.html	navigating an existing embed: X-Frame-Options prevents embedding
+html/semantics/embedded-content/the-embed-element/embed-network-error.sub.html	navigating an existing embed: nonexistent host
+html/semantics/embedded-content/the-embed-element/embed-network-error.sub.html	new embed: X-Frame-Options prevents embedding
+html/semantics/embedded-content/the-embed-element/embed-network-error.sub.html	new embed: nonexistent host
 html/semantics/embedded-content/the-embed-element/embed-represent-nothing-04.html	ensure the element represents nothing
 html/semantics/embedded-content/the-embed-element/historical.html	embed legacycaller should not be supported
 html/semantics/embedded-content/the-frame-element/document-getters-return-null-for-cross-origin.html	HTMLFrameElement.contentDocument for cross-origin document
@@ -7398,6 +7432,7 @@ html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-laz
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	In-viewport left iframe loads eagerly
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-siblings-cross-site.sub.html	In-viewport right iframe loads eagerly
 html/semantics/embedded-content/the-iframe-element/document-getters-return-null-for-cross-origin.html	HTMLIFrameElement.contentDocument for cross-origin document
+html/semantics/embedded-content/the-iframe-element/document-getters-return-null-for-cross-origin.html	HTMLIFrameElement.getSVGDocument() for cross-origin document
 html/semantics/embedded-content/the-iframe-element/historical.html	iframe.allowPaymentRequest should not be supported
 html/semantics/embedded-content/the-iframe-element/historical.html	iframe.seamless should not be supported
 html/semantics/embedded-content/the-iframe-element/iframe-append-to-child-document.html	Append iframe element to its own child document
@@ -7426,6 +7461,7 @@ html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html
 html/semantics/embedded-content/the-iframe-element/iframe-network-error.sub.html	new iframe: nonexistent host
 html/semantics/embedded-content/the-iframe-element/iframe-nosrc.html	iframe.contentDocument should not be changed
 html/semantics/embedded-content/the-iframe-element/iframe-nosrc.html	load event of iframe should not be fired after processing the element
+html/semantics/embedded-content/the-iframe-element/iframe-synchronously-discard.html	IFrame discards are processed synchronously
 html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_01.htm	javascript: URL creating a document in an about:blank iframe
 html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	ArrayBuffer: javascript:new ArrayBuffer(8)
 html/semantics/embedded-content/the-iframe-element/iframe_javascript_url_in_src.htm	String object: javascript:new String("foo")
@@ -7500,14 +7536,33 @@ html/semantics/embedded-content/the-iframe-element/srcdoc-attribute-reset.html	V
 html/semantics/embedded-content/the-iframe-element/srcdoc_process_attributes.html	Setting `srcdoc` (via property) triggers attributes processing
 html/semantics/embedded-content/the-object-element/block-object-with-ruby-crash.html	no crash
 html/semantics/embedded-content/the-object-element/document-getters-return-null-for-cross-origin.html	HTMLObjectElement.contentDocument for cross-origin document
+html/semantics/embedded-content/the-object-element/document-getters-return-null-for-cross-origin.html	HTMLObjectElement.getSVGDocument() for cross-origin document
 html/semantics/embedded-content/the-object-element/historical.html	object legacycaller should not be supported
+html/semantics/embedded-content/the-object-element/historical.html	object's codebase content attribute should not be supported
 html/semantics/embedded-content/the-object-element/historical.html	object's typeMustMatch IDL attribute should not be supported
+html/semantics/embedded-content/the-object-element/historical.html	object's typemustmatch content attribute should not be supported
+html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	about: allowed in object
+html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	data: allowed in object
+html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	http: allowed in object
+html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	https: allowed in object
+html/semantics/embedded-content/the-object-element/object-allowed-schemas.sub.window.html	javascript: scheme not allowed in object
+html/semantics/embedded-content/the-object-element/object-attributes.html	object.contentWindow
+html/semantics/embedded-content/the-object-element/object-attributes.html	object.contentWindow.name
 html/semantics/embedded-content/the-object-element/object-attributes.html	object.height
 html/semantics/embedded-content/the-object-element/object-attributes.html	object.width
+html/semantics/embedded-content/the-object-element/object-events.html	error event (using 'file:' protocol)
+html/semantics/embedded-content/the-object-element/object-events.html	error event (using 'http:' protocol)
+html/semantics/embedded-content/the-object-element/object-events.html	load event
+html/semantics/embedded-content/the-object-element/object-events.html	load event of about:blank
+html/semantics/embedded-content/the-object-element/object-handler.html	The nested browsing context must be navigated to the resource specified by the data attribute.
+html/semantics/embedded-content/the-object-element/object-handler.html	The object.data must not be updated if the browsing context gets further navigated.
 html/semantics/embedded-content/the-object-element/object-ignored-in-media-element.html	Test <object> being ignored inside media element
 html/semantics/embedded-content/the-object-element/object-image-display-none-loading.html	Test that object image not displayed is not loaded unnecessarily.
 html/semantics/embedded-content/the-object-element/object-in-display-none-load-event.html	Load event triggered on window without the object element load
+html/semantics/embedded-content/the-object-element/object-in-object-fallback-2.html	Test <object> nesting inside <object>
 html/semantics/embedded-content/the-object-element/object-javascript-url.html	javascript: in data attribute should do nothing
+html/semantics/embedded-content/the-object-element/object-javascript-url.html	location.href = 'javascript:"test"' should fire a load event
+html/semantics/embedded-content/the-object-element/object-javascript-url.html	location.href = 'javascript:1' should not fire a load event
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyph
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphDef
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphItem

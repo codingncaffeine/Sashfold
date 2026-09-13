@@ -2437,6 +2437,121 @@ void test_a_frame_has_a_window()
     page.reset();
 }
 
+// An object or an embed has no window at insertion. A task after it decides
+// what the element represents (HTML §4.8.6 and §4.8.7): a window for a
+// document the engine shows (markup, XML and SVG, text, JSON), named by the
+// name attribute at that moment, with its load; an image for a picture, with
+// a load; and otherwise the object's fallback or the embed's nothing. A
+// document that cannot be had fires error at an object and load at an embed.
+// The parse decides for the elements it inserted as it ends, in tree order,
+// so that an object's fallback is settled before what is inside it: nothing
+// inside an object that shows a document, a media element, or a subtree that
+// is not rendered gets a window. Every check here answers false rather than
+// throwing on an engine without them.
+void test_objects_and_embeds_have_windows()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/sub/doc.html"] = "<script>var which = 'doc';</script>";
+    documents["https://example.test/sub/two.html"] = "<script>var which = 'two';</script>";
+    documents["https://example.test/sub/pic.svg"] = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+    bindings::HostHooks hooks = hooks_serving(documents);
+    auto const serving = hooks.frame_document;
+    hooks.frame_document = [serving](dom::Element const& element, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors,
+                               std::optional<net::Url> const& target) -> std::optional<bindings::FrameDocument> {
+        std::optional<bindings::FrameDocument> answer;
+        if (target && target->serialize_path() == "/sub/pic.png") {
+            answer = bindings::FrameDocument {};
+            answer->content_type = "image/png";
+            answer->bytes = { 0x89, 'P', 'N', 'G' };
+            answer->url = *target;
+            answer->origin = *target;
+            return answer;
+        }
+        answer = serving(element, base, policy, ancestors, target);
+        if (answer && target && target->serialize_path().ends_with(".svg"))
+            answer->content_type = "image/svg+xml";
+        return answer;
+    };
+    auto page = std::make_unique<Page>("<!DOCTYPE html>", "https://example.test/dir/page.html", hooks);
+    page->load();
+    page->eval("var ev = {}; function track(el, id) {"
+               " el.onload = function () { ev[id + 'l'] = (ev[id + 'l'] || 0) + 1; };"
+               " el.onerror = function () { ev[id + 'e'] = (ev[id + 'e'] || 0) + 1; }; }"
+               " var o = document.createElement('object'); o.name = 'obj'; o.data = '/sub/doc.html'; track(o, 'o'); document.body.appendChild(o);"
+               " var oAtOnce = o.contentWindow;"
+               " var i = document.createElement('object'); i.data = '/sub/pic.png'; track(i, 'i'); document.body.appendChild(i);"
+               " var f = document.createElement('object'); f.data = '/sub/missing.html'; track(f, 'f'); document.body.appendChild(f);"
+               " var e = document.createElement('embed'); e.name = 'emb'; e.src = '/sub/doc.html'; track(e, 'e'); document.body.appendChild(e);"
+               " var n = document.createElement('embed'); n.src = '/sub/missing.html'; track(n, 'n'); document.body.appendChild(n);"
+               " var s = document.createElement('embed'); s.src = '/sub/pic.svg'; document.body.appendChild(s);");
+    page->realm->run_pending();
+    // A document: a window after the script, named as the element was then.
+    CHECK(page->boolean("oAtOnce === null && o.contentWindow != null && o.contentWindow.which === 'doc' && o.contentWindow.name === 'obj' && ev.ol === 1 && !ev.oe"));
+    CHECK(page->boolean("o.contentWindow != null && window.obj === o.contentWindow && o.contentWindow.frameElement === o"));
+    // A picture: no window, a load.
+    CHECK(page->boolean("i.contentWindow === null && ev.il === 1 && !ev.ie"));
+    // Nothing to be had: an object's error, an embed's load.
+    CHECK(page->boolean("f.contentWindow === null && ev.fe === 1 && !ev.fl"));
+    CHECK(page->boolean("!!window.emb && window.emb.frameElement === e && window.emb.which === 'doc' && ev.el === 1"));
+    CHECK(page->boolean("ev.nl === 1 && !ev.ne"));
+    // SVG is a document too, which getSVGDocument answers for; a markup one
+    // it does not.
+    CHECK(page->boolean("window.length === 3 && typeof s.getSVGDocument === 'function' && s.getSVGDocument() !== null"
+                        " && s.getSVGDocument().contentType === 'image/svg+xml' && o.getSVGDocument() === null"));
+    // An iframe the page makes and inserts into the object's document has its
+    // window there, though its getters are the page's.
+    page->eval("var deep = document.createElement('iframe'); if (o.contentDocument) o.contentDocument.body.appendChild(deep);");
+    CHECK(page->boolean("deep.contentWindow != null && deep.contentWindow.parent === o.contentWindow"));
+
+    // Inside an object with nothing to show, an embed gets its window; inside
+    // one that shows a document, none, and its name is the element's.
+    auto nested = std::make_unique<Page>(R"HTML(<!DOCTYPE html><object><embed name=inner src="/sub/doc.html"></object>)HTML"
+                                         R"HTML(<object data="/sub/doc.html"><embed name=hidden src="/sub/doc.html"></object>)HTML",
+        "https://example.test/dir/page.html", hooks);
+    nested->load();
+    CHECK(nested->boolean("window.length === 2 && window.inner != null && window.inner.which === 'doc'"
+                          " && window.hidden != null && window.hidden.tagName === 'EMBED'"));
+    // Inside a media element: none.
+    auto media = std::make_unique<Page>(R"HTML(<!DOCTYPE html><video><object data="/sub/doc.html"></object></video><object data="/sub/doc.html"></object>)HTML",
+        "https://example.test/dir/page.html", hooks);
+    media->load();
+    CHECK(media->boolean("window.length === 1"));
+    // Not rendered, under an ancestor with display: none: none, and no event;
+    // a box of no size is rendered.
+    css::ComputedStyle shown;
+    shown.display = css::Display::Block;
+    css::ComputedStyle gone = shown;
+    gone.display = css::Display::None;
+    bindings::HostHooks styled = hooks;
+    styled.computed_style = [&shown, &gone](dom::Element const& element) -> css::ComputedStyle const* {
+        dom::Attr const* const id = element.find_attribute("id");
+        return id && id->value == "gone" ? &gone : &shown;
+    };
+    auto hidden = std::make_unique<Page>(R"HTML(<!DOCTYPE html><script>var ev = [];</script>)HTML"
+                                         R"HTML(<div id=gone><object data="/sub/doc.html" onload="ev.push('h')" onerror="ev.push('he')"></object></div>)HTML"
+                                         R"HTML(<embed id=z width=0 height=0 src="/sub/doc.html" onload="ev.push('z')">)HTML",
+        "https://example.test/dir/page.html", std::move(styled));
+    hidden->load();
+    CHECK(hidden->boolean("window.length === 1 && window[0] != null && window[0].frameElement === document.getElementById('z') && ev.join() === 'z'"));
+    // A parsed object whose data a script changes before the parse ends is
+    // decided once, at the parse end, by what its data names then: one load,
+    // the second document, and nothing left for the update the script queued.
+    auto changed = std::make_unique<Page>(R"HTML(<!DOCTYPE html><script>var n = 0, e = 0;</script>)HTML"
+                                          R"HTML(<object id=x data="/sub/doc.html" onload="n++" onerror="e++"></object>)HTML"
+                                          R"HTML(<script>x.setAttribute('data', '/sub/two.html');</script>)HTML",
+        "https://example.test/dir/page.html", hooks);
+    changed->load();
+    changed->realm->run_pending();
+    CHECK(changed->boolean("n === 1 && e === 0 && x.contentWindow != null && x.contentWindow.which === 'two'"));
+    CHECK_EQ(page->console + nested->console + media->console + hidden->console + changed->console, "");
+    changed.reset();
+    hidden.reset();
+    media.reset();
+    nested.reset();
+    page.reset();
+}
+
 // javascript: URLs in frames (HTML §7.4.2.2, "navigate to a javascript: URL").
 // An iframe whose src is one gets the initial about:blank document at once;
 // the script runs in that document's realm, after the script that inserted
@@ -3022,6 +3137,7 @@ int main()
     test_a_navigable_keeps_its_target_name();
     test_every_iframe_has_a_window();
     test_a_frame_has_a_window();
+    test_objects_and_embeds_have_windows();
     test_javascript_urls_in_frames();
     test_a_frame_reuses_the_initial_about_blank_window();
     test_the_sandbox_attribute();

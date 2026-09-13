@@ -213,10 +213,12 @@ struct ScriptStats {
 // makes, and a host that parsed without a realm does it once after.
 void adopt_meta_policies(net::ContentSecurityPolicy& policy, dom::Document const& document);
 
-// Which navigable container an element is: an iframe, or the obsolete frame
-// (HTML §16.3.2), which is an iframe without srcdoc and sandbox; None for
-// any other element, and for either name outside the HTML namespace.
-enum class ContainerKind { None, IFrame, Frame };
+// Which navigable container an element is: an iframe; the obsolete frame
+// (HTML §16.3.2), which is an iframe without srcdoc and sandbox; an object or
+// an embed, which has a window only for a document its data or src names
+// (§4.8.6, §4.8.7); None for any other element, and for any of these names
+// outside the HTML namespace.
+enum class ContainerKind { None, IFrame, Frame, Object, Embed };
 ContainerKind container_kind(dom::Element const& element);
 inline bool is_navigable_container(dom::Element const& element) { return container_kind(element) != ContainerKind::None; }
 // A container's srcdoc attribute, which only an iframe has; null for a frame
