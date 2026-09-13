@@ -420,7 +420,26 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case WordBreak::KeepAll: return "keep-all";
         case WordBreak::BreakWord: return "break-word";
         case WordBreak::Manual: return "manual";
+        case WordBreak::AutoPhrase: return "auto-phrase";
         }
+    }
+    if (name == "hyphens") {
+        switch (style.hyphens) {
+        case Hyphens::None: return "none";
+        case Hyphens::Manual: return "manual";
+        case Hyphens::Auto: return "auto";
+        }
+    }
+    if (name == "hyphenate-character") {
+        if (!style.hyphenate_character)
+            return "auto";
+        std::string quoted = "\"";
+        for (char const c : *style.hyphenate_character) {
+            if (c == '"' || c == '\\')
+                quoted.push_back('\\');
+            quoted.push_back(c);
+        }
+        return quoted + "\"";
     }
     if (name == "font-stretch")
         return std::to_string(style.font_stretch) + "%";

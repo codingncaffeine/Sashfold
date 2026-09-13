@@ -2520,6 +2520,8 @@ struct Resolver {
         style.text_indent = parent.text_indent;
         style.white_space = parent.white_space;
         style.word_break = parent.word_break;
+        style.hyphens = parent.hyphens;
+        style.hyphenate_character = parent.hyphenate_character;
         style.line_break = parent.line_break;
         style.overflow_wrap = parent.overflow_wrap;
         style.font_kerning = parent.font_kerning;
@@ -2913,6 +2915,9 @@ struct Resolver {
             { "text-indent", true, [](S& to, S const& from) { to.text_indent = from.text_indent; }, 0 },
             { "white-space", true, [](S& to, S const& from) { to.white_space = from.white_space; }, 0 },
             { "word-break", true, [](S& to, S const& from) { to.word_break = from.word_break; }, 0 },
+            { "hyphens", true, [](S& to, S const& from) { to.hyphens = from.hyphens; }, 0 },
+            { "hyphenate-character", true,
+                [](S& to, S const& from) { to.hyphenate_character = from.hyphenate_character; }, 0 },
             { "line-break", true, [](S& to, S const& from) { to.line_break = from.line_break; }, 0 },
             { "overflow-wrap", true, [](S& to, S const& from) { to.overflow_wrap = from.overflow_wrap; }, 0 },
             { "font-kerning", true, [](S& to, S const& from) { to.font_kerning = from.font_kerning; }, 0 },
@@ -5366,12 +5371,14 @@ struct Resolver {
             return;
         }
         if (name == "word-break") {
-            // normal | break-all | keep-all | break-word | auto-phrase, the
-            // last being normal: see the enum.
+            // normal | break-all | keep-all | break-word | auto-phrase |
+            // manual: see the enum.
             if (values.size() != 1)
                 return;
-            if (is_ident(values[0], "normal") || is_ident(values[0], "auto-phrase"))
+            if (is_ident(values[0], "normal"))
                 style.word_break = WordBreak::Normal;
+            else if (is_ident(values[0], "auto-phrase"))
+                style.word_break = WordBreak::AutoPhrase;
             else if (is_ident(values[0], "break-all"))
                 style.word_break = WordBreak::BreakAll;
             else if (is_ident(values[0], "keep-all"))
@@ -5380,6 +5387,30 @@ struct Resolver {
                 style.word_break = WordBreak::BreakWord;
             else if (is_ident(values[0], "manual"))
                 style.word_break = WordBreak::Manual;
+            return;
+        }
+        if (name == "hyphens") {
+            // none | manual | auto. With no dictionary, auto hyphenates
+            // where manual does: at the soft hyphens the text holds.
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "none"))
+                style.hyphens = Hyphens::None;
+            else if (is_ident(values[0], "manual"))
+                style.hyphens = Hyphens::Manual;
+            else if (is_ident(values[0], "auto"))
+                style.hyphens = Hyphens::Auto;
+            return;
+        }
+        if (name == "hyphenate-character") {
+            // auto | <string>: what a line broken at a hyphenation
+            // opportunity ends with.
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto"))
+                style.hyphenate_character.reset();
+            else if (values[0]->is_token(Token::Type::String))
+                style.hyphenate_character = std::string(values[0]->token().value);
             return;
         }
         if (name == "font-kerning") {

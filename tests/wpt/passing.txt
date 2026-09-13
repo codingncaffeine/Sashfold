@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9233 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9249 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -7354,13 +7354,22 @@ css/css-text/hanging-punctuation/hanging-punctuation-last-rtl.html
 css/css-text/hanging-punctuation/hanging-punctuation-last-whitespace.html
 css/css-text/hanging-punctuation/hanging-punctuation-last.html
 css/css-text/hanging-punctuation/hanging-punctuation-with-bidi.html
+css/css-text/hyphens/hyphenate-character-001.html
+css/css-text/hyphens/hyphenate-character-003.html
+css/css-text/hyphens/hyphenate-character-004.html
+css/css-text/hyphens/hyphenate-character-005.html
 css/css-text/hyphens/hyphens-auto-001.html
 css/css-text/hyphens/hyphens-auto-002.html
 css/css-text/hyphens/hyphens-auto-003.html
-css/css-text/hyphens/hyphens-auto-last-word-001.html
+css/css-text/hyphens/hyphens-auto-control.html
 css/css-text/hyphens/hyphens-auto-min-content.html
 css/css-text/hyphens/hyphens-manual-010.html
+css/css-text/hyphens/hyphens-manual-011.html
+css/css-text/hyphens/hyphens-manual-012.html
+css/css-text/hyphens/hyphens-manual-013.html
 css/css-text/hyphens/hyphens-manual-inline-010.html
+css/css-text/hyphens/hyphens-manual-inline-011.html
+css/css-text/hyphens/hyphens-manual-inline-012.html
 css/css-text/hyphens/hyphens-none-011.html
 css/css-text/hyphens/hyphens-none-012.html
 css/css-text/hyphens/hyphens-none-013.html
@@ -7369,9 +7378,16 @@ css/css-text/hyphens/hyphens-none-015.html
 css/css-text/hyphens/hyphens-none-shy-on-2nd-line-001.html
 css/css-text/hyphens/hyphens-out-of-flow-001.html
 css/css-text/hyphens/hyphens-out-of-flow-002.html
-css/css-text/hyphens/hyphens-punctuation-001.html
+css/css-text/hyphens/hyphens-overflow-001.html
+css/css-text/hyphens/hyphens-shaping-001.html
+css/css-text/hyphens/hyphens-shaping-002.html
 css/css-text/hyphens/hyphens-span-001.html
 css/css-text/hyphens/hyphens-span-002.html
+css/css-text/hyphens/hyphens-vertical-001.html
+css/css-text/hyphens/hyphens-vertical-002.html
+css/css-text/hyphens/hyphens-vertical-003.html
+css/css-text/hyphens/hyphens-vertical-004.html
+css/css-text/hyphens/shy-styling-001.html
 css/css-text/i18n/css3-text-line-break-opclns-001.html
 css/css-text/i18n/css3-text-line-break-opclns-002.html
 css/css-text/i18n/css3-text-line-break-opclns-003.html

@@ -494,18 +494,29 @@ enum class WhiteSpace : std::uint8_t {
     BreakSpaces, // pre-wrap whose spaces take room at a line's end instead of hanging past it
 };
 
-// word-break (css-text-3 §5.2, css-text-4 for manual). break-word is
-// normal with the breaking of overflow-wrap: anywhere; auto-phrase is
-// normal, the fallback the spec names for an engine without a phrase
-// dictionary; manual turns off the finding of word boundaries in the
-// scripts that write no spaces (Thai and its neighbours), which here
-// means no line ends inside their runs.
+// word-break (css-text-3 §5.2, css-text-4 for manual and auto-phrase).
+// break-word is normal with the breaking of overflow-wrap: anywhere;
+// auto-phrase breaks as normal does — the fallback the spec names for an
+// engine without a phrase dictionary — and suppresses hyphenation; manual
+// turns off the finding of word boundaries in the scripts that write no
+// spaces (Thai and its neighbours), which here means no line ends inside
+// their runs.
 enum class WordBreak : std::uint8_t {
     Normal,
     BreakAll,
     KeepAll,
     BreakWord,
     Manual,
+    AutoPhrase,
+};
+
+// hyphens (css-text-3 §6.1): none offers no break at a soft hyphen, manual
+// breaks at the soft hyphens the text holds, and auto would add the places
+// a dictionary finds — with none here, it hyphenates as manual does.
+enum class Hyphens : std::uint8_t {
+    None,
+    Manual,
+    Auto,
 };
 
 // font-kerning (css-fonts-4 §6.4): auto and normal read the font's
@@ -982,6 +993,10 @@ struct ComputedStyle {
     TextJustify text_justify = TextJustify::Auto;
     WhiteSpace white_space = WhiteSpace::Normal;
     WordBreak word_break = WordBreak::Normal;
+    Hyphens hyphens = Hyphens::Manual;
+    // hyphenate-character: the string a hyphenated line ends with, UTF-8;
+    // none for auto.
+    std::optional<std::string> hyphenate_character;
     LineBreakMode line_break = LineBreakMode::Auto;
     OverflowWrap overflow_wrap = OverflowWrap::Normal;
     FontKerning font_kerning = FontKerning::Auto;

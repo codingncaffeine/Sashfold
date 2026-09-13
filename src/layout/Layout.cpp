@@ -190,10 +190,12 @@ bool is_atomic_inline(InlineItem const& item)
 
 // The invisible characters with a say in where a line ends and in nothing
 // else: a zero width space is a break opportunity, a word joiner (U+2060,
-// and U+FEFF) forbids one, a zero width joiner forbids one after itself.
+// and U+FEFF) forbids one, a zero width joiner forbids one after itself,
+// and a soft hyphen offers one after itself — a line that ends there ends
+// with a hyphen.
 bool is_break_control(char32_t c)
 {
-    return c == 0x200B || c == 0x200D || c == 0x2060 || c == 0xFEFF;
+    return c == 0x200B || c == 0x200D || c == 0x2060 || c == 0xFEFF || c == 0x00AD;
 }
 
 // The formatting characters of UAX #9: the marks (LRM, RLM, ALM), the
@@ -221,6 +223,22 @@ std::u32string drawn_text(std::u32string_view text)
             out.push_back(c);
     }
     return out;
+}
+
+// Whether text in this style hyphenates at all: not under `hyphens: none`,
+// and not under `word-break: auto-phrase`, which suppresses hyphenation
+// (css-text-4 §5.2).
+bool hyphenates(ComputedStyle const& style)
+{
+    return style.hyphens != css::Hyphens::None && style.word_break != css::WordBreak::AutoPhrase;
+}
+
+// Whether a word ends with a soft hyphen that hyphenates: a line that ends
+// right after it ends with a hyphen (css-text-3 §6.1).
+bool hyphenates_after(InlineItem const& item)
+{
+    return item.kind == InlineItem::Kind::Word && !item.text.empty() && item.text.back() == 0x00AD
+        && hyphenates(*item.style);
 }
 
 // Whether a character is a space a word may end with: a preserved space
@@ -295,8 +313,12 @@ std::vector<InlineItem> wrap_opportunities(std::vector<InlineItem> const& items,
             if (items[i].kind == InlineItem::Kind::Word || items[i].kind == InlineItem::Kind::Space) {
                 // A preserved tab wraps as the spaces it is drawn as: a line
                 // may end after a run of spaces and tabs, never inside one.
+                // A soft hyphen in text that does not hyphenate offers no
+                // break, so it reads as a combining mark, which clings to
+                // what is before it.
+                bool const soft_hyphens_break = hyphenates(*items[i].style);
                 for (char32_t const c : items[i].text)
-                    text.push_back(c == U'\t' ? U' ' : c);
+                    text.push_back(c == U'\t' ? U' ' : (c == 0x00AD && !soft_hyphens_break ? char32_t { 0x0300 } : c));
                 tailoring.insert(tailoring.end(), items[i].text.size(), line_break_tailoring(*items[i].style));
             } else if (is_atomic_inline(items[i])) {
                 text.push_back(object);
@@ -2441,6 +2463,16 @@ struct Layouter {
 
     // --- Inline layout: line building ----------------------------------------
 
+    // What a line broken at a soft hyphen ends with: `hyphenate-character`,
+    // or the hyphen U+2010 where the first available font draws one and the
+    // hyphen-minus where it does not.
+    std::u32string hyphen_text(ComputedStyle const& style) const
+    {
+        if (style.hyphenate_character)
+            return decode_utf8(*style.hyphenate_character);
+        return fonts_for(style).primary().glyph_index(0x2010) != 0 ? U"\x2010" : U"-";
+    }
+
     // The used line-height: as written, or for `normal` what the primary
     // face asks for — its ascent, descent and line gap at this size (Ahem's
     // is exactly one em; a typical text face's a little over).
@@ -2709,6 +2741,9 @@ struct Layouter {
             // The width of the spaces this text ends with, which hang past
             // a line's end rather than count toward its fit or alignment.
             float hang = 0;
+            // The word ended with a soft hyphen that may hyphenate: a line
+            // ending right after it ends with the hyphen, in its style.
+            bool soft_hyphen = false;
         };
 
         // An inline box's run along one line: what to paint it as, and where
@@ -3476,15 +3511,58 @@ struct Layouter {
         // An item a line may end in front of, met with something on the
         // line already: where the line could end, should a later item on
         // it turn out to allow no end in front of itself.
+        // A line ending in front of an item may end with a hyphen: when the
+        // text before it — past the edges of inline boxes and the boxes out
+        // of the flow, which take no room — is a word that hyphenates after
+        // itself. The hyphen takes room on the line.
+        auto const soft_hyphen_before = [&](std::size_t index) -> InlineItem const* {
+            for (std::size_t k = index; k-- > 0;) {
+                InlineItem const& before = items[k];
+                if (before.kind == InlineItem::Kind::BoxStart || before.kind == InlineItem::Kind::BoxEnd
+                    || before.kind == InlineItem::Kind::Absolute || before.kind == InlineItem::Kind::Float)
+                    continue;
+                return hyphenates_after(before) ? &before : nullptr;
+            }
+            return nullptr;
+        };
+        auto const hyphen_overflows = [&](std::size_t index) {
+            InlineItem const* const word = soft_hyphen_before(index);
+            return word && line_width + measure(*word->style, hyphen_text(*word->style)) > line_avail;
+        };
+        // The line is ending at a soft wrap: the last text on it takes its
+        // hyphen when its word hyphenates after itself.
+        auto const hyphenate_line_end = [&] {
+            for (std::size_t k = line.size(); k-- > 0;) {
+                Placed& placed = line[k];
+                if (placed.box_edge)
+                    continue;
+                if (placed.soft_hyphen) {
+                    std::u32string const hyphen = hyphen_text(*placed.style);
+                    float const hyphen_width = measure(*placed.style, hyphen);
+                    placed.text += hyphen;
+                    placed.width += hyphen_width;
+                    line_width += hyphen_width;
+                    placed.soft_hyphen = false;
+                }
+                return;
+            }
+        };
         auto const note_opportunity = [&](std::size_t index) {
-            if (allow_wrap && items[index].break_before && !line.empty())
-                opportunity = Opportunity { index, line.size(), line_width, open_boxes, box_runs.size(),
-                    line_absolutes.size() };
+            if (!allow_wrap || !items[index].break_before || line.empty())
+                return;
+            // A place whose hyphen would not fit gives way to an earlier
+            // one; with none before it, the line ends there all the same and
+            // the hyphen overflows, as browsers break.
+            if (opportunity && hyphen_overflows(index))
+                return;
+            opportunity = Opportunity { index, line.size(), line_width, open_boxes, box_runs.size(),
+                line_absolutes.size() };
         };
         // Ends the line in front of an item it has no room for, when a line
         // may end there. When none may, and the line could end at an
         // earlier item — with nothing since that must not be laid out twice:
-        // an inline-block, a float, an absolute box — the line ends there
+        // an inline-block or a float (an absolute box is only recorded, and
+        // a second record of it replaces the first) — the line ends there
         // instead, and the answer is that item, for the loop to read from
         // again. A line with no place to end at all is one unbreakable run
         // with the item: under `overflow-wrap: normal` the item stays on it
@@ -3493,12 +3571,15 @@ struct Layouter {
         // allowed the line ends in front of the item anyway, and the word
         // is then sliced below.
         auto const end_line_before = [&](std::size_t index) -> std::optional<std::size_t> {
-            if (!items[index].break_before && opportunity) {
+            // No line may end in front of the item, or only with a hyphen
+            // that does not fit: an earlier place on the line wins.
+            bool const spoiled = !items[index].break_before || hyphen_overflows(index);
+            if (spoiled && opportunity && opportunity->item < index) {
                 bool clean = true;
                 for (std::size_t k = opportunity->item; k <= index; ++k) {
                     InlineItem::Kind const kind = items[k].kind;
-                    if (kind == InlineItem::Kind::Float || kind == InlineItem::Kind::Absolute
-                        || kind == InlineItem::Kind::Block || kind == InlineItem::Kind::Table)
+                    if (kind == InlineItem::Kind::Float || kind == InlineItem::Kind::Block
+                        || kind == InlineItem::Kind::Table)
                         clean = false;
                 }
                 if (clean) {
@@ -3508,6 +3589,7 @@ struct Layouter {
                     open_boxes = opportunity->open_boxes;
                     box_runs.resize(opportunity->box_runs);
                     line_absolutes.resize(opportunity->absolutes);
+                    hyphenate_line_end();
                     flush_line();
                     return again;
                 }
@@ -3522,6 +3604,8 @@ struct Layouter {
             bool const emergency = may_slice(*items[index].style) || (index > 0 && may_slice(*items[index - 1].style));
             if (!items[index].break_before && !opportunity && !emergency)
                 return std::nullopt;
+            if (items[index].break_before)
+                hyphenate_line_end();
             flush_line();
             return std::nullopt;
         };
@@ -3798,6 +3882,46 @@ struct Layouter {
             }
             if (allow_wrap)
                 widen_for(width - hang);
+            // word-break: auto-phrase held this word's soft hyphens back
+            // (css-text-4 §5.2), but not where it cannot fit a whole line
+            // without them: it is hyphenated at the last that fits with its
+            // hyphen, or at the first when none does.
+            if (allow_wrap && item.style->word_break == css::WordBreak::AutoPhrase
+                && item.style->hyphens != css::Hyphens::None) {
+                std::u32string remaining = item.text;
+                while (line.empty() && width - hang > line_avail) {
+                    std::u32string const hyphen = hyphen_text(*item.style);
+                    float const hyphen_width = measure(*item.style, hyphen);
+                    std::size_t chosen = std::u32string::npos;
+                    for (std::size_t shy = 0; shy + 1 < remaining.size(); ++shy) {
+                        if (remaining[shy] != 0x00AD)
+                            continue;
+                        float const before_width
+                            = measure(*item.style, drawn_text(std::u32string_view(remaining).substr(0, shy)));
+                        bool const fits = before_width + hyphen_width <= line_avail;
+                        if (chosen != std::u32string::npos && !fits)
+                            break;
+                        chosen = shy;
+                        if (!fits)
+                            break;
+                    }
+                    if (chosen == std::u32string::npos)
+                        break;
+                    std::u32string const hyphenated = drawn_text(std::u32string_view(remaining).substr(0, chosen));
+                    float const hyphenated_width = measure(*item.style, hyphenated) + hyphen_width;
+                    Placed slice(hyphenated + hyphen, item.style, false, hyphenated_width, item.element);
+                    slice.aligned = item.aligned;
+                    place(std::move(slice));
+                    line_width += hyphenated_width;
+                    flush_line();
+                    remaining.erase(0, chosen + 1);
+                    word = drawn_text(remaining);
+                    width = measure(*item.style, word);
+                    head = trailing_spaces_from(word, mode);
+                    tail = tail_width();
+                    hang = mode == WhiteSpace::BreakSpaces ? 0.0f : tail;
+                }
+            }
             // overflow-wrap (css-text-3 §5.5): a word too wide for a whole
             // line is sliced where it must be under break-word and anywhere
             // (and word-break: break-word), and left to overflow under
@@ -3852,6 +3976,7 @@ struct Layouter {
             Placed placed(std::move(word), item.style, false, width, item.element);
             placed.aligned = item.aligned;
             placed.hang = hang;
+            placed.soft_hyphen = hyphenates_after(item);
             place(std::move(placed));
             line_width += width;
         }
@@ -5077,6 +5202,10 @@ struct Layouter {
                 bool const anywhere = item.style->overflow_wrap == css::OverflowWrap::Anywhere
                     || item.style->word_break == css::WordBreak::BreakWord;
                 float piece = width - hang;
+                // A piece that hyphenates after itself ends its line with the
+                // hyphen, which the narrowest line has to hold as well.
+                if (hyphenates_after(item))
+                    piece += measure(*item.style, hyphen_text(*item.style));
                 if (anywhere) {
                     piece = 0;
                     for (std::size_t i = 0; i < head; ++i)

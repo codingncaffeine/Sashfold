@@ -1707,6 +1707,105 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Soft hyphens ------------------------------------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // A line may end after a soft hyphen, and one that does ends with a
+        // hyphen, which has to fit: where it would not, the line ends at the
+        // place before, and with no place before it the hyphen overflows.
+        // The hyphen wears the style of the soft hyphen it stands for.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 51px }
+</style></head><body>
+  <div>12 4&shy;xx</div>
+  <div>12 56&shy;yy</div>
+  <div>34567&shy;zz</div>
+  <div style="hyphens: none">89 0&shy;ww</div>
+  <div style="hyphenate-character: '='">ab c&shy;vv</div>
+  <div style="width: 0">de<span>&shy;</span>uu</div>
+  <div id="narrow" style="width: min-content">fgh&shy;ij</div>
+  <div style="word-break: auto-phrase">12 4&shy;tt</div>
+  <div>sss&shy;rr<span style="position: absolute">q</span>pp</div>
+  <div style="word-break: auto-phrase; width: 0">oo&shy;nn</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        auto const run_of = [&](std::u32string_view text) -> layout::TextRun const* {
+            for (layout::TextRun const* const run : runs) {
+                if (run->text == text)
+                    return run;
+            }
+            return nullptr;
+        };
+        // `text` starts at x, `lines` lines below where `from` stands.
+        auto const at = [&](std::u32string_view text, float x, std::u32string_view from, float lines) {
+            layout::TextRun const* const run = run_of(text);
+            layout::TextRun const* const origin = run_of(from);
+            CHECK(run != nullptr);
+            CHECK(origin != nullptr);
+            if (run && origin) {
+                CHECK_EQ(run->x, x);
+                CHECK_EQ(run->baseline_y, origin->baseline_y + 20.0f * lines);
+            }
+        };
+        // "12 4-" fits the 51px line with its hyphen.
+        at(U"4\x2010", 30.0f, U"4\x2010", 0);
+        at(U"xx", 0.0f, U"4\x2010", 1);
+        // "12 56-" would not, so the line ends at the space and nothing is
+        // hyphenated.
+        at(U"56", 0.0f, U"xx", 2);
+        at(U"yy", 20.0f, U"56", 0);
+        // With no place before it, the hyphen overflows.
+        at(U"34567\x2010", 0.0f, U"yy", 1);
+        at(U"zz", 0.0f, U"34567\x2010", 1);
+        // hyphens: none offers no break at the soft hyphen, which draws
+        // nothing: "0ww" moves down whole.
+        at(U"0ww", 0.0f, U"zz", 2);
+        // hyphenate-character names what the line ends with.
+        at(U"c=", 30.0f, U"0ww", 1);
+        at(U"vv", 0.0f, U"c=", 1);
+        // The hyphen of a soft hyphen inside a span is the span's.
+        at(U"\x2010", 20.0f, U"vv", 1);
+        at(U"uu", 0.0f, U"\x2010", 1);
+        if (layout::TextRun const* const hyphen = run_of(U"\x2010"))
+            CHECK(hyphen->element && hyphen->element->local_name() == "span");
+        // The narrowest line holds a hyphenated piece with its hyphen.
+        std::function<layout::Fragment const*(layout::Fragment const&)> find_narrow
+            = [&](layout::Fragment const& f) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* const attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == "narrow")
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* const found = find_narrow(child))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* const narrow = find_narrow(page.result.root);
+        CHECK(narrow != nullptr);
+        if (narrow)
+            CHECK_EQ(narrow->width, 40.0f);
+        at(U"fgh\x2010", 0.0f, U"uu", 1);
+        at(U"ij", 0.0f, U"fgh\x2010", 1);
+        // word-break: auto-phrase suppresses hyphenation: "4tt" moves down
+        // whole, as under hyphens: none.
+        at(U"4tt", 0.0f, U"ij", 2);
+        // A line backs up past a box out of the flow to the soft hyphen
+        // before it, rather than ending where no line may end.
+        at(U"sss\x2010", 0.0f, U"4tt", 1);
+        at(U"rr", 0.0f, U"sss\x2010", 1);
+        at(U"pp", 20.0f, U"rr", 0);
+        // auto-phrase gives the soft hyphens back when the word cannot fit
+        // a whole line without them.
+        at(U"oo\x2010", 0.0f, U"pp", 1);
+        at(U"nn", 0.0f, U"oo\x2010", 1);
+        for (layout::TextRun const* const run : runs)
+            CHECK(run->text.find(char32_t { 0x00AD }) == std::u32string::npos);
+    }
+
     // --- Lowercasing a final sigma -----------------------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);
