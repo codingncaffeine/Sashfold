@@ -710,7 +710,7 @@ std::vector<PropertyKey> ProxyObject::own_keys() const
 
 void ProxyObject::trace(Tracer& tracer)
 {
-    Object::trace(tracer);
+    Function::trace(tracer);
     tracer.visit(m_target);
     tracer.visit(m_handler);
 }

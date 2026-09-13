@@ -164,6 +164,7 @@ NativeFunction* Interpreter::new_native(std::string_view name, int length, Nativ
     // new, so nothing may collect until the function holds it.
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<NativeFunction>(m_realm->intrinsics.function_prototype, std::move(call), std::move(construct));
+    function->set_realm(m_realm);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
     return function;
@@ -173,6 +174,7 @@ ClosureFunction* Interpreter::new_closure(std::string_view name, int length, std
 {
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<ClosureFunction>(m_realm->intrinsics.function_prototype, std::move(slots), std::move(callback));
+    function->set_realm(m_realm);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
     return function;

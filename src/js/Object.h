@@ -28,6 +28,7 @@ class Interpreter;
 class Environment;
 class Function;
 class Program;
+class RealmRecord;
 struct FunctionNode;
 
 enum Attribute : std::uint8_t {
@@ -262,6 +263,18 @@ public:
     // [[Construct]]; only when is_constructor(). new_target is the
     // constructor `new` was applied to.
     virtual std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target);
+
+    // [[Realm]] (§10.2, §10.3): the realm the function was made in. A call
+    // makes it the current realm for as long as the call runs, so what the
+    // function creates and throws is that realm's. A bound function and a
+    // proxy have none of their own: null, and a call through one runs in
+    // its caller's realm until it reaches the target.
+    RealmRecord* realm() const { return m_realm; }
+    void set_realm(RealmRecord* realm) { m_realm = realm; }
+    void trace(Tracer&) override;
+
+private:
+    RealmRecord* m_realm = nullptr;
 };
 
 class ScriptFunction;

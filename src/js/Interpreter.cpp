@@ -551,6 +551,9 @@ Object* Interpreter::Impl::make_arguments_object(ScriptFunction& function, Envir
 std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& function, Value const& this_argument,
     std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key)
 {
+    // PrepareForOrdinaryCall (§10.2.1.1): the callee's realm is current for
+    // the call, and the caller's comes back however it ends.
+    RealmScope const realm_scope(self, function.realm());
     FunctionNode const& node = function.node();
     if (node.is_async && !node.is_generator)
         return call_async_function(function, this_argument, arguments);
@@ -1001,6 +1004,7 @@ ScriptFunction* Interpreter::Impl::new_class_constructor(FunctionNode const& nod
 {
     Heap::NoCollect const guard(heap());
     auto* function = heap().allocate<ScriptFunction>(constructor_parent, node, scope, true);
+    function->set_realm(self.current_realm());
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
     function->put(PropertyKey::atom(atoms().prototype), Value::object(proto), frozen_attributes);
@@ -2086,6 +2090,7 @@ RealmRecord* Interpreter::create_realm()
     Heap::NoCollect const guard(*m_heap);
     RealmRecord* const previous = m_realm;
     RealmRecord* const realm = m_heap->allocate<RealmRecord>();
+    m_realms.push_back(realm);
     m_realm = realm;
     install_intrinsics(*this);
     realm->global_lexical = m_heap->allocate<Environment>(realm->intrinsics.global_environment);
@@ -2183,6 +2188,8 @@ void Interpreter::trace_roots(Tracer& tracer)
         tracer.visit(value);
     tracer.visit(m_exception);
     tracer.visit(m_realm);
+    for (RealmRecord* realm : m_realms)
+        tracer.visit(realm);
     for (Job const& job : m_jobs) {
         tracer.visit(job.argument);
         tracer.visit(job.then);
@@ -2742,6 +2749,7 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
         function_prototype = m_realm->intrinsics.async_function_prototype;
     }
     auto* function = m_heap->allocate<ScriptFunction>(function_prototype, node, scope, node.is_constructable);
+    function->set_realm(m_realm);
     function->set_private_environment(private_environment);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);

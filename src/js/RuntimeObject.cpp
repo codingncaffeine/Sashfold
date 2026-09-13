@@ -1589,9 +1589,11 @@ void install_intrinsics(Interpreter& in)
     WellKnownAtoms const& atoms = in.atoms();
 
     i.object_prototype = heap.allocate<Object>(nullptr);
-    i.function_prototype = heap.allocate<NativeFunction>(i.object_prototype, [](Interpreter&, Value const&, Args) -> std::optional<Value> {
+    auto* const function_prototype = heap.allocate<NativeFunction>(i.object_prototype, [](Interpreter&, Value const&, Args) -> std::optional<Value> {
         return Value::undefined();
     });
+    function_prototype->set_realm(in.current_realm());
+    i.function_prototype = function_prototype;
     i.function_prototype->put(PropertyKey::atom(atoms.length), Value::number(0), Configurable);
     i.function_prototype->put(PropertyKey::atom(atoms.name), Value::string(atoms.empty), Configurable);
     // §23.1.3: Array.prototype is itself an Array exotic object; §22.1.3:

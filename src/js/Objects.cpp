@@ -956,6 +956,12 @@ std::optional<Value> Function::construct(Interpreter& interpreter, std::span<Val
     return interpreter.throw_type_error("not a constructor");
 }
 
+void Function::trace(Tracer& tracer)
+{
+    Object::trace(tracer);
+    tracer.visit(m_realm);
+}
+
 ScriptFunction::ScriptFunction(Object* prototype, FunctionNode const& node, Environment* scope, bool constructable)
     : Function(prototype)
     , m_node(&node)
@@ -979,7 +985,7 @@ void ScriptFunction::trace(Tracer& tracer)
     // The node is the program's, which the realm keeps for as long as it
     // lives; the closed-over scope, the home object and the fields' keys
     // and initializers are cells.
-    Object::trace(tracer);
+    Function::trace(tracer);
     tracer.visit(m_scope);
     tracer.visit(m_home_object);
     tracer.visit(m_private_environment);
@@ -999,6 +1005,8 @@ std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const&
 {
     if (!m_call)
         return interpreter.throw_type_error("not a function");
+    // A built-in's [[Call]] (§10.3.1): its realm is current while it runs.
+    Interpreter::RealmScope const realm_scope(interpreter, realm());
     return m_call(interpreter, this_value, arguments);
 }
 
@@ -1006,17 +1014,19 @@ std::optional<Value> NativeFunction::construct(Interpreter& interpreter, std::sp
 {
     if (!m_construct)
         return interpreter.throw_type_error("not a constructor");
+    Interpreter::RealmScope const realm_scope(interpreter, realm());
     return m_construct(interpreter, arguments, new_target);
 }
 
 std::optional<Value> ClosureFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
+    Interpreter::RealmScope const realm_scope(interpreter, realm());
     return m_callback(interpreter, *this, this_value, arguments);
 }
 
 void ClosureFunction::trace(Tracer& tracer)
 {
-    Object::trace(tracer);
+    Function::trace(tracer);
     for (Value const& slot : m_slots)
         tracer.visit(slot);
 }
@@ -1065,7 +1075,7 @@ std::optional<Value> BoundFunction::construct(Interpreter& interpreter, std::spa
 
 void BoundFunction::trace(Tracer& tracer)
 {
-    Object::trace(tracer);
+    Function::trace(tracer);
     tracer.visit(m_target);
     tracer.visit(m_bound_this);
     for (Value const& argument : m_bound_arguments)

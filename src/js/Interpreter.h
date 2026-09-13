@@ -201,6 +201,31 @@ public:
     Intrinsics& intrinsics() { return m_realm->intrinsics; }
     Object* global() const { return m_realm->intrinsics.global; }
     RealmRecord* current_realm() const { return m_realm; }
+    // CreateRealm with its intrinsics (§9.3.1, §9.3.2): a new realm record,
+    // built with itself current and the previous current realm put back.
+    // The interpreter keeps every realm it makes for its own life.
+    RealmRecord* create_realm();
+    // Makes a realm the current realm until the scope closes, and puts the
+    // previous one back however the scope is left; a null realm leaves the
+    // current one. How a call enters its function's realm
+    // (PrepareForOrdinaryCall, §10.2.1.1) and how a host runs code in one.
+    class RealmScope {
+    public:
+        RealmScope(Interpreter& interpreter, RealmRecord* realm)
+            : m_interpreter(interpreter)
+            , m_saved(interpreter.m_realm)
+        {
+            if (realm != nullptr)
+                interpreter.m_realm = realm;
+        }
+        ~RealmScope() { m_interpreter.m_realm = m_saved; }
+        RealmScope(RealmScope const&) = delete;
+        RealmScope& operator=(RealmScope const&) = delete;
+
+    private:
+        Interpreter& m_interpreter;
+        RealmRecord* m_saved;
+    };
     WellKnownAtoms const& atoms() const { return m_heap->atoms(); }
 
     // Runs a script as global code (§16.1.6). A parse error is a thrown
@@ -528,14 +553,14 @@ private:
     bool all_import_attributes_supported(std::span<ImportAttribute const> attributes, std::string const& specifier);
     // Records what an eval Program inherited its [[ScriptOrModule]] from.
     void note_eval_referrer(Program const& eval_program, Program const* caller);
-    // CreateRealm with its intrinsics (§9.3.1, §9.3.2): a new realm record,
-    // built with itself current and the previous current realm put back.
-    RealmRecord* create_realm();
     std::unique_ptr<Heap> m_heap;
     std::unique_ptr<Impl> m_impl;
-    // The current realm (§9.4), which every script runs in until a host
-    // makes another.
+    // The current realm (§9.4): the running function's, or the one a host
+    // entered.
     RealmRecord* m_realm = nullptr;
+    // Every realm made here, traced, so a realm lives as long as the
+    // interpreter does.
+    std::vector<RealmRecord*> m_realms;
     // A deque, so that the reference root() hands out survives every later
     // push: a vector would move its elements when it grows.
     std::deque<Value> m_roots;
