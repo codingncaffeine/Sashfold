@@ -154,5 +154,20 @@ int main(int argc, char** argv)
         CHECK(Theme {}.scaled(-2) == Theme {});
     }
 
+    // --- The shipped presets parse clean, each under its own name -------------
+    for (int i = 2; i < argc; ++i) {
+        std::vector<std::string> problems;
+        std::optional<Theme> const preset = Theme::load(argv[i], &problems);
+        CHECK(preset.has_value());
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        for (std::string const& problem : problems)
+            std::cerr << "  " << argv[i] << ": " << problem << "\n";
+        if (preset) {
+            CHECK(!preset->name.empty());
+            CHECK(preset->name != Theme {}.name);
+            CHECK(!(*preset == Theme {}));
+        }
+    }
+
     return sashfold::test::report("theme");
 }

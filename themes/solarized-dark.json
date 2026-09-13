@@ -1,0 +1,28 @@
+{
+  "name": "Solarized Dark",
+  "colors": {
+    "chrome-background": "#002b36",
+    "chrome-text": "#eee8d5",
+    "chrome-text-muted": "#93a1a1",
+    "chrome-border": "#00232c",
+    "tab-active-background": "#073642",
+    "tab-inactive-background": "#002b36",
+    "tab-hover-background": "#05303c",
+    "address-background": "#00212b",
+    "address-text": "#eee8d5",
+    "address-border": "#586e75",
+    "accent": "#268bd2",
+    "selection": "#268bd266",
+    "find-highlight": "#b5890099",
+    "find-current": "#cb4b16cc",
+    "hint-background": "#b58900",
+    "hint-text": "#002b36",
+    "button-hover-background": "#0a4050",
+    "button-disabled-text": "#586e75",
+    "status-background": "#002b36",
+    "status-text": "#93a1a1",
+    "content-background": "#ffffff",
+    "secure-indicator": "#859900",
+    "insecure-indicator": "#dc322f"
+  }
+}

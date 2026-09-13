@@ -1261,6 +1261,29 @@ std::optional<Bitmap> load_window_icon(char const* program)
     return decode_png(bytes);
 }
 
+// The themes the palette offers: every .json beside the theme file that
+// parses as one, by the name it gives itself, in name order.
+std::vector<ui::Browser::ThemePreset> theme_presets_beside(std::string const& theme_path)
+{
+    std::vector<ui::Browser::ThemePreset> presets;
+    if (theme_path.empty())
+        return presets;
+    std::error_code error;
+    std::filesystem::path const directory = std::filesystem::path(theme_path).parent_path();
+    for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(directory, error)) {
+        if (!entry.is_regular_file(error) || entry.path().extension() != ".json")
+            continue;
+        std::vector<std::string> problems;
+        std::optional<ui::Theme> const theme = ui::Theme::load(entry.path().string(), &problems);
+        if (!theme || !problems.empty() || theme->name.empty())
+            continue;
+        presets.push_back({ theme->name, entry.path().string() });
+    }
+    std::sort(presets.begin(), presets.end(),
+        [](ui::Browser::ThemePreset const& a, ui::Browser::ThemePreset const& b) { return a.name < b.name; });
+    return presets;
+}
+
 ui::Theme load_theme(std::string const& path)
 {
     if (path.empty())
@@ -1304,6 +1327,7 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
     browser.set_containers(containers_from(
         "[{\"name\": \"Personal\", \"color\": \"#3b82f6\"}, {\"name\": \"Work\", \"color\": \"#f59e0b\"}, "
         "{\"name\": \"Banking\", \"color\": \"#22c55e\"}, {\"name\": \"Shopping\", \"color\": \"#ec4899\"}]"));
+    browser.set_theme_presets(theme_presets_beside(theme_path));
     ui::ScriptResult const result = ui::run_script(browser, script, update_goldens, std::cout);
     return result.ok() ? 0 : 1;
 }
@@ -1322,9 +1346,25 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     }
     ui::ShellLoader loader;
     loader.set_blocklists(load_blocklists(blocklists_path));
-    ui::Browser browser(loader, load_theme(theme_path), window->width(), window->height());
+    // The theme: the file the reader last chose from the palette, kept in
+    // the profile's settings.json, else the shipped one; the palette's
+    // presets are the files beside the shipped one either way.
+    std::filesystem::path const profile_path = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile);
+    std::error_code error;
+    std::string theme_file = theme_path;
+    if (!profile_path.empty()) {
+        if (std::optional<std::string> const settings = read_text_file(profile_path / "settings.json")) {
+            if (std::optional<JsonValue> const parsed = JsonValue::parse(*settings); parsed && parsed->is_object()) {
+                if (JsonValue const* const chosen = parsed->get("theme");
+                    chosen && chosen->is_string() && std::filesystem::is_regular_file(chosen->as_string(), error))
+                    theme_file = chosen->as_string();
+            }
+        }
+    }
+    ui::Browser browser(loader, load_theme(theme_file), window->width(), window->height());
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
+    browser.set_theme_presets(theme_presets_beside(theme_path));
 
     // The profile: the containers offered, the cookie jars (the default's
     // and one per container), every page's localStorage, and the session
@@ -1333,7 +1373,6 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // file is written back whenever what it holds changes — at most once
     // a second, and once more at the end — whole or not at all, so a
     // crash loses a second of it at most.
-    std::filesystem::path const profile_path = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile);
     std::string saved_session;
     std::uint64_t saved_storage = 0;
     std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
@@ -1410,10 +1449,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         return owed;
     };
 
-    std::error_code error;
     std::filesystem::file_time_type theme_stamp;
-    if (!theme_path.empty())
-        theme_stamp = std::filesystem::last_write_time(theme_path, error);
+    if (!theme_file.empty())
+        theme_stamp = std::filesystem::last_write_time(theme_file, error);
     auto last_theme_check = std::chrono::steady_clock::now();
     std::string last_title;
     std::optional<Rect> last_caret;
@@ -1486,16 +1524,24 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         }
         window->set_cursor(browser.cursor());
 
+        // A theme chosen from the palette is on already; the window follows
+        // that file from here on and keeps the choice for the next start.
+        if (std::optional<std::string> const chosen = browser.take_theme_request()) {
+            theme_file = *chosen;
+            theme_stamp = std::filesystem::last_write_time(theme_file, error);
+            if (!profile_path.empty())
+                write_text_file_atomically(profile_path / "settings.json", "{\n  \"theme\": " + json_string(theme_file) + "\n}\n");
+        }
         // Themes are data: edit the file and the window follows.
-        if (!theme_path.empty()) {
+        if (!theme_file.empty()) {
             auto const now = std::chrono::steady_clock::now();
             if (now - last_theme_check > std::chrono::milliseconds(500)) {
                 last_theme_check = now;
                 std::filesystem::file_time_type const stamp
-                    = std::filesystem::last_write_time(theme_path, error);
+                    = std::filesystem::last_write_time(theme_file, error);
                 if (!error && stamp != theme_stamp) {
                     theme_stamp = stamp;
-                    browser.set_theme(load_theme(theme_path));
+                    browser.set_theme(load_theme(theme_file));
                 }
             }
         }
@@ -1503,7 +1549,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         if (!browser.has_pending_load()) {
             // Sleep until input, the theme check, the next page timer, or
             // the profile write that is owed.
-            int timeout = theme_path.empty() ? -1 : 500;
+            int timeout = theme_file.empty() ? -1 : 500;
             if (std::optional<double> const due = browser.next_timer_ms()) {
                 int const ms = static_cast<int>(std::ceil(*due));
                 timeout = timeout < 0 ? ms : std::min(timeout, ms);

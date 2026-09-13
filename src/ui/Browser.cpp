@@ -459,6 +459,8 @@ struct Browser::Impl {
         Maximize,
         WindowClose,
         DragHandle,
+        Palette, // the command palette's own box
+        PaletteRow, // one of its commands, hover_index says which of the rows shown
     };
 
     Loader& loader;
@@ -524,6 +526,24 @@ struct Browser::Impl {
     std::vector<Hint> hints;
 
     bool devtools_open = false; // the panel under the content: DOM tree, box and style
+
+    // The command palette: the commands it offers, built when it opens;
+    // which of them the query's words match, in order; and the one
+    // highlighted among those.
+    struct Command {
+        std::string label;
+        std::function<void()> run;
+    };
+    bool palette_open = false;
+    std::string palette_query;
+    std::size_t palette_caret = 0; // bytes into palette_query
+    bool palette_select_all = false;
+    std::vector<Command> palette_commands;
+    std::vector<std::size_t> palette_matches; // indices into palette_commands
+    std::size_t palette_index = 0; // into palette_matches
+    static constexpr std::size_t palette_rows_shown = 8;
+    std::vector<Browser::ThemePreset> theme_presets;
+    std::optional<std::string> theme_request; // a preset's file the reader chose, until the host takes it
 
     // The clock the pages' timers run on (ms); wall time unless the replay
     // installs a virtual one. And when the current entry into script began,
@@ -910,6 +930,27 @@ struct Browser::Impl {
             c.devtools_tree = Rect { 0, c.devtools.y + t.border_width, tree_width, panel - t.border_width };
             c.devtools_styles = Rect { tree_width + t.padding, c.devtools.y + t.border_width + t.padding / 2,
                 std::max(0, width - tree_width - 2 * t.padding), panel - t.border_width };
+        }
+        if (palette_open) {
+            // The palette floats over the top of the content, centred: the
+            // query box, then the commands shown, a row of text each; with
+            // nothing matching, one row's room for saying so.
+            int const box_width = std::min(std::max(240, width * 3 / 5), std::max(0, width - 4 * t.padding));
+            int const row_height = static_cast<int>(t.font_size * 2);
+            std::size_t const shown = std::min(palette_matches.size(), palette_rows_shown);
+            int const rows_height = static_cast<int>(std::max<std::size_t>(shown, 1)) * row_height;
+            int const palette_height = std::min(c.content.height - 2 * t.padding,
+                3 * t.padding + t.address_height + rows_height + t.padding);
+            c.palette = Rect { (width - box_width) / 2, c.content.y + 2 * t.padding, box_width, std::max(0, palette_height) };
+            c.palette_box = Rect { c.palette.x + t.padding, c.palette.y + t.padding, box_width - 2 * t.padding, t.address_height };
+            int const rows_top = c.palette_box.bottom() + t.padding;
+            for (std::size_t i = 0; i < shown; ++i) {
+                Rect const row { c.palette.x + t.padding, rows_top + static_cast<int>(i) * row_height,
+                    box_width - 2 * t.padding, row_height };
+                if (row.bottom() > c.palette.bottom() - t.padding)
+                    break;
+                c.palette_rows.push_back(row);
+            }
         }
 
         // The window's controls, when the shell draws the frame: three
@@ -2455,12 +2496,211 @@ struct Browser::Impl {
                 link = link_at(x, y);
             }
         }
+        if (palette_open) {
+            // The palette lies over the content: what is under it is out of reach.
+            for (std::size_t i = 0; i < c.palette_rows.size(); ++i) {
+                if (c.palette_rows[i].contains(x, y)) {
+                    next = Hover::PaletteRow;
+                    index = i;
+                    link.reset();
+                    break;
+                }
+            }
+            if (next != Hover::PaletteRow && c.palette.contains(x, y)) {
+                next = Hover::Palette;
+                link.reset();
+            }
+        }
         if (next != hover || index != hover_index || !same_url(link, hover_link)) {
             hover = next;
             hover_index = index;
             hover_link = std::move(link);
             dirty = true;
         }
+    }
+
+    // --- The command palette ----------------------------------------------------
+
+    static std::string ascii_lowercase(std::string_view text)
+    {
+        std::string out(text);
+        for (char& c : out)
+            c = static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+        return out;
+    }
+
+    // Every command the shell has right now, in the order the palette
+    // lists them: the tabs, the containers and the themes by name.
+    std::vector<Command> palette_command_list()
+    {
+        std::vector<Command> commands;
+        commands.push_back({ "New tab", [this] { new_tab(); } });
+        for (Browser::Container const& container : containers)
+            commands.push_back({ "New tab in " + container.name, [this, name = container.name] { new_tab_in(name); } });
+        commands.push_back({ "Close tab", [this] { close_tab(active); } });
+        commands.push_back({ "Reload", [this] { reload(); } });
+        commands.push_back({ "Back", [this] { go(-1); } });
+        commands.push_back({ "Forward", [this] { go(+1); } });
+        commands.push_back({ "Find in page", [this] { open_find(); } });
+        commands.push_back({ "Reader mode", [this] { toggle_reader(); } });
+        commands.push_back({ "Developer tools", [this] { toggle_devtools(); } });
+        commands.push_back({ "View source", [this] {
+            Tab const* const tab = active_tab();
+            HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+            if (!entry || entry->internal)
+                return;
+            if (std::optional<net::Url> const url = net::parse_url("view-source:" + entry->final_url.serialize()))
+                queue(active, *url, Mode::Push);
+        } });
+        for (std::size_t i = 0; i < tabs.size(); ++i)
+            commands.push_back({ "Switch to tab: " + tab_title(tabs[i]), [this, i] { select_tab(i); } });
+        for (Browser::ThemePreset const& preset : theme_presets)
+            commands.push_back({ "Theme: " + preset.name, [this, path = preset.path] { put_on_theme(path); } });
+        return commands;
+    }
+
+    // The commands whose labels carry every word of the query, in order.
+    void filter_palette()
+    {
+        std::vector<std::string> words;
+        std::string const query = ascii_lowercase(palette_query);
+        std::size_t start = 0;
+        while (start < query.size()) {
+            while (start < query.size() && query[start] == ' ')
+                ++start;
+            std::size_t end = start;
+            while (end < query.size() && query[end] != ' ')
+                ++end;
+            if (end > start)
+                words.push_back(query.substr(start, end - start));
+            start = end;
+        }
+        palette_matches.clear();
+        for (std::size_t i = 0; i < palette_commands.size(); ++i) {
+            std::string const label = ascii_lowercase(palette_commands[i].label);
+            bool all = true;
+            for (std::string const& word : words)
+                all = all && label.find(word) != std::string::npos;
+            if (all)
+                palette_matches.push_back(i);
+        }
+        palette_index = 0;
+        dirty = true;
+    }
+
+    void open_palette(std::string const& query)
+    {
+        blur_address();
+        blur_find();
+        hints_active = false;
+        palette_open = true;
+        palette_query = query;
+        palette_caret = query.size();
+        palette_select_all = false;
+        palette_commands = palette_command_list();
+        filter_palette();
+        refresh_hover();
+    }
+
+    void close_palette()
+    {
+        if (!palette_open)
+            return;
+        palette_open = false;
+        palette_query.clear();
+        palette_caret = 0;
+        palette_select_all = false;
+        palette_commands.clear();
+        palette_matches.clear();
+        palette_index = 0;
+        refresh_hover();
+        dirty = true;
+    }
+
+    // The first of the matches shown: the list scrolls to keep the
+    // highlighted one among the rows.
+    std::size_t palette_first_shown() const
+    {
+        return palette_index >= palette_rows_shown ? palette_index - palette_rows_shown + 1 : 0;
+    }
+
+    std::string palette_selection() const
+    {
+        if (!palette_open || palette_index >= palette_matches.size())
+            return {};
+        return palette_commands[palette_matches[palette_index]].label;
+    }
+
+    // Runs the match at `which` among the matches: the palette closes
+    // first, since the command may open something of its own.
+    void run_palette_match(std::size_t which)
+    {
+        if (which >= palette_matches.size()) {
+            close_palette();
+            return;
+        }
+        std::function<void()> const run = palette_commands[palette_matches[which]].run;
+        close_palette();
+        if (run)
+            run();
+        dirty = true;
+    }
+
+    void edit_palette(KeyEvent const& key)
+    {
+        if (key.key == Key::Enter) {
+            run_palette_match(palette_index);
+            return;
+        }
+        if (key.key == Key::Escape) {
+            close_palette();
+            return;
+        }
+        if (key.key == Key::Down || key.key == Key::Up) {
+            if (!palette_matches.empty()) {
+                std::size_t const count = palette_matches.size();
+                palette_index = key.key == Key::Down ? (palette_index + 1) % count : (palette_index + count - 1) % count;
+                dirty = true;
+            }
+            return;
+        }
+        if (edit_text(palette_query, palette_caret, palette_select_all, key))
+            filter_palette();
+    }
+
+    void type_into_palette(char32_t code_point)
+    {
+        if (palette_select_all) {
+            palette_query.clear();
+            palette_caret = 0;
+            palette_select_all = false;
+        }
+        std::string utf8;
+        append_utf8(utf8, code_point);
+        palette_query.insert(palette_caret, utf8);
+        palette_caret += utf8.size();
+        filter_palette();
+    }
+
+    // A theme preset chosen: put on now, and left for the host to keep.
+    void put_on_theme(std::string const& path)
+    {
+        std::vector<std::string> problems;
+        std::optional<Theme> loaded = Theme::load(path, &problems);
+        if (!loaded)
+            return;
+        set_base_theme(std::move(*loaded));
+        theme_request = path;
+    }
+
+    void set_base_theme(Theme loaded)
+    {
+        base_theme = std::move(loaded);
+        theme = base_theme.scaled(scale);
+        for (Tab& tab : tabs)
+            relayout(tab);
+        refresh_hover();
+        dirty = true;
     }
 
     // --- Input ---------------------------------------------------------------------
@@ -3696,7 +3936,12 @@ struct Browser::Impl {
                     return;
                 }
             }
+            // A press outside the palette closes it; one on a row runs the row.
+            if (palette_open && hover != Hover::Palette && hover != Hover::PaletteRow)
+                close_palette();
             switch (hover) {
+            case Hover::Palette: break;
+            case Hover::PaletteRow: run_palette_match(palette_first_shown() + hover_index); break;
             case Hover::TabClose: close_tab(hover_index); break;
             case Hover::Tab: select_tab(hover_index); break;
             case Hover::NewTab: new_tab(); break;
@@ -3867,6 +4112,15 @@ struct Browser::Impl {
         if (key.key == Key::F12
             || (key.ctrl && key.shift && key.key == Key::Letter && key.letter == U'I')) {
             toggle_devtools();
+            return;
+        }
+        // The palette takes every key while it is open.
+        if (palette_open) {
+            edit_palette(key);
+            return;
+        }
+        if (key.ctrl && key.shift && key.key == Key::Letter && key.letter == U'P') {
+            open_palette({});
             return;
         }
         // The page hears a key meant for it — not the shell's own chords —
@@ -4142,6 +4396,8 @@ struct Browser::Impl {
             int const x = text_left + static_cast<int>(static_cast<float>(index) * text::SashfoldMono::advance(t.font_size) + 0.5f);
             return Rect { std::min(x, inner.right()), inner.y, 1, std::max(1, inner.height) };
         };
+        if (palette_open)
+            return caret_in(c.palette_box, c.palette_box.x + t.border_width + t.padding, palette_query, palette_caret);
         if (find_focus && find_open)
             return caret_in(c.find_box, c.find_box.x + t.border_width + t.padding, find_query, find_caret);
         if (address_focus)
@@ -4162,6 +4418,10 @@ struct Browser::Impl {
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
         clear_preedit();
+        if (palette_open) {
+            type_into_palette(code_point);
+            return;
+        }
         if (find_focus) {
             type_into_find(code_point);
             return;
@@ -4504,6 +4764,59 @@ struct Browser::Impl {
             }
         }
 
+        // The command palette, over the page: the query box and the
+        // commands the query leaves, the highlighted one marked.
+        if (palette_open && !c.palette.is_empty()) {
+            frame.fill_round_rect(c.palette, t.address_corner_radius, t.address_border);
+            Rect const palette_inner { c.palette.x + t.border_width, c.palette.y + t.border_width,
+                c.palette.width - 2 * t.border_width, c.palette.height - 2 * t.border_width };
+            frame.fill_round_rect(palette_inner, std::max(0, t.address_corner_radius - t.border_width), t.chrome_background);
+            frame.fill_round_rect(c.palette_box, t.address_corner_radius, t.accent);
+            Rect const box_inner { c.palette_box.x + t.border_width, c.palette_box.y + t.border_width,
+                c.palette_box.width - 2 * t.border_width, c.palette_box.height - 2 * t.border_width };
+            frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width), t.address_background);
+            Rect const box_text { box_inner.x + t.padding, box_inner.y, std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
+            if (!box_text.is_empty()) {
+                Bitmap strip(box_text.width, box_text.height, t.address_background);
+                std::u32string const query = decode_utf8(palette_query);
+                std::size_t const caret_index = decode_utf8(palette_query.substr(0, palette_caret)).size();
+                Rect const local { 0, 0, box_text.width, box_text.height };
+                float const baseline = centered_baseline(local, t.font_size);
+                float const advance = text::SashfoldMono::advance(t.font_size);
+                if (palette_select_all && !query.empty())
+                    strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f), box_text.height - 4 }, t.selection);
+                if (query.empty())
+                    draw_text(strip, U"Type a command", 0, baseline, t.font_size, t.chrome_text_muted);
+                else
+                    draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0, baseline, t.font_size, t.address_text);
+                int const caret_x = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
+                strip.fill_rect(Rect { caret_x, 4, 1, box_text.height - 8 }, t.accent);
+                frame.blit(strip, box_text.x, box_text.y);
+            }
+            std::size_t const first = palette_first_shown();
+            for (std::size_t i = 0; i < c.palette_rows.size(); ++i) {
+                Rect const row = c.palette_rows[i];
+                std::size_t const match = first + i;
+                if (match >= palette_matches.size())
+                    break;
+                bool const selected = match == palette_index;
+                if (selected) {
+                    frame.fill_round_rect(row, t.button_corner_radius, t.button_hover_background);
+                    frame.fill_rect(Rect { row.x, row.y + 4, std::max(2, t.border_width * 3), row.height - 8 }, t.accent);
+                }
+                std::u32string const label = ellipsize(decode_utf8(palette_commands[palette_matches[match]].label),
+                    static_cast<float>(row.width - 3 * t.padding), t.font_size);
+                draw_text(frame, label, static_cast<float>(row.x + 2 * t.padding), centered_baseline(row, t.font_size),
+                    t.font_size, selected ? t.chrome_text : t.chrome_text_muted);
+            }
+            if (palette_matches.empty()) {
+                Rect const row { c.palette.x + t.padding, c.palette_box.bottom() + t.padding, c.palette.width - 2 * t.padding,
+                    static_cast<int>(t.font_size * 2) };
+                draw_text(frame, U"No command matches", static_cast<float>(row.x + 2 * t.padding),
+                    centered_baseline(row, t.font_size), t.font_size, t.chrome_text_muted);
+            }
+        }
+
         // Status bar.
         frame.fill_rect(c.status, t.status_background);
         frame.fill_rect(Rect { 0, c.status.y, width, t.border_width }, t.chrome_border);
@@ -4557,14 +4870,17 @@ Browser::Browser(Loader& loader, Theme theme, int width, int height)
 
 Browser::~Browser() = default;
 
-void Browser::set_theme(Theme theme)
+void Browser::set_theme(Theme theme) { m_impl->set_base_theme(std::move(theme)); }
+
+void Browser::open_palette(std::string const& query) { m_impl->open_palette(query); }
+bool Browser::palette_open() const { return m_impl->palette_open; }
+std::string Browser::palette_selection() const { return m_impl->palette_selection(); }
+void Browser::set_theme_presets(std::vector<ThemePreset> presets) { m_impl->theme_presets = std::move(presets); }
+std::optional<std::string> Browser::take_theme_request()
 {
-    m_impl->base_theme = std::move(theme);
-    m_impl->theme = m_impl->base_theme.scaled(m_impl->scale);
-    for (Impl::Tab& tab : m_impl->tabs)
-        m_impl->relayout(tab);
-    m_impl->refresh_hover();
-    m_impl->dirty = true;
+    std::optional<std::string> request = std::move(m_impl->theme_request);
+    m_impl->theme_request.reset();
+    return request;
 }
 
 Theme const& Browser::theme() const { return m_impl->theme; }

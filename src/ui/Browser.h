@@ -139,6 +139,9 @@ struct ChromeLayout {
     Rect devtools; // empty unless the devtools panel is open
     Rect devtools_tree;
     Rect devtools_styles;
+    Rect palette; // empty unless the command palette is open
+    Rect palette_box; // its query box
+    std::vector<Rect> palette_rows; // the commands shown, top to bottom
     std::vector<Rect> tabs;
     std::vector<Rect> tab_close_buttons;
     // The window's own controls at the tab strip's right end, drawn only
@@ -259,6 +262,27 @@ public:
     // tab's, round to the default.
     void new_tab_in(std::string const& container);
     std::string const& active_container() const;
+
+    // --- The command palette ------------------------------------------------
+    // Ctrl+Shift+P: every command the shell has — the tabs to switch to,
+    // the containers to open a tab in, the themes to put on — in one
+    // list over the page, narrowed word by word as the reader types, the
+    // arrow keys moving along it, Enter running the highlighted one and
+    // Escape closing it with nothing done.
+    void open_palette(std::string const& query = {});
+    bool palette_open() const;
+    // The highlighted command's label; "" when the palette is closed or
+    // nothing matches what was typed.
+    std::string palette_selection() const;
+    // The themes the palette offers, each by name and file: choosing one
+    // puts it on at once and leaves its file for the host to take, so the
+    // window can keep it for the next start.
+    struct ThemePreset {
+        std::string name;
+        std::string path;
+    };
+    void set_theme_presets(std::vector<ThemePreset> presets);
+    std::optional<std::string> take_theme_request();
 
     // --- Storage ------------------------------------------------------------
     // Every page's localStorage — an area per container and origin, kept

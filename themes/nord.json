@@ -1,0 +1,28 @@
+{
+  "name": "Nord",
+  "colors": {
+    "chrome-background": "#2e3440",
+    "chrome-text": "#eceff4",
+    "chrome-text-muted": "#aab2c0",
+    "chrome-border": "#242933",
+    "tab-active-background": "#3b4252",
+    "tab-inactive-background": "#2e3440",
+    "tab-hover-background": "#353c4a",
+    "address-background": "#272c36",
+    "address-text": "#eceff4",
+    "address-border": "#4c566a",
+    "accent": "#88c0d0",
+    "selection": "#88c0d066",
+    "find-highlight": "#ebcb8b99",
+    "find-current": "#d08770cc",
+    "hint-background": "#ebcb8b",
+    "hint-text": "#2e3440",
+    "button-hover-background": "#434c5e",
+    "button-disabled-text": "#4c566a",
+    "status-background": "#2e3440",
+    "status-text": "#aab2c0",
+    "content-background": "#ffffff",
+    "secure-indicator": "#a3be8c",
+    "insecure-indicator": "#bf616a"
+  }
+}

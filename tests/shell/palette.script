@@ -1,0 +1,62 @@
+# The command palette: Ctrl+Shift+P opens it over the page with every
+# command the shell has — the tabs to switch to, the containers to open a
+# tab in, the themes to put on — typing narrows the list word by word,
+# the arrow keys move along it, Enter runs the highlighted command and
+# Escape closes it with nothing done.
+resize 800 500
+open data:text/html,<title>Page one</title><p>One</p>
+new-tab
+open data:text/html,<title>Page two</title><p>Two</p>
+assert-tabs 2
+palette
+assert-palette New tab
+key Escape
+assert-palette
+
+# Words narrow the list, each a substring of the label; the highlighted
+# command runs on Enter.
+palette switch one
+assert-palette Switch to tab: Page one
+key Enter
+assert-title Page one
+assert-palette
+palette new tab in work
+assert-palette New tab in Work
+key Enter
+assert-container Work
+assert-tabs 3
+palette theme: nord
+assert-palette Theme: Nord
+key Enter
+assert-theme Nord
+palette theme: sashfold
+assert-palette Theme: Sashfold
+key Enter
+assert-theme Sashfold
+
+# Nothing matches nonsense; the arrows walk the list and wrap.
+palette xyzzy
+assert-palette
+key Escape
+palette
+key Down
+key Down
+assert-palette New tab in Work
+key Up
+assert-palette New tab in Personal
+key Up
+key Up
+assert-palette Theme: Solarized Dark
+key Escape
+
+# A command the query names by a word in its middle.
+palette close
+assert-palette Close tab
+key Enter
+assert-tabs 2
+assert-palette
+
+# What it looks like, open over a page.
+palette new
+assert-golden goldens/palette.png
+key Escape

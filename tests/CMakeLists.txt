@@ -94,7 +94,9 @@ sashfold_test(test_bindings)
 
 add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
-add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.json)
+add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.json
+  ${CMAKE_SOURCE_DIR}/themes/high-contrast.json ${CMAKE_SOURCE_DIR}/themes/light.json
+  ${CMAKE_SOURCE_DIR}/themes/nord.json ${CMAKE_SOURCE_DIR}/themes/solarized-dark.json)
 sashfold_test(test_touch)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -158,6 +160,9 @@ add_test(NAME shell_session
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_containers
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/containers.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_palette
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/palette.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_hidpi
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script

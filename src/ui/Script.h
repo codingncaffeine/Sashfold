@@ -47,6 +47,9 @@
 //   session-save [<path>]   the tabs, histories and scroll positions as the
 //                        shell keeps them between runs, to a file or held
 //   session-restore [<path>]   the tabs of that session in place of these
+//   palette [<query>]    open the command palette, with the query typed
+//   assert-palette <label>   the highlighted command ("" = closed or no match)
+//   assert-theme <name>  the theme the chrome is drawn with
 //   echo <text>
 
 #include "ui/Browser.h"

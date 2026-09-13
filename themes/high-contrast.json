@@ -1,0 +1,31 @@
+{
+  "name": "High Contrast",
+  "colors": {
+    "chrome-background": "#000000",
+    "chrome-text": "#ffffff",
+    "chrome-text-muted": "#d0d0d0",
+    "chrome-border": "#ffffff",
+    "tab-active-background": "#2a2a2a",
+    "tab-inactive-background": "#000000",
+    "tab-hover-background": "#1a1a1a",
+    "address-background": "#000000",
+    "address-text": "#ffffff",
+    "address-border": "#ffffff",
+    "accent": "#ffff00",
+    "selection": "#ffff0066",
+    "find-highlight": "#ffff0099",
+    "find-current": "#ff8000cc",
+    "hint-background": "#ffff00",
+    "hint-text": "#000000",
+    "button-hover-background": "#333333",
+    "button-disabled-text": "#808080",
+    "status-background": "#000000",
+    "status-text": "#ffffff",
+    "content-background": "#ffffff",
+    "secure-indicator": "#00ff00",
+    "insecure-indicator": "#ff4040"
+  },
+  "metrics": {
+    "border-width": 2
+  }
+}

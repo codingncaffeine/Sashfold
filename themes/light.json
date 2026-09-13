@@ -1,0 +1,28 @@
+{
+  "name": "Sashfold Light",
+  "colors": {
+    "chrome-background": "#f3f4f6",
+    "chrome-text": "#1f2328",
+    "chrome-text-muted": "#6b7280",
+    "chrome-border": "#d1d5db",
+    "tab-active-background": "#ffffff",
+    "tab-inactive-background": "#f3f4f6",
+    "tab-hover-background": "#e9ebef",
+    "address-background": "#ffffff",
+    "address-text": "#1f2328",
+    "address-border": "#cfd4dc",
+    "accent": "#2563eb",
+    "selection": "#2563eb55",
+    "find-highlight": "#ffd54f99",
+    "find-current": "#ff9800cc",
+    "hint-background": "#ffe066",
+    "hint-text": "#1c1b19",
+    "button-hover-background": "#e3e6ea",
+    "button-disabled-text": "#b0b6c0",
+    "status-background": "#f3f4f6",
+    "status-text": "#6b7280",
+    "content-background": "#ffffff",
+    "secure-indicator": "#15803d",
+    "insecure-indicator": "#dc2626"
+  }
+}
