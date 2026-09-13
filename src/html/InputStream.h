@@ -36,13 +36,24 @@ public:
         return std::u32string_view(m_data).substr(m_position);
     }
 
-    // Puts `text` just before the next character to be consumed: the
-    // insertion point document.write writes at while the parser runs.
-    void insert(std::u32string_view text) { m_data.insert(m_position, text); }
+    // Puts `text` just before the insertion point, where document.write
+    // writes while the parser runs (§13.2.3.4): the point starts just
+    // before the next character to be consumed and stays after what was
+    // inserted, so a script's writes land one after another, in order,
+    // and a script that a written script wrote lands after its own end
+    // tag, where the tokenizer has got to by then.
+    void insert(std::u32string_view text)
+    {
+        if (m_insertion_point < m_position)
+            m_insertion_point = m_position;
+        m_data.insert(m_insertion_point, text);
+        m_insertion_point += text.size();
+    }
 
 private:
     std::u32string m_data;
     std::size_t m_position = 0;
+    std::size_t m_insertion_point = 0;
 };
 
 }

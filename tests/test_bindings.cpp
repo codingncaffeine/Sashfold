@@ -667,6 +667,18 @@ void test_document_write_during_parsing()
     page->eval("document.write('<p>late</p>');");
     CHECK(page->console.find("document.write after the document was parsed") != std::string::npos);
     CHECK_EQ(page->number("document.getElementsByTagName('p').length"), 3);
+
+    // An external script written during the parse is fetched and runs in
+    // order, before the markup after it; writeln ends its text with a
+    // newline; open() answers with the document and close() is nothing,
+    // since a document is never replaced through them.
+    auto external = std::make_unique<Page>(R"HTML(<!DOCTYPE html><body><script>var log = ['start']; document.write('<scr' + 'ipt src="lib.js"></scr' + 'ipt>'); document.writeln('<p id=w>x</p>'); log.push('after-write');</script><script>log.push('next');</script><p id=z>z</p></body>)HTML");
+    external->scripts["https://example.test/dir/lib.js"] = "log.push('lib:' + document.getElementById('w') + ':' + document.getElementById('z'));";
+    external->load();
+    CHECK_EQ(external->string("log.join(' ')"), "start after-write lib:null:null next");
+    CHECK_EQ(external->string("document.body.innerHTML.indexOf('<p id=\"w\">x</p>\\n') >= 0 ? 'newline' : document.body.innerHTML"), "newline");
+    CHECK(external->boolean("document.open() === document && document.close() === undefined"));
+    CHECK_EQ(external->number("document.getElementsByTagName('p').length"), 2);
 }
 
 void test_inserted_scripts_run_and_fragment_scripts_do_not()
