@@ -3,6 +3,7 @@
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
+#include "text/TrueTypeWriter.h"
 
 #include <cstdint>
 #include <iostream>
@@ -76,6 +77,41 @@ int main()
     CHECK(&manager.resolve(FontRequest { { "Junk", "Ahem" }, 400, false }).primary() == &builtin);
     manager.set_page_fonts({});
     CHECK(&manager.resolve(FontRequest { { "ahem", "serif" }, 400, false }).primary() == &builtin);
+
+    // --- Kerning ------------------------------------------------------------------------
+    // A page font that kerns AV measures the pair closer than its two
+    // advances, unless kerning is turned off; a pair the font does not
+    // name, and a pair spanning two faces, measure as their advances.
+    {
+        text::FontDescription description;
+        description.family = "Kern";
+        description.units_per_em = 2048;
+        description.ascender = 1600;
+        description.descender = -400;
+        for (int i = 0; i < 5; ++i) {
+            // A triangle each: a font with no outlines at all is not a font
+            // the manager will register.
+            text::WriterGlyph glyph;
+            glyph.advance = 1000;
+            glyph.outline.points = { { 0, 0, true }, { 500, 1000, true }, { 1000, 0, true } };
+            glyph.outline.contour_ends = { 2 };
+            description.glyphs.push_back(glyph);
+        }
+        description.mappings = { { U'A', 1 }, { U'V', 2 }, { U'T', 3 }, { U'o', 4 } };
+        description.kerning = { { 1, 2, -100 }, { 3, 4, -80 } };
+        description.kerning_table = text::WriterKerningTable::GposPairs;
+        manager.set_page_fonts({ text::PageFont { "Kern", 400, false, text::write_truetype(description) } });
+        FontStack const& kerned = manager.resolve(FontRequest { { "Kern" }, 400, false });
+        CHECK(&kerned.primary() != &builtin);
+        CHECK_EQ(kerned.measure(U"A", 2048), 1000.0f);
+        CHECK_EQ(kerned.measure(U"AV", 2048), 1900.0f);
+        CHECK_EQ(kerned.measure(U"AV", 2048, false), 2000.0f);
+        CHECK_EQ(kerned.measure(U"VA", 2048), 2000.0f);
+        CHECK_EQ(kerned.measure(U"To", 1024), 960.0f);
+        float const question = kerned.measure(U"?", 2048); // the built-in face's, the font having none
+        CHECK_EQ(kerned.measure(U"A?", 2048), 1000.0f + question);
+        manager.set_page_fonts({});
+    }
 
     // --- System fonts --------------------------------------------------------------------
     manager.set_system_fonts(true);

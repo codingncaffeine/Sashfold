@@ -2514,6 +2514,7 @@ struct Resolver {
         style.word_break = parent.word_break;
         style.line_break = parent.line_break;
         style.overflow_wrap = parent.overflow_wrap;
+        style.font_kerning = parent.font_kerning;
         style.text_transform = parent.text_transform;
         style.list_style_type = parent.list_style_type;
         style.list_style_position = parent.list_style_position;
@@ -2905,6 +2906,7 @@ struct Resolver {
             { "word-break", true, [](S& to, S const& from) { to.word_break = from.word_break; }, 0 },
             { "line-break", true, [](S& to, S const& from) { to.line_break = from.line_break; }, 0 },
             { "overflow-wrap", true, [](S& to, S const& from) { to.overflow_wrap = from.overflow_wrap; }, 0 },
+            { "font-kerning", true, [](S& to, S const& from) { to.font_kerning = from.font_kerning; }, 0 },
             { "text-transform", true,
                 [](S& to, S const& from) { to.text_transform = from.text_transform; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
@@ -5354,6 +5356,17 @@ struct Resolver {
                 style.word_break = WordBreak::BreakWord;
             else if (is_ident(values[0], "manual"))
                 style.word_break = WordBreak::Manual;
+            return;
+        }
+        if (name == "font-kerning") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto"))
+                style.font_kerning = FontKerning::Auto;
+            else if (is_ident(values[0], "normal"))
+                style.font_kerning = FontKerning::Normal;
+            else if (is_ident(values[0], "none"))
+                style.font_kerning = FontKerning::None;
             return;
         }
         if (name == "overflow-wrap" || name == "word-wrap") {

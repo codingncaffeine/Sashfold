@@ -1548,7 +1548,8 @@ struct Layouter {
 
     float measure(ComputedStyle const& style, std::u32string_view text) const
     {
-        return fonts_for(style).measure(text, style.font_size) + extra_spacing(style, text);
+        bool const kern = style.font_kerning != css::FontKerning::None;
+        return fonts_for(style).measure(text, style.font_size, kern) + extra_spacing(style, text);
     }
 
     // What letter-spacing and word-spacing add to a run: one letter's worth
@@ -3708,6 +3709,8 @@ struct Layouter {
                             fit_width += glyph_width;
                             ++fit;
                         }
+                        // Measured whole: the pairs inside the slice kern.
+                        fit_width = measure(*item.style, std::u32string_view(word).substr(0, fit));
                     }
                     if (fit >= head) {
                         if (head == word.size())

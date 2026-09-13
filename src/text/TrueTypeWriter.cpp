@@ -674,18 +674,175 @@ std::vector<std::uint8_t> write_truetype(FontDescription const& font)
     post.u32(0);
     post.u32(0);
 
+    // --- kern or GPOS: the kerning pairs, when there are any --------------------------
+    Buffer kern;
+    Buffer gpos;
+    if (!font.kerning.empty()) {
+        std::vector<WriterKerningPair> pairs = font.kerning;
+        std::sort(pairs.begin(), pairs.end(), [](WriterKerningPair const& a, WriterKerningPair const& b) {
+            return a.left != b.left ? a.left < b.left : a.right < b.right;
+        });
+        auto const pair_count = static_cast<std::uint16_t>(pairs.size());
+        // The glyphs named on each side, sorted and distinct.
+        std::vector<std::uint16_t> lefts;
+        std::vector<std::uint16_t> rights;
+        for (WriterKerningPair const& pair : pairs) {
+            lefts.push_back(pair.left);
+            rights.push_back(pair.right);
+        }
+        std::sort(rights.begin(), rights.end());
+        lefts.erase(std::unique(lefts.begin(), lefts.end()), lefts.end());
+        rights.erase(std::unique(rights.begin(), rights.end()), rights.end());
+        auto const index_of = [](std::vector<std::uint16_t> const& glyphs, std::uint16_t glyph) {
+            return static_cast<std::uint16_t>(std::lower_bound(glyphs.begin(), glyphs.end(), glyph) - glyphs.begin());
+        };
+        // A coverage table, format 1, over sorted glyphs.
+        auto const write_coverage = [](Buffer& out, std::vector<std::uint16_t> const& glyphs) {
+            out.u16(1);
+            out.u16(static_cast<std::uint16_t>(glyphs.size()));
+            for (std::uint16_t const glyph : glyphs)
+                out.u16(glyph);
+        };
+        if (font.kerning_table == WriterKerningTable::Kern) {
+            // Version 0, one horizontal format 0 subtable: the pairs sorted
+            // by left then right, with the binary-search header the format
+            // asks for.
+            std::uint16_t largest = 1;
+            std::uint16_t selector = 0;
+            while (largest * 2 <= pair_count) {
+                largest = static_cast<std::uint16_t>(largest * 2);
+                ++selector;
+            }
+            kern.u16(0);
+            kern.u16(1);
+            kern.u16(0);
+            kern.u16(static_cast<std::uint16_t>(14 + pairs.size() * 6));
+            kern.u16(0x0001);
+            kern.u16(pair_count);
+            kern.u16(static_cast<std::uint16_t>(largest * 6));
+            kern.u16(selector);
+            kern.u16(static_cast<std::uint16_t>((pair_count - largest) * 6));
+            for (WriterKerningPair const& pair : pairs) {
+                kern.u16(pair.left);
+                kern.u16(pair.right);
+                kern.i16(pair.value);
+            }
+        } else {
+            // The header; a DFLT script whose default language system names
+            // feature 0; the `kern` feature naming lookup 0; that lookup's
+            // one pair positioning subtable, every offset within it its own.
+            gpos.u16(1);
+            gpos.u16(0);
+            gpos.u16(10); // ScriptList
+            gpos.u16(30); // FeatureList
+            gpos.u16(44); // LookupList
+            gpos.u16(1);
+            gpos.tag('D', 'F', 'L', 'T');
+            gpos.u16(8);
+            gpos.u16(4); // the script: its default language system
+            gpos.u16(0);
+            gpos.u16(0); // the language system: no lookup order
+            gpos.u16(0xFFFF);
+            gpos.u16(1);
+            gpos.u16(0);
+            gpos.u16(1);
+            gpos.tag('k', 'e', 'r', 'n');
+            gpos.u16(8);
+            gpos.u16(0); // the feature: no params
+            gpos.u16(1);
+            gpos.u16(0);
+            gpos.u16(1);
+            gpos.u16(4);
+            gpos.u16(2); // the lookup: pair positioning
+            gpos.u16(0);
+            gpos.u16(1);
+            gpos.u16(8);
+            Buffer sub;
+            if (font.kerning_table == WriterKerningTable::GposPairs) {
+                sub.u16(1);
+                sub.u16(0); // coverage, patched
+                sub.u16(0x0004); // value 1: xAdvance
+                sub.u16(0);
+                sub.u16(static_cast<std::uint16_t>(lefts.size()));
+                std::size_t const set_offsets = sub.size();
+                for (std::size_t i = 0; i < lefts.size(); ++i)
+                    sub.u16(0); // patched
+                sub.u16_at(2, static_cast<std::uint16_t>(sub.size()));
+                write_coverage(sub, lefts);
+                for (std::size_t i = 0; i < lefts.size(); ++i) {
+                    sub.u16_at(set_offsets + i * 2, static_cast<std::uint16_t>(sub.size()));
+                    std::size_t const count_at = sub.size();
+                    sub.u16(0);
+                    std::uint16_t count = 0;
+                    for (WriterKerningPair const& pair : pairs) {
+                        if (pair.left != lefts[i])
+                            continue;
+                        sub.u16(pair.right);
+                        sub.i16(pair.value);
+                        ++count;
+                    }
+                    sub.u16_at(count_at, count);
+                }
+            } else {
+                // One class per glyph named on each side, class 0 for the rest.
+                auto const class1_count = static_cast<std::uint16_t>(lefts.size() + 1);
+                auto const class2_count = static_cast<std::uint16_t>(rights.size() + 1);
+                sub.u16(2);
+                sub.u16(0); // coverage, patched
+                sub.u16(0x0004);
+                sub.u16(0);
+                sub.u16(0); // class definitions, patched
+                sub.u16(0);
+                sub.u16(class1_count);
+                sub.u16(class2_count);
+                for (std::uint16_t c1 = 0; c1 < class1_count; ++c1) {
+                    for (std::uint16_t c2 = 0; c2 < class2_count; ++c2) {
+                        std::int16_t value = 0;
+                        if (c1 > 0 && c2 > 0) {
+                            for (WriterKerningPair const& pair : pairs) {
+                                if (pair.left == lefts[c1 - 1u] && pair.right == rights[c2 - 1u])
+                                    value = pair.value;
+                            }
+                        }
+                        sub.i16(value);
+                    }
+                }
+                sub.u16_at(2, static_cast<std::uint16_t>(sub.size()));
+                write_coverage(sub, lefts);
+                auto const write_classes = [&](std::size_t patch_at, std::vector<std::uint16_t> const& glyphs) {
+                    sub.u16_at(patch_at, static_cast<std::uint16_t>(sub.size()));
+                    sub.u16(2);
+                    sub.u16(static_cast<std::uint16_t>(glyphs.size()));
+                    for (std::uint16_t const glyph : glyphs) {
+                        sub.u16(glyph);
+                        sub.u16(glyph);
+                        sub.u16(static_cast<std::uint16_t>(index_of(glyphs, glyph) + 1));
+                    }
+                };
+                write_classes(8, lefts);
+                write_classes(10, rights);
+            }
+            gpos.append(sub.bytes);
+        }
+    }
+
     // --- the file: directory, then the tables in tag order -----------------------------
     struct Entry {
         std::uint32_t tag;
         std::vector<std::uint8_t> const* data;
     };
-    std::vector<Entry> const entries {
+    std::vector<Entry> entries {
         { make_tag('O', 'S', '/', '2'), &os2.bytes }, { make_tag('c', 'm', 'a', 'p'), &cmap.bytes },
         { make_tag('g', 'l', 'y', 'f'), &glyf.bytes }, { make_tag('h', 'e', 'a', 'd'), &head.bytes },
         { make_tag('h', 'h', 'e', 'a'), &hhea.bytes }, { make_tag('h', 'm', 't', 'x'), &hmtx.bytes },
         { make_tag('l', 'o', 'c', 'a'), &loca.bytes }, { make_tag('m', 'a', 'x', 'p'), &maxp.bytes },
         { make_tag('n', 'a', 'm', 'e'), &name.bytes }, { make_tag('p', 'o', 's', 't'), &post.bytes },
     };
+    if (!kern.bytes.empty())
+        entries.push_back({ make_tag('k', 'e', 'r', 'n'), &kern.bytes });
+    if (!gpos.bytes.empty())
+        entries.push_back({ make_tag('G', 'P', 'O', 'S'), &gpos.bytes });
+    std::sort(entries.begin(), entries.end(), [](Entry const& a, Entry const& b) { return a.tag < b.tag; });
     Buffer file;
     auto const table_count = static_cast<std::uint16_t>(entries.size());
     std::uint16_t search_range = 16;

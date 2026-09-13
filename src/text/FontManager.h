@@ -56,8 +56,10 @@ public:
         std::uint32_t glyph;
     };
     Glyph glyph_for(char32_t code_point) const;
-    // The advance of a string at a size, glyph by glyph.
-    float measure(std::u32string_view text, float size) const;
+    // The advance of a string at a size, glyph by glyph, each pair the same
+    // face draws side by side kerned as its tables say — unless `kern` is
+    // off (font-kerning: none).
+    float measure(std::u32string_view text, float size, bool kern = true) const;
 
 private:
     friend class FontManager;

@@ -37,6 +37,11 @@ public:
     virtual std::uint32_t glyph_index(char32_t code_point) const = 0;
     virtual FaceMetrics metrics(float size) const = 0;
     virtual float advance(std::uint32_t glyph, float size) const = 0;
+    // The adjustment to the advance between two of this face's glyphs side
+    // by side, px: what the font's kerning tables say of the pair, and 0
+    // for a face without any — the built-in face, or a font that kerns
+    // nothing. Negative pulls the pair together, as AV and To are.
+    virtual float kerning(std::uint32_t left, std::uint32_t right, float size) const;
     // Blends one glyph with its origin at (x, baseline_y). A weight or slant
     // the face was not designed with is synthesized.
     virtual void draw_glyph(Bitmap& target, std::uint32_t glyph, float x, float baseline_y,

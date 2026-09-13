@@ -422,6 +422,13 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case WordBreak::Manual: return "manual";
         }
     }
+    if (name == "font-kerning") {
+        switch (style.font_kerning) {
+        case FontKerning::Auto: return "auto";
+        case FontKerning::Normal: return "normal";
+        case FontKerning::None: return "none";
+        }
+    }
     if (name == "overflow-wrap" || name == "word-wrap") {
         switch (style.overflow_wrap) {
         case OverflowWrap::Normal: return "normal";

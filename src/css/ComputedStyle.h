@@ -508,6 +508,14 @@ enum class WordBreak : std::uint8_t {
     Manual,
 };
 
+// font-kerning (css-fonts-4 §6.4): auto and normal read the font's
+// kerning tables, none leaves every pair at its advance.
+enum class FontKerning : std::uint8_t {
+    Auto,
+    Normal,
+    None,
+};
+
 // overflow-wrap (css-text-3 §5.5): whether a word too wide for a line is
 // sliced where it must be — break-word and anywhere — or left to overflow
 // (normal). Only anywhere's slices count toward a min-content width.
@@ -975,6 +983,7 @@ struct ComputedStyle {
     WordBreak word_break = WordBreak::Normal;
     LineBreakMode line_break = LineBreakMode::Auto;
     OverflowWrap overflow_wrap = OverflowWrap::Normal;
+    FontKerning font_kerning = FontKerning::Auto;
     TextTransform text_transform = TextTransform::None;
     ListStyleType list_style_type = ListStyleType::Disc;
     ListStylePosition list_style_position = ListStylePosition::Outside;

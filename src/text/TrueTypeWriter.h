@@ -27,6 +27,22 @@ struct WriterGlyph {
     std::uint16_t advance = 0; // font units
 };
 
+// A kerning pair, font units; negative pulls the pair together.
+struct WriterKerningPair {
+    std::uint16_t left = 0;
+    std::uint16_t right = 0;
+    std::int16_t value = 0;
+};
+
+// Which table carries the kerning pairs: the `kern` table (format 0), or
+// GPOS pair positioning under a `kern` feature — by pairs (format 1), or
+// by classes (format 2, one class per glyph named).
+enum class WriterKerningTable : std::uint8_t {
+    Kern,
+    GposPairs,
+    GposClasses,
+};
+
 struct FontDescription {
     std::string family = "Untitled";
     std::string subfamily = "Regular";
@@ -43,11 +59,14 @@ struct FontDescription {
     bool long_loca = false; // 32-bit glyph offsets even when 16-bit would do
     std::vector<WriterGlyph> glyphs; // glyph 0 is .notdef
     std::vector<std::pair<char32_t, std::uint16_t>> mappings; // code point -> glyph, any order
+    std::vector<WriterKerningPair> kerning; // any order; none writes no kerning table
+    WriterKerningTable kerning_table = WriterKerningTable::Kern;
 };
 
 // A complete TTF: OS/2, cmap (formats 4 and 12), glyf, head, hhea, hmtx,
-// loca, maxp, name, post. Empty when the description is unusable (no
-// glyphs, or more than 65535 of them).
+// loca, maxp, name, post, and kern or GPOS when there are kerning pairs.
+// Empty when the description is unusable (no glyphs, or more than 65535
+// of them).
 std::vector<std::uint8_t> write_truetype(FontDescription const& font);
 
 // Gathers TTFs written above into one TrueType collection, faces in order.

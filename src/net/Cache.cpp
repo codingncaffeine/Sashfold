@@ -517,9 +517,12 @@ void HttpCache::read_directory()
         }
         if (path.extension() != ".meta")
             continue;
+        // The text is read whole and closed before anything is removed:
+        // Windows refuses to delete a file that is still open.
         std::ifstream meta(path, std::ios::binary);
         std::string line;
         if (!std::getline(meta, line) || line != "sashfold-cache 1") {
+            meta.close();
             std::filesystem::remove(path, error);
             continue;
         }
@@ -561,6 +564,7 @@ void HttpCache::read_directory()
                 entry.body_bytes = static_cast<std::size_t>(std::atoll(value.c_str()));
             }
         }
+        meta.close();
         std::string const stem = path.string().substr(0, path.string().size() - 5);
         if (!complete || key.empty() || entry.response.status != 200 || m_entries.contains(key)
             || file_stem(key) != stem || !std::filesystem::is_regular_file(stem + ".body", error)) {

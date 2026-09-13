@@ -101,6 +101,12 @@ public:
     std::size_t mapped_code_points() const;
     std::uint16_t advance_width(std::uint16_t glyph) const; // font units
     std::int16_t left_side_bearing(std::uint16_t glyph) const;
+    // The adjustment to the advance between two glyphs side by side, font
+    // units, from the GPOS `kern` feature's pair positioning when the font
+    // has one and from the `kern` table otherwise; 0 for a pair neither
+    // names. Negative pulls the pair together, as AV and To are.
+    std::int16_t kerning(std::uint16_t left, std::uint16_t right) const;
+    bool has_kerning() const { return !m_gpos_pair_subtables.empty() || !m_kern_subtables.empty(); }
     // Composites are flattened, and a CFF charstring's cubic curves are
     // rewritten as quadratics; nullopt for a malformed glyph. An empty
     // outline (no contours) is a valid result: spaces.
@@ -129,6 +135,9 @@ private:
         std::uint16_t delta);
     void load_names();
     void load_os2();
+    void load_kerning();
+    std::int16_t gpos_pair_adjustment(std::uint32_t subtable, std::uint16_t left, std::uint16_t right) const;
+    std::int16_t kern_table_adjustment(std::uint32_t subtable, std::uint16_t left, std::uint16_t right) const;
     bool outline_into(std::uint16_t glyph, GlyphOutline& out, int depth) const;
     bool parse_simple_glyph(std::uint32_t offset, std::uint32_t length, GlyphOutline& out) const;
     bool parse_composite_glyph(std::uint32_t offset, std::uint32_t length, GlyphOutline& out,
@@ -137,7 +146,14 @@ private:
     std::string name_string(std::uint16_t name_id) const;
 
     std::vector<std::uint8_t> m_bytes;
-    Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2, m_cff_table;
+    Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2, m_cff_table, m_kern,
+        m_gpos;
+    // Where the kerning is read from, found once: the pair positioning
+    // subtables (formats 1 and 2) of every `kern` feature lookup in GPOS,
+    // or, when GPOS names none, the horizontal format 0 subtables of the
+    // `kern` table. Absolute offsets into the file, in lookup order.
+    std::vector<std::uint32_t> m_gpos_pair_subtables;
+    std::vector<std::uint32_t> m_kern_subtables;
     bool m_has_glyf = false;
     bool m_has_cff = false;
     // The CFF font's tables, parsed once; null when there are none or they

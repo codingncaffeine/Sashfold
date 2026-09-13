@@ -34,6 +34,14 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
         }
         for (char32_t const c : { 0x41u, 0x20u, 0xE9u, 0x4E00u, 0x1F600u, 0xFFFFu })
             (void)font->glyph_index(c);
+        // The kerning tables are hostile too: every pair among the first
+        // glyphs, and a pair beyond the glyph count.
+        (void)font->has_kerning();
+        for (std::size_t left = 0; left < std::min<std::size_t>(glyphs, 24); ++left) {
+            for (std::size_t right = 0; right < std::min<std::size_t>(glyphs, 24); ++right)
+                (void)font->kerning(static_cast<std::uint16_t>(left), static_cast<std::uint16_t>(right));
+        }
+        (void)font->kerning(0xFFFF, 0xFFFF);
     }
     return 0;
 }

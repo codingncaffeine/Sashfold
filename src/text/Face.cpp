@@ -102,6 +102,14 @@ public:
             / static_cast<float>(m_font.units_per_em());
     }
 
+    float kerning(std::uint32_t left, std::uint32_t right, float size) const override
+    {
+        if (left > 0xFFFF || right > 0xFFFF || !m_font.has_kerning())
+            return 0;
+        return m_font.kerning(static_cast<std::uint16_t>(left), static_cast<std::uint16_t>(right)) * size
+            / static_cast<float>(m_font.units_per_em());
+    }
+
     void draw_glyph(Bitmap& target, std::uint32_t glyph, float x, float baseline_y, float size,
         Color color, bool bold, bool italic) const override
     {
@@ -190,6 +198,11 @@ void Face::draw_glyph_turned(Bitmap& target, std::uint32_t glyph, float baseline
             target.blend_pixel(page_x, page_y, pixel);
         }
     }
+}
+
+float Face::kerning(std::uint32_t, std::uint32_t, float) const
+{
+    return 0; // a face without kerning tables: every pair at its advances
 }
 
 Face const& builtin_face()

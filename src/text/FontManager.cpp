@@ -113,16 +113,20 @@ FontStack::Glyph FontStack::glyph_for(char32_t code_point) const
     return Glyph { &builtin_face(), code_point };
 }
 
-float FontStack::measure(std::u32string_view text, float size) const
+float FontStack::measure(std::u32string_view text, float size, bool kern) const
 {
     // The built-in face alone is fixed pitch: count times advance, which is
     // exact where a running sum would drift.
     if (m_faces.size() == 1)
         return static_cast<float>(text.size()) * m_faces[0]->advance(0, size);
     float width = 0;
+    Glyph previous { nullptr, 0 };
     for (char32_t const c : text) {
         Glyph const glyph = glyph_for(c);
+        if (kern && previous.face == glyph.face)
+            width += glyph.face->kerning(previous.glyph, glyph.glyph, size);
         width += glyph.face->advance(glyph.glyph, size);
+        previous = glyph;
     }
     return width;
 }

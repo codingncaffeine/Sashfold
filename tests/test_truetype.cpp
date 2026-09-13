@@ -1,5 +1,8 @@
 #include "Test.h"
 
+#include "text/Face.h"
+#include "text/TrueTypeWriter.h"
+
 #include "text/Rasterizer.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
@@ -599,6 +602,48 @@ int main(int argc, char** argv)
         CHECK(true);
     }
 
+    // --- Kerning: the kern table, GPOS by pairs, GPOS by classes ------------------------
+    // A five-glyph font — .notdef, A, V, T, o, each 1000 units wide and
+    // empty — kerning AV, AT and To, written three ways and read back the
+    // same: a pair it names adjusts, one it does not is 0, and the face
+    // scales the adjustment to the size.
+    for (text::WriterKerningTable const table : { text::WriterKerningTable::Kern,
+             text::WriterKerningTable::GposPairs, text::WriterKerningTable::GposClasses }) {
+        text::FontDescription description;
+        description.family = "Kern";
+        description.units_per_em = 2048;
+        description.ascender = 1600;
+        description.descender = -400;
+        for (int i = 0; i < 5; ++i) {
+            text::WriterGlyph glyph;
+            glyph.advance = 1000;
+            description.glyphs.push_back(glyph);
+        }
+        description.mappings = { { U'A', 1 }, { U'V', 2 }, { U'T', 3 }, { U'o', 4 } };
+        description.kerning = { { 1, 2, -100 }, { 1, 3, -30 }, { 3, 4, -80 } };
+        description.kerning_table = table;
+        std::vector<std::uint8_t> const bytes = text::write_truetype(description);
+        CHECK(!bytes.empty());
+        std::optional<TrueTypeFont> const font = TrueTypeFont::parse(bytes);
+        if (!CHECK(font.has_value()))
+            continue;
+        CHECK(font->has_kerning());
+        CHECK_EQ(font->kerning(1, 2), -100);
+        CHECK_EQ(font->kerning(1, 3), -30);
+        CHECK_EQ(font->kerning(3, 4), -80);
+        CHECK_EQ(font->kerning(2, 1), 0);
+        CHECK_EQ(font->kerning(4, 3), 0);
+        CHECK_EQ(font->kerning(1, 1), 0);
+        CHECK_EQ(font->kerning(9, 2), 0); // a glyph the font does not have
+        std::unique_ptr<text::Face> const kerned = text::make_truetype_face(*font);
+        CHECK_EQ(kerned->kerning(1, 2, 2048), -100.0f);
+        CHECK_EQ(kerned->kerning(1, 2, 1024), -50.0f);
+        CHECK_EQ(kerned->kerning(2, 1, 2048), 0.0f);
+        CHECK_EQ(kerned->advance(1, 2048), 1000.0f);
+    }
+    CHECK(!mono.has_kerning());
+    CHECK_EQ(mono.kerning(a_glyph, space), 0);
+
     // --- The world's fonts, when the machine has them -------------------------------------
     for (char const* path : { "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/times.ttf",
              "C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/msgothic.ttc",
@@ -635,9 +680,12 @@ int main(int argc, char** argv)
                     ++bad;
             }
             CHECK_EQ(bad, 0u);
+            // Its kerning, whatever it is, reads without harm.
+            int const av = font->kerning(capital, font->glyph_index(U'V'));
             std::cout << "  read " << path << " face " << index << ": " << font->family_name()
                       << " " << font->subfamily_name() << ", " << font->glyph_count()
-                      << " glyphs, " << font->mapped_code_points() << " code points\n";
+                      << " glyphs, " << font->mapped_code_points() << " code points"
+                      << (font->has_kerning() ? ", kerned (AV " + std::to_string(av) + ")" : "") << "\n";
         }
     }
 

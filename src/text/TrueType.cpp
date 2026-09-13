@@ -34,6 +34,8 @@ constexpr std::uint32_t tag_cmap = make_tag('c', 'm', 'a', 'p');
 constexpr std::uint32_t tag_name = make_tag('n', 'a', 'm', 'e');
 constexpr std::uint32_t tag_os2 = make_tag('O', 'S', '/', '2');
 constexpr std::uint32_t tag_cff = make_tag('C', 'F', 'F', ' ');
+constexpr std::uint32_t tag_kern = make_tag('k', 'e', 'r', 'n');
+constexpr std::uint32_t tag_gpos = make_tag('G', 'P', 'O', 'S');
 
 // Nothing a font can say moves an offset past this: keeps every table
 // offset inside 32 bits and a hostile file from asking for the world.
@@ -400,6 +402,7 @@ bool TrueTypeFont::load(std::size_t face_index)
         return false;
     load_names();
     load_os2();
+    load_kerning();
     // CFF outlines, when there is no glyf table to draw from.
     if (!m_has_glyf && m_has_cff) {
         if (std::optional<CffFont> cff = CffFont::parse(m_bytes, m_cff_table.offset, m_cff_table.length))
@@ -442,6 +445,8 @@ bool TrueTypeFont::load_directory(std::uint32_t offset)
             m_cff_table = table;
             m_has_cff = true;
             break;
+        case tag_kern: m_kern = table; break;
+        case tag_gpos: m_gpos = table; break;
         default: break;
         }
     }
@@ -772,6 +777,267 @@ std::int16_t TrueTypeFont::left_side_bearing(std::uint16_t glyph) const
     if (at + 2 > m_hmtx.length)
         return 0;
     return Reader { m_bytes }.i16(m_hmtx.offset + at);
+}
+
+namespace {
+
+// An OpenType coverage table: the index of a glyph in it, or -1.
+int coverage_index(Reader const& reader, std::size_t at, std::uint16_t glyph)
+{
+    std::uint16_t const format = reader.u16(at);
+    if (format == 1) {
+        std::size_t const count = reader.u16(at + 2);
+        if (!reader.has(at + 4, count * 2))
+            return -1;
+        std::size_t low = 0;
+        std::size_t high = count;
+        while (low < high) {
+            std::size_t const mid = (low + high) / 2;
+            std::uint16_t const candidate = reader.u16(at + 4 + mid * 2);
+            if (candidate < glyph)
+                low = mid + 1;
+            else if (candidate > glyph)
+                high = mid;
+            else
+                return static_cast<int>(mid);
+        }
+        return -1;
+    }
+    if (format == 2) {
+        std::size_t const count = reader.u16(at + 2);
+        if (!reader.has(at + 4, count * 6))
+            return -1;
+        std::size_t low = 0;
+        std::size_t high = count;
+        while (low < high) {
+            std::size_t const mid = (low + high) / 2;
+            std::size_t const record = at + 4 + mid * 6;
+            std::uint16_t const first = reader.u16(record);
+            std::uint16_t const last = reader.u16(record + 2);
+            if (glyph < first)
+                high = mid;
+            else if (glyph > last)
+                low = mid + 1;
+            else
+                return static_cast<int>(reader.u16(record + 4) + (glyph - first));
+        }
+        return -1;
+    }
+    return -1;
+}
+
+// An OpenType class definition: a glyph's class, 0 when it names none.
+std::uint16_t glyph_class(Reader const& reader, std::size_t at, std::uint16_t glyph)
+{
+    std::uint16_t const format = reader.u16(at);
+    if (format == 1) {
+        std::uint16_t const first = reader.u16(at + 2);
+        std::size_t const count = reader.u16(at + 4);
+        if (glyph < first || static_cast<std::size_t>(glyph - first) >= count || !reader.has(at + 6, count * 2))
+            return 0;
+        return reader.u16(at + 6 + static_cast<std::size_t>(glyph - first) * 2);
+    }
+    if (format == 2) {
+        std::size_t const count = reader.u16(at + 2);
+        if (!reader.has(at + 4, count * 6))
+            return 0;
+        std::size_t low = 0;
+        std::size_t high = count;
+        while (low < high) {
+            std::size_t const mid = (low + high) / 2;
+            std::size_t const record = at + 4 + mid * 6;
+            std::uint16_t const first = reader.u16(record);
+            std::uint16_t const last = reader.u16(record + 2);
+            if (glyph < first)
+                high = mid;
+            else if (glyph > last)
+                low = mid + 1;
+            else
+                return reader.u16(record + 4);
+        }
+    }
+    return 0;
+}
+
+// A GPOS value record: how long it is with these fields set, and its
+// xAdvance, which sits after the placements when it is there at all.
+std::size_t value_record_size(std::uint16_t format)
+{
+    std::size_t fields = 0;
+    for (unsigned bits = format & 0xFFu; bits != 0; bits >>= 1)
+        fields += bits & 1u;
+    return fields * 2;
+}
+
+std::int16_t value_x_advance(Reader const& reader, std::size_t at, std::uint16_t format)
+{
+    if (!(format & 0x0004))
+        return 0;
+    std::size_t skip = 0;
+    if (format & 0x0001)
+        skip += 2;
+    if (format & 0x0002)
+        skip += 2;
+    return reader.i16(at + skip);
+}
+
+} // namespace
+
+void TrueTypeFont::load_kerning()
+{
+    Reader const reader { m_bytes };
+    // GPOS first: every lookup a `kern` feature names, and in each the pair
+    // positioning subtables — type 2 outright, or type 9 extensions around
+    // one. A few dozen is more than any font has; the cap bounds a hostile
+    // one.
+    constexpr std::size_t most = 64;
+    if (m_gpos.length >= 10 && reader.u16(m_gpos.offset) == 1) {
+        std::size_t const gpos = m_gpos.offset;
+        std::size_t const feature_list = gpos + reader.u16(gpos + 6);
+        std::size_t const lookup_list = gpos + reader.u16(gpos + 8);
+        std::size_t const feature_count = reader.u16(feature_list);
+        std::size_t const lookup_count = reader.u16(lookup_list);
+        std::vector<bool> wanted(lookup_count, false);
+        for (std::size_t i = 0; i < feature_count; ++i) {
+            std::size_t const record = feature_list + 2 + i * 6;
+            if (reader.u32(record) != tag_kern)
+                continue;
+            std::size_t const feature = feature_list + reader.u16(record + 4);
+            std::size_t const count = reader.u16(feature + 2);
+            for (std::size_t j = 0; j < count; ++j) {
+                std::size_t const index = reader.u16(feature + 4 + j * 2);
+                if (index < lookup_count)
+                    wanted[index] = true;
+            }
+        }
+        for (std::size_t l = 0; l < lookup_count && m_gpos_pair_subtables.size() < most; ++l) {
+            if (!wanted[l])
+                continue;
+            std::size_t const lookup = lookup_list + reader.u16(lookup_list + 2 + l * 2);
+            std::uint16_t const type = reader.u16(lookup);
+            std::size_t const subtable_count = reader.u16(lookup + 4);
+            for (std::size_t s = 0; s < subtable_count && m_gpos_pair_subtables.size() < most; ++s) {
+                std::size_t subtable = lookup + reader.u16(lookup + 6 + s * 2);
+                if (type == 9) {
+                    if (reader.u16(subtable) != 1 || reader.u16(subtable + 2) != 2)
+                        continue;
+                    subtable += reader.u32(subtable + 4);
+                } else if (type != 2) {
+                    continue;
+                }
+                if (reader.has(subtable, 16))
+                    m_gpos_pair_subtables.push_back(static_cast<std::uint32_t>(subtable));
+            }
+        }
+    }
+    if (!m_gpos_pair_subtables.empty())
+        return;
+    // The `kern` table, version 0: its horizontal format 0 subtables.
+    if (m_kern.length >= 4 && reader.u16(m_kern.offset) == 0) {
+        std::size_t const count = reader.u16(m_kern.offset + 2);
+        std::size_t at = m_kern.offset + 4;
+        for (std::size_t i = 0; i < count && m_kern_subtables.size() < most; ++i) {
+            if (!reader.has(at, 14))
+                break;
+            std::uint16_t const length = reader.u16(at + 2);
+            std::uint16_t const coverage = reader.u16(at + 4);
+            bool const horizontal = (coverage & 0x0001) != 0;
+            bool const cross_stream = (coverage & 0x0004) != 0;
+            if (horizontal && !cross_stream && (coverage >> 8) == 0)
+                m_kern_subtables.push_back(static_cast<std::uint32_t>(at));
+            if (length < 6)
+                break;
+            at += length;
+        }
+    }
+}
+
+std::int16_t TrueTypeFont::gpos_pair_adjustment(std::uint32_t subtable, std::uint16_t left, std::uint16_t right) const
+{
+    Reader const reader { m_bytes };
+    std::uint16_t const format = reader.u16(subtable);
+    std::uint16_t const value_format1 = reader.u16(subtable + 4);
+    std::uint16_t const value_format2 = reader.u16(subtable + 6);
+    if (!(value_format1 & 0x0004))
+        return 0;
+    int const index = coverage_index(reader, subtable + reader.u16(subtable + 2), left);
+    if (index < 0)
+        return 0;
+    std::size_t const size1 = value_record_size(value_format1);
+    std::size_t const size2 = value_record_size(value_format2);
+    if (format == 1) {
+        std::size_t const set_count = reader.u16(subtable + 8);
+        if (static_cast<std::size_t>(index) >= set_count)
+            return 0;
+        std::size_t const set = subtable + reader.u16(subtable + 10 + static_cast<std::size_t>(index) * 2);
+        std::size_t const pair_count = reader.u16(set);
+        std::size_t const record_size = 2 + size1 + size2;
+        if (!reader.has(set + 2, pair_count * record_size))
+            return 0;
+        std::size_t low = 0;
+        std::size_t high = pair_count;
+        while (low < high) {
+            std::size_t const mid = (low + high) / 2;
+            std::size_t const record = set + 2 + mid * record_size;
+            std::uint16_t const second = reader.u16(record);
+            if (second < right)
+                low = mid + 1;
+            else if (second > right)
+                high = mid;
+            else
+                return value_x_advance(reader, record + 2, value_format1);
+        }
+        return 0;
+    }
+    if (format == 2) {
+        std::uint16_t const class1 = glyph_class(reader, subtable + reader.u16(subtable + 8), left);
+        std::uint16_t const class2 = glyph_class(reader, subtable + reader.u16(subtable + 10), right);
+        std::size_t const class1_count = reader.u16(subtable + 12);
+        std::size_t const class2_count = reader.u16(subtable + 14);
+        if (class1 >= class1_count || class2 >= class2_count)
+            return 0;
+        std::size_t const record = subtable + 16 + (class1 * class2_count + class2) * (size1 + size2);
+        return value_x_advance(reader, record, value_format1);
+    }
+    return 0;
+}
+
+std::int16_t TrueTypeFont::kern_table_adjustment(std::uint32_t subtable, std::uint16_t left, std::uint16_t right) const
+{
+    Reader const reader { m_bytes };
+    std::size_t const pair_count = reader.u16(subtable + 6);
+    std::size_t const pairs = subtable + 14;
+    if (!reader.has(pairs, pair_count * 6))
+        return 0;
+    std::uint32_t const wanted = static_cast<std::uint32_t>(left) << 16 | right;
+    std::size_t low = 0;
+    std::size_t high = pair_count;
+    while (low < high) {
+        std::size_t const mid = (low + high) / 2;
+        std::uint32_t const candidate = reader.u32(pairs + mid * 6);
+        if (candidate < wanted)
+            low = mid + 1;
+        else if (candidate > wanted)
+            high = mid;
+        else
+            return reader.i16(pairs + mid * 6 + 4);
+    }
+    return 0;
+}
+
+std::int16_t TrueTypeFont::kerning(std::uint16_t left, std::uint16_t right) const
+{
+    // GPOS: the first subtable that has the pair speaks for it — one that
+    // kerns it by nothing reads as not having it, to the same width.
+    for (std::uint32_t const subtable : m_gpos_pair_subtables) {
+        if (std::int16_t const adjustment = gpos_pair_adjustment(subtable, left, right))
+            return adjustment;
+    }
+    // The kern table's subtables accumulate.
+    int total = 0;
+    for (std::uint32_t const subtable : m_kern_subtables)
+        total += kern_table_adjustment(subtable, left, right);
+    return static_cast<std::int16_t>(std::clamp(total, -32768, 32767));
 }
 
 bool TrueTypeFont::glyph_span(std::uint16_t glyph, std::uint32_t& offset, std::uint32_t& length) const
