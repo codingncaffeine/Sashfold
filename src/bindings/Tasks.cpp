@@ -241,7 +241,8 @@ void install_message_channel(Realm::Internals& in)
         }
         auto payload = std::make_shared<js::Persistent>(interp.heap(), data);
         internals.post_task([&internals, payload, own] {
-            deliver_message(internals, internals.interpreter.global(), payload->value(), own, js::Value::object(internals.interpreter.global()));
+            deliver_message(internals, internals.realm_record->intrinsics.global, payload->value(), own,
+                js::Value::object(internals.realm_record->intrinsics.global));
         });
         return js::Value::undefined();
     });

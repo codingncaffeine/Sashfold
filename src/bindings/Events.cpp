@@ -59,7 +59,7 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
     std::string const key(type);
     dom::Element* element = element_of(in, target);
     bool from_body = false;
-    if (!element && target == in.interpreter.global() && is_window_event_type(type)) {
+    if (!element && target == in.realm_record->intrinsics.global && is_window_event_type(type)) {
         // The body's onload="…" is the window's handler.
         for (dom::Node* child : in.document.children()) {
             if (!child->is_element())
@@ -491,7 +491,7 @@ EventObject* Realm::Internals::new_event(std::string_view interface, std::string
 
 std::vector<ListenerEntry>* Realm::Internals::listeners_of(js::Object* target)
 {
-    if (target == interpreter.global())
+    if (target == realm_record->intrinsics.global)
         return &window_listeners;
     if (auto* event_target = dynamic_cast<EventTargetObject*>(target))
         return &event_target->listeners;
@@ -500,7 +500,7 @@ std::vector<ListenerEntry>* Realm::Internals::listeners_of(js::Object* target)
 
 HandlerMap* Realm::Internals::handlers_of(js::Object* target)
 {
-    if (target == interpreter.global())
+    if (target == realm_record->intrinsics.global)
         return &window_handlers;
     if (auto* event_target = dynamic_cast<EventTargetObject*>(target))
         return &event_target->handlers;
@@ -531,7 +531,7 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
         }
         // The document's parent is the window, except for load (§2.9.1).
         if (&node->root() == &document && event.type != "load")
-            path.push_back(interpreter.global());
+            path.push_back(realm_record->intrinsics.global);
     }
     js::Value const previous_event = current_event;
     current_event = js::Value::object(&event);

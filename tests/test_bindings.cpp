@@ -1391,6 +1391,40 @@ void test_frames_have_realms_of_their_own()
     CHECK_EQ(page->console, "");
 }
 
+// A frame's window events are its own: its load and a message it posts to
+// itself arrive at the frame's window, with that window as their target and
+// source, whatever realm the host is running when it delivers them, and the
+// page's own handlers see neither.
+void test_a_frames_window_events_are_its_own()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var pageLoads = 0; var pageMessages = 0; onload = function () { pageLoads++; }; addEventListener('message', function () { pageMessages++; });</script>
+<iframe id=f srcdoc="<script>onload = function (e) { window.loadSeenOnItself = e.currentTarget === window && this === window; }; addEventListener('message', function (e) { window.messageSeenOnItself = e.source === window && e.currentTarget === window && e.data === 'to itself'; }); postMessage('to itself', '*');</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->realm->run_pending();
+    CHECK(page->boolean("document.getElementById('f').contentWindow.loadSeenOnItself === true"));
+    CHECK(page->boolean("document.getElementById('f').contentWindow.messageSeenOnItself === true"));
+    CHECK(page->boolean("pageLoads === 1 && pageMessages === 0"));
+    CHECK_EQ(page->console, "");
+}
+
 } // namespace
 
 int main()
@@ -1421,5 +1455,6 @@ int main()
     test_content_security_policy();
     test_local_storage_areas();
     test_frames_have_realms_of_their_own();
+    test_a_frames_window_events_are_its_own();
     return test::report("test_bindings");
 }

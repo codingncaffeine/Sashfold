@@ -1073,6 +1073,7 @@ dom::Node* Realm::node_of(js::Value const& value) const
 void Realm::run_script(dom::Element& script, html::TreeBuilder& builder)
 {
     Internals& in = *m_internals;
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     html::TreeBuilder* const previous = in.active_parser;
     in.active_parser = &builder;
     in.prepare_script(script, true);
@@ -1081,6 +1082,7 @@ void Realm::run_script(dom::Element& script, html::TreeBuilder& builder)
 
 void Realm::run_inserted_script(dom::Element& script)
 {
+    js::Interpreter::RealmScope const inside(m_internals->interpreter, m_internals->realm_record);
     m_internals->prepare_script(script, false);
 }
 
@@ -1114,6 +1116,9 @@ void collect_frames(dom::Node const& node, std::vector<dom::Element*>& out)
 void Realm::document_parsed()
 {
     Internals& in = *m_internals;
+    // What the host does in this document's name happens in its realm, even
+    // when a page's realm opens a frame's document from inside its own.
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     in.active_parser = nullptr;
     in.ready_state = "interactive";
     dispatch_event(&in.document, "readystatechange");
@@ -1223,18 +1228,20 @@ Realm* Realm::frame_realm(dom::Element const& iframe)
 bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit init)
 {
     Internals& in = *m_internals;
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     EventObject* event = in.new_event("Event", type, init.bubbles, init.cancelable);
     in.interpreter.root(js::Value::object(event));
     event->composed = init.composed;
     event->is_trusted = true;
-    js::Object* target_object = target ? in.wrap(*target) : in.interpreter.global();
+    js::Object* target_object = target ? in.wrap(*target) : in.realm_record->intrinsics.global;
     return in.dispatch(*event, target_object);
 }
 
 bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, MouseInit const& init)
 {
     Internals& in = *m_internals;
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     bool const bubbles = type != "mouseenter" && type != "mouseleave";
     bool const cancelable = type != "mouseenter" && type != "mouseleave" && type != "mousemove";
@@ -1259,6 +1266,7 @@ bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, Mouse
 bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const& init)
 {
     Internals& in = *m_internals;
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     EventObject* event = in.new_event("KeyboardEvent", type, true, true);
     in.interpreter.root(js::Value::object(event));
@@ -1279,6 +1287,7 @@ bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit
 bool Realm::dispatch_input_event(dom::Node& target, std::string_view type, InputInit const& init)
 {
     Internals& in = *m_internals;
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
     EventObject* event = in.new_event(type == "input" ? "InputEvent" : "Event", type, true, type == "beforeinput");
     in.interpreter.root(js::Value::object(event));
@@ -1304,8 +1313,13 @@ bool Realm::run_pending()
     // waits for the next pump, like a timer.
     while (!agent.tasks.empty() && agent.tasks.front().sequence < cutoff) {
         std::function<void()> task = std::move(agent.tasks.front().run);
+        Internals* const task_owner = agent.tasks.front().owner;
         agent.tasks.pop_front();
-        task();
+        {
+            // A task runs in the realm that queued it.
+            js::Interpreter::RealmScope const inside(agent.interpreter, task_owner ? task_owner->realm_record : nullptr);
+            task();
+        }
         ran = true;
         if (in.interpreter.terminated())
             return ran;
