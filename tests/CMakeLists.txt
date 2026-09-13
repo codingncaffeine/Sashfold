@@ -152,6 +152,9 @@ add_test(NAME shell_blocking
 add_test(NAME shell_csp
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/csp.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_session
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/session.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_hidpi
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

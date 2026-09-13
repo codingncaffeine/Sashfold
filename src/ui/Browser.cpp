@@ -4,6 +4,7 @@
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/Ascii.h"
+#include "core/Json.h"
 #include "core/Unicode.h"
 #include "css/StyleResolver.h"
 #include "dom/Dom.h"
@@ -564,6 +565,145 @@ struct Browser::Impl {
         render(tabs[active]);
         sync_address();
         dirty = true;
+    }
+
+    // --- Sessions -------------------------------------------------------------
+
+    static std::string json_quoted(std::string_view text)
+    {
+        std::string out = "\"";
+        for (char const ch : text) {
+            auto const c = static_cast<unsigned char>(ch);
+            if (c == '"')
+                out += "\\\"";
+            else if (c == '\\')
+                out += "\\\\";
+            else if (c == '\n')
+                out += "\\n";
+            else if (c == '\r')
+                out += "\\r";
+            else if (c == '\t')
+                out += "\\t";
+            else if (c < 0x20) {
+                char buffer[8];
+                std::snprintf(buffer, sizeof buffer, "\\u%04x", static_cast<unsigned>(c));
+                out += buffer;
+            } else {
+                out += ch;
+            }
+        }
+        out += '"';
+        return out;
+    }
+
+    std::string session_json() const
+    {
+        std::string out = "{\n  \"version\": 1,\n  \"active\": " + std::to_string(std::min(active, tabs.empty() ? 0 : tabs.size() - 1))
+            + ",\n  \"tabs\": [\n";
+        for (std::size_t t = 0; t < tabs.size(); ++t) {
+            Tab const& tab = tabs[t];
+            out += "    {\"index\": " + std::to_string(tab.index) + ", \"entries\": [\n";
+            for (std::size_t e = 0; e < tab.history.size(); ++e) {
+                HistoryEntry const& entry = tab.history[e];
+                out += "      {\"url\": " + json_quoted(entry.url.serialize()) + ", \"final_url\": "
+                    + json_quoted(entry.final_url.serialize()) + ", \"title\": " + json_quoted(entry.title)
+                    + ", \"scroll\": " + std::to_string(entry.scroll_y) + "}";
+                out += e + 1 < tab.history.size() ? ",\n" : "\n";
+            }
+            out += "    ]}";
+            out += t + 1 < tabs.size() ? ",\n" : "\n";
+        }
+        out += "  ]\n}\n";
+        return out;
+    }
+
+    // The tabs a session describes, or none when the text is not one. An
+    // entry comes back unloaded — its page fetched again when shown — but
+    // for about:blank, which is nothing to fetch.
+    static std::vector<Tab> tabs_of_session(JsonValue const& session)
+    {
+        std::vector<Tab> restored;
+        JsonValue const* const tabs_value = session.get("tabs");
+        if (!tabs_value || !tabs_value->is_array())
+            return restored;
+        for (JsonValue const& tab_value : tabs_value->as_array()) {
+            JsonValue const* const entries = tab_value.is_object() ? tab_value.get("entries") : nullptr;
+            if (!entries || !entries->is_array())
+                continue;
+            Tab tab;
+            for (JsonValue const& entry_value : entries->as_array()) {
+                JsonValue const* const url_value = entry_value.is_object() ? entry_value.get("url") : nullptr;
+                if (!url_value || !url_value->is_string())
+                    continue;
+                std::optional<net::Url> const url = net::parse_url(url_value->as_string());
+                if (!url)
+                    continue;
+                HistoryEntry entry = is_about_blank(*url) ? blank_entry() : HistoryEntry {};
+                entry.url = *url;
+                entry.final_url = *url;
+                entry.unloaded = !is_about_blank(*url);
+                if (JsonValue const* const final = entry_value.get("final_url"); final && final->is_string()) {
+                    if (std::optional<net::Url> const parsed = net::parse_url(final->as_string()))
+                        entry.final_url = *parsed;
+                }
+                if (JsonValue const* const title = entry_value.get("title"); title && title->is_string())
+                    entry.title = title->as_string();
+                if (JsonValue const* const scroll = entry_value.get("scroll"); scroll && scroll->is_number())
+                    entry.scroll_y = std::max(0, static_cast<int>(std::min(scroll->as_number(), 1.0e9)));
+                tab.history.push_back(std::move(entry));
+            }
+            if (tab.history.empty())
+                continue;
+            tab.index = tab.history.size() - 1;
+            if (JsonValue const* const index = tab_value.get("index"); index && index->is_number() && index->as_number() >= 0)
+                tab.index = std::min(static_cast<std::size_t>(index->as_number()), tab.history.size() - 1);
+            tab.scroll_y = tab.history[tab.index].scroll_y;
+            restored.push_back(std::move(tab));
+        }
+        return restored;
+    }
+
+    bool restore_session(std::string_view text)
+    {
+        std::optional<JsonValue> const session = JsonValue::parse(text);
+        if (!session || !session->is_object())
+            return false;
+        std::vector<Tab> restored = tabs_of_session(*session);
+        if (restored.empty())
+            return false;
+        // The old tabs go, their loads with them; the find bar and the
+        // hints belonged to pages that are gone.
+        pending.clear();
+        blur_address();
+        find_open = false;
+        find_focus = false;
+        hints_active = false;
+        hints.clear();
+        tabs = std::move(restored);
+        active = 0;
+        if (JsonValue const* const active_value = session->get("active"); active_value && active_value->is_number() && active_value->as_number() >= 0)
+            active = std::min(static_cast<std::size_t>(active_value->as_number()), tabs.size() - 1);
+        // The active tab shows at once — its title until its page arrives —
+        // and its page is queued like a navigation; the others wait to be
+        // shown.
+        render(tabs[active]);
+        ensure_loaded(active);
+        sync_address();
+        refresh_hover();
+        dirty = true;
+        return true;
+    }
+
+    // A tab whose current entry a session restored fetches its page the
+    // first time the tab is shown: queued like a navigation, replacing the
+    // entry, its scroll position kept.
+    void ensure_loaded(std::size_t index)
+    {
+        if (index >= tabs.size())
+            return;
+        HistoryEntry const* const entry = tabs[index].current();
+        if (entry && entry->unloaded)
+            queue(index, entry->url, Mode::Replace);
     }
 
     std::string display_url(HistoryEntry const& entry) const
@@ -1316,7 +1456,8 @@ struct Browser::Impl {
                 tab.images[element] = std::move(image);
         }
         tab.backgrounds = collect_background_images(tab.styles, fetch_image);
-        entry->title = find_title(*tab.document);
+        if (!entry->unloaded) // a restored entry keeps its saved title until its page arrives
+            entry->title = find_title(*tab.document);
         // The page's icon: the last <link rel=icon>, else /favicon.ico on a
         // web scheme; fetched once per URL through the same loader, decoded
         // by what its bytes say, an ICO at the tab's size. A page with none,
@@ -1341,6 +1482,9 @@ struct Browser::Impl {
         relayout(tab);
         tab.page_mutations = tab.realm ? tab.realm->mutation_count() : 0;
     }
+
+    // (An entry a session restored keeps the title it was saved with until
+    // its page arrives; the line above that reads the title is guarded.)
 
     void render(Tab& tab)
     {
@@ -1813,6 +1957,12 @@ struct Browser::Impl {
         if (HistoryEntry* const entry = tab->current())
             entry->scroll_y = tab->scroll_y;
         tab->index = static_cast<std::size_t>(target);
+        if (HistoryEntry const* const entry = tab->current(); entry && entry->unloaded) {
+            // A restored entry: its page is fetched now, in place.
+            queue(index_of(*tab), entry->url, Mode::Replace);
+            sync_address();
+            return;
+        }
         render(*tab);
         tab->status = "Done";
         sync_address();
@@ -1938,6 +2088,7 @@ struct Browser::Impl {
         if (index >= tabs.size())
             return;
         active = index;
+        ensure_loaded(index); // a restored tab fetches its page now
         ensure_fresh(tabs[index]); // its scripts may have run while another tab showed
         blur_address();
         sync_address();
@@ -4375,6 +4526,9 @@ bool Browser::tick()
     m_impl->pending.erase(m_impl->pending.begin());
     return m_impl->perform(load);
 }
+
+std::string Browser::session_json() const { return m_impl->session_json(); }
+bool Browser::restore_session(std::string_view json) { return m_impl->restore_session(json); }
 
 bool Browser::run_scripts()
 {

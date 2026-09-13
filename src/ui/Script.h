@@ -43,6 +43,9 @@
 //   assert-inspected <tag#id.class>   the inspected element
 //   advance <ms>         move the pages' clock forward and run the timers due
 //   assert-console <text>   the page's console output contains text
+//   session-save [<path>]   the tabs, histories and scroll positions as the
+//                        shell keeps them between runs, to a file or held
+//   session-restore [<path>]   the tabs of that session in place of these
 //   echo <text>
 
 #include "ui/Browser.h"

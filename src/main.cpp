@@ -51,7 +51,7 @@ namespace {
 
 int usage(char const* program)
 {
-    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>]\n"
+    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>]\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
@@ -75,6 +75,9 @@ int usage(char const* program)
               << "          the default is blocklists/ beside the executable or its parent.\n"
               << "  --downloads is where downloads are saved (the window defaults to your\n"
               << "          Downloads folder; --script saves nothing unless told where).\n"
+              << "  --profile is the folder the window keeps its session in (the tabs of the\n"
+              << "          last run, brought back on the next start): $XDG_CONFIG_HOME/sashfold\n"
+              << "          or ~/.config/sashfold on Linux and macOS, %APPDATA%\\Sashfold on Windows.\n"
               << "  --script replays a shell script headlessly and checks its assertions.\n"
               << "  --render lays out the page (local file or live URL) and writes a PNG; a load\n"
               << "          that fails renders the page the window would show. --max-height caps the\n"
@@ -1088,6 +1091,62 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
     return 0;
 }
 
+// The profile folder the window keeps its session in: the platform's
+// configuration directory ($XDG_CONFIG_HOME, else ~/.config, on Linux and
+// macOS; %APPDATA% on Windows) plus the program's name, made when
+// missing. Empty when neither a home nor the folder can be had.
+std::string default_profile_directory()
+{
+    std::filesystem::path root;
+#ifdef _WIN32
+    if (char const* const appdata = std::getenv("APPDATA"); appdata && *appdata) {
+        root = appdata;
+    } else if (char const* const home = std::getenv("USERPROFILE"); home && *home) {
+        root = std::filesystem::path(home) / "AppData" / "Roaming";
+    } else {
+        return {};
+    }
+    std::filesystem::path const directory = root / "Sashfold";
+#else
+    if (char const* const xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg) {
+        root = xdg;
+    } else if (char const* const home = std::getenv("HOME"); home && *home) {
+        root = std::filesystem::path(home) / ".config";
+    } else {
+        return {};
+    }
+    std::filesystem::path const directory = root / "sashfold";
+#endif
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    return std::filesystem::is_directory(directory, error) ? directory.string() : std::string();
+}
+
+std::optional<std::string> read_text_file(std::filesystem::path const& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        return std::nullopt;
+    std::ostringstream text;
+    text << file.rdbuf();
+    return std::move(text).str();
+}
+
+// Written whole or not at all: to a file beside it, then renamed over it.
+bool write_text_file_atomically(std::filesystem::path const& path, std::string const& text)
+{
+    std::filesystem::path const temporary = path.string() + ".tmp";
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        file << text;
+        if (!file)
+            return false;
+    }
+    std::error_code error;
+    std::filesystem::rename(temporary, path, error);
+    return !error;
+}
+
 // The user's Downloads folder, when the OS has the convention and it exists.
 std::string default_downloads_directory()
 {
@@ -1181,7 +1240,8 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
 }
 
 int run_window(std::string const& start_url, std::string const& theme_path,
-    std::string const& blocklists_path, std::string const& downloads, char const* program)
+    std::string const& blocklists_path, std::string const& downloads, std::string const& profile,
+    char const* program)
 {
     std::optional<Bitmap> const icon = load_window_icon(program);
     std::unique_ptr<platform::Window> window
@@ -1196,7 +1256,46 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     ui::Browser browser(loader, load_theme(theme_path), window->width(), window->height());
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
-    browser.navigate(start_url.empty() ? "about:sashfold" : start_url);
+
+    // The session: the tabs of the last run come back from the profile's
+    // file, each page fetched when its tab is shown, and a URL on the
+    // command line opens beside them; the file is written back whenever
+    // the session changes — at most once a second, and once more at the
+    // end — so a crash loses a second of it at most.
+    std::filesystem::path const session_path
+        = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile) / "session.json";
+    std::string saved_session;
+    bool restored = false;
+    if (!session_path.empty()) {
+        if (std::optional<std::string> const text = read_text_file(session_path)) {
+            restored = browser.restore_session(*text);
+            if (restored)
+                saved_session = browser.session_json();
+        }
+    }
+    if (!restored) {
+        browser.navigate(start_url.empty() ? "about:sashfold" : start_url);
+    } else if (!start_url.empty()) {
+        browser.new_tab();
+        browser.navigate(start_url);
+    }
+    auto last_session_write = std::chrono::steady_clock::now();
+    // Writes the session when it changed; true when a write is still owed
+    // because the last one was less than a second ago.
+    auto const save_session = [&](bool regardless) {
+        if (session_path.empty())
+            return false;
+        std::string session = browser.session_json();
+        if (session == saved_session)
+            return false;
+        auto const now = std::chrono::steady_clock::now();
+        if (!regardless && now - last_session_write < std::chrono::seconds(1))
+            return true;
+        if (write_text_file_atomically(session_path, session))
+            saved_session = std::move(session);
+        last_session_write = now;
+        return false;
+    };
 
     std::error_code error;
     std::filesystem::file_time_type theme_stamp;
@@ -1287,16 +1386,21 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             }
         }
+        bool const session_owed = save_session(false);
         if (!browser.has_pending_load()) {
-            // Sleep until input, the theme check, or the next page timer.
+            // Sleep until input, the theme check, the next page timer, or
+            // the session write that is owed.
             int timeout = theme_path.empty() ? -1 : 500;
             if (std::optional<double> const due = browser.next_timer_ms()) {
                 int const ms = static_cast<int>(std::ceil(*due));
                 timeout = timeout < 0 ? ms : std::min(timeout, ms);
             }
+            if (session_owed)
+                timeout = timeout < 0 ? 1000 : std::min(timeout, 1000);
             window->wait(timeout);
         }
     }
+    save_session(true);
     return 0;
 }
 
@@ -1312,6 +1416,7 @@ int main(int argc, char** argv)
     std::string theme_path = default_theme_path(argv[0]);
     std::string blocklists_path = default_blocklists_path(argv[0]);
     std::optional<std::string> downloads;
+    std::optional<std::string> profile;
     std::string font_path;
     // Files named on the command line, installed as if the machine had them:
     // what lets a render be taken in the same font world a test scores in.
@@ -1344,6 +1449,11 @@ int main(int argc, char** argv)
             if (!value_after(i, directory))
                 return usage(argv[0]);
             downloads = directory;
+        } else if (arg == "--profile") {
+            std::string directory;
+            if (!value_after(i, directory))
+                return usage(argv[0]);
+            profile = directory;
         } else if (arg == "--script" || arg == "--render" || arg == "--fetch" || arg == "--dump-dom"
             || arg == "--font-sampler" || arg == "--font-info" || arg == "--bench") {
             mode = arg;
@@ -1465,5 +1575,5 @@ int main(int argc, char** argv)
     if (mode == "--smoke")
         return smoke_scene(output);
     return run_window(start_url, theme_path, blocklists_path, downloads.value_or(default_downloads_directory()),
-        argv[0]);
+        profile.value_or(default_profile_directory()), argv[0]);
 }

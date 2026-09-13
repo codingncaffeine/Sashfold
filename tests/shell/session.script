@@ -1,0 +1,52 @@
+# Session restore: the tabs, their histories and scroll positions, saved
+# as the shell keeps them between runs and brought back after the tabs
+# are gone — each page fetched again the first time its tab is shown, its
+# title and scroll position known before that, Back and Forward reaching
+# the restored entries the same way.
+resize 800 500
+open data:text/html,<title>First</title><p>One</p>
+open data:text/html,<title>Second</title><p>Two</p>
+new-tab
+open data:text/html,<title>Tall</title><p style="height:3000px">Top</p><p>Bottom</p>
+wheel -10
+assert-scrolled
+assert-tabs 2
+session-save
+
+# The tabs close; a blank one is all that is left.
+close-tab 1
+close-tab 0
+assert-tabs 1
+assert-address
+
+# Back they come: the active tab first, scrolled where it was.
+session-restore
+assert-tabs 2
+assert-title Tall
+assert-text Top
+assert-scrolled
+assert-url data:text/html,<title>Tall</title><p style="height:3000px">Top</p><p>Bottom</p>
+
+# The other tab loads when shown, on the entry it was on; its history
+# came with it.
+select-tab 0
+assert-title Second
+assert-text Two
+back
+assert-title First
+assert-text One
+forward
+assert-title Second
+
+# A new tab's page and a blank tab survive a round trip too.
+new-tab
+assert-tabs 3
+session-save
+close-tab 2
+close-tab 1
+close-tab 0
+session-restore
+assert-tabs 3
+assert-address
+select-tab 0
+assert-title Second

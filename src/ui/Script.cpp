@@ -126,6 +126,7 @@ struct Runner {
     // The pages' clock: virtual, moved by `advance`, so a timer fires when
     // the script says and the run is the same on every machine.
     double clock_ms = 0;
+    std::string held_session; // the last session-save without a path
 
     void fail(std::string const& what)
     {
@@ -317,6 +318,28 @@ struct Runner {
             if (!index || *index < 0)
                 return fail("select-tab: needs an index");
             browser.select_tab(static_cast<std::size_t>(*index));
+            settle(); // a restored tab fetches its page when shown
+        } else if (command == "session-save") {
+            held_session = browser.session_json();
+            if (!argument.empty()) {
+                std::ofstream file(resolve(argument), std::ios::binary);
+                file << held_session;
+                if (!file)
+                    return fail("session-save: could not write " + argument);
+            }
+        } else if (command == "session-restore") {
+            std::string session = held_session;
+            if (!argument.empty()) {
+                std::ifstream file(resolve(argument), std::ios::binary);
+                if (!file)
+                    return fail("session-restore: could not read " + argument);
+                std::ostringstream text;
+                text << file.rdbuf();
+                session = std::move(text).str();
+            }
+            if (!browser.restore_session(session))
+                return fail("session-restore: not a session");
+            settle();
         } else if (command == "resize") {
             auto const width = int_arg(0);
             auto const height = int_arg(1);
@@ -472,7 +495,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
 {
     std::ifstream file(path);
     Runner runner { browser, std::filesystem::absolute(std::filesystem::path(path)).parent_path(),
-        update_goldens, out, {}, 0, 0 };
+        update_goldens, out, {}, 0, 0, {} };
     if (!file) {
         runner.fail("cannot read script " + path);
         return runner.result;
