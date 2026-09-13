@@ -547,6 +547,35 @@ void test_frame_load_events()
     CHECK_EQ(page->console, "");
 }
 
+void test_named_access_on_the_window()
+{
+    // An HTML element's id, and the name of an embed, form, img or object,
+    // is a property of the window: one element as itself, several as a
+    // collection in tree order — behind the window's own properties, those
+    // of Object.prototype and every variable a script declares, and read
+    // from the tree as it stands at each lookup.
+    auto page = loaded(R"HTML(<!DOCTYPE html><html><body>
+    <div id="lone"></div>
+    <p id="twice"></p><span id="twice"></span>
+    <form name="login"></form><img name="logo"><a name="anchor"></a><svg><g id="drawn"></g></svg>
+    <div id="document"></div><div id="toString"></div><div id="declared"></div>
+    <script>var declared = 5; var early = typeof later;</script>
+    <div id="later"></div>
+    </body></html>)HTML");
+    CHECK_EQ(page->string("typeof lone + ':' + lone.tagName + ':' + (window.lone === document.getElementById('lone'))"),
+        "object:DIV:true");
+    CHECK_EQ(page->string("twice.length + ':' + twice[0].tagName + ':' + twice[1].tagName"), "2:P:SPAN");
+    CHECK_EQ(page->string("login.tagName + ':' + logo.tagName + ':' + typeof anchor + ':' + typeof drawn"),
+        "FORM:IMG:undefined:undefined");
+    CHECK_EQ(page->string("(window.document === document) + ':' + typeof toString + ':' + declared"), "true:function:5");
+    CHECK_EQ(page->string("early + ':' + ('lone' in window) + ':' + window.hasOwnProperty('lone')"), "undefined:true:false");
+    // A name the tree stops holding stops answering, and one a script sets
+    // on the window shadows the element.
+    page->eval("document.getElementById('lone').remove(); window.twice = 'mine';");
+    CHECK_EQ(page->string("typeof lone + ':' + twice + ':' + typeof later"), "undefined:mine:object");
+    CHECK_EQ(page->console, "");
+}
+
 void test_external_deferred_and_skipped_scripts()
 {
     auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html><head>
@@ -1317,6 +1346,7 @@ int main()
     test_timers_microtasks_and_the_clock();
     test_document_ready_states_and_load_events();
     test_frame_load_events();
+    test_named_access_on_the_window();
     test_external_deferred_and_skipped_scripts();
     test_module_scripts();
     test_noscript_is_raw_text_with_scripting_on();

@@ -6553,6 +6553,9 @@ struct Layouter {
             if (!child_style || child_style->display == Display::None)
                 continue;
             if (child_style->out_of_flow()) {
+                // Not an item, but it parts the text on either side of it
+                // into two anonymous items, as in a flex container.
+                flush_text();
                 // Measuring a container's intrinsic widths is not laying it
                 // out. The measurement runs under whatever absolute_stack
                 // frame the ancestor asking for the width is in, which is a
@@ -7503,6 +7506,10 @@ struct Layouter {
                 continue;
             if (child_style->out_of_flow()) {
                 // Not an item: placed against the container once it is done.
+                // It still stands between the text before it and the text
+                // after, which make two anonymous items, not one (a child
+                // that is display: none, above, parts nothing).
+                flush_text();
                 bool const static_rtl = style.direction == css::Direction::Rtl;
                 record_out_of_flow(element, *child_style,
                     std::make_pair(static_rtl ? content_x + content_width : content_x, content_y),

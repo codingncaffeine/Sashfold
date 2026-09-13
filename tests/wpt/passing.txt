@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9286 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9380 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -1326,10 +1326,12 @@ css/CSS2/floats-clear/margin-collapse-clear-009.xht
 css/CSS2/floats-clear/margin-collapse-clear-014.xht
 css/CSS2/floats-clear/margin-collapse-clear-015.xht
 css/CSS2/floats-clear/nested-clearance-new-formatting-context.html
+css/CSS2/floats-clear/remove-block-before-self-collapsing-sibling-with-clearance.html
 css/CSS2/floats-clear/second-float-inside-empty-cleared-block-after-margin.html
 css/CSS2/floats-clear/second-float-inside-empty-cleared-block.html
 css/CSS2/floats-clear/table-among-floats-001.html
 css/CSS2/floats/adjoining-floats-dynamic.html
+css/CSS2/floats/block-in-inline-become-float.html
 css/CSS2/floats/float-in-nested-multicol-001.html
 css/CSS2/floats/float-no-content-beside-001.html
 css/CSS2/floats/float-nowrap-1.html
@@ -2911,6 +2913,7 @@ css/CSS2/normal-flow/inlines-016.xht
 css/CSS2/normal-flow/inlines-017.xht
 css/CSS2/normal-flow/intrinsic-size-with-negative-margins.html
 css/CSS2/normal-flow/margin-collapse-min-height-003.html
+css/CSS2/normal-flow/margin-collapse-through-percentage-padding.html
 css/CSS2/normal-flow/margin-collapsing-dynamic.html
 css/CSS2/normal-flow/max-height-001.xht
 css/CSS2/normal-flow/max-height-002.xht
@@ -3472,6 +3475,7 @@ css/CSS2/positioning/abspos-width-002.xht
 css/CSS2/positioning/abspos-width-003.xht
 css/CSS2/positioning/abspos-width-004.xht
 css/CSS2/positioning/abspos-width-005.xht
+css/CSS2/positioning/abspos-width-change-inline-container-001.html
 css/CSS2/positioning/anonymous-block-change.html
 css/CSS2/positioning/auto-position-rtl-child-viewport-scrollbar.html
 css/CSS2/positioning/bottom-004.xht
@@ -4230,6 +4234,9 @@ css/CSS2/selectors/universal-selector-004.xht
 css/CSS2/selectors/universal-selector-005.xht
 css/CSS2/stacking-context/composite-change-after-scroll-preserves-stacking-order.html
 css/CSS2/stacking-context/opacity-affects-block-in-inline.html
+css/CSS2/stacking-context/opacity-change-parent-stacking-context.html
+css/CSS2/stacking-context/opacity-change-twice-stacking-context.html
+css/CSS2/stacking-context/opacity-transition-change-parent-stacking-context.html
 css/CSS2/stacking-context/root-element-creates-stacking-context.html
 css/CSS2/syntax/at-charset-001.xht
 css/CSS2/syntax/at-charset-014.xht
@@ -5185,6 +5192,7 @@ css/css-backgrounds/background-clip-007.html
 css/css-backgrounds/background-clip-008.html
 css/css-backgrounds/background-clip-009.html
 css/css-backgrounds/background-clip-010.html
+css/css-backgrounds/background-clip-color-repaint.html
 css/css-backgrounds/background-clip-color.html
 css/css-backgrounds/background-clip-content-box-001.html
 css/css-backgrounds/background-clip-content-box-002.html
@@ -5225,8 +5233,12 @@ css/css-backgrounds/background-image-005.html
 css/css-backgrounds/background-image-006.html
 css/css-backgrounds/background-image-centered.html
 css/css-backgrounds/background-image-cover-zoomed-1.html
+css/css-backgrounds/background-image-gradient-currentcolor-conic-repaint.html
+css/css-backgrounds/background-image-gradient-currentcolor-linear-repaint.html
+css/css-backgrounds/background-image-gradient-currentcolor-radial-repaint.html
 css/css-backgrounds/background-image-gradient-interpolation-repaint.html
 css/css-backgrounds/background-image-large-with-auto.html
+css/css-backgrounds/background-image-none-gradient-repaint.html
 css/css-backgrounds/background-image-table-cells-zoomed.html
 css/css-backgrounds/background-image-with-border-radius-fidelity.html
 css/css-backgrounds/background-margin-iframe-root.html
@@ -5476,6 +5488,7 @@ css/css-backgrounds/border-radius-011.xht
 css/css-backgrounds/border-radius-013.html
 css/css-backgrounds/border-radius-clipping-002.html
 css/css-backgrounds/border-radius-clipping-with-transform-001.html
+css/css-backgrounds/border-radius-dynamic-from-no-radius.html
 css/css-backgrounds/border-radius-horizontal-value-is-zero.html
 css/css-backgrounds/border-radius-shorthand-002.html
 css/css-backgrounds/border-right-width-medium.html
@@ -5515,6 +5528,7 @@ css/css-backgrounds/box-shadow/box-shadow-table-row-display.html
 css/css-backgrounds/box-shadow/slice-inline-fragmentation-001.html
 css/css-backgrounds/box-shadow/slice-inline-fragmentation-002.html
 css/css-backgrounds/box-shadow/slice-inline-fragmentation-003.html
+css/css-backgrounds/child-move-reveals-parent-background.html
 css/css-backgrounds/css3-background-clip-border-box.html
 css/css-backgrounds/css3-background-clip-content-box.html
 css/css-backgrounds/css3-background-clip-padding-box.html
@@ -5525,6 +5539,7 @@ css/css-backgrounds/css3-background-origin-padding-box.html
 css/css-backgrounds/css3-background-size-001.html
 css/css-backgrounds/css3-background-size-contain.html
 css/css-backgrounds/css3-background-size.html
+css/css-backgrounds/currentcolor-border-repaint-parent.html
 css/css-backgrounds/document-canvas-remove-body.html
 css/css-backgrounds/fieldset-inset-shadow.html
 css/css-backgrounds/first-letter-space-not-selected.html
@@ -5690,9 +5705,12 @@ css/css-display/display-contents-first-line-002.html
 css/css-display/display-contents-line-height.html
 css/css-display/display-contents-slot-attach-whitespace.html
 css/css-display/display-contents-table-003.html
+css/css-display/display-contents-text-inherit-002.html
 css/css-display/display-contents-text-inherit.html
 css/css-display/display-flow-root-001.html
 css/css-display/display-flow-root-002.html
+css/css-display/display-flow-root-dynamic.html
+css/css-display/display-inline-dynamic-001.html
 css/css-display/display-none-inline-img.html
 css/css-display/order-dynamic.html
 css/css-display/run-in/counter-increment-applies-to-011.xht
@@ -5795,9 +5813,13 @@ css/css-flexbox/align-self-011.html
 css/css-flexbox/align-self-012.html
 css/css-flexbox/align-self-013.html
 css/css-flexbox/anonymous-block.html
+css/css-flexbox/anonymous-flex-item-001.html
 css/css-flexbox/anonymous-flex-item-002.html
+css/css-flexbox/anonymous-flex-item-003.html
+css/css-flexbox/anonymous-flex-item-004.html
 css/css-flexbox/anonymous-flex-item-005.html
 css/css-flexbox/anonymous-flex-item-006.html
+css/css-flexbox/anonymous-flex-item-restyle.html
 css/css-flexbox/auto-height-column-with-border-and-padding.html
 css/css-flexbox/auto-margins-002.html
 css/css-flexbox/balance/balance-004.html
@@ -5823,6 +5845,7 @@ css/css-flexbox/css-flexbox-test1.html
 css/css-flexbox/display-flex-001.htm
 css/css-flexbox/dynamic-baseline-change-nested.html
 css/css-flexbox/dynamic-baseline-change.html
+css/css-flexbox/dynamic-bsize-change.html
 css/css-flexbox/dynamic-change-simplified-layout-002.html
 css/css-flexbox/dynamic-change-simplified-layout.html
 css/css-flexbox/dynamic-isize-change-001.html
@@ -6317,12 +6340,15 @@ css/css-flexbox/percentage-max-height-001.html
 css/css-flexbox/percentage-max-height-004.html
 css/css-flexbox/percentage-max-height-005.html
 css/css-flexbox/percentage-padding-002.html
+css/css-flexbox/percentage-padding-003.html
+css/css-flexbox/percentage-padding-004.html
 css/css-flexbox/percentage-padding-005.html
 css/css-flexbox/percentage-size-quirks-003.html
 css/css-flexbox/percentage-size-subitems-001.html
 css/css-flexbox/percentage-widths-001.html
 css/css-flexbox/position-absolute-scrollbar-freeze.html
 css/css-flexbox/position-fixed-001.html
+css/css-flexbox/remove-wrapped-001.html
 css/css-flexbox/remove-wrapped-002.html
 css/css-flexbox/select-element-multiple.html
 css/css-flexbox/select-element-zero-height-001.html
@@ -6360,6 +6386,7 @@ css/css-flexbox/table-with-infinite-max-intrinsic-width.html
 css/css-flexbox/text-overflow-on-flexbox-001.html
 css/css-flexbox/webkit-box-vertical-writing-mode.html
 css/css-fonts/alternates-order.html
+css/css-fonts/downloadable-font-scoped-to-document.html
 css/css-fonts/first-available-font-001.html
 css/css-fonts/first-available-font-002.html
 css/css-fonts/first-available-font-003.html
@@ -6744,6 +6771,8 @@ css/css-grid/grid-fragmentation-between-rows-001-print.tentative.html
 css/css-grid/grid-in-table-cell-with-img.html
 css/css-grid/grid-item-non-auto-height-stretch-002.html
 css/css-grid/grid-item-non-auto-height-stretch-004.html
+css/css-grid/grid-items/anonymous-grid-item-001.html
+css/css-grid/grid-items/anonymous-grid-item-002.html
 css/css-grid/grid-items/explicitly-sized-grid-item-as-table.html
 css/css-grid/grid-items/grid-img-item-percent-max-height-001.html
 css/css-grid/grid-items/grid-inline-items-001.html
@@ -7095,8 +7124,6 @@ css/css-grid/subgrid/line-names-014.html
 css/css-grid/subgrid/line-names-015.html
 css/css-grid/subgrid/line-names-parent-auto-repeat-001.html
 css/css-grid/subgrid/orthogonal-writing-mode-006.html
-css/css-grid/subgrid/parent-repeat-auto-fit-001.html
-css/css-grid/subgrid/parent-repeat-auto-fit-002.html
 css/css-grid/subgrid/percentage-track-sizing.html
 css/css-grid/subgrid/repeat-auto-fill-007.html
 css/css-grid/subgrid/scrollbar-gutter-001.html
@@ -7124,6 +7151,7 @@ css/css-overflow/clip-005.html
 css/css-overflow/clip-006.html
 css/css-overflow/clip-007.html
 css/css-overflow/clip-008.html
+css/css-overflow/clipped-scroller-add-content.html
 css/css-overflow/dynamic-visible-to-clip-001.html
 css/css-overflow/dynamic-visible-to-clip-002.html
 css/css-overflow/fit-content-textarea-with-scrollbar.html
@@ -7174,6 +7202,7 @@ css/css-overflow/line-clamp/webkit-line-clamp-039.html
 css/css-overflow/line-clamp/webkit-line-clamp-048.html
 css/css-overflow/line-clamp/webkit-line-clamp-abspos-001.html
 css/css-overflow/line-clamp/webkit-line-clamp-block-in-inline-001.html
+css/css-overflow/line-clamp/webkit-line-clamp-dynamic-001.html
 css/css-overflow/max-content-nested-textarea-with-scrollbar.html
 css/css-overflow/max-content-textarea-with-scrollbar.html
 css/css-overflow/max-content-with-float-scrollable-descendant.html
@@ -7215,6 +7244,7 @@ css/css-overflow/overflow-clip-transform-001.html
 css/css-overflow/overflow-clipped-transparent-border-clip.html
 css/css-overflow/overflow-does-not-apply-to-inline-box.html
 css/css-overflow/overflow-ellipsis-dynamic-001.html
+css/css-overflow/overflow-hidden-resize-with-stacking-context-child.html
 css/css-overflow/overflow-img-border-radius.html
 css/css-overflow/overflow-img-display-table.html
 css/css-overflow/overflow-img-object-position.html
@@ -7226,6 +7256,7 @@ css/css-overflow/overflow-negative-margin-dynamic.html
 css/css-overflow/overflow-negative-margin.html
 css/css-overflow/overflow-no-frameset-propagation.html
 css/css-overflow/overflow-overlay.html
+css/css-overflow/overflow-recalc-001.html
 css/css-overflow/overflow-replaced-element-002.html
 css/css-overflow/overflow-scroll-big-border-small-content.html
 css/css-overflow/overflow-scroll-intrinsic-001.html
@@ -7280,6 +7311,7 @@ css/css-overflow/text-overflow-015.html
 css/css-overflow/text-overflow-020.html
 css/css-overflow/text-overflow-021.html
 css/css-overflow/text-overflow-030.html
+css/css-overflow/text-overflow-change-color.html
 css/css-overflow/text-overflow-ellipsis-003.html
 css/css-overflow/text-overflow-ellipsis-changing-scroll.html
 css/css-overflow/text-overflow-ellipsis-editable-div-with-caret.html
@@ -7288,10 +7320,12 @@ css/css-overflow/text-overflow-ellipsis-indent-001.html
 css/css-overflow/text-overflow-ellipsis-textarea-with-caret.html
 css/css-overflow/text-overflow-ellipsis-vertical-001.html
 css/css-position/backdrop-inherit-rendered.html
+css/css-position/block-axis-constraint-changes-for-out-of-flow-box.html
 css/css-position/containing-block-change-button.html
 css/css-position/fixed-z-index-blend.html
 css/css-position/hypothetical-box-scroll-parent.html
 css/css-position/hypothetical-box-scroll-viewport.html
+css/css-position/invalidate-opacity-negative-z-index.html
 css/css-position/overlay/author-overlay-top-layer-removal.html
 css/css-position/overlay/overlay-transition-backdrop-entry.html
 css/css-position/overlay/overlay-transition-dialog.html
@@ -7299,8 +7333,11 @@ css/css-position/position-absolute-dynamic-auto-overflow.html
 css/css-position/position-absolute-dynamic-list-marker.html
 css/css-position/position-absolute-dynamic-overflow-001.html
 css/css-position/position-absolute-dynamic-overflow-002.html
+css/css-position/position-absolute-dynamic-relayout-001.html
 css/css-position/position-absolute-dynamic-relayout-002.html
 css/css-position/position-absolute-dynamic-relayout-003.html
+css/css-position/position-absolute-dynamic-relayout-004.html
+css/css-position/position-absolute-dynamic-relayout-007.html
 css/css-position/position-absolute-dynamic-static-position-flex.html
 css/css-position/position-absolute-dynamic-static-position-floats-001.html
 css/css-position/position-absolute-dynamic-static-position-floats-002.html
@@ -7367,6 +7404,7 @@ css/css-position/sticky/position-sticky-margins-002.html
 css/css-position/sticky/position-sticky-margins-003.html
 css/css-position/sticky/position-sticky-overflow-clip-container.html
 css/css-position/sticky/position-sticky-rtl.html
+css/css-position/sticky/position-sticky-scroll-reposition.html
 css/css-position/sticky/position-sticky-scroll-with-clip-and-abspos.html
 css/css-position/sticky/position-sticky-scrolled-remove-sibling-002.html
 css/css-position/sticky/position-sticky-stacking-context.html
@@ -8129,6 +8167,7 @@ css/css-text/white-space/control-chars-09C.html
 css/css-text/white-space/control-chars-09D.html
 css/css-text/white-space/control-chars-09E.html
 css/css-text/white-space/control-chars-09F.html
+css/css-text/white-space/display-contents-remove-whitespace-change.html
 css/css-text/white-space/eol-spaces-bidi-001.html
 css/css-text/white-space/full-width-leading-spaces-001.html
 css/css-text/white-space/full-width-leading-spaces-002.html
@@ -8204,6 +8243,7 @@ css/css-text/white-space/text-wrap-balance-004.html
 css/css-text/white-space/text-wrap-balance-align-001.html
 css/css-text/white-space/text-wrap-balance-before-after-001.html
 css/css-text/white-space/text-wrap-balance-before-after-002.html
+css/css-text/white-space/text-wrap-balance-dynamic-001.html
 css/css-text/white-space/text-wrap-balance-float-006.html
 css/css-text/white-space/text-wrap-balance-line-clamp-001.html
 css/css-text/white-space/text-wrap-balance-overflow-001.html
@@ -8232,6 +8272,7 @@ css/css-text/white-space/trailing-other-space-separators-break-spaces-015.html
 css/css-text/white-space/trailing-space-align-start.tentative.html
 css/css-text/white-space/trailing-space-rtl-001.html
 css/css-text/white-space/white-space-applies-to-text-001.html
+css/css-text/white-space/white-space-empty-text-sibling.html
 css/css-text/white-space/white-space-intrinsic-size-001.html
 css/css-text/white-space/white-space-intrinsic-size-002.html
 css/css-text/white-space/white-space-intrinsic-size-003.html
@@ -9024,7 +9065,17 @@ css/css-writing-modes/normal-flow-overconstrained-vlr-005.xht
 css/css-writing-modes/normal-flow-overconstrained-vrl-002.xht
 css/css-writing-modes/normal-flow-overconstrained-vrl-004.xht
 css/css-writing-modes/orthogonal-cell-001.html
+css/css-writing-modes/orthogonal-child-with-border.html
 css/css-writing-modes/orthogonal-child-with-padding.html
+css/css-writing-modes/orthogonal-containing-block-height-changes.html
+css/css-writing-modes/orthogonal-dynamic-size-001.html
+css/css-writing-modes/orthogonal-root-resize-icb-001.html
+css/css-writing-modes/orthogonal-root-resize-icb-002.html
+css/css-writing-modes/orthogonal-root-resize-icb-003.html
+css/css-writing-modes/orthogonal-root-resize-icb-004.html
+css/css-writing-modes/orthogonal-root-resize-icb-005.html
+css/css-writing-modes/orthogonal-root-resize-icb-006.html
+css/css-writing-modes/orthogonal-root-resize-icb-007.html
 css/css-writing-modes/outline-inline-block-vrl-006.html
 css/css-writing-modes/outline-inline-vlr-006.html
 css/css-writing-modes/outline-inline-vrl-006.html
@@ -9232,9 +9283,51 @@ css/selectors/has-style-sharing-pseudo-007.html
 css/selectors/has-style-sharing-pseudo-008.html
 css/selectors/has-visited.html
 css/selectors/historical-xmlid.xht
+css/selectors/invalidation/class-id-attr.html
+css/selectors/invalidation/has-append-first-node.html
+css/selectors/invalidation/has-with-nth-child-sibling-remove.html
+css/selectors/invalidation/negated-always-matches-negated-first-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-always-matches-negated-last-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-first-of-type-in-nonsubject-position.html
+css/selectors/invalidation/negated-has-in-nonsubject-position.html
 css/selectors/invalidation/negated-is-always-matches-negated-first-of-type-when-ancestor-changes.html
 css/selectors/invalidation/negated-is-always-matches-negated-last-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-is-never-matches-negated-first-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-is-never-matches-negated-last-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-last-of-type-invalidation.html
+css/selectors/invalidation/negated-negated-first-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-negated-last-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-never-matches-negated-first-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-never-matches-negated-last-of-type-when-ancestor-changes.html
+css/selectors/invalidation/negated-nth-child-when-ancestor-changes.html
+css/selectors/invalidation/negated-nth-last-child-when-ancestor-changes.html
+css/selectors/invalidation/nth-child-containing-ancestor.html
 css/selectors/invalidation/nth-child-of-attr-largedom.html
+css/selectors/invalidation/nth-child-of-attr.html
+css/selectors/invalidation/nth-child-of-class-prefix.html
+css/selectors/invalidation/nth-child-of-class.html
+css/selectors/invalidation/nth-child-of-has.html
+css/selectors/invalidation/nth-child-of-id-prefix.html
+css/selectors/invalidation/nth-child-of-ids.html
+css/selectors/invalidation/nth-child-of-in-ancestor.html
+css/selectors/invalidation/nth-child-of-in-is.html
+css/selectors/invalidation/nth-child-of-is.html
+css/selectors/invalidation/nth-child-of-sibling.html
+css/selectors/invalidation/nth-child-when-ancestor-changes.html
+css/selectors/invalidation/nth-child-when-sibling-changes.html
+css/selectors/invalidation/nth-last-child-containing-ancestor.html
+css/selectors/invalidation/nth-last-child-of-attr.html
+css/selectors/invalidation/nth-last-child-of-class-prefix.html
+css/selectors/invalidation/nth-last-child-of-class.html
+css/selectors/invalidation/nth-last-child-of-has.html
+css/selectors/invalidation/nth-last-child-of-id-prefix.html
+css/selectors/invalidation/nth-last-child-of-ids.html
+css/selectors/invalidation/nth-last-child-of-in-ancestor.html
+css/selectors/invalidation/nth-last-child-of-in-is.html
+css/selectors/invalidation/nth-last-child-of-is.html
+css/selectors/invalidation/nth-last-child-of-sibling.html
+css/selectors/invalidation/nth-last-child-when-ancestor-changes.html
+css/selectors/invalidation/nth-last-child-when-sibling-changes.html
 css/selectors/invalidation/sheet-going-away-002.html
 css/selectors/is-default-ns-001.html
 css/selectors/is-where-pseudo-elements.html
@@ -9286,4 +9379,5 @@ css/selectors/text-emphasis-visited-inheritance.html
 css/selectors/text-fill-color-visited-inheritance.html
 css/selectors/text-stroke-color-visited-inheritance.html
 css/selectors/visited-in-visited-compound.html
+css/selectors/visited-inheritance.html
 css/selectors/visited-nested.html

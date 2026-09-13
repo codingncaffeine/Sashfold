@@ -583,6 +583,91 @@ std::string platform_name()
 #endif
 }
 
+// The elements a name picks out for the window (HTML's named access on the
+// Window object): an HTML element whose id is the name, and an embed, form,
+// img or object whose name attribute is, in tree order.
+void collect_named(dom::Node& node, std::string_view name, std::vector<dom::Node*>& out)
+{
+    for (dom::Node* const child : node.children()) {
+        if (child->is_element()) {
+            auto const& element = static_cast<dom::Element const&>(*child);
+            if (element.is_html()) {
+                dom::Attr const* const id = element.find_attribute("id");
+                bool named = id && id->value == name;
+                if (!named
+                    && (element.is_html("embed") || element.is_html("form") || element.is_html("img")
+                        || element.is_html("object"))) {
+                    dom::Attr const* const attribute = element.find_attribute("name");
+                    named = attribute && attribute->value == name;
+                }
+                if (named)
+                    out.push_back(child);
+            }
+        }
+        collect_named(*child, name, out);
+    }
+}
+
+// The window's named properties object (WebIDL §3.7.4): it stands between
+// the window and Object.prototype and answers for the elements a name picks
+// out — one as itself, several as an HTMLCollection — whenever neither the
+// window nor anything up the chain past it has a property of that name, so
+// the window's own members, Object.prototype's and every global a script
+// declares come first. The tree is read at each lookup, and nothing can be
+// defined on the object or deleted from it.
+class WindowNamedProperties final : public js::Object {
+public:
+    WindowNamedProperties(js::Object* prototype, Realm::Internals& internals)
+        : js::Object(prototype)
+        , m_internals(internals)
+    {
+    }
+
+    std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const& key) const override
+    {
+        if (key.is_symbol())
+            return std::nullopt;
+        if (m_internals.interpreter.global()->get_own_property(key))
+            return std::nullopt;
+        for (js::Object const* link = prototype(); link != nullptr; link = link->prototype()) {
+            if (link->get_own_property(key))
+                return std::nullopt;
+        }
+        std::string const name = key.is_index() ? std::to_string(key.as_index()) : key.as_atom()->to_utf8();
+        if (name.empty())
+            return std::nullopt;
+        std::vector<dom::Node*> found;
+        collect_named(m_internals.document, name, found);
+        if (found.empty())
+            return std::nullopt;
+        js::Value value;
+        if (found.size() == 1) {
+            value = js::Value::object(m_internals.wrap(*found.front()));
+        } else {
+            js::Interpreter::Roots const roots(m_internals.interpreter);
+            value = m_internals.interpreter.root(node_list(m_internals, found));
+            value.as_object()->set_prototype(m_internals.prototype("HTMLCollection"));
+            // Held until the next lookup: the collection is new, and whoever
+            // asked has not stored it anywhere the collector can see yet.
+            m_last_collection = value;
+        }
+        return js::PropertyDescriptor::data(value, js::Writable | js::Configurable);
+    }
+
+    bool define_own_property(js::PropertyKey const&, js::PropertyDescriptor const&) override { return false; }
+    bool delete_property(js::PropertyKey const&) override { return false; }
+
+    void trace(js::Tracer& tracer) override
+    {
+        js::Object::trace(tracer);
+        tracer.visit(m_last_collection);
+    }
+
+private:
+    Realm::Internals& m_internals;
+    mutable js::Value m_last_collection;
+};
+
 } // namespace
 
 // --- install_window ---------------------------------------------------------------------------------
@@ -593,6 +678,7 @@ void install_window(Realm::Internals& in)
     js::Heap::NoCollect const guard(interpreter.heap());
     js::Object* global = interpreter.global();
     in.prototypes["Window"] = global;
+    global->set_prototype(interpreter.heap().allocate<WindowNamedProperties>(global->prototype(), in));
 
     // The window is its own frame tree.
     for (std::string_view const name : { "window", "self", "frames", "top", "parent" })
