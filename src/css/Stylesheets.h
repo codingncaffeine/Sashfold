@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <utility>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -82,12 +83,18 @@ struct FontFaceSource {
     std::string format; // lowercased, unquoted; empty when not written
 };
 
-// An @font-face rule as declared: the family, the weight and slant its
-// descriptors claim (the first value of a range), and its sources in order.
+// An @font-face rule as declared: the family, the weight, stretch and
+// slant its descriptors claim (the first value of a range), the code
+// points its unicode-range keeps it to (none: every one), and its
+// sources in order.
 struct FontFaceRule {
     std::string family;
-    int weight = 400;
+    int weight = 400; // the range's low end; a single value is a range of one
+    int weight_max = 400;
+    int stretch = 100; // percent, as font-stretch; the range's low end
+    int stretch_max = 100;
     bool italic = false;
+    std::vector<std::pair<char32_t, char32_t>> unicode_ranges;
     std::vector<FontFaceSource> sources;
 };
 
@@ -112,5 +119,9 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
 bool media_query_matches(std::string_view query_list, MediaContext const& media);
 struct ComponentValue;
 bool media_prelude_matches(std::vector<ComponentValue> const& prelude, MediaContext const& media);
+
+// font-stretch as a percentage: a keyword from ultra-condensed (50) to
+// ultra-expanded (200), or a percentage token; nullopt for anything else.
+std::optional<int> font_stretch_percent_of(ComponentValue const& value);
 
 }

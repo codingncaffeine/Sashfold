@@ -614,4 +614,9 @@ bool write_png(std::string const& path, Bitmap const& bitmap)
     return static_cast<bool>(file);
 }
 
+std::vector<std::uint8_t> zlib_compress(std::vector<std::uint8_t> const& raw)
+{
+    return zlib_deflate(raw);
+}
+
 }

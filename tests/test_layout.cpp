@@ -1607,6 +1607,33 @@ int main(int argc, char** argv)
         x_of(U" \u05D1\u05D0", 271.0f);
     }
 
+    // --- Lowercasing a final sigma -----------------------------------------------
+    {
+        text::FontManager::instance().set_system_fonts(false);
+        // SpecialCasing.txt's Final_Sigma: a capital sigma at the end of a
+        // word lowercases to \u03C2, one anywhere else (a word's start, its
+        // middle, or alone) to \u03C3. An apostrophe inside the word is looked
+        // past, and so is a mark.
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { text-transform: lowercase }
+</style></head><body>
+  <div>&#x39F;&#x394;&#x3A5;&#x3A3;&#x3A3;&#x395;&#x3A5;&#x3A3;</div>
+  <div>&#x3A3;</div>
+  <div>&#x391;&#x3A3;'&#x3A3;</div>
+  <div>&#x391;&#x3A3;&#x301;</div>
+</body></html>)HTML", 400);
+        std::vector<layout::TextRun const*> runs;
+        collect(page.result.root, runs);
+        std::vector<std::u32string> texts;
+        for (layout::TextRun const* const run : runs)
+            texts.push_back(run->text);
+        std::vector<std::u32string> const expected {
+            U"\u03BF\u03B4\u03C5\u03C3\u03C3\u03B5\u03C5\u03C2", U"\u03C3", U"\u03B1\u03C3'\u03C2", U"\u03B1\u03C2\u0301"
+        };
+        CHECK(texts == expected);
+    }
+
     // --- A box can be sized by its own content ---------------------------------
     {
         text::FontManager::instance().set_system_fonts(false);

@@ -35,6 +35,11 @@ public:
 
     // 0 when the face has no glyph for the code point.
     virtual std::uint32_t glyph_index(char32_t code_point) const = 0;
+    // Whether the face is asked for the code point at all: a page font
+    // kept to a unicode-range says no outside it, every other face yes,
+    // whatever its glyphs. The first available font (css-fonts-4 §2.1) is
+    // the first that says yes to the space.
+    virtual bool covers(char32_t code_point) const;
     virtual FaceMetrics metrics(float size) const = 0;
     virtual float advance(std::uint32_t glyph, float size) const = 0;
     // The adjustment to the advance between two of this face's glyphs side

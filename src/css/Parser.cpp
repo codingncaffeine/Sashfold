@@ -14,9 +14,20 @@ namespace {
 class TokenStream {
 public:
     explicit TokenStream(std::string_view utf8)
-        : m_tokens(Tokenizer::tokenize(utf8))
     {
+        Tokenizer tokenizer(utf8);
+        while (true) {
+            Token token = tokenizer.next();
+            if (token.type == Token::Type::EndOfFile)
+                break;
+            m_tokens.push_back(std::move(token));
+        }
+        m_source = tokenizer.data();
     }
+
+    // The preprocessed code points the tokens came from: what a
+    // declaration's value is cut from to be tokenized again.
+    std::u32string const& source() const { return m_source; }
 
     Token const& peek(std::size_t offset = 0) const
     {
@@ -52,6 +63,7 @@ public:
 
 private:
     std::vector<Token> m_tokens;
+    std::u32string m_source;
     std::size_t m_index = 0;
 };
 
@@ -216,7 +228,28 @@ struct Parser {
             if (has_brace_block && has_other)
                 return false;
         }
-        // (unicode-range descriptor re-tokenization arrives with @font-face.)
+        // §5.4.9: a unicode-range descriptor's value is the source it was
+        // cut from, tokenized again with unicode ranges allowed — the
+        // ordinary rules read "U+00E9" as an ident and a number.
+        if (!custom_property && ascii_ci_equals(out.name, "unicode-range")) {
+            Token const* first = nullptr;
+            Token const* last = nullptr;
+            for (ComponentValue const& value : out.value) {
+                if (!value.is_token(Token::Type::Whitespace) && (value.is_token(Token::Type::Ident) || value.is_token(Token::Type::Number) || value.is_token(Token::Type::Dimension) || value.is_token(Token::Type::Delim) || value.is_token(Token::Type::Comma))) {
+                    if (!first)
+                        first = &value.token();
+                    last = &value.token();
+                }
+            }
+            if (first && last && last->source_end > first->source_begin
+                && last->source_end <= input.source().size()) {
+                std::vector<ComponentValue> ranges;
+                for (Token& token : Tokenizer::tokenize(
+                         input.source().substr(first->source_begin, last->source_end - first->source_begin), true))
+                    ranges.push_back(ComponentValue { std::move(token) });
+                out.value = std::move(ranges);
+            }
+        }
         return true;
     }
 

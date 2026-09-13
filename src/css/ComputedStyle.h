@@ -966,6 +966,7 @@ struct ComputedStyle {
     std::shared_ptr<std::vector<BackgroundBox> const> background_clips;
     float font_size = 16;
     int font_weight = 400; // 700+ paints bold
+    int font_stretch = 100; // percent: 50 ultra-condensed to 200 ultra-expanded, 100 normal; picks among a family's faces
     FontStyle font_style = FontStyle::Normal;
     // The font-family list as written, generic names included; null is the
     // initial value (the default serif face). Shared down the tree.

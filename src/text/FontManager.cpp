@@ -91,6 +91,81 @@ std::uint64_t fnv1a(std::vector<std::uint8_t> const& bytes)
     return hash;
 }
 
+// How far a face is from what was asked (css-fonts-4 §5.2), lower being
+// closer. The stretch decides first: for a normal or narrower request
+// every face at or below it, nearest first, comes before any wider one;
+// for a wider request the other way round. Then the slant. Then the
+// weight: a request between 400 and 500 takes the nearest above up to
+// 500, then below, then above 500; a lighter request takes the nearest
+// below then above; a bolder one the nearest above then below.
+long match_distance(int stretch, int weight, bool italic, int wanted_stretch, int wanted_weight, bool wanted_italic)
+{
+    constexpr long far_side = 1000; // past every distance on the near side
+    long stretch_score = 0;
+    if (wanted_stretch <= 100)
+        stretch_score = stretch <= wanted_stretch ? wanted_stretch - stretch : far_side + (stretch - wanted_stretch);
+    else
+        stretch_score = stretch >= wanted_stretch ? stretch - wanted_stretch : far_side + (wanted_stretch - stretch);
+    long weight_score = 0;
+    if (wanted_weight >= 400 && wanted_weight <= 500) {
+        if (weight >= wanted_weight && weight <= 500)
+            weight_score = weight - wanted_weight;
+        else if (weight < wanted_weight)
+            weight_score = far_side + (wanted_weight - weight);
+        else
+            weight_score = 2 * far_side + (weight - 500);
+    } else if (wanted_weight < 400) {
+        weight_score = weight <= wanted_weight ? wanted_weight - weight : far_side + (weight - wanted_weight);
+    } else {
+        weight_score = weight >= wanted_weight ? weight - wanted_weight : far_side + (wanted_weight - weight);
+    }
+    return stretch_score * 1000000L + (italic != wanted_italic ? 100000L : 0L) + weight_score;
+}
+
+// A face kept to its unicode-range: it has a glyph for a code point in
+// the range and none for any other, and draws and measures as the face
+// it wraps.
+class RangedFace final : public Face {
+public:
+    RangedFace(Face const& inner, std::vector<std::pair<char32_t, char32_t>> ranges)
+        : m_inner(inner)
+        , m_ranges(std::move(ranges))
+    {
+    }
+
+    std::string const& family() const override { return m_inner.family(); }
+    bool is_bold() const override { return m_inner.is_bold(); }
+    bool is_italic() const override { return m_inner.is_italic(); }
+    bool is_monospace() const override { return m_inner.is_monospace(); }
+    bool covers(char32_t code_point) const override
+    {
+        for (auto const& [first, last] : m_ranges) {
+            if (code_point >= first && code_point <= last)
+                return true;
+        }
+        return false;
+    }
+    std::uint32_t glyph_index(char32_t code_point) const override
+    {
+        return covers(code_point) ? m_inner.glyph_index(code_point) : 0;
+    }
+    FaceMetrics metrics(float size) const override { return m_inner.metrics(size); }
+    float advance(std::uint32_t glyph, float size) const override { return m_inner.advance(glyph, size); }
+    float kerning(std::uint32_t left, std::uint32_t right, float size) const override
+    {
+        return m_inner.kerning(left, right, size);
+    }
+    void draw_glyph(Bitmap& target, std::uint32_t glyph, float x, float baseline_y, float size, Color color,
+        bool bold, bool italic) const override
+    {
+        m_inner.draw_glyph(target, glyph, x, baseline_y, size, color, bold, italic);
+    }
+
+private:
+    Face const& m_inner;
+    std::vector<std::pair<char32_t, char32_t>> m_ranges;
+};
+
 } // namespace
 
 Face const& FontStack::face_for(char32_t code_point) const
@@ -196,6 +271,12 @@ void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
         key += std::to_string(font.weight);
         key += font.italic ? 'i' : 'n';
         key += '\n';
+        key += std::to_string(font.stretch);
+        key += '-';
+        key += std::to_string(font.stretch_max);
+        key += '/';
+        key += std::to_string(font.weight_max);
+        key += '\n';
         key += std::to_string(font.bytes.size());
         key += '\n';
         key += std::to_string(fnv1a(font.bytes));
@@ -209,12 +290,18 @@ void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
         }
         if (!it->second)
             continue; // not a font this engine draws: the family falls through to the next
-        faces.push_back(PageFace { lowercased(font.family), font.weight, font.italic, it->second.get() });
+        Face const* face = it->second.get();
+        if (!font.unicode_ranges.empty())
+            face = ranged_face(face, font.unicode_ranges);
+        faces.push_back(PageFace { lowercased(font.family), font.weight, font.italic, face, font.stretch,
+            std::max(font.weight, font.weight_max), std::max(font.stretch, font.stretch_max) });
     }
     bool same = faces.size() == m_page_faces.size();
     for (std::size_t i = 0; same && i < faces.size(); ++i) {
         same = faces[i].face == m_page_faces[i].face && faces[i].family_lower == m_page_faces[i].family_lower
-            && faces[i].weight == m_page_faces[i].weight && faces[i].italic == m_page_faces[i].italic;
+            && faces[i].weight == m_page_faces[i].weight && faces[i].italic == m_page_faces[i].italic
+            && faces[i].stretch == m_page_faces[i].stretch && faces[i].weight_max == m_page_faces[i].weight_max
+            && faces[i].stretch_max == m_page_faces[i].stretch_max;
     }
     if (same)
         return; // the same fonts as the last page: every stack still answers right
@@ -223,24 +310,45 @@ void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
 }
 
 // The page's own face for a family, chosen the way best_face chooses: the
-// requested slant first, then the nearest weight.
-Face const* FontManager::page_face(std::string const& family_lower, int weight, bool italic) const
+// requested stretch and slant first, then the nearest weight; every face
+// that matches equally well — a family split into unicode-range pieces —
+// answers together, in the order declared.
+std::vector<Face const*> FontManager::page_faces(std::string const& family_lower, int weight, int stretch,
+    bool italic) const
 {
-    Face const* best = nullptr;
+    std::vector<Face const*> best;
     long best_score = -1;
     for (PageFace const& candidate : m_page_faces) {
         if (candidate.family_lower != family_lower)
             continue;
-        long score = candidate.italic != italic ? 100000 : 0;
-        int const distance = std::abs(candidate.weight - weight);
-        bool const wrong_side = weight <= 500 ? candidate.weight > weight : candidate.weight < weight;
-        score += distance * 2 + (wrong_side ? 1 : 0);
+        // A face answering a range stands at the point of it nearest the
+        // request (css-fonts-4 §5.2.1).
+        int const face_stretch = std::clamp(stretch, candidate.stretch, candidate.stretch_max);
+        int const face_weight = std::clamp(weight, candidate.weight, candidate.weight_max);
+        long const score = match_distance(face_stretch, face_weight, candidate.italic, stretch, weight, italic);
         if (best_score < 0 || score < best_score) {
             best_score = score;
-            best = candidate.face;
+            best.clear();
         }
+        if (score == best_score)
+            best.push_back(candidate.face);
     }
     return best;
+}
+
+Face const* FontManager::ranged_face(Face const* face, std::vector<std::pair<char32_t, char32_t>> const& ranges)
+{
+    std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(face));
+    for (auto const& [first, last] : ranges) {
+        key += ' ';
+        key += std::to_string(first);
+        key += '-';
+        key += std::to_string(last);
+    }
+    auto it = m_ranged_faces.find(key);
+    if (it == m_ranged_faces.end())
+        it = m_ranged_faces.emplace(std::move(key), std::make_unique<RangedFace>(*face, ranges)).first;
+    return it->second.get();
 }
 
 std::vector<FaceInfo> const& FontManager::catalogue()
@@ -298,10 +406,10 @@ Face const* FontManager::load(std::size_t index)
     return it->second.get();
 }
 
-// CSS font matching, kept to weight and slant: a face of the requested
-// slant beats one of the other, then the nearest weight — below the
-// request for normal text, above it for bold.
-Face const* FontManager::best_of(std::vector<std::size_t> const& indices, int weight, bool italic)
+// CSS font matching (css-fonts-4 §5.2): the nearest stretch, then a face
+// of the requested slant, then the nearest weight — below the request for
+// normal text, above it for bold.
+Face const* FontManager::best_of(std::vector<std::size_t> const& indices, int weight, int stretch, bool italic)
 {
     if (indices.empty())
         return nullptr;
@@ -309,10 +417,8 @@ Face const* FontManager::best_of(std::vector<std::size_t> const& indices, int we
     long best_score = -1;
     for (std::size_t const index : indices) {
         FaceInfo const& info = m_catalogue[index];
-        long score = info.italic != italic ? 100000 : 0;
-        int const distance = std::abs(static_cast<int>(info.weight_class) - weight);
-        bool const wrong_side = weight <= 500 ? info.weight_class > weight : info.weight_class < weight;
-        score += distance * 2 + (wrong_side ? 1 : 0);
+        long const score
+            = match_distance(info.stretch, static_cast<int>(info.weight_class), info.italic, stretch, weight, italic);
         if (best_score < 0 || score < best_score) {
             best_score = score;
             best = index;
@@ -321,24 +427,26 @@ Face const* FontManager::best_of(std::vector<std::size_t> const& indices, int we
     return load(best);
 }
 
-Face const* FontManager::best_face(std::string const& family_lower, int weight, bool italic)
+Face const* FontManager::best_face(std::string const& family_lower, int weight, int stretch, bool italic)
 {
     auto const it = m_by_family.find(family_lower);
-    return it == m_by_family.end() ? nullptr : best_of(it->second, weight, italic);
+    return it == m_by_family.end() ? nullptr : best_of(it->second, weight, stretch, italic);
 }
 
 // The same, over the faces handed to the manager by name rather than found
 // on the machine.
-Face const* FontManager::added_face(std::string const& family_lower, int weight, bool italic)
+Face const* FontManager::added_face(std::string const& family_lower, int weight, int stretch, bool italic)
 {
     auto const it = m_added_by_family.find(family_lower);
-    return it == m_added_by_family.end() ? nullptr : best_of(it->second, weight, italic);
+    return it == m_added_by_family.end() ? nullptr : best_of(it->second, weight, stretch, italic);
 }
 
 FontStack const& FontManager::resolve(FontRequest const& request)
 {
     std::string key = request.italic ? "i" : "n";
     key += std::to_string(request.weight);
+    key += 's';
+    key += std::to_string(request.stretch);
     for (std::string const& family : request.families) {
         key += '\n';
         key += family;
@@ -355,13 +463,15 @@ FontStack const& FontManager::resolve(FontRequest const& request)
     auto const add_family = [&](std::string const& name) {
         std::string const lower = lowercased(name);
         // A page's own font shadows an installed one of the same name.
-        if (Face const* face = page_face(lower, request.weight, request.italic)) {
-            add(face);
+        std::vector<Face const*> const page = page_faces(lower, request.weight, request.stretch, request.italic);
+        if (!page.empty()) {
+            for (Face const* face : page)
+                add(face);
             return;
         }
         // A face handed over by name answers next, with the machine's fonts
         // on or off: a test suite brings its own measuring sticks.
-        if (Face const* face = added_face(lower, request.weight, request.italic)) {
+        if (Face const* face = added_face(lower, request.weight, request.stretch, request.italic)) {
             add(face);
             return;
         }
@@ -370,11 +480,11 @@ FontStack const& FontManager::resolve(FontRequest const& request)
         scan();
         std::vector<std::string_view> const generics = generic_candidates(lower);
         if (generics.empty()) {
-            add(best_face(lower, request.weight, request.italic));
+            add(best_face(lower, request.weight, request.stretch, request.italic));
             return;
         }
         for (std::string_view const candidate : generics) {
-            if (Face const* face = best_face(lowercased(candidate), request.weight, request.italic)) {
+            if (Face const* face = best_face(lowercased(candidate), request.weight, request.stretch, request.italic)) {
                 add(face);
                 return;
             }
@@ -385,6 +495,16 @@ FontStack const& FontManager::resolve(FontRequest const& request)
     if (m_system_fonts && stack->m_faces.empty())
         add_family("serif"); // the initial value, when nothing asked for exists
     stack->m_faces.push_back(&builtin_face());
+    // The first available font (css-fonts-4 §2.1): the first whose
+    // unicode-range has the space in it — a face kept to a range without
+    // one is not, whatever glyphs it has.
+    stack->m_primary = stack->m_faces.back();
+    for (Face const* face : stack->m_faces) {
+        if (face->covers(U' ')) {
+            stack->m_primary = face;
+            break;
+        }
+    }
     FontStack const& result = *stack;
     m_stacks.emplace(std::move(key), std::move(stack));
     return result;

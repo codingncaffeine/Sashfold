@@ -6,6 +6,7 @@
 #include "css/Grid.h"
 #include "css/Parser.h"
 #include "css/Selector.h"
+#include "css/Stylesheets.h"
 #include "dom/Dom.h"
 #include "net/Url.h"
 #include "text/Face.h"
@@ -2126,6 +2127,7 @@ struct Resolver {
         if (style.font_family)
             request.families = *style.font_family;
         request.weight = style.font_weight;
+        request.stretch = style.font_stretch;
         request.italic = style.font_style == FontStyle::Italic;
         text::Face const& face = text::FontManager::instance().resolve(request).primary();
         // Measured at a size large enough that the division keeps its digits.
@@ -2498,6 +2500,7 @@ struct Resolver {
         style.color = parent.color;
         style.font_size = parent.font_size;
         style.font_weight = parent.font_weight;
+        style.font_stretch = parent.font_stretch;
         style.font_style = parent.font_style;
         style.font_family = parent.font_family;
         style.line_height = parent.line_height;
@@ -2870,6 +2873,7 @@ struct Resolver {
                 0 },
             { "font-size", true, [](S& to, S const& from) { to.font_size = from.font_size; }, 0 },
             { "font-weight", true, [](S& to, S const& from) { to.font_weight = from.font_weight; }, 0 },
+            { "font-stretch", true, [](S& to, S const& from) { to.font_stretch = from.font_stretch; }, 0 },
             { "font-style", true, [](S& to, S const& from) { to.font_style = from.font_style; }, 0 },
             { "font-family", true, [](S& to, S const& from) { to.font_family = from.font_family; }, 0 },
             { "line-height", true, [](S& to, S const& from) { to.line_height = from.line_height; }, 0 },
@@ -5138,6 +5142,21 @@ struct Resolver {
         if (name == "font-family") {
             if (std::shared_ptr<std::vector<std::string>> families = parse_family_list(values))
                 style.font_family = std::move(families);
+            return;
+        }
+        if (name == "font-stretch") {
+            // A keyword from ultra-condensed to ultra-expanded, or a percentage.
+            if (values.size() != 1)
+                return;
+            ComponentValue const& value = *values[0];
+            if (value.is_token(Token::Type::Percentage)) {
+                double const percent = value.token().numeric_value;
+                if (percent >= 0)
+                    style.font_stretch = static_cast<int>(std::min(percent, 1000.0));
+                return;
+            }
+            if (std::optional<int> const percent = css::font_stretch_percent_of(value))
+                style.font_stretch = *percent;
             return;
         }
         if (name == "font-style") {

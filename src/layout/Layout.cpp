@@ -1540,6 +1540,7 @@ struct Layouter {
         if (style.font_family)
             request.families = *style.font_family;
         request.weight = style.font_weight;
+        request.stretch = style.font_stretch;
         request.italic = style.font_style == css::FontStyle::Italic;
         text::FontStack const& stack = text::FontManager::instance().resolve(request);
         fonts.emplace(&style, &stack);
@@ -1808,12 +1809,49 @@ struct Layouter {
     // each word; a word carries on through an apostrophe, so "don't" keeps
     // its lowercase t. ⛔ Word starts are found within one text node, so a
     // word split across an inline box (`he<b>llo</b>`) is capitalized twice.
+    // Whether a character has a case at all — what the Final_Sigma context
+    // of Unicode's SpecialCasing.txt reads — and whether one is passed over
+    // when that context is read: the marks, the invisible ones, and the
+    // letter-like punctuation of an apostrophe or a stop inside a word.
+    static bool is_cased(char32_t c)
+    {
+        return to_uppercase(c) != c || to_lowercase(c) != c;
+    }
+    static bool is_case_ignorable(char32_t c)
+    {
+        return is_combining_mark(c) || is_default_ignorable(c) || c == U'\'' || c == U'.' || c == U':'
+            || c == U'^' || c == U'`' || c == 0x00A8 || c == 0x00AF || c == 0x00B4 || c == 0x00B7
+            || c == 0x00B8 || c == 0x2018 || c == 0x2019 || c == 0x2024 || c == 0x2027;
+    }
+    // A capital sigma lowercased at the end of a word (SpecialCasing.txt,
+    // Final_Sigma): with a cased letter before it and none after, it is
+    // the final form ς, and σ anywhere else.
+    static char32_t lowercased_sigma(std::u32string_view text, std::size_t at)
+    {
+        bool cased_before = false;
+        for (std::size_t i = at; i-- > 0;) {
+            if (is_case_ignorable(text[i]))
+                continue;
+            cased_before = is_cased(text[i]);
+            break;
+        }
+        bool cased_after = false;
+        for (std::size_t i = at + 1; i < text.size(); ++i) {
+            if (is_case_ignorable(text[i]))
+                continue;
+            cased_after = is_cased(text[i]);
+            break;
+        }
+        return cased_before && !cased_after ? 0x03C2 : 0x03C3;
+    }
+
     static std::u32string transformed(std::u32string_view text, css::TextTransform transform)
     {
         std::u32string out;
         out.reserve(text.size());
         bool at_word_start = true;
-        for (char32_t const c : text) {
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            char32_t const c = text[i];
             switch (transform) {
             case css::TextTransform::None:
                 out.push_back(c);
@@ -1822,10 +1860,10 @@ struct Layouter {
                 out.push_back(to_uppercase(c));
                 break;
             case css::TextTransform::Lowercase:
-                out.push_back(to_lowercase(c));
+                out.push_back(c == 0x03A3 ? lowercased_sigma(text, i) : to_lowercase(c));
                 break;
             case css::TextTransform::Capitalize: {
-                bool const cased = to_uppercase(c) != c || to_lowercase(c) != c;
+                bool const cased = is_cased(c);
                 bool const in_word = cased || (c >= U'0' && c <= U'9') || is_combining_mark(c)
                     || c == U'\'' || c == U'’';
                 out.push_back(at_word_start && cased ? to_titlecase(c) : c);
@@ -1860,6 +1898,10 @@ struct Layouter {
         for (char32_t const c : text) {
             // Invisible by definition: no glyph, no advance — and, but for
             // the few the line breaker reads, no say in where a line ends.
+            // (The bidi controls go with them, so an override spelled in
+            // the markup is not yet heard: keeping them in a word's text
+            // splits the word where its level changes, and every cut is a
+            // break opportunity today.)
             if (is_default_ignorable(c) && !is_break_control(c))
                 continue;
             bool const is_newline = c == U'\n';
@@ -2836,7 +2878,26 @@ struct Layouter {
                     return { above, placed.image_height - above };
                 }
                 float const ascent = ascent_in_line(*placed.style);
-                return { ascent, line_height_of(*placed.style) - ascent };
+                Extent extent { ascent, line_height_of(*placed.style) - ascent };
+                // Under line-height: normal, text drawn from a fallback face
+                // reaches as far as that face's own metrics say (CSS 2.1
+                // §10.8.1): the line grows to hold every face on it, the
+                // primary's strut being in it already.
+                if (placed.style->line_height.kind == css::LineHeight::Kind::Normal && !placed.text.empty()
+                    && !placed.box_edge) {
+                    text::FontStack const& stack = fonts_for(*placed.style);
+                    text::Face const* seen = &stack.primary();
+                    for (char32_t const c : placed.text) {
+                        text::FontStack::Glyph const glyph = stack.glyph_for(c);
+                        if (glyph.face == seen)
+                            continue;
+                        seen = glyph.face;
+                        text::FaceMetrics const metrics = glyph.face->metrics(placed.style->font_size);
+                        extent.above = std::max(extent.above, metrics.ascent + metrics.line_gap / 2.0f);
+                        extent.below = std::max(extent.below, metrics.descent + metrics.line_gap / 2.0f);
+                    }
+                }
+                return extent;
             };
             // The parent's metrics for text-top, text-bottom and middle:
             // the block's face stands in for the nearest inline ancestor.
@@ -3659,7 +3720,17 @@ struct Layouter {
                 continue;
             }
             std::u32string word = without_break_controls(item.text);
+            // Measured as it is drawn: a run reading right-to-left is drawn
+            // with its characters in the other order and its brackets
+            // mirrored (rules L2 and L4, at flush_line), so its kerning
+            // pairs are the pairs that end up side by side.
             float width = measure(*item.style, word);
+            if (current_level & 1) {
+                std::u32string drawn(word.rbegin(), word.rend());
+                for (char32_t& code_point : drawn)
+                    code_point = bidi_mirrored(code_point);
+                width = measure(*item.style, drawn);
+            }
             // The spaces the word ends with (see is_trailing_space): where
             // they begin, what they measure, and how much of that hangs past
             // the line's end — all of it, but under break-spaces.

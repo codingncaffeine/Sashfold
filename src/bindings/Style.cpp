@@ -422,6 +422,8 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case WordBreak::Manual: return "manual";
         }
     }
+    if (name == "font-stretch")
+        return std::to_string(style.font_stretch) + "%";
     if (name == "font-kerning") {
         switch (style.font_kerning) {
         case FontKerning::Auto: return "auto";

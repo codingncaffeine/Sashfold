@@ -668,7 +668,7 @@ void census_rules(std::vector<css::Rule> const& rules, FeatureCensus& census)
                                 for (css::ComponentValue const& inner : value.function().values)
                                     if (inner.is_token(css::Token::Type::String))
                                         text = lowercase_ascii(inner.token().value);
-                            if (text.find("woff") != std::string::npos) {
+                            if (text.find("woff2") != std::string::npos) {
                                 ++census["web-fonts"];
                                 break;
                             }

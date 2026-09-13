@@ -350,20 +350,38 @@ std::optional<FontFaceRule> font_face_of(AtRule const& at)
             } else if (name == "src") {
                 rule.sources = sources_of(declaration.value);
             } else if (name == "font-weight") {
+                // One value or two, a range either way round (css-fonts-4
+                // §4.4: a reversed range is the same range).
+                std::vector<int> weights;
                 for (ComponentValue const& value : declaration.value) {
                     if (value.is_token(Token::Type::Number) && value.token().numeric_value >= 1
-                        && value.token().numeric_value <= 1000) {
-                        rule.weight = static_cast<int>(value.token().numeric_value);
-                        break;
-                    }
-                    if (value.is_token(Token::Type::Ident)) {
+                        && value.token().numeric_value <= 1000)
+                        weights.push_back(static_cast<int>(value.token().numeric_value));
+                    else if (value.is_token(Token::Type::Ident)) {
                         std::string const word = lowercased(value.token().value);
                         if (word == "bold")
-                            rule.weight = 700;
+                            weights.push_back(700);
                         else if (word == "normal")
-                            rule.weight = 400;
-                        break;
+                            weights.push_back(400);
                     }
+                    if (weights.size() == 2)
+                        break;
+                }
+                if (!weights.empty()) {
+                    rule.weight = std::min(weights.front(), weights.back());
+                    rule.weight_max = std::max(weights.front(), weights.back());
+                }
+            } else if (name == "font-stretch") {
+                std::vector<int> stretches;
+                for (ComponentValue const& value : declaration.value) {
+                    if (std::optional<int> const percent = font_stretch_percent_of(value))
+                        stretches.push_back(*percent);
+                    if (stretches.size() == 2)
+                        break;
+                }
+                if (!stretches.empty()) {
+                    rule.stretch = std::min(stretches.front(), stretches.back());
+                    rule.stretch_max = std::max(stretches.front(), stretches.back());
                 }
             } else if (name == "font-style") {
                 for (ComponentValue const& value : declaration.value) {
@@ -373,6 +391,14 @@ std::optional<FontFaceRule> font_face_of(AtRule const& at)
                         break;
                     }
                 }
+            } else if (name == "unicode-range") {
+                // The parser tokenized the value again with unicode ranges
+                // allowed (css-syntax-3 §5.4.9), so the ranges arrive whole.
+                for (ComponentValue const& value : declaration.value) {
+                    if (value.is_token(Token::Type::UnicodeRange)
+                        && value.token().range_start <= value.token().range_end && value.token().range_end <= 0x10FFFF)
+                        rule.unicode_ranges.emplace_back(value.token().range_start, value.token().range_end);
+                }
             }
         }
     }
@@ -380,6 +406,40 @@ std::optional<FontFaceRule> font_face_of(AtRule const& at)
         return std::nullopt;
     return rule;
 }
+
+} // namespace
+
+std::optional<int> font_stretch_percent_of(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Percentage)) {
+        double const percent = value.token().numeric_value;
+        return percent >= 0 ? std::optional<int>(static_cast<int>(std::min(percent, 1000.0))) : std::nullopt;
+    }
+    if (!value.is_token(Token::Type::Ident))
+        return std::nullopt;
+    std::string const word = lowercased(value.token().value);
+    if (word == "ultra-condensed")
+        return 50;
+    if (word == "extra-condensed")
+        return 62;
+    if (word == "condensed")
+        return 75;
+    if (word == "semi-condensed")
+        return 87;
+    if (word == "normal")
+        return 100;
+    if (word == "semi-expanded")
+        return 112;
+    if (word == "expanded")
+        return 125;
+    if (word == "extra-expanded")
+        return 150;
+    if (word == "ultra-expanded")
+        return 200;
+    return std::nullopt;
+}
+
+namespace {
 
 void gather_font_faces(std::vector<Rule> const& rules, MediaContext const& media,
     std::vector<FontFaceRule>& out)
@@ -400,18 +460,19 @@ void gather_font_faces(std::vector<Rule> const& rules, MediaContext const& media
     }
 }
 
-// Whether a source is worth fetching: a URL in a format this engine reads,
-// or in no stated format and not under a web-font extension.
+// Whether a source is worth fetching: a URL in a format this engine reads
+// — TrueType and OpenType, plain or in a WOFF wrapper — or in no stated
+// format and not under an extension of one it does not.
 bool readable_source(FontFaceSource const& source)
 {
     if (source.url.empty())
         return false;
     if (!source.format.empty())
-        return source.format == "truetype" || source.format == "opentype";
+        return source.format == "truetype" || source.format == "opentype" || source.format == "woff";
     std::string path = lowercased(source.url);
     if (std::size_t const cut = path.find_first_of("?#"); cut != std::string::npos)
         path.erase(cut);
-    for (std::string_view const extension : { ".woff", ".woff2", ".eot", ".svg", ".svgz" }) {
+    for (std::string_view const extension : { ".woff2", ".eot", ".svg", ".svgz" }) {
         if (path.ends_with(extension))
             return false;
     }
@@ -457,7 +518,8 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
                 }
                 if (!it->second)
                     continue; // unreachable: the next source may do
-                fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second });
+                fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second, rule.stretch,
+                    rule.unicode_ranges, rule.weight_max, rule.stretch_max });
                 break;
             }
         }

@@ -49,6 +49,7 @@ struct FaceInfo {
     std::string family;
     std::string subfamily;
     std::uint16_t weight_class = 400;
+    int stretch = 100; // OS/2 usWidthClass as CSS font-stretch reads it: 50 (ultra-condensed) to 200 (ultra-expanded), 100 normal
     bool italic = false;
     bool has_outlines = true; // something to draw from: glyf, CFF charstrings, bitmap strikes or colour layers
     std::array<std::uint32_t, 4> unicode_ranges { 0, 0, 0, 0 }; // OS/2 ulUnicodeRange1-4; all zero when unsaid
@@ -89,6 +90,7 @@ public:
     std::int16_t x_height() const { return m_x_height; } // 0 when the font does not say
     std::int16_t cap_height() const { return m_cap_height; }
     std::uint16_t weight_class() const { return m_weight_class; } // 400 regular, 700 bold
+    int stretch() const { return m_stretch; } // as FaceInfo::stretch
     bool is_italic() const { return m_italic; }
     bool is_bold() const { return m_weight_class >= 600; }
     // Whether the face can draw: a glyf table, a CFF table that parsed, a
@@ -235,6 +237,7 @@ private:
     std::int16_t m_x_height = 0;
     std::int16_t m_cap_height = 0;
     std::uint16_t m_weight_class = 400;
+    int m_stretch = 100;
     bool m_italic = false;
     std::string m_family;
     std::string m_subfamily;

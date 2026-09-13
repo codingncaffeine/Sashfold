@@ -446,8 +446,23 @@ Token Tokenizer::consume_unicode_range()
     return token;
 }
 
-// §4.3.1. Consume a token.
+Tokenizer::Tokenizer(std::u32string code_points)
+    : m_data(std::move(code_points))
+{
+}
+
 Token Tokenizer::next(bool unicode_ranges_allowed)
+{
+    consume_comments();
+    std::size_t const begin = m_position;
+    Token token = next_token(unicode_ranges_allowed);
+    token.source_begin = begin;
+    token.source_end = m_position;
+    return token;
+}
+
+// §4.3.1. Consume a token.
+Token Tokenizer::next_token(bool unicode_ranges_allowed)
 {
     consume_comments();
     char32_t const c = consume();
@@ -569,6 +584,18 @@ Token Tokenizer::next(bool unicode_ranges_allowed)
 std::vector<Token> Tokenizer::tokenize(std::string_view utf8, bool unicode_ranges_allowed)
 {
     Tokenizer tokenizer(utf8);
+    std::vector<Token> tokens;
+    while (true) {
+        Token token = tokenizer.next(unicode_ranges_allowed);
+        if (token.type == Token::Type::EndOfFile)
+            return tokens;
+        tokens.push_back(std::move(token));
+    }
+}
+
+std::vector<Token> Tokenizer::tokenize(std::u32string code_points, bool unicode_ranges_allowed)
+{
+    Tokenizer tokenizer(std::move(code_points));
     std::vector<Token> tokens;
     while (true) {
         Token token = tokenizer.next(unicode_ranges_allowed);

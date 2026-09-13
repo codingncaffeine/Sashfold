@@ -26,4 +26,10 @@ std::optional<std::vector<std::uint8_t>> zlib_decompress(std::vector<std::uint8_
 std::optional<std::vector<std::uint8_t>> gzip_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output = 256u * 1024u * 1024u);
 
+// The other direction, as far as this engine writes it: a zlib stream of
+// one fixed-Huffman deflate block over the bytes — the PNG encoder's
+// stream (defined beside it), which a test that needs a compressed
+// wrapper, a WOFF, uses too.
+std::vector<std::uint8_t> zlib_compress(std::vector<std::uint8_t> const& raw);
+
 }

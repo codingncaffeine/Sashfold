@@ -164,14 +164,28 @@ int main()
         "@font-face { font-family: Ranged; font-weight: 300 800; src: url(ranged.otf) format(\"opentype\"); }\n"
         "@media (min-width: 600px) { @font-face { font-family: Wide; src: url(wide.ttf); } }\n"
         "@media (max-width: 500px) { @font-face { font-family: Narrow; src: url(narrow.ttf); } }\n"
+        "@font-face { font-family: Subset; font-stretch: condensed;\n"
+        "  unicode-range: U+0041-005A, u+00E9, U+1F6??, U+110000; src: url(subset.ttf); }\n"
         "@font-face { src: url(nameless.ttf); }\n"
         "@font-face { font-family: Sourceless; }\n"
         "@font-face { font-family: Junk; src: 12px; }\n",
         font_media);
-    if (CHECK_EQ(faces.size(), 4u)) {
+    if (CHECK_EQ(faces.size(), 5u)) {
         CHECK_EQ(faces[0].family, std::string("Ahem"));
         CHECK_EQ(faces[0].weight, 400);
+        CHECK_EQ(faces[0].stretch, 100);
+        CHECK(faces[0].unicode_ranges.empty());
         CHECK(!faces[0].italic);
+        // The descriptors that pick and restrict a face: font-stretch as a
+        // percentage, and unicode-range tokenized again as ranges — a
+        // wildcard fills its low digits, a range past Unicode is dropped.
+        CHECK_EQ(faces[4].family, std::string("Subset"));
+        CHECK_EQ(faces[4].stretch, 75);
+        if (CHECK_EQ(faces[4].unicode_ranges.size(), 3u)) {
+            CHECK(faces[4].unicode_ranges[0] == std::make_pair(char32_t { 0x41 }, char32_t { 0x5A }));
+            CHECK(faces[4].unicode_ranges[1] == std::make_pair(char32_t { 0xE9 }, char32_t { 0xE9 }));
+            CHECK(faces[4].unicode_ranges[2] == std::make_pair(char32_t { 0x1F600 }, char32_t { 0x1F6FF }));
+        }
         CHECK_EQ(faces[0].sources.size(), 1u);
         CHECK_EQ(faces[0].sources[0].url, std::string("/fonts/Ahem.ttf"));
         CHECK(faces[0].sources[0].format.empty());
@@ -194,6 +208,7 @@ int main()
     // formats or unreachable brings nothing.
     FakeFetcher font_fetcher;
     font_fetcher.sheets["https://example.test/dir/fonts/a.ttf"] = "AAAA";
+    font_fetcher.sheets["https://example.test/dir/w.woff"] = "WOFF";
     font_fetcher.sheets["https://example.test/two.ttf"] = "TWO";
     std::vector<css::SheetSource> const font_sheets {
         css::SheetSource { "@font-face { font-family: A; src: url(fonts/a.ttf); }\n"
@@ -206,15 +221,18 @@ int main()
     };
     std::vector<text::PageFont> const fonts = css::collect_page_fonts(font_sheets,
         [&](net::Url const& url, std::string_view nonce) { return font_fetcher(url, nonce); }, font_media);
-    if (CHECK_EQ(fonts.size(), 3u)) {
+    if (CHECK_EQ(fonts.size(), 4u)) {
         CHECK_EQ(fonts[0].family, std::string("A"));
         CHECK_EQ(fonts[0].bytes.size(), 4u);
         CHECK_EQ(fonts[1].weight, 700);
-        CHECK_EQ(fonts[2].family, std::string("Two"));
-        CHECK(fonts[2].bytes == bytes_of("TWO"));
+        CHECK_EQ(fonts[2].family, std::string("W")); // a WOFF is a font this engine reads
+        CHECK(fonts[2].bytes == bytes_of("WOFF"));
+        CHECK_EQ(fonts[3].family, std::string("Two"));
+        CHECK(fonts[3].bytes == bytes_of("TWO"));
     }
-    // a.ttf once, missing.ttf once, a.ttf?v=2 once (a different URL), two.ttf once; no woff at all.
-    CHECK_EQ(font_fetcher.requested.size(), 4u);
+    // a.ttf once, w.woff once, missing.ttf once, a.ttf?v=2 once (a different
+    // URL), two.ttf once; no woff2 at all.
+    CHECK_EQ(font_fetcher.requested.size(), 5u);
     CHECK(std::find(font_fetcher.requested.begin(), font_fetcher.requested.end(),
               std::string("https://example.test/dir/w.woff2"))
         == font_fetcher.requested.end());

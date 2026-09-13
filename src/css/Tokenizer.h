@@ -17,16 +17,22 @@ public:
     // Takes UTF-8; decoding errors become U+FFFD. Preprocessing (§3.3):
     // CR / FF / CRLF -> LF, NULL and surrogates -> U+FFFD.
     explicit Tokenizer(std::string_view utf8);
+    // Over code points already preprocessed: a slice of another
+    // tokenizer's data, tokenized again under other rules.
+    explicit Tokenizer(std::u32string code_points);
 
-    // §4.3.1. Consume a token.
+    // §4.3.1. Consume a token, stamped with where it came from.
     Token next(bool unicode_ranges_allowed = false);
 
     bool at_end() const { return m_position >= m_data.size(); }
+    std::u32string const& data() const { return m_data; }
 
     // Convenience: the whole stream, EOF token excluded.
     static std::vector<Token> tokenize(std::string_view utf8, bool unicode_ranges_allowed = false);
+    static std::vector<Token> tokenize(std::u32string code_points, bool unicode_ranges_allowed);
 
 private:
+    Token next_token(bool unicode_ranges_allowed);
     char32_t peek(std::size_t offset = 0) const; // 0 = next input code point
     char32_t consume(); // advances; returns the consumed code point
     void reconsume() { --m_position; }

@@ -1,6 +1,7 @@
 #include "text/TrueType.h"
 
 #include "text/Cff.h"
+#include "text/Woff.h"
 
 #include "core/Unicode.h"
 
@@ -210,6 +211,12 @@ std::size_t TrueTypeFont::face_count(std::vector<std::uint8_t> const& bytes)
 {
     if (bytes.size() < 12 || bytes.size() > max_font_bytes)
         return 0;
+    if (is_woff(bytes)) {
+        // A web font wrapper holds one font; whether it is one is known
+        // once it is unwrapped.
+        std::optional<std::vector<std::uint8_t>> const unwrapped = unwrap_woff(bytes, max_font_bytes);
+        return unwrapped ? face_count(*unwrapped) : 0;
+    }
     Reader const reader { bytes };
     std::uint32_t const version = reader.u32(0);
     if (version == tag_ttcf) {
@@ -226,6 +233,12 @@ std::optional<TrueTypeFont> TrueTypeFont::parse(std::vector<std::uint8_t> bytes,
 {
     if (bytes.size() < 12 || bytes.size() > max_font_bytes)
         return std::nullopt;
+    if (is_woff(bytes)) {
+        std::optional<std::vector<std::uint8_t>> unwrapped = unwrap_woff(bytes, max_font_bytes);
+        if (!unwrapped)
+            return std::nullopt;
+        bytes = std::move(*unwrapped);
+    }
     TrueTypeFont font;
     font.m_bytes = std::move(bytes);
     if (!font.load(face_index))
@@ -318,8 +331,8 @@ std::vector<FaceInfo> TrueTypeFont::scan_file(std::string const& path)
         face.load_os2();
         if (face.m_family.empty())
             continue;
-        FaceInfo info { path, index, face.m_family, face.m_subfamily, face.m_weight_class, face.m_italic,
-            has_glyf || color, { 0, 0, 0, 0 }, color };
+        FaceInfo info { path, index, face.m_family, face.m_subfamily, face.m_weight_class, face.m_stretch,
+            face.m_italic, has_glyf || color, { 0, 0, 0, 0 }, color };
         if (face.m_os2.length >= 58) {
             for (std::size_t i = 0; i < 4; ++i)
                 info.unicode_ranges[i] = face_reader.u32(face.m_os2.offset + 42 + i * 4);
@@ -726,6 +739,13 @@ void TrueTypeFont::load_os2()
     std::uint16_t const weight = reader.u16(base + 4);
     if (weight >= 1 && weight <= 1000)
         m_weight_class = weight;
+    // usWidthClass 1..9 is ultra-condensed to ultra-expanded: the
+    // percentages CSS font-stretch names, 50 to 200 with 100 at 5.
+    std::uint16_t const width = reader.u16(base + 6);
+    if (width >= 1 && width <= 9) {
+        constexpr int percents[] = { 50, 62, 75, 87, 100, 112, 125, 150, 200 };
+        m_stretch = percents[width - 1];
+    }
     std::uint16_t const selection = reader.u16(base + 62);
     if (selection & selection_italic)
         m_italic = true;

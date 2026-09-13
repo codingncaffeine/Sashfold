@@ -4,6 +4,7 @@
 #include "text/Rasterizer.h"
 #include "text/SashfoldMono.h"
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <unordered_map>
@@ -92,9 +93,13 @@ public:
 
     FaceMetrics metrics(float size) const override
     {
+        // A font whose descender points up (a positive value: Revalia's,
+        // which WPT keeps for the purpose) would give a line box shorter
+        // than its ascent and a baseline outside it; below the baseline
+        // is at least nothing, as Gecko has it.
         float const scale = size / static_cast<float>(m_font.units_per_em());
-        return FaceMetrics { m_font.ascender() * scale, -m_font.descender() * scale,
-            m_font.line_gap() * scale, m_font.x_height() * scale };
+        return FaceMetrics { std::max(0.0f, m_font.ascender() * scale), std::max(0.0f, -m_font.descender() * scale),
+            std::max(0.0f, m_font.line_gap() * scale), m_font.x_height() * scale };
     }
 
     float advance(std::uint32_t glyph, float size) const override
@@ -285,6 +290,11 @@ void Face::draw_glyph_turned(Bitmap& target, std::uint32_t glyph, float baseline
 float Face::kerning(std::uint32_t, std::uint32_t, float) const
 {
     return 0; // a face without kerning tables: every pair at its advances
+}
+
+bool Face::covers(char32_t) const
+{
+    return true; // no unicode-range: every code point is the face's to answer
 }
 
 Face const& builtin_face()

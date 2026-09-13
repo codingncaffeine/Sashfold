@@ -57,7 +57,7 @@ int main()
     // or on; the same bytes on the next page reuse the parsed face; the
     // stacks handed out before stay alive for the layouts that hold them.
     std::vector<std::uint8_t> const ttf = text::SashfoldMono::instance().to_truetype();
-    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf } });
+    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf, 100, {} } });
     CHECK_EQ(manager.page_font_count(), 1u);
     FontStack const& page = manager.resolve(FontRequest { { "ahem", "serif" }, 400, false });
     CHECK_EQ(page.faces().size(), 2u);
@@ -68,15 +68,15 @@ int main()
     CHECK_EQ(plain.faces().size(), 1u); // retired, not destroyed
     CHECK(&manager.resolve(FontRequest { { "Arial", "sans-serif" }, 700, true }) != &plain);
     // The same set again changes nothing: the stacks stand.
-    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf } });
+    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf, 100, {} } });
     CHECK(&manager.resolve(FontRequest { { "ahem", "serif" }, 400, false }) == &page);
     // Weight and slant pick among a family's faces; a face of the other
     // slant is the last resort.
     text::TrueTypeOptions bold_options;
     bold_options.bold = true;
     std::vector<std::uint8_t> const bold_ttf = text::SashfoldMono::instance().to_truetype(bold_options);
-    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf },
-        text::PageFont { "Ahem", 700, false, bold_ttf }, text::PageFont { "Solo", 400, true, ttf } });
+    manager.set_page_fonts({ text::PageFont { "Ahem", 400, false, ttf, 100, {} },
+        text::PageFont { "Ahem", 700, false, bold_ttf, 100, {} }, text::PageFont { "Solo", 400, true, ttf, 100, {} } });
     CHECK_EQ(manager.page_font_count(), 3u);
     text::Face const& page_regular = manager.resolve(FontRequest { { "Ahem" }, 400, false }).primary();
     text::Face const& page_bold = manager.resolve(FontRequest { { "Ahem" }, 700, false }).primary();
@@ -85,8 +85,55 @@ int main()
     CHECK(&manager.resolve(FontRequest { { "Ahem" }, 600, false }).primary() == &page_bold);
     CHECK(&manager.resolve(FontRequest { { "Ahem" }, 400, true }).primary() == &page_regular);
     CHECK(&manager.resolve(FontRequest { { "Solo" }, 400, false }).primary() != &builtin);
+    // font-stretch picks among a family's faces: the nearest at or below a
+    // normal-or-narrower request, the nearest at or above a wider one, and
+    // the other side when nothing is on the right one.
+    manager.set_page_fonts({ text::PageFont { "Wide", 400, false, ttf, 100, {} },
+        text::PageFont { "Wide", 400, false, ttf, 200, {} } });
+    {
+        auto const face_at = [&](int stretch) {
+            FontRequest request { { "Wide" }, 400, false };
+            request.stretch = stretch;
+            return &manager.resolve(request).primary();
+        };
+        text::Face const* const normal_face = face_at(100);
+        text::Face const* const wide_face = face_at(200);
+        CHECK(normal_face != wide_face);
+        CHECK(normal_face != &builtin && wide_face != &builtin);
+        CHECK(face_at(150) == wide_face);
+        CHECK(face_at(125) == wide_face);
+        CHECK(face_at(75) == normal_face);
+        CHECK(face_at(50) == normal_face);
+    }
+    // unicode-range keeps a face to its code points: a family split into
+    // pieces answers character by character, and the first available font
+    // — the one the line's metrics come from — is the first whose range
+    // has the space in it.
+    manager.set_page_fonts({ text::PageFont { "Split", 400, false, ttf, 100, { { 0x41, 0x5A } } },
+        text::PageFont { "Split", 400, false, ttf, 100, { { 0x61, 0x7A } } } });
+    {
+        FontStack const& split = manager.resolve(FontRequest { { "Split" }, 400, false });
+        if (CHECK_EQ(split.faces().size(), 3u)) {
+            CHECK(&split.face_for(U'A') == split.faces()[0]);
+            CHECK(&split.face_for(U'a') == split.faces()[1]);
+            CHECK(&split.face_for(U'0') == &builtin);
+            CHECK_EQ(split.faces()[0]->glyph_index(U'a'), 0u);
+            CHECK(split.faces()[0]->glyph_index(U'A') != 0);
+            CHECK(&split.primary() == &builtin); // neither piece has a space
+        }
+    }
+    manager.set_page_fonts({ text::PageFont { "Split", 400, false, ttf, 100, { { 0x41, 0x5A } } },
+        text::PageFont { "Split", 400, false, ttf, 100, {} } });
+    {
+        FontStack const& split = manager.resolve(FontRequest { { "Split" }, 400, false });
+        if (CHECK_EQ(split.faces().size(), 3u)) {
+            CHECK(&split.primary() == split.faces()[1]); // the whole face has the space
+            CHECK(&split.face_for(U'A') == split.faces()[0]);
+            CHECK(&split.face_for(U'a') == split.faces()[1]);
+        }
+    }
     // Bytes that are not a font register nothing, and the family falls through.
-    manager.set_page_fonts({ text::PageFont { "Junk", 400, false, { 1, 2, 3 } } });
+    manager.set_page_fonts({ text::PageFont { "Junk", 400, false, { 1, 2, 3 }, 100, {} } });
     CHECK_EQ(manager.page_font_count(), 0u);
     CHECK(&manager.resolve(FontRequest { { "Junk", "Ahem" }, 400, false }).primary() == &builtin);
     manager.set_page_fonts({});
@@ -114,9 +161,10 @@ int main()
         description.mappings = { { U'A', 1 }, { U'V', 2 }, { U'T', 3 }, { U'o', 4 } };
         description.kerning = { { 1, 2, -100 }, { 3, 4, -80 } };
         description.kerning_table = text::WriterKerningTable::GposPairs;
-        manager.set_page_fonts({ text::PageFont { "Kern", 400, false, text::write_truetype(description) } });
+        manager.set_page_fonts({ text::PageFont { "Kern", 400, false, text::write_truetype(description), 100, {} } });
         FontStack const& kerned = manager.resolve(FontRequest { { "Kern" }, 400, false });
-        CHECK(&kerned.primary() != &builtin);
+        CHECK(kerned.faces().size() == 2 && kerned.faces()[0] != &builtin);
+        CHECK(&kerned.primary() == kerned.faces()[0]); // no unicode-range: the first available font, space glyph or not
         CHECK_EQ(kerned.measure(U"A", 2048), 1000.0f);
         CHECK_EQ(kerned.measure(U"AV", 2048), 1900.0f);
         CHECK_EQ(kerned.measure(U"AV", 2048, false), 2000.0f);

@@ -62,6 +62,12 @@ struct Token {
     char32_t range_start = 0; // UnicodeRange only
     char32_t range_end = 0;
 
+    // Where the token came from in the tokenizer's code points, so that a
+    // declaration's value can be tokenized again under other rules
+    // (unicode-range's, css-syntax-3 §5.4.9).
+    std::size_t source_begin = 0;
+    std::size_t source_end = 0;
+
     bool is(Type t) const { return type == t; }
 };
 
