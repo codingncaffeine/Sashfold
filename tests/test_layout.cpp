@@ -1627,6 +1627,9 @@ int main(int argc, char** argv)
   <div style="direction: rtl; unicode-bidi: bidi-override">gh ij</div>
   <div dir="ltr">&gt; <span style="unicode-bidi: isolate-override">kl &#x5D6;&#x5D7;</span> mn</div>
   <div dir="ltr"><span style="unicode-bidi: plaintext">&#x5D8;&#x5D9; op</span> qr</div>
+  <div dir="ltr">&gt; <bdo dir="rtl">st uv</bdo> wx</div>
+  <div dir="ltr"><span dir="rtl">&#x5DA;</span> 12 yz</div>
+  <div dir="ltr"><bdi>&#x5DB; ab</bdi> cd</div>
 </body></html>)HTML", 400);
         std::vector<layout::TextRun const*> runs;
         collect(page.result.root, runs);
@@ -1684,6 +1687,20 @@ int main(int argc, char** argv)
         // the Latin after it inside the box is drawn to its left.
         x_of(U"op", 1.0f);
         x_of(U"\x05D9\x05D8", 31.0f);
+        // HTML's user-agent rules: a bdo is an isolate-override, so its
+        // Latin reads right to left, word order and letters both; an element
+        // with a dir attribute is an isolate, so the digits after a
+        // right-to-left span read on in the paragraph's direction instead of
+        // joining its run; a bdi takes the direction of its first strong
+        // character, the Hebrew here, so its Latin is drawn to the left.
+        x_of(U"vu", 21.0f);
+        x_of(U"ts", 51.0f);
+        x_of(U"wx", 81.0f);
+        x_of(U"\x05DA", 1.0f);
+        x_of(U"12", 21.0f);
+        x_of(U"ab", 1.0f);
+        x_of(U"\x05DB", 31.0f);
+        x_of(U"cd", 51.0f);
         for (layout::TextRun const* const run : runs) {
             for (char32_t const ch : run->text)
                 CHECK(!(ch == 0x200E || ch == 0x200F || (ch >= 0x202A && ch <= 0x202E) || (ch >= 0x2066 && ch <= 0x2069)));

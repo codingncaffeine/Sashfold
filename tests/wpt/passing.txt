@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9228 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9233 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-005a.xht
@@ -4847,11 +4847,13 @@ css/CSS2/text/white-space-004.xht
 css/CSS2/text/white-space-007.xht
 css/CSS2/text/white-space-008.xht
 css/CSS2/text/white-space-applies-to-003.xht
+css/CSS2/text/white-space-bidirectionality-001.xht
 css/CSS2/text/white-space-collapsing-001.xht
 css/CSS2/text/white-space-collapsing-002.xht
 css/CSS2/text/white-space-collapsing-003.xht
 css/CSS2/text/white-space-collapsing-004.xht
 css/CSS2/text/white-space-collapsing-005.xht
+css/CSS2/text/white-space-collapsing-bidi-002.xht
 css/CSS2/text/white-space-collapsing-bidi-003.xht
 css/CSS2/text/white-space-collapsing-breaks-001.xht
 css/CSS2/text/white-space-generated-content-before-001.xht
@@ -7337,6 +7339,7 @@ css/css-position/z-index-blend-will-change-overlapping-layers.html
 css/css-syntax/missing-semicolon.html
 css/css-text/bidi/bidi-lines-001.html
 css/css-text/bidi/bidi-tab-001.html
+css/css-text/bidi/empty-span-001.html
 css/css-text/boundary-shaping/boundary-shaping-001.html
 css/css-text/boundary-shaping/boundary-shaping-002.html
 css/css-text/boundary-shaping/boundary-shaping-003.html
@@ -7760,6 +7763,7 @@ css/css-text/text-align/text-align-end-009.html
 css/css-text/text-align/text-align-end-010.html
 css/css-text/text-align/text-align-end-014.html
 css/css-text/text-align/text-align-end-015.html
+css/css-text/text-align/text-align-end-016.html
 css/css-text/text-align/text-align-end-017.html
 css/css-text/text-align/text-align-end-last-center.html
 css/css-text/text-align/text-align-end-last-default.html
@@ -7814,6 +7818,7 @@ css/css-text/text-align/text-align-start-009.html
 css/css-text/text-align/text-align-start-010.html
 css/css-text/text-align/text-align-start-014.html
 css/css-text/text-align/text-align-start-015.html
+css/css-text/text-align/text-align-start-016.html
 css/css-text/text-align/text-align-start-017.html
 css/css-text/text-align/text-align-start-last-center.html
 css/css-text/text-align/text-align-start-last-default.html

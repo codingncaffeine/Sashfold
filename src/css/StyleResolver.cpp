@@ -86,6 +86,9 @@ input[type=checkbox], input[type=radio] { margin: 3px 3px 3px 4px }
 textarea { white-space: pre-wrap }
 [dir=ltr i] { direction: ltr }
 [dir=rtl i] { direction: rtl }
+[dir], bdi, output { unicode-bidi: isolate }
+bdo, bdo[dir] { unicode-bidi: isolate-override }
+pre[dir=auto i], textarea[dir=auto i] { unicode-bidi: plaintext }
 )CSS";
 
 enum class CascadeRank : int {
@@ -339,10 +342,12 @@ std::string presentational_hints(dom::Element const& element)
     // this one cannot be written as a selector, because the answer is in
     // the text. HTML's traversal skips a descendant that states a direction
     // of its own, and the elements whose content is not the element's text.
-    if (std::optional<std::string_view> const dir = attribute("dir")) {
-        if (ascii_ci_equals(*dir, "auto"))
-            add("direction", first_strong_is_rtl(auto_direction_text(element)) ? "rtl" : "ltr");
-    }
+    // A bdi without a valid direction of its own reads as dir=auto.
+    std::optional<std::string_view> const dir_attribute = attribute("dir");
+    bool const dir_states_direction = dir_attribute
+        && (ascii_ci_equals(*dir_attribute, "ltr") || ascii_ci_equals(*dir_attribute, "rtl"));
+    if ((dir_attribute && ascii_ci_equals(*dir_attribute, "auto")) || (tag == "bdi" && !dir_states_direction))
+        add("direction", first_strong_is_rtl(auto_direction_text(element)) ? "rtl" : "ltr");
     if (table || cell || column || tag == "hr" || embedded) {
         if (std::optional<std::string_view> const width = attribute("width"))
             add("width", legacy_dimension(*width));
