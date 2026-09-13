@@ -1,5 +1,7 @@
 #include "JsTest.h"
 
+#include "js/Runtime.h"
+
 #include <cstddef>
 #include <optional>
 #include <string_view>
@@ -161,6 +163,32 @@ int main()
         CHECK(in.heap().cell_count() + 100 < with_realm);
     }
     CHECK(in.current_realm() == a);
+
+    // The incumbent realm, the realm of the script code running: a native of B
+    // called from A's script sees A, through B's Function.prototype.call too;
+    // called from B's script function, B's generator, or B's async function
+    // after an await, it sees B.
+    {
+        js::RealmRecord const* const realm_a = a;
+        js::RealmRecord const* const realm_b = b;
+        {
+            js::Interpreter::RealmScope const inside(in, b);
+            js::define_method(in, *b->intrinsics.global, "whoCalls", 0,
+                [realm_a, realm_b](js::Interpreter& interp, js::Value const&, std::span<js::Value const>) -> std::optional<js::Value> {
+                    js::RealmRecord const* const incumbent = interp.incumbent_realm();
+                    std::string_view const name = incumbent == realm_a ? "a" : incumbent == realm_b ? "b" : "?";
+                    return js::Value::string(interp.string(name));
+                });
+        }
+        CHECK_JS_TRUE(in, "other.whoCalls() === 'a'");
+        CHECK_JS_TRUE(in, "other.whoCalls.call() === 'a'");
+        CHECK_JS_TRUE(in, "other.eval('(function () { return whoCalls(); })')() === 'b'");
+        CHECK_JS_TRUE(in, "other.eval('(function* () { yield whoCalls(); })')().next().value === 'b'");
+        CHECK_JS_TRUE(in, "other.eval('var afterAwait; (async function () { await 0; afterAwait = whoCalls(); })')(); true");
+        in.run_jobs([](js::Value const&) {});
+        CHECK_JS_TRUE(in, "other.afterAwait === 'b'");
+        CHECK(in.incumbent_realm() == a);
+    }
 
     return test::report("js realm");
 }

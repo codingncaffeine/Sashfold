@@ -1433,7 +1433,7 @@ std::optional<Value> Interpreter::Impl::generator_resume(GeneratorObject& genera
     }
     // The body runs in its function's realm, and so is the result it
     // yields made (GeneratorResume enters the generator's own context).
-    RealmScope const realm_scope(self, generator.frame()->function ? generator.frame()->function->realm() : nullptr);
+    RealmScope const realm_scope(self, generator.frame()->function ? generator.frame()->function->realm() : nullptr, RealmScope::Code::Script);
     Frame& frame = *generator.frame();
     frame.resume_kind = kind;
     frame.resume_value = value;
@@ -1525,7 +1525,7 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
     Frame* frame = context.frame();
     if (frame == nullptr)
         return;
-    RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr);
+    RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr, RealmScope::Code::Script);
     while (true) {
         RunStatus const status = vm_run(*frame);
         if (status == RunStatus::Completed || status == RunStatus::Yielded) {
@@ -1699,7 +1699,7 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
     Frame* frame = generator.frame();
     if (frame == nullptr)
         return;
-    RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr);
+    RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr, RealmScope::Code::Script);
     while (true) {
         RunStatus const status = vm_run(*frame);
         if (status == RunStatus::Yielded) {

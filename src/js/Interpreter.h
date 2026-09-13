@@ -224,23 +224,37 @@ public:
     // previous one back however the scope is left; a null realm leaves the
     // current one. How a call enters its function's realm
     // (PrepareForOrdinaryCall, §10.2.1.1) and how a host runs code in one.
+    // A scope that enters script code makes its realm the incumbent one too.
     class RealmScope {
     public:
-        RealmScope(Interpreter& interpreter, RealmRecord* realm)
+        enum class Code : std::uint8_t { Native, Script };
+        RealmScope(Interpreter& interpreter, RealmRecord* realm, Code code = Code::Native)
             : m_interpreter(interpreter)
             , m_saved(interpreter.m_realm)
+            , m_saved_script(interpreter.m_script_realm)
         {
             if (realm != nullptr)
                 interpreter.m_realm = realm;
+            if (code == Code::Script)
+                interpreter.m_script_realm = interpreter.m_realm;
         }
-        ~RealmScope() { m_interpreter.m_realm = m_saved; }
+        ~RealmScope()
+        {
+            m_interpreter.m_realm = m_saved;
+            m_interpreter.m_script_realm = m_saved_script;
+        }
         RealmScope(RealmScope const&) = delete;
         RealmScope& operator=(RealmScope const&) = delete;
 
     private:
         Interpreter& m_interpreter;
         RealmRecord* m_saved;
+        RealmRecord* m_saved_script;
     };
+    // The incumbent realm (HTML §8.1.3.5): the realm of the script code
+    // running, which a native it calls leaves as it was, or the current realm
+    // when no script code runs.
+    RealmRecord* incumbent_realm() const { return m_script_realm ? m_script_realm : m_realm; }
     WellKnownAtoms const& atoms() const { return m_heap->atoms(); }
 
     // Runs a script as global code (§16.1.6). A parse error is a thrown
@@ -599,6 +613,9 @@ private:
     // The current realm (§9.4): the running function's, or the one a host
     // entered.
     RealmRecord* m_realm = nullptr;
+    // The realm of the script code running, while any runs: what
+    // incumbent_realm() answers before the current realm.
+    RealmRecord* m_script_realm = nullptr;
     // Every realm made here and not let go, traced.
     std::vector<RealmRecord*> m_realms;
     Object* m_symbol_registry = nullptr;

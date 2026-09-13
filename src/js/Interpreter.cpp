@@ -554,7 +554,7 @@ std::optional<Value> Interpreter::Impl::call_script_function(ScriptFunction& fun
     // PrepareForOrdinaryCall (§10.2.1.1): the callee's realm is current for
     // the call, and the caller's comes back however it ends.
     RealmRecord* const caller_realm = self.m_realm;
-    RealmScope const realm_scope(self, function.realm());
+    RealmScope const realm_scope(self, function.realm(), RealmScope::Code::Script);
     FunctionNode const& node = function.node();
     if (node.is_async && !node.is_generator)
         return call_async_function(function, this_argument, arguments);
@@ -2251,6 +2251,8 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
     // compiler tracks.
     FunctionNode const* body = m_impl->program_body(*program, tree->is_strict);
     keep(std::move(program));
+    // The script's code is the incumbent realm's while it runs.
+    RealmScope const script_realm(*this, nullptr, RealmScope::Code::Script);
     Impl::ContextScope scope(*m_impl, Context { m_realm->global_lexical, m_realm->intrinsics.global_environment, tree, nullptr, tree->is_strict, nullptr });
     Context& cx = scope.context();
     if (!m_impl->global_declaration_instantiation(*tree, cx)) {
@@ -2406,6 +2408,8 @@ std::optional<Value> Interpreter::evaluate_module(ModuleRecord& record)
 {
     if (m_call_depth == 0)
         m_stack_base = stack_position();
+    // The module's code is the incumbent realm's while it runs.
+    RealmScope const script_realm(*this, nullptr, RealmScope::Code::Script);
     return record.evaluate(*this);
 }
 
