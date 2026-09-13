@@ -653,7 +653,7 @@ Object* Interpreter::new_aggregate_error(Value const& errors, std::string_view m
     // An AggregateError as the library makes one (§20.5.7.1.1): the
     // message, `errors` as given, and the stack line every error has.
     Heap::NoCollect const guard(*m_heap);
-    auto* error = m_heap->allocate<ErrorObject>(m_intrinsics.aggregate_error_prototype);
+    auto* error = m_heap->allocate<ErrorObject>(m_realm->intrinsics.aggregate_error_prototype);
     if (!message.empty())
         error->put(PropertyKey::atom(atoms().message), Value::string(m_heap->string(message)), builtin_attributes);
     error->put(key("errors"), errors, builtin_attributes);

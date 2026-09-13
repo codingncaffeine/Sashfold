@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sashfold::js {
@@ -130,6 +131,24 @@ struct Intrinsics {
     Function* proxy_constructor = nullptr;
 };
 
+// A Realm Record (§9.3): the intrinsics a realm is born with, the
+// declarative part of its global environment and that environment's
+// [[VarNames]] (§9.1.1.4), and its [[TemplateMap]]. A cell, so a realm
+// lives as long as something holds it; trace() visits every member.
+class RealmRecord : public Cell {
+public:
+    Intrinsics intrinsics;
+    Environment* global_lexical = nullptr;
+    std::unordered_set<JsString*> var_names;
+    std::unordered_map<TemplateLiteral const*, Object*> template_objects;
+
+    void trace(Tracer&) override;
+    std::size_t size_in_bytes() const override
+    {
+        return sizeof(*this) + var_names.size() * sizeof(JsString*) + template_objects.size() * 2 * sizeof(void*);
+    }
+};
+
 // A PromiseCapability Record (§27.2.1.1): a promise and the two functions
 // that settle it.
 struct PromiseCapability {
@@ -177,9 +196,11 @@ public:
     Interpreter& operator=(Interpreter const&) = delete;
 
     Heap& heap() { return *m_heap; }
-    Intrinsics const& intrinsics() const { return m_intrinsics; }
-    Intrinsics& intrinsics() { return m_intrinsics; }
-    Object* global() const { return m_intrinsics.global; }
+    // The current realm's (§9.4: the running execution context's Realm).
+    Intrinsics const& intrinsics() const { return m_realm->intrinsics; }
+    Intrinsics& intrinsics() { return m_realm->intrinsics; }
+    Object* global() const { return m_realm->intrinsics.global; }
+    RealmRecord* current_realm() const { return m_realm; }
     WellKnownAtoms const& atoms() const { return m_heap->atoms(); }
 
     // Runs a script as global code (§16.1.6). A parse error is a thrown
@@ -507,9 +528,14 @@ private:
     bool all_import_attributes_supported(std::span<ImportAttribute const> attributes, std::string const& specifier);
     // Records what an eval Program inherited its [[ScriptOrModule]] from.
     void note_eval_referrer(Program const& eval_program, Program const* caller);
+    // CreateRealm with its intrinsics (§9.3.1, §9.3.2): a new realm record,
+    // built with itself current and the previous current realm put back.
+    RealmRecord* create_realm();
     std::unique_ptr<Heap> m_heap;
     std::unique_ptr<Impl> m_impl;
-    Intrinsics m_intrinsics;
+    // The current realm (§9.4), which every script runs in until a host
+    // makes another.
+    RealmRecord* m_realm = nullptr;
     // A deque, so that the reference root() hands out survives every later
     // push: a vector would move its elements when it grows.
     std::deque<Value> m_roots;

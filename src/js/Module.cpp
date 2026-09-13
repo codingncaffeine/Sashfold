@@ -267,7 +267,7 @@ bool ModuleRecord::initialize_environment(Interpreter& in)
     }
     Interpreter::Impl& impl = in.impl();
     Heap::NoCollect const guard(in.heap());
-    Environment* env = impl.new_environment(impl.global_lexical);
+    Environment* env = impl.new_environment(impl.realm().global_lexical);
     // A module environment binds `this` as undefined (§9.1.1.5.4).
     env->set_this(Value::undefined());
     m_environment = env;

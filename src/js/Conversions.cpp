@@ -148,12 +148,12 @@ void Interpreter::clear_exception()
 
 Object* Interpreter::new_object(Object* prototype)
 {
-    return m_heap->allocate<Object>(prototype ? prototype : m_intrinsics.object_prototype);
+    return m_heap->allocate<Object>(prototype ? prototype : m_realm->intrinsics.object_prototype);
 }
 
 ArrayObject* Interpreter::new_array(std::span<Value const> elements)
 {
-    return m_heap->allocate<ArrayObject>(m_intrinsics.array_prototype, elements);
+    return m_heap->allocate<ArrayObject>(m_realm->intrinsics.array_prototype, elements);
 }
 
 NativeFunction* Interpreter::new_native(std::string_view name, int length, NativeFunction::Callback call,
@@ -163,7 +163,7 @@ NativeFunction* Interpreter::new_native(std::string_view name, int length, Nativ
     // read-only and hidden from enumeration. The atom for the name may be
     // new, so nothing may collect until the function holds it.
     Heap::NoCollect const guard(*m_heap);
-    auto* function = m_heap->allocate<NativeFunction>(m_intrinsics.function_prototype, std::move(call), std::move(construct));
+    auto* function = m_heap->allocate<NativeFunction>(m_realm->intrinsics.function_prototype, std::move(call), std::move(construct));
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
     return function;
@@ -172,7 +172,7 @@ NativeFunction* Interpreter::new_native(std::string_view name, int length, Nativ
 ClosureFunction* Interpreter::new_closure(std::string_view name, int length, std::vector<Value> slots, ClosureFunction::Callback callback)
 {
     Heap::NoCollect const guard(*m_heap);
-    auto* function = m_heap->allocate<ClosureFunction>(m_intrinsics.function_prototype, std::move(slots), std::move(callback));
+    auto* function = m_heap->allocate<ClosureFunction>(m_realm->intrinsics.function_prototype, std::move(slots), std::move(callback));
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
     return function;
@@ -190,7 +190,7 @@ Object* Interpreter::new_error(ErrorType type, JsString* message)
     // `stack` every engine gives it — here the "Name: message" line alone,
     // since the engine keeps no frame list for it yet.
     Heap::NoCollect const guard(*m_heap);
-    auto* error = m_heap->allocate<ErrorObject>(m_intrinsics.error_prototypes[error_index(type)]);
+    auto* error = m_heap->allocate<ErrorObject>(m_realm->intrinsics.error_prototypes[error_index(type)]);
     if (message)
         error->put(PropertyKey::atom(atoms().message), Value::string(message), builtin_attributes);
     std::string const line = describe(Value::object(error));
@@ -517,15 +517,15 @@ std::optional<Object*> Interpreter::to_object(Value const& value)
     case Value::Type::Empty:
         return throw_type_error("Cannot convert undefined or null to object");
     case Value::Type::Boolean:
-        return m_heap->allocate<PrimitiveObject>(m_intrinsics.boolean_prototype, Object::Class::Boolean, value);
+        return m_heap->allocate<PrimitiveObject>(m_realm->intrinsics.boolean_prototype, Object::Class::Boolean, value);
     case Value::Type::Number:
-        return m_heap->allocate<PrimitiveObject>(m_intrinsics.number_prototype, Object::Class::Number, value);
+        return m_heap->allocate<PrimitiveObject>(m_realm->intrinsics.number_prototype, Object::Class::Number, value);
     case Value::Type::String:
-        return m_heap->allocate<StringObject>(m_intrinsics.string_prototype, value.as_string());
+        return m_heap->allocate<StringObject>(m_realm->intrinsics.string_prototype, value.as_string());
     case Value::Type::Symbol:
-        return m_heap->allocate<PrimitiveObject>(m_intrinsics.symbol_prototype, Object::Class::Symbol, value);
+        return m_heap->allocate<PrimitiveObject>(m_realm->intrinsics.symbol_prototype, Object::Class::Symbol, value);
     case Value::Type::BigInt:
-        return m_heap->allocate<PrimitiveObject>(m_intrinsics.bigint_prototype, Object::Class::BigInt, value);
+        return m_heap->allocate<PrimitiveObject>(m_realm->intrinsics.bigint_prototype, Object::Class::BigInt, value);
     case Value::Type::Object:
         return value.as_object();
     }
@@ -581,16 +581,16 @@ std::optional<Value> Interpreter::get(Value const& base, PropertyKey const& key)
             return Value::string(m_heap->string(string->view()[key.as_index()]));
         if (key.is_atom() && key.as_atom() == atoms().length)
             return Value::number(static_cast<double>(string->length()));
-        return m_intrinsics.string_prototype->get(*this, key, base);
+        return m_realm->intrinsics.string_prototype->get(*this, key, base);
     }
     case Value::Type::Number:
-        return m_intrinsics.number_prototype->get(*this, key, base);
+        return m_realm->intrinsics.number_prototype->get(*this, key, base);
     case Value::Type::Boolean:
-        return m_intrinsics.boolean_prototype->get(*this, key, base);
+        return m_realm->intrinsics.boolean_prototype->get(*this, key, base);
     case Value::Type::Symbol:
-        return m_intrinsics.symbol_prototype->get(*this, key, base);
+        return m_realm->intrinsics.symbol_prototype->get(*this, key, base);
     case Value::Type::BigInt:
-        return m_intrinsics.bigint_prototype->get(*this, key, base);
+        return m_realm->intrinsics.bigint_prototype->get(*this, key, base);
     }
     return Value::undefined();
 }

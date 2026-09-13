@@ -1353,7 +1353,7 @@ bool Interpreter::Impl::global_declaration_instantiation(Program const& program,
     Object* global = self.global();
     for (auto const& [name, is_const] : program.declarations.lexicals) {
         std::string const text = name->to_utf8();
-        if (global_var_names.contains(name) || global_lexical->find(name))
+        if (realm().var_names.contains(name) || realm().global_lexical->find(name))
             { self.throw_syntax_error("Identifier '" + text + "' has already been declared"); return false; }
         // HasRestrictedGlobalProperty: a non-configurable global
         // property (undefined, NaN, Infinity) cannot be shadowed.
@@ -1363,7 +1363,7 @@ bool Interpreter::Impl::global_declaration_instantiation(Program const& program,
     }
     std::vector<JsString*> var_names;
     for (JsString* name : program.declarations.vars) {
-        if (global_lexical->find(name))
+        if (realm().global_lexical->find(name))
             { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
         var_names.push_back(name);
     }
@@ -1375,7 +1375,7 @@ bool Interpreter::Impl::global_declaration_instantiation(Program const& program,
         JsString* name = (*it)->function->name;
         if (contains(function_names, name))
             continue;
-        if (global_lexical->find(name))
+        if (realm().global_lexical->find(name))
             { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
         std::optional<PropertyDescriptor> const existing = global->get_own_property(PropertyKey::atom(name));
         bool declarable = true;
@@ -1395,10 +1395,10 @@ bool Interpreter::Impl::global_declaration_instantiation(Program const& program,
             { self.throw_type_error("Cannot define global variable '" + name->to_utf8() + "'"); return false; }
     }
     for (auto const& [name, is_const] : program.declarations.lexicals)
-        global_lexical->declare(name, Value::undefined(), !is_const, false);
+        realm().global_lexical->declare(name, Value::undefined(), !is_const, false);
     for (FunctionDeclaration const* declaration : functions) {
         JsString* name = declaration->function->name;
-        ScriptFunction* closure = self.new_script_function(*declaration->function, global_lexical, cx.private_environment);
+        ScriptFunction* closure = self.new_script_function(*declaration->function, realm().global_lexical, cx.private_environment);
         Roots const roots(self);
         self.root(Value::object(closure));
         if (!create_global_function_binding(name, Value::object(closure), false))
@@ -1429,7 +1429,7 @@ bool Interpreter::Impl::create_global_function_binding(JsString* name, Value con
         return false;
     if (!self.set(*global, key, value, false))
         return false;
-    global_var_names.insert(name);
+    realm().var_names.insert(name);
     return true;
 }
 
@@ -1444,7 +1444,7 @@ bool Interpreter::Impl::create_global_var_binding(JsString* name, bool deletable
         if (!self.define_property_or_throw(*global, key, desc))
             return false;
     }
-    global_var_names.insert(name);
+    realm().var_names.insert(name);
     return true;
 }
 
@@ -1477,7 +1477,7 @@ bool Interpreter::Impl::eval_declaration_instantiation(Program const& program, E
             names.push_back(declaration->function->name);
         if (global_scope) {
             for (JsString* name : names) {
-                if (global_lexical->find(name))
+                if (realm().global_lexical->find(name))
                     { self.throw_syntax_error("Identifier '" + name->to_utf8() + "' has already been declared"); return false; }
             }
         }
@@ -1613,7 +1613,7 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
     if (direct && caller != nullptr)
         self.note_eval_referrer(*tree, caller);
 
-    Environment* outer = direct ? scope : global_lexical;
+    Environment* outer = direct ? scope : realm().global_lexical;
     Environment* lexical = new_environment(outer);
     if (strict)
         variable = lexical;
@@ -1661,7 +1661,7 @@ std::optional<Value> Interpreter::Impl::evaluate_regexp(RegExpLiteral const& lit
 // array whose `raw` is the frozen array of raw strings, made once.
 std::optional<Object*> Interpreter::Impl::template_object(TemplateLiteral const& literal)
 {
-    if (auto const found = template_objects.find(&literal); found != template_objects.end())
+    if (auto const found = realm().template_objects.find(&literal); found != realm().template_objects.end())
         return found->second;
     Roots const roots(self);
     auto freeze = [&](ArrayObject& array) -> bool {
@@ -1694,7 +1694,7 @@ std::optional<Object*> Interpreter::Impl::template_object(TemplateLiteral const&
     cooked_array->put(PropertyKey::atom(atoms().raw), Value::object(raw_array), frozen_attributes);
     if (!freeze(*cooked_array))
         return std::nullopt;
-    template_objects.emplace(&literal, cooked_array);
+    realm().template_objects.emplace(&literal, cooked_array);
     return cooked_array;
 }
 
@@ -2062,9 +2062,6 @@ void Interpreter::Impl::trace(Tracer& tracer)
         tracer.visit(context.function);
         tracer.visit(context.private_environment);
     }
-    tracer.visit(global_lexical);
-    for (auto const& [site, object] : template_objects)
-        tracer.visit(object);
     for (Frame* frame : vm_frames)
         tracer.visit(frame);
     for (ClassBuilder* builder : class_builders)
@@ -2079,21 +2076,26 @@ Interpreter::Interpreter()
     , m_impl(std::make_unique<Impl>(*this))
 {
     m_heap->add_root_provider(this);
+    m_realm = create_realm();
+}
+
+RealmRecord* Interpreter::create_realm()
+{
+    // Nothing is collected while the realm is half built: its record is
+    // reachable from no root until whoever asked for it keeps it.
+    Heap::NoCollect const guard(*m_heap);
+    RealmRecord* const previous = m_realm;
+    RealmRecord* const realm = m_heap->allocate<RealmRecord>();
+    m_realm = realm;
     install_intrinsics(*this);
-    m_impl->global_lexical = m_heap->allocate<Environment>(m_intrinsics.global_environment);
+    realm->global_lexical = m_heap->allocate<Environment>(realm->intrinsics.global_environment);
+    m_realm = previous;
+    return realm;
 }
 
-Interpreter::~Interpreter()
+void RealmRecord::trace(Tracer& tracer)
 {
-    m_heap->remove_root_provider(this);
-}
-
-void Interpreter::trace_roots(Tracer& tracer)
-{
-    for (Value const& value : m_roots)
-        tracer.visit(value);
-    tracer.visit(m_exception);
-    Intrinsics const& i = m_intrinsics;
+    Intrinsics const& i = intrinsics;
     tracer.visit(i.global);
     tracer.visit(i.global_environment);
     tracer.visit(i.object_prototype);
@@ -2163,6 +2165,24 @@ void Interpreter::trace_roots(Tracer& tracer)
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(i.symbol_registry);
+    tracer.visit(global_lexical);
+    for (JsString* name : var_names)
+        tracer.visit(name);
+    for (auto const& [site, object] : template_objects)
+        tracer.visit(object);
+}
+
+Interpreter::~Interpreter()
+{
+    m_heap->remove_root_provider(this);
+}
+
+void Interpreter::trace_roots(Tracer& tracer)
+{
+    for (Value const& value : m_roots)
+        tracer.visit(value);
+    tracer.visit(m_exception);
+    tracer.visit(m_realm);
     for (Job const& job : m_jobs) {
         tracer.visit(job.argument);
         tracer.visit(job.then);
@@ -2211,7 +2231,7 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
     // compiler tracks.
     FunctionNode const* body = m_impl->program_body(*program, tree->is_strict);
     keep(std::move(program));
-    Impl::ContextScope scope(*m_impl, Context { m_impl->global_lexical, m_intrinsics.global_environment, tree, nullptr, tree->is_strict, nullptr });
+    Impl::ContextScope scope(*m_impl, Context { m_realm->global_lexical, m_realm->intrinsics.global_environment, tree, nullptr, tree->is_strict, nullptr });
     Context& cx = scope.context();
     if (!m_impl->global_declaration_instantiation(*tree, cx)) {
         outcome.ok = false;
@@ -2397,7 +2417,7 @@ std::optional<Value> Interpreter::perform_import_call(Program const* referrer, V
     Roots const roots(*this);
     root(specifier);
     root(options);
-    std::optional<PromiseCapability> const capability = new_promise_capability(*this, Value::object(m_intrinsics.promise_constructor));
+    std::optional<PromiseCapability> const capability = new_promise_capability(*this, Value::object(m_realm->intrinsics.promise_constructor));
     if (!capability)
         return std::nullopt;
     root(capability->promise);
@@ -2669,7 +2689,7 @@ std::optional<Value> Interpreter::eval_in(std::u16string_view source, Environmen
 {
     // No caller program: the `eval` function's own context has no script or
     // module, so eval code reached this way inherits none either.
-    return m_impl->perform_eval(source, scope ? scope : m_impl->global_lexical, strict, this_value, true, private_environment, nullptr);
+    return m_impl->perform_eval(source, scope ? scope : m_realm->global_lexical, strict, this_value, true, private_environment, nullptr);
 }
 
 std::optional<Value> Interpreter::create_dynamic_function(std::u16string_view parameters, std::u16string_view body,
@@ -2695,7 +2715,7 @@ std::optional<Value> Interpreter::compile_function(std::u16string_view parameter
     auto const* statement = static_cast<ExpressionStatement const*>(program->body[0]);
     FunctionNode const& node = *static_cast<FunctionExpression const*>(statement->expression)->function;
     keep(std::move(program));
-    return Value::object(new_script_function(node, scope ? scope : m_impl->global_lexical));
+    return Value::object(new_script_function(node, scope ? scope : m_realm->global_lexical));
 }
 
 ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Environment* scope, PrivateEnvironment* private_environment)
@@ -2708,18 +2728,18 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     // A generator or async function hangs off its kind's function
     // prototype (§27.3.3, §27.7.3, §27.4.3), and a generator's instances
     // off a fresh object that inherits from the kind's %…Prototype%.
-    Object* function_prototype = m_intrinsics.function_prototype;
+    Object* function_prototype = m_realm->intrinsics.function_prototype;
     Object* instance_prototype = nullptr;
     if (node.is_generator && node.is_async) {
-        if (m_intrinsics.async_generator_function_prototype)
-            function_prototype = m_intrinsics.async_generator_function_prototype;
-        instance_prototype = m_intrinsics.async_generator_prototype;
+        if (m_realm->intrinsics.async_generator_function_prototype)
+            function_prototype = m_realm->intrinsics.async_generator_function_prototype;
+        instance_prototype = m_realm->intrinsics.async_generator_prototype;
     } else if (node.is_generator) {
-        if (m_intrinsics.generator_function_prototype)
-            function_prototype = m_intrinsics.generator_function_prototype;
-        instance_prototype = m_intrinsics.generator_prototype;
-    } else if (node.is_async && m_intrinsics.async_function_prototype) {
-        function_prototype = m_intrinsics.async_function_prototype;
+        if (m_realm->intrinsics.generator_function_prototype)
+            function_prototype = m_realm->intrinsics.generator_function_prototype;
+        instance_prototype = m_realm->intrinsics.generator_prototype;
+    } else if (node.is_async && m_realm->intrinsics.async_function_prototype) {
+        function_prototype = m_realm->intrinsics.async_function_prototype;
     }
     auto* function = m_heap->allocate<ScriptFunction>(function_prototype, node, scope, node.is_constructable);
     function->set_private_environment(private_environment);

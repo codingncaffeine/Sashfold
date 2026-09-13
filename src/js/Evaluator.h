@@ -94,18 +94,15 @@ struct Interpreter::Impl {
     // A deque: the evaluator keeps references to running contexts while
     // nested calls push more, and a vector would move them.
     std::deque<Context> contexts;
-    // The declarative record of the global environment (§9.1.1.4), in
-    // front of the object record over the global object.
-    Environment* global_lexical = nullptr;
-    // The global environment's [[VarNames]]: every var and function a
-    // script has declared, so a later `let` of the same name is refused.
-    std::unordered_set<JsString*> global_var_names;
-    // The realm's [[TemplateMap]] (§9.3.1): one template object per
-    // tagged-template site, the same one every time the site runs.
-    std::unordered_map<TemplateLiteral const*, Object*> template_objects;
 
     Heap& heap() { return self.heap(); }
     WellKnownAtoms const& atoms() { return self.atoms(); }
+    // The current realm: its global environment's declarative record (in
+    // front of the object record over the global object), its [[VarNames]]
+    // — every var and function a script has declared, so a later `let` of
+    // the same name is refused — and its [[TemplateMap]], one template
+    // object per tagged-template site.
+    RealmRecord& realm() { return *self.m_realm; }
 
     struct ContextScope {
         ContextScope(Impl& impl, Context context)

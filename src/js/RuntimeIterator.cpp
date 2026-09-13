@@ -85,7 +85,7 @@ std::optional<IteratorRecord> Interpreter::get_async_iterator(Value const& itera
         return std::nullopt;
     root(sync->iterator);
     root(sync->next_method);
-    auto* wrapper = m_heap->allocate<AsyncFromSyncIteratorObject>(m_intrinsics.async_from_sync_iterator_prototype, *sync);
+    auto* wrapper = m_heap->allocate<AsyncFromSyncIteratorObject>(m_realm->intrinsics.async_from_sync_iterator_prototype, *sync);
     root(Value::object(wrapper));
     std::optional<Value> const next = get(*wrapper, PropertyKey::atom(atoms().next));
     if (!next)
