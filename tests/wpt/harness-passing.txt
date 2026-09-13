@@ -7346,6 +7346,13 @@ html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme 
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, base
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, url
 html/infrastructure/urls/terminology-0/document-base-url.html	The fallback base URL of a document containing no base element is the document's address.
+html/semantics/embedded-content/the-embed-element/embed-dimension.html	Check the actual length of the embed element's height
+html/semantics/embedded-content/the-embed-element/embed-dimension.html	Check the actual length of the embed element's width
+html/semantics/embedded-content/the-embed-element/embed-ignored-in-media-element.html	Test embed being ignored inside media element
+html/semantics/embedded-content/the-embed-element/embed-in-object-fallback.html	We have the right embed element
+html/semantics/embedded-content/the-embed-element/embed-javascript-url.html	javascript: in src attribute should do nothing
+html/semantics/embedded-content/the-embed-element/embed-represent-nothing-04.html	ensure the element represents nothing
+html/semantics/embedded-content/the-embed-element/historical.html	embed legacycaller should not be supported
 html/semantics/embedded-content/the-iframe-element/change_parentage.html	Change the frame heriarchy
 html/semantics/embedded-content/the-iframe-element/content_document_changes_only_after_load_matures.html	contentDocument should only change after a load matures.
 html/semantics/embedded-content/the-iframe-element/cross-site/iframe-loading-lazy-cross-site.sub.html	Below-viewport iframes load lazily
@@ -7459,6 +7466,16 @@ html/semantics/embedded-content/the-iframe-element/sandbox_032.htm	Block XMLHttp
 html/semantics/embedded-content/the-iframe-element/srcdoc-anchor.html	Verify srcdoc content loads when src is about:srcdoc#foo.
 html/semantics/embedded-content/the-iframe-element/srcdoc-attribute-reset.html	Verify that the frame reloads with empty body after we remove srcdoc.
 html/semantics/embedded-content/the-iframe-element/srcdoc_process_attributes.html	Setting `srcdoc` (via property) triggers attributes processing
+html/semantics/embedded-content/the-object-element/block-object-with-ruby-crash.html	no crash
+html/semantics/embedded-content/the-object-element/document-getters-return-null-for-cross-origin.html	HTMLObjectElement.contentDocument for cross-origin document
+html/semantics/embedded-content/the-object-element/historical.html	object legacycaller should not be supported
+html/semantics/embedded-content/the-object-element/historical.html	object's typeMustMatch IDL attribute should not be supported
+html/semantics/embedded-content/the-object-element/object-attributes.html	object.height
+html/semantics/embedded-content/the-object-element/object-attributes.html	object.width
+html/semantics/embedded-content/the-object-element/object-ignored-in-media-element.html	Test <object> being ignored inside media element
+html/semantics/embedded-content/the-object-element/object-image-display-none-loading.html	Test that object image not displayed is not loaded unnecessarily.
+html/semantics/embedded-content/the-object-element/object-in-display-none-load-event.html	Load event triggered on window without the object element load
+html/semantics/embedded-content/the-object-element/object-javascript-url.html	javascript: in data attribute should do nothing
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyph
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphDef
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphItem

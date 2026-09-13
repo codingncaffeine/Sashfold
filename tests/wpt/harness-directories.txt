@@ -1,7 +1,9 @@
 # The Web Platform Tests directories the testharness.js runner scores,
 # relative to the checkout: the DOM, the window and its frames, scripting
-# and the event loop — what the engine's bindings implement or are measured
-# against. tools/wpt-fetch.sh checks these out too (plus resources/).
+# and the event loop, the elements that embed documents — what the engine's
+# bindings implement or are measured against. tools/wpt-fetch.sh checks
+# these out too, plus resources/ and html/semantics/embedded-content/resources,
+# the pages the embedded-content tests load.
 dom/nodes
 dom/events
 dom/ranges
@@ -9,6 +11,9 @@ html/browsers/the-window-object
 html/browsers/windows
 html/browsers/origin
 html/semantics/embedded-content/the-iframe-element
+html/semantics/embedded-content/the-object-element
+html/semantics/embedded-content/the-embed-element
+html/semantics/embedded-content/the-frame-element
 html/webappapis/scripting
 html/webappapis/structured-clone
 html/webappapis/timers

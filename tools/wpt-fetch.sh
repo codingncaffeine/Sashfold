@@ -3,8 +3,9 @@
 # scores against: a shallow, blob-less clone of github.com/web-platform-tests/wpt
 # holding only the directories in tests/wpt/directories.txt and
 # tests/wpt/harness-directories.txt plus the
-# suite's shared fonts, images, common, resources, css/support and css/reference trees, at the
-# revision pinned in tests/wpt/REVISION. About 30k files; nothing of it is
+# suite's shared fonts, images, common, resources, css/support and css/reference trees
+# and the pages the embedded-content tests load
+# (html/semantics/embedded-content/resources), at the revision pinned in tests/wpt/REVISION. About 30k files; nothing of it is
 # committed here (wpt/ is ignored).
 #
 #   tools/wpt-fetch.sh [checkout-dir]      (default: wpt/ at the repo root)
@@ -24,7 +25,7 @@ if [ -z "$revision" ]; then
   exit 1
 fi
 mapfile -t dirs < <(cat "$root/tests/wpt/directories.txt" "$root/tests/wpt/harness-directories.txt" | grep -v '^#' | grep -v '^[[:space:]]*$')
-dirs+=(css/support css/reference fonts images common resources)
+dirs+=(css/support css/reference fonts images common resources html/semantics/embedded-content/resources)
 
 if [ ! -d "$dest/.git" ]; then
   git clone --no-checkout --depth 1 --filter=blob:none "$remote" "$dest"
