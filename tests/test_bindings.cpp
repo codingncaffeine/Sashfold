@@ -1425,6 +1425,39 @@ void test_a_frames_window_events_are_its_own()
     CHECK_EQ(page->console, "");
 }
 
+// A frame's realm ends before the heap its wrappers live in, and lets every
+// wrapper of its documents go of its node, not only those in the tree: an
+// element and a fragment its script made and kept, never inserted, go with
+// the frame's document, and the heap's teardown after the page's realm ends
+// reads nothing of it.
+void test_a_frames_detached_nodes_go_with_it()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<script>window.kept = document.createElement('div'); kept.id = 'kept'; window.keptFragment = document.createDocumentFragment(); keptFragment.appendChild(document.createElement('span'));</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    CHECK(page->boolean("document.getElementById('f').contentWindow.kept.id === 'kept'"));
+    CHECK(page->boolean("document.getElementById('f').contentWindow.keptFragment.firstChild.localName === 'span'"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 } // namespace
 
 int main()
@@ -1456,5 +1489,6 @@ int main()
     test_local_storage_areas();
     test_frames_have_realms_of_their_own();
     test_a_frames_window_events_are_its_own();
+    test_a_frames_detached_nodes_go_with_it();
     return test::report("test_bindings");
 }

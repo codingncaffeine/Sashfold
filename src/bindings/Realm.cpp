@@ -948,16 +948,20 @@ void install_interfaces(Realm::Internals& in)
     install_tasks(in);
 }
 
-// Lets every wrapper into a tree go of its node: the realm that made them is
-// ending before the heap they live in.
-void detach_wrappers(dom::Node& node)
+// Lets every wrapper of a document's nodes go of its node, the document's own
+// and those of every node it owns, in its tree or not: the realm ending before
+// the heap they live in takes the document with it.
+void detach_wrappers(dom::Document& document)
 {
-    if (node.wrapper) {
-        static_cast<NodeWrapper*>(node.wrapper)->detach();
-        node.wrapper = nullptr;
-    }
-    for (dom::Node* const child : node.children())
-        detach_wrappers(*child);
+    auto const detach = [](dom::Node& node) {
+        if (node.wrapper) {
+            static_cast<NodeWrapper*>(node.wrapper)->detach();
+            node.wrapper = nullptr;
+        }
+    };
+    detach(document);
+    for (std::unique_ptr<dom::Node> const& owned : document.owned_nodes())
+        detach(*owned);
 }
 
 } // namespace

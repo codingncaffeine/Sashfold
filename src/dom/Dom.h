@@ -203,6 +203,10 @@ public:
     // its old parent first.
     void adopt(Node& node);
 
+    // Every node this document owns, in its tree or not: one made and never
+    // inserted, a removed subtree, template contents.
+    std::vector<std::unique_ptr<Node>> const& owned_nodes() const { return m_nodes; }
+
 private:
     std::vector<std::unique_ptr<Node>> m_nodes;
 };
