@@ -1556,20 +1556,24 @@ void test_a_frames_document_follows_its_iframe()
     // event at an iframe no longer in the tree.
     CHECK(page->boolean("dOpened === 1 && loads.d === undefined && document.getElementById('d') === null"));
 
-    // A changed srcdoc: the old window stands until the task, then a new one.
-    page->eval("var a = document.getElementById('a'); var oldWindow = a.contentWindow;"
+    // A changed srcdoc: the frame's WindowProxy stands for the old window until
+    // the task, then for the new one; what a script kept of the old window's
+    // own functions stays the old window's.
+    page->eval("var a = document.getElementById('a'); var oldWindow = a.contentWindow; var oldSetTimeout = oldWindow.setTimeout;"
+               " var oldPostMessage = oldWindow.postMessage; var oldDocumentGetter = Object.getOwnPropertyDescriptor(oldWindow, 'document').get;"
                " a.srcdoc = \"<script>var which = 'changed';</script>\";");
     CHECK(page->boolean("a.contentWindow === oldWindow && oldWindow.which === 'first' && loads.a === 1"));
     // A src in place of a srcdoc: two changes, one navigation.
     page->eval("var b = document.getElementById('b'); b.removeAttribute('srcdoc'); b.src = 'second.html';");
     page->clock = 2000;
     page->realm->run_pending();
-    CHECK(page->boolean("a.contentWindow !== oldWindow && a.contentWindow.which === 'changed' && loads.a === 2"));
+    CHECK(page->boolean("a.contentWindow === oldWindow && oldWindow.which === 'changed' && loads.a === 2"));
     CHECK(page->boolean("b.contentWindow.which === 'second' && loads.b === 2"));
-    // The old document's timer never ran; the old window answers from nothing.
+    // The old document's timer never ran; the old window's functions answer
+    // from nothing.
     CHECK(page->boolean("typeof aTimerRan === 'undefined'"));
-    CHECK(page->boolean("oldWindow.which === 'first' && oldWindow.document.body === null && oldWindow.nosuch === undefined"));
-    CHECK(page->boolean("oldWindow.postMessage('x', '*') === undefined && typeof oldWindow.setTimeout(function () { parent.neverRuns = true; }, 0) === 'number'"));
+    CHECK(page->boolean("oldDocumentGetter.call(undefined).body === null && oldWindow.nosuch === undefined"));
+    CHECK(page->boolean("oldPostMessage('x', '*') === undefined && typeof oldSetTimeout(function () { parent.neverRuns = true; }, 0) === 'number'"));
 
     // A removed iframe: the frame closes at once, and its realm ends when the
     // script that removed it has returned.
@@ -1654,13 +1658,178 @@ void test_an_iframe_has_the_initial_about_blank_document()
     page->eval("var lateLoad = false; made.addEventListener('load', function () { lateLoad = true; });");
     page->realm->run_pending();
     CHECK(page->boolean("loads.made === 1 && !lateLoad && made.contentWindow === atOnce"));
-    // Pointed at an srcdoc afterwards: navigated, a new window, one more load.
-    page->eval("made.srcdoc = '<script>var which = \"srcdoc\";</script>';");
+    // Pointed at an srcdoc afterwards: navigated, a new window behind the same
+    // WindowProxy, one more load.
+    page->eval("var blankArray = atOnce.Array; made.srcdoc = '<script>var which = \"srcdoc\";</script>';");
     page->realm->run_pending();
-    CHECK(page->boolean("made.contentWindow !== atOnce && made.contentWindow.which === 'srcdoc' && loads.made === 2"));
+    CHECK(page->boolean("made.contentWindow === atOnce && made.contentWindow.which === 'srcdoc' && atOnce.Array !== blankArray && loads.made === 2"));
     // Removed: closed at once.
     page->eval("made.remove();");
-    CHECK(page->boolean("made.contentWindow === null"));
+    CHECK(page->boolean("made.contentWindow === null && atOnce.closed"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
+// A window is reached through its WindowProxy (HTML §7.2.3): `window`,
+// `globalThis`, `this`, a frame's contentWindow, frames by index, parent and
+// top are one object, which follows its frame to the next document and is
+// closed with it. A window of another origin shows a script its frames and
+// its CrossOriginProperties alone, through functions made for the realm that
+// asks, and throws a SecurityError for the rest; its Location does the same.
+// The window's own members check `this`.
+void test_a_window_of_another_origin_shows_little()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+        bindings::FrameDocument answer;
+        answer.content_type = "text/html";
+        dom::Attr const* const src = iframe.find_attribute("src");
+        if (dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc")) {
+            answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+            answer.url = *net::parse_url("about:srcdoc");
+            answer.origin = ancestors.empty() ? base : ancestors.back().origin;
+            answer.srcdoc = true;
+            if (policy)
+                answer.policy = *policy;
+        } else if (src && src->value == "https://other.test/frame.html") {
+            std::string const html = "<iframe></iframe><iframe name=donotleakme></iframe><script>var secret = 2; window.then = 'x';"
+                                     " try { parent.document; parent.postMessage('read', '*'); } catch (e) { parent.postMessage(e.name, '*'); }</script>";
+            answer.bytes.assign(html.begin(), html.end());
+            answer.url = *net::parse_url(src->value);
+            answer.origin = answer.url;
+        } else {
+            return std::nullopt;
+        }
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>var messages = []; addEventListener('message', function (e) { messages.push(e.data + ':' + (e.source === frames[1]) + ':' + e.origin); });
+function threw(f, name) { try { f(); } catch (e) { return e.name === name; } return false; }</script>
+<iframe id=same srcdoc="<iframe name=inner></iframe><script>window.frames = 'override'; var secret = 1;</script>"></iframe>
+<iframe id=other src="https://other.test/frame.html"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->realm->run_pending();
+    // One object for the window, however it is reached.
+    CHECK(page->boolean("window === self && window === globalThis"));
+    CHECK(page->boolean("this === window"));
+    CHECK(page->boolean("(function () { return this; })() === window"));
+    CHECK(page->boolean("document.defaultView === window"));
+    // Window as WebIDL makes a [Global] interface: its members the window's
+    // own, EventTarget's inherited, the chain through Window.prototype.
+    CHECK(page->boolean("window instanceof Window && window.constructor === Window && !window.hasOwnProperty('constructor')"));
+    CHECK(page->boolean("Object.getPrototypeOf(Object.getPrototypeOf(Object.getPrototypeOf(window))) === EventTarget.prototype"));
+    CHECK(page->boolean("Object.getOwnPropertyDescriptor(window, 'addEventListener') === undefined && window.addEventListener === EventTarget.prototype.addEventListener"));
+    CHECK(page->boolean("var d = Object.getOwnPropertyDescriptor(window, 'document'); d.enumerable && !d.configurable && d.set === undefined"));
+    CHECK(page->boolean("var t = Object.getOwnPropertyDescriptor(window, 'setTimeout'); t.writable && t.enumerable && t.configurable"));
+    CHECK(page->boolean("var h = Object.getOwnPropertyDescriptor(window, 'history'); typeof h.get === 'function' && h.set === undefined && h.enumerable"));
+    CHECK(page->boolean("screenX = 5; Object.getOwnPropertyDescriptor(window, 'screenX').value === 5 && typeof Object.getOwnPropertyDescriptor(window, 'innerWidth').set === 'function'"));
+    CHECK(page->boolean("window.length === 2 && frames[0] === document.getElementById('same').contentWindow && window[1] === document.getElementById('other').contentWindow"));
+    page->eval("var s = document.getElementById('same').contentWindow; var w = document.getElementById('other').contentWindow;");
+    CHECK(page->boolean("s.parent === window && s.top === window && s.self === s && s.window === s"));
+    // The same origin: all of it, the frame's own replacements included.
+    CHECK(page->boolean("s.frames === 'override' && s.secret === 1 && s.length === 1 && s.inner === s[0] && s.document.defaultView === s && Object.getPrototypeOf(s) !== null"));
+    // Another origin: its frames and its CrossOriginProperties, nothing more.
+    CHECK(page->boolean("w.parent === window && w.top === window && w.self === w && w.frames === w && w.window === w && w.closed === false"));
+    CHECK(page->boolean("w.length === 2 && typeof w[0] === 'object' && w.donotleakme === w[1] && w.then === undefined"));
+    CHECK(page->boolean("document.getElementById('other').contentDocument === null"));
+    CHECK(page->boolean("threw(function () { return w.secret; }, 'SecurityError') && threw(function () { return w.document; }, 'SecurityError')"));
+    CHECK(page->boolean("threw(function () { w.secret = 1; }, 'SecurityError') && threw(function () { delete w.parent; }, 'SecurityError')"));
+    CHECK(page->boolean("threw(function () { Object.defineProperty(w, 'x', { value: 1 }); }, 'SecurityError') && threw(function () { return 'secret' in w; }, 'SecurityError')"));
+    CHECK(page->boolean("threw(function () { return Object.getOwnPropertyDescriptor(w, '2'); }, 'SecurityError')"));
+    CHECK(page->boolean("Object.getPrototypeOf(w) === null && Object.isExtensible(w) && Reflect.preventExtensions(w) === false"));
+    CHECK(page->boolean("Reflect.setPrototypeOf(w, null) === true && Reflect.setPrototypeOf(w, {}) === false"));
+    CHECK_EQ(page->string("Object.getOwnPropertyNames(w).join()"), "0,1,window,self,location,close,closed,focus,blur,frames,length,top,opener,parent,postMessage,then");
+    CHECK_EQ(page->string("Reflect.ownKeys(w).length + ':' + Object.keys(w).join()"), "19:0,1");
+    // The functions another origin is shown are the asking realm's, the same
+    // each time, and act on the window they were made for.
+    CHECK(page->boolean("typeof w.close === 'function' && w.close === w.close && w.close !== close && Object.getPrototypeOf(w.close) === Function.prototype"));
+    CHECK(page->boolean("var parentGetter = Object.getOwnPropertyDescriptor(w, 'parent').get; parentGetter.call(undefined) === window && parentGetter.name === 'get parent'"));
+    CHECK(page->boolean("({}).toString.call(w) === '[object Object]'"));
+    // Its Location: the href setter and replace.
+    CHECK(page->boolean("w.location === w.location && typeof w.location.replace === 'function' && Object.getOwnPropertyDescriptor(w.location, 'href').get === undefined"));
+    CHECK(page->boolean("threw(function () { return w.location.href; }, 'SecurityError') && threw(function () { return w.location.pathname; }, 'SecurityError')"));
+    CHECK(page->boolean("Object.getPrototypeOf(w.location) === null && Object.getOwnPropertyNames(w.location).join() === 'href,replace,then'"));
+    CHECK(page->boolean("s.location.href === 'about:srcdoc' && Object.getPrototypeOf(s.location) === s.Location.prototype"));
+    // The window's own members check `this`: another origin's window only for
+    // what that origin shows, and anything else is no window at all.
+    CHECK(page->boolean("var documentGetter = Object.getOwnPropertyDescriptor(window, 'document').get; threw(function () { documentGetter.call(w); }, 'SecurityError') && documentGetter.call(s) === s.document"));
+    CHECK(page->boolean("Object.getOwnPropertyDescriptor(window, 'closed').get.call(w) === false && threw(function () { documentGetter.call({}); }, 'TypeError')"));
+    CHECK(page->boolean("var hrefGetter = Object.getOwnPropertyDescriptor(location, 'href').get; threw(function () { hrefGetter.call(w.location); }, 'SecurityError') && hrefGetter.call(s.location) === 'about:srcdoc'"));
+    // What the frame of another origin met reaching into the page; the
+    // message's source is that frame's WindowProxy.
+    CHECK_EQ(page->string("messages.join()"), "SecurityError:true:https://other.test");
+    // Events and timers see the WindowProxy.
+    page->eval("addEventListener('custom', function (e) { window.eventSaw = e.target === window && e.currentTarget === window && this === window; }); dispatchEvent(new Event('custom'));"
+               " setTimeout(function () { window.timerSaw = this === window; }, 0);");
+    page->clock += 10;
+    page->realm->run_pending();
+    CHECK(page->boolean("eventSaw === true && timerSaw === true"));
+    // A frame going on to another document keeps its WindowProxy; removed, its
+    // window is closed and has no parent or top.
+    page->eval("var held = s; var oldArray = s.Array; document.getElementById('same').srcdoc = '<script>var second = 2;</script>';");
+    page->realm->run_pending();
+    CHECK(page->boolean("held === document.getElementById('same').contentWindow && held.second === 2 && held.secret === undefined && held.Array !== oldArray && held.length === 0"));
+    page->eval("document.getElementById('same').remove();");
+    CHECK(page->boolean("held.closed === true && held.parent === null && held.top === null && window.length === 1 && frames[0] === w"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
+// document.domain (HTML §7.1.3): a document may set its domain to its own
+// host, or to a suffix of it that is not a public suffix, and from then on it
+// is same origin-domain only with documents that set the same: a frame of the
+// page's own origin that sets it is another origin to the page until the page
+// sets it too. An srcdoc or about:blank document has the page's origin itself,
+// so what either sets is both's. A document with no window may not set it.
+void test_document_domain_relaxes_the_same_origin_rule()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const& ancestors) -> std::optional<bindings::FrameDocument> {
+        bindings::FrameDocument answer;
+        answer.content_type = "text/html";
+        dom::Attr const* const src = iframe.find_attribute("src");
+        if (dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc")) {
+            answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+            answer.url = *net::parse_url("about:srcdoc");
+            answer.origin = ancestors.empty() ? base : ancestors.back().origin;
+            answer.srcdoc = true;
+            if (policy)
+                answer.policy = *policy;
+        } else if (src && src->value == "https://www.example.test/frame.html") {
+            std::string const html = "<script>var secret = 1; document.domain = document.domain;</script>";
+            answer.bytes.assign(html.begin(), html.end());
+            answer.url = *net::parse_url(src->value);
+            answer.origin = answer.url;
+        } else {
+            return std::nullopt;
+        }
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<script>function threw(f, name) { try { f(); } catch (e) { return e.name === name; } return false; }</script>
+<iframe id=f src="https://www.example.test/frame.html"></iframe>
+<iframe id=g srcdoc="<script>var shared = 3;</script>"></iframe>)HTML",
+        "https://www.example.test/page.html", std::move(hooks));
+    page->load();
+    page->eval("var f = document.getElementById('f').contentWindow; var g = document.getElementById('g').contentWindow;"
+               " var blank = document.createElement('iframe'); document.body.appendChild(blank); blank.contentDocument.body.textContent = 'blank';");
+    CHECK(page->boolean("document.domain === 'www.example.test'"));
+    // The frame at a URL of the page's origin set its domain: another origin
+    // to the page now.
+    CHECK(page->boolean("threw(function () { return f.secret; }, 'SecurityError') && document.getElementById('f').contentDocument === null"));
+    CHECK(page->boolean("threw(function () { document.domain = 'other.test'; }, 'SecurityError') && threw(function () { document.domain = 'test'; }, 'SecurityError')"));
+    CHECK(page->boolean("threw(function () { document.domain = 'sub.www.example.test'; }, 'SecurityError')"));
+    CHECK(page->boolean("threw(function () { document.implementation.createHTMLDocument('').domain = 'www.example.test'; }, 'SecurityError')"));
+    page->eval("document.domain = 'www.example.test';");
+    CHECK(page->boolean("f.secret === 1 && document.getElementById('f').contentDocument !== null"));
+    // The srcdoc and about:blank frames were given the page's domain with it.
+    CHECK(page->boolean("g.shared === 3 && g.document.domain === 'www.example.test' && blank.contentDocument.body.textContent === 'blank'"));
+    page->eval("document.domain = 'example.test';");
+    CHECK(page->boolean("document.domain === 'example.test' && threw(function () { return f.secret; }, 'SecurityError')"));
+    CHECK(page->boolean("g.shared === 3 && g.document.domain === 'example.test' && blank.contentWindow.document.domain === 'example.test'"));
     CHECK_EQ(page->console, "");
     page.reset();
 }
@@ -1700,5 +1869,7 @@ int main()
     test_messages_between_windows();
     test_a_frames_document_follows_its_iframe();
     test_an_iframe_has_the_initial_about_blank_document();
+    test_a_window_of_another_origin_shows_little();
+    test_document_domain_relaxes_the_same_origin_rule();
     return test::report("test_bindings");
 }

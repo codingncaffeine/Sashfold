@@ -524,7 +524,7 @@ void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view
         js::Value const message = interpreter.root(string("Uncaught " + description));
         js::Value const source = interpreter.root(string(where));
         js::Value const arguments[5] = { message, source, js::Value::number(0), js::Value::number(0), thrown };
-        std::optional<js::Value> const result = interpreter.call(callee, js::Value::object(interpreter.global()), arguments);
+        std::optional<js::Value> const result = interpreter.call(callee, js::Value::object(window_proxy()), arguments);
         if (!result) {
             js::Value const inner = interpreter.take_exception();
             console("error", "Uncaught " + interpreter.describe(inner) + " (in window.onerror)");
@@ -986,6 +986,9 @@ namespace {
 // Every interface a document's realm has, made with that realm current.
 void install_interfaces(Realm::Internals& in)
 {
+    // What the global object has before the Web's interfaces: the language's
+    // own globals, which are no window's members.
+    std::vector<js::PropertyKey> const language_globals = in.interpreter.global()->own_keys();
     install_events(in);
     install_nodes(in);
     install_style(in);
@@ -994,6 +997,7 @@ void install_interfaces(Realm::Internals& in)
     install_fetch(in);
     install_xhr(in);
     install_tasks(in);
+    install_window_proxy(in, language_globals);
 }
 
 // Lets every wrapper of a document's nodes go of its node, the document's own
@@ -1149,6 +1153,10 @@ Realm::~Realm()
         detach_wrappers(in.document);
         for (std::unique_ptr<dom::Document> const& extra : in.extra_documents)
             detach_wrappers(*extra);
+        // What a script still holds of this window is judged by the origin
+        // it had, not by the stand-in's.
+        if (!in.agent.ending && !in.ended)
+            in.agent.ended_origins[in.realm_record] = OriginSnapshot { in.origin_url.serialize_origin(), in.origin_url.scheme, in.domain.get() };
         in.realm_record->host_defined = in.agent.ending || in.ended ? nullptr : stand_in_of(in.agent);
         in.interpreter.release_realm(in.realm_record);
     }
@@ -1334,6 +1342,22 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     frame_hooks.user_agent = hooks.user_agent;
     opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer->url, std::move(frame_hooks));
     opened.realm->internals().origin_url = answer->origin;
+    // An srcdoc or about:blank document has this document's origin itself,
+    // and so the domain document.domain gives either of them.
+    if (answer->srcdoc && answer->origin.serialize() == origin_url.serialize())
+        opened.realm->internals().domain.share(domain);
+    // The WindowProxy the iframe's frame already has, when the frame goes on
+    // to another document; the new realm's own for a frame opened afresh.
+    Internals& opened_internals = opened.realm->internals();
+    auto const navigable = navigables.find(&iframe);
+    if (navigable != navigables.end()) {
+        navigable->second->stand_for(*opened_internals.realm_record);
+        interpreter.set_global_this(*opened_internals.realm_record, navigable->second);
+    } else {
+        navigables[&iframe] = static_cast<WindowProxyObject*>(opened_internals.realm_record->global_this);
+    }
+    if (dom::Attr const* const frame_name = iframe.find_attribute("name"))
+        opened_internals.window_name = frame_name->value;
     // A reopened frame counts on from its predecessor, so no picture of the
     // old document stands for the new one.
     opened.realm->internals().mutations = mutations_from;
@@ -1370,15 +1394,21 @@ Realm* Realm::frame_realm(dom::Element const& iframe)
     return nullptr;
 }
 
-void Realm::Internals::close_frame(dom::Element const& iframe)
+void Realm::Internals::close_frame(dom::Element const& iframe, bool keep_window_proxy)
 {
+    // An iframe leaving the tree takes its frame's WindowProxy with it: put
+    // back in, it has a new frame and a new one.
+    if (!keep_window_proxy)
+        navigables.erase(&iframe);
     auto const it = std::find_if(child_frames.begin(), child_frames.end(),
         [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
     if (it == child_frames.end())
         return;
     // Nothing of its runs again, its own frames' included; the realm itself
-    // ends when the host's last entry into the agent has returned.
+    // ends when the host's last entry into the agent has returned, and its
+    // window is closed from now on.
     trace("frame closed: " + (it->source.empty() ? std::string("about:blank") : it->source));
+    it->realm->internals().discarded = true;
     erase_loop_work(it->realm->internals());
     agent.closing.push_back(std::move(*it));
     child_frames.erase(it);
@@ -1520,7 +1550,7 @@ void Realm::Internals::navigate_frame(dom::Element& iframe)
         if (existing->source == key)
             return; // already showing it
         mutations_from = existing->realm->tree_mutation_count() + 1;
-        close_frame(iframe);
+        close_frame(iframe, true);
     }
     trace("frame navigates: " + (key.empty() ? std::string("about:blank") : key));
     open_frame(iframe, mutations_from);
@@ -1540,7 +1570,7 @@ bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit i
     in.interpreter.root(js::Value::object(event));
     event->composed = init.composed;
     event->is_trusted = true;
-    js::Object* target_object = target ? in.wrap(*target) : in.realm_record->intrinsics.global;
+    js::Object* target_object = target ? in.wrap(*target) : in.window_proxy();
     return in.dispatch(*event, target_object);
 }
 
@@ -1672,7 +1702,7 @@ bool Realm::run_pending()
         ++owner.stats.timers_fired;
         owner.trace("timer " + std::to_string(timer.id) + " fires at " + std::to_string(static_cast<long>(now)) + " ms");
         ran = true;
-        js::Value const owner_window = js::Value::object(owner.realm_record->intrinsics.global);
+        js::Value const owner_window = js::Value::object(owner.window_proxy());
         if (callback.is_string()) {
             owner.realm.run(callback.as_string()->to_utf8(), "<timer>");
         } else if (animation_frame) {
@@ -1758,6 +1788,18 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.location);
     for (auto const& [name, prototype] : in.prototypes)
         tracer.visit(prototype);
+    for (auto const& [iframe, proxy] : in.navigables)
+        tracer.visit(proxy);
+    for (auto const& [name, value] : in.window_values)
+        tracer.visit(value);
+    for (auto const& [name, member] : in.cross_origin_members) {
+        if (member.value)
+            tracer.visit(*member.value);
+        if (member.get)
+            tracer.visit(*member.get);
+        if (member.set)
+            tracer.visit(*member.set);
+    }
     // Timers and microtasks hold their callbacks in Persistents, which the
     // heap roots by itself.
 }

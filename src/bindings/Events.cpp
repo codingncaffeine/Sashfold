@@ -59,7 +59,7 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
     std::string const key(type);
     dom::Element* element = element_of(in, target);
     bool from_body = false;
-    if (!element && target == in.realm_record->intrinsics.global && is_window_event_type(type)) {
+    if (!element && in.is_window(target) && is_window_event_type(type)) {
         // The body's onload="…" is the window's handler.
         for (dom::Node* child : in.document.children()) {
             if (!child->is_element())
@@ -206,12 +206,41 @@ std::optional<ListenerOptions> parse_options(js::Interpreter& interpreter, js::V
     return parsed;
 }
 
+// The EventTarget a method's `this` names (WebIDL §3.7.6), with the realm
+// whose listeners are its: undefined or null is the realm's window, which a
+// bare addEventListener(…) reaches; a WindowProxy is the window it stands
+// for, which only a script of that window's origin may reach; any other
+// object is itself, when it is an EventTarget at all.
+struct ThisTarget {
+    Realm::Internals* internals;
+    js::Object* object;
+};
+
+std::optional<ThisTarget> event_target_of(js::Interpreter& interpreter, js::Value const& this_value)
+{
+    if (this_value.is_nullish())
+        return ThisTarget { &internals_of(interpreter), interpreter.global_this() };
+    if (WindowProxyObject* const proxy = as_window_proxy(this_value)) {
+        if (!is_platform_object_same_origin(interpreter, proxy->record())) {
+            throw_security_error(interpreter);
+            return std::nullopt;
+        }
+        return ThisTarget { &proxy->internals(), proxy };
+    }
+    if (!this_value.is_object() || !internals_of(interpreter).listeners_of(this_value.as_object())) {
+        interpreter.throw_type_error("Illegal invocation");
+        return std::nullopt;
+    }
+    return ThisTarget { &internals_of(interpreter), this_value.as_object() };
+}
+
 Native add_event_listener(js::Interpreter& interpreter, js::Value const& this_value, Args args)
 {
-    Realm::Internals& in = internals_of(interpreter);
-    if (!this_value.is_object())
-        return interpreter.throw_type_error("Illegal invocation");
-    std::vector<ListenerEntry>* list = in.listeners_of(this_value.as_object());
+    std::optional<ThisTarget> const target = event_target_of(interpreter, this_value);
+    if (!target)
+        return std::nullopt;
+    Realm::Internals& in = *target->internals;
+    std::vector<ListenerEntry>* list = in.listeners_of(target->object);
     if (!list)
         return interpreter.throw_type_error("Illegal invocation");
     std::optional<std::string> const type = in.to_utf8(js::argument(args, 0));
@@ -239,10 +268,11 @@ Native add_event_listener(js::Interpreter& interpreter, js::Value const& this_va
 
 Native remove_event_listener(js::Interpreter& interpreter, js::Value const& this_value, Args args)
 {
-    Realm::Internals& in = internals_of(interpreter);
-    if (!this_value.is_object())
-        return interpreter.throw_type_error("Illegal invocation");
-    std::vector<ListenerEntry>* list = in.listeners_of(this_value.as_object());
+    std::optional<ThisTarget> const target = event_target_of(interpreter, this_value);
+    if (!target)
+        return std::nullopt;
+    Realm::Internals& in = *target->internals;
+    std::vector<ListenerEntry>* list = in.listeners_of(target->object);
     if (!list)
         return interpreter.throw_type_error("Illegal invocation");
     std::optional<std::string> const type = in.to_utf8(js::argument(args, 0));
@@ -262,17 +292,17 @@ Native remove_event_listener(js::Interpreter& interpreter, js::Value const& this
 
 Native dispatch_event_native(js::Interpreter& interpreter, js::Value const& this_value, Args args)
 {
-    Realm::Internals& in = internals_of(interpreter);
-    if (!this_value.is_object() || !in.listeners_of(this_value.as_object()))
-        return interpreter.throw_type_error("Illegal invocation");
+    std::optional<ThisTarget> const target = event_target_of(interpreter, this_value);
+    if (!target)
+        return std::nullopt;
     js::Value const event_value = js::argument(args, 0);
     EventObject* event = event_value.is_object() ? dynamic_cast<EventObject*>(event_value.as_object()) : nullptr;
     if (!event)
         return interpreter.throw_type_error("parameter 1 is not of type 'Event'");
     if (event->dispatching || !event->initialized)
-        return in.throw_dom_exception("InvalidStateError", "The event is already being dispatched");
+        return internals_of(interpreter).throw_dom_exception("InvalidStateError", "The event is already being dispatched");
     event->is_trusted = false;
-    return js::Value::boolean(in.dispatch(*event, this_value.as_object()));
+    return js::Value::boolean(target->internals->dispatch(*event, target->object));
 }
 
 // Reads the common members of an EventInit dictionary.
@@ -491,7 +521,7 @@ EventObject* Realm::Internals::new_event(std::string_view interface, std::string
 
 std::vector<ListenerEntry>* Realm::Internals::listeners_of(js::Object* target)
 {
-    if (target == realm_record->intrinsics.global)
+    if (is_window(target))
         return &window_listeners;
     if (auto* event_target = dynamic_cast<EventTargetObject*>(target))
         return &event_target->listeners;
@@ -500,7 +530,7 @@ std::vector<ListenerEntry>* Realm::Internals::listeners_of(js::Object* target)
 
 HandlerMap* Realm::Internals::handlers_of(js::Object* target)
 {
-    if (target == realm_record->intrinsics.global)
+    if (is_window(target))
         return &window_handlers;
     if (auto* event_target = dynamic_cast<EventTargetObject*>(target))
         return &event_target->handlers;
@@ -531,7 +561,7 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
         }
         // The document's parent is the window, except for load (§2.9.1).
         if (&node->root() == &document && event.type != "load")
-            path.push_back(realm_record->intrinsics.global);
+            path.push_back(window_proxy());
     }
     js::Value const previous_event = current_event;
     current_event = js::Value::object(&event);
@@ -602,21 +632,9 @@ void install_events(Realm::Internals& in)
     js::define_method(interpreter, *event_target, "addEventListener", 2, add_event_listener);
     js::define_method(interpreter, *event_target, "removeEventListener", 2, remove_event_listener);
     js::define_method(interpreter, *event_target, "dispatchEvent", 1, dispatch_event_native);
-    // The window is the global object, made before any of this: it gets
-    // the same methods, with an undefined or null `this` standing for the
-    // window itself, WebIDL's rule for a global's operations: a bare
-    // `addEventListener(...)` at top level, or one called through a
-    // saved reference, is one on the window.
-    auto const on_window = [](js::NativeFunction::Callback native) {
-        return [native](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-            if (this_value.is_undefined() || this_value.is_null())
-                return native(interp, js::Value::object(interp.global()), args);
-            return native(interp, this_value, args);
-        };
-    };
-    js::define_method(interpreter, *interpreter.global(), "addEventListener", 2, on_window(add_event_listener));
-    js::define_method(interpreter, *interpreter.global(), "removeEventListener", 2, on_window(remove_event_listener));
-    js::define_method(interpreter, *interpreter.global(), "dispatchEvent", 1, on_window(dispatch_event_native));
+    // The window reaches these through its prototype chain; a bare
+    // addEventListener(…) calls them with an undefined `this`, which is the
+    // realm's window (see event_target_of).
 
     // Event.
     js::Object* event = define_interface(in, "Event", nullptr, event_constructor("Event"), 1);
@@ -698,7 +716,7 @@ void install_events(Realm::Internals& in)
                 for (dom::Node* node = &wrapper->node(); node; node = node->parent())
                     path->push(js::Value::object(internals.wrap(*node)));
                 if (&wrapper->node().root() == &internals.document && (*e)->type != "load")
-                    path->push(js::Value::object(interp.global()));
+                    path->push(js::Value::object(interp.global_this()));
             } else {
                 path->push(js::Value::object(current));
             }
@@ -753,7 +771,7 @@ void install_events(Realm::Internals& in)
 
     // UIEvent and the events under it.
     js::Object* ui_event = define_interface(in, "UIEvent", event, event_constructor("UIEvent"), 1);
-    event_getter(in, *ui_event, "view", [](Realm::Internals& internals, EventObject&) { return js::Value::object(internals.interpreter.global()); });
+    event_getter(in, *ui_event, "view", [](Realm::Internals& internals, EventObject&) { return js::Value::object(internals.window_proxy()); });
     event_getter(in, *ui_event, "detail", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.detail); });
     event_getter(in, *ui_event, "which", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.key_code ? e.key_code : e.button + 1); });
     js::define_method(interpreter, *ui_event, "initUIEvent", 5, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {

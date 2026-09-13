@@ -6,6 +6,7 @@
 #include "core/Unicode.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
+#include "net/Filters.h"
 
 #include <string>
 #include <utility>
@@ -252,7 +253,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_getter(in, *document, "defaultView", [](Realm::Internals& internals, dom::Document& d) -> Native {
         if (&d != &internals.document)
             return js::Value::null();
-        return js::Value::object(internals.interpreter.global());
+        return js::Value::object(internals.window_proxy());
     });
     document_getter(in, *document, "readyState", [](Realm::Internals& internals, dom::Document& d) -> Native {
         return internals.string(&d == &internals.document ? internals.ready_state : "complete");
@@ -289,7 +290,52 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return js::Value::undefined();
         });
     document_getter(in, *document, "referrer", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string(""); });
-    document_getter(in, *document, "domain", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string(internals.url.serialize_host()); });
+    // document.domain (HTML §7.1.3): the effective domain of the document's
+    // origin, and setting it to its own host or a suffix of it that is not a
+    // public suffix, after which the document is same origin-domain only with
+    // documents that set the same. A document with no window of its own, or
+    // with an opaque origin, has nothing to relax.
+    define_getter(
+        in, *document, "domain",
+        [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<dom::Document*> const d = this_document(interp, this_value);
+            if (!d)
+                return std::nullopt;
+            Realm::Internals& internals = internals_of(interp);
+            if (internals.origin_url.serialize_origin() == "null")
+                return internals.string("");
+            return internals.string(internals.domain.value_or(internals.origin_url.serialize_host()));
+        },
+        [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<dom::Document*> const d = this_document(interp, this_value);
+            if (!d)
+                return std::nullopt;
+            Realm::Internals& internals = internals_of(interp);
+            std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
+            if (!text)
+                return std::nullopt;
+            if (*d != &internals.document || internals.origin_url.serialize_origin() == "null")
+                return internals.throw_dom_exception("SecurityError", "Failed to set the 'domain' property on 'Document': Assignment is forbidden for this document.");
+            std::string const original = internals.domain.value_or(internals.origin_url.serialize_host());
+            // The value as a host alone: no port, path, query or credentials.
+            bool const bare = text->find_first_of("/?#@\\") == std::string::npos && (text->find(':') == std::string::npos || text->starts_with('['));
+            std::optional<net::Url> const parsed = bare ? net::parse_url("http://" + *text + "/") : std::nullopt;
+            bool const plain_host = parsed && !parsed->port && parsed->serialize(true) == "http://" + parsed->serialize_host() + "/";
+            std::string const host = plain_host ? parsed->serialize_host() : std::string();
+            bool const host_is_address = plain_host && (parsed->host_kind == net::Url::HostKind::Ipv4 || parsed->host_kind == net::Url::HostKind::Ipv6);
+            bool const original_is_address = !internals.domain
+                && (internals.origin_url.host_kind == net::Url::HostKind::Ipv4 || internals.origin_url.host_kind == net::Url::HostKind::Ipv6);
+            // "is a registrable domain suffix of or is equal to" (HTML §7.1.3).
+            bool allowed = !host.empty() && host == original;
+            if (!allowed && !host.empty() && !host_is_address && !original_is_address && original.size() > host.size()
+                && original.ends_with("." + host))
+                allowed = host.size() >= net::registrable_domain(original).size();
+            if (!allowed)
+                return internals.throw_dom_exception("SecurityError",
+                    "Failed to set the 'domain' property on 'Document': '" + *text + "' is not a suffix of '" + original + "'.");
+            internals.domain = host;
+            return js::Value::undefined();
+        });
     document_getter(in, *document, "lastModified", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("01/01/1970 00:00:00"); });
     document_getter(in, *document, "hidden", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::boolean(false); });
     document_getter(in, *document, "visibilityState", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("visible"); });

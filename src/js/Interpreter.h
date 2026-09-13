@@ -148,6 +148,11 @@ public:
     // The embedder's object behind this realm (the bindings' Realm), for
     // natives to find their way back; untraced, unowned.
     void* host_defined = nullptr;
+    // The global environment's [[GlobalThisValue]] (§9.1.1.4): what `this`
+    // is in global code and in a sloppy function called with none, and what
+    // `globalThis` names. The global object itself unless the host gives
+    // another — a browser's WindowProxy, which stands for the window.
+    Object* global_this = nullptr;
 
     void trace(Tracer&) override;
     std::size_t size_in_bytes() const override
@@ -208,6 +213,11 @@ public:
     Intrinsics const& intrinsics() const { return m_realm->intrinsics; }
     Intrinsics& intrinsics() { return m_realm->intrinsics; }
     Object* global() const { return m_realm->intrinsics.global; }
+    // The current realm's [[GlobalThisValue]].
+    Object* global_this() const { return m_realm->global_this ? m_realm->global_this : m_realm->intrinsics.global; }
+    // Gives a realm its [[GlobalThisValue]], and `globalThis` on its global
+    // object names it too.
+    void set_global_this(RealmRecord&, Object*);
     RealmRecord* current_realm() const { return m_realm; }
     // The GlobalSymbolRegistry (§20.4.2.2), one for every realm here: an
     // ordinary object no script can reach, mapping each key to its symbol.

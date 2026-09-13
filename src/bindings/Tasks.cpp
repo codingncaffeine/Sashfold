@@ -252,7 +252,7 @@ void install_message_channel(Realm::Internals& in)
         }
         bool const to_itself = &sender == &target;
         auto payload = std::make_shared<js::Persistent>(interp.heap(), data);
-        auto source = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(sender.realm_record->intrinsics.global));
+        auto source = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(sender.window_proxy()));
         target.post_task([&target, payload, source, required, sender_origin, to_itself] {
             if (required) {
                 // An opaque origin matches nothing but the window itself.
@@ -261,7 +261,7 @@ void install_message_channel(Realm::Internals& in)
                 if (opaque ? !to_itself : *required != own)
                     return;
             }
-            deliver_message(target, target.realm_record->intrinsics.global, payload->value(), sender_origin, source->value());
+            deliver_message(target, target.window_proxy(), payload->value(), sender_origin, source->value());
         });
         return js::Value::undefined();
     });

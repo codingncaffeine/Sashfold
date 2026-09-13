@@ -190,5 +190,31 @@ int main()
         CHECK(in.incumbent_realm() == a);
     }
 
+    // A realm whose host gives it a [[GlobalThisValue]] of its own: `this` in
+    // its global code, in its sloppy functions called with none — from
+    // another realm too — and through an indirect eval, and `globalThis`, are
+    // that object, while the names global code declares stay on the global
+    // object.
+    {
+        js::RealmRecord* const hosted = in.create_realm();
+        js::Object* const stands_for = in.new_object(hosted->intrinsics.object_prototype);
+        in.root(js::Value::object(stands_for));
+        in.set_global_this(*hosted, stands_for);
+        stands_for->put(in.key("marker"), js::Value::number(1));
+        a->intrinsics.global->put(in.key("hosted"), js::Value::object(hosted->intrinsics.global));
+        {
+            js::Interpreter::RealmScope const inside(in, hosted);
+            CHECK_JS_TRUE(in, "this.marker === 1");
+            CHECK_JS_TRUE(in, "globalThis === this");
+            CHECK_JS_TRUE(in, "(function () { return this; })() === globalThis");
+            CHECK_JS_TRUE(in, "(0, eval)('this') === globalThis && Function('return this')() === globalThis");
+            CHECK_JS_TRUE(in, "(function () { 'use strict'; return this; })() === undefined");
+            CHECK_JS_TRUE(in, "var declared = 2; function sloppyThis() { return this; } declared === 2 && globalThis.declared === undefined");
+        }
+        CHECK(in.current_realm() == a);
+        CHECK_JS_TRUE(in, "var calledBare = hosted.sloppyThis; calledBare().marker === 1 && hosted.sloppyThis.call(undefined) === hosted.globalThis");
+        CHECK_JS_TRUE(in, "hosted.declared === 2 && globalThis === this && this.hosted === hosted");
+    }
+
     return test::report("js realm");
 }

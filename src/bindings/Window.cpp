@@ -645,6 +645,13 @@ public:
         std::string const name = key.is_index() ? std::to_string(key.as_index()) : key.as_atom()->to_utf8();
         if (name.empty())
             return std::nullopt;
+        // A frame of the document by its name comes first, as its WindowProxy
+        // (HTML §7.2.2.3, the child navigables' target names).
+        for (ChildFrame const* const child : child_navigables(internals())) {
+            Realm::Internals& frame = child->realm->internals();
+            if (frame.window_name == name)
+                return js::PropertyDescriptor::data(js::Value::object(frame.window_proxy()), js::Writable | js::Configurable);
+        }
         std::vector<dom::Node*> found;
         collect_named(internals().document, name, found);
         if (found.empty())
@@ -683,19 +690,15 @@ private:
     mutable js::Value m_last_collection;
 };
 
-// The realm `steps` frames up from this one, for as far as the frames share
-// its origin: a parent of another origin is not reached until a window proxy
-// guards what may be read of it.
-Realm::Internals& same_origin_up(Realm::Internals& from, int steps)
+// A [Replaceable] attribute's setter (WebIDL §3.7.6): the window gets a data
+// property of its own by that name, in the accessor's place.
+js::NativeFunction::Callback replaceable(std::string_view name)
 {
-    Realm::Internals* at = &from;
-    std::string const own = from.origin_url.serialize_origin();
-    for (int step = 0; step < steps && at->parent_realm != nullptr; ++step) {
-        if (own == "null" || at->parent_realm->origin_url.serialize_origin() != own)
-            break;
-        at = at->parent_realm;
-    }
-    return *at;
+    std::string const property(name);
+    return [property](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        interp.global()->put(interp.key(property), js::argument(args, 0), js::default_attributes);
+        return js::Value::undefined();
+    };
 }
 
 } // namespace
@@ -707,29 +710,68 @@ void install_window(Realm::Internals& in)
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
     js::Object* global = interpreter.global();
-    in.prototypes["Window"] = global;
-    global->set_prototype(interpreter.heap().allocate<WindowNamedProperties>(global->prototype(), *in.realm_record));
+    // The window's prototype chain (WebIDL §3.7.4, HTML §7.2.2.3): the window,
+    // Window.prototype, the named properties object, EventTarget.prototype,
+    // Object.prototype. Window's members are the window's own, as a [Global]
+    // interface's are; Window.prototype holds its constructor and its tag.
+    js::Object* const window_proto = define_interface(in, "Window", nullptr);
+    window_proto->set_prototype(interpreter.heap().allocate<WindowNamedProperties>(in.prototype("EventTarget"), *in.realm_record));
+    global->set_prototype(window_proto);
 
-    // window, self and frames are the window (its indexed frames are not
-    // written); parent and top walk up the frames it is shown in, for as far
-    // as they share its origin.
-    for (std::string_view const name : { "window", "self", "frames" })
-        define_getter(in, *global, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.global()); });
-    define_getter(in, *global, "parent", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return js::Value::object(same_origin_up(internals_of(interp), 1).realm_record->intrinsics.global);
-    });
+    // window, self and frames are the window's WindowProxy; parent and top
+    // the WindowProxy of the window its frame is in and of the frame tree's
+    // top, whatever their origin, or null once its frame is gone (HTML
+    // §7.2.2). length counts its document's frames, which the WindowProxy
+    // shows by index.
+    js::NativeFunction::Callback const window_proxy = [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        return js::Value::object(interp.global_this());
+    };
+    define_getter(in, *global, "window", window_proxy);
+    define_getter(in, *global, "self", window_proxy, replaceable("self"));
+    define_getter(in, *global, "frames", window_proxy, replaceable("frames"));
+    define_getter(
+        in, *global, "parent",
+        [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            if (internals.ended || internals.discarded)
+                return js::Value::null();
+            return js::Value::object(internals.parent_realm ? internals.parent_realm->window_proxy() : internals.window_proxy());
+        },
+        replaceable("parent"));
     define_getter(in, *global, "top", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return js::Value::object(same_origin_up(internals_of(interp), 10).realm_record->intrinsics.global);
+        Realm::Internals* at = &internals_of(interp);
+        if (at->ended || at->discarded)
+            return js::Value::null();
+        while (at->parent_realm != nullptr)
+            at = at->parent_realm;
+        return js::Value::object(at->window_proxy());
     });
     define_getter(in, *global, "document", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         return js::Value::object(internals.wrap(internals.document));
     });
-    global->put(interpreter.key("name"), in.string(""), js::default_attributes);
+    define_getter(
+        in, *global, "name", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string(internals_of(interp).window_name); },
+        [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            std::optional<std::string> const text = internals_of(interp).to_utf8(js::argument(args, 0));
+            if (!text)
+                return std::nullopt;
+            internals_of(interp).window_name = *text;
+            return js::Value::undefined();
+        });
     global->put(interpreter.key("status"), in.string(""), js::default_attributes);
-    global->put(interpreter.key("closed"), js::Value::boolean(false), js::builtin_attributes);
-    global->put(interpreter.key("length"), js::Value::number(0), js::builtin_attributes);
-    global->put(interpreter.key("opener"), js::Value::null(), js::default_attributes);
+    define_getter(in, *global, "closed", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals const& internals = internals_of(interp);
+        return js::Value::boolean(internals.ended || internals.discarded);
+    });
+    define_getter(
+        in, *global, "length",
+        [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            return js::Value::number(static_cast<double>(child_navigables(internals_of(interp)).size()));
+        },
+        replaceable("length"));
+    define_getter(
+        in, *global, "opener", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); }, replaceable("opener"));
     define_getter(in, *global, "frameElement", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         // The iframe this window is shown in, as its own document's realm
         // wraps it, when that document has this one's origin.
@@ -1000,40 +1042,57 @@ void install_window(Realm::Internals& in)
         return js::Value::object(selection);
     });
 
-    // Location.
+    // Location (HTML §7.10): every member is the object's own and
+    // unforgeable, and runs as the window whose Location `this` is, after the
+    // security check, which the href setter and replace skip — another origin
+    // may navigate a window. To another origin the object is exotic.
     js::Object* location_proto = define_interface(in, "Location", nullptr);
-    for (std::string_view const part : { "href", "protocol", "host", "hostname", "port", "pathname", "search", "hash", "origin", "username", "password" }) {
+    js::Object* location_members = interpreter.new_object(location_proto);
+    for (std::string_view const part : { "href", "origin", "protocol", "host", "hostname", "port", "pathname", "search", "hash" }) {
         std::string const part_name(part);
-        bool const settable = part != "origin";
-        define_getter(
-            in, *location_proto, part,
-            [part_name](js::Interpreter& interp, js::Value const&, Args) -> Native {
-                return internals_of(interp).string(url_part(internals_of(interp).url, part_name));
-            },
-            settable ? js::NativeFunction::Callback([part_name](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-                return set_url_part(interp, part_name, js::argument(args, 0));
-            })
-                     : js::NativeFunction::Callback());
+        js::NativeFunction* const getter = interpreter.new_native("get " + part_name, 0,
+            location_member(
+                [part_name](js::Interpreter& interp, js::Value const&, Args) -> Native {
+                    return internals_of(interp).string(url_part(internals_of(interp).url, part_name));
+                },
+                false));
+        js::NativeFunction* const setter = part == "origin" ? nullptr
+                                                            : interpreter.new_native("set " + part_name, 1,
+                                                                  location_member(
+                                                                      [part_name](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+                                                                          return set_url_part(interp, part_name, js::argument(args, 0));
+                                                                      },
+                                                                      part == "href"));
+        location_members->put_accessor(interpreter.key(part), getter, setter, js::Enumerable);
     }
-    js::define_method(interpreter, *location_proto, "toString", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return internals_of(interp).string(internals_of(interp).url.serialize());
-    });
-    js::define_method(interpreter, *location_proto, "assign", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    auto const location_method = [&interpreter, location_members](std::string_view name, int length, bool shown, js::NativeFunction::Callback callback) {
+        js::NativeFunction* const function = interpreter.new_native(name, length, location_member(std::move(callback), shown));
+        location_members->put(interpreter.key(name), js::Value::object(function), js::Enumerable);
+    };
+    location_method("assign", 1, false, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         return set_url_part(interp, "href", js::argument(args, 0));
     });
-    js::define_method(interpreter, *location_proto, "replace", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    location_method("replace", 1, true, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         return set_url_part(interp, "href", js::argument(args, 0));
     });
-    js::define_method(interpreter, *location_proto, "reload", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    location_method("reload", 0, false, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         if (internals.hooks.navigate)
             internals.hooks.navigate(internals.url);
         return js::Value::undefined();
     });
-    define_getter(in, *location_proto, "ancestorOrigins", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return js::Value::object(interp.new_array());
+    location_method("toString", 0, false, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        return internals_of(interp).string(internals_of(interp).url.serialize());
     });
-    in.location = interpreter.new_object(location_proto);
+    location_members->put_accessor(interpreter.key("ancestorOrigins"),
+        interpreter.new_native("get ancestorOrigins", 0,
+            location_member([](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); }, false)),
+        nullptr, js::Enumerable);
+    // valueOf and @@toPrimitive, which every Location is made with.
+    std::optional<js::PropertyDescriptor> const value_of = interpreter.intrinsics().object_prototype->get_own_property(interpreter.key("valueOf"));
+    location_members->put(interpreter.key("valueOf"), value_of && value_of->value ? *value_of->value : js::Value::undefined(), 0);
+    location_members->put(js::PropertyKey::symbol(interpreter.atoms().symbol_to_primitive), js::Value::undefined(), 0);
+    in.location = interpreter.heap().allocate<LocationObject>(*location_members, *in.realm_record);
     define_getter(
         in, *global, "location", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(internals_of(interp).location); },
         [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_url_part(interp, "href", js::argument(args, 0)); });

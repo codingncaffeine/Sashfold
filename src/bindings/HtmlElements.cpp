@@ -922,15 +922,18 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_attribute(internals, e, "sandbox", std::move(*text));
                 return js::Value::undefined();
             });
-        // A frame's window and document, when its document has a realm here
-        // and this document's origin; null otherwise.
+        // A frame's WindowProxy, whatever its document's origin, and its
+        // document, when that has the origin of the script asking (HTML
+        // §4.8.5); null when the iframe has no document here.
         element_getter(in, iframe, "contentWindow", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            ChildFrame const* const frame_entry = internals.frame_of(e);
-            return frame_entry ? js::Value::object(frame_entry->realm->window()) : js::Value::null();
+            Realm* const frame = internals.realm.frame_realm(e);
+            return frame ? js::Value::object(frame->internals().window_proxy()) : js::Value::null();
         });
         element_getter(in, iframe, "contentDocument", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            ChildFrame const* const frame_entry = internals.frame_of(e);
-            return frame_entry ? js::Value::object(frame_entry->realm->wrap(*frame_entry->document)) : js::Value::null();
+            Realm* const frame = internals.realm.frame_realm(e);
+            if (!frame || !is_platform_object_same_origin(internals.interpreter, *frame->internals().realm_record))
+                return js::Value::null();
+            return js::Value::object(frame->wrap(frame->document()));
         });
         for (std::string_view const name : { "HTMLEmbedElement", "HTMLObjectElement" }) {
             js::Object& proto = proto_of(name);

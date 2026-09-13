@@ -393,6 +393,8 @@ public:
     bool is_constructor() const override { return static_cast<bool>(m_construct); }
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
+    // What a call runs, for a host that puts a function of its own in front.
+    Callback const& callback() const { return m_call; }
 
 private:
     Callback m_call;
@@ -1007,15 +1009,20 @@ public:
     // throw throughout; for get_own_property the inner optional is "no
     // such property", and for get_prototype_of a contained null is the
     // null prototype.
-    std::optional<Object*> get_prototype_of(Interpreter&);
-    std::optional<bool> set_prototype_of(Interpreter&, Object* prototype);
-    std::optional<bool> is_extensible(Interpreter&);
-    std::optional<bool> prevent_extensions(Interpreter&);
-    std::optional<std::optional<PropertyDescriptor>> get_own_property(Interpreter&, PropertyKey const&);
-    std::optional<bool> define_own_property(Interpreter&, PropertyKey const&, PropertyDescriptor const&);
-    std::optional<bool> has_property(Interpreter&, PropertyKey const&);
-    std::optional<bool> delete_property(Interpreter&, PropertyKey const&);
-    std::optional<std::vector<PropertyKey>> own_keys(Interpreter&);
+    //
+    // They are virtual for a host's exotic objects whose internal methods
+    // also run code and throw — a browser's WindowProxy and Location — which
+    // derive from this class to be routed the same way, and override every
+    // one of them.
+    virtual std::optional<Object*> get_prototype_of(Interpreter&);
+    virtual std::optional<bool> set_prototype_of(Interpreter&, Object* prototype);
+    virtual std::optional<bool> is_extensible(Interpreter&);
+    virtual std::optional<bool> prevent_extensions(Interpreter&);
+    virtual std::optional<std::optional<PropertyDescriptor>> get_own_property(Interpreter&, PropertyKey const&);
+    virtual std::optional<bool> define_own_property(Interpreter&, PropertyKey const&, PropertyDescriptor const&);
+    virtual std::optional<bool> has_property(Interpreter&, PropertyKey const&);
+    virtual std::optional<bool> delete_property(Interpreter&, PropertyKey const&);
+    virtual std::optional<std::vector<PropertyKey>> own_keys(Interpreter&);
 
     // [[Get]], [[Set]], [[Call]] and [[Construct]] already take the
     // interpreter on Object and Function, so the override IS the trap.
@@ -1035,6 +1042,16 @@ public:
     std::vector<PropertyKey> own_keys() const override;
 
     void trace(Tracer&) override;
+
+protected:
+    // For a host's exotic object that stands for a different object from
+    // one moment to the next (a WindowProxy, when its frame navigates): the
+    // one it forwards to, which is also its handler, never a real one.
+    void retarget(Object* target)
+    {
+        m_target = target;
+        m_handler = target;
+    }
 
 private:
     Object* m_target;

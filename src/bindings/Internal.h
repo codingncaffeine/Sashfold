@@ -323,6 +323,167 @@ struct Task {
     std::function<void()> run;
 };
 
+// An origin as the cross-origin rules compare them (HTML §7.1.1, "same
+// origin-domain"): its serialization, "null" for an opaque one; its scheme;
+// and the domain document.domain gave its document, if it did.
+struct OriginSnapshot {
+    std::string serialized;
+    std::string scheme;
+    std::optional<std::string> domain;
+};
+
+struct ChildFrame;
+
+// One member a window or a location shows a script of another origin (HTML
+// §7.2.3.2, CrossOriginProperties): a method, or an accessor with a getter,
+// a setter or both.
+struct CrossOriginProperty {
+    std::string_view name;
+    bool method = false;
+    bool needs_get = false;
+    bool needs_set = false;
+    int length = 0; // a method's
+};
+
+// An entry of [[CrossOriginPropertyDescriptorMap]] (HTML §7.2.3.1): the
+// property one realm was shown for one member of one window or location, so
+// that the same realm asking again is shown the same functions.
+struct CrossOriginEntry {
+    js::RealmRecord* current = nullptr;
+    js::RealmRecord* object_realm = nullptr;
+    std::string_view name;
+    js::PropertyDescriptor descriptor;
+};
+
+// What WindowProxy and Location share: every internal method asks first
+// whether the script running has the origin of the window behind the object
+// (HTML §7.2.3), forwarding to what the object stands for when it does, and
+// showing CrossOriginProperties alone when it does not. Both derive from the
+// engine's proxy so that the interpreter routes their throwing internal
+// methods as it routes a Proxy's; the target stands in as the handler, and
+// no trap ever runs.
+class CrossOriginObject : public js::ProxyObject {
+public:
+    CrossOriginObject(js::Object& target, js::RealmRecord& window_realm);
+    // The realm of the window behind the object, the one the rules judge.
+    js::RealmRecord& record() const { return *m_record; }
+
+    using js::ProxyObject::get_own_property;
+    using js::ProxyObject::define_own_property;
+    using js::ProxyObject::has_property;
+    using js::ProxyObject::delete_property;
+    using js::ProxyObject::own_keys;
+    // OrdinaryHasProperty (§10.1.7.1) over the internal methods, which throw.
+    std::optional<bool> has_property(js::Interpreter&, js::PropertyKey const&) override;
+    void trace(js::Tracer&) override;
+
+protected:
+    virtual std::span<CrossOriginProperty const> cross_origin_properties() const = 0;
+    // A member's property as the window or location was made with it.
+    virtual std::optional<js::PropertyDescriptor> original_member(js::Interpreter&, std::string_view name) const = 0;
+    // CrossOriginGetOwnPropertyHelper, CrossOriginGet, CrossOriginSet,
+    // CrossOriginOwnPropertyKeys and CrossOriginPropertyFallback (HTML
+    // §7.2.3.4 to §7.2.3.7).
+    std::optional<js::PropertyDescriptor> cross_origin_property(js::Interpreter&, js::PropertyKey const&);
+    std::optional<js::Value> cross_origin_get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver);
+    std::optional<bool> cross_origin_set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver);
+    std::vector<js::PropertyKey> cross_origin_keys(js::Interpreter&) const;
+    static std::optional<std::optional<js::PropertyDescriptor>> cross_origin_fallback(js::Interpreter&, js::PropertyKey const&);
+
+    js::RealmRecord* m_record;
+    std::vector<CrossOriginEntry> m_cross_origin;
+};
+
+// The WindowProxy exotic object (HTML §7.2.3.3): what every script holds for
+// a window — `window`, `globalThis`, an iframe's contentWindow, a message's
+// source. It stands for the window of its frame's current document, the same
+// proxy before and after the frame goes on to another, and shows a script of
+// another origin that window's frames, by index and by name, and its
+// CrossOriginProperties, nothing more.
+class WindowProxyObject final : public CrossOriginObject {
+public:
+    explicit WindowProxyObject(js::RealmRecord& window_realm);
+    js::Object& window() const { return *target(); }
+    Realm::Internals& internals() const;
+    // Its frame has gone on to another document: that document's window.
+    void stand_for(js::RealmRecord& window_realm);
+
+    using CrossOriginObject::get_own_property;
+    using CrossOriginObject::define_own_property;
+    using CrossOriginObject::has_property;
+    using CrossOriginObject::delete_property;
+    using CrossOriginObject::own_keys;
+    std::optional<js::Object*> get_prototype_of(js::Interpreter&) override;
+    std::optional<bool> set_prototype_of(js::Interpreter&, js::Object* prototype) override;
+    std::optional<bool> is_extensible(js::Interpreter&) override;
+    std::optional<bool> prevent_extensions(js::Interpreter&) override;
+    std::optional<std::optional<js::PropertyDescriptor>> get_own_property(js::Interpreter&, js::PropertyKey const&) override;
+    std::optional<bool> define_own_property(js::Interpreter&, js::PropertyKey const&, js::PropertyDescriptor const&) override;
+    std::optional<bool> delete_property(js::Interpreter&, js::PropertyKey const&) override;
+    std::optional<std::vector<js::PropertyKey>> own_keys(js::Interpreter&) override;
+    std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
+    std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
+
+protected:
+    std::span<CrossOriginProperty const> cross_origin_properties() const override;
+    std::optional<js::PropertyDescriptor> original_member(js::Interpreter&, std::string_view name) const override;
+
+private:
+    // A frame of the window's document by its index: its WindowProxy.
+    std::optional<js::PropertyDescriptor> child_window(js::PropertyKey const&) const;
+};
+
+// A Location object (HTML §7.10): its members are its own and unforgeable,
+// kept on the object it forwards to, and to a script of another origin it is
+// exotic the way a WindowProxy is, showing its href setter and replace.
+class LocationObject final : public CrossOriginObject {
+public:
+    LocationObject(js::Object& members, js::RealmRecord& window_realm);
+
+    using CrossOriginObject::get_own_property;
+    using CrossOriginObject::define_own_property;
+    using CrossOriginObject::has_property;
+    using CrossOriginObject::delete_property;
+    using CrossOriginObject::own_keys;
+    std::optional<js::Object*> get_prototype_of(js::Interpreter&) override;
+    std::optional<bool> set_prototype_of(js::Interpreter&, js::Object* prototype) override;
+    std::optional<bool> is_extensible(js::Interpreter&) override;
+    std::optional<bool> prevent_extensions(js::Interpreter&) override;
+    std::optional<std::optional<js::PropertyDescriptor>> get_own_property(js::Interpreter&, js::PropertyKey const&) override;
+    std::optional<bool> define_own_property(js::Interpreter&, js::PropertyKey const&, js::PropertyDescriptor const&) override;
+    std::optional<bool> delete_property(js::Interpreter&, js::PropertyKey const&) override;
+    std::optional<std::vector<js::PropertyKey>> own_keys(js::Interpreter&) override;
+    std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
+    std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
+    void trace(js::Tracer&) override;
+
+protected:
+    std::span<CrossOriginProperty const> cross_origin_properties() const override;
+    std::optional<js::PropertyDescriptor> original_member(js::Interpreter&, std::string_view name) const override;
+
+private:
+    bool is_default_property(js::PropertyKey const&) const;
+    std::vector<js::PropertyKey> m_default_properties; // [[DefaultProperties]]
+};
+
+WindowProxyObject* as_window_proxy(js::Value const&);
+LocationObject* as_location(js::Value const&);
+// IsPlatformObjectSameOrigin (HTML §7.2.3.2): whether the current realm's
+// origin is same origin-domain with the origin of a window's realm.
+bool is_platform_object_same_origin(js::Interpreter&, js::RealmRecord const& window_realm);
+// The SecurityError a script of another origin meets.
+std::optional<js::Value> throw_security_error(js::Interpreter&);
+// The frames of a window's document that have windows here, in tree order
+// (the document-tree child navigables).
+std::vector<ChildFrame const*> child_navigables(Realm::Internals const&);
+// A Location member behind the object it is called on, as that object's
+// window runs it, with the security check unless another origin may call it.
+js::NativeFunction::Callback location_member(js::NativeFunction::Callback, bool shown_to_other_origins);
+// Puts every member the window's interfaces gave its global object behind
+// WebIDL's checks of `this` and HTML's security check, and gives the realm
+// its WindowProxy; `language_globals` are the names that were there before.
+void install_window_proxy(Realm::Internals&, std::vector<js::PropertyKey> const& language_globals);
+
 // An iframe's document with a realm of its own in its page's agent: the
 // policy, the document, and the Realm last, so that the Realm ends first;
 // and what the frame was opened from, as the painter keys it.
@@ -360,6 +521,10 @@ struct Agent {
     std::unique_ptr<dom::Document> stand_in_document;
     std::unique_ptr<Realm> stand_in;
     std::vector<ChildFrame> closing;
+    // The origin each ended realm had, by its record: a script may still hold
+    // that window's WindowProxy or Location, and the cross-origin rules go on
+    // judging them by the origin they had rather than the stand-in's.
+    std::unordered_map<js::RealmRecord const*, OriginSnapshot> ended_origins;
 };
 
 struct Realm::Internals {
@@ -384,17 +549,57 @@ struct Realm::Internals {
     Internals* parent_realm = nullptr;
     dom::Element* frame_element = nullptr;
     bool ended = false; // the agent's stand-in: no task or timer of its runs
+    // A frame's window whose frame has closed, or has gone on to another
+    // document: closed, and with no parent or top (HTML §7.2.2).
+    bool discarded = false;
+    // The domain document.domain gave this document's origin, which the
+    // cross-origin rules compare (HTML §7.1.3); none until a script sets it.
+    // An about:blank or srcdoc document has its parent's origin itself, not a
+    // copy ("determining the origin", HTML §7.4.1), so the two share this: a
+    // domain either of them sets is the other's too.
+    class OriginDomain {
+    public:
+        std::string value_or(std::string fallback) const { return m_value->value_or(std::move(fallback)); }
+        explicit operator bool() const { return m_value->has_value(); }
+        OriginDomain& operator=(std::string value)
+        {
+            *m_value = std::move(value);
+            return *this;
+        }
+        std::optional<std::string> const& get() const { return *m_value; }
+        void share(OriginDomain const& parent) { m_value = parent.m_value; }
+
+    private:
+        std::shared_ptr<std::optional<std::string>> m_value = std::make_shared<std::optional<std::string>>();
+    };
+    OriginDomain domain;
+    std::string window_name; // window.name, the frame's name to its parent
     // The frames of this document that have realms, in the order they were
     // opened; after the agent, so that they end before it.
     std::vector<ChildFrame> child_frames;
+    // The WindowProxy of each iframe's frame here: one for as long as the
+    // iframe stays in the tree, following it from document to document.
+    std::unordered_map<dom::Element const*, WindowProxyObject*> navigables;
+    // The window's members another origin may reach, as they were installed
+    // (HTML §7.2.3.4): a script replacing one of its own (window.frames = …)
+    // does not change what another origin is shown.
+    std::unordered_map<std::string_view, js::PropertyDescriptor> cross_origin_members;
+    // The window's attributes that hold one object or value, behind their
+    // getters (history, navigator, the storages, a script's status).
+    std::unordered_map<std::string, js::Value> window_values;
+    // What scripts hold for this window, its WindowProxy; and whether an
+    // object is this window, the proxy or the global object behind it.
+    js::Object* window_proxy() const;
+    bool is_window(js::Object const*) const;
     // Opens an iframe's document in a realm of its own here, when the host
     // answers for it, its mutation count starting past `mutations_from`; and
     // the frame of an iframe, when it has this origin.
     void open_frame(dom::Element& iframe, std::uint64_t mutations_from = 0);
     ChildFrame const* frame_of(dom::Element const& iframe) const;
     // Closes an iframe's frame here: its loop work erased, its window gone
-    // at once, its realm ended at the agent's next safe point.
-    void close_frame(dom::Element const& iframe);
+    // at once, its realm ended at the agent's next safe point. A frame that
+    // navigates keeps its WindowProxy for the document it opens next.
+    void close_frame(dom::Element const& iframe, bool keep_window_proxy = false);
     // The realm of a document in this agent, found from the page down; null
     // for a document none of them owns.
     Internals* realm_of(dom::Document const& document);

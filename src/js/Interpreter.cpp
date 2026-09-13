@@ -231,7 +231,7 @@ std::optional<Value> Interpreter::Impl::resolve_this(Environment* environment)
             return e->this_value();
         }
     }
-    return Value::object(self.global());
+    return Value::object(self.global_this());
 }
 
 
@@ -582,12 +582,12 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
             // A derived constructor's `this` waits for super() (§10.2.1.1).
             variable->set_this_uninitialized();
         } else {
-            // OrdinaryCallBindThis: sloppy code sees the global object for
-            // a nullish `this` and a wrapper for a primitive one.
+            // OrdinaryCallBindThis: sloppy code sees its realm's global
+            // `this` for a nullish `this` and a wrapper for a primitive one.
             Value this_value = this_argument;
             if (!node.is_strict) {
                 if (this_value.is_nullish()) {
-                    this_value = Value::object(self.global());
+                    this_value = Value::object(self.global_this());
                 } else if (!this_value.is_object()) {
                     std::optional<Object*> const boxed = self.to_object(this_value);
                     if (!boxed)
@@ -2111,9 +2111,20 @@ void Interpreter::release_realm(RealmRecord* realm)
     std::erase(m_realms, realm);
 }
 
+void Interpreter::set_global_this(RealmRecord& realm, Object* value)
+{
+    realm.global_this = value;
+    Object* const global = realm.intrinsics.global;
+    // The global environment record's binding for `this` in global code and
+    // in an indirect eval, and the property.
+    realm.intrinsics.global_environment->set_this(Value::object(value ? value : global));
+    global->put(key("globalThis"), Value::object(value ? value : global), builtin_attributes);
+}
+
 void RealmRecord::trace(Tracer& tracer)
 {
     Intrinsics const& i = intrinsics;
+    tracer.visit(global_this);
     tracer.visit(i.global);
     tracer.visit(i.global_environment);
     tracer.visit(i.object_prototype);
