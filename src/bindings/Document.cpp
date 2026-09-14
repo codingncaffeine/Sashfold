@@ -555,8 +555,8 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         event->initialized = false;
         return js::Value::object(event);
     });
-    document_method(in, *document, "createRange", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return internals.throw_dom_exception("NotSupportedError", "Ranges are not supported");
+    document_method(in, *document, "createRange", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
+        return new_range(internals, d);
     });
     document_method(in, *document, "createTreeWalker", 1, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return internals.throw_dom_exception("NotSupportedError", "Tree walkers are not supported");

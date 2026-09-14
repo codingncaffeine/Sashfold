@@ -243,9 +243,8 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
 
 } // namespace
 
-Native pre_insert(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::Node* child)
+Native ensure_pre_insertion_validity(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::Node* child, bool replacing)
 {
-    // Ensure pre-insertion validity (§4.2.3).
     dom::NodeType const parent_type = parent.type();
     if (parent_type != dom::NodeType::Document && parent_type != dom::NodeType::DocumentFragment && parent_type != dom::NodeType::Element)
         return in.throw_dom_exception("HierarchyRequestError", "This node type does not support this method");
@@ -259,6 +258,48 @@ Native pre_insert(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom:
         return in.throw_dom_exception("HierarchyRequestError", "Nodes of type '#text' may not be inserted inside nodes of type '#document'");
     if (node.type() == dom::NodeType::DocumentType && parent_type != dom::NodeType::Document)
         return in.throw_dom_exception("HierarchyRequestError", "Nodes of type 'DocumentType' may not be inserted inside nodes of this type");
+    // A document holds one element and one doctype, the doctype first.
+    if (parent_type == dom::NodeType::Document) {
+        auto const& siblings = parent.children();
+        auto const is_element = [](dom::Node const* candidate) { return candidate->is_element(); };
+        auto const is_doctype = [](dom::Node const* candidate) { return candidate->type() == dom::NodeType::DocumentType; };
+        // The child a replacement takes the place of does not count.
+        auto const other_than_replaced = [&](dom::Node const* candidate) { return !(replacing && candidate == child); };
+        bool const has_element = std::any_of(siblings.begin(), siblings.end(),
+            [&](dom::Node const* candidate) { return is_element(candidate) && other_than_replaced(candidate); });
+        auto const child_at = child ? std::find(siblings.begin(), siblings.end(), child) : siblings.end();
+        bool const doctype_after_child = child && child_at != siblings.end() && std::any_of(child_at + 1, siblings.end(), is_doctype);
+        bool const child_is_doctype = !replacing && child && child->type() == dom::NodeType::DocumentType;
+        bool refused = false;
+        switch (node.type()) {
+        case dom::NodeType::DocumentFragment: {
+            auto const& inserted = node.children();
+            auto const elements = std::count_if(inserted.begin(), inserted.end(), is_element);
+            bool const text = std::any_of(inserted.begin(), inserted.end(), [](dom::Node const* candidate) { return candidate->is_text(); });
+            refused = elements > 1 || text || (elements == 1 && (has_element || child_is_doctype || doctype_after_child));
+            break;
+        }
+        case dom::NodeType::Element:
+            refused = has_element || child_is_doctype || doctype_after_child;
+            break;
+        case dom::NodeType::DocumentType:
+            refused = std::any_of(siblings.begin(), siblings.end(),
+                          [&](dom::Node const* candidate) { return is_doctype(candidate) && other_than_replaced(candidate); })
+                || (child && std::any_of(siblings.begin(), child_at, is_element)) || (!child && has_element);
+            break;
+        default:
+            break;
+        }
+        if (refused)
+            return in.throw_dom_exception("HierarchyRequestError", "A document holds one element and one doctype, the doctype first");
+    }
+    return js::Value::undefined();
+}
+
+Native pre_insert(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::Node* child)
+{
+    if (!ensure_pre_insertion_validity(in, parent, node, child))
+        return std::nullopt;
     dom::Node* reference = child;
     if (reference == &node)
         reference = next_sibling_of(node);
@@ -287,7 +328,7 @@ void remove_node(Realm::Internals& in, dom::Node& node)
     in.realm.note_mutation();
 }
 
-std::vector<dom::Node*> parse_markup(Realm::Internals& in, dom::Element& context, std::string_view markup)
+std::vector<dom::Node*> parse_markup(Realm::Internals& in, dom::Element& context, std::string_view markup, bool scripts_started)
 {
     html::FragmentParseResult result = html::parse_fragment(decode_utf8(markup), context.namespace_uri(),
         context.local_name(), true);
@@ -297,11 +338,13 @@ std::vector<dom::Node*> parse_markup(Realm::Internals& in, dom::Element& context
     children = result.root->children();
     for (dom::Node* child : children) {
         // Scripts created by the fragment parser are already started and
-        // never run (§13.4).
-        std::vector<dom::Element*> scripts;
-        collect_scripts(*child, scripts);
-        for (dom::Element* script : scripts)
-            in.started_scripts.insert(script);
+        // never run (§13.4), unless the caller unmarks them.
+        if (scripts_started) {
+            std::vector<dom::Element*> scripts;
+            collect_scripts(*child, scripts);
+            for (dom::Element* script : scripts)
+                in.started_scripts.insert(script);
+        }
         context.document().adopt(*child); // detaches from the parse root too
     }
     return children;
@@ -440,8 +483,6 @@ js::Value make_rect(Realm::Internals& in, double x, double y, double width, doub
     return js::Value::object(rect);
 }
 
-namespace {
-
 // --- Argument helpers ---------------------------------------------------------------------
 
 // A node argument, or a TypeError naming the parameter.
@@ -454,6 +495,8 @@ std::optional<dom::Node*> node_argument(Realm::Internals& in, Args args, std::si
             + std::to_string(index + 1) + " is not of type 'Node'");
     return &wrapper->node();
 }
+
+namespace {
 
 // A node, or null/undefined.
 std::optional<dom::Node*> node_or_null_argument(Realm::Internals& in, Args args, std::size_t index, std::string_view method)
@@ -643,14 +686,13 @@ std::optional<std::pair<dom::Node*, dom::Node*>> adjacent_position(Realm::Intern
     return std::nullopt;
 }
 
-// Text (CDATA sections too), Comment and ProcessingInstruction: the nodes
-// with data (DOM §4.10).
+} // namespace
+
 bool is_character_data(dom::Node const& node)
 {
     return node.is_text() || node.type() == dom::NodeType::Comment || node.type() == dom::NodeType::ProcessingInstruction;
 }
 
-// The data of a node is_character_data() accepts.
 std::string const& character_data(dom::Node const& node)
 {
     if (node.is_text())
@@ -665,8 +707,11 @@ std::u16string data_units(dom::Node const& node)
     return js::utf16_from_utf8(character_data(node));
 }
 
-void set_data(Realm::Internals& in, dom::Node& node, std::u16string_view units)
+void replace_data(Realm::Internals& in, dom::Node& node, std::size_t offset, std::size_t count, std::u16string_view data)
 {
+    std::u16string units = data_units(node);
+    count = std::min(count, units.size() - offset);
+    units.replace(offset, count, data);
     std::string utf8 = js::utf8_from_utf16(units);
     if (node.is_text())
         static_cast<dom::Text&>(node).data = std::move(utf8);
@@ -674,8 +719,30 @@ void set_data(Realm::Internals& in, dom::Node& node, std::u16string_view units)
         static_cast<dom::ProcessingInstruction&>(node).data = std::move(utf8);
     else
         static_cast<dom::Comment&>(node).data = std::move(utf8);
+    dom::ranges_data_replaced(node, static_cast<std::uint32_t>(offset), static_cast<std::uint32_t>(count), static_cast<std::uint32_t>(data.size()));
     in.realm.note_mutation();
 }
+
+void set_data(Realm::Internals& in, dom::Node& node, std::u16string_view units)
+{
+    replace_data(in, node, 0, data_units(node).size(), units);
+}
+
+dom::Text* split_text(Realm::Internals& in, dom::Text& node, std::size_t offset)
+{
+    std::u16string const units = data_units(node);
+    dom::Text* rest = node.document().create<dom::Text>();
+    rest->cdata_section = node.cdata_section;
+    rest->data = js::utf8_from_utf16(std::u16string_view(units).substr(offset));
+    if (dom::Node* parent = node.parent()) {
+        parent->insert_before(*rest, next_sibling_of(node));
+        dom::ranges_text_split(node, static_cast<std::uint32_t>(offset), *rest);
+    }
+    replace_data(in, node, offset, units.size() - offset, u"");
+    return rest;
+}
+
+namespace {
 
 // The GlobalEventHandlers set every element and the document expose.
 constexpr std::string_view global_event_types[] = {
@@ -821,8 +888,10 @@ void install_node(Realm::Internals& in, js::Object& node)
         std::optional<dom::Node*> const child = node_argument(internals, args, 1, "replaceChild");
         if (!replacement || !child)
             return std::nullopt;
-        if ((*child)->parent() != &n)
-            return internals.throw_dom_exception("NotFoundError", "The node to be replaced is not a child of this node");
+        // Everything is checked before the child is removed (DOM §4.2.3
+        // "replace").
+        if (!ensure_pre_insertion_validity(internals, n, **replacement, *child, true))
+            return std::nullopt;
         js::Interpreter::Roots const roots(internals.interpreter);
         js::Value const result = internals.interpreter.root(js::Value::object(internals.wrap(**child)));
         dom::Node* const reference = next_sibling_of(**child) == *replacement ? next_sibling_of(**replacement) : next_sibling_of(**child);
@@ -867,7 +936,9 @@ void install_node(Realm::Internals& in, js::Object& node)
         return js::Value::number(precedes_in_tree_order(o, n) ? 2 : 4);
     });
     node_method(in, node, "normalize", 0, [](Realm::Internals& internals, dom::Node& n, Args) -> Native {
-        // Only exclusive Text nodes are folded: a CDATA section stays.
+        // Only exclusive Text nodes are folded: a CDATA section stays (DOM
+        // §4.4). An empty one goes; any other takes in the data of those
+        // after it, and the live ranges in them.
         auto const exclusive_text = [](dom::Node const& candidate) {
             return candidate.is_text() && !static_cast<dom::Text const&>(candidate).cdata_section;
         };
@@ -877,15 +948,26 @@ void install_node(Realm::Internals& in, js::Object& node)
             if (!exclusive_text(*node_ptr) || !node_ptr->parent())
                 continue;
             auto& text = static_cast<dom::Text&>(*node_ptr);
-            // Fold the following text siblings into this one.
-            while (dom::Node* next = next_sibling_of(text)) {
-                if (!exclusive_text(*next))
-                    break;
-                text.data += static_cast<dom::Text&>(*next).data;
-                next->remove();
+            std::size_t length = data_units(text).size();
+            if (length == 0) {
+                remove_node(internals, text);
+                continue;
             }
-            if (text.data.empty())
-                text.remove();
+            std::vector<dom::Node*> following;
+            std::u16string folded;
+            for (dom::Node* next = next_sibling_of(text); next && exclusive_text(*next); next = next_sibling_of(*next)) {
+                following.push_back(next);
+                folded += data_units(*next);
+            }
+            if (following.empty())
+                continue;
+            replace_data(internals, text, length, 0, folded);
+            for (dom::Node* merged : following) {
+                dom::ranges_text_merged(text, *merged, static_cast<std::uint32_t>(length));
+                length += data_units(*merged).size();
+            }
+            for (dom::Node* merged : following)
+                remove_node(internals, *merged);
         }
         internals.realm.note_mutation();
         return js::Value::undefined();
@@ -1428,40 +1510,38 @@ void install_character_data(Realm::Internals& in, js::Object& character_data, js
         std::optional<std::string> const data = string_argument(internals, args, 0);
         if (!data)
             return std::nullopt;
-        set_data(internals, n, data_units(n) + js::utf16_from_utf8(*data));
+        replace_data(internals, n, data_units(n).size(), 0, js::utf16_from_utf8(*data));
         return js::Value::undefined();
     });
-    auto const replace_data = [](Realm::Internals& internals, dom::Node& n, double offset, double count, std::string_view data) -> Native {
-        std::u16string units = data_units(n);
-        auto const start = static_cast<std::size_t>(std::max(0.0, offset));
-        if (start > units.size())
+    // The offset and count are WebIDL unsigned longs.
+    auto const replace = [](Realm::Internals& internals, dom::Node& n, double offset, double count, std::string_view data) -> Native {
+        std::uint32_t const start = to_unsigned_long(offset);
+        if (start > data_units(n).size())
             return internals.throw_dom_exception("IndexSizeError", "The offset is larger than the node's length");
-        auto const length = std::min(static_cast<std::size_t>(std::max(0.0, count)), units.size() - start);
-        units.replace(start, length, js::utf16_from_utf8(data));
-        set_data(internals, n, units);
+        replace_data(internals, n, start, to_unsigned_long(count), js::utf16_from_utf8(data));
         return js::Value::undefined();
     };
-    node_method(in, character_data, "insertData", 2, [replace_data](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
+    node_method(in, character_data, "insertData", 2, [replace](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<double> const offset = internals.interpreter.to_number(js::argument(args, 0));
         std::optional<std::string> const data = string_argument(internals, args, 1);
         if (!offset || !data)
             return std::nullopt;
-        return replace_data(internals, n, *offset, 0, *data);
+        return replace(internals, n, *offset, 0, *data);
     });
-    node_method(in, character_data, "deleteData", 2, [replace_data](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
+    node_method(in, character_data, "deleteData", 2, [replace](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<double> const offset = internals.interpreter.to_number(js::argument(args, 0));
         std::optional<double> const count = internals.interpreter.to_number(js::argument(args, 1));
         if (!offset || !count)
             return std::nullopt;
-        return replace_data(internals, n, *offset, *count, "");
+        return replace(internals, n, *offset, *count, "");
     });
-    node_method(in, character_data, "replaceData", 3, [replace_data](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
+    node_method(in, character_data, "replaceData", 3, [replace](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<double> const offset = internals.interpreter.to_number(js::argument(args, 0));
         std::optional<double> const count = internals.interpreter.to_number(js::argument(args, 1));
         std::optional<std::string> const data = string_argument(internals, args, 2);
         if (!offset || !count || !data)
             return std::nullopt;
-        return replace_data(internals, n, *offset, *count, *data);
+        return replace(internals, n, *offset, *count, *data);
     });
     node_getter(in, text, "wholeText", [](Realm::Internals& internals, dom::Node& n) -> Native {
         // This text node with its contiguous text siblings.
@@ -1480,17 +1560,12 @@ void install_character_data(Realm::Internals& in, js::Object& character_data, js
         std::optional<double> const offset = internals.interpreter.to_number(js::argument(args, 0));
         if (!offset)
             return std::nullopt;
-        std::u16string const units = data_units(n);
-        auto const at = static_cast<std::size_t>(std::max(0.0, *offset));
-        if (at > units.size())
+        if (!n.is_text())
+            return internals.interpreter.throw_type_error("Illegal invocation");
+        std::uint32_t const at = to_unsigned_long(*offset);
+        if (at > data_units(n).size())
             return internals.throw_dom_exception("IndexSizeError", "The offset is larger than the node's length");
-        dom::Text* rest = n.document().create<dom::Text>();
-        rest->cdata_section = static_cast<dom::Text&>(n).cdata_section;
-        rest->data = js::utf8_from_utf16(std::u16string_view(units).substr(at));
-        set_data(internals, n, std::u16string_view(units).substr(0, at));
-        if (dom::Node* parent = n.parent())
-            parent->insert_before(*rest, next_sibling_of(n));
-        return js::Value::object(internals.wrap(*rest));
+        return js::Value::object(internals.wrap(*split_text(internals, static_cast<dom::Text&>(n), at)));
     });
 }
 

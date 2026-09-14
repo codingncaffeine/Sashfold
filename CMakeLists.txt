@@ -51,6 +51,7 @@ add_library(sashfold_core STATIC
   src/bindings/LayoutOracle.cpp
   src/bindings/Node.cpp
   src/bindings/Origin.cpp
+  src/bindings/Range.cpp
   src/bindings/Realm.cpp
   src/bindings/Style.cpp
   src/bindings/StructuredClone.cpp

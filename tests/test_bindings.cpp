@@ -313,6 +313,107 @@ void test_cdata_sections_and_processing_instructions()
                         " && pi.isEqualNode(pi.cloneNode()) && !pi.isEqualNode(document.createProcessingInstruction('u', 'bcd')); })()"));
 }
 
+void test_ranges()
+{
+    auto page = loaded("<body><div id=d><p id=a>Hello</p><p id=b>World</p></div></body>");
+    CHECK(page->boolean("typeof document.createElement === 'function'"));
+    // A new range is collapsed at the start of its document.
+    CHECK(page->boolean("(() => { const r = document.createRange(); return r instanceof Range && r instanceof AbstractRange"
+                        " && r.startContainer === document && r.startOffset === 0 && r.collapsed && r.commonAncestorContainer === document"
+                        " && new Range().endContainer === document; })()"));
+    // An end set before the start takes the start with it; a doctype or an
+    // offset past the node's length is refused.
+    CHECK(page->boolean("(() => { const r = document.createRange(); const a = document.getElementById('a').firstChild; r.setStart(a, 1); r.setEnd(a, 4);"
+                        " const set = r.toString() === 'ell' && !r.collapsed; r.setEnd(a, 0); return set && r.startOffset === 0 && r.collapsed; })()"));
+    CHECK(page->throws("document.createRange().setStart(document.getElementById('a').firstChild, 6)").starts_with("IndexSizeError"));
+    CHECK(page->throws("document.createRange().setStart(document.implementation.createDocumentType('html', '', ''), 0)").starts_with("InvalidNodeTypeError"));
+    // Comparing points with the range.
+    CHECK(page->boolean("(() => { const d = document.getElementById('d'); const b = document.getElementById('b'); const r = document.createRange();"
+                        " r.selectNodeContents(b); return r.comparePoint(d, 0) === -1 && r.comparePoint(b.firstChild, 2) === 0 && r.comparePoint(d, 2) === 1"
+                        " && r.isPointInRange(b, 1) && !r.isPointInRange(d, 0) && r.intersectsNode(d) && !r.intersectsNode(document.getElementById('a'))"
+                        " && r.compareBoundaryPoints(Range.START_TO_END, r) === 1; })()"));
+    // A live range follows the tree: an insertion before its boundary moves
+    // it, deleted data pulls its offsets back, a removed container collapses
+    // it onto the parent.
+    CHECK(page->boolean("(() => { const d = document.getElementById('d'); const r = document.createRange(); r.setStart(d, 1); r.setEnd(d, 2);"
+                        " d.insertBefore(document.createElement('hr'), d.firstChild); const moved = r.startOffset === 2 && r.endOffset === 3;"
+                        " const b = document.getElementById('b'); const inner = document.createRange(); inner.setStart(b.firstChild, 2); inner.setEnd(b.firstChild, 5);"
+                        " b.firstChild.deleteData(0, 3); const pulled = inner.startOffset === 0 && inner.endOffset === 2;"
+                        " b.remove(); return moved && pulled && inner.startContainer === d && inner.startOffset === 2 && inner.collapsed && r.endOffset === 2; })()"));
+    // splitText carries the range to the new node, normalize() back.
+    CHECK(page->boolean("(() => { const p = document.createElement('p'); p.textContent = 'abcdef'; const t = p.firstChild; const r = document.createRange();"
+                        " r.setStart(t, 4); r.setEnd(p, 1); const rest = t.splitText(2);"
+                        " const split = r.startContainer === rest && r.startOffset === 2 && r.endContainer === p && r.endOffset === 2;"
+                        " p.normalize(); return split && r.startContainer === t && r.startOffset === 4 && r.endContainer === p && r.endOffset === 1"
+                        " && p.childNodes.length === 1; })()"));
+    // Contents cloned, extracted, inserted into and surrounded.
+    CHECK(page->boolean("(() => { const p = document.createElement('p'); p.innerHTML = 'one <b>two</b> three'; const r = document.createRange();"
+                        " r.setStart(p.firstChild, 2); r.setEnd(p.lastChild, 3); const clone = r.cloneContents();"
+                        " const cloned = clone.childNodes.length === 3 && clone.firstChild.data === 'e ' && clone.childNodes[1].outerHTML === '<b>two</b>'"
+                        " && clone.lastChild.data === ' th' && p.innerHTML === 'one <b>two</b> three';"
+                        " const extracted = r.extractContents(); return cloned && extracted.textContent === 'e two th' && p.innerHTML === 'onree'"
+                        " && r.collapsed && r.startContainer === p && r.startOffset === 1; })()"));
+    CHECK(page->boolean("(() => { const p = document.createElement('p'); p.textContent = 'abcd'; const r = document.createRange(); r.setStart(p.firstChild, 2);"
+                        " r.collapse(true); r.insertNode(document.createElement('i'));"
+                        " const inserted = p.innerHTML === 'ab<i></i>cd' && r.startContainer === p.firstChild && r.startOffset === 2 && r.endContainer === p && r.endOffset === 2;"
+                        " const s = document.createRange(); s.selectNodeContents(p.lastChild); s.surroundContents(document.createElement('u'));"
+                        " return inserted && p.innerHTML === 'ab<i></i><u>cd</u>' && s.startContainer === p && s.startOffset === 3 && s.endOffset === 4; })()"));
+    // A replacement refused leaves the tree, and so the range, as it was.
+    CHECK(page->boolean("(() => { const p = document.createElement('p'); p.textContent = 'x'; const r = document.createRange(); r.selectNodeContents(p);"
+                        " try { p.replaceChild(p, p.firstChild); } catch (e) { if (e.name !== 'HierarchyRequestError') return false; }"
+                        " return p.childNodes.length === 1 && r.endOffset === 1; })()"));
+    // A static range checks only the node types.
+    CHECK(page->boolean("(() => { const a = document.getElementById('a'); const s = new StaticRange({ startContainer: a, startOffset: 7, endContainer: document, endOffset: 0 });"
+                        " return s instanceof AbstractRange && !(s instanceof Range) && s.startContainer === a && s.startOffset === 7 && !s.collapsed; })()"));
+    CHECK(page->throws("new StaticRange({ startContainer: document.implementation.createDocumentType('x', '', ''), startOffset: 0, endContainer: document, endOffset: 0 })")
+              .starts_with("InvalidNodeTypeError"));
+    // A contextual fragment's scripts run once inserted.
+    CHECK(page->boolean("(() => { const r = document.createRange(); r.selectNodeContents(document.getElementById('d'));"
+                        " const f = r.createContextualFragment('<span>x</span>y<script>window.ran = 1<\\/script>'); const parsed = f instanceof DocumentFragment"
+                        " && f.firstChild.localName === 'span' && f.textContent === 'xywindow.ran = 1'; document.body.appendChild(f); return parsed && window.ran === 1; })()"));
+    // A range keeps its boundary nodes' wrappers, expandos and all.
+    page->eval("window.kept = document.createRange(); kept.selectNodeContents(document.createElement('q')); kept.startContainer.mark = 5;");
+    CHECK(page->boolean("(() => { for (let i = 0; i < 50; i++) ({ i }); return kept.startContainer.mark === 5 && kept.startContainer.localName === 'q'; })()"));
+    CHECK_EQ(page->console, "");
+}
+
+// A range into a frame's document outlives the frame: the document goes when
+// the iframe is removed, and every range holding its nodes lets go of both
+// boundaries, a static range reaching into the page too.
+void test_a_range_outlives_its_frames_document()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy* policy,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        if (policy)
+            answer.policy = *policy;
+        return answer;
+    };
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<p id=p>inside</p>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    page->eval("(() => { const inner = document.getElementById('f').contentDocument; window.r = inner.createRange();"
+               " r.selectNodeContents(inner.getElementById('p').firstChild);"
+               " window.s = new StaticRange({ startContainer: inner.body, startOffset: 0, endContainer: document.body, endOffset: 0 }); })()");
+    CHECK(page->boolean("r.toString() === 'inside' && s.startContainer.localName === 'body' && s.endContainer === document.body"));
+    page->eval("document.getElementById('f').remove();");
+    CHECK(page->boolean("(() => { for (let i = 0; i < 50; i++) ({ i }); return r.startContainer === null && r.endContainer === null && r.collapsed"
+                        " && r.toString() === '' && s.startContainer === null && s.endContainer === null; })()"));
+    CHECK(page->boolean("(() => { r.setStart(document.body, 0); return r.startContainer === document.body && r.endContainer === document.body; })()"));
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 void test_selectors_and_collections()
 {
     auto page = loaded(R"HTML(<!DOCTYPE html><div class="a b" id=x data-role="menu"><p class=a>1</p><p>2</p><span class=b>3</span></div>)HTML");
@@ -3204,6 +3305,8 @@ int main()
     test_wrapper_identity_and_expandos_survive_collection();
     test_tree_mutation_and_serialization();
     test_cdata_sections_and_processing_instructions();
+    test_ranges();
+    test_a_range_outlives_its_frames_document();
     test_selectors_and_collections();
     test_attributes_classlist_style_dataset();
     test_attribute_names_global_this_and_shadow_root();

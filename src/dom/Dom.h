@@ -7,6 +7,7 @@
 // never an ownership move. The JS-facing lifetime model is a separate, later
 // decision (see the plan's DOM-lifetime ADR note).
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -44,6 +45,19 @@ enum class QuirksMode {
 };
 
 class Document;
+class Node;
+
+// A range's boundary points (DOM §5): nodes and offsets, in UTF-16 code units
+// into a node with data and in children otherwise. The documents of its nodes
+// keep a range, so their tree's own insertions and removals move a live one,
+// and a document that ends first lets go of it: both boundaries become null.
+struct Range {
+    Node* start_node = nullptr;
+    std::uint32_t start_offset = 0;
+    Node* end_node = nullptr;
+    std::uint32_t end_offset = 0;
+    bool live = true; // a StaticRange is kept, never moved
+};
 
 class Node {
 public:
@@ -67,6 +81,8 @@ public:
     void remove(); // detach this node from its parent
 
     Node* previous_sibling() const;
+    // The position among the parent's children; 0 without a parent.
+    std::uint32_t index() const;
 
     bool is_element() const { return m_type == NodeType::Element; }
     bool is_text() const { return m_type == NodeType::Text; }
@@ -211,6 +227,7 @@ public:
         : Node(*this, NodeType::Document)
     {
     }
+    ~Document() override;
 
     QuirksMode quirks_mode = QuirksMode::No;
     // Whether this is an XML document rather than an HTML one (DOM §4.5), and
@@ -239,11 +256,30 @@ public:
     // inserted, a removed subtree, template contents.
     std::vector<std::unique_ptr<Node>> const& owned_nodes() const { return m_nodes; }
 
+    // The ranges with a boundary among this document's nodes.
+    std::vector<Range*> const& ranges() const { return m_ranges; }
+
 private:
+    friend void set_range(Range&, Node*, std::uint32_t, Node*, std::uint32_t);
+    friend void release_range(Range&);
     std::vector<std::unique_ptr<Node>> m_nodes;
+    std::vector<Range*> m_ranges;
 };
 
 // Deep-copies a subtree; the clone's nodes are owned by `document`.
 Node* clone_subtree(Node const& node, Document& document);
+
+// Sets a range's boundaries, keeping the range with its nodes' documents.
+void set_range(Range&, Node* start_node, std::uint32_t start_offset, Node* end_node, std::uint32_t end_offset);
+// Takes a range from its documents; both boundaries become null.
+void release_range(Range&);
+// The live range steps of the character data algorithms, in UTF-16 code
+// units: `count` units at `offset` replaced by `inserted` of them (DOM §4.10
+// "replace data"), a Text node split at `offset` once `new_node` follows it
+// (§4.11 "split a Text node"), and normalize() folding `merged` into `into`
+// at `length` (§4.4).
+void ranges_data_replaced(Node&, std::uint32_t offset, std::uint32_t count, std::uint32_t inserted);
+void ranges_text_split(Node&, std::uint32_t offset, Node& new_node);
+void ranges_text_merged(Node& into, Node& merged, std::uint32_t length);
 
 }

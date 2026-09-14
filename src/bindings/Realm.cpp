@@ -1142,6 +1142,7 @@ void install_interfaces(Realm::Internals& in)
     std::vector<js::PropertyKey> const language_globals = in.interpreter.global()->own_keys();
     install_events(in);
     install_nodes(in);
+    install_ranges(in);
     install_style(in);
     install_window(in);
     install_binary(in);

@@ -50,8 +50,33 @@ struct ExtractedName {
 };
 ExtractedName validate_and_extract(std::string namespace_uri, std::string const& qualified_name, bool element = false);
 
+// --- Arguments and character data -----------------------------------------------------
+
+// A node argument, or a TypeError naming the parameter.
+std::optional<dom::Node*> node_argument(Realm::Internals&, Args, std::size_t index, std::string_view method);
+// Text (CDATA sections too), Comment and ProcessingInstruction: the nodes
+// with data (DOM §4.10), and that data.
+bool is_character_data(dom::Node const&);
+std::string const& character_data(dom::Node const&);
+std::u16string data_units(dom::Node const&);
+// DOM §4.10 "replace data": `count` code units at `offset`, which the caller
+// has checked, replaced by `data`, and the live ranges in the node moved to
+// match. Counts as a mutation.
+void replace_data(Realm::Internals&, dom::Node&, std::size_t offset, std::size_t count, std::u16string_view data);
+// The whole of the data replaced: the data, nodeValue and textContent setters.
+void set_data(Realm::Internals&, dom::Node&, std::u16string_view units);
+// DOM §4.11 "split a Text node" at an offset no longer than its length: the
+// new node, inserted after it when it has a parent.
+dom::Text* split_text(Realm::Internals&, dom::Text&, std::size_t offset);
+// A new live range at (container, 0) (Range.cpp).
+js::Value new_range(Realm::Internals&, dom::Node& container);
+
 // --- Mutation (each counts as one) --------------------------------------------------
 
+// DOM §4.2.3 "ensure pre-insertion validity", or with `replacing` the checks
+// replacing `child` makes before anything is removed: undefined, or the
+// thrown HierarchyRequestError or NotFoundError.
+Native ensure_pre_insertion_validity(Realm::Internals&, dom::Node& parent, dom::Node& node, dom::Node* child, bool replacing = false);
 // DOM §4.2.3 pre-insert: validity, adoption, a fragment's children moved
 // one by one, and inserted scripts prepared. Returns the wrapper of `node`,
 // or the thrown exception.
@@ -61,8 +86,9 @@ void remove_node(Realm::Internals&, dom::Node& node);
 // in the context of `context` (innerHTML).
 void replace_children_with_markup(Realm::Internals&, dom::Node& parent, dom::Element& context, std::string_view markup);
 // Parses `markup` in `context` and returns the children, adopted into
-// context's document and detached; scripts among them will never run.
-std::vector<dom::Node*> parse_markup(Realm::Internals&, dom::Element& context, std::string_view markup);
+// context's document and detached; scripts among them never run, unless
+// `scripts_started` is false, when they run once inserted.
+std::vector<dom::Node*> parse_markup(Realm::Internals&, dom::Element& context, std::string_view markup, bool scripts_started = true);
 void replace_children_with_text(Realm::Internals&, dom::Node& parent, std::string_view text);
 dom::Node* clone_node(Realm::Internals&, dom::Node const& node, bool deep);
 
