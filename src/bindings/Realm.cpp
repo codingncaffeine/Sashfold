@@ -1299,6 +1299,8 @@ Realm::~Realm()
         in.agent.ending = true;
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
+    // Its document unloads, and the blob: URLs it made go with it.
+    std::erase_if(in.agent.blob_urls, [&in](auto const& entry) { return entry.second.document == in.document; });
     // Its frames end first, while this realm and the agent are whole.
     in.child_frames.clear();
     if (in.own_agent) {
@@ -1692,6 +1694,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     // the parent's task, not the window's.
     std::erase_if(agent.timers, [&window](Timer const& timer) { return timer.owner == &window; });
     std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
+    std::erase_if(agent.blob_urls, [&window](auto const& entry) { return entry.second.document == window.document; });
     // The old document stays alive with the realm, so no wrapper into it, and
     // no element-keyed record of it, can dangle; so does its policy.
     window.extra_documents.push_back(std::move(frame.document));
@@ -1753,18 +1756,6 @@ std::string const* Realm::Internals::child_target_name(ChildFrame const& child) 
 {
     auto const found = navigables.find(child.container);
     return found == navigables.end() ? nullptr : &found->second.target_name;
-}
-
-ChildFrame const* Realm::Internals::frame_of(dom::Element const& iframe) const
-{
-    for (ChildFrame const& listed : child_frames) {
-        if (listed.container != &iframe)
-            continue;
-        // The same origin as this document's, and not an opaque one.
-        std::string const own = origin_url.serialize_origin();
-        return own != "null" && listed.realm->internals().origin_url.serialize_origin() == own ? &listed : nullptr;
-    }
-    return nullptr;
 }
 
 Realm* Realm::frame_realm(dom::Element const& iframe)

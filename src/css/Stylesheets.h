@@ -104,8 +104,8 @@ struct FontFaceRule {
 std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaContext const& media = {});
 
 // The fonts the sheets bring along, fetched: for each @font-face rule the
-// first source in a format this engine reads (TrueType or OpenType, or
-// unsaid and not a web-font extension) that the fetcher can supply, its
+// first source in a format this engine reads (TrueType, OpenType, WOFF or
+// WOFF2, or unsaid and not an .eot or .svg file) that the fetcher can supply, its
 // reference resolved against the sheet. Each URL is fetched once; bounded
 // per page. Hand the result to text::FontManager::set_page_fonts.
 std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets,

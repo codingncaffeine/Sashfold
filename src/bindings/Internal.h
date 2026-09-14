@@ -654,13 +654,15 @@ struct Agent {
     // judging them by the origin they had rather than the stand-in's.
     std::unordered_map<js::RealmRecord const*, OriginSnapshot> ended_origins;
     // The blob URL store (File API §8): what each blob: URL made by
-    // URL.createObjectURL names, by the URL, until it is revoked. A Blob does
-    // not change, so its bytes and type are kept as they were, with the origin
-    // of the document that made the URL. The page and its frames share it.
+    // URL.createObjectURL names, by the URL, until it is revoked or the
+    // document that made it unloads. A Blob does not change, so its bytes and
+    // type are kept as they were, with the origin of the document that made
+    // the URL. The page and its frames share it.
     struct BlobUrlEntry {
         std::vector<std::uint8_t> bytes;
         std::string type;
         net::Url origin;
+        dom::Document const* document = nullptr; // erased when it unloads
     };
     std::unordered_map<std::string, BlobUrlEntry> blob_urls;
 };
@@ -779,7 +781,6 @@ struct Realm::Internals {
     // and timers cleared — and stays alive with no window.
     void reuse_frame_window(ChildFrame& frame, FrameDocument answer, std::string source, std::uint64_t mutations_from,
         std::uint32_t flags, std::string const& type, bool initial_blank);
-    ChildFrame const* frame_of(dom::Element const& iframe) const;
     // Closes an iframe's frame here: its loop work erased, its window gone
     // at once, its realm ended at the agent's next safe point. A frame that
     // navigates keeps its WindowProxy for the document it opens next.

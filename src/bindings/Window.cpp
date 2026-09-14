@@ -1596,7 +1596,7 @@ void install_window(Realm::Internals& in)
                 if (!blob)
                     return interp.throw_type_error("Failed to execute 'createObjectURL' on 'URL': parameter 1 is not of type 'Blob'.");
                 std::string made = "blob:" + internals.origin_url.serialize_origin() + "/" + random_uuid();
-                internals.agent.blob_urls[made] = Agent::BlobUrlEntry { blob->bytes, blob->type, internals.origin_url };
+                internals.agent.blob_urls[made] = Agent::BlobUrlEntry { blob->bytes, blob->type, internals.origin_url, internals.document };
                 return internals.string(made);
             });
             // URL.revokeObjectURL (File API §8.3): the URL's entry leaves the

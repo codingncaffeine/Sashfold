@@ -2559,6 +2559,19 @@ void test_objects_and_embeds_have_windows()
     CHECK(page->boolean("bo.contentWindow != null && bo.contentWindow.which === 'blob' && ev.bol === 1 && !ev.boe"));
     CHECK(page->boolean("ev.bel === 1 && window.length === 5 && window[4] != null && window[4].which === 'blob'"));
     CHECK(page->boolean("go.contentWindow === null && ev.goe === 1 && !ev.gol"));
+    // A blob: URL goes when the document that made it unloads (File API §8,
+    // HTML's unloading document cleanup steps): one a frame's document made
+    // names nothing once the frame is removed.
+    page->eval(R"JS(var maker = document.createElement('object');
+        maker.data = URL.createObjectURL(new Blob(['<script>parent.fromFrame = URL.createObjectURL(new Blob(["<p>orphan</p>"], { type: "text/html" }));<\/script>'], { type: 'text/html' }));
+        document.body.appendChild(maker);)JS");
+    page->realm->run_pending();
+    CHECK(page->boolean("typeof fromFrame === 'string' && fromFrame.startsWith('blob:https://example.test/')"));
+    page->eval("maker.remove();");
+    page->realm->run_pending();
+    page->eval("var oo = document.createElement('object'); oo.data = fromFrame; track(oo, 'oo'); document.body.appendChild(oo);");
+    page->realm->run_pending();
+    CHECK(page->boolean("oo.contentWindow === null && ev.ooe === 1 && !ev.ool"));
     // A blob: URL's document nests no deeper than a fetched one: a document
     // that shows its own blob: URL again is refused once two of the documents
     // it would be inside have that URL, and one that makes a new URL each time
