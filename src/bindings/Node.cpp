@@ -190,9 +190,11 @@ std::string node_name_of(dom::Node const& node)
     case dom::NodeType::Element:
         return tag_name_of(static_cast<dom::Element const&>(node));
     case dom::NodeType::Text:
-        return "#text";
+        return static_cast<dom::Text const&>(node).cdata_section ? "#cdata-section" : "#text";
     case dom::NodeType::Comment:
         return "#comment";
+    case dom::NodeType::ProcessingInstruction:
+        return static_cast<dom::ProcessingInstruction const&>(node).target;
     case dom::NodeType::Document:
         return "#document";
     case dom::NodeType::DocumentFragment:
@@ -341,8 +343,11 @@ dom::Node* clone_node(Realm::Internals& in, dom::Node const& node, bool deep)
 {
     dom::Document& document = node.document();
     if (node.type() == dom::NodeType::Document) {
+        auto const& source = static_cast<dom::Document const&>(node);
         auto clone = std::make_unique<dom::Document>();
-        clone->quirks_mode = static_cast<dom::Document const&>(node).quirks_mode;
+        clone->quirks_mode = source.quirks_mode;
+        clone->xml = source.xml;
+        clone->content_type = &source == in.document ? in.document_content_type : source.content_type;
         if (deep) {
             for (dom::Node const* child : node.children())
                 clone->append_child(*dom::clone_subtree(*child, *clone));
@@ -360,24 +365,11 @@ dom::Node* clone_node(Realm::Internals& in, dom::Node const& node, bool deep)
         clone->attributes() = element.attributes();
         return clone;
     }
-    case dom::NodeType::Text: {
-        dom::Text* clone = document.create<dom::Text>();
-        clone->data = static_cast<dom::Text const&>(node).data;
-        return clone;
-    }
-    case dom::NodeType::Comment: {
-        dom::Comment* clone = document.create<dom::Comment>();
-        clone->data = static_cast<dom::Comment const&>(node).data;
-        return clone;
-    }
-    case dom::NodeType::DocumentType: {
-        auto const& doctype = static_cast<dom::DocumentType const&>(node);
-        dom::DocumentType* clone = document.create<dom::DocumentType>();
-        clone->name = doctype.name;
-        clone->public_identifier = doctype.public_identifier;
-        clone->system_identifier = doctype.system_identifier;
-        return clone;
-    }
+    case dom::NodeType::Text:
+    case dom::NodeType::Comment:
+    case dom::NodeType::ProcessingInstruction:
+    case dom::NodeType::DocumentType:
+        return dom::clone_subtree(node, document); // no children to leave out
     case dom::NodeType::DocumentFragment:
     case dom::NodeType::Document:
         break;
@@ -555,8 +547,6 @@ bool is_valid_attribute_name(std::string_view name)
     return true;
 }
 
-namespace {
-
 // A valid namespace prefix and a valid attribute local name (DOM §1.4): at
 // least one code unit, and none of them ASCII whitespace, U+0000, "/" or ">",
 // nor "=" in a local name.
@@ -571,17 +561,30 @@ bool is_valid_name_part(std::string_view part, bool local_name)
     return true;
 }
 
-// An attribute's namespace, prefix and local name from setAttributeNS's
-// arguments (DOM §1.4 "validate and extract", for an attribute), or the name
-// of the DOMException to throw when they are not valid.
-struct ExtractedName {
-    std::string namespace_uri; // "" for null
-    std::string prefix; // "" for null
-    std::string local_name;
-    std::string_view error; // "" when valid
-};
+// A valid element local name (DOM §1.4): one that starts with an ASCII letter
+// may hold anything but ASCII whitespace, U+0000, "/" and ">"; any other
+// starts with ":", "_" or a non-ASCII code point and goes on in letters,
+// digits, "-", ".", ":", "_" and non-ASCII code points.
+bool is_valid_element_local_name(std::string_view name)
+{
+    if (name.empty())
+        return false;
+    auto const ascii_alpha = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
+    auto const non_ascii = [](char c) { return static_cast<unsigned char>(c) >= 0x80; };
+    if (ascii_alpha(name[0]))
+        return is_valid_name_part(name, false);
+    if (name[0] != ':' && name[0] != '_' && !non_ascii(name[0]))
+        return false;
+    for (char const c : name.substr(1)) {
+        if (!ascii_alpha(c) && !(c >= '0' && c <= '9') && c != '-' && c != '.' && c != ':' && c != '_' && !non_ascii(c))
+            return false;
+    }
+    return true;
+}
 
-ExtractedName validate_and_extract(std::string namespace_uri, std::string const& qualified_name)
+} // namespace
+
+ExtractedName validate_and_extract(std::string namespace_uri, std::string const& qualified_name, bool element)
 {
     ExtractedName out { std::move(namespace_uri), "", qualified_name, "" };
     std::size_t const colon = qualified_name.find(':');
@@ -594,7 +597,7 @@ ExtractedName validate_and_extract(std::string namespace_uri, std::string const&
         }
     }
     bool const xmlns_name = qualified_name == "xmlns" || out.prefix == "xmlns";
-    if (!is_valid_name_part(out.local_name, true))
+    if (!(element ? is_valid_element_local_name(out.local_name) : is_valid_name_part(out.local_name, true)))
         out.error = "InvalidCharacterError";
     else if (!out.prefix.empty() && out.namespace_uri.empty())
         out.error = "NamespaceError";
@@ -607,14 +610,14 @@ ExtractedName validate_and_extract(std::string namespace_uri, std::string const&
     return out;
 }
 
+namespace {
+
 // A namespace argument: null and the empty string are no namespace, "".
 std::optional<std::string> namespace_argument(Realm::Internals& in, Args args, std::size_t index)
 {
     js::Value const value = js::argument(args, index);
     return value.is_nullish() ? std::optional<std::string>("") : in.to_utf8(value);
 }
-
-} // namespace
 
 // The insertAdjacent* positions (§4.9 "insert adjacent").
 std::optional<std::pair<dom::Node*, dom::Node*>> adjacent_position(Realm::Internals& in, dom::Element& element,
@@ -640,11 +643,26 @@ std::optional<std::pair<dom::Node*, dom::Node*>> adjacent_position(Realm::Intern
     return std::nullopt;
 }
 
-std::u16string data_units(dom::Node const& node)
+// Text (CDATA sections too), Comment and ProcessingInstruction: the nodes
+// with data (DOM §4.10).
+bool is_character_data(dom::Node const& node)
+{
+    return node.is_text() || node.type() == dom::NodeType::Comment || node.type() == dom::NodeType::ProcessingInstruction;
+}
+
+// The data of a node is_character_data() accepts.
+std::string const& character_data(dom::Node const& node)
 {
     if (node.is_text())
-        return js::utf16_from_utf8(static_cast<dom::Text const&>(node).data);
-    return js::utf16_from_utf8(static_cast<dom::Comment const&>(node).data);
+        return static_cast<dom::Text const&>(node).data;
+    if (node.type() == dom::NodeType::ProcessingInstruction)
+        return static_cast<dom::ProcessingInstruction const&>(node).data;
+    return static_cast<dom::Comment const&>(node).data;
+}
+
+std::u16string data_units(dom::Node const& node)
+{
+    return js::utf16_from_utf8(character_data(node));
 }
 
 void set_data(Realm::Internals& in, dom::Node& node, std::u16string_view units)
@@ -652,6 +670,8 @@ void set_data(Realm::Internals& in, dom::Node& node, std::u16string_view units)
     std::string utf8 = js::utf8_from_utf16(units);
     if (node.is_text())
         static_cast<dom::Text&>(node).data = std::move(utf8);
+    else if (node.type() == dom::NodeType::ProcessingInstruction)
+        static_cast<dom::ProcessingInstruction&>(node).data = std::move(utf8);
     else
         static_cast<dom::Comment&>(node).data = std::move(utf8);
     in.realm.note_mutation();
@@ -680,7 +700,8 @@ void install_node(Realm::Internals& in, js::Object& node)
     node_getter(in, node, "nodeType", [](Realm::Internals&, dom::Node& n) -> Native {
         switch (n.type()) {
         case dom::NodeType::Element: return js::Value::number(1);
-        case dom::NodeType::Text: return js::Value::number(3);
+        case dom::NodeType::Text: return js::Value::number(static_cast<dom::Text&>(n).cdata_section ? 4 : 3);
+        case dom::NodeType::ProcessingInstruction: return js::Value::number(7);
         case dom::NodeType::Comment: return js::Value::number(8);
         case dom::NodeType::Document: return js::Value::number(9);
         case dom::NodeType::DocumentType: return js::Value::number(10);
@@ -692,14 +713,12 @@ void install_node(Realm::Internals& in, js::Object& node)
     node_accessor(
         in, node, "nodeValue",
         [](Realm::Internals& internals, dom::Node& n) -> Native {
-            if (n.is_text())
-                return internals.string(static_cast<dom::Text&>(n).data);
-            if (n.type() == dom::NodeType::Comment)
-                return internals.string(static_cast<dom::Comment&>(n).data);
+            if (is_character_data(n))
+                return internals.string(character_data(n));
             return js::Value::null();
         },
         [](Realm::Internals& internals, dom::Node& n, js::Value const& value) -> Native {
-            if (!n.is_text() && n.type() != dom::NodeType::Comment)
+            if (!is_character_data(n))
                 return js::Value::undefined();
             std::optional<std::string> text = value.is_nullish() ? std::optional<std::string>("") : internals.to_utf8(value);
             if (!text)
@@ -715,9 +734,9 @@ void install_node(Realm::Internals& in, js::Object& node)
             case dom::NodeType::DocumentType:
                 return js::Value::null();
             case dom::NodeType::Text:
-                return internals.string(static_cast<dom::Text&>(n).data);
             case dom::NodeType::Comment:
-                return internals.string(static_cast<dom::Comment&>(n).data);
+            case dom::NodeType::ProcessingInstruction:
+                return internals.string(character_data(n));
             case dom::NodeType::Element:
             case dom::NodeType::DocumentFragment:
                 break;
@@ -731,6 +750,7 @@ void install_node(Realm::Internals& in, js::Object& node)
             switch (n.type()) {
             case dom::NodeType::Text:
             case dom::NodeType::Comment:
+            case dom::NodeType::ProcessingInstruction:
                 set_data(internals, n, js::utf16_from_utf8(*text));
                 break;
             case dom::NodeType::Element:
@@ -828,7 +848,8 @@ void install_node(Realm::Internals& in, js::Object& node)
         dom::Node* other = internals.realm.node_of(js::argument(args, 0));
         if (!other)
             return js::Value::boolean(false);
-        return js::Value::boolean(other->type() == n.type() && html::serialize_node(*other) == html::serialize_node(n));
+        return js::Value::boolean(other->type() == n.type() && node_name_of(*other) == node_name_of(n)
+            && html::serialize_node(*other) == html::serialize_node(n));
     });
     node_method(in, node, "compareDocumentPosition", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<dom::Node*> const other = node_argument(internals, args, 0, "compareDocumentPosition");
@@ -846,15 +867,19 @@ void install_node(Realm::Internals& in, js::Object& node)
         return js::Value::number(precedes_in_tree_order(o, n) ? 2 : 4);
     });
     node_method(in, node, "normalize", 0, [](Realm::Internals& internals, dom::Node& n, Args) -> Native {
+        // Only exclusive Text nodes are folded: a CDATA section stays.
+        auto const exclusive_text = [](dom::Node const& candidate) {
+            return candidate.is_text() && !static_cast<dom::Text const&>(candidate).cdata_section;
+        };
         std::vector<dom::Node*> descendants;
         collect_descendants(n, descendants);
         for (dom::Node* node_ptr : descendants) {
-            if (!node_ptr->is_text() || !node_ptr->parent())
+            if (!exclusive_text(*node_ptr) || !node_ptr->parent())
                 continue;
             auto& text = static_cast<dom::Text&>(*node_ptr);
             // Fold the following text siblings into this one.
             while (dom::Node* next = next_sibling_of(text)) {
-                if (!next->is_text())
+                if (!exclusive_text(*next))
                     break;
                 text.data += static_cast<dom::Text&>(*next).data;
                 next->remove();
@@ -1460,6 +1485,7 @@ void install_character_data(Realm::Internals& in, js::Object& character_data, js
         if (at > units.size())
             return internals.throw_dom_exception("IndexSizeError", "The offset is larger than the node's length");
         dom::Text* rest = n.document().create<dom::Text>();
+        rest->cdata_section = static_cast<dom::Text&>(n).cdata_section;
         rest->data = js::utf8_from_utf16(std::u16string_view(units).substr(at));
         set_data(internals, n, std::u16string_view(units).substr(0, at));
         if (dom::Node* parent = n.parent())
@@ -1611,6 +1637,14 @@ void install_nodes(Realm::Internals& in)
         });
     (void)comment;
     install_character_data(in, *character_data, *text);
+    // Neither has a constructor: a document makes them.
+    define_interface(in, "CDATASection", text);
+    js::Object* processing_instruction = define_interface(in, "ProcessingInstruction", character_data);
+    node_getter(in, *processing_instruction, "target", [](Realm::Internals& internals, dom::Node& n) -> Native {
+        if (n.type() != dom::NodeType::ProcessingInstruction)
+            return internals.interpreter.throw_type_error("Illegal invocation");
+        return internals.string(static_cast<dom::ProcessingInstruction&>(n).target);
+    });
 
     js::Object* fragment = define_interface(in, "DocumentFragment", node,
         [](js::Interpreter& interp, Args, js::Object*) -> Native {

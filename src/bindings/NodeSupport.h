@@ -37,6 +37,19 @@ dom::Element* document_element(dom::Document& document);
 std::string tag_name_of(dom::Element const& element);
 std::string node_name_of(dom::Node const& node);
 
+// --- Names --------------------------------------------------------------------------
+
+// DOM §1.4 "validate and extract": a namespace, prefix and local name from a
+// qualified name, for an element's name when `element`, else an attribute's;
+// or the name of the DOMException to throw when they are not valid.
+struct ExtractedName {
+    std::string namespace_uri; // "" for null
+    std::string prefix; // "" for null
+    std::string local_name;
+    std::string_view error; // "" when valid
+};
+ExtractedName validate_and_extract(std::string namespace_uri, std::string const& qualified_name, bool element = false);
+
 // --- Mutation (each counts as one) --------------------------------------------------
 
 // DOM §4.2.3 pre-insert: validity, adoption, a fragment's children moved

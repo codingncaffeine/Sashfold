@@ -140,6 +140,15 @@ void serialize_into(std::string& out, dom::Node const& node, bool scripting)
         out += static_cast<dom::Comment const&>(node).data;
         out += "-->";
         return;
+    case dom::NodeType::ProcessingInstruction: {
+        auto const& instruction = static_cast<dom::ProcessingInstruction const&>(node);
+        out += "<?";
+        out += instruction.target;
+        out += ' ';
+        out += instruction.data;
+        out += '>';
+        return;
+    }
     case dom::NodeType::DocumentType:
         out += "<!DOCTYPE ";
         out += static_cast<dom::DocumentType const&>(node).name;

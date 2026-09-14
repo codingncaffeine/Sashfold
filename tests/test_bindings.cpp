@@ -261,6 +261,58 @@ void test_tree_mutation_and_serialization()
     CHECK_EQ(page->console, "");
 }
 
+void test_cdata_sections_and_processing_instructions()
+{
+    auto page = loaded("<body><p id=p></p></body>");
+    CHECK(page->boolean("document.createComment('x').nodeType === Node.COMMENT_NODE"));
+    // A CDATA section is a Text node an XML document makes; an HTML document
+    // refuses to.
+    CHECK(page->throws("document.createCDATASection('x')").starts_with("NotSupportedError"));
+    CHECK(page->throws("document.implementation.createHTMLDocument('').createCDATASection('x')").starts_with("NotSupportedError"));
+    CHECK(page->throws("new Document().createCDATASection('a]]>b')").starts_with("InvalidCharacterError"));
+    CHECK(page->boolean("(() => { const c = new Document().createCDATASection('12'); return c instanceof CDATASection && c instanceof Text"
+                        " && c.nodeType === Node.CDATA_SECTION_NODE && c.nodeName === '#cdata-section' && c.data === '12' && c.length === 2; })()"));
+    // The range tests' setup, word for word.
+    CHECK(page->boolean("(() => { const p = document.getElementById('p'); const x = new Document();"
+                        " p.appendChild(x.createCDATASection('1234')); p.appendChild(x.createCDATASection('5678')); p.append('9012');"
+                        " return p.childNodes.length === 3 && p.firstChild.nodeType === 4 && p.firstChild.ownerDocument === document"
+                        " && p.textContent === '123456789012'; })()"));
+    // normalize() folds only exclusive Text nodes; wholeText takes CDATA too.
+    CHECK(page->boolean("(() => { const d = document.createElement('div'); d.append('a'); d.appendChild(new Document().createCDATASection('b'));"
+                        " d.append('c', 'd'); d.normalize(); return d.childNodes.length === 3 && d.lastChild.data === 'cd'"
+                        " && d.firstChild.wholeText === 'abcd'; })()"));
+    CHECK(page->boolean("(() => { const c = new Document().createCDATASection('z'); const k = c.cloneNode();"
+                        " const d = document.createElement('div'); d.appendChild(c);"
+                        " return k instanceof CDATASection && k.data === 'z' && d.cloneNode(true).firstChild.nodeType === 4; })()"));
+    CHECK(page->boolean("(() => { const d = document.createElement('div'); const c = new Document().createCDATASection('abcd'); d.appendChild(c);"
+                        " const r = c.splitText(2); return r instanceof CDATASection && d.childNodes.length === 2 && r.data === 'cd'; })()"));
+    CHECK(page->boolean("!document.createTextNode('a').isEqualNode(new Document().createCDATASection('a'))"));
+    // Documents made by script: new Document() and createDocument() are XML
+    // documents, and createDocument() inserts its doctype and element.
+    CHECK(page->boolean("(() => { const dt = document.implementation.createDocumentType('qorflesnorf', 'abcde', 'x');"
+                        " const x = document.implementation.createDocument(null, null, dt);"
+                        " return x.doctype === dt && dt.ownerDocument === x && x.documentElement === null && x.childNodes.length === 1"
+                        " && x.contentType === 'application/xml' && new Document().contentType === 'application/xml'; })()"));
+    CHECK(page->boolean("(() => { const y = document.implementation.createDocument('http://www.w3.org/2000/svg', 'svg', null);"
+                        " return y.documentElement.localName === 'svg' && y.documentElement.namespaceURI === 'http://www.w3.org/2000/svg'"
+                        " && y.contentType === 'image/svg+xml' && y.createCDATASection('a').nodeType === 4; })()"));
+    CHECK(page->boolean("new DOMParser().parseFromString('<root></root>', 'application/xml').createCDATASection('a').nodeType === 4"));
+    // Processing instructions.
+    CHECK(page->boolean("(() => { const pi = document.createProcessingInstruction('xml-stylesheet', 'href=\"a.css\"');"
+                        " return pi instanceof ProcessingInstruction && pi instanceof CharacterData && pi.nodeType === Node.PROCESSING_INSTRUCTION_NODE"
+                        " && pi.nodeName === 'xml-stylesheet' && pi.target === 'xml-stylesheet' && pi.data === 'href=\"a.css\"'"
+                        " && pi.nodeValue === pi.data && pi.textContent === pi.data && pi.ownerDocument === document; })()"));
+    CHECK(page->throws("document.createProcessingInstruction('A', '?>')").starts_with("InvalidCharacterError"));
+    CHECK(page->boolean("['\\u00B7A', '\\u00D7A', 'A\\u00D7', '\\\\A', '\\f', 0, '0'].every(t => {"
+                        " try { document.createProcessingInstruction(t, 'x'); return false; } catch (e) { return e.name === 'InvalidCharacterError'; } })"));
+    CHECK(page->boolean("['xml:fail', 'A\\u00B7A', 'a0'].every(t => document.createProcessingInstruction(t, 'x').target === t)"));
+    CHECK(page->boolean("(() => { const pi = document.createProcessingInstruction('t', 'abc'); pi.appendData('d'); pi.deleteData(0, 1);"
+                        " const d = document.createElement('div'); d.appendChild(pi);"
+                        " return pi.data === 'bcd' && pi.length === 3 && d.textContent === '' && d.innerHTML === '<?t bcd>'"
+                        " && pi.cloneNode().target === 't' && d.cloneNode(true).firstChild.data === 'bcd'"
+                        " && pi.isEqualNode(pi.cloneNode()) && !pi.isEqualNode(document.createProcessingInstruction('u', 'bcd')); })()"));
+}
+
 void test_selectors_and_collections()
 {
     auto page = loaded(R"HTML(<!DOCTYPE html><div class="a b" id=x data-role="menu"><p class=a>1</p><p>2</p><span class=b>3</span></div>)HTML");
@@ -3151,6 +3203,7 @@ int main()
     test_inline_scripts_run_in_document_order();
     test_wrapper_identity_and_expandos_survive_collection();
     test_tree_mutation_and_serialization();
+    test_cdata_sections_and_processing_instructions();
     test_selectors_and_collections();
     test_attributes_classlist_style_dataset();
     test_attribute_names_global_this_and_shadow_root();

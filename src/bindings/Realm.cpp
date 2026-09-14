@@ -766,9 +766,11 @@ js::Object* Realm::Internals::prototype_for(dom::Node const& node) const
     case dom::NodeType::DocumentFragment:
         return prototype("DocumentFragment");
     case dom::NodeType::Text:
-        return prototype("Text");
+        return prototype(static_cast<dom::Text const&>(node).cdata_section ? "CDATASection" : "Text");
     case dom::NodeType::Comment:
         return prototype("Comment");
+    case dom::NodeType::ProcessingInstruction:
+        return prototype("ProcessingInstruction");
     case dom::NodeType::DocumentType:
         return prototype("DocumentType");
     case dom::NodeType::Element: {
@@ -1511,6 +1513,8 @@ void Realm::document_parsed()
 
 namespace {
 
+bool is_xml_mime_type(std::string_view essence);
+
 // The documents a frame of this document is inside, the page first: the
 // framing rules read the chain, and it goes ten frames deep, as the painter
 // draws them; nullopt for a frame deeper than that.
@@ -1637,6 +1641,7 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     opened.realm->internals().origin_url = answer.origin;
     opened.realm->internals().sandbox_flags = flags;
     opened.realm->internals().document_content_type = type.empty() ? std::string("text/html") : mime_essence(type);
+    opened.document->xml = is_xml_mime_type(opened.realm->internals().document_content_type);
     // An srcdoc or about:blank document has this document's origin itself,
     // and so the domain document.domain gives either of them; a sandbox has
     // already made a sandboxed one's origin its own.
@@ -1716,6 +1721,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
         window.domain.share(domain);
     window.sandbox_flags = flags;
     window.document_content_type = type.empty() ? std::string("text/html") : mime_essence(type);
+    window.document->xml = is_xml_mime_type(window.document_content_type);
     window.ready_state = "loading";
     window.active_parser = nullptr;
     window.current_script = nullptr;

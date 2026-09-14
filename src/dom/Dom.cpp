@@ -114,13 +114,22 @@ Node* clone_subtree(Node const& node, Document& document)
         return clone;
     }
     case NodeType::Text: {
+        auto const& text = static_cast<Text const&>(node);
         Text* clone = document.create<Text>();
-        clone->data = static_cast<Text const&>(node).data;
+        clone->data = text.data;
+        clone->cdata_section = text.cdata_section;
         return clone;
     }
     case NodeType::Comment: {
         Comment* clone = document.create<Comment>();
         clone->data = static_cast<Comment const&>(node).data;
+        return clone;
+    }
+    case NodeType::ProcessingInstruction: {
+        auto const& instruction = static_cast<ProcessingInstruction const&>(node);
+        ProcessingInstruction* clone = document.create<ProcessingInstruction>();
+        clone->target = instruction.target;
+        clone->data = instruction.data;
         return clone;
     }
     case NodeType::DocumentFragment: {

@@ -44,6 +44,12 @@ void dump_node(std::string& out, dom::Node const& node, int depth)
         out += "<!-- " + static_cast<dom::Comment const&>(node).data + " -->\n";
         return;
     }
+    case dom::NodeType::ProcessingInstruction: {
+        auto const& instruction = static_cast<dom::ProcessingInstruction const&>(node);
+        indent(out, depth);
+        out += "<?" + instruction.target + " " + instruction.data + ">\n";
+        return;
+    }
     case dom::NodeType::Text: {
         indent(out, depth);
         out += "\"" + static_cast<dom::Text const&>(node).data + "\"\n";

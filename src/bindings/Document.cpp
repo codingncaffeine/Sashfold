@@ -32,6 +32,31 @@ bool is_valid_element_name(std::string_view name)
     return true;
 }
 
+// XML 1.0's Name production (§2.3), which a processing instruction's target
+// must match.
+bool is_xml_name_character(char32_t c, bool first)
+{
+    if (c == ':' || (c >= 'A' && c <= 'Z') || c == '_' || (c >= 'a' && c <= 'z') || (c >= 0xC0 && c <= 0xD6) || (c >= 0xD8 && c <= 0xF6)
+        || (c >= 0xF8 && c <= 0x2FF) || (c >= 0x370 && c <= 0x37D) || (c >= 0x37F && c <= 0x1FFF) || (c >= 0x200C && c <= 0x200D)
+        || (c >= 0x2070 && c <= 0x218F) || (c >= 0x2C00 && c <= 0x2FEF) || (c >= 0x3001 && c <= 0xD7FF) || (c >= 0xF900 && c <= 0xFDCF)
+        || (c >= 0xFDF0 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0xEFFFF))
+        return true;
+    return !first
+        && (c == '-' || c == '.' || (c >= '0' && c <= '9') || c == 0xB7 || (c >= 0x300 && c <= 0x36F) || (c >= 0x203F && c <= 0x2040));
+}
+
+bool is_xml_name(std::string_view name)
+{
+    std::u32string const characters = decode_utf8(name);
+    if (characters.empty())
+        return false;
+    for (std::size_t i = 0; i < characters.size(); ++i) {
+        if (!is_xml_name_character(characters[i], i == 0))
+            return false;
+    }
+    return true;
+}
+
 std::string document_title_text(dom::Document& document)
 {
     std::vector<dom::Node*> descendants;
@@ -145,7 +170,10 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     js::Object* document = define_interface(in, "Document", &node_prototype,
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            return js::Value::object(internals.wrap(new_extra_document(internals)));
+            dom::Document& made = new_extra_document(internals);
+            made.xml = true;
+            made.content_type = "application/xml";
+            return js::Value::object(internals.wrap(made));
         });
     in.prototypes["HTMLDocument"] = document;
     interpreter.global()->put(interpreter.key("HTMLDocument"),
@@ -261,7 +289,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     for (std::string_view const name : { "characterSet", "charset", "inputEncoding" })
         document_getter(in, *document, name, [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("UTF-8"); });
     document_getter(in, *document, "contentType", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return internals.string(&d == internals.document ? internals.document_content_type : "text/html");
+        return internals.string(&d == internals.document ? internals.document_content_type : d.content_type);
     });
     document_getter(in, *document, "compatMode", [](Realm::Internals& internals, dom::Document& d) -> Native {
         return internals.string(d.quirks_mode == dom::QuirksMode::Yes ? "BackCompat" : "CSS1Compat");
@@ -459,6 +487,35 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         comment->data = std::move(*data);
         return js::Value::object(internals.wrap(*comment));
     });
+    document_method(in, *document, "createCDATASection", 1, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
+        std::optional<std::string> data = internals.to_utf8(js::argument(args, 0));
+        if (!data)
+            return std::nullopt;
+        if (!d.xml)
+            return internals.throw_dom_exception("NotSupportedError", "This operation is not supported for HTML documents.");
+        if (data->find("]]>") != std::string::npos)
+            return internals.throw_dom_exception("InvalidCharacterError", "String cannot contain ']]>' since that is the end delimiter of a CData section.");
+        dom::Text* section = d.create<dom::Text>();
+        section->cdata_section = true;
+        section->data = std::move(*data);
+        return js::Value::object(internals.wrap(*section));
+    });
+    document_method(in, *document, "createProcessingInstruction", 2, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
+        std::optional<std::string> target = internals.to_utf8(js::argument(args, 0));
+        if (!target)
+            return std::nullopt;
+        std::optional<std::string> data = internals.to_utf8(js::argument(args, 1));
+        if (!data)
+            return std::nullopt;
+        if (!is_xml_name(*target))
+            return internals.throw_dom_exception("InvalidCharacterError", "The target provided ('" + *target + "') is not a valid name.");
+        if (data->find("?>") != std::string::npos)
+            return internals.throw_dom_exception("InvalidCharacterError", "The data provided contains '?>'.");
+        dom::ProcessingInstruction* instruction = d.create<dom::ProcessingInstruction>();
+        instruction->target = std::move(*target);
+        instruction->data = std::move(*data);
+        return js::Value::object(internals.wrap(*instruction));
+    });
     document_method(in, *document, "createDocumentFragment", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
         return js::Value::object(internals.wrap(*d.create<dom::DocumentFragment>()));
     });
@@ -631,9 +688,42 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         }
         return js::Value::object(internals.wrap(d));
     });
-    js::define_method(interpreter, *implementation, "createDocument", 2, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    // An XML document holding the doctype given, then the element named
+    // (DOM §4.5.1).
+    js::define_method(interpreter, *implementation, "createDocument", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
-        return js::Value::object(internals.wrap(new_extra_document(internals)));
+        js::Value const namespace_value = js::argument(args, 0);
+        std::optional<std::string> const namespace_uri = namespace_value.is_nullish() ? std::optional<std::string>("") : internals.to_utf8(namespace_value);
+        if (!namespace_uri)
+            return std::nullopt;
+        js::Value const name_value = js::argument(args, 1);
+        std::optional<std::string> const qualified = name_value.is_null() ? std::optional<std::string>("") : internals.to_utf8(name_value);
+        if (!qualified)
+            return std::nullopt;
+        dom::Node* doctype = nullptr;
+        if (js::Value const doctype_value = js::argument(args, 2); !doctype_value.is_nullish()) {
+            doctype = internals.realm.node_of(doctype_value);
+            if (!doctype || doctype->type() != dom::NodeType::DocumentType)
+                return interp.throw_type_error("Failed to execute 'createDocument': parameter 3 is not of type 'DocumentType'.");
+        }
+        std::optional<ExtractedName> name;
+        if (!qualified->empty()) {
+            name = validate_and_extract(*namespace_uri, *qualified, true);
+            if (!name->error.empty())
+                return internals.throw_dom_exception(name->error, "The qualified name provided ('" + *qualified + "') is not valid in this namespace.");
+        }
+        dom::Document& d = new_extra_document(internals);
+        d.xml = true;
+        d.content_type = *namespace_uri == dom::ns::html ? "application/xhtml+xml"
+            : *namespace_uri == dom::ns::svg                ? "image/svg+xml"
+                                                            : "application/xml";
+        if (doctype) {
+            internals.adopt_into(d, *doctype);
+            d.append_child(*doctype);
+        }
+        if (name)
+            d.append_child(*d.create<dom::Element>(name->namespace_uri, name->local_name));
+        return js::Value::object(internals.wrap(d));
     });
     js::define_method(interpreter, *implementation, "createDocumentType", 3, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
@@ -666,6 +756,10 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         // The XML types are parsed by the HTML parser too: there is no XML
         // parser yet, and a tree is more use than a throw.
         dom::Document& d = new_extra_document(internals);
+        if (*type == "text/xml" || *type == "application/xml" || *type == "application/xhtml+xml" || *type == "image/svg+xml") {
+            d.xml = true;
+            d.content_type = *type;
+        }
         html::parse_document_into(d, decode_utf8(*text));
         return js::Value::object(internals.wrap(d));
     });

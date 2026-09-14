@@ -34,6 +34,7 @@ enum class NodeType {
     Element,
     Text,
     Comment,
+    ProcessingInstruction,
 };
 
 enum class QuirksMode {
@@ -161,6 +162,9 @@ public:
     {
     }
     std::string data; // UTF-8 (WTF-8 internally)
+    // A CDATASection (DOM §4.12) is a Text node in all but its name and
+    // number, and in not being an exclusive Text node: normalize() leaves it.
+    bool cdata_section = false;
 };
 
 class Comment : public Node {
@@ -169,6 +173,16 @@ public:
         : Node(document, NodeType::Comment)
     {
     }
+    std::string data;
+};
+
+class ProcessingInstruction : public Node {
+public:
+    explicit ProcessingInstruction(Document& document)
+        : Node(document, NodeType::ProcessingInstruction)
+    {
+    }
+    std::string target;
     std::string data;
 };
 
@@ -199,6 +213,11 @@ public:
     }
 
     QuirksMode quirks_mode = QuirksMode::No;
+    // Whether this is an XML document rather than an HTML one (DOM §4.5), and
+    // the content type a document made by script reports; a loaded
+    // document's content type is its realm's.
+    bool xml = false;
+    std::string content_type = "text/html";
 
     template<typename T, typename... Args>
     T* create(Args&&... args)
