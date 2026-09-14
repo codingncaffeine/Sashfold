@@ -957,7 +957,7 @@ void usage(char const* program)
     std::cerr << "usage: " << program
               << " <wpt-checkout> <directories-file> <baseline-file> [--update] [--only <text>]\n"
                  "       [--json <file>] [--html <file>] [--revision <file>] [--print <n>] [--jobs <n>]\n"
-                 "       [--hang <seconds>] [--messages <n>] [--files <n>] [--accept-losses]\n";
+                 "       [--hang <seconds>] [--messages <n>] [--files <n>] [--accept-losses] [--failures <file>]\n";
 }
 
 } // namespace
@@ -984,6 +984,7 @@ int main(int argc, char** argv)
     int messages = 0;
     int files_ranked = 0;
     bool accept_losses = false;
+    std::string failures_path;
     for (int i = 4; i < argc; ++i) {
         std::string const arg = argv[i];
         auto const value = [&](std::string& into) {
@@ -1025,6 +1026,8 @@ int main(int argc, char** argv)
             files_ranked = std::atoi(text.c_str());
         } else if (arg == "--accept-losses") {
             accept_losses = true;
+        } else if (arg == "--failures") {
+            value(failures_path);
         } else {
             usage(argv[0]);
             return 2;
@@ -1237,6 +1240,35 @@ int main(int argc, char** argv)
         write_json(json_path, scores, passed, total, files, completed, revision);
     if (!html_path.empty())
         write_html(html_path, scores, passed, total, files, completed, revision);
+    // One row per file and one per subtest that did not pass, for grouping
+    // the failures by cause and joining a browser's counts (tools/wpt-gaps.sh):
+    //   file <id> <passed> <reported> <completed 0|1> <harness status> <harness message>
+    //   fail <id> <subtest> <status> <message>
+    if (!failures_path.empty()) {
+        std::ofstream out(failures_path, std::ios::binary);
+        for (std::size_t i = 0; i < tests.size(); ++i) {
+            TestResult const& result = results[i];
+            long file_passed = 0;
+            for (SubtestResult const& subtest : result.subtests)
+                file_passed += subtest.status == 0 ? 1 : 0;
+            char const* const harness = !result.completed  ? "NO_REPORT"
+                : result.harness_status == 0               ? "OK"
+                : result.harness_status == 1               ? "ERROR"
+                : result.harness_status == 2               ? "TIMEOUT"
+                                                           : "PRECONDITION_FAILED";
+            out << "file\t" << tests[i].first << '\t' << file_passed << '\t' << result.subtests.size() << '\t'
+                << (result.completed ? 1 : 0) << '\t' << harness << '\t' << escape_field(result.harness_message) << '\n';
+            for (SubtestResult const& subtest : result.subtests) {
+                if (subtest.status != 0)
+                    out << "fail\t" << tests[i].first << '\t' << escape_field(subtest.name) << '\t'
+                        << status_name(subtest.status) << '\t' << escape_field(subtest.message) << '\n';
+            }
+        }
+        if (!out) {
+            std::cerr << "could not write " << failures_path << "\n";
+            return 1;
+        }
+    }
 
     // The baseline: every subtest that passed when it was last blessed. With
     // --only the run is partial, so the verdict is informational.
