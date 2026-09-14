@@ -28,6 +28,104 @@ namespace sashfold::css {
 
 namespace {
 
+GapSink& gap_sink()
+{
+    static GapSink sink;
+    return sink;
+}
+
+void note_gap(std::string_view kind, std::string_view item)
+{
+    if (GapSink const& sink = gap_sink())
+        sink(kind, item);
+}
+
+std::string lowercase_copy(std::string_view text)
+{
+    std::string out;
+    for (char const c : text)
+        out += static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+    return out;
+}
+
+// A selector's component values as text, near enough to read in a report.
+void append_selector_text(std::vector<ComponentValue> const& values, std::string& out)
+{
+    for (ComponentValue const& value : values) {
+        if (out.size() > 80)
+            return;
+        if (value.is_function()) {
+            out += value.function().name + "(";
+            append_selector_text(value.function().values, out);
+            out += ")";
+        } else if (value.is_block()) {
+            bool const square = value.block().open == Token::Type::OpenSquare;
+            out += square ? "[" : "(";
+            append_selector_text(value.block().values, out);
+            out += square ? "]" : ")";
+        } else {
+            Token const& token = value.token();
+            switch (token.type) {
+            case Token::Type::Ident: out += token.value; break;
+            case Token::Type::Hash: out += "#" + token.value; break;
+            case Token::Type::String: out += "\"" + token.value + "\""; break;
+            case Token::Type::Delim: out += token.delim < 128 ? static_cast<char>(token.delim) : '?'; break;
+            case Token::Type::Colon: out += ":"; break;
+            case Token::Type::Comma: out += ","; break;
+            case Token::Type::Whitespace: out += " "; break;
+            case Token::Type::Number:
+            case Token::Type::Percentage:
+            case Token::Type::Dimension: out += "N"; break;
+            default: out += "?"; break;
+            }
+        }
+    }
+}
+
+// The part of a selector list that keeps it from parsing: the first
+// pseudo-class or pseudo-element in it that does not parse on its own with
+// the arguments written, then a nesting `&` or a namespace `|`, else
+// "(other)" — whose text is reported too ("css selector sample").
+std::string unparsed_selector_part(std::vector<ComponentValue> const& prelude)
+{
+    Token star;
+    star.type = Token::Type::Delim;
+    star.delim = '*';
+    Token colon;
+    colon.type = Token::Type::Colon;
+    for (std::size_t i = 0; i + 1 < prelude.size(); ++i) {
+        if (!prelude[i].is_token(Token::Type::Colon))
+            continue;
+        std::vector<ComponentValue> probe { ComponentValue { star }, ComponentValue { colon } };
+        std::size_t j = i + 1;
+        std::string colons = ":";
+        if (prelude[j].is_token(Token::Type::Colon)) {
+            colons = "::";
+            probe.push_back(ComponentValue { colon });
+            if (++j >= prelude.size())
+                break;
+        }
+        std::string name;
+        if (prelude[j].is_token(Token::Type::Ident))
+            name = colons + lowercase_copy(prelude[j].token().value);
+        else if (prelude[j].is_function())
+            name = colons + lowercase_copy(prelude[j].function().name) + "()";
+        else
+            continue;
+        probe.push_back(prelude[j]);
+        if (!parse_selector_list(probe))
+            return name;
+        i = j;
+    }
+    for (ComponentValue const& value : prelude) {
+        if (value.is_token(Token::Type::Delim) && (value.token().delim == '&' || value.token().delim == '|'))
+            return value.token().delim == '&' ? "&" : "|";
+    }
+    std::string text;
+    append_selector_text(prelude, text);
+    note_gap("css selector sample", text);
+    return "(other)";
+}
 
 // The built-in UA stylesheet: the HTML rendering section's defaults for the
 // reader web, kept to the first property set.
@@ -1986,17 +2084,25 @@ struct RuleSet {
                 // their rules in place; other at-rules (@supports,
                 // @font-face, @keyframes, @layer) are not supported yet.
                 auto& at = std::get<AtRule>(rule.value);
-                if (at.has_block && ascii_ci_equals(at.name, "media")
-                    && media_prelude_matches(at.prelude, media))
-                    compile_rules(at.child_rules, user_agent, order, base);
+                if (ascii_ci_equals(at.name, "media")) {
+                    if (at.has_block && media_prelude_matches(at.prelude, media))
+                        compile_rules(at.child_rules, user_agent, order, base);
+                } else if (gap_sink() && !ascii_ci_equals(at.name, "font-face") && !ascii_ci_equals(at.name, "import")
+                    && !ascii_ci_equals(at.name, "charset")) {
+                    // @font-face and @import are read where the sheets and fonts are collected.
+                    note_gap("css at-rule", "@" + lowercase_copy(at.name));
+                }
                 continue;
             }
             if (!rule.is_qualified())
                 continue;
             auto& qualified = std::get<QualifiedRule>(rule.value);
             std::optional<SelectorList> selectors = parse_selector_list(qualified.prelude);
-            if (!selectors)
+            if (!selectors) {
+                if (gap_sink())
+                    note_gap("css selector", unparsed_selector_part(qualified.prelude));
                 continue;
+            }
             CompiledRule compiled;
             compiled.selectors = std::move(*selectors);
             compiled.declarations = std::move(qualified.declarations);
@@ -5796,8 +5902,14 @@ struct Resolver {
             }
         }
         // Unknown properties fall on the floor, by design.
+        note_gap("css property", name);
     }
 };
+
+void set_gap_sink(GapSink sink)
+{
+    gap_sink() = std::move(sink);
+}
 
 StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media, net::Url const* document_url)
     : m_rules(std::make_unique<RuleSet>())

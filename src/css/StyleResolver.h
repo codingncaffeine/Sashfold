@@ -74,4 +74,12 @@ StyleMap resolve_styles(dom::Document const& document);
 // boxes the specification generates around misplaced content this way.
 ComputedStyle inherited_style(ComputedStyle const& parent);
 
+// What a page wrote that the style system drops, told to the sink a host
+// sets: a property it does not know ("css property", the name), an at-rule
+// whose rules it skips ("css at-rule", "@name"), a rule whose selector does
+// not parse ("css selector", the pseudo-class or pseudo-element that stops
+// it). No sink is set unless a host asks for the census (--render --gaps).
+using GapSink = std::function<void(std::string_view kind, std::string_view item)>;
+void set_gap_sink(GapSink sink);
+
 }

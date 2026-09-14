@@ -41,6 +41,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -57,7 +58,7 @@ int usage(char const* program)
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
-              << "                 [--report out.json] [--dump-layout] [--no-scripts] [--script-time ms]\n"
+              << "                 [--report out.json] [--gaps out.tsv] [--dump-layout] [--no-scripts] [--script-time ms]\n"
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
@@ -84,7 +85,10 @@ int usage(char const* program)
               << "  --render lays out the page (local file or live URL) and writes a PNG; a load\n"
               << "          that fails renders the page the window would show. --max-height caps the\n"
               << "          picture, --thumbnail draws the viewport's top small, --report writes a\n"
-              << "          JSON account of the load and the render, --dump-layout prints every\n"
+              << "          JSON account of the load and the render, --gaps counts what the page\n"
+              << "          wrote that the engine dropped (unknown properties, skipped at-rules,\n"
+              << "          selectors that do not parse, uncaught script errors, custom and\n"
+              << "          unknown elements) as kind, item and hits, --dump-layout prints every\n"
               << "          laid-out box and text run with its position and size. The page's\n"
               << "          scripts run first, their timers on a virtual clock given --script-time\n"
               << "          milliseconds (3000); --no-scripts renders the markup alone.\n"
@@ -484,7 +488,72 @@ struct RenderExtras {
     bool dump_layout = false; // print the fragment tree after layout
     bool scripts = true; // run the page's scripts before laying it out
     double script_time_ms = 3000; // how much virtual time the page's timers get
+    std::string gaps; // a census of what the page wrote that the engine dropped
 };
+
+// --gaps: what a page wrote that the engine dropped, counted while it loads
+// and renders: the properties, at-rules and selectors the style system
+// skipped, uncaught script errors, custom elements (never upgraded) and tags
+// HTML does not define. Written as `kind \t item \t hits`, one row each.
+struct GapCensus {
+    std::mutex lock;
+    std::map<std::pair<std::string, std::string>, long> hits;
+
+    void note(std::string_view kind, std::string_view item)
+    {
+        std::lock_guard<std::mutex> const guard(lock);
+        ++hits[{ std::string(kind), std::string(item) }];
+    }
+};
+
+// The elements HTML defines, with the obsolete ones it still parses and
+// styles; applet, bgsound, blink, isindex, keygen, multicol, nextid and
+// spacer are HTMLUnknownElement in the standard and so are left out.
+bool html_defines(std::string_view name)
+{
+    static constexpr std::string_view const names[] = {
+        "a", "abbr", "address", "area", "article", "aside", "audio", "b", "base", "bdi", "bdo", "blockquote",
+        "body", "br", "button", "canvas", "caption", "cite", "code", "col", "colgroup", "data", "datalist", "dd",
+        "del", "details", "dfn", "dialog", "div", "dl", "dt", "em", "embed", "fieldset", "figcaption", "figure",
+        "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "i",
+        "iframe", "img", "input", "ins", "kbd", "label", "legend", "li", "link", "main", "map", "mark", "menu",
+        "meta", "meter", "nav", "noscript", "object", "ol", "optgroup", "option", "output", "p", "picture", "pre",
+        "progress", "q", "rp", "rt", "ruby", "s", "samp", "script", "search", "section", "select", "selectedcontent",
+        "slot", "small", "source", "span", "strong", "style", "sub", "summary", "sup", "table", "tbody", "td",
+        "template", "textarea", "tfoot", "th", "thead", "time", "title", "tr", "track", "u", "ul", "var", "video",
+        "wbr", "acronym", "basefont", "big", "center", "dir", "font", "frame", "frameset", "listing", "marquee",
+        "menuitem", "nobr", "noembed", "noframes", "param", "plaintext", "rb", "rtc", "strike", "tt", "xmp",
+    };
+    return std::find(std::begin(names), std::end(names), name) != std::end(names);
+}
+
+void census_elements(dom::Node const& node, GapCensus& census)
+{
+    if (node.is_element()) {
+        auto const& element = static_cast<dom::Element const&>(node);
+        if (element.is_html()) {
+            std::string const& name = element.local_name();
+            if (name.find('-') != std::string::npos)
+                census.note("html custom element", name);
+            else if (!html_defines(name))
+                census.note("html unknown element", name);
+        }
+    }
+    for (dom::Node const* child : node.children())
+        census_elements(*child, census);
+}
+
+bool write_gaps(std::string const& path, GapCensus const& census)
+{
+    std::ofstream out(path, std::ios::binary);
+    for (auto const& [key, count] : census.hits) {
+        std::string item;
+        for (char const c : key.second)
+            item += c == '\t' || c == '\n' || c == '\r' ? ' ' : c;
+        out << key.first << '\t' << item << '\t' << count << '\n';
+    }
+    return static_cast<bool>(out);
+}
 
 // The fragment tree as text, one box per line — the instrument for a
 // layout question: what box is where, how big, on which baseline.
@@ -715,6 +784,13 @@ int render_page(std::string const& path, std::string const& output, int viewport
     auto const t0 = clock::now();
     int sheet_failures = 0;
     int image_failures = 0;
+    GapCensus gap_census;
+    bool const counting_gaps = !extras.gaps.empty();
+    struct GapSinkReset {
+        ~GapSinkReset() { css::set_gap_sink(nullptr); }
+    } const gap_sink_reset;
+    if (counting_gaps)
+        css::set_gap_sink([&gap_census](std::string_view kind, std::string_view item) { gap_census.note(kind, item); });
     // The page is parsed with its scripts running. Timers run on a virtual
     // clock afterwards, up to the budget: what the page does in its first
     // seconds, without waiting for them. A script that asks for a box gets
@@ -741,8 +817,10 @@ int render_page(std::string const& path, std::string const& output, int viewport
         hooks.now = [&script_clock] { return script_clock; };
         hooks.should_stop = [started] { return clock::now() - started > std::chrono::seconds(30); };
         oracle.install(hooks);
-        hooks.console = [](std::string_view level, std::string_view message) {
+        hooks.console = [&gap_census, counting_gaps](std::string_view level, std::string_view message) {
             std::cerr << "console." << level << ": " << message << "\n";
+            if (counting_gaps && level == "error" && message.starts_with("Uncaught "))
+                gap_census.note("script error", message.substr(9));
         };
         hooks.viewport_width = media.width / g_device_scale;
         hooks.viewport_height = media.height / g_device_scale;
@@ -894,6 +972,13 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << "}\n";
         if (!out) {
             std::cerr << "error: could not write " << extras.report << "\n";
+            return 1;
+        }
+    }
+    if (counting_gaps) {
+        census_elements(*document, gap_census);
+        if (!write_gaps(extras.gaps, gap_census)) {
+            std::cerr << "error: could not write " << extras.gaps << "\n";
             return 1;
         }
     }
@@ -1693,6 +1778,9 @@ int main(int argc, char** argv)
                 return usage(argv[0]);
         } else if (arg == "--report") {
             if (!value_after(i, extras.report))
+                return usage(argv[0]);
+        } else if (arg == "--gaps") {
+            if (!value_after(i, extras.gaps))
                 return usage(argv[0]);
         } else if (arg == "--thumbnail") {
             if (!value_after(i, extras.thumbnail))

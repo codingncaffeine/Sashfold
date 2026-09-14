@@ -32,6 +32,7 @@ width=1024
 height=768
 max_height=2400
 generator_args=()
+gaps=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +40,7 @@ while [ $# -gt 0 ]; do
     --jobs) jobs="$2"; shift 2 ;;
     --timeout) limit="$2"; shift 2 ;;
     --only) only="$2"; shift 2 ;;
+    --gaps) gaps=1; shift ;;
     --at|--rendered-on) generator_args+=("$1" "$2"); shift 2 ;;
     --twin) generator_args+=("$1" "$2" "$3"); shift 3 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
@@ -66,12 +68,14 @@ mkdir -p "$out"
 
 render_row() { # id url
   local id="$1" url="$2" code
-  rm -f "$out/$id.png" "$out/$id-thumb.png" "$out/$id.json" "$out/$id.log"
+  local census=()
+  if [ "$gaps" = 1 ]; then census=(--gaps "$out/$id.gaps.tsv"); fi
+  rm -f "$out/$id.png" "$out/$id-thumb.png" "$out/$id.json" "$out/$id.log" "$out/$id.gaps.tsv"
   set +e
   timeout --kill-after=10 "$limit" "$exe" --render "$url" -o "$out/$id.png" \
     --width "$width" --height "$height" --max-height "$max_height" \
     --thumbnail "$out/$id-thumb.png" --thumbnail-width 320 \
-    --report "$out/$id.json" >"$out/$id.log" 2>&1
+    --report "$out/$id.json" "${census[@]}" >"$out/$id.log" 2>&1
   code=$?
   set -e
   if [ ! -f "$out/$id.json" ]; then
