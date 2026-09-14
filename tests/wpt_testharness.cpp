@@ -58,6 +58,9 @@ constexpr std::string_view origin = "http://web-platform.test:8000";
 constexpr std::string_view host_name = "web-platform.test";
 constexpr std::string_view alt_host_name = "not-web-platform.test";
 constexpr auto test_deadline = std::chrono::seconds(5);
+// A test that declares <meta name="timeout" content="long"> is given six times
+// the time, as wptrunner gives it.
+constexpr auto long_test_deadline = std::chrono::seconds(30);
 constexpr int max_pumps = 20000;
 
 // Layout runs on the process's one font manager, so the tests' layout
@@ -709,6 +712,34 @@ void parse_report(std::string_view report, TestResult& result)
     }
 }
 
+// Whether the test's markup declares <meta name="timeout" content="long">, in
+// any case, its values quoted or not. Read from the bytes, since the test's
+// scripts run while the page parses.
+bool declares_long_timeout(std::string_view body)
+{
+    std::string lower(body);
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    auto const has_attribute = [](std::string_view tag, std::string_view name, std::string_view value) {
+        for (std::string_view const quote : { "", "\"", "'" }) {
+            std::string const needle = std::string(name) + "=" + std::string(quote) + std::string(value);
+            std::size_t const at = tag.find(needle);
+            if (at == std::string_view::npos)
+                continue;
+            std::size_t const after = at + needle.size();
+            if (after == tag.size() || !std::isalnum(static_cast<unsigned char>(tag[after])))
+                return true;
+        }
+        return false;
+    };
+    for (std::size_t at = lower.find("<meta"); at != std::string::npos; at = lower.find("<meta", at + 5)) {
+        std::size_t const end = lower.find('>', at);
+        std::string_view const tag = std::string_view(lower).substr(at, end == std::string::npos ? std::string_view::npos : end - at);
+        if (has_attribute(tag, "name", "timeout") && has_attribute(tag, "content", "long"))
+            return true;
+    }
+    return false;
+}
+
 TestResult run_test(Server const& server, std::string const& id)
 {
     TestResult result;
@@ -719,6 +750,7 @@ TestResult run_test(Server const& server, std::string const& id)
         result.harness_message = "the test could not be served";
         return result;
     }
+    auto const deadline = declares_long_timeout(page->body) ? long_test_deadline : test_deadline;
     char const* const trace_env = std::getenv("SASHFOLD_WPT_TRACE");
     bool const trace = trace_env != nullptr;
     bool const deep = trace && std::atoi(trace_env) >= 2; // the event loop and every fetch too
@@ -788,7 +820,7 @@ TestResult run_test(Server const& server, std::string const& id)
     };
     hooks.now = [&clock] { return clock; };
     hooks.should_stop = [&] {
-        if (std::chrono::steady_clock::now() - started > test_deadline)
+        if (std::chrono::steady_clock::now() - started > deadline)
             stopped = true;
         return stopped;
     };
@@ -836,7 +868,7 @@ TestResult run_test(Server const& server, std::string const& id)
         bool const ran = realm->run_pending();
         if (report || stopped || realm->interpreter().terminated())
             break;
-        if (std::chrono::steady_clock::now() - started > test_deadline) {
+        if (std::chrono::steady_clock::now() - started > deadline) {
             stopped = true;
             break;
         }
