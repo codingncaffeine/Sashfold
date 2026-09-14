@@ -927,8 +927,11 @@ void install_node(Realm::Internals& in, js::Object& node)
         dom::Node& o = **other;
         if (&o == &n)
             return js::Value::number(0);
+        // Disconnected and implementation-specific, and preceding or following
+        // by the roots' addresses, so the answer for a pair of trees is the
+        // same for all their nodes and the other way round from the other one.
         if (&o.root() != &n.root())
-            return js::Value::number(1 | 2 | 32); // disconnected, implementation-specific, preceding
+            return js::Value::number(1 | 32 | (std::less<dom::Node const*> {}(&o.root(), &n.root()) ? 2 : 4));
         if (is_inclusive_ancestor(o, n))
             return js::Value::number(8 | 2); // contains, preceding
         if (is_inclusive_ancestor(n, o))

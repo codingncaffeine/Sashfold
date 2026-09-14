@@ -248,6 +248,11 @@ void test_tree_mutation_and_serialization()
     CHECK_EQ(page->number("document.body.compareDocumentPosition(list)"), 20);
     CHECK_EQ(page->number("list.compareDocumentPosition(document.body)"), 10);
     CHECK_EQ(page->number("list.previousSibling.compareDocumentPosition(list)"), 4);
+    // Nodes in two trees are disconnected, one preceding the other and that
+    // one following it.
+    CHECK(page->boolean("(() => { const a = document.createElement('a'), b = document.createElement('b');"
+                        " const there = a.compareDocumentPosition(b), back = b.compareDocumentPosition(a);"
+                        " return (there & 33) === 33 && (back & 33) === 33 && ((there & 6) === 2 ? (back & 6) === 4 : (there & 6) === 4 && (back & 6) === 2); })()"));
     // Text nodes.
     page->eval("var text = document.createTextNode('hello world'); document.body.appendChild(text);");
     CHECK_EQ(page->number("text.length"), 11);
