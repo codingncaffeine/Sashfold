@@ -1,12 +1,12 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
-  "date": "2026-09-13",
-  "passed": 16886,
+  "date": "2026-09-14",
+  "passed": 17352,
   "total": 26275,
   "files": 1260,
   "completed": 1256,
   "directories": [
-    { "path": "dom/nodes", "passed": 5880, "total": 9380, "files": 316, "completed": 313 },
+    { "path": "dom/nodes", "passed": 6346, "total": 9380, "files": 316, "completed": 313 },
     { "path": "dom/events", "passed": 694, "total": 1114, "files": 168, "completed": 167 },
     { "path": "dom/ranges", "passed": 1, "total": 289, "files": 67, "completed": 67 },
     { "path": "html/browsers/the-window-object", "passed": 445, "total": 700, "files": 90, "completed": 90 },

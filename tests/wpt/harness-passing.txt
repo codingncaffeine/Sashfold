@@ -2638,7 +2638,9 @@ dom/nodes/Element-matches.html	Detached Element.matches: :last-of-type selector,
 dom/nodes/Element-matches.html	Detached Element.matches: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
 dom/nodes/Element-matches.html	Detached Element.matches: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
 dom/nodes/Element-matches.html	Detached Element.matches: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+dom/nodes/Element-matches.html	Detached Element.matches: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
 dom/nodes/Element-matches.html	Detached Element.matches: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-matches.html	Detached Element.matches: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
 dom/nodes/Element-matches.html	Detached Element.matches: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/Element-matches.html	Detached Element.matches: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
 dom/nodes/Element-matches.html	Detached Element.matches: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
@@ -2656,7 +2658,15 @@ dom/nodes/Element-matches.html	Detached Element.matches: :nth-of-type selector, 
 dom/nodes/Element-matches.html	Detached Element.matches: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
 dom/nodes/Element-matches.html	Detached Element.matches: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
 dom/nodes/Element-matches.html	Detached Element.matches: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
 dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/Element-matches.html	Detached Element.matches: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-matches.html	Detached Element.matches: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
 dom/nodes/Element-matches.html	Detached Element.matches: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
@@ -2704,7 +2714,14 @@ dom/nodes/Element-matches.html	Detached Element.matches: Attribute whitespace-se
 dom/nodes/Element-matches.html	Detached Element.matches: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
 dom/nodes/Element-matches.html	Detached Element.matches: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
 dom/nodes/Element-matches.html	Detached Element.matches: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
 dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
 dom/nodes/Element-matches.html	Detached Element.matches: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-matches.html	Detached Element.matches: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
 dom/nodes/Element-matches.html	Detached Element.matches: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
@@ -2721,7 +2738,14 @@ dom/nodes/Element-matches.html	Detached Element.matches: Descendant combinator, 
 dom/nodes/Element-matches.html	Detached Element.matches: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
 dom/nodes/Element-matches.html	Detached Element.matches: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
 dom/nodes/Element-matches.html	Detached Element.matches: Empty String: 
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
 dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/Element-matches.html	Detached Element.matches: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-matches.html	Detached Element.matches: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
 dom/nodes/Element-matches.html	Detached Element.matches: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
@@ -2763,8 +2787,10 @@ dom/nodes/Element-matches.html	Detached Element.matches: Syntax, group of select
 dom/nodes/Element-matches.html	Detached Element.matches: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
 dom/nodes/Element-matches.html	Detached Element.matches: Undeclared namespace: :not(ns|div)
 dom/nodes/Element-matches.html	Detached Element.matches: Undeclared namespace: ns|div
+dom/nodes/Element-matches.html	Detached Element.matches: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
 dom/nodes/Element-matches.html	Detached Element.matches: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
 dom/nodes/Element-matches.html	Detached Element.matches: Universal selector, matching all elements (with no refNodes): *
+dom/nodes/Element-matches.html	Detached Element.matches: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-matches.html	Detached Element.matches: Unknown pseudo-class: :example
 dom/nodes/Element-matches.html	Detached Element.matches: Unknown pseudo-class: div:example
 dom/nodes/Element-matches.html	Detached Element.matches: Unknown pseudo-class: div:linkexample
@@ -2786,7 +2812,9 @@ dom/nodes/Element-matches.html	Fragment Element.matches: :last-of-type selector,
 dom/nodes/Element-matches.html	Fragment Element.matches: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
 dom/nodes/Element-matches.html	Fragment Element.matches: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
 dom/nodes/Element-matches.html	Fragment Element.matches: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+dom/nodes/Element-matches.html	Fragment Element.matches: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
 dom/nodes/Element-matches.html	Fragment Element.matches: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-matches.html	Fragment Element.matches: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
 dom/nodes/Element-matches.html	Fragment Element.matches: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/Element-matches.html	Fragment Element.matches: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
 dom/nodes/Element-matches.html	Fragment Element.matches: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
@@ -2804,7 +2832,15 @@ dom/nodes/Element-matches.html	Fragment Element.matches: :nth-of-type selector, 
 dom/nodes/Element-matches.html	Fragment Element.matches: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
 dom/nodes/Element-matches.html	Fragment Element.matches: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
 dom/nodes/Element-matches.html	Fragment Element.matches: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
 dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/Element-matches.html	Fragment Element.matches: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-matches.html	Fragment Element.matches: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
 dom/nodes/Element-matches.html	Fragment Element.matches: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
@@ -2852,7 +2888,14 @@ dom/nodes/Element-matches.html	Fragment Element.matches: Attribute whitespace-se
 dom/nodes/Element-matches.html	Fragment Element.matches: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
 dom/nodes/Element-matches.html	Fragment Element.matches: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
 dom/nodes/Element-matches.html	Fragment Element.matches: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
 dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
 dom/nodes/Element-matches.html	Fragment Element.matches: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-matches.html	Fragment Element.matches: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
 dom/nodes/Element-matches.html	Fragment Element.matches: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
@@ -2868,7 +2911,14 @@ dom/nodes/Element-matches.html	Fragment Element.matches: Descendant combinator, 
 dom/nodes/Element-matches.html	Fragment Element.matches: Descendant combinator, matching element with id that is a descendant of an element (with no refNodes): div #descendant-div1
 dom/nodes/Element-matches.html	Fragment Element.matches: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
 dom/nodes/Element-matches.html	Fragment Element.matches: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
 dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/Element-matches.html	Fragment Element.matches: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-matches.html	Fragment Element.matches: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
 dom/nodes/Element-matches.html	Fragment Element.matches: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
@@ -2882,8 +2932,10 @@ dom/nodes/Element-matches.html	Fragment Element.matches: Syntax, group of select
 dom/nodes/Element-matches.html	Fragment Element.matches: Syntax, group of selectors separator, surrounded by whitespace (with no refNodes): #group em\t\r \n,\t\r \n#group strong
 dom/nodes/Element-matches.html	Fragment Element.matches: Syntax, group of selectors separator, whitespace after (with no refNodes): #group em,\t\r\n#group strong
 dom/nodes/Element-matches.html	Fragment Element.matches: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
+dom/nodes/Element-matches.html	Fragment Element.matches: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
 dom/nodes/Element-matches.html	Fragment Element.matches: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
 dom/nodes/Element-matches.html	Fragment Element.matches: Universal selector, matching all elements (with no refNodes): *
+dom/nodes/Element-matches.html	Fragment Element.matches: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-matches.html	Fragment should not support matches
 dom/nodes/Element-matches.html	In-document Element supports matches
 dom/nodes/Element-matches.html	In-document Element.matches: :disabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :disabled
@@ -2918,8 +2970,11 @@ dom/nodes/Element-matches.html	In-document Element.matches: :link and :visited p
 dom/nodes/Element-matches.html	In-document Element.matches: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with refNode Element):  :link, #pseudo-link :visited
 dom/nodes/Element-matches.html	In-document Element.matches: :link and :visited pseudo-class selectors, matching no elements (with no refNodes): #head :link, #head :visited
 dom/nodes/Element-matches.html	In-document Element.matches: :link and :visited pseudo-class selectors, matching no elements (with refNode Element):  :link, #head :visited
+dom/nodes/Element-matches.html	In-document Element.matches: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
 dom/nodes/Element-matches.html	In-document Element.matches: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-matches.html	In-document Element.matches: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
 dom/nodes/Element-matches.html	In-document Element.matches: :not pseudo-class selector, matching (1) (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-matches.html	In-document Element.matches: :not pseudo-class selector, matching (1) (with no refNodes): #not>:not(div)
 dom/nodes/Element-matches.html	In-document Element.matches: :nth-child selector used twice, matching  (with refNode Element): :nth-child(1) :nth-child(1)
 dom/nodes/Element-matches.html	In-document Element.matches: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/Element-matches.html	In-document Element.matches: :nth-child selector, matching every fourth child element, starting from the third (with refNode Element): :nth-child(4n-1)
@@ -2958,8 +3013,24 @@ dom/nodes/Element-matches.html	In-document Element.matches: :pseudo-only-of-type
 dom/nodes/Element-matches.html	In-document Element.matches: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
 dom/nodes/Element-matches.html	In-document Element.matches: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with refNode Element):  em:only-of-type
 dom/nodes/Element-matches.html	In-document Element.matches: :root pseudo-class selector, matching document root element (with no refNodes): :root
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (1) (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (1) (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (1) (with no refNodes): #adjacent div+p
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, no whitespace (1) (with no refNodes): #adjacent-p2+#adjacent-p3
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
 dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, surrounded by whitespace (1) (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
 dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, whitespace after (1) (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
+dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, whitespace before (1) (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-matches.html	In-document Element.matches: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-matches.html	In-document Element.matches: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
@@ -3054,8 +3125,22 @@ dom/nodes/Element-matches.html	In-document Element.matches: Attribute whitespace
 dom/nodes/Element-matches.html	In-document Element.matches: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with refNode Element): [data-attr-whitespace~="\\0000e9"]
 dom/nodes/Element-matches.html	In-document Element.matches: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
 dom/nodes/Element-matches.html	In-document Element.matches: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with refNode Element): [title~=中文]
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element that is a child of an element with id (1) (with no refNodes): #child>div
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with class that is a child of an element with class (1) (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with id that is a child of an element (1) (with no refNodes): div>#child-div1
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with id that is a child of an element with class (1) (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with id that is a child of an element with id (1) (with no refNodes): #child>#child-div1
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, no whitespace (1) (with no refNodes): #child-div1>#child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, surrounded by whitespace (1) (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, whitespace after (1) (with no refNodes): #child-div1>\t\r\n#child-div2
+dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, whitespace before (1) (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Class Selector, chained, with type selector (1) (with no refNodes): div.apple.banana.orange
@@ -3089,8 +3174,22 @@ dom/nodes/Element-matches.html	In-document Element.matches: Descendant combinato
 dom/nodes/Element-matches.html	In-document Element.matches: Descendant combinator, whitespace characters (1) (with no refNodes): #descendant\t\r\n#descendant-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
 dom/nodes/Element-matches.html	In-document Element.matches: Empty String: 
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~div
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element with class that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element with id that is a sibling of an element (1) (with no refNodes): div~#sibling-div4
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element with id that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching p element that is a sibling of a div element (1) (with no refNodes): #sibling div~p
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, no whitespace (1) (with no refNodes): #sibling-p2~#sibling-p3
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
 dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, surrounded by whitespace (1) (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
 dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, whitespace after (1) (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
+dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, whitespace before (1) (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-matches.html	In-document Element.matches: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-matches.html	In-document Element.matches: ID Selector, chained, with type selector (1) (with no refNodes): div#id-div1, div#id-div2
@@ -3147,8 +3246,10 @@ dom/nodes/Element-matches.html	In-document Element.matches: Type selector, match
 dom/nodes/Element-matches.html	In-document Element.matches: Type selector, matching html element (with no refNodes): html
 dom/nodes/Element-matches.html	In-document Element.matches: Undeclared namespace: :not(ns|div)
 dom/nodes/Element-matches.html	In-document Element.matches: Undeclared namespace: ns|div
+dom/nodes/Element-matches.html	In-document Element.matches: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
 dom/nodes/Element-matches.html	In-document Element.matches: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
 dom/nodes/Element-matches.html	In-document Element.matches: Universal selector, matching all elements (with no refNodes): *
+dom/nodes/Element-matches.html	In-document Element.matches: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-matches.html	In-document Element.matches: Unknown pseudo-class: :example
 dom/nodes/Element-matches.html	In-document Element.matches: Unknown pseudo-class: div:example
 dom/nodes/Element-matches.html	In-document Element.matches: Unknown pseudo-class: div:linkexample
@@ -3191,7 +3292,9 @@ dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
@@ -3209,7 +3312,15 @@ dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
@@ -3257,7 +3368,14 @@ dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
@@ -3274,7 +3392,14 @@ dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Empty String: 
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
@@ -3316,8 +3441,10 @@ dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Undeclared namespace: :not(ns|div)
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Undeclared namespace: ns|div
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Universal selector, matching all elements (with no refNodes): *
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Unknown pseudo-class: :example
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Unknown pseudo-class: div:example
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Unknown pseudo-class: div:linkexample
@@ -3339,7 +3466,9 @@ dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
@@ -3357,7 +3486,15 @@ dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
@@ -3405,7 +3542,14 @@ dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
@@ -3421,7 +3565,14 @@ dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (with no refNodes): div #descendant-div1
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
@@ -3435,8 +3586,10 @@ dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, surrounded by whitespace (with no refNodes): #group em\t\r \n,\t\r \n#group strong
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace after (with no refNodes): #group em,\t\r\n#group strong
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Universal selector, matching all elements (with no refNodes): *
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-webkitMatchesSelector.html	Fragment should not support webkitMatchesSelector
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element supports webkitMatchesSelector
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :disabled
@@ -3471,8 +3624,11 @@ dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSe
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with refNode Element):  :link, #pseudo-link :visited
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching no elements (with no refNodes): #head :link, #head :visited
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching no elements (with refNode Element):  :link, #head :visited
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching (1) (with no refNodes): #not * :not(:first-child)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching (1) (with no refNodes): #not>:not(div)
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :nth-child selector used twice, matching  (with refNode Element): :nth-child(1) :nth-child(1)
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with refNode Element): :nth-child(4n-1)
@@ -3511,8 +3667,24 @@ dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSe
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with refNode Element):  em:only-of-type
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :root pseudo-class selector, matching document root element (with no refNodes): :root
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (1) (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (1) (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (1) (with no refNodes): #adjacent div+p
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (1) (with no refNodes): #adjacent-p2+#adjacent-p3
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (1) (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (1) (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (1) (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
@@ -3607,8 +3779,22 @@ dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSe
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with refNode Element): [data-attr-whitespace~="\\0000e9"]
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with refNode Element): [title~=中文]
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (1) (with no refNodes): #child>div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (1) (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (1) (with no refNodes): div>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (1) (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (1) (with no refNodes): #child>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, no whitespace (1) (with no refNodes): #child-div1>#child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (1) (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, whitespace after (1) (with no refNodes): #child-div1>\t\r\n#child-div2
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, whitespace before (1) (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Class Selector, chained, with type selector (1) (with no refNodes): div.apple.banana.orange
@@ -3642,8 +3828,22 @@ dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSe
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Descendant combinator, whitespace characters (1) (with no refNodes): #descendant\t\r\n#descendant-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Empty String: 
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (1) (with no refNodes): div~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (1) (with no refNodes): #sibling div~p
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, no whitespace (1) (with no refNodes): #sibling-p2~#sibling-p3
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (1) (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, whitespace after (1) (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, whitespace before (1) (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: ID Selector, chained, with type selector (1) (with no refNodes): div#id-div1, div#id-div2
@@ -3700,8 +3900,10 @@ dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSe
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Type selector, matching html element (with no refNodes): html
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Undeclared namespace: :not(ns|div)
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Undeclared namespace: ns|div
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Universal selector, matching all elements (with no refNodes): *
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Unknown pseudo-class: :example
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Unknown pseudo-class: div:example
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: Unknown pseudo-class: div:linkexample
@@ -4145,7 +4347,9 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :las
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :link and :visited pseudo-class selectors, chained, mutually exclusive pseudo-classes match nothing: :link:visited
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :link and :visited pseudo-class selectors, not matching link elements with href attributes: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -4167,7 +4371,16 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :pse
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :root pseudo-class selector, not matching document root element: :root
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -4231,7 +4444,17 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Attr
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -4249,7 +4472,16 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Desc
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -4297,7 +4529,10 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Unknown pseudo-class: div:linkexample
@@ -4334,7 +4569,9 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :link and :visited pseudo-class selectors, chained, mutually exclusive pseudo-classes match nothing: :link:visited
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :link and :visited pseudo-class selectors, not matching link elements with href attributes: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -4356,7 +4593,16 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :root pseudo-class selector, not matching document root element: :root
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -4420,7 +4666,17 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: A
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -4438,7 +4694,16 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: D
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -4486,7 +4751,10 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: T
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Unknown pseudo-class: div:linkexample
@@ -4524,7 +4792,9 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :last-of-typ
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :last-of-type selector, matching the last td element in each table row: #pseudo-nth-table1 tr :last-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :link and :visited pseudo-class selectors, matching no elements: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -4545,7 +4815,16 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :pseudo-only
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :root pseudo-class selector, matching document root element: :root
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -4609,7 +4888,17 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Attribute wh
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -4628,7 +4917,16 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Descendant c
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -4676,7 +4974,10 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Type selecto
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Unknown pseudo-class: div:linkexample
@@ -4712,7 +5013,9 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :last-of-
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :last-of-type selector, matching the last td element in each table row: #pseudo-nth-table1 tr :last-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :link and :visited pseudo-class selectors, matching no elements: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -4733,7 +5036,16 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :pseudo-o
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :root pseudo-class selector, matching document root element: :root
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -4797,7 +5109,17 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Attribute
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -4816,7 +5138,16 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Descendan
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -4864,7 +5195,10 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Type sele
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Unknown pseudo-class: div:linkexample
@@ -4971,7 +5305,9 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :last-of-typ
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :link and :visited pseudo-class selectors, chained, mutually exclusive pseudo-classes match nothing: :link:visited
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :link and :visited pseudo-class selectors, not matching link elements with href attributes: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -4992,7 +5328,16 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -5056,7 +5401,17 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Attribute wh
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -5074,7 +5429,16 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Descendant c
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -5122,7 +5486,10 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Type selecto
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Unknown pseudo-class: div:linkexample
@@ -5159,7 +5526,9 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :last-of-
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :link and :visited pseudo-class selectors, chained, mutually exclusive pseudo-classes match nothing: :link:visited
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :link and :visited pseudo-class selectors, not matching link elements with href attributes: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -5180,7 +5549,16 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-o
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -5244,7 +5622,17 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Attribute
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -5262,7 +5650,16 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Descendan
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -5310,7 +5707,10 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Type sele
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Unknown pseudo-class: div:linkexample
@@ -5349,7 +5749,9 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :link and :visited pseudo-class selectors, chained, mutually exclusive pseudo-classes match nothing: :link:visited
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :link and :visited pseudo-class selectors, not matching link elements with href attributes: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -5370,7 +5772,16 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :root pseudo-class selector, not matching document root element: :root
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -5434,7 +5845,17 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: A
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -5453,7 +5874,16 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: D
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -5501,7 +5931,10 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: T
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Unknown pseudo-class: div:linkexample
@@ -5538,7 +5971,9 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :link and :visited pseudo-class selectors, chained, mutually exclusive pseudo-classes match nothing: :link:visited
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :link and :visited pseudo-class selectors, matching a and area elements with href attributes: #pseudo-link :link, #pseudo-link :visited
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :link and :visited pseudo-class selectors, not matching link elements with href attributes: #head :link, #head :visited
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :not pseudo-class selector argument surrounded by spaces, matching : #not>:not( div )
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :not pseudo-class selector, matching : #not * :not(:first-child)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :not pseudo-class selector, matching : #not>:not(div)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :not pseudo-class selector, matching nothing: :not(*)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :nth-child selector, matching every fourth child element, starting from the third: #pseudo-nth-p1 :nth-child(4n-1)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :nth-child selector, matching every second child element, starting from the fourth: #pseudo-nth li:nth-child(2n+4)
@@ -5559,7 +5994,16 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :root pseudo-class selector, not matching document root element: :root
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id: #adjacent-div2+.adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id: #adjacent-div2+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element: div+#adjacent-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element: #adjacent div+p
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, no whitespace: #adjacent-p2+#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, not matching element with id that is not an adjacent sibling of an element with id: #adjacent-div2+#adjacent-p2, #adjacent-div2+#adjacent-div1
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, surrounded by whitespace: #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, whitespace after: #adjacent-p2+\t\r\n#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Adjacent sibling combinator, whitespace before: #adjacent-p2\t\r\n+#adjacent-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=" apple"]
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring: #attr-begins [class^=' apple']
@@ -5623,7 +6067,17 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters: #attr-whitespace [title~=中文]
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with empty value: #attr-whitespace [class~=""]
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Attribute whitespace-separated list selector, not matching class attribute with partial value: [data-attr-whitespace~="div"]
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, matching element that is a child of an element with id: #child>div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, matching element with class that is a child of an element with class: .child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, matching element with id that is a child of an element with class: #child-div1>.child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, matching element with id that is a child of an element with id: #child>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, matching element with id that is a child of an element: div>#child-div1
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, no whitespace: #child-div1>#child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, not matching element with class that is not a child of an element with class: .child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with class: #child-div1>.child-div3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, not matching element with id that is not a child of an element with id: #child>#child-div3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, surrounded by whitespace: #child-div1\t\r\n>\t\r\n#child-div2
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, whitespace after: #child-div1>\t\r\n#child-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Child combinator, whitespace before: #child-div1\t\r\n>#child-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Class Selector, chained, with type selector: div.apple.banana.orange
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Class selector, chained, matching element with multiple class values using non-ASCII characters (1): .台北Táiběi.台北
@@ -5642,7 +6096,16 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Descendant combinator, not matching element with id that is not a descendant of an element with id: #descendant-div1 #descendant-div4
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Descendant combinator, whitespace characters: #descendant\t\r\n#descendant-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Empty String: 
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, matching element that is a sibling of an element with id: #sibling-div2~div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, matching element with class that is a sibling of an element with id: #sibling-div2~.sibling-div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element with id: #sibling-div2~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, matching element with id that is a sibling of an element: div~#sibling-div4
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, matching p element that is a sibling of a div element: #sibling div~p
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, no whitespace: #sibling-p2~#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after a p element: #sibling>p~div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, not matching element with id that is not a sibling after an element with id: #sibling-div2~#sibling-div3, #sibling-div2~#sibling-div1
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, surrounded by whitespace: #sibling-p2\t\r\n~\t\r\n#sibling-p3
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, whitespace after: #sibling-p2~\t\r\n#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: General sibling combinator, whitespace before: #sibling-p2\t\r\n~#sibling-p3
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: ID Selector, chained, with type selector: div#id-div1, div#id-div2
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: ID selector, chained, matching element with specified id: #id-div1, #id-div1
@@ -5690,7 +6153,10 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Type selector, matching html element: html
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Undeclared namespace: :not(ns|div)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Undeclared namespace: ns|div
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Universal selector, matching all children of element with specified ID: #universal>*
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Universal selector, matching all children of empty element with specified ID: #empty>*
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Universal selector, matching all descendants of element with specified ID: #universal *
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Universal selector, matching all grandchildren of element with specified ID: #universal>*>*
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Unknown pseudo-class: :example
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Unknown pseudo-class: div:example
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Unknown pseudo-class: div:linkexample

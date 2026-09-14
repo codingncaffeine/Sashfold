@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9410 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9427 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -3777,6 +3777,7 @@ css/CSS2/positioning/top-offset-003.xht
 css/CSS2/positioning/top-offset-percentage-001.xht
 css/CSS2/positioning/top-offset-percentage-002.xht
 css/CSS2/sec5/adjacent-000.xht
+css/CSS2/sec5/adjacent-001.xht
 css/CSS2/sec5/adjacent-002.xht
 css/CSS2/sec5/attribute-000.xht
 css/CSS2/sec5/attribute-001.xht
@@ -6124,6 +6125,8 @@ css/css-flexbox/flexbox_block.html
 css/css-flexbox/flexbox_box-clear.html
 css/css-flexbox/flexbox_columns-flexitems-2.html
 css/css-flexbox/flexbox_columns-flexitems.html
+css/css-flexbox/flexbox_direction-column-reverse.html
+css/css-flexbox/flexbox_direction-column.html
 css/css-flexbox/flexbox_direction-row-reverse.html
 css/css-flexbox/flexbox_display.html
 css/css-flexbox/flexbox_fbfc.html
@@ -6229,6 +6232,7 @@ css/css-flexbox/flexbox_inline-float.html
 css/css-flexbox/flexbox_inline.html
 css/css-flexbox/flexbox_item-bottom-float.html
 css/css-flexbox/flexbox_item-clear.html
+css/css-flexbox/flexbox_item-float.html
 css/css-flexbox/flexbox_item-top-float.html
 css/css-flexbox/flexbox_item-vertical-align.html
 css/css-flexbox/flexbox_justifycontent-center.html
@@ -6241,15 +6245,20 @@ css/css-flexbox/flexbox_justifycontent-spacebetween-negative.html
 css/css-flexbox/flexbox_justifycontent-spacebetween-only.html
 css/css-flexbox/flexbox_justifycontent-spacebetween.html
 css/css-flexbox/flexbox_justifycontent-stretch.html
+css/css-flexbox/flexbox_margin-auto-overflow.html
+css/css-flexbox/flexbox_margin-auto.html
 css/css-flexbox/flexbox_margin-left-ex.html
 css/css-flexbox/flexbox_margin.html
 css/css-flexbox/flexbox_nested-flex.html
+css/css-flexbox/flexbox_order-abspos-space-around.html
 css/css-flexbox/flexbox_order-box.html
+css/css-flexbox/flexbox_order-noninteger-invalid.html
 css/css-flexbox/flexbox_order.html
 css/css-flexbox/flexbox_quirks_body.html
 css/css-flexbox/flexbox_rowspan-overflow-automatic.html
 css/css-flexbox/flexbox_rowspan-overflow.html
 css/css-flexbox/flexbox_rowspan.html
+css/css-flexbox/flexbox_rtl-direction.html
 css/css-flexbox/flexbox_rtl-flow-reverse.html
 css/css-flexbox/flexbox_rtl-flow.html
 css/css-flexbox/flexbox_rtl-order.html
@@ -6329,6 +6338,8 @@ css/css-flexbox/justify-content-002.htm
 css/css-flexbox/justify-content-003.htm
 css/css-flexbox/justify-content-004.htm
 css/css-flexbox/justify-content-005.htm
+css/css-flexbox/layout-algorithm_algo-cross-line-001.html
+css/css-flexbox/layout-algorithm_algo-cross-line-002.html
 css/css-flexbox/min-size-auto-overflow-clip.html
 css/css-flexbox/multiline-last-baseline-item-count.html
 css/css-flexbox/negative-margins-001.html
@@ -6349,6 +6360,8 @@ css/css-flexbox/padding-overflow.html
 css/css-flexbox/percentage-heights-002.html
 css/css-flexbox/percentage-heights-004.html
 css/css-flexbox/percentage-heights-005.html
+css/css-flexbox/percentage-heights-006.html
+css/css-flexbox/percentage-heights-007.html
 css/css-flexbox/percentage-heights-008.html
 css/css-flexbox/percentage-heights-009.html
 css/css-flexbox/percentage-heights-010.html
@@ -6774,6 +6787,7 @@ css/css-grid/grid-definition/flex-item-grid-container-auto-repeat-001.html
 css/css-grid/grid-definition/flex-item-grid-container-auto-repeat-002.html
 css/css-grid/grid-definition/flex-item-grid-container-percentage-rows-001.html
 css/css-grid/grid-definition/grid-auto-fit-with-calc.html
+css/css-grid/grid-definition/grid-auto-repeat-multiple-values-001.html
 css/css-grid/grid-definition/grid-auto-repeat-multiple-values-002.html
 css/css-grid/grid-definition/grid-auto-repeat-multiple-values-003.html
 css/css-grid/grid-definition/grid-auto-repeat-multiple-values-004.html
@@ -9367,6 +9381,8 @@ css/selectors/nth-child-of-attribute.html
 css/selectors/nth-child-of-classname-002.html
 css/selectors/nth-child-of-classname.html
 css/selectors/nth-child-of-complex-selector-many-children-2.html
+css/selectors/nth-child-of-complex-selector-many-children.html
+css/selectors/nth-child-of-complex-selector.html
 css/selectors/nth-child-of-compound-selector.html
 css/selectors/nth-child-of-has.html
 css/selectors/nth-child-of-nesting.html
@@ -9380,6 +9396,7 @@ css/selectors/nth-child-specificity-2.html
 css/selectors/nth-child-specificity-3.html
 css/selectors/nth-child-specificity-4.html
 css/selectors/nth-last-child-of-classname.html
+css/selectors/nth-last-child-of-complex-selector.html
 css/selectors/nth-last-child-of-compound-selector.html
 css/selectors/nth-last-child-of-nesting.html
 css/selectors/nth-last-child-of-no-space-after-of.html

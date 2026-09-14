@@ -290,7 +290,9 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
     bool first = true;
     while (!cursor.at_end()) {
         ComponentValue const* value = cursor.peek();
-        if (value->is_token(Token::Type::Whitespace) || value->is_token(Token::Type::Comma))
+        // A combinator ends the compound whether or not whitespace comes first.
+        if (value->is_token(Token::Type::Whitespace) || value->is_token(Token::Type::Comma) || is_delim(value, U'>')
+            || is_delim(value, U'+') || is_delim(value, U'~'))
             break;
 
         // Universal or type (first position only).

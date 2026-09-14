@@ -122,6 +122,17 @@ int main()
     CHECK(hits("p ~ ul", "list"));
     CHECK(hits("#p1 ~ #p3", "p3"));
     CHECK(!hits("#p3 ~ #p1", "p1"));
+    // With no whitespace around the combinator, as minified sheets write it.
+    CHECK(hits("div>p", "p1"));
+    CHECK(!hits("body>p", "p1"));
+    CHECK(hits("p+p", "p2"));
+    CHECK(hits("p~ul", "list"));
+    CHECK(hits("#p1~#p3", "p3"));
+    CHECK(hits("div>*", "p1"));
+    CHECK(hits("div >p", "p1"));
+    CHECK(hits("div> p", "p1"));
+    CHECK(!parse_selectors("div>"));
+    CHECK(!parse_selectors("div>>p"));
 
     // --- Structural pseudo-classes -------------------------------------------
     CHECK(hits(":root", "root"));
