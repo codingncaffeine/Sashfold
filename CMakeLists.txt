@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(sashfold LANGUAGES CXX VERSION 0.0.7)
+project(sashfold LANGUAGES CXX VERSION 0.1.0)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -34,6 +34,7 @@ endif()
 # than its own file alone; the programs that are not harnesses link the
 # same runtimes without libFuzzer's main.
 option(SASHFOLD_FUZZ "Build libFuzzer harnesses (requires clang)" OFF)
+option(SASHFOLD_PORTABLE "Link the C++ runtime into the sashfold binary, for a release that runs on older distributions" OFF)
 if(SASHFOLD_FUZZ)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "SASHFOLD_FUZZ requires a clang toolchain")
@@ -194,6 +195,11 @@ if(MINGW)
   # Ship a binary that imports only OS libraries: the language runtime is
   # linked statically, so tools/pledge-check's allowlist stays kernel32+msvcrt.
   target_link_options(sashfold PRIVATE -static)
+elseif(SASHFOLD_PORTABLE)
+  # A Linux release binary: the C++ runtime linked in, so the tarball runs on
+  # a distribution with an older libstdc++ than the one it was built against;
+  # libc stays the system's, so the floor is the glibc of the build machine.
+  target_link_options(sashfold PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # gen_font writes Sashfold Mono as a TrueType file: the reader fixture and the
