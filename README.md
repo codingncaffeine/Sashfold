@@ -62,6 +62,8 @@ ctest --test-dir build --output-on-failure
 
 ## Running
 
+The downloads — a Windows x64 zip and a Linux x64 tarball, each holding the binary with `themes` beside it — are on the [releases page](https://github.com/codingncaffeine/Sashfold/releases); the Linux one runs on any 64-bit distribution with glibc 2.39 or newer and a Wayland compositor.
+
 ```
 sashfold                                    # the browser window (Windows and Linux)
 sashfold https://example.org/               # ...opened on a page
