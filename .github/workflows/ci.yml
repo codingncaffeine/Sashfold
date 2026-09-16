@@ -119,6 +119,19 @@ jobs:
       - run: ctest --test-dir build --output-on-failure
       - run: bash tools/pledge-check.sh build/sashfold.exe
       - run: bash tools/egress-check.sh
+      # The Windows download, staged as the release ships it: the binary, the
+      # themes, the blocklists folder's note, the license and the README.
+      - run: |
+          version=$(sed -n 's/^project(sashfold LANGUAGES CXX VERSION \([0-9.]*\))/\1/p' CMakeLists.txt)
+          stage="sashfold-$version-windows-x64"
+          mkdir -p "$stage/themes" "$stage/blocklists"
+          cp build/sashfold.exe LICENSE README.md "$stage/"
+          cp themes/*.json "$stage/themes/"
+          cp blocklists/README.md "$stage/blocklists/"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-x64
+          path: sashfold-*-windows-x64
 
   macos:
     runs-on: macos-latest
@@ -130,3 +143,29 @@ jobs:
       - run: ctest --test-dir build --output-on-failure
       - run: bash tools/pledge-check.sh build/sashfold
       - run: bash tools/egress-check.sh
+
+  # The Linux download: a Release build with the C++ runtime linked in, so it
+  # runs on a distribution with an older libstdc++ (the floor is this
+  # runner's glibc), held to the pledge, staged as the release ships it.
+  linux-release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSASHFOLD_PORTABLE=ON
+      - run: cmake --build build --target sashfold
+      - run: bash tools/pledge-check.sh build/sashfold
+      - run: |
+          version=$(sed -n 's/^project(sashfold LANGUAGES CXX VERSION \([0-9.]*\))/\1/p' CMakeLists.txt)
+          stage="sashfold-$version-linux-x64"
+          mkdir -p "$stage/themes" "$stage/blocklists" "$stage/tools" "$stage/assets"
+          cp build/sashfold LICENSE README.md "$stage/"
+          cp themes/*.json "$stage/themes/"
+          cp blocklists/README.md "$stage/blocklists/"
+          cp tools/install-desktop-linux.sh "$stage/tools/"
+          cp assets/icon.png "$stage/assets/"
+          ldd "$stage/sashfold"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-x64
+          path: sashfold-*-linux-x64
