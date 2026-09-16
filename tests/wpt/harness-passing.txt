@@ -55454,6 +55454,8 @@ html/browsers/the-window-object/window-indexed-properties.html	Indexed propertie
 html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode) 1
 html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode) 2
 html/browsers/the-window-object/window-indexed-properties.html	Indexed properties of the window object (non-strict mode) 3
+html/browsers/the-window-object/window-open-invalid-url.html	Window.open should throw SyntaxError when an invalid url is passed as the first parameter
+html/browsers/the-window-object/window-open-noopener-existing-iframe.html	window.open() with noopener targeting an existing named iframe does not set its opener
 html/browsers/the-window-object/window-properties.https.html	Constructor Properties of the Global Object
 html/browsers/the-window-object/window-properties.https.html	Constructor Property: Array
 html/browsers/the-window-object/window-properties.https.html	Constructor Property: Boolean
@@ -55643,7 +55645,10 @@ html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Sett
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to function() { return "hi" }
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to hi
 html/browsers/windows/auxiliary-browsing-contexts/opener-setter.window.html	Setting window.opener to undefined
+html/browsers/windows/browsing-context-names/choose-_parent-001.html	The parent browsing context must be chosen if the given name is `_parent`
+html/browsers/windows/browsing-context-names/choose-_self-001.html	The current browsing context must be chosen if the given name is "_self"
 html/browsers/windows/browsing-context-names/choose-default-001.html	A embedded browsing context has empty-string default name
+html/browsers/windows/browsing-context-names/choose-existing-001.html	An existing browsing context must be chosen if the given name is the same as its name
 html/browsers/windows/browsing-context-window.html	HTML Test: Newly-Created browsing context Window and `this`
 html/browsers/windows/browsing-context.html	Check that browsing context has new, ready HTML document
 html/browsers/windows/browsing-context.html	Check that new document nodes extant, empty
@@ -62868,6 +62873,196 @@ url/failure.html	XHR: turn://test:test should throw
 url/failure.html	XHR: urn://:443 should throw
 url/failure.html	XHR: urn://[:1] should throw
 url/failure.html	XHR: urn://test:test should throw
+url/failure.html	window.open(): asdf://%43|/ should throw
+url/failure.html	window.open(): data://:443 should throw
+url/failure.html	window.open(): data://[:1] should throw
+url/failure.html	window.open(): data://test:test should throw
+url/failure.html	window.open(): file://%43%3A should throw
+url/failure.html	window.open(): file://%43%7C should throw
+url/failure.html	window.open(): file://%43%7C/ should throw
+url/failure.html	window.open(): file://%43| should throw
+url/failure.html	window.open(): file://%C2%AD/p should throw
+url/failure.html	window.open(): file://C%7C should throw
+url/failure.html	window.open(): file://[example]/ should throw
+url/failure.html	window.open(): file://example%/ should throw
+url/failure.html	window.open(): file://example:1/ should throw
+url/failure.html	window.open(): file://example:test/ should throw
+url/failure.html	window.open(): file://­/p should throw
+url/failure.html	window.open(): ftp://example.com%80/ should throw
+url/failure.html	window.open(): ftp://example.com%A0/ should throw
+url/failure.html	window.open(): http://# should throw
+url/failure.html	window.open(): http://0..0x300./ should throw
+url/failure.html	window.open(): http://0..0x300/ should throw
+url/failure.html	window.open(): http://01.2.3.4.5 should throw
+url/failure.html	window.open(): http://01.2.3.4.5. should throw
+url/failure.html	window.open(): http://09.2.3.4 should throw
+url/failure.html	window.open(): http://09.2.3.4. should throw
+url/failure.html	window.open(): http://0999999999999999999/ should throw
+url/failure.html	window.open(): http://0x1.2.3.4.5 should throw
+url/failure.html	window.open(): http://0x1.2.3.4.5. should throw
+url/failure.html	window.open(): http://0x100.2.3.4 should throw
+url/failure.html	window.open(): http://0x100.2.3.4. should throw
+url/failure.html	window.open(): http://1.2.3.08 should throw
+url/failure.html	window.open(): http://1.2.3.08. should throw
+url/failure.html	window.open(): http://1.2.3.09 should throw
+url/failure.html	window.open(): http://? should throw
+url/failure.html	window.open(): http://@/www.example.com should throw
+url/failure.html	window.open(): http://@:www.example.com should throw
+url/failure.html	window.open(): http://[::127.0.0.0.1] should throw
+url/failure.html	window.open(): http://[www.google.com]/ should throw
+url/failure.html	window.open(): http://a b/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://a b/ should throw
+url/failure.html	window.open(): http://a%b/ should throw
+url/failure.html	window.open(): http://a:b@/www.example.com should throw
+url/failure.html	window.open(): http://a<b should throw
+url/failure.html	window.open(): http://a>b should throw
+url/failure.html	window.open(): http://a[b/ should throw
+url/failure.html	window.open(): http://a]b/ should throw
+url/failure.html	window.open(): http://a^b should throw
+url/failure.html	window.open(): http://a|b/ should throw
+url/failure.html	window.open(): http://ab/ should throw
+url/failure.html	window.open(): http://foo.09 should throw
+url/failure.html	window.open(): http://foo.09. should throw
+url/failure.html	window.open(): http://foo.0XFfFfFfFfFfFfFfFfFfAcE123 should throw
+url/failure.html	window.open(): http://foo.0x should throw
+url/failure.html	window.open(): http://foo.0x4 should throw
+url/failure.html	window.open(): http://foo.0x4. should throw
+url/failure.html	window.open(): http://foo.1.2.3.4 should throw
+url/failure.html	window.open(): http://foo.1.2.3.4. should throw
+url/failure.html	window.open(): http://foo.2.3.4 should throw
+url/failure.html	window.open(): http://foo.2.3.4. should throw
+url/failure.html	window.open(): http://foo:-80/ should throw
+url/failure.html	window.open(): http://ho%00st/ should throw
+url/failure.html	window.open(): http://ho%01st/ should throw
+url/failure.html	window.open(): http://ho%02st/ should throw
+url/failure.html	window.open(): http://ho%03st/ should throw
+url/failure.html	window.open(): http://ho%04st/ should throw
+url/failure.html	window.open(): http://ho%05st/ should throw
+url/failure.html	window.open(): http://ho%06st/ should throw
+url/failure.html	window.open(): http://ho%07st/ should throw
+url/failure.html	window.open(): http://ho%08st/ should throw
+url/failure.html	window.open(): http://ho%09st/ should throw
+url/failure.html	window.open(): http://ho%0Ast/ should throw
+url/failure.html	window.open(): http://ho%0Bst/ should throw
+url/failure.html	window.open(): http://ho%0Cst/ should throw
+url/failure.html	window.open(): http://ho%0Dst/ should throw
+url/failure.html	window.open(): http://ho%0Est/ should throw
+url/failure.html	window.open(): http://ho%0Fst/ should throw
+url/failure.html	window.open(): http://ho%10st/ should throw
+url/failure.html	window.open(): http://ho%11st/ should throw
+url/failure.html	window.open(): http://ho%12st/ should throw
+url/failure.html	window.open(): http://ho%13st/ should throw
+url/failure.html	window.open(): http://ho%14st/ should throw
+url/failure.html	window.open(): http://ho%15st/ should throw
+url/failure.html	window.open(): http://ho%16st/ should throw
+url/failure.html	window.open(): http://ho%17st/ should throw
+url/failure.html	window.open(): http://ho%18st/ should throw
+url/failure.html	window.open(): http://ho%19st/ should throw
+url/failure.html	window.open(): http://ho%1Ast/ should throw
+url/failure.html	window.open(): http://ho%1Bst/ should throw
+url/failure.html	window.open(): http://ho%1Cst/ should throw
+url/failure.html	window.open(): http://ho%1Dst/ should throw
+url/failure.html	window.open(): http://ho%1Est/ should throw
+url/failure.html	window.open(): http://ho%1Fst/ should throw
+url/failure.html	window.open(): http://ho%20st/ should throw
+url/failure.html	window.open(): http://ho%23st/ should throw
+url/failure.html	window.open(): http://ho%25st/ should throw
+url/failure.html	window.open(): http://ho%2Fst/ should throw
+url/failure.html	window.open(): http://ho%3Ast/ should throw
+url/failure.html	window.open(): http://ho%3Cst/ should throw
+url/failure.html	window.open(): http://ho%3Est/ should throw
+url/failure.html	window.open(): http://ho%3Fst/ should throw
+url/failure.html	window.open(): http://ho%40st/ should throw
+url/failure.html	window.open(): http://ho%5Bst/ should throw
+url/failure.html	window.open(): http://ho%5Cst/ should throw
+url/failure.html	window.open(): http://ho%5Dst/ should throw
+url/failure.html	window.open(): http://ho%7Cst/ should throw
+url/failure.html	window.open(): http://ho%7Fst/ should throw
+url/failure.html	window.open(): http://user:pass@/ should throw
+url/failure.html	window.open(): http://user@/www.example.com should throw
+url/failure.html	window.open(): http://💩.123/ should throw
+url/failure.html	window.open(): https:// y should throw
+url/failure.html	window.open(): https://%43%7C/ should throw
+url/failure.html	window.open(): https://%C2%AD/ should throw
+url/failure.html	window.open(): https://%EF%BF%BD should throw
+url/failure.html	window.open(): https://0x100000000/test should throw
+url/failure.html	window.open(): https://256.0.0.1/test should throw
+url/failure.html	window.open(): https://[0:.0] should throw
+url/failure.html	window.open(): https://[0:0:] should throw
+url/failure.html	window.open(): https://[0:1.00.0.0.0] should throw
+url/failure.html	window.open(): https://[0:1.23.23] should throw
+url/failure.html	window.open(): https://[0:1.290.0.0.0] should throw
+url/failure.html	window.open(): https://[0:1:2:3:4:5:192.0.02.1]/ should throw
+url/failure.html	window.open(): https://[0:1:2:3:4:5:6:7.0.0.0.1] should throw
+url/failure.html	window.open(): https://[0::0::0] should throw
+url/failure.html	window.open(): https://[192.0.2.1::]/ should throw
+url/failure.html	window.open(): https://example.com%80/ should throw
+url/failure.html	window.open(): https://example.com%A0/ should throw
+url/failure.html	window.open(): https://x x:12 should throw
+url/failure.html	window.open(): https://­/ should throw
+url/failure.html	window.open(): https://� should throw
+url/failure.html	window.open(): https://￿y should throw
+url/failure.html	window.open(): intent://:443 should throw
+url/failure.html	window.open(): intent://[:1] should throw
+url/failure.html	window.open(): intent://test:test should throw
+url/failure.html	window.open(): javascript://:443 should throw
+url/failure.html	window.open(): javascript://[:1] should throw
+url/failure.html	window.open(): javascript://test:test should throw
+url/failure.html	window.open(): mailto://:443 should throw
+url/failure.html	window.open(): mailto://[:1] should throw
+url/failure.html	window.open(): mailto://test:test should throw
+url/failure.html	window.open(): non-special://[:80/ should throw
+url/failure.html	window.open(): non-special://host\\a should throw
+url/failure.html	window.open(): sc://:/ should throw
+url/failure.html	window.open(): sc://:12/ should throw
+url/failure.html	window.open(): sc://@/ should throw
+url/failure.html	window.open(): sc://a b/ should throw
+url/failure.html	window.open(): sc://a b/ should throw
+url/failure.html	window.open(): sc://a<b should throw
+url/failure.html	window.open(): sc://a>b should throw
+url/failure.html	window.open(): sc://a[b/ should throw
+url/failure.html	window.open(): sc://a\\b/ should throw
+url/failure.html	window.open(): sc://a]b/ should throw
+url/failure.html	window.open(): sc://a^b should throw
+url/failure.html	window.open(): sc://a|b/ should throw
+url/failure.html	window.open(): sc://te@s:t@/ should throw
+url/failure.html	window.open(): stun://:443 should throw
+url/failure.html	window.open(): stun://[:1] should throw
+url/failure.html	window.open(): stun://test:test should throw
+url/failure.html	window.open(): turn://:443 should throw
+url/failure.html	window.open(): turn://[:1] should throw
+url/failure.html	window.open(): turn://test:test should throw
+url/failure.html	window.open(): urn://:443 should throw
+url/failure.html	window.open(): urn://[:1] should throw
+url/failure.html	window.open(): urn://test:test should throw
 url/historical.any.html	<a> and <area>.searchParams should be undefined
 url/historical.any.html	Constructor only takes strings
 url/historical.any.html	Setting URL's href attribute and base URLs
