@@ -545,13 +545,70 @@ int main()
         std::optional<bindings::LayoutBox> const late_after = late ? oracle.box(*late) : std::nullopt;
         CHECK(late_after && late_after->width == 50.0f);
 
-        // A frameset's frame: a window, no box, and nothing drawn.
+        // A frameset's frame: a window, and the whole viewport for its cell,
+        // drawn from its live document.
         std::unique_ptr<Live> const framed = open_live("<!doctype html><frameset><frame id=f src='green.html'></frameset>");
         dom::Element* const frame = by_id(framed->document, "f");
         css::StyleMap const frame_styles = css::resolve_styles(framed->document);
         layout::LayoutResult frame_laid = layout::layout_document(framed->document, frame_styles, 400, nullptr, nullptr, 900);
         ui::draw_frames(base, frame_laid, server.fetcher(), 1.0f, nullptr, nullptr, framed->realm.get());
-        CHECK(frame != nullptr && framed->realm->frame_realm(*frame) != nullptr && fragment_of(frame_laid.root, "f") == nullptr);
+        layout::Fragment const* const cell = fragment_of(frame_laid.root, "f");
+        CHECK(frame != nullptr && framed->realm->frame_realm(*frame) != nullptr);
+        CHECK(cell != nullptr && cell->x == 0.0f && cell->y == 0.0f && cell->width == 400.0f && cell->height == 900.0f);
+        CHECK(cell != nullptr && cell->image && cell->image->bitmap != nullptr);
+        Bitmap framed_canvas(400, 900, frame_laid.canvas_background);
+        paint::paint_page(framed_canvas, frame_laid);
+        CHECK(same(framed_canvas.pixel(200, 450), lime));
+    }
+
+    // A frameset document: its rows and cols sized by the attributes once
+    // the borders between them are taken out, each frame's document drawn
+    // in its cell, a nested frameset in a cell of its own, the borders in
+    // the bordercolor, and an empty cell where the children run out;
+    // frameborder=0 takes the borders away and the cells abut.
+    {
+        Server server;
+        server.files["https://example.test/green.html"] = html_file(green_page);
+        server.files["https://example.test/red.html"] = html_file(red_page);
+        server.files["https://example.test/yellow.html"] = html_file("<!doctype html><body style='margin:0;background:#ffff00'>");
+        Bitmap const canvas = render("<!doctype html><html><head></head>"
+                                     "<frameset rows='50%,*' cols='100,*' border='4' bordercolor='#0000ff'>"
+                                     "<frame src='green.html'><frame src='red.html'><frame src='yellow.html'>"
+                                     "<frameset rows='*,*'><frame src='red.html'><frame src='green.html'></frameset>"
+                                     "</frameset></html>",
+            server);
+        // cols: 100 px and the rest of 396; rows: half of 896 each; the
+        // nested frameset keeps the 4 px border and halves its 448.
+        CHECK(same(canvas.pixel(50, 224), lime));
+        CHECK(same(canvas.pixel(250, 224), red));
+        CHECK(same(canvas.pixel(50, 676), yellow));
+        CHECK(same(canvas.pixel(250, 560), red));
+        CHECK(same(canvas.pixel(250, 790), lime));
+        CHECK(same(canvas.pixel(102, 224), blue));
+        CHECK(same(canvas.pixel(250, 450), blue));
+        CHECK(same(canvas.pixel(50, 450), blue));
+        CHECK(same(canvas.pixel(250, 676), blue));
+        CHECK_EQ(server.fetches["https://example.test/green.html"], 2);
+        CHECK_EQ(server.fetches["https://example.test/red.html"], 2);
+
+        Bitmap const plain = render("<!doctype html><html><head></head><frameset cols='25%,*' frameborder='0'>"
+                                    "<frame src='green.html'><frame src='red.html'><frame src='yellow.html'></frameset></html>",
+            server);
+        CHECK(same(plain.pixel(50, 450), lime));
+        CHECK(same(plain.pixel(100, 450), red));
+        CHECK(same(plain.pixel(399, 899), red));
+        // The third frame has no cell: never fetched.
+        CHECK_EQ(server.fetches["https://example.test/yellow.html"], 1);
+
+        // No cols and no rows: one cell the size of the viewport; and a
+        // frameset with no border attribute draws six-pixel gray borders.
+        Bitmap const one = render("<!doctype html><html><head></head><frameset><frame src='green.html'></frameset></html>", server);
+        CHECK(same(one.pixel(0, 0), lime) && same(one.pixel(399, 899), lime));
+        Bitmap const two = render("<!doctype html><html><head></head><frameset cols='*,*'>"
+                                  "<frame src='green.html'><frame src='red.html'></frameset></html>",
+            server);
+        CHECK(same(two.pixel(196, 450), lime) && same(two.pixel(197, 450), gray) && same(two.pixel(202, 450), gray)
+            && same(two.pixel(203, 450), red));
     }
 
     return test::report("frames");

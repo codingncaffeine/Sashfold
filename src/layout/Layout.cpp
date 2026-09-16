@@ -8025,6 +8025,264 @@ struct Layouter {
     }
 };
 
+// ---- HTML §15.6: frames and framesets
+
+// One entry of a frameset's rows or cols: a number and its unit.
+struct FrameDimension {
+    enum class Unit { Absolute, Percentage, Relative };
+    double number = 0;
+    Unit unit = Unit::Absolute;
+};
+
+// HTML's rules for parsing a list of dimensions (§2.3.4.6): comma
+// separated; each an integer with an optional fraction, then % for a
+// percentage or * for a relative share, else pixels; an empty token is
+// one relative share.
+std::vector<FrameDimension> parse_dimension_list(std::string_view text)
+{
+    if (!text.empty() && text.back() == ',')
+        text.remove_suffix(1);
+    std::vector<FrameDimension> out;
+    std::size_t start = 0;
+    for (;;) {
+        std::size_t const comma = text.find(',', start);
+        std::string_view const token
+            = text.substr(start, comma == std::string_view::npos ? std::string_view::npos : comma - start);
+        FrameDimension entry;
+        std::size_t position = 0;
+        auto const digit = [&](std::size_t at) { return at < token.size() && token[at] >= '0' && token[at] <= '9'; };
+        auto const space = [&](std::size_t at) {
+            return at < token.size()
+                && (token[at] == ' ' || token[at] == '\t' || token[at] == '\n' || token[at] == '\f' || token[at] == '\r');
+        };
+        if (token.empty()) {
+            entry.unit = FrameDimension::Unit::Relative;
+        } else {
+            double value = 0;
+            while (digit(position))
+                value = value * 10 + (token[position++] - '0');
+            if (position < token.size() && token[position] == '.') {
+                ++position;
+                double scale = 1;
+                while (digit(position) || space(position)) {
+                    if (digit(position)) {
+                        scale /= 10;
+                        value += (token[position] - '0') * scale;
+                    }
+                    ++position;
+                }
+            }
+            while (space(position))
+                ++position;
+            if (position < token.size() && token[position] == '%')
+                entry.unit = FrameDimension::Unit::Percentage;
+            else if (position < token.size() && token[position] == '*')
+                entry.unit = FrameDimension::Unit::Relative;
+            entry.number = value;
+        }
+        out.push_back(entry);
+        if (comma == std::string_view::npos)
+            break;
+        start = comma + 1;
+    }
+    return out;
+}
+
+// §15.6, a list of dimensions to a list of pixel values: the absolute
+// entries first, the percentages next, each kind scaled down when it asks
+// for more than is left, and the relative entries sharing the rest.
+std::vector<float> size_frame_dimensions(std::vector<FrameDimension> const& input, float dimension)
+{
+    using Unit = FrameDimension::Unit;
+    std::vector<float> out(input.size(), 0.0f);
+    double total_percentage = 0;
+    double total_relative = 0;
+    double total_absolute = 0;
+    for (FrameDimension const& entry : input) {
+        if (entry.unit == Unit::Percentage)
+            total_percentage += entry.number;
+        else if (entry.unit == Unit::Relative)
+            total_relative += entry.number;
+        else
+            total_absolute += entry.number;
+    }
+    double const size = static_cast<double>(dimension);
+    double remaining = size;
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i].unit == Unit::Absolute)
+            out[i] = static_cast<float>(total_absolute > remaining ? input[i].number * remaining / total_absolute : input[i].number);
+    }
+    remaining = total_absolute > remaining ? 0 : remaining - total_absolute;
+    double const percentage_px = total_percentage * size / 100;
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i].unit == Unit::Percentage)
+            out[i] = static_cast<float>(
+                percentage_px > remaining ? input[i].number * remaining / total_percentage : input[i].number * size / 100);
+    }
+    remaining = percentage_px > remaining ? 0 : remaining - percentage_px;
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i].unit == Unit::Relative && total_relative > 0)
+            out[i] = static_cast<float>(input[i].number * remaining / total_relative);
+    }
+    return out;
+}
+
+dom::Element const* parent_frameset(dom::Element const& element)
+{
+    dom::Node const* const parent = element.parent();
+    if (parent && parent->is_element() && static_cast<dom::Element const*>(parent)->is_html("frameset"))
+        return static_cast<dom::Element const*>(parent);
+    return nullptr;
+}
+
+// §15.6: whether a frameset or a frame has a border — its frameborder
+// attribute's first character, else its parent frameset's answer, else yes.
+bool frameset_has_border(dom::Element const& element)
+{
+    if (dom::Attr const* const attribute = element.find_attribute("frameborder")) {
+        std::string const& value = attribute->value;
+        return !value.empty() && (value.front() == '1' || value.front() == 'y' || value.front() == 'Y');
+    }
+    if (dom::Element const* const parent = parent_frameset(element))
+        return frameset_has_border(*parent);
+    return true;
+}
+
+// The width of a frameset's borders: its border attribute as a
+// non-negative integer, else its parent frameset's, else six pixels, as
+// browsers draw them.
+float frameset_border_width(dom::Element const& element)
+{
+    if (dom::Attr const* const attribute = element.find_attribute("border")) {
+        std::string_view text = attribute->value;
+        while (!text.empty() && (text.front() == ' ' || text.front() == '\t' || text.front() == '\n' || text.front() == '\f' || text.front() == '\r'))
+            text.remove_prefix(1);
+        if (!text.empty() && text.front() == '+')
+            text.remove_prefix(1);
+        if (!text.empty() && text.front() >= '0' && text.front() <= '9') {
+            float width = 0;
+            for (char const c : text) {
+                if (c < '0' || c > '9')
+                    break;
+                width = std::min(width * 10 + (c - '0'), 1000.0f);
+            }
+            return width;
+        }
+    }
+    if (dom::Element const* const parent = parent_frameset(element))
+        return frameset_border_width(*parent);
+    return 6;
+}
+
+// §15.6: the frame border color — the element's bordercolor, which the
+// presentational hint put on its border color, else its parent frameset's,
+// else gray.
+Color frameset_border_color(Layouter& layouter, dom::Element const& element)
+{
+    if (ComputedStyle const* const style = layouter.style_of(element); style && !style->border_top.current_color)
+        return style->border_top.color;
+    if (dom::Element const* const parent = parent_frameset(element))
+        return frameset_border_color(layouter, *parent);
+    return Color::rgb(128, 128, 128);
+}
+
+// §15.6: the frameset laid out as a grid over (x, y, width, height) — the
+// rows and cols sized by the attributes once the borders between them are
+// taken out, a frame or a nested frameset in each cell in tree order, an
+// empty cell where the children run out, and the borders as boxes of the
+// frame border color. A frame's cell is its image box, which the shell
+// fills with the frame's document.
+Fragment layout_frameset(Layouter& layouter, dom::Element const& frameset, float x, float y, float width, float height)
+{
+    Fragment box;
+    box.element = &frameset;
+    box.style = layouter.style_of(frameset);
+    box.x = x;
+    box.y = y;
+    box.width = width;
+    box.height = height;
+    auto const list = [&](char const* name) {
+        std::vector<FrameDimension> entries;
+        if (dom::Attr const* const attribute = frameset.find_attribute(name))
+            entries = parse_dimension_list(attribute->value);
+        for (FrameDimension& entry : entries) {
+            if (entry.unit == FrameDimension::Unit::Relative && entry.number == 0)
+                entry.number = 1;
+        }
+        if (entries.empty())
+            entries.push_back(FrameDimension { 1, FrameDimension::Unit::Relative });
+        return entries;
+    };
+    std::vector<FrameDimension> const cols = list("cols");
+    std::vector<FrameDimension> const rows = list("rows");
+    float const border = frameset_has_border(frameset) ? frameset_border_width(frameset) : 0.0f;
+    std::vector<float> const col_sizes
+        = size_frame_dimensions(cols, std::max(0.0f, width - border * static_cast<float>(cols.size() - 1)));
+    std::vector<float> const row_sizes
+        = size_frame_dimensions(rows, std::max(0.0f, height - border * static_cast<float>(rows.size() - 1)));
+    std::vector<dom::Element const*> children;
+    for (dom::Node const* child : frameset.children()) {
+        if (!child->is_element())
+            continue;
+        auto const& element = static_cast<dom::Element const&>(*child);
+        if (element.is_html("frame") || element.is_html("frameset"))
+            children.push_back(&element);
+    }
+    std::size_t next = 0;
+    float cy = y;
+    for (float const row_height : row_sizes) {
+        float cx = x;
+        for (float const col_width : col_sizes) {
+            if (next < children.size()) {
+                dom::Element const& child = *children[next++];
+                if (child.is_html("frameset")) {
+                    box.children.push_back(layout_frameset(layouter, child, cx, cy, col_width, row_height));
+                } else {
+                    Fragment frame;
+                    frame.element = &child;
+                    frame.style = layouter.style_of(child);
+                    frame.x = cx;
+                    frame.y = cy;
+                    frame.width = col_width;
+                    frame.height = row_height;
+                    frame.image = Fragment::ImageBox { nullptr, cx, cy, col_width, row_height };
+                    box.children.push_back(std::move(frame));
+                }
+            }
+            cx += col_width + border;
+        }
+        cy += row_height + border;
+    }
+    if (border > 0) {
+        Color const color = frameset_border_color(layouter, frameset);
+        float at = x;
+        for (std::size_t i = 0; i + 1 < col_sizes.size(); ++i) {
+            at += col_sizes[i];
+            Fragment line;
+            line.x = at;
+            line.y = y;
+            line.width = border;
+            line.height = height;
+            line.background = color;
+            box.children.push_back(std::move(line));
+            at += border;
+        }
+        at = y;
+        for (std::size_t i = 0; i + 1 < row_sizes.size(); ++i) {
+            at += row_sizes[i];
+            Fragment line;
+            line.x = x;
+            line.y = at;
+            line.width = width;
+            line.height = border;
+            line.background = color;
+            box.children.push_back(std::move(line));
+            at += border;
+        }
+    }
+    return box;
+}
+
 } // namespace
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
@@ -8072,6 +8330,27 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     ComputedStyle const* html_style = layouter.style_of(*html);
     if (!html_style)
         return result;
+
+    // HTML §15.6: a document whose body is a frameset is the frameset's
+    // grid, the size of the viewport, and nothing else — no body and no
+    // scrolling, each frame's document drawn into its cell.
+    for (dom::Node const* child : html->children()) {
+        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("frameset"))
+            continue;
+        auto const& frameset = static_cast<dom::Element const&>(*child);
+        ComputedStyle const* const frameset_style = layouter.style_of(frameset);
+        if (!frameset_style || frameset_style->display == Display::None)
+            break;
+        result.root = Fragment {};
+        result.root.element = html;
+        result.root.style = html_style;
+        result.root.width = viewport_width;
+        result.root.height = viewport_height > 0 ? viewport_height : viewport_width;
+        result.root.children.push_back(layout_frameset(layouter, frameset, 0, 0, result.root.width, result.root.height));
+        result.page_height = result.root.height;
+        result.owned_styles = std::move(layouter.owned_styles);
+        return result;
+    }
 
     // Background propagation (css-backgrounds-3 §2.11.2): html's whole
     // background paints the canvas, color and pictures alike. Only when

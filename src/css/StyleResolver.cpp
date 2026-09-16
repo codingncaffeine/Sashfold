@@ -188,6 +188,8 @@ textarea { white-space: pre-wrap }
 bdo, bdo[dir] { unicode-bidi: isolate-override }
 pre[dir=auto i], textarea[dir=auto i] { unicode-bidi: plaintext }
 iframe { border: 2px inset }
+frameset, frame { display: block }
+noframes { display: none }
 )CSS";
 
 enum class CascadeRank : int {
@@ -475,6 +477,13 @@ std::string presentational_hints(dom::Element const& element)
             if (!nonzero)
                 add("border-width", "0");
         }
+    }
+    // A frameset's or a frame's bordercolor names the color the frameset's
+    // borders are drawn in (HTML §15.6): kept on the element's own border
+    // color, where the frameset layout reads it back.
+    if (tag == "frameset" || tag == "frame") {
+        if (std::optional<std::string_view> const color = attribute("bordercolor"))
+            add("border-color", legacy_color(*color));
     }
     if (tag == "hr") {
         if (std::optional<std::string_view> const size = attribute("size"))

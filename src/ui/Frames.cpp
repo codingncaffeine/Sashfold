@@ -95,8 +95,8 @@ std::string_view text_of(std::vector<std::uint8_t> const& bytes)
 void find_frames(layout::Fragment& fragment, std::vector<layout::Fragment*>& out)
 {
     // Every navigable container laid out as a box of its own: an iframe, an
-    // object or an embed. A frame has a window, but inside a frameset it has
-    // no box yet, frameset layout being unwritten, so nothing is drawn for it.
+    // object or an embed, or a frame in the cell its frameset gave it. A
+    // frame outside a frameset has a window and no box, and shows nothing.
     if (fragment.element && fragment.image && bindings::is_navigable_container(*fragment.element))
         out.push_back(&fragment);
     for (layout::Fragment& child : fragment.children)
