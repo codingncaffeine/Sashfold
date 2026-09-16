@@ -2423,6 +2423,21 @@ bool Realm::Internals::navigate_from_location(net::Url const& target_url, Intern
 
 // --- Events from the host ----------------------------------------------------------------
 
+bool Realm::navigate(net::Url const& target)
+{
+    Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
+    return in.navigate_from_location(target, in, false);
+}
+
+std::optional<std::string> Realm::target_name() const
+{
+    std::string const* const name = m_internals->navigable_target_name();
+    if (!name)
+        return std::nullopt;
+    return *name;
+}
+
 bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit init)
 {
     Internals& in = *m_internals;

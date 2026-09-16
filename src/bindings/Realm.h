@@ -108,9 +108,11 @@ struct HostHooks {
     std::function<css::ComputedStyle const*(dom::Element const&)> computed_style;
     // location.href = …, location.assign, a form the script submits.
     std::function<void(net::Url const&)> navigate;
-    // window.scrollTo and friends, and where the page stands.
-    std::function<void(int x, int y)> scroll_to;
-    std::function<std::pair<int, int>()> scroll_position;
+    // window.scrollTo and friends, and where the document stands — the
+    // document asking, since a frame's document scrolls inside its frame
+    // and a frame's hooks are the page's.
+    std::function<void(dom::Document const& document, int x, int y)> scroll_to;
+    std::function<std::pair<int, int>(dom::Document const& document)> scroll_position;
     // document.cookie, read and written; without these the realm keeps its
     // own list, so a page that sets and reads a cookie sees what it set.
     std::function<std::string()> cookie_get;
@@ -295,6 +297,14 @@ public:
     bool dispatch_mouse_event(dom::Node& target, std::string_view type, MouseInit const&);
     bool dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const&);
     bool dispatch_input_event(dom::Node& target, std::string_view type, InputInit const& init = {});
+    // The host navigates this window to `target` as the document would
+    // navigate itself — a click on one of its links, one of its forms
+    // submitted: a page hands it to its host, a frame schedules it on the
+    // frame. False when the document's sandbox forbids it.
+    bool navigate(net::Url const& target);
+    // The name a link's target names this window by: its navigable's, or
+    // nothing once it has none.
+    std::optional<std::string> target_name() const;
 
     // --- The event loop -----------------------------------------------------
     // Runs every timer due by now on the hooks' clock, oldest first, and the

@@ -842,13 +842,13 @@ void install_window(Realm::Internals& in)
     for (std::string_view const name : { "scrollX", "pageXOffset" }) {
         define_getter(in, *global, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            return js::Value::number(internals.hooks.scroll_position ? internals.hooks.scroll_position().first : 0);
+            return js::Value::number(internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document).first : 0);
         });
     }
     for (std::string_view const name : { "scrollY", "pageYOffset" }) {
         define_getter(in, *global, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            return js::Value::number(internals.hooks.scroll_position ? internals.hooks.scroll_position().second : 0);
+            return js::Value::number(internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document).second : 0);
         });
     }
     define_getter(in, *global, "event", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
@@ -857,7 +857,8 @@ void install_window(Realm::Internals& in)
     });
     define_getter(in, *global, "visualViewport", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
-        std::pair<int, int> const scroll = internals.hooks.scroll_position ? internals.hooks.scroll_position() : std::pair<int, int> { 0, 0 };
+        std::pair<int, int> const scroll
+            = internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document) : std::pair<int, int> { 0, 0 };
         return js::Value::object(object_with(internals, { { "width", js::Value::number(static_cast<double>(internals.hooks.viewport_width)) },
             { "height", js::Value::number(static_cast<double>(internals.hooks.viewport_height)) }, { "scale", js::Value::number(1) },
             { "offsetLeft", js::Value::number(0) }, { "offsetTop", js::Value::number(0) }, { "pageLeft", js::Value::number(scroll.first) },
@@ -966,12 +967,12 @@ void install_window(Realm::Internals& in)
                 y = std::isnan(*ny) ? 0 : *ny;
             }
             if (relative && internals.hooks.scroll_position) {
-                std::pair<int, int> const current = internals.hooks.scroll_position();
+                std::pair<int, int> const current = internals.hooks.scroll_position(*internals.document);
                 x += current.first;
                 y += current.second;
             }
             if (internals.hooks.scroll_to)
-                internals.hooks.scroll_to(static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)));
+                internals.hooks.scroll_to(*internals.document, static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)));
             return js::Value::undefined();
         };
     };

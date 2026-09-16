@@ -416,6 +416,15 @@ struct Browser::Impl {
         // The box the keyboard moves — the one the reader last took a wheel
         // or a scrollbar to. Null means the page itself.
         dom::Element const* scroller = nullptr;
+        // The frames the reader is inside, by the container that shows each:
+        // the one whose document holds the focused control, whose picture is
+        // painted again as the control changes; the one the keyboard scrolls,
+        // from the last wheel over it; the one the selection is in, with the
+        // view the selection's positions index, so a view made again drops it.
+        dom::Element const* focus_frame = nullptr;
+        dom::Element const* scroller_frame = nullptr;
+        dom::Element const* selection_frame = nullptr;
+        std::weak_ptr<FrameView> selection_view;
         std::string status;
         // The page's icon, drawn in the tab, and the URL it came from, so a
         // page that changes without changing its icon fetches it once.
@@ -500,6 +509,8 @@ struct Browser::Impl {
     Hover hover = Hover::None;
     std::size_t hover_index = 0;
     std::optional<net::Url> hover_link;
+    dom::Element const* hover_link_frame = nullptr; // the frame the link under the pointer is in, when it is in one
+    std::string hover_link_target; // that link's target attribute
     bool selecting = false; // the left button went down on page text and is still held
     // The scrollbar thumb the left button took hold of, and where along it.
     struct BarDrag {
@@ -1348,10 +1359,20 @@ struct Browser::Impl {
             static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
             static_cast<float>(std::max(1, c.content.height)), scale, tab.realm ? &embedded : nullptr);
         // The frames' documents, drawn into the layout; a frame drawn before
-        // at the same size is taken as it was. Their documents set fonts of
-        // their own, so the page's are put back.
+        // at the same size is taken as it was — but the frame whose document
+        // holds the focused control is drawn again, and so is the one that
+        // held it, since the caret and what was typed are in the picture.
+        // Their documents set fonts of their own, so the page's are put back.
         if (HistoryEntry const* const entry = tab.current()) {
-            draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames, tab.realm.get());
+            dom::Element const* const focus_frame
+                = tab.controls.focused ? frame_holding_in(tab.frames, tab.controls.focused->document()) : nullptr;
+            for (dom::Element const* const container : { tab.focus_frame, focus_frame }) {
+                if (container)
+                    mark_stale(tab.frames, container);
+            }
+            tab.focus_frame = focus_frame;
+            draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames, tab.realm.get(),
+                &tab.controls);
             text::FontManager::instance().set_page_fonts(tab.fonts);
         }
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
@@ -1362,13 +1383,304 @@ struct Browser::Impl {
         tab.applied.clear();
         tab.applied_page = {};
         settle_scrolls(tab);
-        // The selection pointed into the old layout's runs.
+        // The selection pointed into the old layout's runs — the page's, or
+        // a frame's whose view was made again; one in a frame whose view
+        // stands keeps its positions and its picture.
         tab.runs.clear();
         gather_runs(tab.layout.root, tab.runs);
-        tab.selection.reset();
-        selecting = false;
+        bool keep_selection = false;
+        if (tab.selection && tab.selection_frame) {
+            std::shared_ptr<FrameView> const view = tab.selection_view.lock();
+            keep_selection = view && view_of(tab, tab.selection_frame) == view.get();
+        }
+        if (!keep_selection) {
+            tab.selection.reset();
+            tab.selection_frame = nullptr;
+            tab.selection_view.reset();
+            selecting = false;
+        }
         update_matches(tab);
         stop_hints(); // the labels pointed into the old layout
+    }
+
+    // --- Frames the reader is inside ----------------------------------------------
+
+    // A live frame's view by its container, at any depth of the frames drawn.
+    static FrameView* view_in(DrawnFrames const& frames, dom::Element const* container)
+    {
+        if (!container)
+            return nullptr;
+        if (auto const it = frames.find(container); it != frames.end())
+            return it->second.view.get();
+        for (auto const& [element, drawn] : frames) {
+            if (!drawn.view)
+                continue;
+            if (FrameView* const found = view_in(drawn.view->frames, container))
+                return found;
+        }
+        return nullptr;
+    }
+    static FrameView* view_of(Tab const& tab, dom::Element const* container) { return view_in(tab.frames, container); }
+
+    // The container of the frame drawn live whose document this is, at any
+    // depth; null for a document that is no frame's here.
+    static dom::Element const* frame_holding_in(DrawnFrames const& frames, dom::Document const& document)
+    {
+        for (auto const& [element, drawn] : frames) {
+            if (!drawn.view)
+                continue;
+            if (drawn.view->document == &document)
+                return element;
+            if (dom::Element const* const found = frame_holding_in(drawn.view->frames, document))
+                return found;
+        }
+        return nullptr;
+    }
+
+    // Marks a frame's picture stale, and every frame's it is inside, since a
+    // frame taken from the cache brings its inner frames' pictures with it.
+    static bool mark_stale(DrawnFrames& frames, dom::Element const* container)
+    {
+        for (auto& [element, drawn] : frames) {
+            if (element == container || (drawn.view && mark_stale(drawn.view->frames, container))) {
+                drawn.stale = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The realm whose document an element is in: a frame's, else the page's.
+    bindings::Realm* realm_for(Tab& tab, dom::Element const& element)
+    {
+        if (FrameView* const view = view_of(tab, frame_holding_in(tab.frames, element.document())))
+            return view->realm;
+        return tab.realm.get();
+    }
+
+    // One frame on the way down from the page to a point or a container:
+    // its view, its fragment in the tree above, the map its picture is kept
+    // in, and — when found by a point — the point in its document.
+    struct FrameStep {
+        FrameView* view = nullptr;
+        layout::Fragment* fragment = nullptr;
+        dom::Element const* container = nullptr;
+        DrawnFrames* holder = nullptr;
+        float x = 0;
+        float y = 0;
+    };
+
+    static layout::Fragment* fragment_for_mut(layout::Fragment& fragment, dom::Element const* target)
+    {
+        if (fragment.element == target)
+            return &fragment;
+        for (layout::Fragment& child : fragment.children) {
+            if (layout::Fragment* const found = fragment_for_mut(child, target))
+                return found;
+        }
+        return nullptr;
+    }
+
+    // The innermost frame drawn live whose box holds a point of a tree.
+    static layout::Fragment* frame_fragment_at(layout::Fragment& fragment, DrawnFrames const& frames, float px, float py)
+    {
+        if (!reachable_within(fragment, px, py))
+            return nullptr;
+        for (layout::Fragment& child : fragment.children) {
+            if (layout::Fragment* const hit = frame_fragment_at(child, frames, px, py))
+                return hit;
+        }
+        if (!fragment.element || !fragment.image)
+            return nullptr;
+        auto const it = frames.find(fragment.element);
+        if (it == frames.end() || !it->second.view)
+            return nullptr;
+        layout::Fragment::ImageBox const& box = *fragment.image;
+        bool const inside = px >= box.x && px < box.x + box.width && py >= box.y && py < box.y + box.height;
+        return inside ? &fragment : nullptr;
+    }
+
+    // The live frames under a point of a tree, outermost first, the point
+    // carried into each one's document.
+    static void frames_under(layout::Fragment& root, DrawnFrames& frames, float px, float py, std::vector<FrameStep>& chain)
+    {
+        layout::Fragment* const hit = frame_fragment_at(root, frames, px, py);
+        if (!hit)
+            return;
+        auto const it = frames.find(hit->element);
+        FrameView& view = *it->second.view;
+        float const x = px - hit->image->x;
+        float const y = py - hit->image->y + static_cast<float>(view.scroll_y);
+        chain.push_back(FrameStep { &view, hit, hit->element, &frames, x, y });
+        frames_under(view.layout.root, view.frames, x, y, chain);
+    }
+
+    // The live frames under a page point, outermost first; empty over the
+    // page itself.
+    static std::vector<FrameStep> frames_at(Tab& tab, float px, float py)
+    {
+        std::vector<FrameStep> chain;
+        frames_under(tab.layout.root, tab.frames, px, py, chain);
+        return chain;
+    }
+
+    static bool frames_to_in(layout::Fragment& root, DrawnFrames& frames, dom::Element const* container,
+        std::vector<FrameStep>& chain)
+    {
+        for (auto& [element, drawn] : frames) {
+            if (!drawn.view)
+                continue;
+            layout::Fragment* const fragment = fragment_for_mut(root, element);
+            if (!fragment || !fragment->image)
+                continue;
+            chain.push_back(FrameStep { drawn.view.get(), fragment, element, &frames, 0, 0 });
+            if (element == container || frames_to_in(drawn.view->layout.root, drawn.view->frames, container, chain))
+                return true;
+            chain.pop_back();
+        }
+        return false;
+    }
+
+    // The live frames down to a container, outermost first; empty when it
+    // is not drawn live.
+    static std::vector<FrameStep> frames_to(Tab& tab, dom::Element const* container)
+    {
+        std::vector<FrameStep> chain;
+        if (container && !frames_to_in(tab.layout.root, tab.frames, container, chain))
+            chain.clear();
+        return chain;
+    }
+
+    // Where a chain's innermost document has its origin, in page
+    // coordinates: a point in that document is the page point less this.
+    static std::pair<float, float> origin_of(std::vector<FrameStep> const& chain)
+    {
+        float x = 0;
+        float y = 0;
+        for (FrameStep const& step : chain) {
+            x += step.fragment->image->x;
+            y += step.fragment->image->y - static_cast<float>(step.view->scroll_y);
+        }
+        return { x, y };
+    }
+
+    // Paints a chain's frames again from their views, innermost first, each
+    // into its fragment and its keeper, so the page shows the change without
+    // a layout; the selection's bands go onto the frame that holds it.
+    void repaint_frames(Tab& tab, std::vector<FrameStep> const& chain)
+    {
+        for (std::size_t i = chain.size(); i-- > 0;) {
+            FrameStep const& step = chain[i];
+            std::shared_ptr<Bitmap const> picture = step.view->paint();
+            if (tab.selection && tab.selection_frame == step.container) {
+                Bitmap banded(step.view->width, step.view->height, Color::rgba(0, 0, 0, 0));
+                banded.blit(*picture, 0, 0);
+                auto const [start, end] = ordered(*tab.selection);
+                paint_bands(banded, step.view->runs, start, end, theme.selection, static_cast<float>(step.view->scroll_y));
+                picture = std::make_shared<Bitmap const>(std::move(banded));
+            }
+            step.fragment->image->bitmap = picture;
+            if (auto const it = step.holder->find(step.container); it != step.holder->end())
+                it->second.bitmap = picture;
+        }
+        text::FontManager::instance().set_page_fonts(tab.fonts);
+        dirty = true;
+    }
+
+    // Moves a chain's innermost document down its frame; true when it moved.
+    bool scroll_frame_to(Tab& tab, std::vector<FrameStep> const& chain, int y)
+    {
+        if (chain.empty())
+            return false;
+        FrameView& view = *chain.back().view;
+        int const want = std::clamp(y, 0, view.max_scroll());
+        if (want == view.scroll_y)
+            return false;
+        view.scroll_y = want;
+        view.settle_scrolls();
+        repaint_frames(tab, chain);
+        return true;
+    }
+    bool scroll_frame_by(Tab& tab, std::vector<FrameStep> const& chain, int dy)
+    {
+        return !chain.empty() && scroll_frame_to(tab, chain, chain.back().view->scroll_y + dy);
+    }
+
+    // Moves a box inside a chain's innermost document; true when it moved.
+    bool scroll_frame_box_by(Tab& tab, std::vector<FrameStep> const& chain, layout::Fragment const& box, float dx, float dy)
+    {
+        if (chain.empty() || !box.element)
+            return false;
+        FrameView& view = *chain.back().view;
+        layout::ScrollOffset const at = layout::scroll_of(box, &view.scrolls);
+        layout::ScrollOffset const want { std::clamp(at.x + dx, 0.0f, box.scroll_range_x),
+            std::clamp(at.y + dy, 0.0f, box.scroll_range_y) };
+        if (want.x == at.x && want.y == at.y)
+            return false;
+        view.scrolls[box.element] = want;
+        view.settle_scrolls();
+        repaint_frames(tab, chain);
+        return true;
+    }
+
+    // Navigates a window of the tab — a frame's, else the page's — as the
+    // document would navigate itself.
+    void navigate_document(Tab& tab, dom::Document const& document, net::Url const& url)
+    {
+        if (FrameView* const view = view_of(tab, frame_holding_in(tab.frames, document))) {
+            view->realm->navigate(url);
+            return;
+        }
+        queue(index_of(tab), url, Mode::Push);
+    }
+
+    // The view of the frame a link's target names, at any depth; null when
+    // no frame drawn live has that name.
+    static FrameView* view_named(DrawnFrames const& frames, std::string const& name)
+    {
+        for (auto const& [element, drawn] : frames) {
+            if (!drawn.view)
+                continue;
+            if (std::optional<std::string> const own = drawn.view->realm->target_name(); own && *own == name)
+                return drawn.view.get();
+            if (FrameView* const found = view_named(drawn.view->frames, name))
+                return found;
+        }
+        return nullptr;
+    }
+
+    // The link under the pointer, followed: in this tab, or, from inside a
+    // frame, where its target says — the frame itself, the frame around it,
+    // the page, a frame by name, or a new tab.
+    void follow_link()
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !hover_link)
+            return;
+        net::Url const url = *hover_link;
+        if (!hover_link_frame) {
+            open(url);
+            return;
+        }
+        std::string const target = hover_link_target;
+        std::vector<FrameStep> const chain = frames_to(*tab, hover_link_frame);
+        if (chain.empty() || ascii_ci_equals(target, "_top")) {
+            open(url);
+        } else if (ascii_ci_equals(target, "_blank")) {
+            open_in_new_tab(url);
+        } else if (ascii_ci_equals(target, "_parent")) {
+            if (chain.size() == 1)
+                open(url);
+            else
+                chain[chain.size() - 2].view->realm->navigate(url);
+        } else if (target.empty() || ascii_ci_equals(target, "_self")) {
+            chain.back().view->realm->navigate(url);
+        } else if (FrameView* const named = view_named(tab->frames, target)) {
+            named->realm->navigate(url);
+        } else {
+            open_in_new_tab(url);
+        }
+        dirty = true;
     }
 
     // --- Scripts ---------------------------------------------------------------------
@@ -1473,12 +1785,16 @@ struct Browser::Impl {
         hooks.should_stop = [this] {
             return std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);
         };
+        // An element of a frame's document is measured in that document,
+        // from the frame's own viewport: a frame's hooks are the page's.
         hooks.layout_box = [this, document](dom::Element const& element) -> std::optional<bindings::LayoutBox> {
             Tab* const owner = tab_of(document);
             if (!owner)
                 return std::nullopt;
             ensure_fresh(*owner);
-            std::optional<bindings::LayoutBox> box = bindings::find_element_box(owner->layout.root, element);
+            FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, element.document()));
+            std::optional<bindings::LayoutBox> box
+                = bindings::find_element_box(view ? view->layout.root : owner->layout.root, element);
             if (box && scale != 1) {
                 box->x = static_cast<float>(to_css_px(box->x));
                 box->y = static_cast<float>(to_css_px(box->y));
@@ -1492,22 +1808,33 @@ struct Browser::Impl {
             if (!owner)
                 return nullptr;
             ensure_fresh(*owner);
-            auto const it = owner->styles.find(&element);
-            return it == owner->styles.end() ? nullptr : &it->second;
+            FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, element.document()));
+            css::StyleMap const& styles = view ? view->styles : owner->styles;
+            auto const it = styles.find(&element);
+            return it == styles.end() ? nullptr : &it->second;
         };
         hooks.navigate = [this, document](net::Url const& target) {
             if (Tab* const owner = tab_of(document))
                 queue(index_of(*owner), target, Mode::Push);
         };
-        hooks.scroll_to = [this, document](int, int y) {
-            if (Tab* const owner = tab_of(document)) {
-                ensure_fresh(*owner);
-                set_scroll(*owner, to_device_px(y));
-            }
-        };
-        hooks.scroll_position = [this, document]() -> std::pair<int, int> {
+        hooks.scroll_to = [this, document](dom::Document const& from, int, int y) {
             Tab* const owner = tab_of(document);
-            return { 0, owner ? static_cast<int>(std::lround(to_css_px(owner->scroll_y))) : 0 };
+            if (!owner)
+                return;
+            ensure_fresh(*owner);
+            if (dom::Element const* const frame_container = frame_holding_in(owner->frames, from)) {
+                scroll_frame_to(*owner, frames_to(*owner, frame_container), to_device_px(y));
+                return;
+            }
+            set_scroll(*owner, to_device_px(y));
+        };
+        hooks.scroll_position = [this, document](dom::Document const& from) -> std::pair<int, int> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return { 0, 0 };
+            if (FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, from)))
+                return { 0, static_cast<int>(std::lround(to_css_px(static_cast<float>(view->scroll_y)))) };
+            return { 0, static_cast<int>(std::lround(to_css_px(static_cast<float>(owner->scroll_y)))) };
         };
         hooks.cookie_get = [this, page_url, container] { return loader.cookies_for(page_url, container); };
         hooks.cookie_set = [this, page_url, container](std::string_view line) { loader.set_cookie(page_url, line, container); };
@@ -1569,10 +1896,13 @@ struct Browser::Impl {
             HistoryEntry const* const entry = owner ? owner->current() : nullptr;
             if (!owner || !entry)
                 return;
+            // A form in a frame's document submits against that document's
+            // URL, and lands in the frame.
+            FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, form.document()));
             std::optional<net::Url> const target = get_submission_url(form,
-                submitter ? submitter : default_submitter(form), &owner->controls, entry->final_url);
+                submitter ? submitter : default_submitter(form), &owner->controls, view ? view->realm->url() : entry->final_url);
             if (target && submission_allowed(*owner, *target))
-                queue(index_of(*owner), *target, Mode::Push);
+                navigate_document(*owner, form.document(), *target);
         };
         hooks.console = [this, document](std::string_view level, std::string_view message) {
             std::string const line = std::string(level) + ": " + std::string(message);
@@ -2413,16 +2743,21 @@ struct Browser::Impl {
 
     // The control under a window point: its own box, or the control a
     // <label> whose text was hit stands for.
-    dom::Element const* control_at(int x, int y) const
+    dom::Element const* control_at(int x, int y)
     {
-        Tab const* const tab = active_tab();
+        Tab* const tab = active_tab();
         std::optional<std::pair<float, float>> const point = page_point(x, y);
         if (!tab || !point)
             return nullptr;
-        if (dom::Element const* const control
-            = hit_control(tab->layout.root, point->first, point->second))
+        // In a frame, the frame's document and its layout answer.
+        std::vector<FrameStep> const chain = frames_at(*tab, point->first, point->second);
+        layout::Fragment const& root = chain.empty() ? tab->layout.root : chain.back().view->layout.root;
+        dom::Document const& document = chain.empty() ? *tab->document : *chain.back().view->document;
+        float const px = chain.empty() ? point->first : chain.back().x;
+        float const py = chain.empty() ? point->second : chain.back().y;
+        if (dom::Element const* const control = hit_control(root, px, py))
             return control;
-        dom::Element const* const hit = hit_run(tab->layout.root, point->first, point->second);
+        dom::Element const* const hit = hit_run(root, px, py);
         for (dom::Node const* node = hit; node; node = node->parent()) {
             if (!node->is_element())
                 continue;
@@ -2430,7 +2765,7 @@ struct Browser::Impl {
             if (!element.is_html("label"))
                 continue;
             if (dom::Attr const* const target = element.find_attribute("for")) {
-                dom::Element const* const named = element_by_id(*tab->document, target->value);
+                dom::Element const* const named = element_by_id(document, target->value);
                 return named && layout::is_control(*named) ? named : nullptr;
             }
             return first_control_within(element);
@@ -2438,16 +2773,37 @@ struct Browser::Impl {
         return nullptr;
     }
 
-    std::optional<net::Url> link_at(int x, int y) const
+    // A link under a window point: its URL, resolved against the document it
+    // is in; the frame that document is shown in, when it is a frame's; and
+    // its target attribute.
+    struct LinkHit {
+        net::Url url;
+        dom::Element const* frame = nullptr;
+        std::string target;
+    };
+
+    std::optional<LinkHit> link_under(int x, int y)
     {
         ChromeLayout const c = layout_chrome();
-        Tab const* const tab = active_tab();
+        Tab* const tab = active_tab();
         HistoryEntry const* const entry = tab ? tab->current() : nullptr;
         if (!tab || !tab->document || !entry || !c.content.contains(x, y))
             return std::nullopt;
-        float const px = static_cast<float>(x - c.content.x);
-        float const py = static_cast<float>(y - c.content.y + tab->scroll_y);
-        dom::Element const* const hit = hit_run(tab->layout.root, px, py);
+        float px = static_cast<float>(x - c.content.x);
+        float py = static_cast<float>(y - c.content.y + tab->scroll_y);
+        std::vector<FrameStep> const chain = frames_at(*tab, px, py);
+        layout::Fragment const* root = &tab->layout.root;
+        net::Url base = entry->final_url;
+        dom::Element const* link_frame = nullptr;
+        if (!chain.empty()) {
+            FrameStep const& step = chain.back();
+            root = &step.view->layout.root;
+            base = step.view->realm->url();
+            link_frame = step.container;
+            px = step.x;
+            py = step.y;
+        }
+        dom::Element const* const hit = hit_run(*root, px, py);
         for (dom::Node const* node = hit; node; node = node->parent()) {
             if (!node->is_element())
                 continue;
@@ -2457,9 +2813,19 @@ struct Browser::Impl {
             dom::Attr const* const href = element.find_attribute("href");
             if (!href)
                 continue;
-            return net::parse_url(href->value, &entry->final_url);
+            std::optional<net::Url> url = net::parse_url(href->value, &base);
+            if (!url)
+                return std::nullopt;
+            dom::Attr const* const target = element.find_attribute("target");
+            return LinkHit { std::move(*url), link_frame, target ? target->value : std::string() };
         }
         return std::nullopt;
+    }
+
+    std::optional<net::Url> link_at(int x, int y)
+    {
+        std::optional<LinkHit> const hit = link_under(x, y);
+        return hit ? std::optional<net::Url>(hit->url) : std::nullopt;
     }
 
     struct TextHit {
@@ -2504,6 +2870,8 @@ struct Browser::Impl {
         Hover next = Hover::None;
         std::size_t index = 0;
         std::optional<net::Url> link;
+        dom::Element const* link_frame = nullptr;
+        std::string link_target;
         for (std::size_t i = 0; i < c.tabs.size(); ++i) {
             if (c.tab_close_buttons[i].contains(x, y)) {
                 next = Hover::TabClose;
@@ -2545,7 +2913,11 @@ struct Browser::Impl {
                 next = Hover::DevtoolsStyles;
             else if (c.content.contains(x, y)) {
                 next = Hover::Content;
-                link = link_at(x, y);
+                if (std::optional<LinkHit> found = link_under(x, y)) {
+                    link = std::move(found->url);
+                    link_frame = found->frame;
+                    link_target = std::move(found->target);
+                }
             }
         }
         if (palette_open) {
@@ -2555,18 +2927,22 @@ struct Browser::Impl {
                     next = Hover::PaletteRow;
                     index = i;
                     link.reset();
+                    link_frame = nullptr;
                     break;
                 }
             }
             if (next != Hover::PaletteRow && c.palette.contains(x, y)) {
                 next = Hover::Palette;
                 link.reset();
+                link_frame = nullptr;
             }
         }
-        if (next != hover || index != hover_index || !same_url(link, hover_link)) {
+        if (next != hover || index != hover_index || !same_url(link, hover_link) || link_frame != hover_link_frame) {
             hover = next;
             hover_index = index;
             hover_link = std::move(link);
+            hover_link_frame = link_frame;
+            hover_link_target = std::move(link_target);
             dirty = true;
         }
     }
@@ -2785,16 +3161,16 @@ struct Browser::Impl {
     // The text position nearest to a page point: inside the run under it,
     // else the nearest run on its line, else the end of the nearest line
     // above, else the very start.
-    static std::optional<TextPosition> position_at(Tab const& tab, float px, float py)
+    static std::optional<TextPosition> position_at(std::vector<layout::TextRun const*> const& runs, float px, float py)
     {
-        if (tab.runs.empty())
+        if (runs.empty())
             return std::nullopt;
         std::optional<std::size_t> same_line;
         float same_line_distance = 0;
         std::optional<std::size_t> above;
         float above_bottom = 0;
-        for (std::size_t i = 0; i < tab.runs.size(); ++i) {
-            layout::TextRun const& run = *tab.runs[i];
+        for (std::size_t i = 0; i < runs.size(); ++i) {
+            layout::TextRun const& run = *runs[i];
             if (run.text.empty())
                 continue;
             text::FaceMetrics const metrics = run_metrics(run);
@@ -2814,11 +3190,11 @@ struct Browser::Impl {
             }
         }
         if (same_line) {
-            layout::TextRun const& run = *tab.runs[*same_line];
+            layout::TextRun const& run = *runs[*same_line];
             return TextPosition { *same_line, px < run.x ? 0 : run.text.size() };
         }
         if (above)
-            return TextPosition { *above, tab.runs[*above]->text.size() };
+            return TextPosition { *above, runs[*above]->text.size() };
         return TextPosition { 0, 0 };
     }
 
@@ -2829,16 +3205,27 @@ struct Browser::Impl {
         return { selection.anchor, selection.focus };
     }
 
+    // The runs a tab's selection indexes: the frame's it is in, else the page's.
+    static std::vector<layout::TextRun const*> const& runs_of(Tab const& tab)
+    {
+        if (tab.selection_frame) {
+            if (FrameView const* const view = view_of(tab, tab.selection_frame))
+                return view->runs;
+        }
+        return tab.runs;
+    }
+
     // The selected text: each run's slice, lines separated by newlines.
     static std::string selected_text(Tab const& tab)
     {
-        if (!tab.selection || tab.runs.empty())
+        std::vector<layout::TextRun const*> const& runs = runs_of(tab);
+        if (!tab.selection || runs.empty())
             return {};
         auto const [start, end] = ordered(*tab.selection);
         std::string out;
         std::optional<float> last_baseline;
-        for (std::size_t i = start.run; i <= end.run && i < tab.runs.size(); ++i) {
-            layout::TextRun const& run = *tab.runs[i];
+        for (std::size_t i = start.run; i <= end.run && i < runs.size(); ++i) {
+            layout::TextRun const& run = *runs[i];
             std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
             std::size_t const to = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
             if (to <= from)
@@ -2855,20 +3242,21 @@ struct Browser::Impl {
     // run past a run's ends.
     static TextPosition step(Tab const& tab, TextPosition position, int direction)
     {
-        std::size_t const size = tab.runs[position.run]->text.size();
+        std::vector<layout::TextRun const*> const& runs = runs_of(tab);
+        std::size_t const size = runs[position.run]->text.size();
         if (direction > 0) {
             if (position.offset < size) {
                 ++position.offset;
-            } else if (position.run + 1 < tab.runs.size()) {
+            } else if (position.run + 1 < runs.size()) {
                 ++position.run;
-                position.offset = std::min<std::size_t>(1, tab.runs[position.run]->text.size());
+                position.offset = std::min<std::size_t>(1, runs[position.run]->text.size());
             }
         } else {
             if (position.offset > 0) {
                 --position.offset;
             } else if (position.run > 0) {
                 --position.run;
-                std::size_t const previous = tab.runs[position.run]->text.size();
+                std::size_t const previous = runs[position.run]->text.size();
                 position.offset = previous > 0 ? previous - 1 : 0;
             }
         }
@@ -2878,10 +3266,11 @@ struct Browser::Impl {
     // The position on the line above or below, at the same x.
     static std::optional<TextPosition> line_step(Tab const& tab, TextPosition position, int direction)
     {
-        layout::TextRun const& run = *tab.runs[position.run];
+        std::vector<layout::TextRun const*> const& runs = runs_of(tab);
+        layout::TextRun const& run = *runs[position.run];
         float const x = run.x + prefix_width(run, position.offset);
         std::optional<float> target;
-        for (layout::TextRun const* const other : tab.runs) {
+        for (layout::TextRun const* const other : runs) {
             if (other->text.empty())
                 continue;
             float const baseline = other->baseline_y;
@@ -2893,35 +3282,60 @@ struct Browser::Impl {
         }
         if (!target)
             return std::nullopt;
-        return position_at(tab, x, *target);
+        return position_at(runs, x, *target);
     }
 
     // The first or last position on the line a position sits on.
     static TextPosition line_end(Tab const& tab, TextPosition position, bool end)
     {
-        float const baseline = tab.runs[position.run]->baseline_y;
+        std::vector<layout::TextRun const*> const& runs = runs_of(tab);
+        float const baseline = runs[position.run]->baseline_y;
         std::size_t index = position.run;
         if (end) {
-            while (index + 1 < tab.runs.size() && tab.runs[index + 1]->baseline_y == baseline)
+            while (index + 1 < runs.size() && runs[index + 1]->baseline_y == baseline)
                 ++index;
-            return TextPosition { index, tab.runs[index]->text.size() };
+            return TextPosition { index, runs[index]->text.size() };
         }
-        while (index > 0 && tab.runs[index - 1]->baseline_y == baseline)
+        while (index > 0 && runs[index - 1]->baseline_y == baseline)
             --index;
         return TextPosition { index, 0 };
     }
 
+    // Drops the selection; a frame that showed it is painted again without it.
+    void clear_selection(Tab& tab)
+    {
+        dom::Element const* const previous = tab.selection_frame;
+        tab.selection.reset();
+        tab.selection_frame = nullptr;
+        tab.selection_view.reset();
+        selecting = false;
+        if (previous)
+            repaint_frames(tab, frames_to(tab, previous));
+        dirty = true;
+    }
+
+    // A selection begins under the pointer, in one document: the page's, or
+    // the frame's the pointer is over.
     void start_selection(Tab& tab, int x, int y)
     {
+        clear_selection(tab);
         std::optional<std::pair<float, float>> const point = page_point(x, y);
-        std::optional<TextPosition> const position
-            = point ? position_at(tab, point->first, point->second) : std::nullopt;
-        if (!position) {
-            tab.selection.reset();
-            selecting = false;
+        if (!point)
             return;
-        }
+        std::vector<FrameStep> const chain = frames_at(tab, point->first, point->second);
+        bool const in_frame = !chain.empty();
+        std::vector<layout::TextRun const*> const& runs = in_frame ? chain.back().view->runs : tab.runs;
+        std::optional<TextPosition> const position
+            = position_at(runs, in_frame ? chain.back().x : point->first, in_frame ? chain.back().y : point->second);
+        if (!position)
+            return;
         tab.selection = Selection { *position, *position };
+        if (in_frame) {
+            FrameStep const& step = chain.back();
+            tab.selection_frame = step.container;
+            if (auto const it = step.holder->find(step.container); it != step.holder->end())
+                tab.selection_view = it->second.view;
+        }
         selecting = true;
         dirty = true;
     }
@@ -2954,7 +3368,21 @@ struct Browser::Impl {
             - c.content.x);
         float const py = static_cast<float>(std::clamp(y, c.content.y, c.content.y + c.content.height - 1)
             - c.content.y + tab->scroll_y);
-        if (std::optional<TextPosition> const focus = position_at(*tab, px, py);
+        if (tab->selection_frame) {
+            // A selection in a frame follows the pointer in that document,
+            // past the frame's edges too.
+            std::vector<FrameStep> const chain = frames_to(*tab, tab->selection_frame);
+            if (chain.empty())
+                return;
+            auto const [ox, oy] = origin_of(chain);
+            if (std::optional<TextPosition> const focus = position_at(chain.back().view->runs, px - ox, py - oy);
+                focus && !(*focus == tab->selection->focus)) {
+                tab->selection->focus = *focus;
+                repaint_frames(*tab, chain);
+            }
+            return;
+        }
+        if (std::optional<TextPosition> const focus = position_at(tab->runs, px, py);
             focus && !(*focus == tab->selection->focus)) {
             tab->selection->focus = *focus;
             dirty = true;
@@ -2973,6 +3401,7 @@ struct Browser::Impl {
     {
         if (tab.runs.empty())
             return;
+        clear_selection(tab); // the page's text, whatever frame held one
         tab.selection = Selection { TextPosition { 0, 0 },
             TextPosition { tab.runs.size() - 1, tab.runs.back()->text.size() } };
         dirty = true;
@@ -2996,6 +3425,8 @@ struct Browser::Impl {
         }
         if (next && !(*next == focus)) {
             tab.selection->focus = *next;
+            if (tab.selection_frame)
+                repaint_frames(tab, frames_to(tab, tab.selection_frame));
             dirty = true;
         }
         return true;
@@ -3450,11 +3881,13 @@ struct Browser::Impl {
     // --- Find in page ----------------------------------------------------------------
 
     // A translucent band over the runs between two positions.
-    static void paint_bands(Bitmap& content, Tab const& tab, TextPosition start, TextPosition end,
-        Color color)
+    // Translucent bands over a stretch of runs, on a picture of the document
+    // seen from `scroll_y` down.
+    static void paint_bands(Bitmap& content, std::vector<layout::TextRun const*> const& runs, TextPosition start,
+        TextPosition end, Color color, float scroll_y)
     {
-        for (std::size_t i = start.run; i <= end.run && i < tab.runs.size(); ++i) {
-            layout::TextRun const& run = *tab.runs[i];
+        for (std::size_t i = start.run; i <= end.run && i < runs.size(); ++i) {
+            layout::TextRun const& run = *runs[i];
             std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
             std::size_t const to = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
             if (to <= from)
@@ -3462,12 +3895,17 @@ struct Browser::Impl {
             text::FaceMetrics const metrics = run_metrics(run);
             float const x1 = run.x + prefix_width(run, from);
             float const x2 = run.x + prefix_width(run, to);
-            float const top = run.baseline_y - metrics.ascent - static_cast<float>(tab.scroll_y);
+            float const top = run.baseline_y - metrics.ascent - scroll_y;
             content.fill_rect(Rect { static_cast<int>(x1 + 0.5f), static_cast<int>(top + 0.5f),
                                   static_cast<int>(x2 - x1 + 0.5f),
                                   static_cast<int>(metrics.ascent + metrics.descent + 0.5f) },
                 color);
         }
+    }
+
+    static void paint_bands(Bitmap& content, Tab const& tab, TextPosition start, TextPosition end, Color color)
+    {
+        paint_bands(content, tab.runs, start, end, color, static_cast<float>(tab.scroll_y));
     }
 
     // The editing keys the find box takes — Backspace, Delete, Left, Right,
@@ -3761,14 +4199,17 @@ struct Browser::Impl {
     void submit(Tab& tab, dom::Element const& control)
     {
         HistoryEntry const* const entry = tab.current();
-        dom::Element const* const form = form_owner(control, *tab.document);
+        // The control's own document: a frame's, when it is in one.
+        dom::Document const& document = control.document();
+        dom::Element const* const form = form_owner(control, document);
         if (!form || !entry)
             return;
         dom::Element const* const submitter
             = layout::control_kind(control) == layout::ControlKind::Submit ? &control
                                                                             : default_submitter(*form);
+        FrameView const* const view = view_of(tab, frame_holding_in(tab.frames, document));
         std::optional<net::Url> const url
-            = get_submission_url(*form, submitter, &tab.controls, entry->final_url);
+            = get_submission_url(*form, submitter, &tab.controls, view ? view->realm->url() : entry->final_url);
         if (!url) {
             tab.status = "This form posts; only GET forms are written yet";
             dirty = true;
@@ -3776,7 +4217,7 @@ struct Browser::Impl {
         }
         if (!submission_allowed(tab, *url))
             return;
-        queue(active, *url, Mode::Push);
+        navigate_document(tab, document, *url);
     }
 
     // The page's policy's say on a form submission: a sandbox without
@@ -4042,23 +4483,41 @@ struct Browser::Impl {
                         inspect_at(*tab, x, y);
                     break;
                 }
-                // The page hears the click first; preventDefault keeps the
-                // shell from following a link or toggling a control.
-                if (Tab* const tab = active_tab(); tab && tab->realm && tab->document) {
-                    if (dom::Element const* const target = element_under(*tab, x, y)) {
-                        ChromeLayout const chrome = layout_chrome();
-                        bindings::MouseInit init;
-                        init.client_x = static_cast<int>(std::lround(to_css_px(x - chrome.content.x)));
-                        init.client_y = static_cast<int>(std::lround(to_css_px(y - chrome.content.y)));
-                        dom::Element& element = const_cast<dom::Element&>(*target);
-                        script_started = std::chrono::steady_clock::now();
-                        tab->realm->dispatch_mouse_event(element, "mousedown", init);
-                        bool const proceed = tab->realm->dispatch_mouse_event(element, "click", init);
-                        ensure_fresh(*tab);
-                        dirty = true;
-                        if (!proceed || !tab->document)
-                            break;
-                        update_hover(x, y); // the page may have changed under the pointer
+                // The page hears the click first — the frame's document, for
+                // a click inside a frame — and preventDefault keeps the shell
+                // from following a link or toggling a control.
+                if (Tab* const tab = active_tab(); tab && tab->document) {
+                    std::optional<std::pair<float, float>> const point = page_point(x, y);
+                    std::vector<FrameStep> const chain
+                        = point ? frames_at(*tab, point->first, point->second) : std::vector<FrameStep> {};
+                    FrameView* const view = chain.empty() ? nullptr : chain.back().view;
+                    bindings::Realm* const realm = view ? view->realm : tab->realm.get();
+                    if (point && realm) {
+                        layout::Fragment const& root = view ? view->layout.root : tab->layout.root;
+                        float const px = view ? chain.back().x : point->first;
+                        float const py = view ? chain.back().y : point->second;
+                        dom::Element const* target = hit_run(root, px, py);
+                        if (!target)
+                            target = hit_control(root, px, py);
+                        if (!target)
+                            target = element_at_point(root, px, py);
+                        if (target) {
+                            ChromeLayout const chrome = layout_chrome();
+                            bindings::MouseInit init;
+                            init.client_x = static_cast<int>(std::lround(
+                                to_css_px(view ? px : static_cast<float>(x - chrome.content.x))));
+                            init.client_y = static_cast<int>(std::lround(to_css_px(
+                                view ? py - static_cast<float>(view->scroll_y) : static_cast<float>(y - chrome.content.y))));
+                            dom::Element& element = const_cast<dom::Element&>(*target);
+                            script_started = std::chrono::steady_clock::now();
+                            realm->dispatch_mouse_event(element, "mousedown", init);
+                            bool const proceed = realm->dispatch_mouse_event(element, "click", init);
+                            ensure_fresh(*tab);
+                            dirty = true;
+                            if (!proceed || !tab->document)
+                                break;
+                            update_hover(x, y); // the page may have changed under the pointer
+                        }
                     }
                 }
                 if (dom::Element const* const control = control_at(x, y)) {
@@ -4066,7 +4525,7 @@ struct Browser::Impl {
                 } else {
                     blur_control();
                     if (hover_link) {
-                        open(*hover_link);
+                        follow_link();
                     } else if (Tab* const tab = active_tab()) {
                         start_selection(*tab, x, y);
                     }
@@ -4100,6 +4559,8 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        if (tab->scroller_frame && scroll_frame_by(*tab, frames_to(*tab, tab->scroller_frame), delta))
+            return;
         if (layout::Fragment const* const box = keyboard_scroller(*tab)) {
             if (scroll_box_by(*tab, *box, 0, static_cast<float>(delta)))
                 return;
@@ -4113,6 +4574,11 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        if (tab->scroller_frame) {
+            std::vector<FrameStep> const chain = frames_to(*tab, tab->scroller_frame);
+            if (!chain.empty() && scroll_frame_to(*tab, chain, far_end ? chain.back().view->max_scroll() : 0))
+                return;
+        }
         if (layout::Fragment const* const box = keyboard_scroller(*tab)) {
             layout::ScrollOffset const at = layout::scroll_of(*box, &tab->scrolls);
             if (scroll_box_to(*tab, *box,
@@ -4140,6 +4606,27 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         std::optional<std::pair<float, float>> const point = page_point(x, y);
         if (tab && point) {
+            // A frame under the point takes the push first — a box inside
+            // it, else its document — and passes it to the frame around it,
+            // and on to the page, when it has no room left; the keyboard
+            // follows whichever frame took it.
+            std::vector<FrameStep> chain = frames_at(*tab, point->first, point->second);
+            while (!chain.empty()) {
+                FrameStep const& step = chain.back();
+                layout::Fragment const* const inner = scroller_at(
+                    step.view->layout.root, step.x, step.y, static_cast<float>(delta), step.view->scrolls);
+                std::optional<layout::ScrollOffset> const push
+                    = inner ? wheel_delta(*inner, static_cast<float>(delta), step.view->scrolls) : std::nullopt;
+                dom::Element const* const container = step.container;
+                if ((inner && push && scroll_frame_box_by(*tab, chain, *inner, push->x, push->y))
+                    || scroll_frame_by(*tab, chain, delta)) {
+                    tab->scroller = nullptr;
+                    tab->scroller_frame = container;
+                    return;
+                }
+                chain.pop_back();
+            }
+            tab->scroller_frame = nullptr;
             layout::Fragment const* const box = scroller_at(
                 tab->layout.root, point->first, point->second, static_cast<float>(delta), tab->scrolls);
             std::optional<layout::ScrollOffset> const step
@@ -4182,7 +4669,8 @@ struct Browser::Impl {
             if (Tab* const tab = active_tab(); tab && tab->realm && tab->document) {
                 dom::Element const* const target = tab->controls.focused;
                 script_started = std::chrono::steady_clock::now();
-                bool const proceed = tab->realm->dispatch_key_event(const_cast<dom::Element*>(target), "keydown",
+                bindings::Realm* const realm = target ? realm_for(*tab, *target) : tab->realm.get();
+                bool const proceed = realm->dispatch_key_event(const_cast<dom::Element*>(target), "keydown",
                     key_init_for(key));
                 ensure_fresh(*tab);
                 if (!proceed) {
@@ -4259,8 +4747,7 @@ struct Browser::Impl {
         if (key.shift && extend_selection(*tab, key))
             return;
         if (key.key == Key::Escape && tab->selection) {
-            tab->selection.reset();
-            dirty = true;
+            clear_selection(*tab);
             return;
         }
         ChromeLayout const c = layout_chrome();
@@ -4457,11 +4944,17 @@ struct Browser::Impl {
         Tab* const tab = tab_with_focused_control();
         if (!tab)
             return std::nullopt;
-        layout::Fragment const* const box = fragment_for(tab->layout.root, tab->controls.focused);
+        // The control's box, in the page or in the frame it is in, moved by
+        // where that frame's document sits on the page.
+        std::vector<FrameStep> const chain
+            = frames_to(*tab, frame_holding_in(tab->frames, tab->controls.focused->document()));
+        layout::Fragment const& root = chain.empty() ? tab->layout.root : chain.back().view->layout.root;
+        auto const [ox, oy] = origin_of(chain);
+        layout::Fragment const* const box = fragment_for(root, tab->controls.focused);
         if (!box || !box->control || !box->control->caret_x)
             return std::nullopt;
-        return Rect { c.content.x + static_cast<int>(std::lround(*box->control->caret_x)),
-            c.content.y + static_cast<int>(std::lround(box->control->y)) - tab->scroll_y, 1,
+        return Rect { c.content.x + static_cast<int>(std::lround(*box->control->caret_x + ox)),
+            c.content.y + static_cast<int>(std::lround(box->control->y + oy)) - tab->scroll_y, 1,
             std::max(1, static_cast<int>(std::lround(box->control->height))) };
     }
 
@@ -4486,7 +4979,7 @@ struct Browser::Impl {
                 append_utf8(init.data, code_point);
                 dom::Element& control = const_cast<dom::Element&>(*tab->controls.focused);
                 script_started = std::chrono::steady_clock::now();
-                tab->realm->dispatch_input_event(control, "input", init);
+                realm_for(*tab, control)->dispatch_input_event(control, "input", init);
                 ensure_fresh(*tab);
                 dirty = true;
             }
@@ -4708,7 +5201,7 @@ struct Browser::Impl {
                         m == tab->current_match ? t.find_current : t.find_highlight);
                 }
             }
-            if (tab->selection) {
+            if (tab->selection && !tab->selection_frame) { // a frame's is in the frame's picture
                 auto const [start, end] = ordered(*tab->selection);
                 paint_bands(content, *tab, start, end, t.selection);
             }
@@ -5172,8 +5665,20 @@ std::string Browser::page_text() const
     Impl::Tab const* const tab = m_impl->active_tab();
     std::string text;
     float last_baseline = 0;
-    if (tab && tab->document)
+    if (tab && tab->document) {
         Impl::collect_text(tab->layout.root, text, last_baseline);
+        // The frames' documents' text after the page's, each frame's after
+        // the one it is in.
+        std::function<void(DrawnFrames const&)> const frames = [&](DrawnFrames const& drawn) {
+            for (auto const& [element, frame] : drawn) {
+                if (!frame.view)
+                    continue;
+                Impl::collect_text(frame.view->layout.root, text, last_baseline);
+                frames(frame.view->frames);
+            }
+        };
+        frames(tab->frames);
+    }
     return text;
 }
 
@@ -5185,10 +5690,21 @@ int Browser::scroll_y() const
 
 std::pair<int, int> Browser::box_scroll_at(int x, int y) const
 {
-    Impl::Tab const* const tab = m_impl->active_tab();
+    Impl::Tab* const tab = m_impl->active_tab();
     std::optional<std::pair<float, float>> const point = m_impl->page_point(x, y);
     if (!tab || !point)
         return { 0, 0 };
+    // Inside a frame, the innermost scrolling thing under the point is a box
+    // of the frame's document, else the document itself down its frame.
+    std::vector<Impl::FrameStep> const chain = Impl::frames_at(*tab, point->first, point->second);
+    if (!chain.empty()) {
+        Impl::FrameStep const& step = chain.back();
+        if (layout::Fragment const* const box = Impl::scrollport_at(step.view->layout.root, step.x, step.y)) {
+            layout::ScrollOffset const at = layout::scroll_of(*box, &step.view->scrolls);
+            return { static_cast<int>(at.x + 0.5f), static_cast<int>(at.y + 0.5f) };
+        }
+        return { 0, step.view->scroll_y };
+    }
     layout::Fragment const* const box
         = Impl::scrollport_at(tab->layout.root, point->first, point->second);
     if (!box)
@@ -5201,24 +5717,59 @@ std::optional<net::Url> Browser::link_at(int x, int y) const { return m_impl->li
 
 std::optional<std::pair<int, int>> Browser::find_text(std::string const& text) const
 {
-    Impl::Tab const* const tab = m_impl->active_tab();
+    Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || !tab->document || text.empty())
         return std::nullopt;
-    std::optional<Impl::TextHit> const hit
-        = m_impl->find_text_in(tab->layout.root, text, *tab, m_impl->layout_chrome());
-    if (!hit)
+    ChromeLayout const chrome = m_impl->layout_chrome();
+    std::optional<Impl::TextHit> const hit = m_impl->find_text_in(tab->layout.root, text, *tab, chrome);
+    if (hit)
+        return std::make_pair(hit->x, hit->y);
+    // Then the frames' documents, the found run's center moved by where its
+    // frame's document sits on the page.
+    std::function<std::optional<std::pair<int, int>>(DrawnFrames&)> const search
+        = [&](DrawnFrames& drawn) -> std::optional<std::pair<int, int>> {
+        for (auto& [element, frame] : drawn) {
+            if (!frame.view)
+                continue;
+            if (std::optional<Impl::TextHit> const found = m_impl->find_text_in(frame.view->layout.root, text, *tab, chrome)) {
+                auto const [ox, oy] = Impl::origin_of(Impl::frames_to(*tab, element));
+                return std::make_pair(found->x + static_cast<int>(std::lround(ox)), found->y + static_cast<int>(std::lround(oy)));
+            }
+            if (std::optional<std::pair<int, int>> const inner = search(frame.view->frames))
+                return inner;
+        }
         return std::nullopt;
-    return std::make_pair(hit->x, hit->y);
+    };
+    return search(tab->frames);
 }
 
 ChromeLayout Browser::chrome_layout() const { return m_impl->layout_chrome(); }
+
+namespace {
+
+// The first control with this name in the page's document, else in a
+// frame's, each frame's document after the one it is in.
+dom::Element const* control_named_anywhere(dom::Document const& document, DrawnFrames const& frames, std::string const& name)
+{
+    if (dom::Element const* const control = control_named(document, name))
+        return control;
+    for (auto const& [element, frame] : frames) {
+        if (!frame.view)
+            continue;
+        if (dom::Element const* const control = control_named_anywhere(*frame.view->document, frame.view->frames, name))
+            return control;
+    }
+    return nullptr;
+}
+
+}
 
 bool Browser::focus_control(std::string const& name)
 {
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || !tab->document)
         return false;
-    dom::Element const* const control = control_named(*tab->document, name);
+    dom::Element const* const control = control_named_anywhere(*tab->document, tab->frames, name);
     if (!control || !layout::is_control(*control))
         return false;
     tab->controls.focused = control;
@@ -5233,7 +5784,7 @@ std::optional<std::string> Browser::control_value(std::string const& name) const
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab || !tab->document)
         return std::nullopt;
-    dom::Element const* const control = control_named(*tab->document, name);
+    dom::Element const* const control = control_named_anywhere(*tab->document, tab->frames, name);
     if (!control)
         return std::nullopt;
     return layout::control_value(*control, &tab->controls);
@@ -5261,37 +5812,61 @@ bool Browser::select_text(std::string const& text)
         return false;
     std::u32string const needle = decode_utf8(text);
     // A line is a stretch of runs sharing a baseline, in tree order; the
-    // text may span several of its runs.
-    std::size_t line_start = 0;
-    while (line_start < tab->runs.size()) {
-        std::size_t line_end = line_start + 1;
-        while (line_end < tab->runs.size()
-            && tab->runs[line_end]->baseline_y == tab->runs[line_start]->baseline_y)
-            ++line_end;
-        std::u32string line;
-        std::vector<std::size_t> starts; // each run's offset within `line`
-        for (std::size_t i = line_start; i < line_end; ++i) {
-            starts.push_back(line.size());
-            line += tab->runs[i]->text;
+    // text may span several of its runs. The page's runs first, then each
+    // frame's.
+    auto const find_in = [&](std::vector<layout::TextRun const*> const& runs) -> std::optional<Impl::Selection> {
+        std::size_t line_start = 0;
+        while (line_start < runs.size()) {
+            std::size_t line_end = line_start + 1;
+            while (line_end < runs.size() && runs[line_end]->baseline_y == runs[line_start]->baseline_y)
+                ++line_end;
+            std::u32string line;
+            std::vector<std::size_t> starts; // each run's offset within `line`
+            for (std::size_t i = line_start; i < line_end; ++i) {
+                starts.push_back(line.size());
+                line += runs[i]->text;
+            }
+            std::size_t const at = line.find(needle);
+            if (at != std::u32string::npos) {
+                auto const locate = [&](std::size_t index) {
+                    std::size_t run = 0;
+                    for (std::size_t k = 0; k < starts.size(); ++k) {
+                        if (starts[k] <= index)
+                            run = k;
+                    }
+                    return Impl::TextPosition { line_start + run, index - starts[run] };
+                };
+                return Impl::Selection { locate(at), locate(at + needle.size()) };
+            }
+            line_start = line_end;
         }
-        std::size_t const at = line.find(needle);
-        if (at != std::u32string::npos) {
-            auto const locate = [&](std::size_t index) {
-                std::size_t run = 0;
-                for (std::size_t k = 0; k < starts.size(); ++k) {
-                    if (starts[k] <= index)
-                        run = k;
-                }
-                return Impl::TextPosition { line_start + run, index - starts[run] };
-            };
-            tab->selection = Impl::Selection { locate(at), locate(at + needle.size()) };
-            m_impl->blur_address();
-            m_impl->dirty = true;
-            return true;
-        }
-        line_start = line_end;
+        return std::nullopt;
+    };
+    m_impl->clear_selection(*tab);
+    if (std::optional<Impl::Selection> const found = find_in(tab->runs)) {
+        tab->selection = *found;
+        m_impl->blur_address();
+        m_impl->dirty = true;
+        return true;
     }
-    return false;
+    std::function<bool(DrawnFrames&)> const search = [&](DrawnFrames& drawn) {
+        for (auto& [element, frame] : drawn) {
+            if (!frame.view)
+                continue;
+            if (std::optional<Impl::Selection> const found = find_in(frame.view->runs)) {
+                tab->selection = *found;
+                tab->selection_frame = element;
+                tab->selection_view = frame.view;
+                m_impl->repaint_frames(*tab, Impl::frames_to(*tab, element));
+                m_impl->blur_address();
+                return true;
+            }
+            if (search(frame.view->frames))
+                return true;
+        }
+        return false;
+    };
+    return search(tab->frames);
 }
 
 std::string Browser::find_status() const

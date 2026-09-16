@@ -25,11 +25,14 @@
 
 #include "bindings/Realm.h"
 #include "core/Bitmap.h"
+#include "css/StyleResolver.h"
+#include "layout/Controls.h"
 #include "layout/Layout.h"
 #include "net/Csp.h"
 #include "net/Filters.h"
 #include "net/Http.h"
 #include "net/Url.h"
+#include "text/FontManager.h"
 
 #include <cstdint>
 #include <functional>
@@ -61,16 +64,62 @@ struct FrameResponse {
 using FrameFetcher = std::function<std::optional<FrameResponse>(net::Url const& url, net::Url const& from,
     net::ResourceKind kind, net::RequestGuard const& guard)>;
 
+struct FrameView;
+
 // A frame's picture as last drawn, by element, and what it was drawn from:
-// a frame showing the same thing at the same size is not drawn again.
+// a frame showing the same thing at the same size is not drawn again — unless
+// the shell marks it stale, as it does when a control inside it changes.
+// A frame drawn from a live document keeps its view, for the shell to
+// hit-test, scroll and type into.
 struct DrawnFrame {
     std::string source; // the srcdoc, or the src resolved; empty for nothing to show
     int width = 0;
     int height = 0;
     std::shared_ptr<Bitmap const> bitmap;
     std::uint64_t mutations = 0; // a live frame's documents' count when it was drawn
+    std::shared_ptr<FrameView> view;
+    bool stale = false;
 };
 using DrawnFrames = std::unordered_map<dom::Element const*, DrawnFrame>;
+
+// A live frame's document as laid out for its cell, kept between paints so
+// the shell can hit-test, scroll and type into it and paint it again without
+// laying it out: its realm and document, the fonts, styles and pictures the
+// layout was made with, the fragment tree with the reader's scrolling on it
+// — every scrolling box's own, and the document's down the cell — its text
+// runs in tree order, and its own frames' pictures and views. Coordinates
+// inside are the document's, in device px: the picture is the document seen
+// from `scroll_y` down, the cell's size.
+struct FrameView {
+    bindings::Realm* realm = nullptr;
+    dom::Document* document = nullptr;
+    net::Url url;
+    int width = 0;
+    int height = 0;
+    float device_scale = 1;
+    std::vector<text::PageFont> fonts;
+    css::StyleMap styles;
+    layout::ImageMap images;
+    layout::BackgroundImages backgrounds;
+    layout::LayoutResult layout;
+    std::vector<layout::TextRun const*> runs; // the layout's, in tree order
+    layout::ScrollOffsets scrolls; // how far the reader has moved each box that scrolls
+    layout::ScrollOffsets applied; // and how much of that the fragments carry
+    layout::ScrollOffset applied_page;
+    int scroll_y = 0; // the document's own, down the cell
+    DrawnFrames frames;
+
+    // How far the document can be moved down the cell.
+    int max_scroll() const;
+    // Puts the scrolling on the fragments — each box's own, then the
+    // document's, then whatever sticks — after any change to either.
+    void settle_scrolls();
+    // The document painted at its scrolling, the cell's size, a bar down the
+    // right edge when there is more below; the process's page fonts are
+    // the view's afterwards, so a caller that paints its own text next sets
+    // its page's again.
+    std::shared_ptr<Bitmap const> paint() const;
+};
 
 // Draws every frame laid out in `page` into its fragment, for the page at
 // `base` under its `policy` (null for a page with none), at the page's
@@ -79,9 +128,12 @@ using DrawnFrames = std::unordered_map<dom::Element const*, DrawnFrame>;
 // page's again. With `drawn`, a frame drawn before is taken from it, and it
 // is left holding this page's frames alone. With `realm`, the realm of the
 // page's document, a frame whose document has a realm there is drawn from
-// that live document, and its own frames from theirs.
+// that live document, and its own frames from theirs, each keeping a view
+// in `drawn`; `controls` is what the reader typed and toggled, which a live
+// frame's document is laid out with.
 void draw_frames(net::Url const& base, layout::LayoutResult& page, FrameFetcher const& fetch, float device_scale,
-    net::ContentSecurityPolicy* policy = nullptr, DrawnFrames* drawn = nullptr, bindings::Realm* realm = nullptr);
+    net::ContentSecurityPolicy* policy = nullptr, DrawnFrames* drawn = nullptr, bindings::Realm* realm = nullptr,
+    layout::ControlStates const* controls = nullptr);
 
 // An iframe's document as the framing rules let it through, for a realm of
 // its own: what its srcdoc or src names for the document at `base` under

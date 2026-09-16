@@ -459,7 +459,7 @@ std::optional<LayoutBox> client_box(Realm::Internals& in, dom::Element const& el
     if (!box)
         return std::nullopt;
     if (in.hooks.scroll_position) {
-        std::pair<int, int> const scroll = in.hooks.scroll_position();
+        std::pair<int, int> const scroll = in.hooks.scroll_position(*in.document);
         box->x -= static_cast<float>(scroll.first);
         box->y -= static_cast<float>(scroll.second);
     }

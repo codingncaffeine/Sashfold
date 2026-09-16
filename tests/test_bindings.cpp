@@ -1016,7 +1016,7 @@ void test_layout_and_style_hooks()
     style.position = css::Position::Relative;
     style.opacity = 0.5f;
     hooks.computed_style = [&style](dom::Element const&) -> css::ComputedStyle const* { return &style; };
-    hooks.scroll_position = [] { return std::pair<int, int> { 0, 30 }; };
+    hooks.scroll_position = [](dom::Document const&) { return std::pair<int, int> { 0, 30 }; };
     Page page("<!DOCTYPE html><body><p id=p>text</p><span id=s>hidden</span></body>", "https://example.test/", std::move(hooks));
     page.load();
     CHECK_EQ(page.string("(function () { var r = document.getElementById('p').getBoundingClientRect(); return [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left].join(); })()"), "8,10,300,20,10,308,30,8");

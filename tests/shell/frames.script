@@ -1,0 +1,74 @@
+# Input inside a frame: the wheel over a frame scrolls the frame's document
+# and not the page, the keyboard follows the frame the wheel last moved, a
+# frame with no room left passes the notch on to the page, a selection is
+# made in the frame's text, a field in the frame takes focus and typing, and
+# a link in the frame navigates the frame while the tab stays where it was.
+#
+# The content area starts 76 px down (tab strip + toolbar) and 0 px in. The
+# page below has an 8 px body margin, a paragraph 20 px tall with 16 px
+# margins, then a 300x100 frame at page (8, 60), so window (150, 200) is
+# inside the frame, and window (150, 150) stays inside it once the page has
+# moved 60 px. In the frame, the same margins put "Inner link here" on the
+# frame's first line, its glyphs 10 px wide; a 400 px block below makes the
+# frame's document 531 px tall, so it scrolls 431 px. No colour may be
+# written as #rgb here: a # in a data URL starts its fragment.
+resize 800 500
+open data:text/html,<title>Frames</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}iframe{display:block;border:0;width:300px;height:100px}</style><p>Outer text</p><iframe srcdoc="<style>body{margin:8px;font-family:'Sashfold Mono';font-size:16px;line-height:20px}</style><p>Inner <a href='data:text/html,<p>Arrived in frame</p>'>link</a> here</p><form><input name=f></form><div style='height:400px;background:lavender'>tall</div><p>Bottom words</p>"></iframe><div style="height:900px">below</div>
+assert-title Frames
+assert-text Outer text
+assert-text Inner link here
+assert-scroll 0
+assert-box-scroll 150 200 0 0
+
+# A notch over the frame moves the frame's document, and the page stays.
+wheel-at 150 200 -1
+assert-box-scroll 150 200 0 60
+assert-scroll 0
+
+# The keyboard follows the frame: End and Home move its document.
+key End
+assert-box-scroll 150 200 0 431
+assert-scroll 0
+key Home
+assert-box-scroll 150 200 0 0
+assert-scroll 0
+
+# A frame with no room left passes the notch on to the page: at its end,
+# the next notch down moves the page and leaves the frame where it is; a
+# notch up moves the frame again, and the keyboard follows it again.
+key End
+wheel-at 150 150 -1
+assert-scroll 60
+assert-box-scroll 150 150 0 431
+wheel-at 150 150 1
+assert-box-scroll 150 150 0 371
+assert-scroll 60
+key Home
+assert-box-scroll 150 150 0 0
+assert-scroll 60
+scroll-pixels -60
+assert-scroll 0
+
+# A selection in the frame's text, grown with the keyboard.
+select-text Inner
+assert-selection Inner
+key shift+right
+key shift+right
+assert-selection Inner l
+key Escape
+assert-selection
+
+# A field in the frame takes focus and what is typed.
+focus f
+assert-focused f
+type hello
+assert-value f hello
+assert-golden goldens/frames-typed.png
+key Escape
+
+# A link in the frame navigates the frame; the tab stays on its page.
+click-text link
+assert-text Arrived in frame
+assert-no-text Inner link here
+assert-text Outer text
+assert-title Frames

@@ -497,7 +497,7 @@ std::pair<double, double> offset_in_target(Realm::Internals& in, EventObject con
     std::optional<LayoutBox> const box = in.hooks.layout_box(*element);
     if (!box)
         return { event.client_x, event.client_y };
-    std::pair<int, int> const scroll = in.hooks.scroll_position ? in.hooks.scroll_position() : std::pair<int, int> { 0, 0 };
+    std::pair<int, int> const scroll = in.hooks.scroll_position ? in.hooks.scroll_position(*in.document) : std::pair<int, int> { 0, 0 };
     return { event.client_x + scroll.first - box->x, event.client_y + scroll.second - box->y };
 }
 
@@ -796,11 +796,11 @@ void install_events(Realm::Internals& in)
     event_getter(in, *mouse_event, "screenX", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.screen_x); });
     event_getter(in, *mouse_event, "screenY", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.screen_y); });
     event_getter(in, *mouse_event, "pageX", [](Realm::Internals& internals, EventObject& e) {
-        int const scroll = internals.hooks.scroll_position ? internals.hooks.scroll_position().first : 0;
+        int const scroll = internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document).first : 0;
         return js::Value::number(e.client_x + scroll);
     });
     event_getter(in, *mouse_event, "pageY", [](Realm::Internals& internals, EventObject& e) {
-        int const scroll = internals.hooks.scroll_position ? internals.hooks.scroll_position().second : 0;
+        int const scroll = internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document).second : 0;
         return js::Value::number(e.client_y + scroll);
     });
     event_getter(in, *mouse_event, "offsetX", [](Realm::Internals& internals, EventObject& e) { return js::Value::number(offset_in_target(internals, e).first); });
