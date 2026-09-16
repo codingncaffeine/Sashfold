@@ -5,6 +5,7 @@
 // URLSearchParams, DOMException, the observers a page constructs and the
 // small things (atob, alert, performance) scripts reach for on every page.
 
+#include "core/Ascii.h"
 #include "core/Base64.h"
 #include "core/Unicode.h"
 #include "css/Stylesheets.h"
@@ -12,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <random>
 #include <string>
 #include <utility>
@@ -200,6 +202,72 @@ Realm::Internals& navigating_realm(js::Interpreter& interpreter)
     if (incumbent != nullptr && incumbent->host_defined != nullptr)
         return static_cast<Realm*>(incumbent->host_defined)->internals();
     return internals_of(interpreter);
+}
+
+// HTML §7.2.2.1's "check if a window feature is set": the features string
+// tokenized into names and values — a name alone is set, and a value of
+// "yes", "true" or a number other than zero sets it.
+bool window_feature_set(std::string_view features, std::string_view name)
+{
+    std::size_t at = 0;
+    auto const separator = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == ',' || c == '='; };
+    while (at < features.size()) {
+        while (at < features.size() && separator(features[at]))
+            ++at;
+        std::size_t const name_start = at;
+        while (at < features.size() && !separator(features[at]))
+            ++at;
+        std::string token(features.substr(name_start, at - name_start));
+        for (char& c : token)
+            c = static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+        while (at < features.size() && (features[at] == ' ' || features[at] == '\t' || features[at] == '\n' || features[at] == '\r' || features[at] == '\f'))
+            ++at;
+        std::string value;
+        if (at < features.size() && features[at] == '=') {
+            ++at;
+            while (at < features.size() && (features[at] == ' ' || features[at] == '\t' || features[at] == '\n' || features[at] == '\r' || features[at] == '\f' || features[at] == '='))
+                ++at;
+            std::size_t const value_start = at;
+            while (at < features.size() && !separator(features[at]))
+                ++at;
+            value = std::string(features.substr(value_start, at - value_start));
+            for (char& c : value)
+                c = static_cast<char>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+        }
+        if (token == name) {
+            if (value.empty() || value == "yes" || value == "true")
+                return true;
+            char* end = nullptr;
+            long const number = std::strtol(value.c_str(), &end, 10);
+            return end != value.c_str() && number != 0;
+        }
+    }
+    return false;
+}
+
+// HTML §7.3.1's "find a navigable by target name": this window and the
+// frames under it in tree order, then each window above with the frames
+// under it; null when no window has the name.
+Realm::Internals* find_named_below(Realm::Internals& in, std::string const& name)
+{
+    if (std::string const* const own = in.navigable_target_name(); own && *own == name)
+        return &in;
+    for (ChildFrame const* const child : child_navigables(in)) {
+        if (!child->realm)
+            continue;
+        if (Realm::Internals* const found = find_named_below(child->realm->internals(), name))
+            return found;
+    }
+    return nullptr;
+}
+
+Realm::Internals* find_navigable_by_name(Realm::Internals& from, std::string const& name)
+{
+    for (Realm::Internals* in = &from; in != nullptr; in = in->parent_realm) {
+        if (Realm::Internals* const found = find_named_below(*in, name))
+            return found;
+    }
+    return nullptr;
 }
 
 // HTML's "Location-object navigate" of the Location's own realm, at the ask of
@@ -928,12 +996,68 @@ void install_window(Realm::Internals& in)
     for (std::string_view const name : { "print", "close", "stop", "focus", "blur", "captureEvents", "releaseEvents", "moveTo",
              "moveBy", "resizeTo", "resizeBy" })
         js::define_method(interpreter, *global, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    // window.open (HTML §7.2.2.1, the window open steps, as far as this host
+    // goes): the URL against the document's, about:blank for none, and the
+    // target — _self, _parent and _top name a window here, and so does the
+    // name of a frame found in this window's frames, theirs, and the
+    // windows above (§7.3.1); that window navigates as this document
+    // navigating it, and its proxy comes back, or null with noopener. An
+    // empty name, _blank and a name found nowhere ask the host for a new
+    // window, which opens only from the reader's gesture, and which no
+    // script here reaches: null comes back, as it does with noopener.
     js::define_method(interpreter, *global, "open", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
-        std::optional<std::string> const target = args.empty() ? std::optional<std::string>("") : internals.to_utf8(args[0]);
+        auto const text = [&](std::size_t index) -> std::optional<std::string> {
+            js::Value const value = js::argument(args, index);
+            return value.is_undefined() ? std::optional<std::string>("") : internals.to_utf8(value);
+        };
+        std::optional<std::string> const url_text = text(0);
+        if (!url_text)
+            return std::nullopt;
+        std::optional<std::string> const target = text(1);
         if (!target)
             return std::nullopt;
-        internals.console("info", "window.open blocked: " + *target);
+        std::optional<std::string> const features = text(2);
+        if (!features)
+            return std::nullopt;
+        bool const noreferrer = window_feature_set(*features, "noreferrer");
+        bool const noopener = noreferrer || window_feature_set(*features, "noopener");
+        // Against the document's base URL: an srcdoc document's is the
+        // document's it is in.
+        std::optional<net::Url> const url
+            = url_text->empty() ? net::parse_url("about:blank") : net::parse_url(*url_text, &internals.base_url());
+        if (!url)
+            return internals.throw_dom_exception("SyntaxError", "The URL given to window.open does not parse.");
+        Realm::Internals* chosen = nullptr;
+        if (ascii_ci_equals(*target, "_self")) {
+            chosen = &internals;
+        } else if (ascii_ci_equals(*target, "_parent")) {
+            chosen = internals.parent_realm ? internals.parent_realm : &internals;
+        } else if (ascii_ci_equals(*target, "_top")) {
+            chosen = &internals;
+            while (chosen->parent_realm)
+                chosen = chosen->parent_realm;
+        } else if (!target->empty() && !ascii_ci_equals(*target, "_blank")) {
+            chosen = find_navigable_by_name(internals, *target);
+        }
+        if (chosen) {
+            if (!chosen->navigate_from_location(*url, internals, false))
+                return internals.throw_dom_exception("SecurityError", "A sandboxed document may not navigate this window.");
+            return noopener ? js::Value::null() : js::Value::object(chosen->window_proxy());
+        }
+        if ((internals.sandbox_flags & sandboxing::auxiliary_navigation) != 0) {
+            internals.console("info", "window.open blocked: this document's sandbox allows no popups");
+            return js::Value::null();
+        }
+        if (!internals.hooks.open_window) {
+            internals.console("info", "window.open blocked: " + url->serialize());
+            return js::Value::null();
+        }
+        if (internals.hooks.user_activation && !internals.hooks.user_activation()) {
+            internals.console("info", "window.open blocked: not from a gesture of the reader's (" + url->serialize() + ")");
+            return js::Value::null();
+        }
+        internals.hooks.open_window(*url, noreferrer);
         return js::Value::null();
     });
     js::define_method(interpreter, *global, "reportError", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {

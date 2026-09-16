@@ -149,6 +149,9 @@ add_test(NAME shell_scroll
 add_test(NAME shell_frames
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/frames.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_windows
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/windows.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_scripting
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/scripting.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

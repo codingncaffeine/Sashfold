@@ -153,6 +153,16 @@ struct HostHooks {
         net::ContentSecurityPolicy* policy, std::vector<FrameAncestor> const& ancestors,
         std::optional<net::Url> const& target)> frame_document;
 
+    // window.open's new window: the host shows `url` in a window of its own
+    // that no script here reaches, as with noopener, and with no referrer
+    // when `noreferrer`. Without it window.open answers null and says so on
+    // the console.
+    std::function<void(net::Url const& url, bool noreferrer)> open_window;
+    // Whether the reader has acted on the page lately — a click or a key
+    // within the last seconds (HTML §6.4.2, transient activation): a new
+    // window opens only then. Without it every ask counts as a gesture.
+    std::function<bool()> user_activation;
+
     // A line for each step of the event loop and the frames worth seeing — a
     // timer set or fired, a task run, a frame opened, closed or navigated, a
     // navigation asked, a message delivered — for a host that wants to know

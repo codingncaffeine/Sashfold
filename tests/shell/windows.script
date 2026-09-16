@@ -1,0 +1,29 @@
+# Windows a page opens: a script with no gesture behind it is refused and
+# says so on the console; a click lets a script open a new tab, which is
+# shown and has no history behind it; and a link whose target names a frame
+# on the page navigates that frame and not the tab. No colour may be
+# written as #rgb here, and no fragment: a # in a data URL starts its
+# fragment and the rest of the page is lost.
+resize 800 500
+open data:text/html,<title>Opener</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}iframe{display:block;border:0;width:300px;height:60px}</style><script>window.open('data:text/html,<title>Early</title>')</script><p><button onclick="window.open('data:text/html,<title>Popup</title><p>popped</p>')">open</button> <a href="data:text/html,<p>named arrived</p>" target="side">sidelink</a></p><iframe name="side" srcdoc="<p>side at rest</p>"></iframe>
+assert-title Opener
+assert-tabs 1
+assert-console window.open blocked: not from a gesture
+assert-text side at rest
+
+# A click on the button: the page's script opens a tab, which is shown.
+click-text open
+assert-tabs 2
+assert-title Popup
+assert-text popped
+assert-url data:text/html,<title>Popup</title><p>popped</p>
+select-tab 0
+assert-title Opener
+assert-tabs 2
+
+# A link whose target names the frame: the frame navigates, the tab stays.
+click-text sidelink
+assert-text named arrived
+assert-no-text side at rest
+assert-title Opener
+assert-tabs 2

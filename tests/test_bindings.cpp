@@ -2276,6 +2276,79 @@ std::string string_in(bindings::Realm* realm, std::string_view source)
 // touch it. window.name is that name, and a window with no navigable — its
 // frame removed, or gone on to another document, or its realm ended — has none
 // to read or to set. The parent names its frames by it.
+// window.open: _self, _parent and _top name a window here, and a frame's
+// name is found in this window's frames, theirs, and the windows above;
+// that window navigates and its proxy comes back, or null with noopener.
+// A new window is the host's: none here means null and a console line; a
+// host that opens windows is asked only on the reader's gesture, and a
+// sandboxed document without popups asks nothing.
+void test_window_open()
+{
+    std::map<std::string, std::string> documents;
+    documents["https://example.test/dir/a.html"] = "<script>var which = 'a';</script>";
+    documents["https://example.test/dir/b.html"] = "<script>var which = 'b';</script>";
+    auto page = std::make_unique<Page>(R"HTML(<!DOCTYPE html>
+<iframe id=f name=first src="a.html"></iframe>
+<iframe id=n srcdoc="<iframe name=inner src='a.html'></iframe>"></iframe>
+<iframe id=s sandbox="allow-scripts" srcdoc="<p>boxed</p>"></iframe>)HTML",
+        "https://example.test/dir/page.html", hooks_serving(documents));
+    page->load();
+    // _self and _top navigate this window through its host, and the window
+    // itself comes back — null when noopener is asked for.
+    CHECK(page->boolean("window.open('b.html', '_self') === window"));
+    CHECK(page->navigations.size() == 1 && page->navigations.back().serialize() == "https://example.test/dir/b.html");
+    CHECK(page->boolean("window.open('b.html', '_top', 'noopener') === null"));
+    CHECK_EQ(page->navigations.size(), std::size_t(2));
+    // A frame by name, among this window's frames and their frames: the
+    // frame navigates, in a task, and its proxy comes back at once.
+    page->eval("var f = document.getElementById('f'); var fw = f.contentWindow; var opened = window.open('b.html', 'first');");
+    CHECK(page->boolean("opened === fw"));
+    page->realm->run_pending();
+    CHECK(page->boolean("opened === fw && fw.which === 'b'"));
+    page->eval("var innerOpened = window.open('b.html', 'inner');");
+    page->realm->run_pending();
+    CHECK(page->boolean("innerOpened === document.getElementById('n').contentWindow.frames[0] && innerOpened.which === 'b'"));
+    // From a frame, _parent is the page, and a name is found up the tree.
+    CHECK_EQ(string_in(frame_realm_of(*page, "n"), "String(window.open('b.html', '_parent') === parent)"), std::string("true"));
+    CHECK_EQ(page->navigations.size(), std::size_t(3));
+    CHECK_EQ(string_in(frame_realm_of(*page, "n"), "String(window.open('a.html', 'first') === parent.frames[0])"), std::string("true"));
+    // A name found nowhere, _blank and no target at all ask the host for a
+    // new window: none here, so null and a console line each.
+    CHECK(page->boolean("window.open('b.html', 'nowhere') === null && window.open('b.html', '_blank') === null && window.open() === null"));
+    CHECK(page->console.find("info:window.open blocked: https://example.test/dir/b.html|") != std::string::npos);
+    CHECK(page->console.find("info:window.open blocked: about:blank|") != std::string::npos);
+    // A sandboxed document without popups asks nothing.
+    CHECK_EQ(string_in(frame_realm_of(*page, "s"), "String(window.open('b.html') === null)"), std::string("true"));
+    CHECK(page->console.find("allows no popups") != std::string::npos);
+    // A URL that does not parse is a SyntaxError.
+    CHECK(page->boolean("(function () { try { window.open('https://exa mple/'); return false; } catch (e) { return e.name === 'SyntaxError'; } })()"));
+
+    // A host that opens windows: asked only on the reader's gesture, with
+    // the URL resolved and whether the referrer is to be kept back.
+    bool active = false;
+    std::vector<std::string> opened;
+    bindings::HostHooks hooks;
+    hooks.open_window = [&opened](net::Url const& url, bool noreferrer) {
+        opened.push_back(url.serialize() + (noreferrer ? " noreferrer" : ""));
+    };
+    hooks.user_activation = [&active] { return active; };
+    Page popup("<!DOCTYPE html><p>x</p>", "https://example.test/dir/page.html", std::move(hooks));
+    popup.load();
+    CHECK(popup.boolean("window.open('b.html') === null"));
+    CHECK(opened.empty());
+    CHECK(popup.console.find("not from a gesture") != std::string::npos);
+    active = true;
+    CHECK(popup.boolean("window.open('b.html', '_blank', 'noreferrer') === null"));
+    CHECK(popup.boolean("window.open('c.html', 'nowhere', 'noopener=1,width=100') === null"));
+    CHECK(popup.boolean("window.open() === null"));
+    CHECK_EQ(opened.size(), std::size_t(3));
+    if (opened.size() == 3) {
+        CHECK_EQ(opened[0], std::string("https://example.test/dir/b.html noreferrer"));
+        CHECK_EQ(opened[1], std::string("https://example.test/dir/c.html"));
+        CHECK_EQ(opened[2], std::string("about:blank"));
+    }
+}
+
 void test_a_navigable_keeps_its_target_name()
 {
     std::map<std::string, std::string> documents;
@@ -3346,6 +3419,7 @@ int main()
     test_attributes_in_namespaces();
     test_a_frame_navigates();
     test_a_navigable_keeps_its_target_name();
+    test_window_open();
     test_every_iframe_has_a_window();
     test_a_frame_has_a_window();
     test_objects_and_embeds_have_windows();

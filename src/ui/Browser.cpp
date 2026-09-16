@@ -451,6 +451,13 @@ struct Browser::Impl {
         Mode mode = Mode::Push;
         bool https_first = false;
     };
+    // A window a page asked to open, kept until the next tick: the ask
+    // comes in the middle of a script the shell is running for a tab, and
+    // a tab added then would move every tab under the caller's feet.
+    struct PendingWindow {
+        std::string container;
+        net::Url url;
+    };
 
     enum class Hover {
         None,
@@ -487,6 +494,7 @@ struct Browser::Impl {
     std::vector<Tab> tabs;
     std::size_t active = 0;
     std::vector<Pending> pending;
+    std::vector<PendingWindow> pending_windows;
     // The containers the shell offers, in order (see Browser::Container).
     std::vector<Browser::Container> containers;
     // Every page's localStorage, an area per container and origin (the
@@ -511,6 +519,9 @@ struct Browser::Impl {
     std::optional<net::Url> hover_link;
     dom::Element const* hover_link_frame = nullptr; // the frame the link under the pointer is in, when it is in one
     std::string hover_link_target; // that link's target attribute
+    // Until when the reader's last click or key counts as a gesture a page
+    // may open a window on.
+    std::chrono::steady_clock::time_point activation_until {};
     bool selecting = false; // the left button went down on page text and is still held
     // The scrollbar thumb the left button took hold of, and where along it.
     struct BarDrag {
@@ -1658,22 +1669,20 @@ struct Browser::Impl {
         if (!tab || !hover_link)
             return;
         net::Url const url = *hover_link;
-        if (!hover_link_frame) {
-            open(url);
-            return;
-        }
         std::string const target = hover_link_target;
+        // The frames down to the link's own, empty for a link on the page.
         std::vector<FrameStep> const chain = frames_to(*tab, hover_link_frame);
-        if (chain.empty() || ascii_ci_equals(target, "_top")) {
-            open(url);
-        } else if (ascii_ci_equals(target, "_blank")) {
+        bool const self = target.empty() || ascii_ci_equals(target, "_self");
+        if (ascii_ci_equals(target, "_blank")) {
             open_in_new_tab(url);
+        } else if (ascii_ci_equals(target, "_top") || (chain.empty() && (self || ascii_ci_equals(target, "_parent")))) {
+            open(url);
         } else if (ascii_ci_equals(target, "_parent")) {
             if (chain.size() == 1)
                 open(url);
             else
                 chain[chain.size() - 2].view->realm->navigate(url);
-        } else if (target.empty() || ascii_ci_equals(target, "_self")) {
+        } else if (self) {
             chain.back().view->realm->navigate(url);
         } else if (FrameView* const named = view_named(tab->frames, target)) {
             named->realm->navigate(url);
@@ -1817,6 +1826,15 @@ struct Browser::Impl {
             if (Tab* const owner = tab_of(document))
                 queue(index_of(*owner), target, Mode::Push);
         };
+        // A window the page opens: a new tab in the page's container, with
+        // no history behind it and so no referrer and no opener, only while
+        // the reader's last click or key is fresh — opened on the next tick,
+        // never in the middle of the script asking.
+        hooks.open_window = [this, document](net::Url const& target, bool) {
+            if (Tab const* const owner = tab_of(document))
+                pending_windows.push_back(PendingWindow { owner->container, target });
+        };
+        hooks.user_activation = [this] { return std::chrono::steady_clock::now() < activation_until; };
         hooks.scroll_to = [this, document](dom::Document const& from, int, int y) {
             Tab* const owner = tab_of(document);
             if (!owner)
@@ -4420,6 +4438,7 @@ struct Browser::Impl {
     void mouse_down(int x, int y, int button)
     {
         update_hover(x, y);
+        note_activation();
         if (button == 1) {
             // The frame the shell draws: a press in the band along the
             // window's edges resizes it, before anything under the band.
@@ -4546,11 +4565,19 @@ struct Browser::Impl {
     void open_in_new_tab(net::Url const& url)
     {
         Tab const* const from = active_tab();
-        std::string const container = from ? from->container : std::string();
+        open_tab_in(from ? from->container : std::string(), url);
+    }
+
+    void open_tab_in(std::string const& container, net::Url const& url)
+    {
         blur_address();
         add_blank_tab(container);
         queue(active, url, Mode::Push);
     }
+
+    // The reader acted: a page may open a window for the next seconds
+    // (HTML §6.4.2's transient activation, at the duration browsers keep).
+    void note_activation() { activation_until = std::chrono::steady_clock::now() + std::chrono::seconds(5); }
 
     // The keyboard moves whatever the reader last moved by hand, and the
     // page when that box has run out or there is none.
@@ -4644,6 +4671,7 @@ struct Browser::Impl {
     void key_down(KeyEvent const& key)
     {
         clear_preedit();
+        note_activation();
         if (hints_active) {
             hint_key(key);
             return;
@@ -5523,10 +5551,17 @@ void Browser::new_tab() { m_impl->new_tab(); }
 void Browser::close_tab(std::size_t index) { m_impl->close_tab(index); }
 void Browser::select_tab(std::size_t index) { m_impl->select_tab(index); }
 
-bool Browser::has_pending_load() const { return !m_impl->pending.empty(); }
+bool Browser::has_pending_load() const { return !m_impl->pending.empty() || !m_impl->pending_windows.empty(); }
 
 bool Browser::tick()
 {
+    // A window a page asked for opens first: its tab, then its load queued
+    // like any other.
+    if (!m_impl->pending_windows.empty()) {
+        Impl::PendingWindow const window = m_impl->pending_windows.front();
+        m_impl->pending_windows.erase(m_impl->pending_windows.begin());
+        m_impl->open_tab_in(window.container, window.url);
+    }
     if (m_impl->pending.empty())
         return false;
     Impl::Pending const load = m_impl->pending.front();

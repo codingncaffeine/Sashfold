@@ -244,7 +244,9 @@ Rendered render_document(dom::Document& document, net::Url const& document_url, 
     style_set.set_style_attribute_check([&policy](dom::Element const&, std::string_view text) {
         return !policy.inline_refusal(net::InlineKind::StyleAttribute, {}, text);
     });
-    css::StyleMap const styles = css::resolve_styles(document, style_set);
+    // Not const: a live document's view takes the map over, and the
+    // fragments point into it.
+    css::StyleMap styles = css::resolve_styles(document, style_set);
     ImageFetcher const fetch_image = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
         std::optional<FrameResponse> response = walk.fetch
             ? walk.fetch(url, document_url, net::ResourceKind::Image, policy.guard(net::ResourceKind::Image))
