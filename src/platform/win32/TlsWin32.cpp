@@ -226,8 +226,11 @@ bool TlsSocket::available()
     return true;
 }
 
-std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host)
+std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host, std::uint16_t port)
 {
+    // SChannel keeps its own session cache and resumes on its own; the
+    // port is the Linux backend's business.
+    static_cast<void>(port);
     auto impl = std::make_unique<Impl>(std::move(socket));
     if (!impl->handshake(host))
         return std::nullopt;

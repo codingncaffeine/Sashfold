@@ -13,6 +13,7 @@
 // says a retry must be refused, which no cooperating server would produce.
 #include "Test.h"
 
+#include "crypto/Sha2.h"
 #include "net/tls/Tls13.h"
 #include "platform/Net.h"
 
@@ -23,6 +24,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -670,6 +672,264 @@ void test_version_choice()
     }
 }
 
+// ---- resumption: the key schedule against RFC 8448, the hello with its
+// binder, and the answers that take or refuse what was offered
+
+Bytes unhex(std::string_view text)
+{
+    Bytes out;
+    for (std::size_t i = 0; i + 1 < text.size(); i += 2)
+        out.push_back(static_cast<std::uint8_t>(std::stoul(std::string(text.substr(i, 2)), nullptr, 16)));
+    return out;
+}
+
+// A 1.2 NewSessionTicket record (RFC 5077 §3.3): an hour's hint and a
+// four-byte ticket.
+Bytes new_session_ticket_12_record()
+{
+    Bytes body { 0x00, 0x00, 0x0e, 0x10 };
+    put16(body, 4);
+    append(body, Bytes { 1, 2, 3, 4 });
+    Bytes message;
+    message.push_back(4);
+    message.push_back(0);
+    put16(message, static_cast<std::uint16_t>(body.size()));
+    append(message, body);
+    Bytes record;
+    record.push_back(record_handshake);
+    put16(record, 0x0303);
+    put16(record, static_cast<std::uint16_t>(message.size()));
+    append(record, message);
+    return record;
+}
+
+void test_resumption()
+{
+    // RFC 8448 §3: the resumption master secret of the simple handshake and
+    // the ticket's nonce give the pre-shared key; §4: the binder over the
+    // resumed hello's 477-byte prefix, whose hash the trace gives too.
+    Bytes const res_master = unhex("7df235f2031d2a051287d02b0241b0bfdaf86cc856231f2d5aba46c434ec196c");
+    Bytes const psk = tls::resumption_psk(res_master, Bytes { 0x00, 0x00 });
+    CHECK_EQ(hex(psk), std::string("4ecd0eb6ec3b4d87f5d6028f922ca4c5851a277fd41311c9e62d2c9492e1c4f3"));
+    Bytes const prefix = unhex(
+        "010001fc03031bc3ceb6bbe39cff938355b5a50adb6db21b7a6af649d7b4bc419d7876487d95000006130113031302010001cd0000000b0009000006"
+        "736572766572ff01000100000a00140012001d00170018001901000101010201030104003300260024001d0020e4ffb68ac05f8d96c99da26698346c"
+        "6be16482badddafe051a66b4f18d668f0b002a0000002b0003020304000d0020001e0403050306030203080408050806040105010601020104020502"
+        "06020202002d00020101001c000240010015005700000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002900dd00b800b22c035d8293"
+        "59ee5ff7af4ec900000000262a6494dc486d2c8a34cb33fa90bf1b0070ad3c498883c9367c09a2be785abc55cd226097a3a982117283f82a03a143ef"
+        "d3ff5dd36d64e861be7fd61d2827db279cce145077d454a3664d4e6da4d29ee03725a6a4dafcd0fc67d2aea70529513e3da2677fa5906c5b3f7d8f92"
+        "f228bda40dda721470f9fbf297b5aea617646fac5c03272e970727c621a79141ef5f7de6505e5bfbc388e93343694093934ae4d357fad6aacb");
+    CHECK_EQ(prefix.size(), std::size_t(477));
+    crypto::Sha256::Digest const prefix_hash = crypto::Sha256::hash(prefix);
+    CHECK_EQ(hex(prefix_hash), std::string("63224b2e4573f2d3454ca84b9d009a04f6be9e05711a8396473aefa01e924a14"));
+    CHECK_EQ(hex(tls::psk_binder(psk, prefix_hash)), std::string("3add4fb2d8fdf822a0ca3cf7678ef5e88dae990141c5924d57bb6fa31b9e5f9d"));
+    // §3's NewSessionTicket read off the wire: thirty seconds, the age
+    // addend, a two-byte nonce, a 178-byte ticket and 1024 bytes of early
+    // data allowed; cut short, it does not decode.
+    Bytes const ticket_message = unhex(
+        "040000c90000001efad6aac502000000b22c035d829359ee5ff7af4ec900000000262a6494dc486d2c8a34cb33fa90bf1b0070ad3c498883c9367c09"
+        "a2be785abc55cd226097a3a982117283f82a03a143efd3ff5dd36d64e861be7fd61d2827db279cce145077d454a3664d4e6da4d29ee03725a6a4dafc"
+        "d0fc67d2aea70529513e3da2677fa5906c5b3f7d8f92f228bda40dda721470f9fbf297b5aea617646fac5c03272e970727c621a79141ef5f7de6505e"
+        "5bfbc388e93343694093934ae4d3570008002a000400000400");
+    CHECK_EQ(ticket_message.size(), std::size_t(205));
+    std::span<std::uint8_t const> const ticket_body = std::span<std::uint8_t const>(ticket_message).subspan(4);
+    std::optional<tls::NewSessionTicket> const parsed = tls::parse_new_session_ticket(ticket_body);
+    CHECK(parsed.has_value());
+    if (parsed) {
+        CHECK_EQ(parsed->lifetime_seconds, std::uint32_t(30));
+        CHECK_EQ(parsed->age_add, std::uint32_t(0xfad6aac5));
+        CHECK_EQ(hex(parsed->nonce), std::string("0000"));
+        CHECK_EQ(parsed->ticket.size(), std::size_t(178));
+        CHECK_EQ(parsed->max_early_data, std::uint32_t(1024));
+    }
+    CHECK(!tls::parse_new_session_ticket(ticket_body.subspan(0, 100)).has_value());
+
+    // The hello with a ticket: pre_shared_key is its last extension, the
+    // identity carries the ticket with its obfuscated age, and the binder
+    // is the one the key makes over the message up to the binders.
+    tls::TlsConfig const config = test_config();
+    Bytes const x25519_key(32, 0x09);
+    tls::Ticket ticket;
+    ticket.ticket = Bytes(64, 0x7a);
+    ticket.psk = psk;
+    ticket.age_add = 0xfffffff0;
+    ticket.lifetime_seconds = 7200;
+    {
+        tls::TlsConfig with = config;
+        with.resume_ticket = ticket;
+        with.ticket_age_ms = 0x20; // wraps with the addend, modulo 2^32
+        tls::TlsEngine engine(with);
+        Bytes const records = engine.start();
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(records), hello));
+        CHECK(!hello.extensions.empty() && hello.extensions.back().first == 41);
+        Bytes const data = hello.data(41);
+        Bytes expected_identities;
+        put16(expected_identities, 64 + 2 + 4);
+        put16(expected_identities, 64);
+        append(expected_identities, ticket.ticket);
+        append(expected_identities, Bytes { 0x00, 0x00, 0x00, 0x10 });
+        CHECK_EQ(data.size(), expected_identities.size() + 2 + 1 + 32);
+        CHECK(data.size() >= expected_identities.size()
+            && std::equal(expected_identities.begin(), expected_identities.end(), data.begin()));
+        // The binder, recomputed from the record's own bytes.
+        Bytes const message(records.begin() + 5, records.end());
+        Bytes const truncated(message.begin(), message.end() - 35);
+        CHECK_EQ(hex(std::span<std::uint8_t const>(message).last(32)),
+            hex(tls::psk_binder(psk, crypto::Sha256::hash(truncated))));
+        // A ServerHello that takes the identity: the short handshake is on.
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        append(extensions, extension(41, Bytes { 0x00, 0x00 }));
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello(session_id_of(config), suite_chacha20, extensions), out));
+        CHECK(engine.resumed());
+        CHECK(engine.state() == tls::TlsState::WaitEncryptedExtensions);
+    }
+    // ... and one that declines it goes on as a full handshake.
+    {
+        tls::TlsConfig with = config;
+        with.resume_ticket = ticket;
+        tls::TlsEngine engine(with);
+        engine.start();
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello(session_id_of(config), suite_chacha20, extensions), out));
+        CHECK(!engine.resumed());
+        CHECK(engine.state() == tls::TlsState::WaitEncryptedExtensions);
+    }
+    // §4.2.11: an identity that was not offered, and a selection when
+    // nothing was offered at all, are illegal.
+    {
+        tls::TlsConfig with = config;
+        with.resume_ticket = ticket;
+        tls::TlsEngine engine(with);
+        engine.start();
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        append(extensions, extension(41, Bytes { 0x00, 0x01 }));
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello(session_id_of(config), suite_chacha20, extensions), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+        CHECK(engine.error().find("not offered") != std::string::npos);
+    }
+    {
+        tls::TlsEngine engine(config);
+        engine.start();
+        Bytes extensions = supported_versions();
+        append(extensions, key_share_entry(group_x25519, x25519_key));
+        append(extensions, extension(41, Bytes { 0x00, 0x00 }));
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello(session_id_of(config), suite_chacha20, extensions), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+        CHECK(engine.error().find("none was offered") != std::string::npos);
+    }
+    // A hello for 1.2 alone carries no pre-shared key whatever it holds,
+    // and asks for a 1.2 ticket with the empty extension.
+    {
+        tls::TlsConfig with = config;
+        with.offer_tls13 = false;
+        with.resume_ticket = ticket;
+        tls::TlsEngine engine(with);
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(engine.start()), hello));
+        CHECK(!hello.has(41));
+        CHECK(hello.has(35) && hello.data(35).empty());
+    }
+
+    // TLS 1.2 by session id: the hello carries the id, and a server that
+    // echoes it resumes, with nothing sent until its Finished; the suite
+    // and the extended-master-secret binding must be the session's, and a
+    // ticket the server never announced is out of order.
+    tls::Session12 session;
+    session.session_id = Bytes(32, 0xaa);
+    session.master_secret = Bytes(48, 0x55);
+    session.suite = tls::CipherSuite::EcdheRsaAes128GcmSha256;
+    session.extended_master_secret = true;
+    Bytes const renegotiation = extension(0xff01, Bytes { 0x00 });
+    Bytes const ems = extension(23, Bytes {});
+    {
+        tls::TlsConfig with = config;
+        with.resume_session = session;
+        tls::TlsEngine engine(with);
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(engine.start()), hello));
+        CHECK_EQ(hex(hello.session_id), hex(session.session_id));
+        CHECK(hello.has(35) && hello.data(35).empty());
+        Bytes extensions = renegotiation;
+        append(extensions, ems);
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello_12(session.session_id, 0xc02f, extensions, false), out));
+        CHECK(engine.resumed());
+        CHECK(engine.state() == tls::TlsState::WaitFinished);
+        CHECK(out.to_send.empty());
+        CHECK(!engine.feed(new_session_ticket_12_record(), out));
+        CHECK_EQ(alert_description(out.to_send), 10);
+    }
+    // A different id: no resumption, the full handshake.
+    {
+        tls::TlsConfig with = config;
+        with.resume_session = session;
+        tls::TlsEngine engine(with);
+        engine.start();
+        Bytes extensions = renegotiation;
+        append(extensions, ems);
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello_12(Bytes(32, 0xbb), 0xc02f, extensions, false), out));
+        CHECK(!engine.resumed());
+        CHECK(engine.state() == tls::TlsState::WaitCertificate);
+    }
+    // The id echoed under another suite, and without the binding.
+    {
+        tls::TlsConfig with = config;
+        with.resume_session = session;
+        tls::TlsEngine engine(with);
+        engine.start();
+        Bytes extensions = renegotiation;
+        append(extensions, ems);
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session.session_id, 0xcca8, extensions, false), out));
+        CHECK_EQ(alert_description(out.to_send), 47);
+        CHECK(engine.error().find("another cipher suite") != std::string::npos);
+    }
+    {
+        tls::TlsConfig with = config;
+        with.resume_session = session;
+        tls::TlsEngine engine(with);
+        engine.start();
+        tls::TlsOutput out;
+        CHECK(!engine.feed(server_hello_12(session.session_id, 0xc02f, renegotiation, false), out));
+        CHECK_EQ(alert_description(out.to_send), 40);
+        CHECK(engine.error().find("extended master secret") != std::string::npos);
+    }
+    // By ticket: the hello carries the ticket and the random id, a server
+    // that echoes that id took the ticket, and one that announced a new
+    // ticket may send it before its Finished.
+    {
+        tls::Session12 ticketed = session;
+        ticketed.ticket = Bytes(48, 0x33);
+        tls::TlsConfig with = config;
+        with.resume_session = ticketed;
+        tls::TlsEngine engine(with);
+        Hello hello;
+        CHECK(parse_hello(client_hello_body(engine.start()), hello));
+        CHECK_EQ(hex(hello.session_id), hex(session_id_of(config)));
+        CHECK_EQ(hex(hello.data(35)), hex(ticketed.ticket));
+        Bytes extensions = renegotiation;
+        append(extensions, ems);
+        append(extensions, extension(35, Bytes {}));
+        tls::TlsOutput out;
+        CHECK(engine.feed(server_hello_12(session_id_of(config), 0xc02f, extensions, false), out));
+        CHECK(engine.resumed());
+        CHECK(engine.state() == tls::TlsState::WaitFinished);
+        CHECK(engine.feed(new_session_ticket_12_record(), out));
+        CHECK(engine.state() == tls::TlsState::WaitFinished);
+        CHECK(out.to_send.empty());
+    }
+}
+
 // ---- a whole handshake against openssl s_server
 
 #ifndef _WIN32
@@ -803,6 +1063,11 @@ struct Exchange {
     tls::CipherSuite suite = tls::CipherSuite::ChaCha20Poly1305Sha256;
     std::string response;
     std::string error;
+    // What the server took and what it gave: whether it resumed what was
+    // offered, the 1.3 tickets it issued, the 1.2 session it left.
+    bool resumed = false;
+    std::vector<tls::Ticket> tickets;
+    std::optional<tls::Session12> session;
 };
 
 // The handshake and one request over it, on a socket of our own.
@@ -815,6 +1080,8 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
         result.error = "no loopback connect in " + std::to_string(attempts) + " attempts";
         return result;
     }
+    config.on_ticket = [&result](tls::Ticket ticket) { result.tickets.push_back(std::move(ticket)); };
+    config.on_session = [&result](tls::Session12 session) { result.session = std::move(session); };
     tls::TlsEngine engine(std::move(config));
     std::vector<std::uint8_t> const hello = engine.start();
     if (!socket->send_all(hello.data(), hello.size())) {
@@ -841,6 +1108,7 @@ Exchange exchange(tls::TlsConfig config, std::uint16_t port, std::string const& 
     result.retries = engine.hello_retry_requests();
     result.version = engine.version();
     result.suite = engine.cipher_suite();
+    result.resumed = engine.resumed();
     result.engine_failed = engine.state() == tls::TlsState::Failed;
     if (!engine.connected()) {
         if (!engine.error().empty())
@@ -956,6 +1224,121 @@ void live_case(std::string const& name, std::vector<std::string> const& server_o
     CHECK(result.response.find("Cipher is " + other) == std::string::npos && result.response.find("Cipher is ECDHE-RSA-" + other) == std::string::npos
         && result.response.find("Cipher is ECDHE-ECDSA-" + other) == std::string::npos && result.response.find("Cipher is TLS_" + other) == std::string::npos);
     std::remove(log.c_str());
+}
+
+// Two connections: the first a full handshake that leaves tickets or a
+// session behind, the second offering what it left — to the same server,
+// which resumes it, or, when `stale`, to a second server that never issued
+// it, which declines it and carries the handshake through in full. Which
+// happened is read off each server's own page, not our bookkeeping.
+void live_resumption_case(std::string const& name, std::vector<std::string> const& server_options, tls::TlsConfig config,
+    std::uint16_t expected_version, tls::CipherSuite expected_suite, bool stale)
+{
+    std::uint16_t port = 0;
+    if (!free_port(port)) {
+        std::printf("SKIP %s: no loopback port could be bound\n", name.c_str());
+        return;
+    }
+    auto start_server = [&](std::uint16_t at, char const* accepts, std::string& log) {
+        log = g_directory + "/server-" + std::to_string(at) + ".log";
+        std::vector<std::string> args = { g_openssl, "s_server", "-accept", "127.0.0.1:" + std::to_string(at), "-cert",
+            g_certificate, "-key", g_key, "-naccept", accepts, "-www" };
+        args.insert(args.end(), server_options.begin(), server_options.end());
+        return spawn(args, log);
+    };
+    std::string first_log;
+    pid_t const server = start_server(port, stale ? "1" : "2", first_log);
+    if (server < 0) {
+        std::printf("SKIP %s: the server process could not be started\n", name.c_str());
+        return;
+    }
+    ::alarm(90);
+    std::string const request = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+    Exchange const first = exchange(config, port, request);
+    std::uint16_t second_port = port;
+    std::string second_log = first_log;
+    pid_t second_server = server;
+    if (stale) {
+        reap(server, 5, false);
+        if (!free_port(second_port)) {
+            std::printf("SKIP %s: no loopback port could be bound for the second server\n", name.c_str());
+            ::alarm(0);
+            return;
+        }
+        second_server = start_server(second_port, "1", second_log);
+        if (second_server < 0) {
+            std::printf("SKIP %s: the second server process could not be started\n", name.c_str());
+            ::alarm(0);
+            return;
+        }
+    }
+    bool const tls13 = expected_version == 0x0304;
+    if (tls13) {
+        CHECK(!first.tickets.empty());
+        if (!first.tickets.empty()) {
+            config.resume_ticket = first.tickets.front();
+            config.ticket_age_ms = 50;
+        }
+    } else {
+        CHECK(first.session.has_value());
+        config.resume_session = first.session;
+    }
+    Exchange const second = exchange(config, second_port, request);
+    reap(second_server, 5, false);
+    if (stale)
+        std::remove(second_log.c_str());
+    ::alarm(0);
+
+    std::string const version_name = tls13 ? "TLSv1.3" : "TLSv1.2";
+    std::string const cipher = ", Cipher is " + openssl_name(expected_suite);
+    if (!first.connected || !second.connected) {
+        sashfold::test::fail(name + ": a handshake failed: first \"" + first.error + "\" second \"" + second.error + "\"", __FILE__, __LINE__);
+        std::printf("  server said: %s\n", read_file(first_log).c_str());
+        std::remove(first_log.c_str());
+        return;
+    }
+    CHECK(!first.resumed);
+    CHECK(first.response.find("New, " + version_name + cipher) != std::string::npos);
+    CHECK_EQ(second.resumed, !stale);
+    CHECK_EQ(second.version, expected_version);
+    CHECK_EQ(std::string(tls::cipher_suite_name(second.suite)), std::string(tls::cipher_suite_name(expected_suite)));
+    CHECK(second.response.rfind("HTTP/1.0 200", 0) == 0);
+    std::string const verdict = std::string(stale ? "New, " : "Reused, ") + version_name + cipher;
+    CHECK(second.response.find(verdict) != std::string::npos);
+    if (second.response.find(verdict) == std::string::npos)
+        std::printf("  %s: the server's page does not say \"%s\": %s\n", name.c_str(), verdict.c_str(),
+            second.response.substr(0, 400).c_str());
+    // What the resumed connection left for the next one: fresh tickets, or
+    // the session under its id or its renewed ticket.
+    if (!stale) {
+        if (tls13)
+            CHECK(!second.tickets.empty());
+        else
+            CHECK(second.session.has_value());
+    }
+    std::remove(first_log.c_str());
+}
+
+void test_live_resumption()
+{
+    // 1.3: the server's ticket resumes the session, with no certificate
+    // in the second handshake, under either suite.
+    live_resumption_case("resume-1.3-chacha20", { "-tls1_3", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, test_config(),
+        0x0304, tls::CipherSuite::ChaCha20Poly1305Sha256, false);
+    live_resumption_case("resume-1.3-aes128gcm", { "-tls1_3", "-ciphersuites", "TLS_AES_128_GCM_SHA256" }, test_config(),
+        0x0304, tls::CipherSuite::Aes128GcmSha256, false);
+    // A ticket from another server is declined, and the handshake goes on
+    // in full: the control that "resumed" is the server's doing.
+    live_resumption_case("stale-ticket-1.3", { "-tls1_3", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256" }, test_config(),
+        0x0304, tls::CipherSuite::ChaCha20Poly1305Sha256, true);
+    // 1.2: by the ticket the server issues, and, with tickets off, by the
+    // session id it chose; and the same control.
+    live_resumption_case("resume-1.2-ticket", { "-tls1_2", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256" }, test_config(),
+        0x0303, tls::CipherSuite::EcdheRsaAes128GcmSha256, false);
+    live_resumption_case("resume-1.2-session-id", { "-tls1_2", "-no_ticket", "-cipher", "ECDHE-RSA-CHACHA20-POLY1305" }, test_config(),
+        0x0303, tls::CipherSuite::EcdheRsaChaCha20Poly1305Sha256, false);
+    live_resumption_case("stale-session-1.2", { "-tls1_2", "-no_ticket", "-cipher", "ECDHE-RSA-AES128-GCM-SHA256" }, test_config(),
+        0x0303, tls::CipherSuite::EcdheRsaAes128GcmSha256, true);
 }
 
 bool live_setup()
@@ -1100,6 +1483,7 @@ void test_live_handshake()
         live_case("client-1.3-only-server-1.2-only", { "-tls1_2" }, only13, false,
             tls::CipherSuite::ChaCha20Poly1305Sha256, 0, "fatal alert", 0x0304);
     }
+    test_live_resumption();
     live_teardown();
 }
 
@@ -1112,6 +1496,7 @@ int main(int argc, char** argv)
     test_retry_request();
     test_extension_rules();
     test_version_choice();
+    test_resumption();
 #ifndef _WIN32
     ::signal(SIGALRM, on_alarm);
     ::signal(SIGPIPE, SIG_IGN); // a peer that leaves early is a failed check, not a dead test

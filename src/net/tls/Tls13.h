@@ -6,15 +6,19 @@
 // verdict on the server's chain — so a transcript with a known key
 // reproduces byte for byte. In 1.3: two cipher suites,
 // TLS_CHACHA20_POLY1305_SHA256 and TLS_AES_128_GCM_SHA256; the groups
-// x25519 and secp256r1; no resumption, no early data, no client
-// certificates (an empty one answers a request). A server that will not
-// take the key share offered asks for another hello (§4.1.4). In 1.2: the
-// ECDHE suites with the same two AEADs under RSA or ECDSA authentication,
-// over the same two groups, the extended master secret when the server
-// takes it, and never renegotiation. The engine checks the server's
-// signature over the handshake and the Finished MAC itself; whether the
-// chain is trusted is the verdict of the callback the caller installs (the
-// validator's, or the insecure flag's).
+// x25519 and secp256r1; resumption by the tickets a server issues (§4.6.1,
+// §4.2.11: a pre-shared key with its binder, always with a fresh key
+// exchange beside it); no early data, no client certificates (an empty one
+// answers a request). A server that will not take the key share offered
+// asks for another hello (§4.1.4). In 1.2: the ECDHE suites with the same
+// two AEADs under RSA or ECDSA authentication, over the same two groups,
+// the extended master secret when the server takes it, resumption by
+// session ticket (RFC 5077) or by session id (RFC 5246 §7.4.1.2), and never
+// renegotiation. The engine checks the server's signature over the
+// handshake and the Finished MAC itself; whether the chain is trusted is
+// the verdict of the callback the caller installs (the validator's, or the
+// insecure flag's). A resumed connection rests on the chain the caller
+// accepted when the ticket was issued, which the ticket carries.
 #include "crypto/X25519.h"
 #include "net/tls/X509.h"
 
@@ -23,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -60,6 +65,56 @@ enum class CipherSuite : std::uint16_t {
 
 char const* cipher_suite_name(CipherSuite suite);
 
+// A TLS 1.3 session ticket (§4.6.1) as the client keeps it: the ticket
+// itself, the pre-shared key derived from it, what makes its obfuscated
+// age, how long it is good for, and the connection it came from — the
+// chain the caller accepted then, which is what a resumed connection
+// rests on. A ticket is used once (§C.4).
+struct Ticket {
+    std::vector<std::uint8_t> ticket;
+    std::vector<std::uint8_t> psk;
+    std::uint32_t age_add = 0;
+    std::uint32_t lifetime_seconds = 0; // never past seven days
+    CipherSuite suite = CipherSuite::ChaCha20Poly1305Sha256;
+    std::string server_name;
+    std::vector<Certificate> chain;
+};
+
+// A TLS 1.2 session as the client keeps it: resumed by the ticket (RFC
+// 5077) when the server issued one, else by the session id the server
+// chose; the master secret, the suite and whether the extended master
+// secret bound it (RFC 7627 §5.3), which a resumption must keep.
+struct Session12 {
+    std::vector<std::uint8_t> session_id;
+    std::vector<std::uint8_t> ticket;
+    std::vector<std::uint8_t> master_secret;
+    std::uint32_t lifetime_hint_seconds = 0;
+    CipherSuite suite = CipherSuite::EcdheRsaAes128GcmSha256;
+    bool extended_master_secret = false;
+    std::string server_name;
+    std::vector<Certificate> chain;
+};
+
+// The fields of a NewSessionTicket message (§4.6.1), as read off the wire.
+struct NewSessionTicket {
+    std::uint32_t lifetime_seconds = 0;
+    std::uint32_t age_add = 0;
+    std::vector<std::uint8_t> nonce;
+    std::vector<std::uint8_t> ticket;
+    std::uint32_t max_early_data = 0; // the early_data extension, or 0
+};
+std::optional<NewSessionTicket> parse_new_session_ticket(std::span<std::uint8_t const> body);
+
+// The pieces of the key schedule a ticket turns on, on their own so the
+// RFC 8448 traces can check them: the pre-shared key of a ticket (§4.6.1,
+// HKDF-Expand-Label of the resumption master secret with the ticket's
+// nonce), and the binder over a partial ClientHello (§4.2.11.2: the
+// Finished construction under the binder key, over the hash of the
+// transcript through the hello truncated before its binders).
+std::vector<std::uint8_t> resumption_psk(std::span<std::uint8_t const> resumption_master_secret,
+    std::span<std::uint8_t const> ticket_nonce);
+std::vector<std::uint8_t> psk_binder(std::span<std::uint8_t const> psk, std::span<std::uint8_t const> truncated_transcript_hash);
+
 struct TlsConfig {
     std::string server_name; // the SNI host; empty for an IP literal, which sends none
     crypto::X25519Key private_key {}; // the ephemeral scalar: platform::fill_random, or a test's
@@ -90,6 +145,18 @@ struct TlsConfig {
     // round trip; with one group implemented it is also the only hello a
     // server can legally ask us to retry.
     bool empty_key_share = false;
+    // Resumption. A 1.3 ticket to offer, with its age in milliseconds at
+    // the moment of the hello (§4.2.11.1), and a 1.2 session to offer;
+    // either is offered only when the hello offers its version, and a
+    // server that declines gets a full handshake. What this connection
+    // is given in turn comes out through the callbacks: every 1.3 ticket
+    // as it arrives, the 1.2 session once the handshake is done, when the
+    // server gave anything to resume by.
+    std::optional<Ticket> resume_ticket;
+    std::uint32_t ticket_age_ms = 0;
+    std::optional<Session12> resume_session;
+    std::function<void(Ticket)> on_ticket;
+    std::function<void(Session12)> on_session;
 };
 
 // What one call produced: bytes for the socket and plaintext for the caller.
@@ -106,6 +173,7 @@ struct TlsSecrets {
     std::vector<std::uint8_t> master_secret;
     std::vector<std::uint8_t> client_application_traffic;
     std::vector<std::uint8_t> server_application_traffic;
+    std::vector<std::uint8_t> resumption_master; // §7.1, once the client Finished is sent
 };
 
 class TlsEngine {
@@ -138,6 +206,9 @@ public:
     std::string const& alpn() const; // the protocol the server chose, or empty
     CipherSuite cipher_suite() const; // the suite the server chose
     int hello_retry_requests() const; // the retries the server asked for; a second is fatal
+    // Whether the server took the ticket or session offered, so that no
+    // certificate was sent and the handshake was the short one.
+    bool resumed() const;
     TlsSecrets const& secrets() const;
 
 private:

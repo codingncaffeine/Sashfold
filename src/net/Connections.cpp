@@ -18,7 +18,7 @@ std::optional<Connection> Connection::open(std::string const& host, std::uint16_
     }
     Connection connection;
     if (secure) {
-        auto tls = platform::TlsSocket::connect(std::move(*tcp), host);
+        auto tls = platform::TlsSocket::connect(std::move(*tcp), host, port);
         if (!tls) {
             error = "TLS handshake or certificate validation failed for " + shown;
             return std::nullopt;

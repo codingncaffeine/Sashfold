@@ -7,12 +7,14 @@
 #include "platform/Random.h"
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // The Linux TLS backend: our own TLS 1.3 and 1.2 client (src/net/tls)
@@ -22,7 +24,11 @@
 // per-process cache; SASHFOLD_TLS_INSECURE=1 accepts any chain and says so
 // loudly, SASHFOLD_TLS_SUITE narrows the hello to one suite and
 // SASHFOLD_TLS_VERSION to one version, to drive a path end to end against a
-// real server. macOS gets Network.framework with its shell.
+// real server. A second connection to a server resumes the first: the 1.3
+// tickets and the 1.2 session each server gave are kept per host and port
+// for the process's lifetime, and SASHFOLD_TLS_RESUME=0 stops them being
+// offered, so a run with and one without can be compared. macOS gets
+// Network.framework with its shell.
 
 namespace sashfold::platform {
 
@@ -33,6 +39,97 @@ bool insecure_requested()
     char const* const value = std::getenv("SASHFOLD_TLS_INSECURE");
     return value != nullptr && value[0] == '1';
 }
+
+bool resumption_requested()
+{
+    char const* const value = std::getenv("SASHFOLD_TLS_RESUME");
+    return value == nullptr || value[0] != '0';
+}
+
+// What the process may resume by, per server, behind one lock. A 1.3
+// ticket is offered once and then gone (RFC 8446 §C.4), the newest first,
+// never past its lifetime, at most a few kept per server; a 1.2 session
+// serves every connection until a full handshake replaces it or a day has
+// passed. The lock is taken to read and to keep, never across a
+// handshake, so the engine's callbacks may take it again.
+class SessionStore {
+public:
+    static SessionStore& instance()
+    {
+        static SessionStore store;
+        return store;
+    }
+
+    std::optional<tls::Ticket> take_ticket(std::string const& key, std::uint32_t& age_ms)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        auto const found = m_tickets.find(key);
+        if (found == m_tickets.end())
+            return std::nullopt;
+        std::vector<KeptTicket>& kept = found->second;
+        auto const now = std::chrono::steady_clock::now();
+        while (!kept.empty()) {
+            KeptTicket newest = std::move(kept.back());
+            kept.pop_back();
+            auto const age = std::chrono::duration_cast<std::chrono::milliseconds>(now - newest.received).count();
+            if (age < 0 || age >= static_cast<long long>(newest.ticket.lifetime_seconds) * 1000)
+                continue;
+            age_ms = static_cast<std::uint32_t>(age);
+            return std::move(newest.ticket);
+        }
+        m_tickets.erase(found);
+        return std::nullopt;
+    }
+
+    void keep_ticket(std::string const& key, tls::Ticket ticket)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        std::vector<KeptTicket>& kept = m_tickets[key];
+        kept.push_back(KeptTicket { std::move(ticket), std::chrono::steady_clock::now() });
+        if (kept.size() > max_tickets_per_server)
+            kept.erase(kept.begin());
+    }
+
+    std::optional<tls::Session12> session_for(std::string const& key)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        auto const found = m_sessions.find(key);
+        if (found == m_sessions.end())
+            return std::nullopt;
+        auto const now = std::chrono::steady_clock::now();
+        auto const age = std::chrono::duration_cast<std::chrono::seconds>(now - found->second.received).count();
+        long long lifetime = max_session_seconds;
+        if (found->second.session.lifetime_hint_seconds != 0)
+            lifetime = std::min<long long>(lifetime, found->second.session.lifetime_hint_seconds);
+        if (age < 0 || age >= lifetime) {
+            m_sessions.erase(found);
+            return std::nullopt;
+        }
+        return found->second.session;
+    }
+
+    void keep_session(std::string const& key, tls::Session12 session)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        m_sessions[key] = KeptSession { std::move(session), std::chrono::steady_clock::now() };
+    }
+
+private:
+    static constexpr std::size_t max_tickets_per_server = 4;
+    static constexpr long long max_session_seconds = 24 * 60 * 60;
+
+    struct KeptTicket {
+        tls::Ticket ticket;
+        std::chrono::steady_clock::time_point received;
+    };
+    struct KeptSession {
+        tls::Session12 session;
+        std::chrono::steady_clock::time_point received;
+    };
+    std::mutex m_mutex;
+    std::unordered_map<std::string, std::vector<KeptTicket>> m_tickets;
+    std::unordered_map<std::string, KeptSession> m_sessions;
+};
 
 // The process's revocation lists, behind one lock: the fetch pipeline is
 // synchronous, but a second thread validating a chain must not race the
@@ -165,7 +262,7 @@ bool TlsSocket::available()
     return true;
 }
 
-std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host)
+std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host, std::uint16_t port)
 {
     tls::TlsConfig config;
     // An IP literal sends no SNI (RFC 6066); a name does.
@@ -178,6 +275,25 @@ std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const&
     fill_random(config.session_id);
     apply_suite_request(config);
     apply_version_request(config);
+
+    // The server's tickets and session, kept for the next connection and
+    // offered on this one: a ticket that a suite request cannot use (its
+    // key schedule is the suite's hash, which every suite here shares) is
+    // not a concern, and a server that declines gets a full handshake.
+    std::string const key = host + ":" + std::to_string(port);
+    SessionStore& sessions = SessionStore::instance();
+    if (resumption_requested()) {
+        std::uint32_t age_ms = 0;
+        if (config.offer_tls13)
+            if (std::optional<tls::Ticket> ticket = sessions.take_ticket(key, age_ms)) {
+                config.resume_ticket = std::move(ticket);
+                config.ticket_age_ms = age_ms;
+            }
+        if (config.offer_tls12)
+            config.resume_session = sessions.session_for(key);
+    }
+    config.on_ticket = [key](tls::Ticket ticket) { SessionStore::instance().keep_ticket(key, std::move(ticket)); };
+    config.on_session = [key](tls::Session12 session) { SessionStore::instance().keep_session(key, std::move(session)); };
 
     bool const insecure = insecure_requested();
     std::string const host_copy = host;
@@ -199,6 +315,10 @@ std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const&
     auto impl = std::make_unique<Impl>(std::move(socket), std::move(config));
     if (!impl->handshake())
         return std::nullopt;
+    // A resumed connection rests on a chain the flag waved through: say so
+    // as loudly as the verification would have.
+    if (insecure && impl->engine.resumed())
+        std::fprintf(stderr, "sashfold: SASHFOLD_TLS_INSECURE is set — the resumed connection to %s rests on a chain that was NOT verified\n", host_copy.c_str());
     return TlsSocket(std::move(impl));
 }
 

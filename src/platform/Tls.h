@@ -25,8 +25,10 @@ public:
     static bool available();
 
     // Takes ownership of the connected socket and runs the handshake with
-    // SNI for `host`. nullopt on any handshake or validation failure.
-    static std::optional<TlsSocket> connect(TcpSocket socket, std::string const& host);
+    // SNI for `host`. nullopt on any handshake or validation failure. The
+    // port names, with the host, the server whose session the connection
+    // may resume and whose tickets it keeps for the next one.
+    static std::optional<TlsSocket> connect(TcpSocket socket, std::string const& host, std::uint16_t port = 443);
 
     TlsSocket(TlsSocket&&) noexcept;
     TlsSocket& operator=(TlsSocket&&) noexcept;

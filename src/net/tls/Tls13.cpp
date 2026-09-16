@@ -45,6 +45,7 @@ enum Extension : std::uint16_t {
     ext_signature_algorithms = 13,
     ext_alpn = 16,
     ext_extended_master_secret = 23,
+    ext_session_ticket = 35, // RFC 5077 §3.2
     ext_pre_shared_key = 41,
     ext_early_data = 42,
     ext_supported_versions = 43,
@@ -89,6 +90,9 @@ constexpr std::size_t max_plaintext = 16384;
 constexpr std::size_t max_ciphertext = max_plaintext + 256;
 constexpr std::size_t max_ciphertext12 = max_plaintext + 2048; // RFC 5246 §6.2.3
 constexpr std::size_t max_handshake_message = 1 << 20;
+// §4.6.1: a client keeps a ticket for seven days at most, whatever the
+// server's lifetime says.
+constexpr std::uint32_t max_ticket_lifetime = 604800;
 
 bool is_tls12_suite(CipherSuite suite)
 {
@@ -137,6 +141,11 @@ void put24(Bytes& out, std::uint32_t v)
     out.push_back(static_cast<std::uint8_t>(v >> 8));
     out.push_back(static_cast<std::uint8_t>(v));
 }
+void put32(Bytes& out, std::uint32_t v)
+{
+    for (int i = 3; i >= 0; --i)
+        out.push_back(static_cast<std::uint8_t>(v >> (8 * i)));
+}
 void put64(Bytes& out, std::uint64_t v)
 {
     for (int i = 7; i >= 0; --i)
@@ -172,6 +181,15 @@ struct Reader {
             return false;
         v = (std::uint32_t(bytes[offset]) << 16) | (std::uint32_t(bytes[offset + 1]) << 8) | bytes[offset + 2];
         offset += 3;
+        return true;
+    }
+    bool u32(std::uint32_t& v)
+    {
+        if (left() < 4)
+            return false;
+        v = (std::uint32_t(bytes[offset]) << 24) | (std::uint32_t(bytes[offset + 1]) << 16)
+            | (std::uint32_t(bytes[offset + 2]) << 8) | bytes[offset + 3];
+        offset += 4;
         return true;
     }
     bool take(std::size_t n, View& v)
@@ -484,6 +502,17 @@ struct TlsEngine::Impl {
     bool extended_master_secret = false;
     std::uint16_t kx_group = 0; // the group of the server's ephemeral key
     TrafficKeys pending_read_keys; // the server's, from its ChangeCipherSpec on
+    // Resumption: whether the hello carried a pre-shared key, and whether
+    // the server took what was offered — a 1.3 ticket or a 1.2 session —
+    // so the handshake is the short one with no certificate in it.
+    bool psk_offered = false;
+    bool resumed = false;
+    // TLS 1.2: the session id the server chose, whether it announced a
+    // ticket (RFC 5077 §3.2), and the ticket it then sent with its hint.
+    Bytes server_session_id;
+    bool ticket_announced = false;
+    Bytes ticket12;
+    std::uint32_t ticket12_hint = 0;
 
     explicit Impl(TlsConfig c)
         : config(std::move(c))
@@ -627,8 +656,15 @@ struct TlsEngine::Impl {
         put16(body, 0x0303);
         put_bytes(body, config.client_random);
         session_id_sent.clear();
-        if (config.compatibility_mode)
+        Session12 const* const session = config.offer_tls12 && config.resume_session ? &*config.resume_session : nullptr;
+        if (session != nullptr && session->ticket.empty() && !session->session_id.empty() && session->session_id.size() <= 32) {
+            // RFC 5246 §7.4.1.2: the id of the session to resume. A session
+            // with a ticket sends the random id instead, which the server
+            // echoes when it takes the ticket (RFC 5077 §3.4).
+            session_id_sent = session->session_id;
+        } else if (config.compatibility_mode) {
             session_id_sent.assign(config.session_id.begin(), config.session_id.end());
+        }
         put8(body, static_cast<std::uint8_t>(session_id_sent.size()));
         put_bytes(body, session_id_sent);
         put16(body, static_cast<std::uint16_t>(2 * offered_suites.size()));
@@ -709,6 +745,9 @@ struct TlsEngine::Impl {
             extension(ext_extended_master_secret, {});
             std::uint8_t const none = 0;
             extension(ext_renegotiation_info, View(&none, 1));
+            // RFC 5077 §3.1: the ticket of the session to resume, or an
+            // empty extension, which asks the server to issue one.
+            extension(ext_session_ticket, session != nullptr ? View(session->ticket) : View {});
         }
         {
             Bytes alpn_list;
@@ -725,9 +764,38 @@ struct TlsEngine::Impl {
             put_bytes(echoed, cookie);
             extension(ext_cookie, echoed);
         }
+        // §4.2.11: the pre-shared key last of all — the one identity with
+        // its obfuscated age, then a binder over the hello up to the binders
+        // themselves, computed once the rest of the message is in place. The
+        // transcript it runs over is whatever came before this hello: nothing,
+        // or the first hello's hash and the retry request (§4.2.11.2).
+        Ticket const* const ticket = config.offer_tls13 && config.resume_ticket && !config.resume_ticket->psk.empty()
+                && !config.resume_ticket->ticket.empty() && config.resume_ticket->ticket.size() <= 0xffff
+            ? &*config.resume_ticket
+            : nullptr;
+        psk_offered = ticket != nullptr;
+        if (ticket != nullptr) {
+            Bytes psk;
+            put16(psk, static_cast<std::uint16_t>(ticket->ticket.size() + 2 + 4));
+            put16(psk, static_cast<std::uint16_t>(ticket->ticket.size()));
+            put_bytes(psk, ticket->ticket);
+            put32(psk, config.ticket_age_ms + ticket->age_add); // modulo 2^32, as §4.2.11.1 asks
+            put16(psk, static_cast<std::uint16_t>(Hash::digest_size + 1));
+            put8(psk, static_cast<std::uint8_t>(Hash::digest_size));
+            psk.resize(psk.size() + Hash::digest_size, 0);
+            extension(ext_pre_shared_key, psk);
+        }
         put16(body, static_cast<std::uint16_t>(extensions.size()));
         put_bytes(body, extensions);
-        return handshake_message(client_hello, body);
+        Bytes message = handshake_message(client_hello, body);
+        if (ticket != nullptr) {
+            std::size_t const truncated = message.size() - (2 + 1 + Hash::digest_size);
+            Hash partial = transcript;
+            partial.update(View(message.data(), truncated));
+            Bytes const binder = psk_binder(ticket->psk, partial.finish());
+            std::copy(binder.begin(), binder.end(), message.end() - static_cast<std::ptrdiff_t>(Hash::digest_size));
+        }
+        return message;
     }
 
     Bytes send_client_hello(Bytes const& message)
@@ -893,7 +961,7 @@ struct TlsEngine::Impl {
                 fail(out, protocol_version, "the server did not negotiate TLS 1.3");
                 return false;
             }
-            return on_server_hello_12(random, suite, extensions, raw_message, out);
+            return on_server_hello_12(random, session_id, suite, extensions, raw_message, out);
         }
         if (!std::equal(session_id.begin(), session_id.end(), session_id_sent.begin(), session_id_sent.end())) {
             fail(out, illegal_parameter, "ServerHello did not echo the session id");
@@ -952,6 +1020,20 @@ struct TlsEngine::Impl {
                     return false;
                 }
                 saw_key_share = true;
+            } else if (type == ext_pre_shared_key) {
+                // §4.2.11: the server took the one identity offered; a
+                // selection with nothing offered, or of an identity that was
+                // not, is illegal.
+                std::uint16_t selected = 0;
+                if (!psk_offered) {
+                    fail(out, illegal_parameter, "the server selected a pre-shared key when none was offered");
+                    return false;
+                }
+                if (!d.u16(selected) || !d.done() || selected != 0) {
+                    fail(out, illegal_parameter, "the server selected a pre-shared key identity that was not offered");
+                    return false;
+                }
+                resumed = true;
             } else {
                 refuse_extension(out, type, "ServerHello");
                 return false;
@@ -962,6 +1044,8 @@ struct TlsEngine::Impl {
             return false;
         }
         if (!saw_key_share) {
+            // With psk_dhe_ke the only mode offered, a resumption has a key
+            // share too (§4.2.9).
             fail(out, missing_extension, "ServerHello carried no key share");
             return false;
         }
@@ -970,8 +1054,11 @@ struct TlsEngine::Impl {
             fail(out, illegal_parameter, "the server's random carries a downgrade sentinel");
             return false;
         }
+        // §7.1: the early secret from the pre-shared key the server took, or
+        // from zeros when it took none — the binder was computed under the
+        // key, and a declined offer goes on as a full handshake.
         Bytes const zeros(Hash::digest_size, 0);
-        Bytes const early = hkdf_extract(zeros, zeros);
+        Bytes const early = resumed ? hkdf_extract(zeros, config.resume_ticket->psk) : hkdf_extract(zeros, zeros);
         Hash::Digest const empty_hash = Hash::hash({});
         Bytes const derived = derive_secret(early, "derived", empty_hash);
         secrets.handshake_secret = hkdf_extract(derived, shared_secret);
@@ -1005,12 +1092,32 @@ struct TlsEngine::Impl {
 
     // ---- TLS 1.2 (RFC 5246 §7.4, RFC 8422 §5, RFC 7627, RFC 5746)
 
+    // RFC 5246 §6.3: the key block from the master secret and both
+    // randoms, cut into the two keys and the two IVs; ours turn on with our
+    // ChangeCipherSpec, the server's with its.
+    void derive_key_block_12()
+    {
+        Aead const aead = aead_of(negotiated_suite);
+        std::size_t const key_size = aead == Aead::Aes128Gcm ? 16 : 32;
+        std::size_t const iv_size = TrafficKeys::iv_size12(aead);
+        Bytes randoms;
+        put_bytes(randoms, server_random);
+        put_bytes(randoms, config.client_random);
+        Bytes const block = prf12(secrets.master_secret, "key expansion", randoms, 2 * key_size + 2 * iv_size);
+        View const whole(block);
+        write_keys = TrafficKeys::from_block(aead, whole.subspan(0, key_size), whole.subspan(2 * key_size, iv_size));
+        pending_read_keys = TrafficKeys::from_block(aead, whole.subspan(key_size, key_size), whole.subspan(2 * key_size + iv_size, iv_size));
+    }
+
     // A ServerHello with no supported_versions: the server has taken the
-    // 1.2 half of the hello. Its extensions are the ones offered for 1.2,
-    // its session id is its own business (no resumption is offered), and
-    // a server that could have spoken 1.3 marks a 1.2 random with the
-    // downgrade sentinel of RFC 8446 §4.1.3, which is refused.
-    bool on_server_hello_12(View random, std::uint16_t suite, View extensions, View raw_message, TlsOutput& out)
+    // 1.2 half of the hello. Its extensions are the ones offered for 1.2;
+    // a session id that echoes the one sent means the session offered is
+    // resumed — by its id (RFC 5246 §7.4.1.3), or by the ticket beside
+    // which the id was sent (RFC 5077 §3.4) — and the handshake is the
+    // short one, the server's Finished first; and a server that could
+    // have spoken 1.3 marks a 1.2 random with the downgrade sentinel of
+    // RFC 8446 §4.1.3, which is refused.
+    bool on_server_hello_12(View random, View session_id, std::uint16_t suite, View extensions, View raw_message, TlsOutput& out)
     {
         if (!is_tls12_suite(static_cast<CipherSuite>(suite))) {
             fail(out, illegal_parameter, "the server chose a TLS 1.3 suite for TLS 1.2");
@@ -1028,7 +1135,18 @@ struct TlsEngine::Impl {
         tls12 = true;
         negotiated_suite = static_cast<CipherSuite>(suite);
         std::copy(random.begin(), random.end(), server_random.begin());
+        server_session_id.assign(session_id.begin(), session_id.end());
         transcript.update(raw_message);
+        Session12 const* const session = config.offer_tls12 && config.resume_session ? &*config.resume_session : nullptr;
+        if (session != nullptr && !session_id_sent.empty()
+            && std::equal(session_id.begin(), session_id.end(), session_id_sent.begin(), session_id_sent.end())) {
+            // RFC 5246 §7.4.1.3: the resumed session keeps its cipher suite.
+            if (session->suite != negotiated_suite) {
+                fail(out, illegal_parameter, "the server resumed a session under another cipher suite");
+                return false;
+            }
+            resumed = true;
+        }
         ExtensionBlock block;
         Reader e { extensions };
         while (!e.done()) {
@@ -1043,7 +1161,14 @@ struct TlsEngine::Impl {
                 return false;
             }
             Reader d { data };
-            if (type == ext_renegotiation_info) {
+            if (type == ext_session_ticket) {
+                // RFC 5077 §3.2: empty, and a NewSessionTicket follows.
+                if (!d.done()) {
+                    fail(out, decode_error, "the server's session_ticket extension was not empty");
+                    return false;
+                }
+                ticket_announced = true;
+            } else if (type == ext_renegotiation_info) {
                 // RFC 5746 §3.4: a first handshake's renegotiated_connection is empty.
                 std::uint8_t length = 0;
                 if (!d.u8(length) || length != 0 || !d.done()) {
@@ -1071,6 +1196,22 @@ struct TlsEngine::Impl {
                 refuse_extension(out, type, "ServerHello");
                 return false;
             }
+        }
+        if (resumed) {
+            // RFC 7627 §5.3: a session bound by the extended master secret
+            // resumes bound, and one that was not resumes unbound; a server
+            // that changes either way is refused. The keys come from the
+            // session's master secret and the new randoms, and the server's
+            // ChangeCipherSpec and Finished are next.
+            if (extended_master_secret != session->extended_master_secret) {
+                fail(out, handshake_failure, "the server changed the extended master secret binding of a resumed session");
+                return false;
+            }
+            secrets.master_secret = session->master_secret;
+            derive_key_block_12();
+            chain = session->chain;
+            state = TlsState::WaitFinished;
+            return true;
         }
         state = TlsState::WaitCertificate;
         return true;
@@ -1266,16 +1407,7 @@ struct TlsEngine::Impl {
             secrets.master_secret = prf12(shared_secret, "master secret", randoms, 48);
         }
         std::fill(shared_secret.begin(), shared_secret.end(), 0);
-        Aead const aead = aead_of(negotiated_suite);
-        std::size_t const key_size = aead == Aead::Aes128Gcm ? 16 : 32;
-        std::size_t const iv_size = TrafficKeys::iv_size12(aead);
-        Bytes randoms;
-        put_bytes(randoms, server_random);
-        put_bytes(randoms, config.client_random);
-        Bytes const block = prf12(secrets.master_secret, "key expansion", randoms, 2 * key_size + 2 * iv_size);
-        View const whole(block);
-        write_keys = TrafficKeys::from_block(aead, whole.subspan(0, key_size), whole.subspan(2 * key_size, iv_size));
-        pending_read_keys = TrafficKeys::from_block(aead, whole.subspan(key_size, key_size), whole.subspan(2 * key_size + iv_size, iv_size));
+        derive_key_block_12();
 
         put_bytes(out.to_send, plain_record(handshake, flight));
         std::uint8_t const one = 1;
@@ -1303,8 +1435,64 @@ struct TlsEngine::Impl {
             return false;
         }
         transcript.update(raw_message);
+        if (resumed) {
+            // RFC 5246 §7.3: in the short handshake the server finishes
+            // first; our ChangeCipherSpec turns our keys on and our Finished
+            // answers, over the transcript through the server's.
+            std::uint8_t const one = 1;
+            put_bytes(out.to_send, plain_record(change_cipher_spec, View(&one, 1)));
+            write_keys.active = true;
+            Bytes const verify_data = prf12(secrets.master_secret, "client finished", transcript_hash(), 12);
+            Bytes const finished_message = handshake_message(finished, verify_data);
+            transcript.update(finished_message);
+            put_bytes(out.to_send, seal_record12(write_keys, handshake, finished_message));
+        }
         state = TlsState::Connected;
+        hand_out_session_12();
         return true;
+    }
+
+    // RFC 5077 §3.3: the ticket the server announced in its hello, before
+    // its ChangeCipherSpec in either handshake; a zero-length ticket is a
+    // server that changed its mind.
+    bool on_new_session_ticket_12(View body, TlsOutput& out)
+    {
+        if (!ticket_announced) {
+            fail(out, unexpected_message, "a session ticket arrived that the server had not announced");
+            return false;
+        }
+        Reader r { body };
+        View ticket;
+        if (!r.u32(ticket12_hint) || !r.vector16(ticket) || !r.done()) {
+            fail(out, decode_error, "NewSessionTicket did not decode");
+            return false;
+        }
+        ticket12.assign(ticket.begin(), ticket.end());
+        return true;
+    }
+
+    // What the next connection to this server may resume by: the ticket
+    // it sent, else the one it accepted and did not renew, else the session
+    // id it chose. A server that gave none of these gave nothing to keep.
+    void hand_out_session_12()
+    {
+        if (!config.on_session)
+            return;
+        Session12 session;
+        if (!ticket12.empty())
+            session.ticket = ticket12;
+        else if (resumed)
+            session.ticket = config.resume_session->ticket;
+        session.session_id = server_session_id;
+        if (session.ticket.empty() && session.session_id.empty())
+            return;
+        session.master_secret = secrets.master_secret;
+        session.lifetime_hint_seconds = ticket12_hint;
+        session.suite = negotiated_suite;
+        session.extended_master_secret = extended_master_secret;
+        session.server_name = config.server_name;
+        session.chain = chain;
+        config.on_session(std::move(session));
     }
 
     bool on_handshake_message_12(std::uint8_t type, View body, View raw_message, TlsOutput& out)
@@ -1330,13 +1518,16 @@ struct TlsEngine::Impl {
             transcript.update(raw_message);
             return on_server_hello_done(body, out);
         case TlsState::WaitFinished:
+            if (type == new_session_ticket) {
+                transcript.update(raw_message);
+                return on_new_session_ticket_12(body, out);
+            }
             if (type != finished)
                 break;
             return on_server_finished_12(body, raw_message, out);
         case TlsState::Connected:
-            // §7.4.1.1: a request to renegotiate may be ignored, and is;
-            // a ticket (RFC 5077) was never asked for and is ignored too.
-            if (type == hello_request || type == new_session_ticket)
+            // §7.4.1.1: a request to renegotiate may be ignored, and is.
+            if (type == hello_request)
                 return true;
             break;
         default:
@@ -1379,7 +1570,9 @@ struct TlsEngine::Impl {
                 return false;
             }
         }
-        state = TlsState::WaitCertificate;
+        // §4.2.11: a server that took the pre-shared key sends no
+        // certificate and asks for none; its Finished is next.
+        state = resumed ? TlsState::WaitFinished : TlsState::WaitCertificate;
         return true;
     }
 
@@ -1522,7 +1715,12 @@ struct TlsEngine::Impl {
         secrets.server_application_traffic = derive_secret(secrets.master_secret, "s ap traffic", finished_hash);
 
         std::string reason;
-        if (config.verify_chain && !config.verify_chain(chain, reason)) {
+        if (resumed) {
+            // No certificate was sent: the connection rests on the chain the
+            // caller accepted when the ticket was issued, which is reported
+            // as this connection's.
+            chain = config.resume_ticket->chain;
+        } else if (config.verify_chain && !config.verify_chain(chain, reason)) {
             fail(out, bad_certificate, reason.empty() ? "certificate validation failed" : reason);
             return false;
         }
@@ -1549,10 +1747,37 @@ struct TlsEngine::Impl {
         transcript.update(message);
         put_bytes(flight, message);
         put_bytes(out.to_send, seal_record(write_keys, handshake, flight));
+        // §7.1: the resumption master secret is over the transcript through
+        // our Finished; every ticket's key is expanded from it.
+        secrets.resumption_master = derive_secret(secrets.master_secret, "res master", transcript_hash());
 
         read_keys = TrafficKeys::from_secret(negotiated_suite, secrets.server_application_traffic);
         write_keys = TrafficKeys::from_secret(negotiated_suite, secrets.client_application_traffic);
         state = TlsState::Connected;
+        return true;
+    }
+
+    // §4.6.1: a ticket for a later connection, handed out with its
+    // pre-shared key; a lifetime of zero is a ticket not to be kept, and
+    // none is kept past seven days.
+    bool on_new_session_ticket(View body, TlsOutput& out)
+    {
+        std::optional<NewSessionTicket> parsed = parse_new_session_ticket(body);
+        if (!parsed) {
+            fail(out, decode_error, "NewSessionTicket did not decode");
+            return false;
+        }
+        if (!config.on_ticket || parsed->lifetime_seconds == 0)
+            return true;
+        Ticket ticket;
+        ticket.ticket = std::move(parsed->ticket);
+        ticket.psk = resumption_psk(secrets.resumption_master, parsed->nonce);
+        ticket.age_add = parsed->age_add;
+        ticket.lifetime_seconds = std::min(parsed->lifetime_seconds, max_ticket_lifetime);
+        ticket.suite = negotiated_suite;
+        ticket.server_name = config.server_name;
+        ticket.chain = chain;
+        config.on_ticket(std::move(ticket));
         return true;
     }
 
@@ -1612,7 +1837,7 @@ struct TlsEngine::Impl {
             return on_server_finished(body, raw_message, out);
         case TlsState::Connected:
             if (type == new_session_ticket)
-                return true; // §4.6.1: tickets are for resumption, which is not written
+                return on_new_session_ticket(body, out);
             if (type == key_update)
                 return on_key_update(body, out);
             break;
@@ -1833,7 +2058,57 @@ std::vector<Certificate> const& TlsEngine::peer_chain() const { return m_impl->c
 std::string const& TlsEngine::alpn() const { return m_impl->alpn; }
 CipherSuite TlsEngine::cipher_suite() const { return m_impl->negotiated_suite; }
 int TlsEngine::hello_retry_requests() const { return m_impl->retries; }
+bool TlsEngine::resumed() const { return m_impl->resumed; }
 TlsSecrets const& TlsEngine::secrets() const { return m_impl->secrets; }
+
+std::optional<NewSessionTicket> parse_new_session_ticket(std::span<std::uint8_t const> body)
+{
+    // §4.6.1: the lifetime and the age addend, the nonce, the ticket, and
+    // extensions of which early_data alone is read; the rest are ignored,
+    // as the section asks, but no type may appear twice.
+    Reader r { body };
+    NewSessionTicket ticket;
+    View nonce;
+    View identity;
+    View extensions;
+    if (!r.u32(ticket.lifetime_seconds) || !r.u32(ticket.age_add) || !r.vector8(nonce) || !r.vector16(identity)
+        || identity.empty() || !r.vector16(extensions) || !r.done())
+        return std::nullopt;
+    std::vector<std::uint16_t> seen;
+    Reader e { extensions };
+    while (!e.done()) {
+        std::uint16_t type = 0;
+        View data;
+        if (!e.u16(type) || !e.vector16(data) || std::find(seen.begin(), seen.end(), type) != seen.end())
+            return std::nullopt;
+        seen.push_back(type);
+        if (type == ext_early_data) {
+            Reader d { data };
+            if (!d.u32(ticket.max_early_data) || !d.done())
+                return std::nullopt;
+        }
+    }
+    ticket.nonce.assign(nonce.begin(), nonce.end());
+    ticket.ticket.assign(identity.begin(), identity.end());
+    return ticket;
+}
+
+std::vector<std::uint8_t> resumption_psk(std::span<std::uint8_t const> resumption_master_secret, std::span<std::uint8_t const> ticket_nonce)
+{
+    return hkdf_expand_label(resumption_master_secret, "resumption", ticket_nonce, Hash::digest_size);
+}
+
+std::vector<std::uint8_t> psk_binder(std::span<std::uint8_t const> psk, std::span<std::uint8_t const> truncated_transcript_hash)
+{
+    // §4.2.11.2 with §7.1: the binder key is derived from the early secret
+    // of the key, and the binder is the Finished construction under it.
+    Bytes const zeros(Hash::digest_size, 0);
+    Bytes const early = hkdf_extract(zeros, psk);
+    Bytes const binder_key = derive_secret(early, "res binder", Hash::hash({}));
+    Bytes const key = hkdf_expand_label(binder_key, "finished", {}, Hash::digest_size);
+    Hash::Digest const mac = crypto::Hmac<Hash>::mac(key, truncated_transcript_hash);
+    return Bytes(mac.begin(), mac.end());
+}
 
 char const* cipher_suite_name(CipherSuite suite)
 {
