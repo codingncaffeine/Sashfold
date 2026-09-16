@@ -164,8 +164,22 @@ jobs:
           cp blocklists/README.md "$stage/blocklists/"
           cp tools/install-desktop-linux.sh "$stage/tools/"
           cp assets/icon.png "$stage/assets/"
+          mkdir -p "$stage/packaging/linux"
+          cp packaging/linux/sashfold.desktop "$stage/packaging/linux/"
+          # The icon at every size the desktop names, squared; the launcher
+          # installer and the packages take these as they are.
+          extent=$(convert assets/icon.png -format "%[fx:max(w,h)]x%[fx:max(w,h)]" info:)
+          for size in 16 22 24 32 48 64 128 256 512; do
+            mkdir -p "$stage/assets/icons/hicolor/${size}x${size}/apps"
+            convert assets/icon.png -background none -gravity center -extent "$extent" -resize "${size}x${size}" "$stage/assets/icons/hicolor/${size}x${size}/apps/sashfold.png"
+          done
           ldd "$stage/sashfold"
+          bash packaging/deb/build-deb.sh "$stage" .
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-x64
           path: sashfold-*-linux-x64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-deb
+          path: sashfold_*_amd64.deb

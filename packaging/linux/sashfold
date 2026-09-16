@@ -1,0 +1,5 @@
+#!/bin/sh
+# The command a package puts on PATH. The engine looks for its themes and
+# blocklists beside the executable it was started as, so the real binary
+# lives with them under /opt/sashfold and this stands in for it on PATH.
+exec /opt/sashfold/sashfold "$@"
