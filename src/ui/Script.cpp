@@ -420,6 +420,8 @@ struct Runner {
             expect_equal("assert-relayouts", std::to_string(browser.profile().relayouts - marked.relayouts), argument);
         } else if (command == "assert-paints") {
             expect_equal("assert-paints", std::to_string(browser.profile().paints - marked.paints), argument);
+        } else if (command == "assert-pictures") {
+            expect_equal("assert-pictures", std::to_string(browser.pictures()), argument);
         } else if (command == "assert-pixel") {
             auto const x = int_arg(0);
             auto const y = int_arg(1);

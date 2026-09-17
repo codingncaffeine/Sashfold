@@ -5,7 +5,7 @@
 // resolved against the page, fetched through whatever the caller fetches
 // with, decoded, and handed to layout by element with the density it was
 // chosen at. Formats this engine cannot decode yet leave the element to its
-// alt text. Bounded per image and per page.
+// alt text. Bounded per image, and per page in decoded bytes.
 
 #include "css/Stylesheets.h"
 #include "layout/Layout.h"
@@ -35,13 +35,30 @@ using ImageFetcher = std::function<std::optional<std::vector<std::uint8_t>>(net:
 std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes, int icon_size = 0,
     float* density = nullptr);
 
-// `media` is the viewport the sources are chosen for.
+// How one pass over a page's pictures is bounded, for a shell that shows
+// the page before every picture is in: elements already in `known` are
+// left as they are, at most `budget` new sources are fetched in the pass
+// (zero is no limit), and `more` is set when elements were left for a
+// later pass. An element whose picture could not be had — not fetched,
+// too large, or in no format decoded here — is entered with no bitmap, so
+// it is never asked for again.
+struct ImagePass {
+    layout::ImageMap const* known = nullptr;
+    std::size_t budget = 0;
+    bool* more = nullptr;
+};
+
+// `media` is the viewport the sources are chosen for. The map returned
+// holds this pass's entries only.
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
-    ImageFetcher const& fetch, css::MediaContext const& media = {}, layout::EmbeddedStates const* embedded = nullptr);
+    ImageFetcher const& fetch, css::MediaContext const& media = {}, layout::EmbeddedStates const* embedded = nullptr,
+    ImagePass const& pass = {});
 
 // The pictures the styles name as backgrounds (their URLs already
-// resolved), fetched once each and decoded, for the painter. Bounded like
-// the page's pictures.
-layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch);
+// resolved), fetched once each and decoded, for the painter; bounded per
+// pass. Those in `known` are left as they are, and the map returned holds
+// the new ones only.
+layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch,
+    layout::BackgroundImages const* known = nullptr);
 
 }

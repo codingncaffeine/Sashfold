@@ -155,6 +155,9 @@ add_test(NAME shell_windows
 add_test(NAME shell_perf
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/perf.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_pictures
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pictures.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_scripting
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/scripting.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

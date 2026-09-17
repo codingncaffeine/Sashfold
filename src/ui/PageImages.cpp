@@ -15,8 +15,11 @@ namespace sashfold::ui {
 
 namespace {
 
-constexpr std::size_t max_images_per_page = 64;
+constexpr std::size_t max_background_images = 64;
 constexpr std::size_t max_image_bytes = 8u * 1024u * 1024u;
+// What a page's decoded pictures may come to; past it the rest are left to
+// their alt text rather than the machine's memory.
+constexpr std::size_t max_page_decoded_bytes = 256u * 1024u * 1024u;
 
 struct Collector {
     net::Url const* base;
@@ -24,9 +27,11 @@ struct Collector {
     ImageFetcher const& fetch;
     layout::ImageMap& out;
     layout::EmbeddedStates const* embedded;
+    ImagePass const& pass;
     std::map<std::string, std::shared_ptr<Bitmap const>> by_url; // one fetch per URL
     std::map<std::string, float> by_url_density; // the factor an SVG was drawn at
     std::size_t fetched = 0;
+    std::size_t decoded_bytes = 0;
 
     void visit(dom::Node const& node)
     {
@@ -67,29 +72,38 @@ struct Collector {
 
     void take(dom::Element const& element, net::Url const& url, float source_density)
     {
+        if (pass.known && pass.known->contains(&element))
+            return; // had already, or tried already
         std::string const key = url.serialize(true);
         // A picture's density to the layout is its pixels per device px:
         // the source's pixels per CSS px, over the device's scale.
         float const scale = media.device_scale > 0 ? media.device_scale : 1.0f;
         if (auto const it = by_url.find(key); it != by_url.end()) {
-            if (it->second)
-                out.emplace(&element, layout::PageImage { it->second, source_density * by_url_density[key] / scale });
+            out.emplace(&element, layout::PageImage { it->second, source_density * by_url_density[key] / scale });
+            return;
+        }
+        if (pass.budget > 0 && fetched >= pass.budget) {
+            if (pass.more)
+                *pass.more = true; // left for a later pass
             return;
         }
         std::shared_ptr<Bitmap const> image;
         float drawn_at = 1; // an SVG drawn larger than its size reports the factor
-        if (fetched < max_images_per_page && fetch) {
+        if (fetch && decoded_bytes < max_page_decoded_bytes) {
             ++fetched;
             if (std::optional<std::vector<std::uint8_t>> bytes = fetch(url);
                 bytes && bytes->size() <= max_image_bytes) {
-                if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes, 0, &drawn_at))
+                if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes, 0, &drawn_at)) {
+                    decoded_bytes += static_cast<std::size_t>(decoded->width()) * static_cast<std::size_t>(decoded->height()) * 4u;
                     image = std::make_shared<Bitmap const>(std::move(*decoded));
+                }
             }
         }
         by_url.emplace(key, image);
         by_url_density[key] = drawn_at;
-        if (image)
-            out.emplace(&element, layout::PageImage { std::move(image), source_density * drawn_at / scale });
+        // Entered either way: a picture that could not be had is known as
+        // one, and no pass asks for it again.
+        out.emplace(&element, layout::PageImage { std::move(image), source_density * drawn_at / scale });
     }
 };
 
@@ -119,15 +133,16 @@ std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes,
 }
 
 layout::ImageMap collect_images(dom::Document const& document, net::Url const* base,
-    ImageFetcher const& fetch, css::MediaContext const& media, layout::EmbeddedStates const* embedded)
+    ImageFetcher const& fetch, css::MediaContext const& media, layout::EmbeddedStates const* embedded, ImagePass const& pass)
 {
     layout::ImageMap images;
-    Collector collector { base, media, fetch, images, embedded, {}, {}, 0 };
+    Collector collector { base, media, fetch, images, embedded, pass, {}, {}, 0, 0 };
     collector.visit(document);
     return images;
 }
 
-layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch)
+layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch,
+    layout::BackgroundImages const* known)
 {
     layout::BackgroundImages out;
     std::size_t fetched = 0;
@@ -135,11 +150,11 @@ layout::BackgroundImages collect_background_images(css::StyleMap const& styles, 
         if (!style.background_images)
             return;
         for (css::BackgroundImage const& image : *style.background_images) {
-            if (image.url.empty() || out.contains(image.url))
+            if (image.url.empty() || out.contains(image.url) || (known && known->contains(image.url)))
                 continue;
             std::shared_ptr<Bitmap const> bitmap;
             std::optional<net::Url> const url = net::parse_url(image.url);
-            if (url && fetched < max_images_per_page && fetch) {
+            if (url && fetched < max_background_images && fetch) {
                 ++fetched;
                 if (std::optional<std::vector<std::uint8_t>> bytes = fetch(*url);
                     bytes && bytes->size() <= max_image_bytes) {

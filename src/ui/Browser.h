@@ -366,6 +366,7 @@ public:
     std::string page_title() const;
     std::string page_text() const; // the laid-out text, runs joined by spaces
     std::size_t blocked_requests() const; // refused by the loader's blocklists, this session
+    std::size_t pictures() const; // the active page's pictures decoded so far
     int scroll_y() const;
     // How far the innermost box that scrolls under a window point has had
     // its content moved, in CSS px; zero when the point is in no such box.

@@ -406,6 +406,7 @@ struct Browser::Impl {
         std::size_t current_match = 0;
         dom::Node const* inspected = nullptr; // devtools: the node under inspection
         int tree_scroll = 0; // devtools: the first tree line shown
+        bool images_owed = false; // pictures left for a later pass, taken on the next tick
         int scroll_y = 0;
         // How far the reader has moved each box that scrolls, and how much
         // of that the fragment tree already carries: a fresh layout carries
@@ -1760,6 +1761,50 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // How many of a page's pictures one pass fetches: the page shows after
+    // the first pass, and takes the rest a pass per tick.
+    static constexpr std::size_t images_per_pass = 64;
+
+    // A page's pictures fetched through the loader with the page as first
+    // party, under its policy's guard.
+    ImageFetcher image_fetcher(Tab& tab)
+    {
+        HistoryEntry const* const entry = tab.current();
+        net::Url const page_url = entry ? entry->final_url : net::Url {};
+        net::ContentSecurityPolicy* const policy = tab.policy.get();
+        std::string const container = tab.container;
+        return [this, page_url, policy, container](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Image) : net::RequestGuard {};
+            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url),
+                net::ResourceKind::Image, guard, container);
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            return std::move(result.response->body);
+        };
+    }
+
+    // The next pass over a page's pictures, for a page shown before all of
+    // them were in: the page is laid out again as they arrive.
+    void continue_images(Tab& tab)
+    {
+        tab.images_owed = false;
+        HistoryEntry const* const entry = tab.current();
+        if (!entry || !tab.document)
+            return;
+        layout::EmbeddedStates const embedded = tab.realm ? bindings::embedded_states(*tab.realm) : layout::EmbeddedStates {};
+        bool more = false;
+        {
+            Stopwatch const collecting(profile.images_ms);
+            layout::ImageMap fresh = collect_images(*tab.document, &entry->final_url, image_fetcher(tab), media_context(),
+                tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more });
+            for (auto& [element, image] : fresh)
+                tab.images[element] = std::move(image);
+        }
+        tab.images_owed = more;
+        relayout(tab);
+        dirty = true;
+    }
+
     // What the stylesheets are: the elements that carry them, so that a
     // script change elsewhere in the tree does not recompile every sheet.
     static std::string sheet_signature(dom::Node const& node)
@@ -2054,12 +2099,17 @@ struct Browser::Impl {
         {
             Stopwatch const collecting(profile.images_ms);
             if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images) || unfetched_embedded) {
+                // One pass now, so the page shows; the rest a pass per tick.
+                bool more = false;
                 layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
-                    tab.realm ? &embedded : nullptr);
+                    tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more });
                 for (auto& [element, image] : fresh)
                     tab.images[element] = std::move(image);
+                tab.images_owed = more;
             }
-            tab.backgrounds = collect_background_images(tab.styles, fetch_image);
+            // The backgrounds the styles name now that were not had before.
+            for (auto& [url, bitmap] : collect_background_images(tab.styles, fetch_image, &tab.backgrounds))
+                tab.backgrounds[url] = std::move(bitmap);
         }
         if (!entry->unloaded) // a restored entry keeps its saved title until its page arrives
             entry->title = find_title(*tab.document);
@@ -5592,7 +5642,13 @@ void Browser::new_tab() { m_impl->new_tab(); }
 void Browser::close_tab(std::size_t index) { m_impl->close_tab(index); }
 void Browser::select_tab(std::size_t index) { m_impl->select_tab(index); }
 
-bool Browser::has_pending_load() const { return !m_impl->pending.empty() || !m_impl->pending_windows.empty(); }
+bool Browser::has_pending_load() const
+{
+    if (!m_impl->pending.empty() || !m_impl->pending_windows.empty())
+        return true;
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab && tab->images_owed;
+}
 
 bool Browser::tick()
 {
@@ -5603,8 +5659,14 @@ bool Browser::tick()
         m_impl->pending_windows.erase(m_impl->pending_windows.begin());
         m_impl->open_tab_in(window.container, window.url);
     }
-    if (m_impl->pending.empty())
+    if (m_impl->pending.empty()) {
+        // The page shown takes the next of its pictures.
+        if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->images_owed) {
+            m_impl->continue_images(*tab);
+            return true;
+        }
         return false;
+    }
     Impl::Pending const load = m_impl->pending.front();
     m_impl->pending.erase(m_impl->pending.begin());
     return m_impl->perform(load);
@@ -5689,6 +5751,19 @@ Bitmap const& Browser::frame()
 
 bool Browser::needs_paint() const { return m_impl->dirty; }
 Profile const& Browser::profile() const { return m_impl->profile; }
+
+std::size_t Browser::pictures() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab)
+        return 0;
+    std::size_t decoded = 0;
+    for (auto const& [element, image] : tab->images) {
+        if (image.bitmap)
+            ++decoded;
+    }
+    return decoded;
+}
 
 platform::Cursor Browser::cursor() const
 {

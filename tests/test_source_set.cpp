@@ -219,6 +219,47 @@ int main()
     }
 
     // --- Page images end to end: fetched by choice, laid out by density ------
+    // A pass over the pictures is bounded: elements already known are left
+    // alone, at most `budget` new sources are fetched and the rest are left
+    // for a later pass, and a picture that could not be had is entered
+    // without a bitmap so it is never asked for again.
+    {
+        constexpr std::string_view html = R"HTML(<!doctype html><html><body>
+<img id="a" src="a.png"><img id="b" src="b.png"><img id="c" src="c.png"><img id="d" src="missing.png">
+</body></html>)HTML";
+        auto const document = html::parse_document(html);
+        net::Url const base = page_url();
+        int fetches = 0;
+        ui::ImageFetcher const fetcher = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            ++fetches;
+            if (path_of(url) == "/dir/missing.png")
+                return std::nullopt;
+            return encode_png(Bitmap(4, 4, Color::rgb(0, 0, 0)));
+        };
+        bool more = false;
+        layout::ImageMap known = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
+            ui::ImagePass { nullptr, 2, &more });
+        CHECK_EQ(known.size(), std::size_t { 2 });
+        CHECK_EQ(fetches, 2);
+        CHECK(more);
+        more = false;
+        layout::ImageMap const rest = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
+            ui::ImagePass { &known, 2, &more });
+        CHECK_EQ(rest.size(), std::size_t { 2 });
+        CHECK_EQ(fetches, 4);
+        CHECK(!more);
+        dom::Element const* const missing = find_img(*document, "d");
+        CHECK(missing && rest.contains(missing) && !rest.at(missing).bitmap);
+        for (auto const& [element, image] : rest)
+            known[element] = image;
+        // Nothing left: a third pass fetches nothing and enters nothing.
+        layout::ImageMap const none = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
+            ui::ImagePass { &known, 2, &more });
+        CHECK(none.empty());
+        CHECK_EQ(fetches, 4);
+        CHECK(!more);
+    }
+
     {
         constexpr std::string_view html = R"HTML(<!doctype html>
 <html><head><style>body { margin: 0 } p { margin: 0 }</style></head><body>
