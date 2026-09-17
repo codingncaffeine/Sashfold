@@ -163,6 +163,28 @@ struct WallTime {
     int second = 0;
 };
 
+// What the shell has done for its pages since it started, for the
+// instruments: counts and milliseconds, read by --bench and by a script's
+// assertions and never reset — a script marks a moment and reads the
+// difference. A restyle is the page's styles resolved whole, a relayout
+// the page laid out whole, however either was asked for; a paint is the
+// window's frame drawn again, its area in device pixels. The milliseconds
+// include what a phase fetched: the sheets and the pictures come through
+// the loader inside their phase.
+struct Profile {
+    std::uint64_t restyles = 0;
+    std::uint64_t relayouts = 0;
+    std::uint64_t paints = 0;
+    std::uint64_t painted_pixels = 0;
+    double sheets_ms = 0; // stylesheets and fonts collected
+    double images_ms = 0; // pictures collected and decoded
+    double restyle_ms = 0;
+    double relayout_ms = 0; // the page's own layout
+    double frames_ms = 0; // its frames' documents laid out and drawn
+    double paint_ms = 0;
+    double last_paint_ms = 0; // the most recent frame alone
+};
+
 class Browser {
 public:
     Browser(Loader& loader, Theme theme, int width, int height);
@@ -327,6 +349,7 @@ public:
     // --- Output -------------------------------------------------------------
     Bitmap const& frame(); // paints when something changed
     bool needs_paint() const;
+    Profile const& profile() const; // what the shell has done so far, counted and timed
     platform::Cursor cursor() const;
     std::string window_title() const;
 

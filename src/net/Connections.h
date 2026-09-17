@@ -26,13 +26,22 @@
 
 namespace sashfold::net {
 
+// What opening a connection cost, in milliseconds: the name lookup, the
+// TCP connect and, over https, the TLS handshake.
+struct ConnectionTiming {
+    double resolve_ms = 0;
+    double connect_ms = 0;
+    double tls_ms = 0;
+};
+
 // One established transport, plain or TLS. Move-only.
 class Connection {
 public:
     // Connects and, for https, handshakes with SNI for `host`. On failure
     // `error` names the step that failed, in the words the shell keys on.
+    // `timing`, when given, receives what each step took, on failure too.
     static std::optional<Connection> open(std::string const& host, std::uint16_t port,
-        bool secure, std::string& error);
+        bool secure, std::string& error, ConnectionTiming* timing = nullptr);
 
     Connection(Connection&&) noexcept = default;
     Connection& operator=(Connection&&) noexcept = default;

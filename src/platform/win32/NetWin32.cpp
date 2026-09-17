@@ -1,6 +1,7 @@
 #include "platform/Net.h"
 
 #include <algorithm>
+#include <chrono>
 
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -23,17 +24,24 @@ bool ensure_winsock()
 
 } // namespace
 
-std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16_t port)
+std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16_t port, ConnectTiming* timing)
 {
+    using clock = std::chrono::steady_clock;
+    using ms = std::chrono::duration<double, std::milli>;
     if (!ensure_winsock())
         return std::nullopt;
+    auto const started = clock::now();
     addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     addrinfo* results = nullptr;
     std::string const port_text = std::to_string(port);
-    if (getaddrinfo(host.c_str(), port_text.c_str(), &hints, &results) != 0)
+    int const lookup = getaddrinfo(host.c_str(), port_text.c_str(), &hints, &results);
+    auto const resolved = clock::now();
+    if (timing)
+        timing->resolve_ms = ms(resolved - started).count();
+    if (lookup != 0)
         return std::nullopt;
     SOCKET handle = INVALID_SOCKET;
     for (addrinfo* entry = results; entry; entry = entry->ai_next) {
@@ -46,6 +54,8 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
         handle = INVALID_SOCKET;
     }
     freeaddrinfo(results);
+    if (timing)
+        timing->connect_ms = ms(clock::now() - resolved).count();
     if (handle == INVALID_SOCKET)
         return std::nullopt;
     return TcpSocket(static_cast<std::uintptr_t>(handle));

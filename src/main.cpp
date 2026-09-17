@@ -15,6 +15,7 @@
 #include "net/Http.h"
 #include "paint/Painter.h"
 #include "platform/Clipboard.h"
+#include "platform/Memory.h"
 #include "platform/Window.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
@@ -38,6 +39,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <map>
@@ -59,7 +61,7 @@ int usage(char const* program)
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
               << "                 [--report out.json] [--gaps out.tsv] [--dump-layout] [--no-scripts] [--script-time ms]\n"
-              << "       " << program << " --bench <file.html|url> [--runs N] [--width N]\n"
+              << "       " << program << " --bench <file.html|url> [--runs N] [--width N] [--height N] [--report out.json]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
               << "       " << program << " --font-sampler <output.png> [--font <file.ttf>]\n"
@@ -92,7 +94,8 @@ int usage(char const* program)
               << "          laid-out box and text run with its position and size. The page's\n"
               << "          scripts run first, their timers on a virtual clock given --script-time\n"
               << "          milliseconds (3000); --no-scripts renders the markup alone.\n"
-              << "  --bench times parse, style, layout and paint of a page, several runs.\n"
+              << "  --bench runs a session on a page the way the window does and times it: first paint, pixels,\n"
+              << "          every phase of the shell.s work, a scroll frame, the memory; one JSON, medians over runs.\n"
               << "  --fetch prints the response head through the fetch choke point.\n"
               << "  --dump-dom parses the file and prints the document tree.\n"
               << "  --add-font installs a font file for the page as if the machine had it,\n"
@@ -242,6 +245,7 @@ css::StyleAttributeCheck style_attribute_check(net::ContentSecurityPolicy& polic
 std::string render_blocklists_path;
 
 net::Blocklists load_blocklists(std::string const& path);
+ui::Theme load_theme(std::string const& path);
 
 std::unique_ptr<ui::ShellLoader> make_render_loader()
 {
@@ -268,29 +272,6 @@ std::optional<net::Url> input_url(std::string const& source)
     if (!url)
         std::cerr << "error: unparseable input " << source << "\n";
     return url;
-}
-
-// Loads a --render / --bench input through the shell's loader.
-std::optional<LoadedPage> load_page(std::string const& source)
-{
-    std::optional<net::Url> const url = input_url(source);
-    if (!url)
-        return std::nullopt;
-    auto loader = make_render_loader();
-    net::FetchResult result = loader->load(*url, "", false);
-    if (!result.response) {
-        std::cerr << "error: " << result.error << "\n";
-        return std::nullopt;
-    }
-    if (url->scheme != "file")
-        std::cerr << "fetched " << result.response->final_url.serialize() << " ("
-                  << result.response->status << ", " << result.response->body.size() << " bytes)\n";
-    LoadedPage page;
-    page.bytes.assign(result.response->body.begin(), result.response->body.end());
-    page.url = result.response->final_url;
-    page.policy = page_policy(page.url, &result.response->headers);
-    page.loader = std::move(loader);
-    return page;
 }
 
 // Why a subresource did not arrive: the fetch error, or the status.
@@ -480,6 +461,39 @@ std::optional<RenderLoad> load_for_render(std::string const& source)
 }
 
 // What --render leaves beside the picture when asked.
+// The loader's account of a page's network, by what was fetched, as the
+// reports write it: every kind's fetches, what the cache answered, what
+// failed, the exchanges and the bytes on the wire, and the milliseconds
+// of each step, summed.
+std::string census_json(ui::ShellLoader::Census const& network)
+{
+    auto const kind_json = [](ui::ShellLoader::Census::Kind const& kind) {
+        net::FetchTiming const& t = kind.timing;
+        std::ostringstream text;
+        text << "{ \"fetches\": " << kind.fetches << ", \"cached\": " << kind.cached << ", \"failed\": " << kind.failed
+             << ", \"requests\": " << t.requests << ", \"reused\": " << t.reused << ", \"bytes\": " << t.bytes
+             << ", \"ms\": { \"resolve\": " << static_cast<long>(t.resolve_ms + 0.5)
+             << ", \"connect\": " << static_cast<long>(t.connect_ms + 0.5)
+             << ", \"tls\": " << static_cast<long>(t.tls_ms + 0.5)
+             << ", \"first_byte\": " << static_cast<long>(t.first_byte_ms + 0.5)
+             << ", \"body\": " << static_cast<long>(t.body_ms + 0.5)
+             << ", \"total\": " << static_cast<long>(t.total_ms + 0.5) << " } }";
+        return text.str();
+    };
+    std::ostringstream out;
+    out << "{ \"total\": " << kind_json(network.total()) << ",\n    \"by_kind\": {\n"
+        << "      \"document\": " << kind_json(network.document) << ",\n"
+        << "      \"subdocument\": " << kind_json(network.subdocument) << ",\n"
+        << "      \"stylesheet\": " << kind_json(network.stylesheet) << ",\n"
+        << "      \"script\": " << kind_json(network.script) << ",\n"
+        << "      \"image\": " << kind_json(network.image) << ",\n"
+        << "      \"font\": " << kind_json(network.font) << ",\n"
+        << "      \"xhr\": " << kind_json(network.xhr) << ",\n"
+        << "      \"other\": " << kind_json(network.other) << "\n"
+        << "    } }";
+    return out.str();
+}
+
 struct RenderExtras {
     std::string report; // a JSON account of the load and the render
     std::string thumbnail; // a small PNG of the viewport's top
@@ -956,6 +970,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
         out
             << "  \"connections\": { \"opened\": " << connections.opened << ", \"reused\": "
             << connections.reused << ", \"retried\": " << connections.retried << " },\n";
+        // Where the page's network time went, by what was fetched: the
+        // loader's account of every fetch it made for this page.
+        out << "  \"network\": " << census_json(loaded.loader->census()) << ",\n";
         FeatureCensus const census = feature_census(sheets);
         out << "  \"asks\": {";
         bool first_ask = true;
@@ -1091,109 +1108,201 @@ int smoke_scene(std::string const& output)
 // The engine's stages timed separately, best and median of several runs,
 // painting a viewport-sized slice the way the shell does each frame. The
 // perf budgets are checked against these numbers.
-int bench(std::string const& input, int runs, int viewport_width, int viewport_height)
+// --bench: a whole session on a page, the way the window runs it, timed —
+// the moment the page is first on the frame, the moment its scripts have
+// had their time and its pictures are on it too, what each phase of the
+// shell's work cost, what a wheel notch costs to scroll and paint at the
+// window's size, and the memory the page took — written as one JSON in
+// the shape of --render's report, with the loader's account of the
+// network beside it. Each run is a fresh session, since the cache is the
+// loader's and a second run on it is not a first; the summary takes the
+// median over the runs. The JSON goes to --report's file, else after the
+// summary on stdout.
+int bench(std::string const& input, int runs, int viewport_width, int viewport_height, std::string const& report_path,
+    std::string const& theme_path, std::string const& blocklists_path, std::string const& downloads)
 {
     using clock = std::chrono::steady_clock;
     using ms = std::chrono::duration<double, std::milli>;
-    auto const page_started = clock::now();
-    std::optional<LoadedPage> const loaded = load_page(input);
-    if (!loaded)
+    constexpr double script_time_ms = 3000; // the timers' virtual time, as --render gives it
+    constexpr int scroll_notches = 20;
+    std::optional<net::Url> const url = input_url(input);
+    if (!url)
         return 1;
-    double const page_ms = ms(clock::now() - page_started).count();
-    css::MediaContext const media { static_cast<float>(viewport_width),
-        static_cast<float>(viewport_height), g_device_scale };
-    // The sheets are fetched once, outside the timed runs: the network is
-    // not what the phases measure — what it cost is reported on its own line.
-    auto const sheets_started = clock::now();
-    std::vector<css::SheetSource> const sheets = [&] {
-        auto const first = html::parse_document_bytes(loaded->bytes);
-        bindings::adopt_meta_policies(*loaded->policy, *first);
-        std::vector<css::SheetSource> collected = css::collect_stylesheets(*first, &loaded->url, sheet_fetcher(*loaded), media,
-            inline_sheet_check(*loaded->policy));
-        if (loaded->loader) {
-            if (std::optional<css::SheetSource> hiding = ui::cosmetic_sheet(loaded->loader->blocklists(), loaded->url, *first))
-                collected.push_back(std::move(*hiding));
-        }
-        return collected;
-    }();
-    text::FontManager::instance().set_page_fonts(
-        css::collect_page_fonts(sheets, sheet_fetcher(*loaded, nullptr, net::ResourceKind::Font), media));
-    double const sheets_ms = ms(clock::now() - sheets_started).count();
-    std::size_t image_count = 0;
-    double images_ms = 0;
-    struct Sample {
-        double parse = 0;
-        double sheets = 0;
-        double style = 0;
-        double layout = 0;
-        double paint = 0;
+    struct Run {
+        double first_paint_ms = 0;
+        double pixels_ms = 0;
+        bool scrolled = false;
+        std::vector<double> scroll_ms; // a notch and the frame after it, each
+        std::vector<double> scroll_paint_ms; // the frame alone
+        ui::Profile profile;
+        ui::ShellLoader::Census network;
+        std::size_t rss_before = 0;
+        std::size_t rss_after = 0;
+        std::string title;
+        std::string final_url;
+        int status = 0;
     };
-    std::vector<Sample> samples;
-    float page_height = 0;
-    std::size_t rule_count = 0;
-    std::size_t universal_count = 0;
-    for (int run = 0; run < runs; ++run) {
-        Sample sample;
-        auto const t0 = clock::now();
-        auto document = html::parse_document_bytes(loaded->bytes);
-        auto const t1 = clock::now();
-        css::StyleSet style_set(sheets, media, &loaded->url);
-        style_set.set_style_attribute_check(style_attribute_check(*loaded->policy));
-        auto const t1b = clock::now();
-        css::StyleMap const styles = css::resolve_styles(*document, style_set);
-        auto const t2 = clock::now();
-        rule_count = style_set.rule_count();
-        universal_count = style_set.universal_count();
-        // Images are fetched here on every run, so the first run pays the
-        // network and the rest the session cache; neither counts as a phase.
-        layout::ImageMap const images = ui::collect_images(*document, &loaded->url, image_fetcher(*loaded), media);
-        layout::BackgroundImages const backgrounds = ui::collect_background_images(styles, image_fetcher(*loaded));
-        image_count = images.size();
-        auto const t2b = clock::now();
-        if (run == 0)
-            images_ms = ms(t2b - t2).count();
-        layout::LayoutResult const page = layout::layout_document(*document, styles,
-            static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale);
-        auto const t3 = clock::now();
-        Bitmap canvas(viewport_width, 1000, page.canvas_background);
-        paint::paint_page(canvas, page, 0, 0, &backgrounds);
-        auto const t4 = clock::now();
-        sample.parse = ms(t1 - t0).count();
-        sample.sheets = ms(t1b - t1).count();
-        sample.style = ms(t2 - t1b).count();
-        sample.layout = ms(t3 - t2b).count();
-        sample.paint = ms(t4 - t3).count();
-        samples.push_back(sample);
-        page_height = page.page_height;
-    }
-    auto const report = [&](char const* name, double Sample::*member) {
-        std::vector<double> values;
-        for (Sample const& sample : samples)
-            values.push_back(sample.*member);
+    auto const median = [](std::vector<double> values) {
+        if (values.empty())
+            return 0.0;
         std::sort(values.begin(), values.end());
-        std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", name, values.front(),
-            values[values.size() / 2]);
+        return values[values.size() / 2];
     };
-    std::printf("bench: %zu bytes, %zu sheet(s) with %zu rules (%zu universal), %zu image(s), "
-                "%d run(s), viewport %d px wide, page %d px tall\n",
-        loaded->bytes.size(), sheets.size(), rule_count, universal_count, image_count, runs,
-        viewport_width, static_cast<int>(page_height + 0.5f));
-    net::ConnectionPool::Stats const& connections = loaded->loader->pool().stats();
-    std::printf("  network page %.0f ms, sheets %.0f ms, images %.0f ms (first run); "
-                "connections opened %zu, reused %zu, retried %zu\n",
-        page_ms, sheets_ms, images_ms, connections.opened, connections.reused,
-        connections.retried);
-    report("parse", &Sample::parse);
-    report("sheets", &Sample::sheets);
-    report("style", &Sample::style);
-    report("layout", &Sample::layout);
-    report("paint", &Sample::paint);
-    std::vector<double> totals;
-    for (Sample const& sample : samples)
-        totals.push_back(sample.parse + sample.sheets + sample.style + sample.layout + sample.paint);
-    std::sort(totals.begin(), totals.end());
-    std::printf("  %-7s min %8.2f ms   median %8.2f ms\n", "total", totals.front(),
-        totals[totals.size() / 2]);
+    auto const largest = [](std::vector<double> const& values) {
+        return values.empty() ? 0.0 : *std::max_element(values.begin(), values.end());
+    };
+    // The shell's counters from the page on: what it did for the new-tab
+    // page it started with is taken off.
+    auto const since = [](ui::Profile const& now, ui::Profile const& base) {
+        ui::Profile d = now;
+        d.restyles -= base.restyles;
+        d.relayouts -= base.relayouts;
+        d.paints -= base.paints;
+        d.painted_pixels -= base.painted_pixels;
+        d.sheets_ms -= base.sheets_ms;
+        d.images_ms -= base.images_ms;
+        d.restyle_ms -= base.restyle_ms;
+        d.relayout_ms -= base.relayout_ms;
+        d.frames_ms -= base.frames_ms;
+        d.paint_ms -= base.paint_ms;
+        return d;
+    };
+    net::Blocklists const lists = load_blocklists(blocklists_path);
+    ui::Theme const theme = load_theme(theme_path);
+    std::vector<Run> results;
+    for (int i = 0; i < std::max(1, runs); ++i) {
+        Run run;
+        run.rss_before = platform::resident_set_bytes();
+        ui::ShellLoader loader;
+        loader.set_blocklists(lists);
+        ui::Browser browser(loader, theme, viewport_width, viewport_height);
+        browser.set_downloads_directory(downloads);
+        double clock_ms = 0; // the pages' clock, virtual: the timers run when it says
+        browser.set_clock([&clock_ms] { return clock_ms; });
+        browser.frame(); // the new-tab page, before the clock starts
+        ui::Profile const base = browser.profile();
+        auto const settle = [&browser] {
+            for (int round = 0; round < 4; ++round) {
+                while (browser.has_pending_load())
+                    browser.tick();
+                browser.run_scripts();
+                if (!browser.has_pending_load())
+                    break;
+            }
+        };
+        auto const started = clock::now();
+        browser.open(*url);
+        browser.tick(); // the navigation: the document, and whatever the shell fetches before it shows a page
+        browser.frame();
+        run.first_paint_ms = ms(clock::now() - started).count();
+        settle();
+        // The timers, as --render gives them: each due one runs in turn
+        // until the page's virtual time is spent.
+        for (int step = 0; step < 200; ++step) {
+            std::optional<double> const due = browser.next_timer_ms();
+            if (!due || *due > script_time_ms)
+                break;
+            clock_ms = std::max(clock_ms, *due);
+            settle();
+        }
+        browser.frame();
+        run.pixels_ms = ms(clock::now() - started).count();
+        run.rss_after = platform::resident_set_bytes();
+        // A wheel notch at the content's center, and the frame after it,
+        // twenty times: what a reader's scroll costs today.
+        Rect const content = browser.chrome_layout().content;
+        int const cx = content.x + content.width / 2;
+        int const cy = content.y + content.height / 2;
+        for (int notch = 0; notch < scroll_notches; ++notch) {
+            std::uint64_t const painted = browser.profile().paints;
+            auto const t = clock::now();
+            browser.wheel(cx, cy, -1);
+            browser.frame();
+            run.scroll_ms.push_back(ms(clock::now() - t).count());
+            run.scroll_paint_ms.push_back(browser.profile().paints > painted ? browser.profile().last_paint_ms : 0.0);
+        }
+        run.scrolled = browser.scroll_y() > 0;
+        run.profile = since(browser.profile(), base);
+        run.network = loader.census();
+        run.title = browser.page_title();
+        if (ui::HistoryEntry const* const entry = browser.current_entry()) {
+            run.final_url = entry->final_url.serialize();
+            run.status = entry->status;
+        }
+        results.push_back(std::move(run));
+    }
+
+    std::vector<double> first_paints;
+    std::vector<double> pixels;
+    std::vector<double> scroll_frames;
+    std::vector<double> scroll_paints;
+    std::vector<double> rss_deltas;
+    std::vector<double> network_totals;
+    for (Run const& run : results) {
+        first_paints.push_back(run.first_paint_ms);
+        pixels.push_back(run.pixels_ms);
+        scroll_frames.push_back(median(run.scroll_ms));
+        scroll_paints.push_back(median(run.scroll_paint_ms));
+        rss_deltas.push_back(static_cast<double>(run.rss_after) - static_cast<double>(run.rss_before));
+        network_totals.push_back(run.network.total().timing.total_ms);
+    }
+    Run const& first = results.front();
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(1);
+    out << "{\n"
+        << "  \"input\": " << json_string(input) << ",\n"
+        << "  \"url\": " << json_string(first.final_url) << ",\n"
+        << "  \"title\": " << json_string(first.title) << ",\n"
+        << "  \"status\": " << first.status << ",\n"
+        << "  \"rendered\": " << json_string(utc_now()) << ",\n"
+        << "  \"viewport\": { \"width\": " << viewport_width << ", \"height\": " << viewport_height << " },\n"
+        << "  \"runs\": " << results.size() << ",\n"
+        << "  \"script_time_ms\": " << static_cast<long>(script_time_ms) << ",\n"
+        << "  \"scroll_notches\": " << scroll_notches << ",\n"
+        << "  \"median\": { \"first_paint_ms\": " << median(first_paints) << ", \"pixels_ms\": " << median(pixels)
+        << ", \"scroll_frame_ms\": " << median(scroll_frames) << ", \"scroll_paint_ms\": " << median(scroll_paints)
+        << ", \"network_ms\": " << median(network_totals) << ", \"rss_delta_bytes\": " << static_cast<long long>(median(rss_deltas))
+        << " },\n"
+        << "  \"run_details\": [\n";
+    for (std::size_t i = 0; i < results.size(); ++i) {
+        Run const& run = results[i];
+        ui::Profile const& p = run.profile;
+        out << "    { \"first_paint_ms\": " << run.first_paint_ms << ", \"pixels_ms\": " << run.pixels_ms
+            << ", \"scrolled\": " << (run.scrolled ? "true" : "false")
+            << ", \"scroll\": { \"frame_ms\": { \"median\": " << median(run.scroll_ms) << ", \"max\": " << largest(run.scroll_ms)
+            << " }, \"paint_ms\": { \"median\": " << median(run.scroll_paint_ms) << ", \"max\": " << largest(run.scroll_paint_ms) << " } },\n"
+            << "      \"shell\": { \"restyles\": " << p.restyles << ", \"relayouts\": " << p.relayouts << ", \"paints\": " << p.paints
+            << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"sheets\": " << p.sheets_ms << ", \"images\": " << p.images_ms
+            << ", \"restyle\": " << p.restyle_ms << ", \"relayout\": " << p.relayout_ms << ", \"frames\": " << p.frames_ms
+            << ", \"paint\": " << p.paint_ms << " } },\n"
+            << "      \"rss_bytes\": { \"before\": " << run.rss_before << ", \"after\": " << run.rss_after << " },\n"
+            << "      \"network\": " << census_json(run.network) << " }" << (i + 1 < results.size() ? "," : "") << "\n";
+    }
+    out << "  ]\n}\n";
+    std::string const json = out.str();
+    if (!report_path.empty()) {
+        std::ofstream file(report_path, std::ios::binary);
+        file << json;
+        if (!file) {
+            std::cerr << "error: could not write " << report_path << "\n";
+            return 1;
+        }
+    }
+    ui::ShellLoader::Census::Kind const network = first.network.total();
+    std::printf("bench: %s at %dx%d, %zu run(s): first paint %.0f ms, pixels %.0f ms, scroll frame %.1f ms "
+                "(paint %.1f ms), RSS %+.1f MB — medians\n",
+        first.final_url.c_str(), viewport_width, viewport_height, results.size(), median(first_paints), median(pixels),
+        median(scroll_frames), median(scroll_paints), median(rss_deltas) / (1024.0 * 1024.0));
+    std::printf("  first run: network %.0f ms over %d request(s) (document %.0f, sheets %.0f, scripts %.0f, images %.0f, fonts %.0f, "
+                "xhr %.0f); shell sheets %.0f ms, images %.0f, style %.0f (%llu), layout %.0f (%llu), frames %.0f, paint %.0f (%llu)\n",
+        network.timing.total_ms, network.timing.requests, first.network.document.timing.total_ms,
+        first.network.stylesheet.timing.total_ms, first.network.script.timing.total_ms, first.network.image.timing.total_ms,
+        first.network.font.timing.total_ms, first.network.xhr.timing.total_ms, first.profile.sheets_ms, first.profile.images_ms,
+        first.profile.restyle_ms, static_cast<unsigned long long>(first.profile.restyles), first.profile.relayout_ms,
+        static_cast<unsigned long long>(first.profile.relayouts), first.profile.frames_ms, first.profile.paint_ms,
+        static_cast<unsigned long long>(first.profile.paints));
+    if (report_path.empty())
+        std::fputs(json.c_str(), stdout);
     return 0;
 }
 
@@ -1832,7 +1941,8 @@ int main(int argc, char** argv)
     if (mode == "--render")
         return render_page(input, output, width ? width : 800, height ? height : 720, extras);
     if (mode == "--bench")
-        return bench(input, runs, width ? width : 800, height ? height : 720);
+        return bench(input, runs, width ? width : 1100, height ? height : 800, extras.report, theme_path, blocklists_path,
+            downloads.value_or(""));
     if (mode == "--fetch")
         return fetch_url(input);
     if (mode == "--dump-dom")

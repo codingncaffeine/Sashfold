@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -51,15 +52,22 @@ bool connect_with_deadline(int handle, sockaddr const* address, socklen_t length
 
 } // namespace
 
-std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16_t port)
+std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16_t port, ConnectTiming* timing)
 {
+    using clock = std::chrono::steady_clock;
+    using ms = std::chrono::duration<double, std::milli>;
+    auto const started = clock::now();
     addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     addrinfo* results = nullptr;
     std::string const port_text = std::to_string(port);
-    if (getaddrinfo(host.c_str(), port_text.c_str(), &hints, &results) != 0)
+    int const lookup = getaddrinfo(host.c_str(), port_text.c_str(), &hints, &results);
+    auto const resolved = clock::now();
+    if (timing)
+        timing->resolve_ms = ms(resolved - started).count();
+    if (lookup != 0)
         return std::nullopt;
     int handle = -1;
     for (addrinfo* entry = results; entry; entry = entry->ai_next) {
@@ -72,6 +80,8 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
         handle = -1;
     }
     freeaddrinfo(results);
+    if (timing)
+        timing->connect_ms = ms(clock::now() - resolved).count();
     if (handle < 0)
         return std::nullopt;
     return TcpSocket(static_cast<std::uintptr_t>(handle));

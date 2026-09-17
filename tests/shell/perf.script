@@ -1,0 +1,46 @@
+# The shell counts what it does for a page — the page's styles resolved
+# whole, the page laid out whole — and a script reads the count since a
+# mark. What a reader's everyday gestures cost today is asserted here as
+# it is: a hover and a wheel notch lay out nothing, and every keystroke
+# into a field lays the whole page out again, which is the number the
+# invalidation work brings to zero. No colour may be written as #rgb
+# here: a # in a data URL starts its fragment and the rest is lost.
+resize 800 500
+open data:text/html,<title>Counted</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.spacer{height:900px}</style><p><a href="/elsewhere">a link</a> and a field <input name="f"></p><div class="spacer">below</div>
+assert-title Counted
+assert-text a link
+move 300 300
+
+# Arriving styles and lays the page out once each.
+mark
+open data:text/html,<title>Again</title><p>once</p>
+assert-title Again
+assert-restyles 1
+assert-relayouts 1
+
+# A hover over a link, and off it, moves the cursor and nothing else.
+back
+assert-title Counted
+mark
+move 40 100
+move 300 300
+assert-restyles 0
+assert-relayouts 0
+
+# A wheel notch scrolls the page it has: no styling, no layout.
+mark
+wheel -1
+assert-scrolled
+assert-restyles 0
+assert-relayouts 0
+
+# A keystroke into a field lays the whole page out again today, once per
+# key; the styles stand.
+wheel 1
+assert-scroll 0
+focus f
+mark
+type abc
+assert-value f abc
+assert-restyles 0
+assert-relayouts 3

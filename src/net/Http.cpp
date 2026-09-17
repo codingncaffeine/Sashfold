@@ -367,7 +367,22 @@ void install_revocation_fetch()
 
 }
 
-FetchResult fetch(Url const& url, FetchOptions const& options)
+void FetchTiming::add(FetchTiming const& other)
+{
+    resolve_ms += other.resolve_ms;
+    connect_ms += other.connect_ms;
+    tls_ms += other.tls_ms;
+    first_byte_ms += other.first_byte_ms;
+    body_ms += other.body_ms;
+    total_ms += other.total_ms;
+    requests += other.requests;
+    reused += other.reused;
+    bytes += other.bytes;
+}
+
+// The fetch itself; `timing` collects what its connections and exchanges
+// cost as they happen, whichever way the call returns.
+static FetchResult fetch_hops(Url const& url, FetchOptions const& options, FetchTiming& timing)
 {
     install_revocation_fetch();
     // Synthesized schemes resolve without touching the network.
@@ -456,9 +471,19 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
             connection = options.pool->take(key, unix_now());
             reused = connection.has_value();
         }
+        // A connection opened here adds its lookup, connect and handshake
+        // to the fetch's account.
+        auto const open_connection = [&](std::string& error) {
+            ConnectionTiming opened;
+            std::optional<Connection> fresh = Connection::open(current.host, port, secure, error, &opened);
+            timing.resolve_ms += opened.resolve_ms;
+            timing.connect_ms += opened.connect_ms;
+            timing.tls_ms += opened.tls_ms;
+            return fresh;
+        };
         if (!connection) {
             std::string error;
-            connection = Connection::open(current.host, port, secure, error);
+            connection = open_connection(error);
             if (!connection)
                 return { std::nullopt, std::move(error) };
             if (options.pool)
@@ -510,29 +535,49 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
 
         // One request-response exchange over a connection; the returned
         // error is empty on success.
-        auto const exchange = [&](Connection& over, std::optional<RawResponse>& raw) {
+        // The exchange's account: the wait from the request's last byte to
+        // the response's first, then the rest of the response; a response
+        // that never came is all wait.
+        auto const exchange = [&](Connection& over, std::optional<RawResponse>& raw, bool pooled) {
+            using clock = std::chrono::steady_clock;
+            using ms = std::chrono::duration<double, std::milli>;
             if (!over.send_all(reinterpret_cast<std::uint8_t const*>(request.data()), request.size()))
                 return std::string("send failed");
-            auto const read = [&over](std::uint8_t* buffer, std::size_t size) {
-                return over.receive(buffer, size);
+            auto const sent = clock::now();
+            ++timing.requests;
+            if (pooled)
+                ++timing.reused;
+            std::optional<clock::time_point> first;
+            auto const read = [&over, &first, &timing](std::uint8_t* buffer, std::size_t size) {
+                std::ptrdiff_t const got = over.receive(buffer, size);
+                if (got > 0) {
+                    if (!first)
+                        first = clock::now();
+                    timing.bytes += static_cast<std::size_t>(got);
+                }
+                return got;
             };
             raw = read_response(read, options.max_body, method == "HEAD");
+            auto const done = clock::now();
+            timing.first_byte_ms += ms(first.value_or(done) - sent).count();
+            if (first)
+                timing.body_ms += ms(done - *first).count();
             if (!raw)
                 return "malformed HTTP response from " + current.serialize_host();
             return std::string();
         };
         std::optional<RawResponse> raw;
-        std::string failure = exchange(*connection, raw);
+        std::string failure = exchange(*connection, raw, reused);
         if (!raw && reused) {
             // The pooled connection was dead — the server's idle timeout won
             // the race — so the request goes out once more, on a fresh one.
             options.pool->note_retried();
             std::string error;
-            connection = Connection::open(current.host, port, secure, error);
+            connection = open_connection(error);
             if (!connection)
                 return { std::nullopt, std::move(error) };
             options.pool->note_opened();
-            failure = exchange(*connection, raw);
+            failure = exchange(*connection, raw, false);
         }
         if (!raw)
             return { std::nullopt, std::move(failure) };
@@ -607,6 +652,17 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
         return { std::move(response), "" };
     }
     return { std::nullopt, "too many redirects" };
+}
+
+FetchResult fetch(Url const& url, FetchOptions const& options)
+{
+    using clock = std::chrono::steady_clock;
+    auto const started = clock::now();
+    FetchTiming timing;
+    FetchResult result = fetch_hops(url, options, timing);
+    timing.total_ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
+    result.timing = timing;
+    return result;
 }
 
 }

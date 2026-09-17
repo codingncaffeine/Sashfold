@@ -1,24 +1,33 @@
 #include "net/Connections.h"
 
 #include <algorithm>
+#include <chrono>
 #include <utility>
 
 namespace sashfold::net {
 
 std::optional<Connection> Connection::open(std::string const& host, std::uint16_t port,
-    bool secure, std::string& error)
+    bool secure, std::string& error, ConnectionTiming* timing)
 {
     // (IPv6 hosts are stored bracket-free, which is what getaddrinfo wants;
     // the messages put the brackets back for the reader.)
     std::string const shown = host.find(':') != std::string::npos ? "[" + host + "]" : host;
-    auto tcp = platform::TcpSocket::connect(host, port);
+    platform::ConnectTiming connected;
+    auto tcp = platform::TcpSocket::connect(host, port, &connected);
+    if (timing) {
+        timing->resolve_ms = connected.resolve_ms;
+        timing->connect_ms = connected.connect_ms;
+    }
     if (!tcp) {
         error = "could not connect to " + shown;
         return std::nullopt;
     }
     Connection connection;
     if (secure) {
+        auto const handshake_started = std::chrono::steady_clock::now();
         auto tls = platform::TlsSocket::connect(std::move(*tcp), host, port);
+        if (timing)
+            timing->tls_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - handshake_started).count();
         if (!tls) {
             error = "TLS handshake or certificate validation failed for " + shown;
             return std::nullopt;

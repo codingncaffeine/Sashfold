@@ -127,6 +127,7 @@ struct Runner {
     // the script says and the run is the same on every machine.
     double clock_ms = 0;
     std::string held_session; // the last session-save without a path
+    Profile marked; // the shell's counters when the script last marked them
 
     void fail(std::string const& what)
     {
@@ -409,6 +410,16 @@ struct Runner {
         } else if (command == "assert-scrolled") {
             if (browser.scroll_y() <= 0)
                 fail("assert-scrolled: scroll offset is 0");
+        } else if (command == "mark") {
+            // The counters as they stand; the assertions below read what
+            // the shell did since.
+            marked = browser.profile();
+        } else if (command == "assert-restyles") {
+            expect_equal("assert-restyles", std::to_string(browser.profile().restyles - marked.restyles), argument);
+        } else if (command == "assert-relayouts") {
+            expect_equal("assert-relayouts", std::to_string(browser.profile().relayouts - marked.relayouts), argument);
+        } else if (command == "assert-paints") {
+            expect_equal("assert-paints", std::to_string(browser.profile().paints - marked.paints), argument);
         } else if (command == "assert-pixel") {
             auto const x = int_arg(0);
             auto const y = int_arg(1);
@@ -503,7 +514,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
 {
     std::ifstream file(path);
     Runner runner { browser, std::filesystem::absolute(std::filesystem::path(path)).parent_path(),
-        update_goldens, out, {}, 0, 0, {} };
+        update_goldens, out, {}, 0, 0, {}, {} };
     if (!file) {
         runner.fail("cannot read script " + path);
         return runner.result;

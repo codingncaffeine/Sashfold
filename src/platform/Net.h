@@ -12,11 +12,20 @@
 
 namespace sashfold::platform {
 
+// What a connect cost, in milliseconds: the name lookup and the TCP
+// handshake, for the instruments that ask where a page's time went.
+struct ConnectTiming {
+    double resolve_ms = 0;
+    double connect_ms = 0;
+};
+
 class TcpSocket {
 public:
     // Connects to a DNS name or address literal (getaddrinfo — an OS
-    // interface — does the resolving).
-    static std::optional<TcpSocket> connect(std::string const& host, std::uint16_t port);
+    // interface — does the resolving). `timing`, when given, receives what
+    // the lookup and the connect took, on failure too.
+    static std::optional<TcpSocket> connect(std::string const& host, std::uint16_t port,
+        ConnectTiming* timing = nullptr);
 
     TcpSocket(TcpSocket&& other) noexcept;
     TcpSocket& operator=(TcpSocket&& other) noexcept;

@@ -195,6 +195,16 @@ int main(int argc, char** argv)
                                  result.response->body.end()),
                         "over the top");
                 }
+                // The fetch's account: one exchange on a connection opened
+                // here, every byte of the response counted on the wire, the
+                // clock readings ordered as the steps were.
+                CHECK_EQ(result.timing.requests, 1);
+                CHECK_EQ(result.timing.reused, 0);
+                CHECK_EQ(static_cast<int>(result.timing.bytes), 51);
+                CHECK(result.timing.resolve_ms >= 0 && result.timing.connect_ms >= 0);
+                CHECK_EQ(result.timing.tls_ms, 0.0);
+                CHECK(result.timing.first_byte_ms >= 0 && result.timing.body_ms >= 0);
+                CHECK(result.timing.total_ms >= result.timing.first_byte_ms + result.timing.body_ms);
             }
             server.join();
         }

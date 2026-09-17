@@ -66,6 +66,34 @@ struct Row {
     long fonts = 0;
     long ms_fetch = 0;
     long ms_total = 0;
+    // The engine's phases from the report's "ms" object; the sheets and
+    // the pictures phases hold their fetches too.
+    long ms_parse = 0;
+    long ms_sheets_phase = 0;
+    long ms_style = 0;
+    long ms_images_phase = 0;
+    long ms_layout = 0;
+    long ms_paint = 0;
+    long ms_scripts = 0; // the realm's, inside the parse
+    // The loader's account of the network from the report's "network"
+    // object: the milliseconds by step and by what was fetched, and the
+    // traffic. A report from before the account has zeros.
+    long ms_network = 0;
+    long ms_resolve = 0;
+    long ms_connect = 0;
+    long ms_tls = 0;
+    long ms_first_byte = 0;
+    long ms_body = 0;
+    long requests = 0;
+    long reused = 0;
+    long wire_bytes = 0;
+    long ms_document = 0;
+    long ms_sheets_net = 0;
+    long ms_scripts_net = 0;
+    long ms_images_net = 0;
+    long ms_fonts_net = 0;
+    long ms_xhr_net = 0;
+    long ms_engine() const { return std::max(0L, ms_total - ms_network); }
     std::string rendered;
     // What the page's stylesheets ask for that the engine does not do yet:
     // feature key → declarations.
@@ -196,6 +224,38 @@ void read_report(Row& row, std::filesystem::path const& path)
     row.fonts = number_of(*report, "fonts");
     row.ms_fetch = nested_number(*report, "ms", "fetch");
     row.ms_total = nested_number(*report, "ms", "total");
+    row.ms_parse = nested_number(*report, "ms", "parse");
+    row.ms_sheets_phase = nested_number(*report, "ms", "stylesheets");
+    row.ms_style = nested_number(*report, "ms", "style");
+    row.ms_images_phase = nested_number(*report, "ms", "images");
+    row.ms_layout = nested_number(*report, "ms", "layout");
+    row.ms_paint = nested_number(*report, "ms", "paint");
+    row.ms_scripts = nested_number(*report, "scripts", "ms");
+    if (JsonValue const* const network = report->get("network"); network && network->is_object()) {
+        if (JsonValue const* const total = network->get("total"); total && total->is_object()) {
+            row.requests = number_of(*total, "requests");
+            row.reused = number_of(*total, "reused");
+            row.wire_bytes = number_of(*total, "bytes");
+            row.ms_network = nested_number(*total, "ms", "total");
+            row.ms_resolve = nested_number(*total, "ms", "resolve");
+            row.ms_connect = nested_number(*total, "ms", "connect");
+            row.ms_tls = nested_number(*total, "ms", "tls");
+            row.ms_first_byte = nested_number(*total, "ms", "first_byte");
+            row.ms_body = nested_number(*total, "ms", "body");
+        }
+        if (JsonValue const* const kinds = network->get("by_kind"); kinds && kinds->is_object()) {
+            auto const kind_ms = [&kinds](char const* kind) {
+                JsonValue const* const value = kinds->get(kind);
+                return value && value->is_object() ? nested_number(*value, "ms", "total") : 0L;
+            };
+            row.ms_document = kind_ms("document");
+            row.ms_sheets_net = kind_ms("stylesheet");
+            row.ms_scripts_net = kind_ms("script");
+            row.ms_images_net = kind_ms("image");
+            row.ms_fonts_net = kind_ms("font");
+            row.ms_xhr_net = kind_ms("xhr");
+        }
+    }
     row.rendered = string_of(*report, "rendered");
     if (JsonValue const* const asks = report->get("asks"); asks && asks->is_object()) {
         for (JsonValue::Member const& member : asks->as_object()) {
@@ -512,6 +572,92 @@ Totals totals_of(std::vector<Row> const& rows)
     return totals;
 }
 
+// Where the seconds go, over the loaded pages: each step of the time from
+// request to pixels as the median page's milliseconds and as its share of
+// the hundred's sum, and the pages that cost most. The steps overlap by
+// design — the network's parts, the network by what was fetched, and the
+// engine's own phases are three cuts of the same total.
+struct Census {
+    struct Step {
+        std::string key;
+        std::string label;
+        long median = 0;
+        long sum = 0;
+    };
+    long pages = 0;
+    long sum_total = 0;
+    std::vector<Step> steps;
+    std::vector<Row const*> slowest; // by the whole, descending, ten at most
+};
+
+Census census_of(std::vector<Row> const& rows)
+{
+    Census census;
+    std::vector<Row const*> loaded;
+    for (Row const& row : rows) {
+        if (is_loaded(row))
+            loaded.push_back(&row);
+    }
+    census.pages = static_cast<long>(loaded.size());
+    if (loaded.empty())
+        return census;
+    auto const step = [&](std::string key, std::string label, auto value_of) {
+        Census::Step entry { std::move(key), std::move(label), 0, 0 };
+        std::vector<long> values;
+        for (Row const* row : loaded) {
+            long const value = std::max(0L, static_cast<long>(value_of(*row)));
+            values.push_back(value);
+            entry.sum += value;
+        }
+        std::sort(values.begin(), values.end());
+        entry.median = values[values.size() / 2];
+        census.steps.push_back(std::move(entry));
+    };
+    step("total", "Request to pixels, the whole", [](Row const& row) { return row.ms_total; });
+    census.sum_total = census.steps.back().sum;
+    step("network", "Network, all of it", [](Row const& row) { return row.ms_network; });
+    step("resolve", "Network: name lookups", [](Row const& row) { return row.ms_resolve; });
+    step("connect", "Network: TCP connects", [](Row const& row) { return row.ms_connect; });
+    step("tls", "Network: TLS handshakes", [](Row const& row) { return row.ms_tls; });
+    step("first_byte", "Network: waiting for the first byte", [](Row const& row) { return row.ms_first_byte; });
+    step("body", "Network: the rest of each response", [](Row const& row) { return row.ms_body; });
+    step("document", "Fetched: the page itself", [](Row const& row) { return row.ms_document; });
+    step("stylesheets", "Fetched: stylesheets", [](Row const& row) { return row.ms_sheets_net; });
+    step("scripts", "Fetched: scripts", [](Row const& row) { return row.ms_scripts_net; });
+    step("images", "Fetched: pictures", [](Row const& row) { return row.ms_images_net; });
+    step("fonts", "Fetched: fonts", [](Row const& row) { return row.ms_fonts_net; });
+    step("xhr", "Fetched: fetch() and XMLHttpRequest", [](Row const& row) { return row.ms_xhr_net; });
+    step("engine", "Engine, all of it", [](Row const& row) { return row.ms_engine(); });
+    step("parse", "Engine: parse, with the scripts run inside it", [](Row const& row) { return row.ms_parse - row.ms_scripts_net - row.ms_xhr_net; });
+    step("script", "Engine: scripts run, their own fetches taken out", [](Row const& row) { return row.ms_scripts - row.ms_xhr_net; });
+    step("sheets", "Engine: stylesheets read", [](Row const& row) { return row.ms_sheets_phase - row.ms_sheets_net - row.ms_fonts_net; });
+    step("style", "Engine: style", [](Row const& row) { return row.ms_style; });
+    step("decode", "Engine: pictures decoded", [](Row const& row) { return row.ms_images_phase - row.ms_images_net; });
+    step("layout", "Engine: layout", [](Row const& row) { return row.ms_layout; });
+    step("paint", "Engine: paint", [](Row const& row) { return row.ms_paint; });
+    std::sort(loaded.begin(), loaded.end(), [](Row const* a, Row const* b) { return a->ms_total > b->ms_total; });
+    for (std::size_t i = 0; i < loaded.size() && i < 10; ++i)
+        census.slowest.push_back(loaded[i]);
+    return census;
+}
+
+// The census as a table beside the dashboard, one row per page of the
+// corpus whether it loaded or not, for tools/perf-census.sh to rank.
+void write_census_tsv(std::filesystem::path const& path, std::vector<Row> const& rows)
+{
+    std::ofstream out(path, std::ios::binary);
+    out << "id\toutcome\ttotal\tnetwork\tengine\tresolve\tconnect\ttls\tfirst_byte\tbody\trequests\treused\tbytes"
+           "\tdocument\tstylesheets\tscripts\timages\tfonts\txhr\tparse\tscripts_run\tsheets_read\tstyle\timages_phase\tlayout\tpaint\turl\n";
+    for (Row const& row : rows) {
+        out << row.id << '\t' << (is_loaded(row) ? "loaded" : row.outcome) << '\t' << row.ms_total << '\t' << row.ms_network << '\t'
+            << row.ms_engine() << '\t' << row.ms_resolve << '\t' << row.ms_connect << '\t' << row.ms_tls << '\t' << row.ms_first_byte
+            << '\t' << row.ms_body << '\t' << row.requests << '\t' << row.reused << '\t' << row.wire_bytes << '\t' << row.ms_document
+            << '\t' << row.ms_sheets_net << '\t' << row.ms_scripts_net << '\t' << row.ms_images_net << '\t' << row.ms_fonts_net << '\t'
+            << row.ms_xhr_net << '\t' << row.ms_parse << '\t' << row.ms_scripts << '\t' << row.ms_sheets_phase << '\t' << row.ms_style
+            << '\t' << row.ms_images_phase << '\t' << row.ms_layout << '\t' << row.ms_paint << '\t' << row.url << '\n';
+    }
+}
+
 void write_card(std::ostream& out, Row const& row)
 {
     Verdict const verdict = verdict_of(row);
@@ -714,6 +860,32 @@ void write_html(std::filesystem::path const& path, Corpus const& corpus, Totals 
         }
         out << "</tbody>\n</table>\n";
     }
+    Census const census = census_of(corpus.rows);
+    if (census.pages > 0 && census.sum_total > 0) {
+        out << "<h2>Where the seconds go</h2>\n"
+               "<p class=\"lens\">Over the pages that loaded, what the time from request to pixels was spent on, three ways: the "
+               "network's steps as the loader clocked every fetch, the network by what was fetched, and the engine's own phases. "
+               "Each step is the median page's milliseconds and its share of the hundred's sum; a page's network is serial today, "
+               "one fetch after another on the one thread, so the steps add up. This is the number the speed work goes after, "
+               "in the order it goes.</p>\n"
+               "<table>\n<thead><tr><th>Step</th> <th></th> <th>Median page</th> <th>Share</th></tr></thead>\n<tbody>\n";
+        for (Census::Step const& step : census.steps) {
+            int const share = static_cast<int>(100 * step.sum / census.sum_total);
+            out << "<tr><td>" << html_escaped(step.label) << "</td> <td><div class=\"bar\"><span style=\"width: " << share
+                << "%\"></span></div></td> <td class=\"num\">" << step.median << " ms</td> <td class=\"num\">" << share
+                << "%</td></tr>\n";
+        }
+        out << "</tbody>\n</table>\n"
+               "<p class=\"lens\">The slowest of the hundred, and what each was: the whole, the network's part of it, the engine's.</p>\n"
+               "<table>\n<thead><tr><th>Page</th> <th>To pixels</th> <th>Network</th> <th>Engine</th> <th>Requests</th></tr></thead>\n<tbody>\n";
+        for (Row const* row : census.slowest) {
+            out << "<tr><td>" << html_escaped(host_of(row->final_url.empty() ? row->url : row->final_url)) << "</td> <td class=\"num\">"
+                << html_escaped(seconds(row->ms_total)) << "</td> <td class=\"num\">" << html_escaped(seconds(row->ms_network))
+                << "</td> <td class=\"num\">" << html_escaped(seconds(row->ms_engine())) << "</td> <td class=\"num\">" << row->requests
+                << "</td></tr>\n";
+        }
+        out << "</tbody>\n</table>\n";
+    }
     std::string const arizona = latest_render_arizona(corpus.rows);
     bool first_category = true;
     for (Category const& category : corpus.categories) {
@@ -756,7 +928,15 @@ void write_json(std::filesystem::path const& path, Corpus const& corpus, Totals 
         out << "    { \"feature\": \"" << json_escaped(asked[i].key) << "\", \"pages\": " << asked[i].pages
             << ", \"declarations\": " << asked[i].declarations << " }" << (i + 1 < asked.size() ? "," : "") << "\n";
     }
-    out << "  ],\n  \"pages\": [\n";
+    out << "  ],\n";
+    Census const census = census_of(corpus.rows);
+    out << "  \"census\": { \"pages\": " << census.pages << ", \"sum_ms\": " << census.sum_total << ", \"steps\": [\n";
+    for (std::size_t i = 0; i < census.steps.size(); ++i) {
+        Census::Step const& step = census.steps[i];
+        out << "    { \"step\": \"" << json_escaped(step.key) << "\", \"median_ms\": " << step.median << ", \"sum_ms\": " << step.sum
+            << " }" << (i + 1 < census.steps.size() ? "," : "") << "\n";
+    }
+    out << "  ] },\n  \"pages\": [\n";
     for (std::size_t i = 0; i < corpus.rows.size(); ++i) {
         Row const& row = corpus.rows[i];
         Verdict const verdict = verdict_of(row);
@@ -765,6 +945,7 @@ void write_json(std::filesystem::path const& path, Corpus const& corpus, Totals 
             << "\", \"outcome\": \"" << json_escaped(row.outcome) << "\", \"verdict\": \"" << json_escaped(verdict.label)
             << "\", \"status\": " << row.status << ", \"final_url\": \"" << json_escaped(row.final_url)
             << "\", \"title\": \"" << json_escaped(row.title) << "\", \"ms_total\": " << row.ms_total
+            << ", \"ms_network\": " << row.ms_network << ", \"ms_engine\": " << row.ms_engine() << ", \"requests\": " << row.requests
             << ", \"page_height\": " << row.page_height << ", \"characters\": " << row.characters
             << ", \"stylesheets\": " << row.stylesheets << ", \"images\": " << row.images << " }"
             << (i + 1 < corpus.rows.size() ? "," : "") << "\n";
@@ -824,6 +1005,7 @@ int main(int argc, char** argv)
     std::string const stamp = now_arizona();
     write_html(html_path.empty() ? dir / "index.html" : std::filesystem::path(html_path), *corpus, totals, stamp, placement);
     write_json(json_path.empty() ? dir / "sashfold100.json" : std::filesystem::path(json_path), *corpus, totals, stamp);
+    write_census_tsv(dir / "census.tsv", corpus->rows);
     std::cout << "sashfold100: " << totals.loaded << " / " << totals.rows << " loaded, " << totals.refused << " / "
               << totals.refusals_expected << " bad certificates refused, median " << seconds(totals.median_ms)
               << " to pixels\n";

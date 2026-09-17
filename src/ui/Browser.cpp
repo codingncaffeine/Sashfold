@@ -582,6 +582,29 @@ struct Browser::Impl {
 
     Bitmap frame;
     bool dirty = true;
+    Profile profile; // the counts and the milliseconds, since the start
+
+    // Adds what a scope took to one of the profile's sums when the scope
+    // ends, and, when asked, leaves that one span's own length too.
+    struct Stopwatch {
+        double& sum;
+        double* last;
+        std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+        explicit Stopwatch(double& the_sum, double* the_last = nullptr)
+            : sum(the_sum)
+            , last(the_last)
+        {
+        }
+        Stopwatch(Stopwatch const&) = delete;
+        Stopwatch& operator=(Stopwatch const&) = delete;
+        ~Stopwatch()
+        {
+            double const ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+            sum += ms;
+            if (last)
+                *last = ms;
+        }
+    };
 
     Impl(Loader& the_loader, Theme the_theme, int the_width, int the_height)
         : loader(the_loader)
@@ -1332,7 +1355,11 @@ struct Browser::Impl {
             }
             tab.style_media = media;
         }
-        tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
+        {
+            Stopwatch const resolving(profile.restyle_ms);
+            tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
+        }
+        ++profile.restyles;
     }
 
     // Fetches for a tab's frames through the loader, with the page as first
@@ -1366,9 +1393,13 @@ struct Browser::Impl {
         text::FontManager::instance().set_page_fonts(tab.fonts);
         ChromeLayout const c = layout_chrome();
         layout::EmbeddedStates const embedded = tab.realm ? bindings::embedded_states(*tab.realm) : layout::EmbeddedStates {};
-        tab.layout = layout::layout_document(*tab.document, tab.styles,
-            static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
-            static_cast<float>(std::max(1, c.content.height)), scale, tab.realm ? &embedded : nullptr);
+        {
+            Stopwatch const laying_out(profile.relayout_ms);
+            tab.layout = layout::layout_document(*tab.document, tab.styles,
+                static_cast<float>(std::max(1, c.content.width)), &tab.images, &tab.controls,
+                static_cast<float>(std::max(1, c.content.height)), scale, tab.realm ? &embedded : nullptr);
+        }
+        ++profile.relayouts;
         // The frames' documents, drawn into the layout; a frame drawn before
         // at the same size is taken as it was — but the frame whose document
         // holds the focused control is drawn again, and so is the one that
@@ -1382,8 +1413,11 @@ struct Browser::Impl {
                     mark_stale(tab.frames, container);
             }
             tab.focus_frame = focus_frame;
-            draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames, tab.realm.get(),
-                &tab.controls);
+            {
+                Stopwatch const drawing(profile.frames_ms);
+                draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames, tab.realm.get(),
+                    &tab.controls);
+            }
             text::FontManager::instance().set_page_fonts(tab.fonts);
         }
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
@@ -1977,6 +2011,7 @@ struct Browser::Impl {
         auto const fetch_font = fetch_kind(net::ResourceKind::Font);
         std::string const signature = sheet_signature(*tab.document);
         if (signature != tab.sheet_signature || !tab.style_set) {
+            Stopwatch const collecting(profile.sheets_ms);
             // The head's <meta> policies, for a page parsed without scripts.
             if (policy)
                 bindings::adopt_meta_policies(*policy, *tab.document);
@@ -2016,13 +2051,16 @@ struct Browser::Impl {
         bool const unfetched_embedded = std::any_of(embedded.begin(), embedded.end(), [&tab](auto const& decided) {
             return decided.second == layout::Embedded::Image && !tab.images.contains(decided.first);
         });
-        if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images) || unfetched_embedded) {
-            layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
-                tab.realm ? &embedded : nullptr);
-            for (auto& [element, image] : fresh)
-                tab.images[element] = std::move(image);
+        {
+            Stopwatch const collecting(profile.images_ms);
+            if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images) || unfetched_embedded) {
+                layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
+                    tab.realm ? &embedded : nullptr);
+                for (auto& [element, image] : fresh)
+                    tab.images[element] = std::move(image);
+            }
+            tab.backgrounds = collect_background_images(tab.styles, fetch_image);
         }
-        tab.backgrounds = collect_background_images(tab.styles, fetch_image);
         if (!entry->unloaded) // a restored entry keeps its saved title until its page arrives
             entry->title = find_title(*tab.document);
         // The page's icon: the last <link rel=icon>, else /favicon.ico on a
@@ -5037,6 +5075,9 @@ struct Browser::Impl {
 
     void paint()
     {
+        Stopwatch const painting(profile.paint_ms, &profile.last_paint_ms);
+        ++profile.paints;
+        profile.painted_pixels += static_cast<std::uint64_t>(frame.width()) * static_cast<std::uint64_t>(frame.height());
         drop_stale_preedit();
         Theme const& t = theme;
         ChromeLayout const c = layout_chrome();
@@ -5647,6 +5688,7 @@ Bitmap const& Browser::frame()
 }
 
 bool Browser::needs_paint() const { return m_impl->dirty; }
+Profile const& Browser::profile() const { return m_impl->profile; }
 
 platform::Cursor Browser::cursor() const
 {

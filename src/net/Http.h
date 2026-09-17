@@ -96,9 +96,41 @@ struct FetchOptions {
     std::function<std::optional<std::string>(Url& next)> hop_refusal;
 };
 
+// What a fetch cost, in milliseconds, summed over its redirect hops: the
+// name lookups, the TCP connects and the TLS handshakes of the connections
+// it opened (none on a pooled connection), the wait for the first byte of
+// each response after its request went out, and the rest of each body
+// after that. `requests` counts the exchanges that went out on the wire —
+// a fetch answered from the cache makes none — and `reused` those of them
+// on a pooled connection; `bytes` is what came in on the wire, before
+// content decoding. total_ms is the whole call, the cache lookup and the
+// content decoding included.
+struct FetchTiming {
+    double resolve_ms = 0;
+    double connect_ms = 0;
+    double tls_ms = 0;
+    double first_byte_ms = 0;
+    double body_ms = 0;
+    double total_ms = 0;
+    int requests = 0;
+    int reused = 0;
+    std::size_t bytes = 0;
+
+    void add(FetchTiming const& other); // sums every field
+};
+
 struct FetchResult {
+    FetchResult() = default;
+    // A result is written as its response and its error; the account is
+    // the fetch's own to fill.
+    FetchResult(std::optional<FetchResponse> the_response, std::string the_error)
+        : response(std::move(the_response))
+        , error(std::move(the_error))
+    {
+    }
     std::optional<FetchResponse> response;
     std::string error; // set when response is empty
+    FetchTiming timing; // what the call cost, on failure too
 };
 
 // The choke point.

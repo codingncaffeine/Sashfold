@@ -144,7 +144,65 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
     options.pool = &m_pool;
     // A navigation redirected onto a listed site is refused where it lands.
     options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
-    return net::fetch(url, options);
+    return noted(net::ResourceKind::Document, net::fetch(url, options));
+}
+
+void ShellLoader::Census::Kind::add(Kind const& more)
+{
+    fetches += more.fetches;
+    cached += more.cached;
+    failed += more.failed;
+    timing.add(more.timing);
+}
+
+ShellLoader::Census::Kind& ShellLoader::Census::of(net::ResourceKind kind)
+{
+    switch (kind) {
+    case net::ResourceKind::Document:
+        return document;
+    case net::ResourceKind::Subdocument:
+    case net::ResourceKind::Object:
+        return subdocument;
+    case net::ResourceKind::Stylesheet:
+        return stylesheet;
+    case net::ResourceKind::Script:
+        return script;
+    case net::ResourceKind::Image:
+        return image;
+    case net::ResourceKind::Font:
+        return font;
+    case net::ResourceKind::Xhr:
+        return xhr;
+    case net::ResourceKind::Media:
+    case net::ResourceKind::Other:
+        break;
+    }
+    return other;
+}
+
+ShellLoader::Census::Kind const& ShellLoader::Census::of(net::ResourceKind kind) const
+{
+    return const_cast<Census&>(*this).of(kind);
+}
+
+ShellLoader::Census::Kind ShellLoader::Census::total() const
+{
+    Kind sum;
+    for (Kind const* kind : { &document, &subdocument, &stylesheet, &script, &image, &font, &xhr, &other })
+        sum.add(*kind);
+    return sum;
+}
+
+net::FetchResult ShellLoader::noted(net::ResourceKind kind, net::FetchResult result)
+{
+    Census::Kind& entry = m_census.of(kind);
+    ++entry.fetches;
+    if (!result.response)
+        ++entry.failed;
+    else if (result.response->from_cache)
+        ++entry.cached;
+    entry.timing.add(result.timing);
+    return result;
 }
 
 net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::Url const& first_party,
@@ -168,7 +226,7 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
     options.cache = &m_cache;
     options.pool = &m_pool;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
-    return net::fetch(url, options);
+    return noted(kind, net::fetch(url, options));
 }
 
 net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url const& first_party,
@@ -197,7 +255,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.body = request.body;
     options.follow_redirects = request.follow_redirects;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
-    return net::fetch(url, options);
+    return noted(kind, net::fetch(url, options));
 }
 
 std::string ShellLoader::cookies_for(net::Url const& url, std::string_view container)
