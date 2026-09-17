@@ -57,6 +57,7 @@ namespace {
 int usage(char const* program)
 {
     std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>]\n"
+              << "                 [--exit-after ms] [--timings out.json]   (a headless run under a compositor with no screen)\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
@@ -1108,6 +1109,35 @@ int smoke_scene(std::string const& output)
 // The engine's stages timed separately, best and median of several runs,
 // painting a viewport-sized slice the way the shell does each frame. The
 // perf budgets are checked against these numbers.
+// The shell's counters from one moment on: what it had done before is
+// taken off, so a page's own work stands alone.
+ui::Profile profile_since(ui::Profile const& now, ui::Profile const& base)
+{
+    ui::Profile d = now;
+    d.restyles -= base.restyles;
+    d.relayouts -= base.relayouts;
+    d.paints -= base.paints;
+    d.painted_pixels -= base.painted_pixels;
+    d.sheets_ms -= base.sheets_ms;
+    d.images_ms -= base.images_ms;
+    d.restyle_ms -= base.restyle_ms;
+    d.relayout_ms -= base.relayout_ms;
+    d.frames_ms -= base.frames_ms;
+    d.paint_ms -= base.paint_ms;
+    return d;
+}
+
+// The shell's counters as the reports write them.
+std::string profile_json(ui::Profile const& p)
+{
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(1) << "{ \"restyles\": " << p.restyles << ", \"relayouts\": " << p.relayouts
+        << ", \"paints\": " << p.paints << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"sheets\": " << p.sheets_ms
+        << ", \"images\": " << p.images_ms << ", \"restyle\": " << p.restyle_ms << ", \"relayout\": " << p.relayout_ms
+        << ", \"frames\": " << p.frames_ms << ", \"paint\": " << p.paint_ms << " } }";
+    return out.str();
+}
+
 // --bench: a whole session on a page, the way the window runs it, timed —
 // the moment the page is first on the frame, the moment its scripts have
 // had their time and its pictures are on it too, what each phase of the
@@ -1150,22 +1180,6 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
     };
     auto const largest = [](std::vector<double> const& values) {
         return values.empty() ? 0.0 : *std::max_element(values.begin(), values.end());
-    };
-    // The shell's counters from the page on: what it did for the new-tab
-    // page it started with is taken off.
-    auto const since = [](ui::Profile const& now, ui::Profile const& base) {
-        ui::Profile d = now;
-        d.restyles -= base.restyles;
-        d.relayouts -= base.relayouts;
-        d.paints -= base.paints;
-        d.painted_pixels -= base.painted_pixels;
-        d.sheets_ms -= base.sheets_ms;
-        d.images_ms -= base.images_ms;
-        d.restyle_ms -= base.restyle_ms;
-        d.relayout_ms -= base.relayout_ms;
-        d.frames_ms -= base.frames_ms;
-        d.paint_ms -= base.paint_ms;
-        return d;
     };
     net::Blocklists const lists = load_blocklists(blocklists_path);
     ui::Theme const theme = load_theme(theme_path);
@@ -1222,7 +1236,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
             run.scroll_paint_ms.push_back(browser.profile().paints > painted ? browser.profile().last_paint_ms : 0.0);
         }
         run.scrolled = browser.scroll_y() > 0;
-        run.profile = since(browser.profile(), base);
+        run.profile = profile_since(browser.profile(), base);
         run.network = loader.census();
         run.title = browser.page_title();
         if (ui::HistoryEntry const* const entry = browser.current_entry()) {
@@ -1266,15 +1280,11 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         << "  \"run_details\": [\n";
     for (std::size_t i = 0; i < results.size(); ++i) {
         Run const& run = results[i];
-        ui::Profile const& p = run.profile;
         out << "    { \"first_paint_ms\": " << run.first_paint_ms << ", \"pixels_ms\": " << run.pixels_ms
             << ", \"scrolled\": " << (run.scrolled ? "true" : "false")
             << ", \"scroll\": { \"frame_ms\": { \"median\": " << median(run.scroll_ms) << ", \"max\": " << largest(run.scroll_ms)
             << " }, \"paint_ms\": { \"median\": " << median(run.scroll_paint_ms) << ", \"max\": " << largest(run.scroll_paint_ms) << " } },\n"
-            << "      \"shell\": { \"restyles\": " << p.restyles << ", \"relayouts\": " << p.relayouts << ", \"paints\": " << p.paints
-            << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"sheets\": " << p.sheets_ms << ", \"images\": " << p.images_ms
-            << ", \"restyle\": " << p.restyle_ms << ", \"relayout\": " << p.relayout_ms << ", \"frames\": " << p.frames_ms
-            << ", \"paint\": " << p.paint_ms << " } },\n"
+            << "      \"shell\": " << profile_json(run.profile) << ",\n"
             << "      \"rss_bytes\": { \"before\": " << run.rss_before << ", \"after\": " << run.rss_after << " },\n"
             << "      \"network\": " << census_json(run.network) << " }" << (i + 1 < results.size() ? "," : "") << "\n";
     }
@@ -1546,9 +1556,14 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
     return result.ok() ? 0 : 1;
 }
 
+// A headless run of the window — under a compositor with no screen — ends
+// itself after `exit_after_ms` and, with `timings_path`, writes what the
+// real window measured: when the start page was first presented, when
+// nothing was left to load, what every present cost, the shell's counters
+// and the loader's account, in --bench's terms so the two compare.
 int run_window(std::string const& start_url, std::string const& theme_path,
     std::string const& blocklists_path, std::string const& downloads, std::string const& profile,
-    char const* program)
+    char const* program, int exit_after_ms, std::string const& timings_path)
 {
     std::optional<Bitmap> const icon = load_window_icon(program);
     std::unique_ptr<platform::Window> window
@@ -1621,6 +1636,21 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         browser.new_tab();
         browser.navigate(start_url);
     }
+    // The timings: the clock starts with that navigation; every present is
+    // clocked; the first present of the page and the moment nothing was
+    // left to load are kept.
+    using clock = std::chrono::steady_clock;
+    using wall_ms = std::chrono::duration<double, std::milli>;
+    auto const started = clock::now();
+    double first_present_ms = 0;
+    double loaded_ms = 0;
+    std::vector<double> present_ms;
+    ui::Profile const base_profile = browser.profile();
+    auto const present = [&](Bitmap const& frame) {
+        auto const t = clock::now();
+        window->present(frame);
+        present_ms.push_back(wall_ms(clock::now() - t).count());
+    };
     auto last_profile_write = std::chrono::steady_clock::now();
     // Writes whatever of the profile changed; true when a write is still
     // owed because the last one was less than a second ago.
@@ -1676,6 +1706,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 
     bool running = true;
     while (running) {
+        if (exit_after_ms > 0 && wall_ms(clock::now() - started).count() >= exit_after_ms)
+            break;
         platform::WindowEvent event;
         while (window->poll(event)) {
             using Kind = platform::WindowEvent::Kind;
@@ -1729,12 +1761,18 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         }
 
         if (browser.has_pending_load()) {
-            window->present(browser.frame()); // the "Loading" frame, before the synchronous fetch
+            present(browser.frame()); // the "Loading" frame, before the synchronous fetch
             browser.tick();
         }
         browser.run_scripts(); // the pages' timers that came due
         if (browser.needs_paint())
-            window->present(browser.frame());
+            present(browser.frame());
+        if (first_present_ms == 0 && !browser.has_pending_load() && !present_ms.empty()) {
+            // The start page is on the frame, and nothing is left to load:
+            // one moment today, two once pictures arrive after the page.
+            first_present_ms = wall_ms(clock::now() - started).count();
+            loaded_ms = first_present_ms;
+        }
         std::string const title = browser.window_title();
         if (title != last_title) {
             window->set_title(title);
@@ -1774,10 +1812,33 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             }
             if (profile_owed)
                 timeout = timeout < 0 ? 1000 : std::min(timeout, 1000);
+            if (exit_after_ms > 0) {
+                int const left = std::max(1, exit_after_ms - static_cast<int>(wall_ms(clock::now() - started).count()));
+                timeout = timeout < 0 ? left : std::min(timeout, left);
+            }
             window->wait(timeout);
         }
     }
     save_profile(true);
+    if (!timings_path.empty()) {
+        std::vector<double> sorted = present_ms;
+        std::sort(sorted.begin(), sorted.end());
+        std::ofstream out(timings_path, std::ios::binary);
+        out << std::fixed << std::setprecision(1) << "{\n"
+            << "  \"url\": " << json_string(start_url) << ",\n"
+            << "  \"first_present_ms\": " << first_present_ms << ",\n"
+            << "  \"loaded_ms\": " << loaded_ms << ",\n"
+            << "  \"ran_ms\": " << wall_ms(clock::now() - started).count() << ",\n"
+            << "  \"presents\": " << present_ms.size() << ",\n"
+            << "  \"present_ms\": { \"median\": " << (sorted.empty() ? 0.0 : sorted[sorted.size() / 2])
+            << ", \"max\": " << (sorted.empty() ? 0.0 : sorted.back()) << " },\n"
+            << "  \"shell\": " << profile_json(profile_since(browser.profile(), base_profile)) << ",\n"
+            << "  \"network\": " << census_json(loader.census()) << "\n}\n";
+        if (!out) {
+            std::cerr << "error: could not write " << timings_path << "\n";
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1802,6 +1863,8 @@ int main(int argc, char** argv)
     int width = 0;
     int height = 0;
     int runs = 5;
+    int exit_after_ms = 0; // the window ends itself after this many milliseconds; 0 never
+    std::string timings_path; // where a headless window run writes what it measured
     bool update_goldens = false;
     RenderExtras extras;
 
@@ -1869,6 +1932,14 @@ int main(int argc, char** argv)
             if (!value_after(i, text))
                 return usage(argv[0]);
             runs = std::clamp(std::atoi(text.c_str()), 1, 1000);
+        } else if (arg == "--exit-after") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            exit_after_ms = std::max(0, std::atoi(text.c_str()));
+        } else if (arg == "--timings") {
+            if (!value_after(i, timings_path))
+                return usage(argv[0]);
         } else if (arg == "--width" || arg == "--height") {
             std::string text;
             if (!value_after(i, text))
@@ -1956,5 +2027,5 @@ int main(int argc, char** argv)
     if (mode == "--smoke")
         return smoke_scene(output);
     return run_window(start_url, theme_path, blocklists_path, downloads.value_or(default_downloads_directory()),
-        profile.value_or(default_profile_directory()), argv[0]);
+        profile.value_or(default_profile_directory()), argv[0], exit_after_ms, timings_path);
 }
