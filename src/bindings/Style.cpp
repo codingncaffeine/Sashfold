@@ -488,7 +488,7 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
     if (name == "transform")
         return style.transformed ? "matrix(1, 0, 0, 1, " + js::number_to_utf8(static_cast<double>(style.translate_x.value)) + ", " + js::number_to_utf8(static_cast<double>(style.translate_y.value)) + ")" : "none";
     if (name == "pointer-events")
-        return "auto";
+        return style.pointer_events ? "auto" : "none";
     if (name == "cursor")
         return "auto";
     if (name == "content")

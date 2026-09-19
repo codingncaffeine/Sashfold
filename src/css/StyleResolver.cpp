@@ -2736,6 +2736,7 @@ struct Resolver {
         style.quotes = parent.quotes;
         style.custom = parent.custom;
         style.visibility = parent.visibility;
+        style.pointer_events = parent.pointer_events;
         style.border_collapse = parent.border_collapse;
         style.border_spacing_horizontal = parent.border_spacing_horizontal;
         style.border_spacing_vertical = parent.border_spacing_vertical;
@@ -2910,6 +2911,7 @@ struct Resolver {
                 0 },
             { "z-index", false, [](S& to, S const& from) { to.z_index = from.z_index; }, 0 },
             { "visibility", true, [](S& to, S const& from) { to.visibility = from.visibility; }, 0 },
+            { "pointer-events", true, [](S& to, S const& from) { to.pointer_events = from.pointer_events; }, 0 },
             { "opacity", false, [](S& to, S const& from) { to.opacity = from.opacity; }, 0 },
             // SVG's painting properties.
             { "fill", true, [](S& to, S const& from) { to.fill = from.fill; }, 0 },
@@ -4155,6 +4157,25 @@ struct Resolver {
             style.translate_x = LengthPercent::calc(px_x, percent_x);
             style.translate_y = LengthPercent::calc(px_y, percent_y);
             style.transformed = true;
+            return;
+        }
+        if (name == "pointer-events") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            // SVG's own values — visiblePainted, fill, stroke, all and the
+            // rest — say which part of a shape hears the pointer; on a box
+            // every one of them means it does.
+            static constexpr std::string_view heard[] = { "auto", "visiblepainted", "visiblefill",
+                "visiblestroke", "visible", "painted", "fill", "stroke", "bounding-box", "all" };
+            if (ascii_ci_equals(keyword, "none")) {
+                style.pointer_events = false;
+            } else {
+                for (std::string_view const value : heard) {
+                    if (ascii_ci_equals(keyword, value))
+                        style.pointer_events = true;
+                }
+            }
             return;
         }
         if (name == "visibility") {
@@ -6077,6 +6098,8 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
         if (html_it == resolver.map.end())
             continue;
         if (html_it->second.overflow != Overflow::Visible) {
+            html_it->second.viewport_overflow_x = html_it->second.overflow_x;
+            html_it->second.viewport_overflow_y = html_it->second.overflow_y;
             html_it->second.overflow = Overflow::Visible;
             html_it->second.overflow_x = Overflow::Visible;
             html_it->second.overflow_y = Overflow::Visible;
@@ -6087,6 +6110,8 @@ StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
                 continue;
             if (auto const body_it = resolver.map.find(static_cast<dom::Element const*>(grandchild));
                 body_it != resolver.map.end()) {
+                html_it->second.viewport_overflow_x = body_it->second.overflow_x;
+                html_it->second.viewport_overflow_y = body_it->second.overflow_y;
                 body_it->second.overflow = Overflow::Visible;
                 body_it->second.overflow_x = Overflow::Visible;
                 body_it->second.overflow_y = Overflow::Visible;

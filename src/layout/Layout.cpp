@@ -1506,8 +1506,14 @@ struct Layouter {
         if (!box.style || !box.style->overflow_applies)
             return subtree;
         ComputedStyle const& s = *box.style;
-        if (!css::scrolls(s.overflow_x) && !css::scrolls(s.overflow_y))
+        if (!css::scrolls(s.overflow_x) && !css::scrolls(s.overflow_y)) {
+            // What `overflow: clip` cuts away is not there to be scrolled to.
+            if (s.overflow_x == css::Overflow::Clip)
+                subtree.right = own.right;
+            if (s.overflow_y == css::Overflow::Clip)
+                subtree.bottom = own.bottom;
             return subtree;
+        }
         // The region is the scrollport itself joined with what is inside
         // it, and the scroll container's end padding comes after that
         // content — a list scrolled to its end shows the padding below the
@@ -8434,7 +8440,15 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // is inside it. Before the sticky pass, because a box that sticks does
     // not add to what scrolling can reveal: it is held inside the
     // scrollport by definition.
-    layouter.settle_scroll(result.root, frame_width);
+    Layouter::Reach const reach = layouter.settle_scroll(result.root, frame_width);
+    // The viewport scrolls over everything that can be reached in it, not
+    // over the root's own box alone (css-overflow-3 §2.2): a page whose
+    // html and body are `height: 100%` holds content that runs out of the
+    // bottom of both, and a reader scrolls down to it in every engine. What
+    // a box that scrolls or clips holds is not part of it — the walk stops
+    // there — so a body that hides its overflow still holds the page still.
+    if (!vertical)
+        frame_block_extent = std::max(frame_block_extent, reach.bottom);
     // What sticks, sticks — against the viewport, or against whatever box
     // between it and the sticky one scrolls or clips.
     {
@@ -8443,6 +8457,8 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         Layouter::settle_sticky(result.root, viewport, viewport, nullptr);
     }
     result.page_height = frame_block_extent;
+    result.viewport_overflow_x = html_style->viewport_overflow_x;
+    result.viewport_overflow_y = html_style->viewport_overflow_y;
     result.vertical = vertical;
     if (vertical) {
         // Back to the page. The lines stack from the viewport's right edge

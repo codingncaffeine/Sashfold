@@ -498,7 +498,8 @@ std::shared_ptr<Bitmap const> FrameView::paint() const
     // More below than the cell shows: a thumb down the right edge, as the
     // shell draws the page's.
     int const page_height = static_cast<int>(layout.page_height + 0.5f);
-    if (page_height > height && height > 0) {
+    if (page_height > height && height > 0 && layout.viewport_overflow_y != css::Overflow::Hidden
+        && layout.viewport_overflow_y != css::Overflow::Clip) {
         int const thumb = std::max(20, static_cast<int>(static_cast<long long>(height) * height / page_height));
         int const travel = std::max(0, height - thumb);
         int const range = max_scroll();

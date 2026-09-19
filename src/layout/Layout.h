@@ -145,7 +145,14 @@ struct Fragment {
 
 struct LayoutResult {
     Fragment root; // the html element's fragment
-    float page_height = 0; // content height of the whole page
+    // How far down the viewport can be scrolled to: the bottom of the root's
+    // box or of whatever reaches out of it, whichever is lower.
+    float page_height = 0;
+    // The overflow the viewport took from the root element or from body.
+    // `hidden` and `clip` down the page mean the reader's wheel, keys and
+    // bar do not move it; a script's scrollTo still does under `hidden`.
+    css::Overflow viewport_overflow_x = css::Overflow::Visible;
+    css::Overflow viewport_overflow_y = css::Overflow::Visible;
     Color canvas_background; // html/body background propagation
     // The root element had nothing of its own to give, so its body child's
     // background became the canvas's instead: the painter lays that box's

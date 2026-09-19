@@ -1,0 +1,81 @@
+# Planted-fault controls for tests/shell/pointing.script: the viewport scrolls over what reaches out of the root and is held by the overflow the page gave it, and what the reader points at is what the painter drew on top.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/pointing.script
+
+# The page is as tall as the root's own box: nothing under it is reached, by the reader or by a script.
+control rootbox
+file src/layout/Layout.cpp
+fails 12 14 24
+plant s~        frame_block_extent = std::max\(frame_block_extent, reach\.bottom\);\n~        (void)reach;\n~
+
+# The reader's wheel and keys do not ask what the page said of its viewport.
+control viewporthidden
+file src/ui/Browser.cpp
+fails 19 21
+plant s~        return page\.viewport_overflow_y != css::Overflow::Hidden\n            && page\.viewport_overflow_y != css::Overflow::Clip;\n~        (void)page;\n        return true;\n~
+
+# What `overflow: clip` cuts away still counts as somewhere to scroll to.
+control clipreach
+file src/layout/Layout.cpp
+fails 29
+plant s~            if \(s\.overflow_y == css::Overflow::Clip\)\n                subtree\.bottom = own\.bottom;\n~~
+
+# The positioned boxes answer in the order they were written, not by z-index.
+control zorder
+file src/paint/Painter.cpp
+fails 57
+plant s~    std::stable_sort\(layers\.begin\(\), layers\.end\(\),\n        \[\]\(HitLayer const& a, HitLayer const& b\) \{ return a\.box->z_index < b\.box->z_index; \}\);\n~~
+
+# The positioned boxes never answer: the flow under them does. After a click that went nowhere, `back` leaves the page, and what follows fails with it.
+control layers
+file src/paint/Painter.cpp
+fails 36 38 40 57 61 80 98 110
+plant s~        if \(layer->box->z_index < 0\)\n            break;\n~        break;\n~
+
+# A block answers before the float drawn over it.
+control floats
+file src/paint/Painter.cpp
+fails 47 49 50 51
+plant s~    if \(std::optional<PointHit> const hit = hit_floats\(box, at\)\)\n        return hit;\n    return hit_blocks\(box, at\);\n~    if (std::optional<PointHit> const hit = hit_blocks(box, at))\n        return hit;\n    return hit_floats(box, at);\n~
+
+# `pointer-events: none` is read and means nothing.
+control pointerevents
+file src/css/StyleResolver.cpp
+fails 73 75 76 77 79 80
+plant s~            if \(ascii_ci_equals\(keyword, "none"\)\) \{\n                style\.pointer_events = false;\n~            if (ascii_ci_equals(keyword, "none")) {\n                style.pointer_events = true;\n~
+
+# pointer-events stops at the element that says it: the veil's own words are heard.
+control inherits
+file src/css/StyleResolver.cpp
+fails 77 79 80
+plant s~        style\.pointer_events = parent\.pointer_events;\n~~
+
+# A control answers only when it is itself what was hit, not what is inside it.
+control control
+file src/ui/Browser.cpp
+fails 91
+plant s~            if \(layout::is_control\(element\)\)\n                return &element;\n            if \(!element\.is_html\("label"\)\)\n~            if (!element.is_html("label"))\n~
+
+# A hidden box is pointed at all the same.
+control hidden
+file src/paint/Painter.cpp
+fails 102
+plant s~    return style && !style->hidden\(\) && style->pointer_events;\n~    return style && style->pointer_events;\n~
+
+# A positioned box is in reach outside the clip of the box that contains it.
+control clip
+file src/paint/Painter.cpp
+fails 108
+plant s~        bool const through = clip_lets_through\(child, at\);\n~        bool const through = true;\n~
+
+# A point on the bare canvas is a point on nothing.
+control canvas
+file src/paint/Painter.cpp
+fails 115
+plant s~    if \(root\.element && hears_pointer\(root\.style\)\)\n        return PointHit \{ root\.element, &root, PointHit::Part::Box \};\n~~
+
+# A block in the flow answers on its words alone, never on its area: the root's box answers under it, or the box below zero does.
+control blocks
+file src/paint/Painter.cpp
+fails 66 73 75 76 77 79 80 86 102
+plant s~            && holds\(child->x, child->y, child->width, child->height, at\)\)\n            hit = PointHit~            && holds(child->x, child->y, child->width, child->height, at) && false)\n            hit = PointHit~

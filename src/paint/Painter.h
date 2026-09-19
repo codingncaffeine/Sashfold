@@ -45,4 +45,26 @@ std::optional<ScrollbarGeometry> vertical_scrollbar(
 std::optional<ScrollbarGeometry> horizontal_scrollbar(
     layout::Fragment const& box, layout::ScrollOffset offset);
 
+// What a reader is pointing at: the element whose words, picture, control
+// or box is uppermost at a page point. The answer comes from walking the
+// page in the painter's own order backwards (CSS 2.1 Appendix E), so it is
+// by construction the thing drawn on top there — a positioned box over the
+// flow it covers, by z-index; a float over the block behind it; a line's
+// words over both. A box that is hidden or says `pointer-events: none` is
+// passed through to what it covers, and what a clipping box cuts away is
+// out of reach. The coordinates are the fragments' own: scrolling has
+// already been put on them.
+struct PointHit {
+    dom::Element const* element = nullptr;
+    // The fragment that answered; for words, the one holding their line.
+    layout::Fragment const* box = nullptr;
+    enum class Part : std::uint8_t { Box, Words, Picture, Control };
+    Part part = Part::Box;
+};
+std::optional<PointHit> hit_test(layout::Fragment const& root, float px, float py);
+
+// Whether a box that clips leaves a page point in reach of what it holds:
+// its padding box, on the axes it clips. The rule the painter clips by.
+bool within_clip(layout::Fragment const& box, float px, float py);
+
 }

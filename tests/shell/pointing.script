@@ -1,0 +1,115 @@
+# What the reader points at is what is drawn on top, and the viewport scrolls
+# over everything that can be reached in it. The window is 800 by 600; the
+# page starts 76 px down it, so it shows 524 px of a document.
+resize 800 600
+
+# --- The viewport's reach ---
+# html and body are as tall as the viewport and what they hold runs out of
+# the bottom of both: the reader scrolls down to it. 2000 - 524 = 1476.
+open data:text/html,<title>Tall</title><style>html,body{height:100%;margin:0}</style><div style="height:2000px;background:silver">tall</div>
+assert-scroll 0
+wheel-at 400 300 -3
+assert-scroll 180
+key End
+assert-scroll 1476
+
+# A body that hides what overflows it holds the page still.
+open data:text/html,<title>Held</title><style>html{height:100%}body{height:100%;margin:0;overflow:hidden}</style><div style="height:2000px">held</div>
+wheel-at 400 300 -3
+assert-scroll 0
+key End
+assert-scroll 0
+# It is the reader who is held, not the page: a script still moves it.
+open data:text/html,<title>Moved</title><style>html{height:100%}body{height:100%;margin:0;overflow:hidden}</style><body onload="scrollTo(0,300)"><div style="height:2000px">moved</div>
+assert-scroll 300
+
+# What `overflow: clip` cuts away is not there to be scrolled to.
+open data:text/html,<title>Clipped</title><style>html,body{height:100%;margin:0}</style><div style="height:100px;overflow:clip"><div style="height:2000px">cut</div></div>
+key End
+assert-scroll 0
+
+# --- A link laid over a whole card ---
+# The card's words and the empty link over them: the link is positioned, so
+# it is drawn over the flow, and it answers — on the words and off them.
+open data:text/html,<title>Card</title><body style="margin:0"><div style="position:relative;width:300px;height:200px;background:silver"><p style="margin:0">cardwords</p><a href="data:text/html,<title>Detail</title>d" style="position:absolute;top:0;left:0;width:300px;height:200px"></a></div>
+click-text cardwords
+assert-title Detail
+back
+assert-title Card
+click 200 250
+assert-title Detail
+
+# --- A float over the block behind it ---
+# The block's box runs the whole width under the float; the float is drawn
+# over it and answers there, and the block answers on its own words.
+open data:text/html,<title>Float</title><body style="margin:0"><a href="data:text/html,<title>Floated</title>f" style="float:left;width:100px;height:100px;background:lime"></a><div onclick="document.title='Block'" style="height:100px;background:silver">beside</div>
+click 50 126
+assert-title Floated
+back
+assert-title Float
+click-text beside
+assert-title Block
+
+# --- Positioned boxes answer by z-index, not by where they were written ---
+open data:text/html,<title>Z</title><body style="margin:0"><div onclick="document.title='upper'" style="position:absolute;z-index:2;left:0;top:0;width:200px;height:200px;background:lime"></div><div onclick="document.title='lower'" style="position:absolute;z-index:1;left:0;top:0;width:200px;height:200px;background:red"></div>
+assert-pixel 100 176 #00ff00
+click 100 176
+assert-title upper
+open data:text/html,<title>Y</title><body style="margin:0"><div onclick="document.title='lower'" style="position:absolute;z-index:1;left:0;top:0;width:200px;height:200px;background:red"></div><div onclick="document.title='upper'" style="position:absolute;z-index:2;left:0;top:0;width:200px;height:200px;background:lime"></div>
+assert-pixel 100 176 #00ff00
+click 100 176
+assert-title upper
+# Below zero is under the flow.
+open data:text/html,<title>N</title><body style="margin:0"><div onclick="document.title='flow'" style="width:200px;height:200px;background:lime"></div><div onclick="document.title='under'" style="position:absolute;z-index:-1;left:0;top:0;width:200px;height:200px;background:red"></div>
+assert-pixel 100 176 #00ff00
+click 100 176
+assert-title flow
+
+# --- pointer-events ---
+# A veil that says none is passed through to the link it covers; its words
+# inherit that; a child that says auto is heard again.
+open data:text/html,<title>Through</title><body style="margin:0"><a href="data:text/html,<title>Under</title>u" style="display:block;width:300px;height:100px;background:lime">under</a><div style="position:absolute;left:0;top:0;width:300px;height:100px;pointer-events:none"><span style="position:absolute;right:0;bottom:0">veil</span><b style="position:absolute;right:0;top:0;pointer-events:auto" onclick="document.title='Heard'">knob</b></div>
+click 150 126
+assert-title Under
+back
+assert-title Through
+click-text veil
+assert-title Under
+back
+click-text knob
+assert-title Heard
+
+# --- A link is its whole box ---
+# The padding of a block link, far from its one word.
+open data:text/html,<title>Pad</title><body style="margin:0"><a href="data:text/html,<title>Padded</title>p" style="display:block;padding:40px;background:silver">tiny</a>
+click 600 90
+assert-title Padded
+
+# --- A control hit on what is inside it ---
+open data:text/html,<title>Press</title><body style="margin:0"><form action="data:text/html,Sent"><input type="hidden" name="k" value="v"><button><span>send</span></button></form>
+click-text send
+assert-url data:text/html,Sent?k=v
+
+# --- Drawn or not ---
+# A box at no opacity is still there to be pointed at; a hidden one is not.
+open data:text/html,<title>Ghost</title><body style="margin:0"><div onclick="document.title='picture'" style="width:100px;height:100px;background:lime"></div><div onclick="document.title='ghost'" style="position:absolute;left:0;top:0;width:100px;height:100px;opacity:0"></div>
+assert-pixel 50 126 #00ff00
+click 50 126
+assert-title ghost
+open data:text/html,<title>Hidden</title><body style="margin:0"><div onclick="document.title='seen'" style="width:100px;height:100px;background:lime"></div><div onclick="document.title='unseen'" style="position:absolute;left:0;top:0;width:100px;height:100px;background:red;visibility:hidden"></div>
+assert-pixel 50 126 #00ff00
+click 50 126
+assert-title seen
+
+# --- What a clip cuts away is out of reach ---
+open data:text/html,<title>Cut</title><body style="margin:0"><div style="position:relative;width:100px;height:100px;overflow:hidden;background:silver"><div onclick="document.title='leaked'" style="position:absolute;left:0;top:0;width:300px;height:300px;background:red"></div></div>
+assert-pixel 200 126 #ffffff
+click 200 126
+assert-title Cut
+click 50 126
+assert-title leaked
+
+# --- The bare canvas is the root element's ---
+open data:text/html,<title>Bare</title><body style="margin:0"><script>document.documentElement.addEventListener('click',function(e){document.title='root:'+e.target.tagName})</script><p style="margin:0">short</p>
+click 400 500
+assert-title root:HTML

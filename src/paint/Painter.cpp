@@ -1379,7 +1379,254 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
     context.target.blend_over(group, area.x, area.y, alpha);
 }
 
+// --- What is under a point --------------------------------------------------------
+//
+// The painter's order, taken backwards. What was painted last at a point is
+// what a reader sees there, and so what they are pointing at. Each walk
+// below undoes one of the walks above — the last step first, the last
+// sibling first — and asks the same questions of a box to decide which step
+// it belongs to, so the two cannot disagree about which of two boxes that
+// overlap is the one on top: an empty positioned link laid over a whole
+// card answers for the card, a float answers over the block behind it, and
+// a line's words answer over both.
+
+struct Probe {
+    float x = 0;
+    float y = 0;
+};
+
+bool holds(float left, float top, float width, float height, Probe at)
+{
+    return at.x >= left && at.x < left + width && at.y >= top && at.y < top + height;
+}
+
+// Whether the pointer is heard by what a style dresses: not while it is
+// hidden, which paints nothing, and not with `pointer-events: none`. A box
+// at no opacity at all is still heard, as it is in every engine — a page
+// lays a transparent control over the picture of one it drew itself.
+bool hears_pointer(ComputedStyle const* style)
+{
+    return style && !style->hidden() && style->pointer_events;
+}
+
+// What a box that clips holds is out of reach outside its padding box, on
+// the axes it clips: `clip_within`, asked of one point.
+bool clip_lets_through(Fragment const& box, Probe at)
+{
+    if (!box.style || !box.style->overflow_applies)
+        return true;
+    ComputedStyle const& s = *box.style;
+    if (s.overflow_x != css::Overflow::Visible
+        && (at.x < box.x + s.border_left.width || at.x >= box.x + box.width - s.border_right.width))
+        return false;
+    if (s.overflow_y != css::Overflow::Visible
+        && (at.y < box.y + s.border_top.width || at.y >= box.y + box.height - s.border_bottom.width))
+        return false;
+    return true;
+}
+
+// The words of the lines a box holds, the last painted first.
+std::optional<PointHit> hit_words(Fragment const& box, Probe at)
+{
+    for (auto run = box.runs.rbegin(); run != box.runs.rend(); ++run) {
+        if (!run->element || !hears_pointer(run->style))
+            continue;
+        float const size = run->style->font_size;
+        text::FaceMetrics const face = run->fonts
+            ? run->fonts->primary().metrics(size)
+            : text::FaceMetrics { size * 25.0f / 32.0f, size * 7.0f / 32.0f, 0 };
+        // A run written down the page carries the page's y in `x` and the
+        // page's x in `baseline_y`; its glyphs reach to either side of that
+        // line by as much as the face's taller half.
+        bool const held = css::is_vertical(run->mode)
+            ? holds(run->baseline_y - std::max(face.ascent, face.descent), run->x,
+                  2 * std::max(face.ascent, face.descent), run->width, at)
+            : holds(run->x, run->baseline_y - face.ascent, run->width, face.ascent + face.descent, at);
+        if (held)
+            return PointHit { run->element, &box, PointHit::Part::Words };
+    }
+    return std::nullopt;
+}
+
+// What `paint_box_replaced` draws: a control's face, a picture.
+std::optional<PointHit> hit_replaced(Fragment const& box, Probe at)
+{
+    if (!box.element || !hears_pointer(box.style))
+        return std::nullopt;
+    if (box.control
+        && holds(box.control->x, box.control->y, box.control->width, box.control->height, at))
+        return PointHit { box.element, &box, PointHit::Part::Control };
+    if (box.image && holds(box.x, box.y, box.width, box.height, at))
+        return PointHit { box.element, &box, PointHit::Part::Picture };
+    return std::nullopt;
+}
+
+// The box's own painting, whole: what it shows in place of content, then
+// its area — the background and the borders, drawn or not.
+std::optional<PointHit> hit_box(Fragment const& box, Probe at)
+{
+    if (std::optional<PointHit> const hit = hit_replaced(box, at))
+        return hit;
+    if (!box.element || !hears_pointer(box.style) || !holds(box.x, box.y, box.width, box.height, at))
+        return std::nullopt;
+    return PointHit { box.element, &box, PointHit::Part::Box };
+}
+
+std::optional<PointHit> hit_flow(Fragment const& box, Probe at);
+
+// `paint_inline_content` backwards: a box's own words were painted after
+// its boxes, and its boxes in tree order.
+std::optional<PointHit> hit_inline_content(Fragment const& box, Probe at)
+{
+    if (std::optional<PointHit> const hit = hit_words(box, at))
+        return hit;
+    for (auto child = box.children.rbegin(); child != box.children.rend(); ++child) {
+        if (child->floating || paints_as_layer(*child))
+            continue;
+        std::optional<PointHit> hit;
+        if (paints_whole(box, *child) || !block_level(*child)) {
+            hit = hit_flow(*child, at);
+        } else {
+            if (clip_lets_through(*child, at))
+                hit = hit_inline_content(*child, at);
+            if (!hit)
+                hit = hit_replaced(*child, at);
+        }
+        if (hit)
+            return hit;
+    }
+    return std::nullopt;
+}
+
+// `paint_floats` backwards: each float one unit, the last over the rest.
+std::optional<PointHit> hit_floats(Fragment const& box, Probe at)
+{
+    for (auto child = box.children.rbegin(); child != box.children.rend(); ++child) {
+        if (paints_as_layer(*child))
+            continue;
+        std::optional<PointHit> hit;
+        if (child->floating)
+            hit = hit_flow(*child, at);
+        else if (!paints_whole(box, *child) && clip_lets_through(*child, at))
+            hit = hit_floats(*child, at);
+        if (hit)
+            return hit;
+    }
+    return std::nullopt;
+}
+
+// `paint_block_backgrounds` backwards: a block's background went down
+// before those of the blocks inside it, so they answer before it does.
+std::optional<PointHit> hit_blocks(Fragment const& box, Probe at)
+{
+    for (auto child = box.children.rbegin(); child != box.children.rend(); ++child) {
+        if (child->floating || paints_as_layer(*child) || paints_whole(box, *child))
+            continue;
+        std::optional<PointHit> hit;
+        if (clip_lets_through(*child, at))
+            hit = hit_blocks(*child, at);
+        if (!hit && block_level(*child) && child->element && hears_pointer(child->style)
+            && holds(child->x, child->y, child->width, child->height, at))
+            hit = PointHit { child->element, &*child, PointHit::Part::Box };
+        if (hit)
+            return hit;
+    }
+    return std::nullopt;
+}
+
+// `paint_contents` backwards: the inline content, the floats under it, the
+// blocks' backgrounds under those — all of it inside the box's clip.
+std::optional<PointHit> hit_contents(Fragment const& box, Probe at)
+{
+    if (!clip_lets_through(box, at))
+        return std::nullopt;
+    if (std::optional<PointHit> const hit = hit_inline_content(box, at))
+        return hit;
+    if (std::optional<PointHit> const hit = hit_floats(box, at))
+        return hit;
+    return hit_blocks(box, at);
+}
+
+// `paint_flow` backwards: what flows inside the box, then the box.
+std::optional<PointHit> hit_flow(Fragment const& box, Probe at)
+{
+    if (std::optional<PointHit> const hit = hit_contents(box, at))
+        return hit;
+    return hit_box(box, at);
+}
+
+// A layer of a stacking context and whether the point is inside the clip
+// its ancestors put on it — `Layer`, asked of one point.
+struct HitLayer {
+    Fragment const* box = nullptr;
+    bool in_reach = true;
+};
+
+// `collect_positioned`, with the two clips as the two answers they give
+// for this point.
+void collect_hit_layers(Fragment const& fragment, Probe at, bool in_flow, bool out_of_flow,
+    std::vector<HitLayer>& out)
+{
+    for (Fragment const& child : fragment.children) {
+        if (paints_as_layer(child))
+            out.push_back(HitLayer { &child, child.out_of_flow ? out_of_flow : in_flow });
+        if (child.stacking_context)
+            continue;
+        bool const through = clip_lets_through(child, at);
+        collect_hit_layers(child, at, in_flow && through,
+            child.positioned ? out_of_flow && through : out_of_flow, out);
+    }
+}
+
+// `paint_opaque_context` backwards: the layers at zero and above from the
+// top down, the context's own flow, the layers below zero, its own box.
+std::optional<PointHit> hit_context(Fragment const& root, Probe at)
+{
+    bool const inside = clip_lets_through(root, at);
+    std::vector<HitLayer> layers;
+    collect_hit_layers(root, at, inside, root.positioned ? inside : true, layers);
+    std::stable_sort(layers.begin(), layers.end(),
+        [](HitLayer const& a, HitLayer const& b) { return a.box->z_index < b.box->z_index; });
+    auto const hit_one = [&](HitLayer const& layer) -> std::optional<PointHit> {
+        if (!layer.in_reach)
+            return std::nullopt;
+        return layer.box->stacking_context ? hit_context(*layer.box, at) : hit_flow(*layer.box, at);
+    };
+    for (auto layer = layers.rbegin(); layer != layers.rend(); ++layer) {
+        if (layer->box->z_index < 0)
+            break;
+        if (std::optional<PointHit> const hit = hit_one(*layer))
+            return hit;
+    }
+    if (std::optional<PointHit> const hit = hit_contents(root, at))
+        return hit;
+    for (auto layer = layers.rbegin(); layer != layers.rend(); ++layer) {
+        if (layer->box->z_index >= 0)
+            continue;
+        if (std::optional<PointHit> const hit = hit_one(*layer))
+            return hit;
+    }
+    return hit_box(root, at);
+}
+
 } // namespace
+
+bool within_clip(layout::Fragment const& box, float px, float py)
+{
+    return clip_lets_through(box, Probe { px, py });
+}
+
+std::optional<PointHit> hit_test(layout::Fragment const& root, float px, float py)
+{
+    Probe const at { px, py };
+    if (std::optional<PointHit> const hit = hit_context(root, at))
+        return hit;
+    // The canvas is the root element's: a point on the bare page under a
+    // short document is a point on its root, as it is in every engine.
+    if (root.element && hears_pointer(root.style))
+        return PointHit { root.element, &root, PointHit::Part::Box };
+    return std::nullopt;
+}
 
 // The box whose background became the canvas's: the root, or the body it
 // handed the job to when it had nothing of its own.

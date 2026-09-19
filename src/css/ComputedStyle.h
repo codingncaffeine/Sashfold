@@ -867,6 +867,13 @@ struct ComputedStyle {
     // overflow applies to block containers, not to table rows and row
     // groups (they lay out as blocks until tables land, but never clip).
     bool overflow_applies = true;
+    // On the root element's style alone: the overflow the viewport took
+    // from it, or from body when the root's own was visible (CSS 2.1
+    // §11.1.1) — the element it came from computes to visible after that,
+    // and this is where what it said is kept. `hidden` and `clip` here mean
+    // the reader cannot move the page; a script still can under `hidden`.
+    Overflow viewport_overflow_x = Overflow::Visible;
+    Overflow viewport_overflow_y = Overflow::Visible;
 
     // Tables. The border model, the gutters between cells in the separated
     // model, the caption's side and empty cells' painting inherit; the
@@ -896,6 +903,12 @@ struct ComputedStyle {
     // one the box paints as if opaque until group compositing lands).
     Visibility visibility = Visibility::Visible;
     float opacity = 1;
+    // pointer-events (SVG 2 §15.6, as every engine applies it to boxes):
+    // `none` takes the box and its words out from under the pointer — what
+    // it covers answers instead. Inherited, so a child says `auto` to come
+    // back. The values SVG adds for its own shapes all mean the pointer is
+    // heard, as `auto` does on a box.
+    bool pointer_events = true;
 
     // Transforms: the translation parts of `transform` and `translate`,
     // percentages of the box's own size, applied after layout without

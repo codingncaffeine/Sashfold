@@ -1979,9 +1979,12 @@ struct Browser::Impl {
         repaint_frames(tab, chain);
         return true;
     }
+    // The reader's wheel and keys, which a frame's document may have asked
+    // not to be moved by.
     bool scroll_frame_by(Tab& tab, std::vector<FrameStep> const& chain, int dy)
     {
-        return !chain.empty() && scroll_frame_to(tab, chain, chain.back().view->scroll_y + dy);
+        return !chain.empty() && reader_scrolls(chain.back().view->layout)
+            && scroll_frame_to(tab, chain, chain.back().view->scroll_y + dy);
     }
 
     // Moves a box inside a chain's innermost document; true when it moved.
@@ -2581,19 +2584,13 @@ struct Browser::Impl {
         dirty = true;
     }
 
-    // The element a page point lands on: a text run's, a control's, else
-    // the deepest box.
+    // The element a window point lands on: what is uppermost there.
     dom::Element const* element_under(Tab const& tab, int x, int y) const
     {
         std::optional<std::pair<float, float>> const point = page_point(x, y);
         if (!point)
             return nullptr;
-        dom::Element const* element = hit_run(tab.layout.root, point->first, point->second);
-        if (!element)
-            element = hit_control(tab.layout.root, point->first, point->second);
-        if (!element)
-            element = element_at_point(tab.layout.root, point->first, point->second);
-        return element;
+        return target_at(tab.layout.root, point->first, point->second);
     }
 
     // A window key as a page sees it.
@@ -3417,55 +3414,20 @@ struct Browser::Impl {
     // point of the clip.
     static bool reachable_within(layout::Fragment const& box, float px, float py)
     {
-        if (!box.style || !box.style->overflow_applies)
-            return true;
-        css::ComputedStyle const& s = *box.style;
-        if (s.overflow_x != css::Overflow::Visible
-            && (px < box.x + s.border_left.width || px >= box.x + box.width - s.border_right.width))
-            return false;
-        if (s.overflow_y != css::Overflow::Visible
-            && (py < box.y + s.border_top.width || py >= box.y + box.height - s.border_bottom.width))
-            return false;
-        return true;
+        return paint::within_clip(box, px, py);
     }
 
-    static dom::Element const* hit_run(layout::Fragment const& fragment, float x, float y)
+    // What the reader is pointing at in a laid-out document: the element
+    // whose words, picture, control or box is uppermost at a page point, in
+    // the painter's own order — so a link laid over a whole card answers
+    // for the card, and what a box with `pointer-events: none` covers
+    // answers through it. One lookup serves the page's events, its links,
+    // its controls and the inspector: they cannot disagree about what is
+    // under the pointer.
+    static dom::Element const* target_at(layout::Fragment const& root, float px, float py)
     {
-        if (!reachable_within(fragment, x, y))
-            return nullptr;
-        for (layout::Fragment const& child : fragment.children) {
-            if (dom::Element const* const hit = hit_run(child, x, y))
-                return hit;
-        }
-        if (fragment.image && x >= fragment.x && x < fragment.x + fragment.width && y >= fragment.y
-            && y < fragment.y + fragment.height)
-            return fragment.element;
-        for (layout::TextRun const& run : fragment.runs) {
-            text::FaceMetrics const metrics = run_metrics(run);
-            float const top = run.baseline_y - metrics.ascent;
-            float const bottom = run.baseline_y + metrics.descent;
-            float const right = run.x + run.width;
-            if (x >= run.x && x < right && y >= top && y < bottom)
-                return run.element;
-        }
-        return nullptr;
-    }
-
-    // The control whose box holds page point (px, py).
-    static dom::Element const* hit_control(layout::Fragment const& fragment, float px, float py)
-    {
-        if (!reachable_within(fragment, px, py))
-            return nullptr;
-        if (fragment.control && fragment.element) {
-            layout::Fragment::ControlBox const& box = *fragment.control;
-            if (px >= box.x && px < box.x + box.width && py >= box.y && py < box.y + box.height)
-                return fragment.element;
-        }
-        for (layout::Fragment const& child : fragment.children) {
-            if (dom::Element const* const hit = hit_control(child, px, py))
-                return hit;
-        }
-        return nullptr;
+        std::optional<paint::PointHit> const hit = paint::hit_test(root, px, py);
+        return hit ? hit->element : nullptr;
     }
 
     // The first control inside a node, in tree order.
@@ -3508,13 +3470,15 @@ struct Browser::Impl {
         dom::Document const& document = chain.empty() ? *tab->document : *chain.back().view->document;
         float const px = chain.empty() ? point->first : chain.back().x;
         float const py = chain.empty() ? point->second : chain.back().y;
-        if (dom::Element const* const control = hit_control(root, px, py))
-            return control;
-        dom::Element const* const hit = hit_run(root, px, py);
+        // Whatever is uppermost there, the control it belongs to answers: a
+        // button hit on the words of a span inside it is still the button.
+        dom::Element const* const hit = target_at(root, px, py);
         for (dom::Node const* node = hit; node; node = node->parent()) {
             if (!node->is_element())
                 continue;
             auto const& element = static_cast<dom::Element const&>(*node);
+            if (layout::is_control(element))
+                return &element;
             if (!element.is_html("label"))
                 continue;
             if (dom::Attr const* const target = element.find_attribute("for")) {
@@ -3556,7 +3520,7 @@ struct Browser::Impl {
             px = step.x;
             py = step.y;
         }
-        dom::Element const* const hit = hit_run(*root, px, py);
+        dom::Element const* const hit = target_at(*root, px, py);
         for (dom::Node const* node = hit; node; node = node->parent()) {
             if (!node->is_element())
                 continue;
@@ -4526,11 +4490,7 @@ struct Browser::Impl {
         layout::Fragment const& root = view ? view->layout.root : tab.layout.root;
         float const px = view ? chain.back().x : point->first;
         float const py = view ? chain.back().y : point->second;
-        dom::Element const* target = hit_run(root, px, py);
-        if (!target)
-            target = hit_control(root, px, py);
-        if (!target)
-            target = element_at_point(root, px, py);
+        dom::Element const* const target = target_at(root, px, py);
         if (!target)
             return true;
         ChromeLayout const chrome = layout_chrome();
@@ -5238,21 +5198,6 @@ struct Browser::Impl {
         return nullptr;
     }
 
-    // The deepest box under a page point.
-    static dom::Element const* element_at_point(layout::Fragment const& fragment, float px, float py)
-    {
-        for (layout::Fragment const& child : fragment.children) {
-            if (!reachable_within(child, px, py))
-                continue; // scrolled or clipped out of sight, and out of reach with it
-            if (dom::Element const* const hit = element_at_point(child, px, py))
-                return hit;
-        }
-        if (fragment.element && px >= fragment.x && px < fragment.x + fragment.width && py >= fragment.y
-            && py < fragment.y + fragment.height)
-            return fragment.element;
-        return nullptr;
-    }
-
     static std::string number_text(float value)
     {
         char buffer[32];
@@ -5400,7 +5345,7 @@ struct Browser::Impl {
         dirty = true;
     }
 
-    // The element under a window point: its run, its control, or its box.
+    // The element under a window point: what is uppermost there.
     void inspect_at(Tab& tab, int x, int y)
     {
         if (std::optional<std::pair<float, float>> const point = page_point(x, y))
@@ -5409,12 +5354,7 @@ struct Browser::Impl {
 
     void inspect_page_point(Tab& tab, float px, float py)
     {
-        dom::Element const* element = hit_run(tab.layout.root, px, py);
-        if (!element)
-            element = hit_control(tab.layout.root, px, py);
-        if (!element)
-            element = element_at_point(tab.layout.root, px, py);
-        if (element)
+        if (dom::Element const* const element = target_at(tab.layout.root, px, py))
             inspect(tab, element);
     }
 
@@ -6231,12 +6171,7 @@ struct Browser::Impl {
                         layout::Fragment const& root = view ? view->layout.root : tab->layout.root;
                         float const px = view ? chain.back().x : point->first;
                         float const py = view ? chain.back().y : point->second;
-                        dom::Element const* target = hit_run(root, px, py);
-                        if (!target)
-                            target = hit_control(root, px, py);
-                        if (!target)
-                            target = element_at_point(root, px, py);
-                        if (target) {
+                        if (dom::Element const* const target = target_at(root, px, py)) {
                             ChromeLayout const chrome = layout_chrome();
                             bindings::MouseInit init;
                             init.client_x = static_cast<int>(std::lround(
@@ -6362,7 +6297,18 @@ struct Browser::Impl {
             if (scroll_box_by(*tab, *box, 0, static_cast<float>(delta)))
                 return;
         }
-        set_scroll(*tab, tab->scroll_y + delta);
+        if (reader_scrolls(tab->layout))
+            set_scroll(*tab, tab->scroll_y + delta);
+    }
+
+    // Whether the reader's wheel, keys and bar move a document down its
+    // viewport: not when the page said `overflow: hidden` or `clip` of it —
+    // on its root or its body — which is how a page holds itself still
+    // under a dialog. A script's own scrolling does not ask this.
+    static bool reader_scrolls(layout::LayoutResult const& page)
+    {
+        return page.viewport_overflow_y != css::Overflow::Hidden
+            && page.viewport_overflow_y != css::Overflow::Clip;
     }
 
     // Home and End: the far end of whatever the keyboard is moving.
@@ -6373,7 +6319,8 @@ struct Browser::Impl {
             return;
         if (tab->scroller_frame) {
             std::vector<FrameStep> const chain = frames_to(*tab, tab->scroller_frame);
-            if (!chain.empty() && scroll_frame_to(*tab, chain, far_end ? chain.back().view->max_scroll() : 0))
+            if (!chain.empty() && reader_scrolls(chain.back().view->layout)
+                && scroll_frame_to(*tab, chain, far_end ? chain.back().view->max_scroll() : 0))
                 return;
         }
         if (layout::Fragment const* const box = keyboard_scroller(*tab)) {
@@ -6382,7 +6329,8 @@ struct Browser::Impl {
                     layout::ScrollOffset { at.x, far_end ? box->scroll_range_y : 0.0f }))
                 return;
         }
-        set_scroll(*tab, far_end ? max_scroll(*tab) : 0);
+        if (reader_scrolls(tab->layout))
+            set_scroll(*tab, far_end ? max_scroll(*tab) : 0);
     }
 
     // A wheel over the content: the innermost box under the pointer that
@@ -7159,7 +7107,7 @@ struct Browser::Impl {
                 }
             }
             int const page_height = static_cast<int>(tab->layout.page_height + 0.5f);
-            if (page_height > c.content.height) {
+            if (page_height > c.content.height && reader_scrolls(tab->layout)) {
                 int const track = c.content.height;
                 int const thumb = std::max(20, static_cast<int>(
                     static_cast<long long>(track) * c.content.height / page_height));
