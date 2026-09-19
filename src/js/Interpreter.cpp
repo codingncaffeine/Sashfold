@@ -187,6 +187,17 @@ bool Interpreter::stack_ok()
 bool Interpreter::Impl::step()
 {
     ++self.m_steps;
+    // What the cells have grown to with nothing allocated — a loop pushing
+    // numbers onto one array — is looked at every so many steps.
+    if ((self.m_steps & 0xFFFF) == 0)
+        self.m_heap->poll_growth(self.m_steps);
+    // A heap over its ceiling: the script ends here, as a runaway one does,
+    // and so does every script after it at its first step.
+    if (self.m_heap->over_limit()) {
+        self.m_terminated = true;
+        self.throw_error(ErrorType::RangeError, "out of memory");
+        return false;
+    }
     if (self.m_should_stop && self.m_steps % self.m_interrupt_interval == 0 && self.m_should_stop()) {
         self.m_terminated = true;
         self.throw_error(ErrorType::RangeError, "script terminated");

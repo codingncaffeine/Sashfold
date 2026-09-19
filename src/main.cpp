@@ -16,6 +16,7 @@
 #include "paint/Painter.h"
 #include "platform/Clipboard.h"
 #include "platform/Memory.h"
+#include "platform/MemoryWatch.h"
 #include "platform/Window.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
@@ -59,6 +60,7 @@ int usage(char const* program)
 {
     std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>]\n"
               << "                 [--exit-after ms] [--timings out.json]   (a headless run under a compositor with no screen)\n"
+              << "                 [--js-heap-limit MB] [--memory-ceiling MB]   (a page's script heap; the whole process; 0: none)\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
@@ -249,6 +251,11 @@ css::StyleAttributeCheck style_attribute_check(net::ContentSecurityPolicy& polic
 // The blocklists folder the render and bench modes' loaders read, set from
 // the command line before either runs; empty reads none.
 std::string render_blocklists_path;
+
+// The ceiling on each page's script heap, in bytes: from the machine's
+// memory (platform::js_heap_limit_for), or what --js-heap-limit says; 0 is
+// none. Every shell a mode makes is given it.
+std::size_t js_heap_limit = 0;
 
 net::Blocklists load_blocklists(std::string const& path);
 ui::Theme load_theme(std::string const& path);
@@ -1196,6 +1203,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         loader.set_blocklists(lists);
         ui::Browser browser(loader, theme, viewport_width, viewport_height);
         browser.set_downloads_directory(downloads);
+        browser.set_js_heap_limit(js_heap_limit);
         double clock_ms = 0; // the pages' clock, virtual: the timers run when it says
         browser.set_clock([&clock_ms] { return clock_ms; });
         browser.frame(); // the new-tab page, before the clock starts
@@ -1664,6 +1672,7 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
     report_theme_pictures(browser);
     platform::use_process_clipboard(true); // a script never touches the real clipboard
     browser.set_downloads_directory(downloads);
+    browser.set_js_heap_limit(js_heap_limit);
     // The four containers a fresh profile gets, so a script can open tabs
     // in them and step through them the way the window does.
     browser.set_containers(containers_from(
@@ -1712,6 +1721,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
+    browser.set_js_heap_limit(js_heap_limit);
     // The reader's own themes join the shipped ones: what is in the
     // profile's themes folder, a Firefox or Chrome theme dropped there
     // converted first.
@@ -2017,6 +2027,8 @@ int main(int argc, char** argv)
     int runs = 5;
     int exit_after_ms = 0; // the window ends itself after this many milliseconds; 0 never
     std::string timings_path; // where a headless window run writes what it measured
+    long js_heap_limit_mb = -1; // a page's script heap, MB; -1 takes it from the machine's memory, 0 is none
+    long memory_ceiling_mb = -1; // the whole process, MB, for the window's memory watch; the same
     bool update_goldens = false;
     RenderExtras extras;
 
@@ -2092,6 +2104,18 @@ int main(int argc, char** argv)
         } else if (arg == "--timings") {
             if (!value_after(i, timings_path))
                 return usage(argv[0]);
+        } else if (arg == "--js-heap-limit" || arg == "--memory-ceiling") {
+            // Megabytes; 0 is none.
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            char* end = nullptr;
+            long const megabytes = std::strtol(text.c_str(), &end, 10);
+            if (end == text.c_str() || *end != '\0' || megabytes < 0 || megabytes > 1024L * 1024L) {
+                std::cerr << "error: " << arg << " takes megabytes, 0 for none\n";
+                return usage(argv[0]);
+            }
+            (arg == "--js-heap-limit" ? js_heap_limit_mb : memory_ceiling_mb) = megabytes;
         } else if (arg == "--width" || arg == "--height") {
             std::string text;
             if (!value_after(i, text))
@@ -2159,6 +2183,8 @@ int main(int argc, char** argv)
     }
 
     render_blocklists_path = blocklists_path;
+    js_heap_limit = js_heap_limit_mb >= 0 ? static_cast<std::size_t>(js_heap_limit_mb) * 1024u * 1024u
+                                          : platform::js_heap_limit_for(platform::physical_memory_bytes());
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
             theme_path, blocklists_path, downloads.value_or(""));
@@ -2182,6 +2208,15 @@ int main(int argc, char** argv)
         return font_list();
     if (mode == "--smoke")
         return smoke_scene(output);
-    return run_window(start_url, theme_path, blocklists_path, downloads.value_or(default_downloads_directory()),
-        profile.value_or(default_profile_directory()), argv[0], exit_after_ms, timings_path);
+    // The window runs under the memory watch: one process holds every tab,
+    // and a runaway must end here, saying where it was, and not at the
+    // machine's memory with nothing said.
+    platform::MemoryWatch::start(memory_ceiling_mb >= 0
+            ? static_cast<std::size_t>(memory_ceiling_mb) * 1024u * 1024u
+            : platform::memory_ceiling_for(platform::physical_memory_bytes()));
+    int const result = run_window(start_url, theme_path, blocklists_path,
+        downloads.value_or(default_downloads_directory()), profile.value_or(default_profile_directory()), argv[0],
+        exit_after_ms, timings_path);
+    platform::MemoryWatch::stop();
+    return result;
 }

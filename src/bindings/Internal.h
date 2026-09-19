@@ -641,6 +641,7 @@ struct Agent {
     // ends only when this is back at zero.
     int host_depth = 0;
     bool ending = false; // the page's realm is being destroyed
+    bool said_out_of_memory = false; // the console has the one line a heap over its ceiling gets
     // The realm that stands in for the realms that have ended: an empty
     // document, no hooks, and tasks and timers that never run. A native of an
     // ended realm that a script still holds answers from it. After the

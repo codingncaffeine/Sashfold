@@ -27,4 +27,14 @@ std::size_t resident_set_bytes()
     return static_cast<std::size_t>(counters.WorkingSetSize);
 }
 
+// GlobalMemoryStatusEx is kernel32's own.
+std::uint64_t physical_memory_bytes()
+{
+    MEMORYSTATUSEX status {};
+    status.dwLength = sizeof status;
+    if (!GlobalMemoryStatusEx(&status))
+        return 0;
+    return static_cast<std::uint64_t>(status.ullTotalPhys);
+}
+
 }

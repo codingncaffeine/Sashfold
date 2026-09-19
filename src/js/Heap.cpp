@@ -87,12 +87,52 @@ void Heap::adopt(std::unique_ptr<Cell> cell)
     cell->m_heap = this;
     m_bytes += cell->size_in_bytes();
     m_cells.push_back(std::move(cell));
+    ++m_adopted_since_measure;
+}
+
+void Heap::remeasure()
+{
+    std::size_t bytes = 0;
+    for (auto const& cell : m_cells)
+        bytes += cell->size_in_bytes();
+    m_bytes = bytes;
+    m_adopted_since_measure = 0;
+}
+
+void Heap::poll_growth(std::uint64_t steps)
+{
+    // Every million steps for a small heap, less often for a large one: a
+    // few steps a cell, so the asking stays a fraction of the stepping.
+    std::uint64_t const due = std::max<std::uint64_t>(1u << 20, static_cast<std::uint64_t>(m_cells.size()) * 4u);
+    if (m_collecting || steps - m_steps_at_measure < due)
+        return;
+    m_steps_at_measure = steps;
+    remeasure();
+    if (m_limit != 0 && m_bytes / 2 > m_limit)
+        m_over_limit = true;
+}
+
+void Heap::note_entry()
+{
+    if (m_collecting)
+        return;
+    if (++m_entries_since_measure < std::max<std::size_t>(1, m_cells.size() / 4096))
+        return;
+    m_entries_since_measure = 0;
+    remeasure();
+    if (m_limit != 0 && m_bytes / 2 > m_limit)
+        m_over_limit = true;
 }
 
 void Heap::maybe_collect()
 {
     if (m_no_collect > 0 || m_collecting)
         return;
+    // The cells are asked their sizes again once a quarter as many have
+    // been adopted as there are: what they have grown to since counts
+    // toward the collection that is due.
+    if (m_adopted_since_measure >= std::max<std::size_t>(16384, m_cells.size() / 4))
+        remeasure();
     if (m_stress || m_bytes > m_threshold)
         collect();
 }
@@ -153,8 +193,17 @@ void Heap::collect()
     // The next collection is due once the garbage matches the live set,
     // never sooner than the floor: a small heap should not collect on
     // every few kilobytes.
-    m_bytes = live;
-    m_threshold = std::max<std::size_t>(8u * 1024u * 1024u, live * 2u);
+    std::size_t const floor = 8u * 1024u * 1024u;
+    m_bytes = live; // every cell that stayed was just asked
+    m_adopted_since_measure = 0;
+    m_threshold = std::max<std::size_t>(floor, live * 2u);
+    // Under a ceiling the heap may not double past it unlooked at: the
+    // next collection is due at the ceiling at the latest (and a floor's
+    // worth on, for a live set that already stands at it).
+    if (m_limit != 0) {
+        m_threshold = std::min(m_threshold, std::max(m_limit, live + floor));
+        m_over_limit = live > m_limit;
+    }
     ++m_collections;
     m_collecting = false;
 }

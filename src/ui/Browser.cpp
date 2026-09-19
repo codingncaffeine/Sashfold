@@ -614,6 +614,9 @@ struct Browser::Impl {
     std::size_t active = 0;
     std::vector<Pending> pending;
     std::vector<PendingWindow> pending_windows;
+    // The ceiling on each page's script heap, in bytes; 0 is none. A page
+    // opened from now on has it (Browser::set_js_heap_limit).
+    std::size_t js_heap_limit = 0;
     // The tabs closed last, the newest at the back, as many as the browsers
     // keep: Ctrl+Shift+T brings the newest back.
     static constexpr std::size_t closed_tabs_kept = 25;
@@ -2117,6 +2120,15 @@ struct Browser::Impl {
         hooks.now = [this] { return script_now(); };
         hooks.should_stop = [this] {
             return std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);
+        };
+        hooks.js_heap_limit = js_heap_limit;
+        // A page over its heap's ceiling: the reader is told where the
+        // shell says things, and the words stay until something else is said.
+        hooks.out_of_memory = [this, document] {
+            if (Tab* const owner = tab_of(document)) {
+                owner->status = "This page ran out of memory: its scripts were stopped";
+                dirty = true;
+            }
         };
         // An element of a frame's document is measured in that document,
         // from the frame's own viewport: a frame's hooks are the page's.
@@ -7087,6 +7099,8 @@ void Browser::set_downloads_directory(std::string directory)
 {
     m_impl->downloads_directory = std::move(directory);
 }
+
+void Browser::set_js_heap_limit(std::size_t bytes) { m_impl->js_heap_limit = bytes; }
 
 void Browser::resize(int width, int height)
 {

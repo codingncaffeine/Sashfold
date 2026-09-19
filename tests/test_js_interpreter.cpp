@@ -569,6 +569,57 @@ void test_limits_and_termination()
         CHECK(!run.ok);
         CHECK(deep.terminated());
     }
+    // A heap with a ceiling. A script that KEEPS what it allocates is ended
+    // at the ceiling — uncatchably, as a runaway loop is, its finally never
+    // run — with the heap a few times the ceiling at most, and no script
+    // runs in that heap afterwards.
+    {
+        js::Interpreter& held = fresh();
+        held.heap().set_limit(4u * 1024u * 1024u);
+        test::JsRun const run = test::run_js(held,
+            "var kept = []; var ended = false; try { while (true) kept.push(new Array(100).fill(7)); } finally { ended = true; }");
+        CHECK(!run.ok);
+        CHECK(held.terminated());
+        CHECK(held.out_of_memory());
+        CHECK(run.thrown.starts_with("RangeError"));
+        CHECK(held.heap().bytes_allocated() > 4u * 1024u * 1024u);
+        CHECK(held.heap().bytes_allocated() < 16u * 1024u * 1024u);
+        // Whatever runs next ends at its first step — a call is one, which
+        // is every callback a page has: a timer's, a listener's.
+        held.clear_termination();
+        test::JsRun const after = test::run_js(held, "(function () { return 1 + 1; })()");
+        CHECK(!after.ok);
+        CHECK(held.terminated());
+    }
+    // One that lets go of what it allocates — nine times the ceiling in
+    // all, a little at a time — runs to its end under the same ceiling:
+    // garbage is not the page's fault.
+    {
+        js::Interpreter& let_go = fresh();
+        let_go.heap().set_limit(4u * 1024u * 1024u);
+        test::JsRun const run = test::run_js(let_go,
+            "var n = 0; for (var i = 0; i < 20000; ++i) { var a = new Array(100).fill(7); n += a.length; } n");
+        CHECK(run.ok && run.value.is_number() && run.value.as_number() == 2000000);
+        CHECK(!let_go.out_of_memory());
+    }
+    // Growth that allocates nothing — numbers pushed onto one array — is
+    // seen too, by the look the interpreter takes as it steps.
+    {
+        js::Interpreter& numbers = fresh();
+        numbers.heap().set_limit(4u * 1024u * 1024u);
+        test::JsRun const run = test::run_js(numbers, "var a = []; while (true) a.push(1);");
+        CHECK(!run.ok);
+        CHECK(numbers.out_of_memory());
+        CHECK(numbers.heap().bytes_allocated() < 64u * 1024u * 1024u);
+    }
+    // And with no ceiling a script keeps what it likes.
+    {
+        js::Interpreter& unbounded = fresh();
+        test::JsRun const run = test::run_js(unbounded,
+            "var kept = []; for (var i = 0; i < 5000; ++i) kept.push(new Array(100).fill(7)); kept.length");
+        CHECK(run.ok && run.value.is_number() && run.value.as_number() == 5000);
+        CHECK(!unbounded.out_of_memory());
+    }
     // Two hundred thousand short strings: the collector keeps the heap
     // bounded and nothing in use is swept.
     {

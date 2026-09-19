@@ -4,6 +4,7 @@
 
 #ifdef __APPLE__
 #include <mach/mach.h>
+#include <sys/sysctl.h>
 #else
 #include <unistd.h>
 #endif
@@ -19,6 +20,15 @@ std::size_t resident_set_bytes()
     if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS)
         return 0;
     return static_cast<std::size_t>(info.resident_size);
+}
+
+std::uint64_t physical_memory_bytes()
+{
+    std::uint64_t bytes = 0;
+    std::size_t size = sizeof bytes;
+    if (sysctlbyname("hw.memsize", &bytes, &size, nullptr, 0) != 0)
+        return 0;
+    return bytes;
 }
 
 #else
@@ -38,6 +48,15 @@ std::size_t resident_set_bytes()
         return 0;
     long const page = sysconf(_SC_PAGESIZE);
     return static_cast<std::size_t>(resident) * static_cast<std::size_t>(page > 0 ? page : 4096);
+}
+
+std::uint64_t physical_memory_bytes()
+{
+    long const pages = sysconf(_SC_PHYS_PAGES);
+    long const page = sysconf(_SC_PAGESIZE);
+    if (pages <= 0 || page <= 0)
+        return 0;
+    return static_cast<std::uint64_t>(pages) * static_cast<std::uint64_t>(page);
 }
 
 #endif

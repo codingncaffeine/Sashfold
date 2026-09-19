@@ -8,6 +8,7 @@ function(sashfold_test name)
 endfunction()
 
 sashfold_test(test_bitmap)
+sashfold_test(test_memory_watch)
 sashfold_test(test_icons)
 sashfold_test(test_font)
 sashfold_test(test_gif)
@@ -218,6 +219,11 @@ add_test(NAME shell_status
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_tabs
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/tabs.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# A page's script heap under a ceiling of 40 MB, which the script's page runs into.
+add_test(NAME shell_memory
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/memory.script
+    --js-heap-limit 40
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 # The chrome's words in a proportional face: Sashfold Test Sans, which the
 # build writes (the sashfold_test_sans target), handed over by name with the

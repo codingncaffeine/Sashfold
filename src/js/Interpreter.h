@@ -590,6 +590,10 @@ public:
     bool terminated() const { return m_terminated; }
     void clear_termination() { m_terminated = false; }
     std::uint64_t steps() const { return m_steps; }
+    // A heap over its ceiling (Heap::set_limit) ends the script at its next
+    // step the same way, and every script after it at its first: the page
+    // has what it has and gets no more.
+    bool out_of_memory() const { return m_heap->over_limit(); }
     // Every console.* call and every uncaught error ends up here.
     std::function<void(std::string_view level, std::string_view message)> on_console;
     // A description of a thrown value: "TypeError: x is not a function".

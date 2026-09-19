@@ -703,8 +703,27 @@ Realm::Internals::Entry::~Entry()
     using namespace std::chrono;
     double const finished = static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
     internals.stats.script_ms += finished - started;
-    if (--internals.agent.script_depth == 0)
+    if (--internals.agent.script_depth == 0) {
         internals.realm.perform_microtask_checkpoint();
+        // A run of script has ended: what its natives grew — an array
+        // filled in one call — is there for the heap to see.
+        internals.interpreter.heap().note_entry();
+    }
+    // A heap over its ceiling has ended the script that was running and
+    // runs no other: said once for the page, where every entry ends.
+    if (internals.interpreter.out_of_memory() && !internals.agent.said_out_of_memory) {
+        internals.agent.said_out_of_memory = true;
+        std::size_t const megabytes = internals.interpreter.heap().limit() / (1024u * 1024u);
+        internals.console("error",
+            "out of memory: the page's scripts were stopped, its heap over " + std::to_string(megabytes) + " MB");
+        // The host tells the reader. A frame's realm has the page's heap
+        // and its own hooks: the page's are the ones a host gave.
+        Internals* page = &internals;
+        while (page->parent_realm)
+            page = page->parent_realm;
+        if (page->hooks.out_of_memory)
+            page->hooks.out_of_memory();
+    }
 }
 
 void Realm::Internals::call_reporting(js::Value const& callee, js::Value const& this_value, Args arguments, std::string_view where)
@@ -1199,6 +1218,7 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     });
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
+    interpreter.heap().set_limit(in.hooks.js_heap_limit);
     in.time_origin = in.now();
     install_interfaces(in);
 }
@@ -1385,10 +1405,13 @@ js::Outcome Realm::run(std::string_view utf8_source, std::string name)
     Internals::Entry const entry(in);
     js::Outcome outcome = in.interpreter.run_script(utf8_source, name);
     if (!outcome.ok) {
-        if (in.interpreter.terminated())
+        if (in.interpreter.out_of_memory()) {
+            // Said once for the page, where the entry ends.
+        } else if (in.interpreter.terminated()) {
             in.console("error", "script stopped: " + name);
-        else
+        } else {
             in.report_uncaught(outcome.value, name);
+        }
     }
     return outcome;
 }

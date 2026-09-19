@@ -1,0 +1,35 @@
+# Planted-fault controls for tests/shell/memory.script: a page that keeps what it allocates stops at its heap's ceiling, says so once, and nothing else stops with it.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/memory.script
+args --js-heap-limit 40
+
+control limit
+file src/bindings/Realm.cpp
+fails 20 21 22 24 35
+plant s~    interpreter\.heap\(\)\.set_limit\(in\.hooks\.js_heap_limit\);~    interpreter.heap().set_limit(0);~
+
+control hook
+file src/ui/Browser.cpp
+fails 20 21 22 24 35
+plant s~        hooks\.js_heap_limit = js_heap_limit;~        hooks.js_heap_limit = 0;~
+
+control entry
+file src/bindings/Realm.cpp
+fails 20 21 22 24 35
+plant s~        internals\.interpreter\.heap\(\)\.note_entry\(\);~        (void)internals.interpreter.heap().limit();~
+
+control step
+file src/js/Interpreter.cpp
+fails 20 24 35
+plant s~    if \(self\.m_heap->over_limit\(\)\) \{~    if (self.m_heap->over_limit() \&\& self.m_steps == 0) {~
+
+control said
+file src/bindings/Realm.cpp
+fails 21 22
+plant s~    if \(internals\.interpreter\.out_of_memory\(\) && !internals\.agent\.said_out_of_memory\) \{~    if (internals.interpreter.out_of_memory() \&\& internals.agent.said_out_of_memory) {~
+
+control notice
+file src/ui/Browser.cpp
+fails 22
+plant s~                owner->status = "This page ran out of memory: its scripts were stopped";~                owner->status = "";~
+

@@ -286,6 +286,40 @@ public:
     std::size_t bytes_allocated() const { return m_bytes; }
     std::size_t collections() const { return m_collections; }
 
+    // A ceiling on what the heap may hold, in bytes; 0 is none. What is
+    // LIVE after a collection is what counts — garbage is not the page's
+    // fault — and a heap found over its ceiling says so from then on: the
+    // interpreter ends whatever script is running and runs no other, which
+    // is how a page that allocates without end stops at its own heap and
+    // not at the machine's memory. With a ceiling set, a collection is due
+    // by the time the estimate passes it, however large the live set is.
+    void set_limit(std::size_t bytes) { m_limit = bytes; }
+    std::size_t limit() const { return m_limit; }
+    bool over_limit() const { return m_over_limit; }
+
+    // A cell grows after it is made — an array pushed to, an object given
+    // properties — and the running estimate knows only what it was when it
+    // was adopted. So the cells are asked again, all of them, every so many
+    // adoptions (a quarter of the cells there are, so the asking costs a
+    // few calls an allocation), and the estimate is what they say.
+    void remeasure();
+    // The same for growth that allocates nothing — numbers pushed onto one
+    // array in a loop. The interpreter calls this as it steps; the heap
+    // asks its cells again once enough steps have passed for their number.
+    // It cannot collect here (a step is no allocation: values may be held
+    // unrooted across it), so what it can say is only this: an estimate
+    // past TWICE the ceiling is no garbage a collection was about to free
+    // — collections come due at the ceiling — and the heap is over it.
+    void poll_growth(std::uint64_t steps);
+    // And for growth inside one native call — `new Array(1e6).fill(0)` on
+    // a timer: few cells, few steps, megabytes. The host says when a run of
+    // script has ended (a callback returned, a script finished), and the
+    // cells are asked again every so many of those: every one for a small
+    // heap, one in cells/4096 for a large one, so the asking stays a few
+    // thousand calls an entry whatever the heap's size. By count, never by
+    // the clock: a script harness must see the same run twice.
+    void note_entry();
+
     // No collection runs while one of these is alive; nests.
     class NoCollect {
     public:
@@ -317,6 +351,11 @@ private:
     std::size_t m_bytes = 0; // estimated live + garbage since the last collection
     std::size_t m_threshold = 8u * 1024u * 1024u;
     std::size_t m_collections = 0;
+    std::size_t m_limit = 0; // the ceiling; 0 is none
+    bool m_over_limit = false; // what was live after a collection passed it
+    std::size_t m_adopted_since_measure = 0; // cells adopted since they were all last asked their size
+    std::uint64_t m_steps_at_measure = 0; // the interpreter's step count when they were
+    std::size_t m_entries_since_measure = 0; // runs of script the host has ended since
     int m_no_collect = 0;
     bool m_stress = false;
     bool m_collecting = false;

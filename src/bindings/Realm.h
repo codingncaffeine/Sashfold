@@ -100,6 +100,13 @@ struct HostHooks {
     // Whether a running script should be stopped now (the runners' deadline,
     // the shell's slow-script guard). Polled every few thousand steps.
     std::function<bool()> should_stop;
+    // The ceiling on the page's script heap, in bytes (js::Heap::set_limit):
+    // a page whose scripts hold more has them stopped, and its console says
+    // so. 0 is none. The page's frames share its heap, and so its ceiling.
+    std::size_t js_heap_limit = 0;
+    // Told once, when the page's heap is found over that ceiling and its
+    // scripts are stopped: the host's to tell the reader.
+    std::function<void()> out_of_memory;
     // The border box of an element as laid out; nullopt for one that has no
     // box (display: none, or nothing laid out yet). The host lays the page
     // out first when the tree has changed since.

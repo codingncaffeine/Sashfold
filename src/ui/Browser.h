@@ -211,6 +211,11 @@ public:
     // Where downloads land. Empty disables downloading: a response the
     // engine cannot render then shows the unsupported-content page instead.
     void set_downloads_directory(std::string directory);
+    // The ceiling on each page's script heap, in bytes (0: none). A page
+    // whose scripts hold more has them stopped and its console says so; the
+    // page stays as it is, and every other tab goes on. For the pages opened
+    // from now on.
+    void set_js_heap_limit(std::size_t bytes);
     void resize(int width, int height);
     int width() const;
     int height() const;

@@ -114,6 +114,7 @@ add_library(sashfold_core STATIC
   src/net/tls/X509.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
+  src/platform/MemoryWatch.cpp
   src/platform/Tls.cpp
   src/platform/Touch.cpp
   src/svg/Raster.cpp
@@ -187,6 +188,12 @@ else()
   target_sources(sashfold_core PRIVATE src/platform/posix/ClipboardPosix.cpp src/platform/posix/RandomPosix.cpp src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp src/platform/posix/MemoryPosix.cpp
     src/platform/posix/WindowPosix.cpp src/platform/posix/FontsPosix.cpp)
 endif()
+if(NOT WIN32)
+  # The memory watch's thread (platform/MemoryWatch): the one thread the
+  # engine has beside its own. On Windows it is kernel32's CreateThread.
+  find_package(Threads REQUIRED)
+  target_link_libraries(sashfold_core PUBLIC Threads::Threads)
+endif()
 target_include_directories(sashfold_core PUBLIC src)
 # The one place the version lives: the user-agent string and the about page read it from here.
 target_compile_definitions(sashfold_core PUBLIC SASHFOLD_VERSION="${PROJECT_VERSION}")
@@ -203,6 +210,13 @@ elseif(SASHFOLD_PORTABLE)
   # a distribution with an older libstdc++ than the one it was built against;
   # libc stays the system's, so the floor is the glibc of the build machine.
   target_link_options(sashfold PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The binary's own functions by name in its dynamic symbol table, so that
+  # the stack the memory watch writes on its way out reads as functions in
+  # the journal and not as offsets. Exports only; the imports the pledge
+  # counts are what they were.
+  set_target_properties(sashfold PROPERTIES ENABLE_EXPORTS ON)
 endif()
 
 # gen_font writes Sashfold Mono as a TrueType file: the reader fixture and the
