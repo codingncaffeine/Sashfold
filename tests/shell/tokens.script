@@ -22,8 +22,23 @@ assert-pixel 114 56 #3a404b
 key ctrl+l
 assert-pixel 118 56 #203040
 assert-pixel 114 56 #ff8000
+# Its text, all of it selected, wears the color of selected text.
+assert-pixel 124 55 #ffff00
 key Escape
 assert-pixel 118 56 #14161b
+
+# The line along the toolbar's top, broken where the tab in front runs into
+# the toolbar.
+assert-pixel 400 36 #00a0a0
+assert-pixel 100 36 #102030
+
+# A toolbar button held down wears a color of its own; let go of, with the
+# pointer still on it, the pointer's.
+press 88 56
+assert-pixel 76 56 #a000a0
+release
+assert-pixel 76 56 #333944
+move 400 300
 
 # A menu: its background, and the row under the pointer.
 main-menu

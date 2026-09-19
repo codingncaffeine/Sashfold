@@ -75,6 +75,7 @@ add_library(sashfold_core STATIC
   src/core/Png.cpp
   src/core/RoundRect.cpp
   src/core/Unicode.cpp
+  src/core/Zip.cpp
   src/crypto/Aes.cpp
   src/crypto/AesGcm.cpp
   src/crypto/BigInt.cpp
@@ -137,6 +138,7 @@ add_library(sashfold_core STATIC
   src/ui/ShellLoader.cpp
   src/ui/SourceSet.cpp
   src/ui/Theme.cpp
+  src/ui/ThemeImport.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
   src/html/Serializer.cpp
@@ -263,4 +265,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(jpeg)
   sashfold_fuzzer(bmp)
   sashfold_fuzzer(svg)
+  sashfold_fuzzer(zip)
 endif()

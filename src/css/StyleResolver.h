@@ -74,6 +74,12 @@ StyleMap resolve_styles(dom::Document const& document);
 // boxes the specification generates around misplaced content this way.
 ComputedStyle inherited_style(ComputedStyle const& parent);
 
+// A color as CSS writes one — a hex color, a name, rgb(), hsl() and the
+// rest of what a declaration's value may hold — from text that is nothing
+// else; nullopt for anything more or less. For what reads colors outside a
+// stylesheet: a browser theme's manifest writes its colors this way.
+std::optional<Color> parse_color_text(std::string_view text);
+
 // What a page wrote that the style system drops, told to the sink a host
 // sets: a property it does not know ("css property", the name), an at-rule
 // whose rules it skips ("css at-rule", "@name"), a rule whose selector does

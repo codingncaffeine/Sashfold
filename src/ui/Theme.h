@@ -104,6 +104,14 @@ struct Theme {
     // The frame — what shows behind the tabs — of a window that is not the
     // one in front: frame_inactive.
     Color chrome_background_inactive = Color::rgb(0x1f, 0x22, 0x28); // chrome-background
+    // A toolbar button while it is held down — button_background_active —
+    // the line between the tab strip and the toolbar —
+    // toolbar_top_separator, drawn by no theme that does not name it — and
+    // the text of a field over its selection band:
+    // toolbar_field_highlight_text.
+    Color button_active_background = Color::rgb(0x33, 0x39, 0x44); // button-hover-background
+    Color toolbar_top_separator = Color::rgba(0, 0, 0, 0);
+    Color address_selection_text = Color::rgb(0xe6, 0xe8, 0xec); // address-text-focus
 
     // Pictures, each list front to back. All three are placed against one
     // area — the tab strip and the toolbar together, from the window's top

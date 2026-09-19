@@ -1,0 +1,30 @@
+{
+  "manifest_version": 2,
+  "name": "Sample Fox",
+  "version": "1.0",
+  "theme": {
+    "images": {
+      "theme_frame": "header.png",
+      "additional_backgrounds": ["weave.png"]
+    },
+    "properties": {
+      "additional_backgrounds_alignment": ["left top"],
+      "additional_backgrounds_tiling": ["repeat"]
+    },
+    "colors": {
+      "frame": "#203040",
+      "frame_inactive": "rgb(64, 80, 96)",
+      "tab_background_text": "#ffffff",
+      "toolbar": "rgba(16, 32, 48, 0.5)",
+      "toolbar_text": "rgb(250, 240, 230)",
+      "toolbar_field": "hsl(0, 0%, 100%)",
+      "toolbar_field_text": [10, 20, 30],
+      "tab_line": "#ff8000",
+      "popup": "#300030",
+      "popup_text": "#f0f0f0",
+      "ntp_background": "#102030",
+      "ntp_text": "#f0e000",
+      "sidebar": "#123456"
+    }
+  }
+}

@@ -265,6 +265,8 @@ std::uint32_t adler32(std::vector<std::uint8_t> const& data)
     return (b << 16) | a;
 }
 
+} // namespace
+
 std::uint32_t crc32_of(std::vector<std::uint8_t> const& data)
 {
     std::uint32_t crc = 0xFFFFFFFFu;
@@ -278,8 +280,6 @@ std::uint32_t crc32_of(std::vector<std::uint8_t> const& data)
     }
     return ~crc;
 }
-
-} // namespace
 
 std::optional<std::vector<std::uint8_t>> inflate(std::vector<std::uint8_t> const& data,
     std::size_t max_output)

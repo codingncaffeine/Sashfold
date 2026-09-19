@@ -530,6 +530,10 @@ struct Browser::Impl {
     // Whether this window is the one in front: a theme may give the frame
     // of one that is not a color of its own.
     bool window_active = true;
+    // The toolbar button the left button went down on and is still held
+    // over: a theme may color a button that is held apart from one that is
+    // pointed at.
+    Hover pressed = Hover::None;
     float scale = 1; // device px per CSS px; the window's sizes and coordinates are device px
     std::string downloads_directory;
     int width;
@@ -4485,6 +4489,10 @@ struct Browser::Impl {
         if (button == 1) {
             selecting = false;
             bar_drag.reset();
+            if (pressed != Hover::None) {
+                pressed = Hover::None;
+                dirty = true;
+            }
         }
         // The button that opened a menu, let go over one of its items after
         // a slide there, chooses it: press, slide, release. A click's own
@@ -5564,6 +5572,7 @@ struct Browser::Impl {
             // A press outside the palette closes it; one on a row runs the row.
             if (palette_open && hover != Hover::Palette && hover != Hover::PaletteRow)
                 close_palette();
+            pressed = hover; // a toolbar button paints itself held until the button comes up
             switch (hover) {
             case Hover::Palette: break;
             case Hover::PaletteRow: run_palette_match(palette_first_shown() + hover_index); break;
@@ -6178,10 +6187,11 @@ struct Browser::Impl {
 
     // --- Painting ------------------------------------------------------------------
 
-    void paint_button(Rect const& rect, char32_t glyph, bool enabled, bool hovered)
+    void paint_button(Rect const& rect, char32_t glyph, bool enabled, bool hovered, bool held = false)
     {
         if (hovered && enabled)
-            frame.fill_round_rect(rect, theme.button_corner_radius, theme.button_hover_background);
+            frame.fill_round_rect(rect, theme.button_corner_radius,
+                held ? theme.button_active_background : theme.button_hover_background);
         draw_glyph_centered(frame, glyph, rect, theme.font_size * 1.15f,
             enabled ? theme.toolbar_icon : theme.button_disabled_text);
     }
@@ -6309,11 +6319,20 @@ struct Browser::Impl {
         paint_pictures(toolbar_pictures, header, { c.toolbar });
         frame.fill_rect(Rect { 0, c.toolbar.bottom() - t.border_width, width, t.border_width },
             t.chrome_border);
-        paint_button(c.back_button, glyph_back, can_go(-1), hover == Hover::Back);
-        paint_button(c.forward_button, glyph_forward, can_go(+1), hover == Hover::Forward);
+        // The line a theme may draw along the toolbar's top, broken where
+        // the tab in front runs into the toolbar.
+        if (t.toolbar_top_separator.a != 0) {
+            Rect const front = active < c.tabs.size() ? c.tabs[active] : Rect {};
+            int const gap_from = front.is_empty() ? width : std::clamp(front.x, 0, width);
+            int const gap_to = front.is_empty() ? width : std::clamp(front.right(), gap_from, width);
+            frame.fill_rect(Rect { 0, c.toolbar.y, gap_from, t.border_width }, t.toolbar_top_separator);
+            frame.fill_rect(Rect { gap_to, c.toolbar.y, width - gap_to, t.border_width }, t.toolbar_top_separator);
+        }
+        paint_button(c.back_button, glyph_back, can_go(-1), hover == Hover::Back, pressed == Hover::Back);
+        paint_button(c.forward_button, glyph_forward, can_go(+1), hover == Hover::Forward, pressed == Hover::Forward);
         paint_button(c.reload_button, glyph_reload, tab && tab->current() != nullptr,
-            hover == Hover::Reload);
-        paint_button(c.reader_button, glyph_reader, reader_available(), hover == Hover::Reader);
+            hover == Hover::Reload, pressed == Hover::Reload);
+        paint_button(c.reader_button, glyph_reader, reader_available(), hover == Hover::Reader, pressed == Hover::Reader);
         paint_button(c.menu_button, glyph_menu, true, hover == Hover::MenuButton || main_menu_open);
 
         // Address bar.
@@ -6349,11 +6368,13 @@ struct Browser::Impl {
             Rect const local { 0, 0, text_area.width, text_area.height };
             float const baseline = static_cast<float>(text_area.y) + centered_baseline(local, t.font_size);
             float const advance = text::SashfoldMono::advance(t.font_size);
-            if (address_focus && select_all && !text.empty())
+            bool const selected = address_focus && select_all && !text.empty();
+            if (selected)
                 frame.fill_rect(Rect { text_area.x, text_area.y + 2, static_cast<int>(text_width(text, t.font_size) + 0.5f),
                                     text_area.height - 4 },
                     t.address_selection);
-            draw_text(frame, text, static_cast<float>(text_area.x), baseline, t.font_size, address_ink);
+            draw_text(frame, text, static_cast<float>(text_area.x), baseline, t.font_size,
+                selected ? t.address_selection_text : address_ink);
             if (!composing.empty()) {
                 int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                 int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
@@ -6394,7 +6415,8 @@ struct Browser::Impl {
                                         box_text.height - 4 },
                         t.address_selection);
                 draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size),
-                    static_cast<float>(box_text.x), baseline, t.font_size, find_ink);
+                    static_cast<float>(box_text.x), baseline, t.font_size,
+                    find_focus && find_select_all && !query.empty() ? t.address_selection_text : find_ink);
                 if (!composing.empty()) {
                     int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                     int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
@@ -6560,7 +6582,8 @@ struct Browser::Impl {
                 if (query.empty())
                     draw_text(frame, U"Type a command", left, baseline, t.font_size, t.chrome_text_muted);
                 else
-                    draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size), left, baseline, t.font_size, t.address_text_focus);
+                    draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size), left, baseline, t.font_size,
+                        palette_select_all ? t.address_selection_text : t.address_text_focus);
                 int const caret_x = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                 frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
                 frame.set_clip(std::nullopt);

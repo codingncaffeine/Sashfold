@@ -5920,6 +5920,24 @@ void set_gap_sink(GapSink sink)
     gap_sink() = std::move(sink);
 }
 
+std::optional<Color> parse_color_text(std::string_view text)
+{
+    // One component value and the white space around it; currentcolor has
+    // nothing to be current against here, so it is no color.
+    ComponentValue const* only = nullptr;
+    std::vector<ComponentValue> const values = parse_component_value_list(text);
+    for (ComponentValue const& value : values) {
+        if (value.is_token(Token::Type::Whitespace))
+            continue;
+        if (only)
+            return std::nullopt;
+        only = &value;
+    }
+    if (!only || (only->is_token(Token::Type::Ident) && ascii_ci_equals(only->token().value, "currentcolor")))
+        return std::nullopt;
+    return parse_color_component(*only, Color { 0, 0, 0, 255 });
+}
+
 StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media, net::Url const* document_url)
     : m_rules(std::make_unique<RuleSet>())
 {

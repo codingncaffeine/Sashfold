@@ -9,6 +9,9 @@
     "address-text-focus": "#ffffff",
     "address-border-focus": "#ff8000",
     "address-selection": "#ff000080",
+    "address-selection-text": "#ffff00",
+    "button-active-background": "#a000a0",
+    "toolbar-top-separator": "#00a0a0",
     "popup-background": "#300030",
     "popup-highlight": "#006000"
   }

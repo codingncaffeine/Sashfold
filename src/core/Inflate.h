@@ -26,6 +26,10 @@ std::optional<std::vector<std::uint8_t>> zlib_decompress(std::vector<std::uint8_
 std::optional<std::vector<std::uint8_t>> gzip_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output = 256u * 1024u * 1024u);
 
+// The CRC-32 of the bytes (the polynomial gzip, zip and PNG share): what a
+// gzip member and a zip entry are checked against once they are unpacked.
+std::uint32_t crc32_of(std::vector<std::uint8_t> const& data);
+
 // The other direction, as far as this engine writes it: a zlib stream of
 // one fixed-Huffman deflate block over the bytes — the PNG encoder's
 // stream (defined beside it), which a test that needs a compressed

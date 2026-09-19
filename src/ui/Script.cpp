@@ -5,6 +5,7 @@
 #include "core/Unicode.h"
 #include "platform/Clipboard.h"
 #include "ui/Theme.h"
+#include "ui/ThemeImport.h"
 
 #include <charconv>
 #include <filesystem>
@@ -358,6 +359,25 @@ struct Runner {
             if (argument != "on" && argument != "off")
                 return fail("window-active: on or off");
             browser.set_window_active(argument == "on");
+        } else if (command == "import-theme") {
+            // `import-theme <path>`: a Firefox or Chrome theme — its folder,
+            // its .xpi, its .crx, named relative to the script — converted
+            // and put on, as one dropped into the profile's themes folder
+            // is. The conversion goes into a folder of the system's
+            // temporary ones, named for this script.
+            std::vector<std::string> problems;
+            std::optional<ImportedTheme> const imported = import_browser_theme_from(resolve(argument).string(), &problems);
+            std::filesystem::path const into = std::filesystem::temp_directory_path() / "sashfold-script-themes";
+            std::optional<std::string> const written
+                = imported ? write_imported_theme(*imported, into.string(), &problems) : std::nullopt;
+            std::optional<Theme> const theme = written ? Theme::load(*written, &problems) : std::nullopt;
+            if (!theme || !problems.empty()) {
+                std::string said;
+                for (std::string const& problem : problems)
+                    said += " " + problem + ";";
+                return fail("import-theme: " + argument + " was not converted:" + said);
+            }
+            browser.set_theme(*theme);
         } else if (command == "assert-theme-problem") {
             // `assert-theme-problem none`, or `assert-theme-problem <text>`:
             // what the theme in use could not put on — a picture it names

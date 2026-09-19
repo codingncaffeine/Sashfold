@@ -59,6 +59,9 @@ constexpr Token<Color> color_tokens[] = {
     { "address-border-focus", &Theme::address_border_focus },
     { "address-selection", &Theme::address_selection },
     { "chrome-background-inactive", &Theme::chrome_background_inactive },
+    { "button-active-background", &Theme::button_active_background },
+    { "toolbar-top-separator", &Theme::toolbar_top_separator },
+    { "address-selection-text", &Theme::address_selection_text },
 };
 
 // A token a theme file may leave out takes the theme's own value of
@@ -86,6 +89,9 @@ constexpr Derived derived_colors[] = {
     { "address-border-focus", &Theme::address_border_focus, &Theme::accent },
     { "address-selection", &Theme::address_selection, &Theme::selection },
     { "chrome-background-inactive", &Theme::chrome_background_inactive, &Theme::chrome_background },
+    { "button-active-background", &Theme::button_active_background, &Theme::button_hover_background },
+    // After address-text-focus, which it follows: the table is read in order.
+    { "address-selection-text", &Theme::address_selection_text, &Theme::address_text_focus },
 };
 
 // The surfaces a theme may lay pictures over.

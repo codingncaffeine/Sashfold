@@ -108,6 +108,13 @@ target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfol
 add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.json
   ${CMAKE_SOURCE_DIR}/themes/high-contrast.json ${CMAKE_SOURCE_DIR}/themes/light.json
   ${CMAKE_SOURCE_DIR}/themes/nord.json ${CMAKE_SOURCE_DIR}/themes/solarized-dark.json)
+add_executable(test_zip test_zip.cpp)
+target_link_libraries(test_zip PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_zip COMMAND test_zip ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes)
+add_executable(test_theme_import test_theme_import.cpp)
+target_link_libraries(test_theme_import PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_theme_import COMMAND test_theme_import ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes
+  ${CMAKE_SOURCE_DIR}/themes/light.json)
 sashfold_test(test_touch)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -201,6 +208,9 @@ add_test(NAME shell_frame
 add_test(NAME shell_newtab_colors
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-colors.script
     --theme ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-colors-theme.json
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_theme_import
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/theme-import.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_hidpi
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script

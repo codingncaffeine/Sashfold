@@ -29,6 +29,7 @@
 #include "ui/Script.h"
 #include "ui/ShellLoader.h"
 #include "ui/Theme.h"
+#include "ui/ThemeImport.h"
 
 #include <algorithm>
 #include <chrono>
@@ -68,6 +69,7 @@ int usage(char const* program)
               << "       " << program << " --font-sampler <output.png> [--font <file.ttf>]\n"
               << "       " << program << " --font-info <file.ttf|file.ttc>\n"
               << "       " << program << " --font-list\n"
+              << "       " << program << " --import-theme <folder|manifest.json|file.xpi|file.crx|file.zip> [-o <dir>]\n"
               << "       any mode: --fonts system|builtin   (system, except --script)\n"
               << "       any mode: --add-font <file.ttf>    (repeatable)\n"
               << "       " << program << " --smoke [-o output.png]\n"
@@ -76,6 +78,9 @@ int usage(char const* program)
               << "  --theme applies a theme file to the window and to --script; the default is\n"
               << "          themes/default.json beside the executable or its parent, reloaded\n"
               << "          whenever the file changes while the window is open.\n"
+              << "  --import-theme converts a Firefox or Chrome theme into a theme of ours, in\n"
+              << "          -o's folder or the themes folder of the profile, where the window\n"
+              << "          finds it; a theme dropped into that folder is converted the same way.\n"
               << "  --blocklists is the folder of content-blocking lists (filters/*.txt in\n"
               << "          Adblock syntax, nefarious/*.txt sites to keep off), read at start;\n"
               << "          the default is blocklists/ beside the executable or its parent.\n"
@@ -1508,6 +1513,108 @@ std::vector<ui::Browser::ThemePreset> theme_presets_beside(std::string const& th
     return presets;
 }
 
+// The reader's own themes: a folder in the profile. A theme file of ours
+// put there is offered beside the shipped ones; a Firefox or a Chrome theme
+// put there — its folder, its .xpi, its .crx — is converted into one, in
+// `converted/` under it, and offered the same way.
+std::string user_themes_directory(std::string const& profile)
+{
+    return profile.empty() ? std::string() : (std::filesystem::path(profile) / "themes").string();
+}
+
+// Converts what has been put in the folder and has no conversion as new as
+// itself, and says what it did. Whether anything was converted.
+bool convert_dropped_themes(std::string const& directory)
+{
+    if (directory.empty())
+        return false;
+    std::error_code error;
+    std::filesystem::path const folder(directory);
+    std::filesystem::path const converted = folder / "converted";
+    bool any = false;
+    for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(folder, error)) {
+        if (entry.path() == converted || !ui::is_browser_theme_path(entry.path().string()))
+            continue;
+        // Done before, and the source not touched since: the stamp beside
+        // the conversions holds the source's time.
+        std::filesystem::path const stamp = converted / (entry.path().filename().string() + ".stamp");
+        std::filesystem::file_time_type const changed = std::filesystem::last_write_time(entry.path(), error);
+        std::optional<std::string> const stamped = read_text_file(stamp);
+        std::string const now = std::to_string(changed.time_since_epoch().count());
+        if (stamped && *stamped == now)
+            continue;
+        std::vector<std::string> problems;
+        std::optional<ui::ImportedTheme> const theme = ui::import_browser_theme_from(entry.path().string(), &problems);
+        std::optional<std::string> const written
+            = theme ? ui::write_imported_theme(*theme, converted.string(), &problems) : std::nullopt;
+        for (std::string const& problem : problems)
+            std::cerr << problem << "\n";
+        if (written) {
+            std::cerr << "theme: " << entry.path().filename().string() << " converted: " << *written << "\n";
+            any = true;
+        }
+        // Stamped either way: what cannot be converted is not tried again
+        // every time the folder is looked at.
+        std::filesystem::create_directories(converted, error);
+        write_text_file_atomically(stamp, now);
+    }
+    return any;
+}
+
+// The themes offered: the shipped ones, and the reader's own — the theme
+// files in their folder and the conversions under it.
+std::vector<ui::Browser::ThemePreset> all_theme_presets(std::string const& theme_path, std::string const& user_directory)
+{
+    std::vector<ui::Browser::ThemePreset> presets = theme_presets_beside(theme_path);
+    auto const offer = [&](std::filesystem::path const& file) {
+        std::vector<std::string> problems;
+        std::optional<ui::Theme> const theme = ui::Theme::load(file.string(), &problems);
+        if (!theme || !problems.empty() || theme->name.empty())
+            return;
+        for (ui::Browser::ThemePreset const& preset : presets) {
+            if (preset.name == theme->name)
+                return; // the first of a name stands
+        }
+        presets.push_back({ theme->name, file.string() });
+    };
+    if (!user_directory.empty()) {
+        std::error_code error;
+        std::filesystem::path const folder(user_directory);
+        for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(folder, error)) {
+            if (entry.is_regular_file(error) && entry.path().extension() == ".json")
+                offer(entry.path());
+        }
+        for (std::filesystem::directory_entry const& entry :
+            std::filesystem::directory_iterator(folder / "converted", error)) {
+            if (entry.is_directory(error))
+                offer(entry.path() / "theme.json");
+        }
+    }
+    std::sort(presets.begin(), presets.end(),
+        [](ui::Browser::ThemePreset const& a, ui::Browser::ThemePreset const& b) { return a.name < b.name; });
+    return presets;
+}
+
+// --import-theme: a Firefox or Chrome theme converted into `directory`, the
+// theme file's path on stdout and what could not be carried over on stderr.
+int import_theme(std::string const& path, std::string const& directory)
+{
+    std::vector<std::string> problems;
+    std::optional<ui::ImportedTheme> const theme = ui::import_browser_theme_from(path, &problems);
+    std::optional<std::string> const written
+        = theme && !directory.empty() ? ui::write_imported_theme(*theme, directory, &problems) : std::nullopt;
+    for (std::string const& problem : problems)
+        std::cerr << problem << "\n";
+    if (!written) {
+        std::cerr << "error: no theme was converted\n";
+        return 1;
+    }
+    for (std::string const& note : theme->notes)
+        std::cerr << "not carried over: " << note << "\n";
+    std::cout << *written << "\n";
+    return 0;
+}
+
 ui::Theme load_theme(std::string const& path)
 {
     if (path.empty())
@@ -1603,7 +1710,14 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
-    browser.set_theme_presets(theme_presets_beside(theme_path));
+    // The reader's own themes join the shipped ones: what is in the
+    // profile's themes folder, a Firefox or Chrome theme dropped there
+    // converted first.
+    std::string const user_themes = user_themes_directory(profile);
+    if (!user_themes.empty())
+        std::filesystem::create_directories(user_themes, error);
+    convert_dropped_themes(user_themes);
+    browser.set_theme_presets(all_theme_presets(theme_path, user_themes));
     // The cache lives in the profile too: what was fetched last time is
     // there, and a page that has not changed costs a conditional request.
     if (!profile_path.empty())
@@ -1711,6 +1825,12 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     if (!theme_file.empty())
         theme_stamp = std::filesystem::last_write_time(theme_file, error);
     auto last_theme_check = std::chrono::steady_clock::now();
+    // The themes folder is looked at too: a folder's time moves when
+    // something is put in it or taken out.
+    std::filesystem::file_time_type themes_stamp;
+    if (!user_themes.empty())
+        themes_stamp = std::filesystem::last_write_time(user_themes, error);
+    auto last_themes_check = std::chrono::steady_clock::now();
     std::string last_title;
     std::optional<Rect> last_caret;
 
@@ -1814,11 +1934,27 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             }
         }
+        // A theme put into the folder while the window is open is there to
+        // choose the next time the list is opened.
+        if (!user_themes.empty()) {
+            auto const now = std::chrono::steady_clock::now();
+            if (now - last_themes_check > std::chrono::milliseconds(2000)) {
+                last_themes_check = now;
+                std::filesystem::file_time_type const stamp = std::filesystem::last_write_time(user_themes, error);
+                if (!error && stamp != themes_stamp) {
+                    themes_stamp = stamp;
+                    convert_dropped_themes(user_themes);
+                    // Converting writes into the folder: its time as it is now.
+                    themes_stamp = std::filesystem::last_write_time(user_themes, error);
+                    browser.set_theme_presets(all_theme_presets(theme_path, user_themes));
+                }
+            }
+        }
         bool const profile_owed = save_profile(false);
         if (!browser.has_pending_load()) {
             // Sleep until input, the theme check, the next page timer, or
             // the profile write that is owed.
-            int timeout = theme_file.empty() ? -1 : 500;
+            int timeout = theme_file.empty() ? (user_themes.empty() ? -1 : 2000) : 500;
             if (std::optional<double> const due = browser.next_timer_ms()) {
                 int const ms = static_cast<int>(std::ceil(*due));
                 timeout = timeout < 0 ? ms : std::min(timeout, ms);
@@ -1863,6 +1999,7 @@ int main(int argc, char** argv)
     std::string mode;
     std::string input;
     std::string output = "sashfold-out.png";
+    bool output_given = false;
     std::string start_url;
     std::string theme_path = default_theme_path(argv[0]);
     std::string blocklists_path = default_blocklists_path(argv[0]);
@@ -1908,7 +2045,7 @@ int main(int argc, char** argv)
                 return usage(argv[0]);
             profile = directory;
         } else if (arg == "--script" || arg == "--render" || arg == "--fetch" || arg == "--dump-dom"
-            || arg == "--font-sampler" || arg == "--font-info" || arg == "--bench") {
+            || arg == "--font-sampler" || arg == "--font-info" || arg == "--bench" || arg == "--import-theme") {
             mode = arg;
             if (!value_after(i, input))
                 return usage(argv[0]);
@@ -1969,6 +2106,7 @@ int main(int argc, char** argv)
         } else if (arg == "-o" || arg == "--output") {
             if (!value_after(i, output))
                 return usage(argv[0]);
+            output_given = true;
         } else if (arg == "--report") {
             if (!value_after(i, extras.report))
                 return usage(argv[0]);
@@ -2027,6 +2165,9 @@ int main(int argc, char** argv)
     if (mode == "--bench")
         return bench(input, runs, width ? width : 1100, height ? height : 800, extras.report, theme_path, blocklists_path,
             downloads.value_or(""));
+    if (mode == "--import-theme")
+        return import_theme(input,
+            output_given ? output : user_themes_directory(profile.value_or(default_profile_directory())));
     if (mode == "--fetch")
         return fetch_url(input);
     if (mode == "--dump-dom")

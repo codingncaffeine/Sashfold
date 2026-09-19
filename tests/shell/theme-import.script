@@ -1,0 +1,72 @@
+# A Firefox theme and a Chrome theme, converted and put on: what each says —
+# and what each leaves its browser to fill in — read back off the chrome.
+# The themes are tests/fixtures/themes: Sample Fox as an .xpi, Sample Chrome
+# as a .crx (a zip behind a header of its own).
+#
+# Sample Fox: frame #203040, not in front rgb(64, 80, 96); its toolbar
+# rgba(16, 32, 48, 0.5), which over the frame is #182838; a white field; a
+# tab line #ff8000; header.png (40 x 20, magenta, its top left pixel green)
+# held at the top right as theme_frame is, and behind it weave.png (16 x 16,
+# clear but for red at (4,4)) held at the top left and repeated, as its
+# properties say; a new-tab page of #102030 with text #f0e000.
+resize 800 500
+open data:text/html,<title>Imported</title><p>x</p>
+import-theme ../fixtures/themes/firefox-sample.xpi
+assert-theme Sample Fox
+assert-theme-problem none
+assert-pixel 760 0 #00ff00
+assert-pixel 780 10 #ff00ff
+assert-pixel 759 0 #203040
+assert-pixel 4 4 #ff0000
+assert-pixel 596 20 #ff0000
+assert-pixel 5 4 #203040
+assert-pixel 600 38 #182838
+assert-pixel 716 56 #ffffff
+assert-pixel 50 6 #ff8000
+
+# In a window whose width is no multiple of the weave's, where it is held
+# shows: it repeats from the left edge, not from the right.
+resize 810 500
+assert-pixel 4 4 #ff0000
+assert-pixel 14 4 #203040
+resize 800 500
+
+# Its background tabs are the frame seen through, and the frame of a window
+# not in front is the one it names.
+new-tab
+assert-tabs 2
+assert-pixel 100 10 #203040
+window-active off
+assert-pixel 100 10 #405060
+assert-pixel 600 10 #405060
+window-active on
+
+# Its new-tab page wears its ntp colors.
+assert-text 09:41
+assert-pixel 0 76 #102030
+assert-pixel 799 477 #102030
+assert-pixel 262 215 #f0e000
+
+# Sample Chrome: frame (32, 48, 64) under the theme's own tint, lightness
+# 0.75 — half way to white, #9098a0 — and, not in front, that under Chrome's
+# tint for such a frame, #b0b5bb; an opaque toolbar #f0f0f0 that the tab in
+# front shares; theme_frame.png (16 x 16, clear but for (200, 100, 50) at
+# (2,2), which the same tint turns #e4b299) held at the top left and
+# repeated across, never down; theme_toolbar.png (16 x 32, clear but for
+# cyan at (0,8)) the same way, seen in the tab in front.
+import-theme ../fixtures/themes/chrome-sample.crx
+assert-theme Sample Chrome
+assert-theme-problem none
+assert-pixel 2 2 #e4b299
+assert-pixel 18 2 #e4b299
+assert-pixel 770 2 #e4b299
+assert-pixel 3 2 #9098a0
+assert-pixel 2 18 #9098a0
+assert-pixel 600 38 #f0f0f0
+assert-pixel 240 8 #00ffff
+assert-pixel 248 8 #f0f0f0
+assert-pixel 32 8 #9098a0
+window-active off
+assert-pixel 600 10 #b0b5bb
+window-active on
+assert-pixel 600 10 #9098a0
