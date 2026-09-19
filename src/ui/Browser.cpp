@@ -19,6 +19,7 @@
 #include "ui/PageImages.h"
 #include "ui/Cosmetic.h"
 #include "ui/Downloads.h"
+#include "ui/Icons.h"
 #include "ui/InternalPages.h"
 #include "ui/Reader.h"
 #include "ui/SourceSet.h"
@@ -45,14 +46,9 @@ using platform::KeyEvent;
 
 namespace {
 
-constexpr char32_t glyph_back = 0x2190;
-constexpr char32_t glyph_forward = 0x2192;
-constexpr char32_t glyph_reload = 0x21BB;
-constexpr char32_t glyph_close = 0x00D7;
-constexpr char32_t glyph_plus = U'+';
+// The glyphs that are words' company — the buttons' pictures are icons
+// (ui/Icons.h), not letters.
 constexpr char32_t glyph_ellipsis = 0x2026;
-constexpr char32_t glyph_reader = 0x00B6; // the pilcrow: reader mode
-constexpr char32_t glyph_menu = 0x2261; // three bars: the main menu
 constexpr char32_t glyph_submenu = 0x203A; // an item that opens a menu of its own
 constexpr char32_t glyph_check = 0x2713;
 
@@ -113,14 +109,6 @@ float centered_baseline(Rect const& rect, float size)
     float const descent = size * font_descent_ratio;
     return static_cast<float>(rect.y)
         + (static_cast<float>(rect.height) - ascent - descent) / 2.0f + ascent;
-}
-
-void draw_glyph_centered(Bitmap& target, char32_t glyph, Rect const& rect, float size, Color color)
-{
-    float const x = static_cast<float>(rect.x)
-        + (static_cast<float>(rect.width) - text::SashfoldMono::advance(size)) / 2.0f;
-    draw_text(target, std::u32string_view(&glyph, 1), x, centered_baseline(rect, size), size,
-        color);
 }
 
 std::u32string ellipsize(std::u32string text, float max_width, float size)
@@ -6198,13 +6186,16 @@ struct Browser::Impl {
 
     // --- Painting ------------------------------------------------------------------
 
-    void paint_button(Rect const& rect, char32_t glyph, bool enabled, bool hovered, bool held = false)
+    // A button's icon is drawn four sevenths the button's size: sixteen px in
+    // a button of twenty-eight, and in step with it at any scale.
+    int icon_size() const { return std::max(8, theme.button_size * 4 / 7); }
+
+    void paint_button(Rect const& rect, Icon icon, bool enabled, bool hovered, bool held = false)
     {
         if (hovered && enabled)
             frame.fill_round_rect(rect, theme.button_corner_radius,
                 held ? theme.button_active_background : theme.button_hover_background);
-        draw_glyph_centered(frame, glyph, rect, theme.font_size * 1.15f,
-            enabled ? theme.toolbar_icon : theme.button_disabled_text);
+        draw_icon(frame, icon, rect, icon_size(), enabled ? theme.toolbar_icon : theme.button_disabled_text);
     }
 
     void paint()
@@ -6301,33 +6292,23 @@ struct Browser::Impl {
             bool const close_hover = hover == Hover::TabClose && hover_index == i;
             if (close_hover)
                 frame.fill_round_rect(close, close.width / 2, t.button_hover_background);
-            draw_glyph_centered(frame, glyph_close, close, t.tab_font_size,
+            // The cross is two thirds the size of the round it sits in.
+            draw_icon(frame, Icon::Close, close, std::max(8, close.width * 2 / 3),
                 is_active ? t.tab_text : close_hover ? t.chrome_text : t.chrome_text_muted);
         }
         if (hover == Hover::NewTab)
             frame.fill_round_rect(c.new_tab_button, t.button_corner_radius, t.button_hover_background);
-        draw_glyph_centered(frame, glyph_plus, c.new_tab_button, t.font_size * 1.15f, t.chrome_text);
+        draw_icon(frame, Icon::Plus, c.new_tab_button, icon_size(), t.chrome_text);
         if (c.window_controls) {
             // The window's own controls: a line, a square, a cross.
-            int const stroke = std::max(1, t.border_width);
-            auto const button = [&](Rect const& rect, Hover which) {
+            auto const button = [&](Rect const& rect, Hover which, Icon icon) {
                 if (hover == which)
                     frame.fill_round_rect(rect, t.button_corner_radius, t.button_hover_background);
+                draw_icon(frame, icon, rect, icon_size(), t.chrome_text);
             };
-            button(c.minimize_button, Hover::Minimize);
-            frame.fill_rect(Rect { c.minimize_button.x + c.minimize_button.width / 4,
-                               c.minimize_button.y + c.minimize_button.height / 2, c.minimize_button.width / 2, stroke },
-                t.chrome_text);
-            button(c.maximize_button, Hover::Maximize);
-            Rect const square { c.maximize_button.x + c.maximize_button.width / 4,
-                c.maximize_button.y + c.maximize_button.height / 4, c.maximize_button.width / 2,
-                c.maximize_button.height / 2 };
-            frame.fill_rect(Rect { square.x, square.y, square.width, stroke }, t.chrome_text);
-            frame.fill_rect(Rect { square.x, square.bottom() - stroke, square.width, stroke }, t.chrome_text);
-            frame.fill_rect(Rect { square.x, square.y, stroke, square.height }, t.chrome_text);
-            frame.fill_rect(Rect { square.right() - stroke, square.y, stroke, square.height }, t.chrome_text);
-            button(c.close_button, Hover::WindowClose);
-            draw_glyph_centered(frame, glyph_close, c.close_button, t.font_size * 1.15f, t.chrome_text);
+            button(c.minimize_button, Hover::Minimize, Icon::Minimize);
+            button(c.maximize_button, Hover::Maximize, Icon::Maximize);
+            button(c.close_button, Hover::WindowClose, Icon::Close);
         }
 
         // Toolbar.
@@ -6345,12 +6326,12 @@ struct Browser::Impl {
             frame.fill_rect(Rect { 0, c.toolbar.y, gap_from, t.border_width }, t.toolbar_top_separator);
             frame.fill_rect(Rect { gap_to, c.toolbar.y, width - gap_to, t.border_width }, t.toolbar_top_separator);
         }
-        paint_button(c.back_button, glyph_back, can_go(-1), hover == Hover::Back, pressed == Hover::Back);
-        paint_button(c.forward_button, glyph_forward, can_go(+1), hover == Hover::Forward, pressed == Hover::Forward);
-        paint_button(c.reload_button, glyph_reload, tab && tab->current() != nullptr,
+        paint_button(c.back_button, Icon::Back, can_go(-1), hover == Hover::Back, pressed == Hover::Back);
+        paint_button(c.forward_button, Icon::Forward, can_go(+1), hover == Hover::Forward, pressed == Hover::Forward);
+        paint_button(c.reload_button, Icon::Reload, tab && tab->current() != nullptr,
             hover == Hover::Reload, pressed == Hover::Reload);
-        paint_button(c.reader_button, glyph_reader, reader_available(), hover == Hover::Reader, pressed == Hover::Reader);
-        paint_button(c.menu_button, glyph_menu, true, hover == Hover::MenuButton || main_menu_open);
+        paint_button(c.reader_button, Icon::Reader, reader_available(), hover == Hover::Reader, pressed == Hover::Reader);
+        paint_button(c.menu_button, Icon::Menu, true, hover == Hover::MenuButton || main_menu_open);
 
         // Address bar.
         // A field with the focus wears its own colors, which a theme may

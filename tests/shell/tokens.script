@@ -54,3 +54,9 @@ window-active off
 assert-pixel 600 10 #3b3f47
 window-active on
 assert-pixel 600 10 #1f2228
+
+# A button's icon wears the toolbar's icon color, and the color of what
+# cannot be pressed when it cannot: Back, which can, and Forward, which
+# cannot, each read where its arrow's shaft covers three quarters of a pixel.
+assert-pixel 20 55 #c3c70c
+assert-pixel 54 55 #444c58

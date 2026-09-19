@@ -23,3 +23,8 @@ file src/ui/Theme.cpp
 fails 54
 plant s~        theme.chrome_background_inactive = inactive_frame_of\(theme.chrome_background\);~        theme.chrome_background_inactive = theme.chrome_background;~
 
+control iconcolor
+file src/ui/Browser.cpp
+fails 13 61
+plant s~        draw_icon\(frame, icon, rect, icon_size\(\), enabled \? theme.toolbar_icon : theme.button_disabled_text\);~        draw_icon(frame, icon, rect, icon_size(), theme.button_disabled_text);~
+

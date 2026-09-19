@@ -130,6 +130,7 @@ add_library(sashfold_core STATIC
   src/ui/Cosmetic.cpp
   src/ui/Downloads.cpp
   src/ui/Forms.cpp
+  src/ui/Icons.cpp
   src/ui/InternalPages.cpp
   src/ui/Frames.cpp
   src/ui/PageImages.cpp
