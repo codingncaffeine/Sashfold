@@ -87,3 +87,58 @@ file src/ui/Browser.cpp
 fails 146
 plant s~                        if \(modifiers\.shift\)\n                            open_in_front\(url\);~                        if (modifiers.shift \&\& modifiers.alt)\n                            open_in_front(url);~
 
+control pinrow
+file src/ui/Browser.cpp
+fails 215 219
+plant s~\+ 1 \+ run, pinned_count\(\)\);~+ 1 + run, std::size_t { 0 });~
+
+control spare
+file src/ui/Browser.cpp
+fails 195 197 201 203 206 209 211 215 219
+plant s~if \(i != keep && !tabs\[i\]\.pinned\)~if (i != keep)~
+
+control unpinplace
+file src/ui/Browser.cpp
+fails 190
+plant s~move_tab\(index, pinned \? row : row - 1\);~move_tab(index, pinned ? row : index);~
+
+control pinplace
+file src/ui/Browser.cpp
+fails 161 163 164 173 174 175 181 184 188 189 190 195 197 201 203 206 209 211 214 215 219
+plant s~move_tab\(index, pinned \? row : row - 1\);~move_tab(index, pinned ? index : row - 1);~
+
+control pinnedwidth
+file src/ui/Browser.cpp
+fails 173 174 175 181 184
+plant s~int const this_width = i < pinned \? pinned_width : tab_width;~int const this_width = tab_width;~
+
+control noclose
+file src/ui/Browser.cpp
+fails 219
+plant s~c\.tab_close_buttons\.push_back\(i < pinned \? Rect \{\}~c.tab_close_buttons.push_back(i < 0 ? Rect {}~
+
+control pinwritten
+file src/ui/Browser.cpp
+fails 211 215 219
+plant s~tabs\[t\]\.pinned \? pinned_member : std::string\(\)~false ? pinned_member : std::string()~
+
+control pinparsed
+file src/ui/Browser.cpp
+fails 211 215 219
+plant s~tab\.pinned = pinned->as_bool\(\);~tab.pinned = false;~
+
+control reopenpinned
+file src/ui/Browser.cpp
+fails 203 206 209 211 215 219
+plant s~tab\.pinned = closed\.pinned;~tab.pinned = false;~
+
+control duppinned
+file src/ui/Browser.cpp
+fails 206 211 215 219
+plant s~tab\.pinned = from\.pinned;~tab.pinned = false;~
+
+control row
+file src/ui/Browser.cpp
+fails 225
+plant s~            if \(!tabs\[i\]\.pinned\)\n                continue;~            if (i < tabs.size() || !tabs[i].pinned)\n                continue;~
+

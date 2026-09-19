@@ -541,12 +541,15 @@ struct Runner {
             expect_equal("assert-tabs", std::to_string(browser.tab_count()), argument);
         } else if (command == "assert-tab-titles") {
             // `assert-tab-titles A | B | C`: every tab's title, in the
-            // strip's order, the one in front in [brackets].
+            // strip's order, the one in front in [brackets], a pinned one
+            // with a ^ before it.
             std::string titles;
             for (std::size_t i = 0; i < browser.tab_count(); ++i) {
                 if (i > 0)
                     titles += " | ";
                 std::string const title = browser.tab_title(i);
+                if (browser.tab_pinned(i))
+                    titles += '^';
                 titles += i == browser.active_tab() ? "[" + title + "]" : title;
             }
             expect_equal("assert-tab-titles", titles, argument);

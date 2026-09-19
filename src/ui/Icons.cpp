@@ -56,6 +56,12 @@ std::vector<Stroke> const& strokes_of(Icon icon)
     static std::vector<Stroke> const minimize = { line(4, 8, 12, 8) };
     static std::vector<Stroke> const maximize
         = { line(4.5, 4.5, 11.5, 4.5), line(11.5, 4.5, 11.5, 11.5), line(11.5, 11.5, 4.5, 11.5), line(4.5, 11.5, 4.5, 4.5) };
+    // A sheet with its top right corner folded over: the reader's outline,
+    // the corner cut along a diagonal and the fold's two edges inside it.
+    static std::vector<Stroke> const page = {
+        line(4.5, 2.5, 9, 2.5), line(9, 2.5, 11.5, 5), line(11.5, 5, 11.5, 13.5), line(11.5, 13.5, 4.5, 13.5),
+        line(4.5, 13.5, 4.5, 2.5), line(9, 2.5, 9, 5), line(9, 5, 11.5, 5),
+    };
     switch (icon) {
     case Icon::Back: return back;
     case Icon::Forward: return forward;
@@ -66,6 +72,7 @@ std::vector<Stroke> const& strokes_of(Icon icon)
     case Icon::Close: return close;
     case Icon::Minimize: return minimize;
     case Icon::Maximize: return maximize;
+    case Icon::Page: return page;
     }
     return back;
 }

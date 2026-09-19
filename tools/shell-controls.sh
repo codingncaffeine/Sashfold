@@ -26,14 +26,18 @@
 # exit, and at the start of a run that finds a copy left by one that was
 # killed; at the end it is compared byte for byte and the tree rebuilt.
 #
-#   tools/shell-controls.sh [--build-dir build-gcc] [--self-test] [file.controls ...]
+#   tools/shell-controls.sh [--build-dir build-controls] [--self-test] [file.controls ...]
+#
+# The planted trees are built in a folder of their own (build-controls,
+# configured here the first time): a binary with a fault planted in it is not
+# one anybody should find where they keep the build they run.
 #
 # With no files, every tests/shell/*.controls. --self-test proves the runner
 # itself on the first control it is given: it must MATCH with its own
 # prediction, MISMATCH with a wrong one, and say so when a plant lands nowhere.
 set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
-build="build-gcc"
+build="build-controls"
 self_test=0
 files=()
 while [ $# -gt 0 ]; do
@@ -44,6 +48,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ ${#files[@]} -eq 0 ] && files=("$root"/tests/shell/*.controls)
+if [ ! -f "$root/$build/CMakeCache.txt" ]; then
+    cmake -S "$root" -B "$root/$build" -G Ninja -DCMAKE_BUILD_TYPE=Release > /dev/null || { echo "could not configure $build"; exit 1; }
+fi
 binary="$root/$build/sashfold"
 keep="$root/$build/controls-backup"
 logs="$root/$build/controls-logs"

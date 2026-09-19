@@ -29,6 +29,7 @@ enum class Icon {
     Close,
     Minimize,
     Maximize,
+    Page, // a sheet with a folded corner: a pinned tab whose page has no icon of its own
 };
 
 // The icon `size` device px square, centered in `box`, in `color`.

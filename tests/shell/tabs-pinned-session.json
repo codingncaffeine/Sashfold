@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "active": 0,
+  "tabs": [
+    {"index": 0, "container": "", "entries": [
+      {"url": "data:text/html,<title>A</title>a", "final_url": "data:text/html,<title>A</title>a", "title": "A", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "pinned": true, "entries": [
+      {"url": "data:text/html,<title>B</title>b", "final_url": "data:text/html,<title>B</title>b", "title": "B", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "entries": [
+      {"url": "data:text/html,<title>C</title>c", "final_url": "data:text/html,<title>C</title>c", "title": "C", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "pinned": true, "entries": [
+      {"url": "data:text/html,<title>D</title>d", "final_url": "data:text/html,<title>D</title>d", "title": "D", "scroll": 0}
+    ]}
+  ]
+}

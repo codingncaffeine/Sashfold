@@ -105,5 +105,38 @@ int main()
         CHECK(canvas.pixel(0, 0) == Color::rgb(0, 0, 0));
     }
 
+    // --- The page: a sheet with its corner folded --------------------------------
+    // At 16 px its left edge runs down x = 4.5 and covers 3.75 to 5.25: all
+    // of column 4, and the two columns of samples nearest it in columns 3
+    // and 5 (16 of 64, 63 of 255). Its right edge (x = 11.5), its foot
+    // (y = 13.5) and its top (y = 2.5) likewise, by their rows.
+    auto const page = [](int x, int y) { return static_cast<int>(icon_coverage(Icon::Page, 16, x, y)); };
+    CHECK_EQ(page(3, 8), 63);
+    CHECK_EQ(page(4, 8), 255);
+    CHECK_EQ(page(5, 8), 63);
+    CHECK_EQ(page(6, 8), 0);
+    CHECK_EQ(page(10, 8), 63);
+    CHECK_EQ(page(11, 8), 255);
+    CHECK_EQ(page(12, 8), 63);
+    CHECK_EQ(page(13, 8), 0);
+    CHECK_EQ(page(8, 12), 63);
+    CHECK_EQ(page(8, 13), 255);
+    CHECK_EQ(page(8, 14), 63);
+    CHECK_EQ(page(8, 15), 0);
+    CHECK_EQ(page(6, 1), 63);
+    CHECK_EQ(page(6, 2), 255);
+    CHECK_EQ(page(6, 3), 63);
+    // Its top ends at x = 9, where the corner is cut along a diagonal: the
+    // corner's own pixel, which the reader's outline fills to the last
+    // sample, has nothing in it — the nearest sample is 1.15 px from the cut.
+    CHECK_EQ(page(11, 2), 0);
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::Reader, 16, 11, 2)), 255);
+    // The fold's own edges are there, inside the cut.
+    CHECK(page(9, 4) > 0);
+    CHECK(page(10, 5) > 0);
+    // And nothing is written on it: the reader's middle line is here.
+    CHECK_EQ(page(8, 8), 0);
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::Reader, 16, 8, 8)), 191);
+
     return sashfold::test::report("icons");
 }

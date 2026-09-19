@@ -9,7 +9,7 @@ open data:text/html,<title>One</title><body style="margin:0"><a href="data:text/
 
 # With nothing closed there is nothing to bring back, and the menu says so.
 right-click-tab 0
-assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | (Close other tabs) | (Close tabs to the right) | - | (Reopen closed tab)
+assert-menu New tab | - | Reload tab | Duplicate tab | Pin tab | - | Close tab | (Close other tabs) | (Close tabs to the right) | - | (Reopen closed tab)
 key Escape
 assert-closed-tabs 0
 
@@ -82,7 +82,7 @@ close-tab
 
 # The tab's own menu copies it and, now that tabs have closed, offers them back.
 right-click-tab 0
-assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
+assert-menu New tab | - | Reload tab | Duplicate tab | Pin tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
 menu Duplicate tab
 assert-tab-titles One | [One] | Two B | Three
 close-tab
@@ -144,3 +144,82 @@ assert-tab-titles Last | [c27] | New Tab
 open data:text/html,<title>Opener</title><a href="data:text/html,<title>F</title>page f">epsilon</a>
 ctrl-shift-click-text epsilon
 assert-tab-titles Last | Opener | [F] | New Tab
+
+# Pinned tabs. A pinned tab is its icon alone (a sheet of paper for a page
+# with none of its own) among the strip's first tabs, 32 px wide with no
+# close button; pinning takes it to the end of that row and unpinning to the
+# first place after it, the tab in front followed either way.
+session-restore tabs-session.json
+open data:text/html,<title>P</title><a href="data:text/html,<title>R</title>r">rlink</a>
+new-tab
+open data:text/html,<title>T</title>t
+new-tab
+open data:text/html,<title>S</title>s
+assert-tab-titles P | T | [S]
+right-click-tab 1
+menu Pin tab
+assert-tab-titles ^T | P | [S]
+right-click-tab 1
+menu Pin tab
+assert-tab-titles ^T | ^P | [S]
+# Two pinned tabs are columns 6 to 37 and 40 to 71, and S, in front, starts
+# at 74. Each wears the sheet at its middle, 16 px from x 14 and x 48, y 13:
+# the sheet's foot (its row 13, a whole pixel at its column 8) is the
+# window's row 26 — under the baseline of any title, so that nothing but
+# the icon can ink it — at x 22 and x 56, in the muted ink of a tab that is
+# not in front; two rows down there is only the tab.
+move 700 300
+assert-pixel 73 20 #1f2228
+assert-pixel 74 20 #2c313a
+assert-pixel 22 26 #8f96a3
+assert-pixel 56 26 #8f96a3
+assert-pixel 22 28 #1f2228
+# In front, the pinned tab is filled as the tab in front is, its sheet in
+# that tab's ink, and it ends at column 37.
+select-tab 0
+assert-pixel 8 20 #2c313a
+assert-pixel 22 26 #e6e8ec
+assert-pixel 22 28 #2c313a
+assert-pixel 37 20 #2c313a
+assert-pixel 38 20 #1f2228
+select-tab 2
+# Unpinned, it goes to the first place after the pinned tabs.
+right-click-tab 0
+assert-menu New tab | - | Reload tab | Duplicate tab | Unpin tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
+menu Unpin tab
+assert-tab-titles ^P | T | [S]
+# "Close other tabs" leaves a pinned tab standing; what it closed comes back
+# after the pinned tabs, where it stood.
+right-click-tab 2
+menu Close other tabs
+assert-tab-titles ^P | [S]
+key ctrl+shift+t
+assert-tab-titles ^P | [T] | S
+# A pinned tab closes when it is asked to itself, and comes back pinned.
+right-click-tab 0
+menu Close tab
+assert-tab-titles [T] | S
+key ctrl+shift+t
+assert-tab-titles ^[P] | T | S
+# Its copy is pinned beside it, and the session keeps the pins.
+duplicate-tab 0
+assert-tab-titles ^P | ^[P] | T | S
+session-save
+close-tab
+assert-tab-titles ^P | [T] | S
+session-restore
+assert-tab-titles ^P | ^[P] | T | S
+# What a pinned tab opens stands after the pinned tabs, not among them.
+select-tab 0
+ctrl-click-text rlink
+assert-tab-titles ^[P] | ^P | R | T | S
+# And where a close button would be on so narrow a tab there is none: a
+# click there is a click on the tab.
+click 30 21
+assert-tab-titles ^[P] | ^P | R | T | S
+
+# A session file that lists its pinned tabs out of their row — written by
+# hand, or by something else — has them brought to the strip's front in the
+# order it lists them, the tab that was in front still in front.
+session-restore tabs-pinned-session.json
+assert-tab-titles ^B | ^D | [A] | C

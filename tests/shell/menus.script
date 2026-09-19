@@ -155,12 +155,12 @@ new-tab
 new-tab
 assert-tabs 3
 right-click-tab 0
-assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
+assert-menu New tab | - | Reload tab | Duplicate tab | Pin tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
 menu Close tabs to the right
 assert-tabs 1
 assert-title asked
 right-click-tab 0
-assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | (Close other tabs) | (Close tabs to the right) | - | Reopen closed tab
+assert-menu New tab | - | Reload tab | Duplicate tab | Pin tab | - | Close tab | (Close other tabs) | (Close tabs to the right) | - | Reopen closed tab
 menu New tab
 assert-tabs 2
 right-click-tab 0

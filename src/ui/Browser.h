@@ -409,6 +409,7 @@ public:
     std::size_t active_tab() const;
     std::string tab_title(std::size_t index) const; // as the strip shows it, before any cutting
     std::size_t closed_tab_count() const; // how many Ctrl+Shift+T could bring back
+    bool tab_pinned(std::size_t index) const; // an icon alone, among the strip's first
     net::Url const* current_url() const;
     HistoryEntry const* current_entry() const;
     bool can_go_back() const;

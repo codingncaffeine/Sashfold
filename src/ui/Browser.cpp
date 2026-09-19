@@ -459,6 +459,10 @@ struct Browser::Impl {
         // that container's, kept apart from every other's. Empty for the
         // default container.
         std::string container;
+        // Pinned: an icon alone at the strip's left, with no close button,
+        // that "close the others" leaves standing. The pinned tabs are
+        // always the strip's first tabs, in a row.
+        bool pinned = false;
         // The realm's mutation count the styles and layout below reflect;
         // when the realm has moved on, they are computed again before use.
         std::uint64_t page_mutations = 0;
@@ -545,6 +549,7 @@ struct Browser::Impl {
         // Its icon, so that the tab wears it the moment it is back.
         std::shared_ptr<Bitmap const> favicon;
         std::string favicon_key;
+        bool pinned = false; // it comes back as it was
     };
 
     enum class Hover {
@@ -998,8 +1003,10 @@ struct Browser::Impl {
             out += "    ]}";
             out += last ? "\n" : ",\n";
         };
+        std::string const pinned_member = ", \"pinned\": true"; // written for a pinned tab, and only for one
         for (std::size_t t = 0; t < tabs.size(); ++t)
-            write_tab(tabs[t].index, tabs[t].container, {}, tabs[t].history, t + 1 == tabs.size());
+            write_tab(tabs[t].index, tabs[t].container, tabs[t].pinned ? pinned_member : std::string(), tabs[t].history,
+                t + 1 == tabs.size());
         out += "  ]";
         // The tabs closed last, the newest last, each with where it stood:
         // Ctrl+Shift+T brings them back after a restart as before it.
@@ -1007,7 +1014,8 @@ struct Browser::Impl {
             out += ",\n  \"closed\": [\n";
             for (std::size_t t = 0; t < closed_tabs.size(); ++t) {
                 ClosedTab const& closed = closed_tabs[t];
-                write_tab(closed.index, closed.container, ", \"position\": " + std::to_string(closed.position),
+                write_tab(closed.index, closed.container,
+                    ", \"position\": " + std::to_string(closed.position) + (closed.pinned ? pinned_member : std::string()),
                     closed.history, t + 1 == closed_tabs.size());
             }
             out += "  ]";
@@ -1061,6 +1069,8 @@ struct Browser::Impl {
                 tab.index = std::min(static_cast<std::size_t>(index->as_number()), tab.history.size() - 1);
             if (JsonValue const* const container = tab_value.get("container"); container && container->is_string())
                 tab.container = container->as_string();
+            if (JsonValue const* const pinned = tab_value.get("pinned"); pinned && pinned->is_bool())
+                tab.pinned = pinned->as_bool();
             tab.scroll_y = tab.history[tab.index].scroll_y;
             restored.push_back(std::move(tab));
             if (positions) {
@@ -1096,6 +1106,24 @@ struct Browser::Impl {
         opened_beside = 0;
         if (JsonValue const* const active_value = session->get("active"); active_value && active_value->is_number() && active_value->as_number() >= 0)
             active = std::min(static_cast<std::size_t>(active_value->as_number()), tabs.size() - 1);
+        // The pinned tabs are the strip's first, whatever order a file says:
+        // each one found after a tab that is not pinned moves up to the row.
+        // (Nothing is drawn or loading yet: the tabs move, and the one in
+        // front is followed; there is nothing else to tell.)
+        std::size_t row = 0;
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            if (!tabs[i].pinned)
+                continue;
+            if (i != row) {
+                std::rotate(tabs.begin() + static_cast<std::ptrdiff_t>(row), tabs.begin() + static_cast<std::ptrdiff_t>(i),
+                    tabs.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+                if (active == i)
+                    active = row;
+                else if (active >= row && active < i)
+                    ++active;
+            }
+            ++row;
+        }
         // The tabs closed last come over too, the newest of them kept when
         // the file lists more than are kept.
         closed_tabs.clear();
@@ -1104,7 +1132,7 @@ struct Browser::Impl {
         std::size_t const from = closed.size() > closed_tabs_kept ? closed.size() - closed_tabs_kept : 0;
         for (std::size_t i = from; i < closed.size(); ++i)
             closed_tabs.push_back(ClosedTab { std::move(closed[i].history), closed[i].index,
-                std::move(closed[i].container), positions[i], nullptr, {} });
+                std::move(closed[i].container), positions[i], nullptr, {}, closed[i].pinned });
         // The active tab shows at once — its title until its page arrives —
         // and its page is queued like a navigation; the others wait to be
         // shown.
@@ -1250,8 +1278,13 @@ struct Browser::Impl {
             reserved = 3 * (t.button_size + t.padding);
         }
         int const count = static_cast<int>(tabs.size());
-        int const available = width - 3 * t.padding - t.button_size - reserved;
-        int tab_width = count > 0 ? (available - (count - 1) * t.tab_gap) / count : t.tab_max_width;
+        // A pinned tab is its icon and the room about it, no more; the
+        // others share what the pinned ones leave.
+        int const pinned = static_cast<int>(pinned_count());
+        int const pinned_width = t.tab_icon_size + 2 * (t.padding + 2);
+        int const shared = count - pinned;
+        int const available = width - 3 * t.padding - t.button_size - reserved - pinned * (pinned_width + t.tab_gap);
+        int tab_width = shared > 0 ? (available - (shared - 1) * t.tab_gap) / shared : t.tab_max_width;
         tab_width = std::clamp(tab_width, t.tab_min_width, t.tab_max_width);
         // Attached, a tab stands on the toolbar; floating, it sits in the
         // middle of the strip with the strip showing above and below it.
@@ -1260,11 +1293,14 @@ struct Browser::Impl {
         int const close_size = std::max(10, t.tab_height - 12);
         int x = t.padding;
         for (int i = 0; i < count; ++i) {
-            Rect const tab { x, tab_y, tab_width, t.tab_height };
+            int const this_width = i < pinned ? pinned_width : tab_width;
+            Rect const tab { x, tab_y, this_width, t.tab_height };
             c.tabs.push_back(tab);
-            c.tab_close_buttons.push_back(Rect { tab.right() - t.padding - close_size,
-                tab.y + (tab.height - close_size) / 2, close_size, close_size });
-            x += tab_width + t.tab_gap;
+            // A pinned tab has no close button: an empty rect, which nothing hits.
+            c.tab_close_buttons.push_back(i < pinned ? Rect {}
+                                                     : Rect { tab.right() - t.padding - close_size,
+                                                           tab.y + (tab.height - close_size) / 2, close_size, close_size });
+            x += this_width + t.tab_gap;
         }
         int const new_tab_x = std::min(x + t.padding / 2, width - t.padding - t.button_size - reserved);
         c.new_tab_button = Rect { new_tab_x, tab_y + (t.tab_height - t.button_size) / 2,
@@ -2999,7 +3035,7 @@ struct Browser::Impl {
         if (HistoryEntry* const entry = tab.current())
             entry->scroll_y = tab.scroll_y;
         closed_tabs.push_back(ClosedTab { std::move(tab.history), tab.index, tab.container, index,
-            std::move(tab.favicon), std::move(tab.favicon_key) });
+            std::move(tab.favicon), std::move(tab.favicon_key), tab.pinned });
         tab.history.clear();
         if (closed_tabs.size() > closed_tabs_kept)
             closed_tabs.erase(closed_tabs.begin());
@@ -3024,6 +3060,10 @@ struct Browser::Impl {
         tab.favicon = std::move(closed.favicon);
         tab.favicon_key = std::move(closed.favicon_key);
         tab.scroll_y = tab.history[tab.index].scroll_y;
+        // Pinned as it was, and so among the pinned tabs — or after them.
+        tab.pinned = closed.pinned;
+        closed.position = closed.pinned ? std::min(closed.position, pinned_count())
+                                        : std::max(closed.position, pinned_count());
         std::size_t const at = insert_tab(closed.position, std::move(tab), true);
         show_kept(at);
     }
@@ -3042,11 +3082,69 @@ struct Browser::Impl {
         tab.container = from.container;
         tab.favicon = from.favicon; // the same picture, shared
         tab.favicon_key = from.favicon_key;
+        tab.pinned = from.pinned; // a pinned tab's copy stands beside it, pinned
         if (HistoryEntry* const entry = tab.current())
             entry->scroll_y = from.scroll_y;
         tab.scroll_y = from.scroll_y;
         std::size_t const at = insert_tab(index + 1, std::move(tab), true);
         show_kept(at);
+    }
+
+    // --- Pinned tabs ----------------------------------------------------------------
+
+    // How many tabs are pinned: they are the strip's first, in a row.
+    std::size_t pinned_count() const
+    {
+        std::size_t count = 0;
+        while (count < tabs.size() && tabs[count].pinned)
+            ++count;
+        return count;
+    }
+
+    // A tab taken from one place in the strip to another, the tabs between
+    // moving over by one. Whatever names a tab by where it stands — a load
+    // under way, a window asked for, the tab in front — follows its tab.
+    void move_tab(std::size_t from, std::size_t to)
+    {
+        if (from >= tabs.size() || to >= tabs.size() || from == to)
+            return;
+        close_menus(); // a tab's menu names its tab by where it stood
+        auto const moved = [from, to](std::size_t index) {
+            if (index == from)
+                return to;
+            if (from < to && index > from && index <= to)
+                return index - 1;
+            if (to < from && index >= to && index < from)
+                return index + 1;
+            return index;
+        };
+        if (from < to)
+            std::rotate(tabs.begin() + static_cast<std::ptrdiff_t>(from), tabs.begin() + static_cast<std::ptrdiff_t>(from) + 1,
+                tabs.begin() + static_cast<std::ptrdiff_t>(to) + 1);
+        else
+            std::rotate(tabs.begin() + static_cast<std::ptrdiff_t>(to), tabs.begin() + static_cast<std::ptrdiff_t>(from),
+                tabs.begin() + static_cast<std::ptrdiff_t>(from) + 1);
+        for (Pending& load : pending)
+            load.tab = moved(load.tab);
+        for (PendingWindow& window : pending_windows)
+            window.opener = moved(window.opener);
+        active = moved(active);
+        opened_beside = 0;
+        refresh_hover();
+        dirty = true;
+    }
+
+    // Pinning takes a tab to the end of the pinned tabs, unpinning to the
+    // first place after them: where both browsers put it.
+    void set_pinned(std::size_t index, bool pinned)
+    {
+        if (index >= tabs.size() || tabs[index].pinned == pinned)
+            return;
+        std::size_t const row = pinned_count();
+        tabs[index].pinned = pinned;
+        move_tab(index, pinned ? row : row - 1);
+        close_menus();
+        dirty = true;
     }
 
     // A tab whose history came with it is shown from what it holds.
@@ -4352,16 +4450,31 @@ struct Browser::Impl {
     {
         if (keep >= tabs.size())
             return;
+        // A pinned tab is not one of "the others": it closes when it is
+        // asked to itself, and not in passing.
         for (std::size_t i = tabs.size(); i-- > 0;) {
-            if (i != keep)
+            if (i != keep && !tabs[i].pinned)
                 close_tab(i);
         }
     }
 
     void close_tabs_after(std::size_t index)
     {
-        for (std::size_t i = tabs.size(); i-- > index + 1;)
-            close_tab(i);
+        for (std::size_t i = tabs.size(); i-- > index + 1;) {
+            if (!tabs[i].pinned)
+                close_tab(i);
+        }
+    }
+
+    // Whether "close the others" / "close those to the right" would close
+    // anything: a tab that is not pinned, elsewhere than `index` / after it.
+    bool closable_besides(std::size_t index, bool after_only) const
+    {
+        for (std::size_t i = after_only ? index + 1 : 0; i < tabs.size(); ++i) {
+            if (i != index && !tabs[i].pinned)
+                return true;
+        }
+        return false;
     }
 
     void open_tab_menu(std::size_t index, int x, int y)
@@ -4373,11 +4486,14 @@ struct Browser::Impl {
         items.push_back({});
         items.push_back(menu_item("Reload tab", "Ctrl+R", [this, index] { reload_tab(index); }));
         items.push_back(menu_item("Duplicate tab", {}, [this, index] { duplicate_tab(index); }));
+        bool const pinned = tabs[index].pinned;
+        items.push_back(menu_item(pinned ? "Unpin tab" : "Pin tab", {}, [this, index, pinned] { set_pinned(index, !pinned); }));
         items.push_back({});
         items.push_back(menu_item("Close tab", "Ctrl+W", [this, index] { close_tab(index); }));
-        items.push_back(menu_item("Close other tabs", {}, [this, index] { close_other_tabs(index); }, tabs.size() > 1));
+        items.push_back(menu_item("Close other tabs", {}, [this, index] { close_other_tabs(index); },
+            closable_besides(index, false)));
         items.push_back(menu_item("Close tabs to the right", {}, [this, index] { close_tabs_after(index); },
-            index + 1 < tabs.size()));
+            closable_besides(index, true)));
         items.push_back({});
         items.push_back(menu_item("Reopen closed tab", "Ctrl+Shift+T", [this] { reopen_closed_tab(); },
             !closed_tabs.empty()));
@@ -6010,7 +6126,9 @@ struct Browser::Impl {
         // neither reads it nor adds to it.
         bool const from_front = !to_front && opener == active;
         std::size_t const run = from_front ? opened_beside : 0;
-        std::size_t const position = tabs.empty() ? 0 : std::min(opener, tabs.size() - 1) + 1 + run;
+        // Beside its opener — after the pinned tabs, where the opener is one.
+        std::size_t const position
+            = std::max(tabs.empty() ? 0 : std::min(opener, tabs.size() - 1) + 1 + run, pinned_count());
         std::size_t const at = insert_tab(position, std::move(tab), to_front);
         if (from_front)
             opened_beside = run + 1;
@@ -6595,6 +6713,19 @@ struct Browser::Impl {
                 int const stripe = std::max(2, t.border_width * 2);
                 frame.fill_rect(Rect { rect.x + t.tab_corner_radius, rect.y, std::max(0, rect.width - 2 * t.tab_corner_radius), stripe },
                     container->color);
+            }
+            if (tabs[i].pinned) {
+                // A pinned tab is its icon, in the middle of it: the page's
+                // own, or a sheet of paper for a page that has none. No
+                // title, and nothing to close it by.
+                int const size = t.tab_icon_size;
+                if (tabs[i].favicon) {
+                    frame.draw_scaled(*tabs[i].favicon,
+                        Rect { rect.x + (rect.width - size) / 2, rect.y + (rect.height - size) / 2, size, size });
+                } else {
+                    draw_icon(frame, Icon::Page, rect, size, is_active ? t.tab_text : t.chrome_text_muted);
+                }
+                continue;
             }
             Rect const close = c.tab_close_buttons[i];
             float text_x = static_cast<float>(rect.x + t.padding + 2);
@@ -7343,6 +7474,7 @@ std::string Browser::tab_title(std::size_t index) const
     return index < m_impl->tabs.size() ? m_impl->tab_title(m_impl->tabs[index]) : std::string();
 }
 std::size_t Browser::closed_tab_count() const { return m_impl->closed_tabs.size(); }
+bool Browser::tab_pinned(std::size_t index) const { return index < m_impl->tabs.size() && m_impl->tabs[index].pinned; }
 
 net::Url const* Browser::current_url() const
 {
