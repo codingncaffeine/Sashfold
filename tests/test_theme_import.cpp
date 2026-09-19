@@ -80,6 +80,7 @@ int main(int argc, char** argv)
                 std::cerr << "  " << problem << "\n";
             CHECK_EQ(theme_problems.size(), std::size_t { 0 });
             CHECK_EQ(theme.name, "Sample Fox");
+            CHECK(theme.tab_shape == TabShape::Floating); // that browser's tabs float in their strip
             // What it says, in every way it may be said: hex, rgb(), rgba(),
             // rgb() again, hsl(), an array.
             CHECK(theme.chrome_background == Color::rgb(0x20, 0x30, 0x40));
@@ -169,6 +170,7 @@ int main(int argc, char** argv)
             std::cerr << "  " << problem << "\n";
         CHECK_EQ(theme_problems.size(), std::size_t { 0 });
         CHECK_EQ(theme.name, "Sample Chrome");
+        CHECK(theme.tab_shape == TabShape::Attached); // that browser's stand on the toolbar
         CHECK(theme.chrome_background == Color::rgb(144, 152, 160)); // the frame under its tint
         CHECK(theme.chrome_background_inactive == Color::rgb(176, 181, 187)); // and under that browser's own for a window behind
         CHECK(theme.toolbar_background == Color::rgb(240, 240, 240));

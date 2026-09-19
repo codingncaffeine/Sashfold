@@ -4,7 +4,7 @@ script tests/shell/theme-import.script
 
 control zipbase
 file src/core/Zip.cpp
-fails 57 58 60 61 62 63 64 65 66 67 68 70 72
+fails 57 58 60 61 62 63 64 65 66 67 68 70 72 92 93 94 95
 plant s/    archive.m_base = \*end - directory_size - directory_offset;/    archive.m_base = 0 * (*end - directory_size - directory_offset);/
 
 control align
@@ -31,4 +31,14 @@ control foxtabs
 file src/ui/ThemeImport.cpp
 fails 38 40
 plant s/    c.set\("tab-inactive-background", Color::rgba\(0, 0, 0, 0\)\);\n    c.set\("tab-hover-background", with_alpha\(strip_text, 0x1c\)\);\n    if \(std::optional<Color> const line = c.color\("tab_line"\)\)/    c.set("tab-hover-background", with_alpha(strip_text, 0x1c));\n    if (std::optional<Color> const line = c.color("tab_line"))/
+
+control floaty
+file src/ui/Browser.cpp
+fails 25 31 81 82 86
+plant s~        int const tab_y = t.tab_shape == TabShape::Floating \? \(t.tab_strip_height - t.tab_height\) / 2~        int const tab_y = t.tab_shape == TabShape::Floating \&\& width < 0 ? (t.tab_strip_height - t.tab_height) / 2~
+
+control outline
+file src/ui/Browser.cpp
+fails 31 82 83 84
+plant s~                if \(floating\)\n                    frame.fill_round_box\(rect, t.tab_corner_radius, t.border_width, t.tab_line, Color::rgba\(0, 0, 0, 0\)\);~                if (floating \&\& width < 0)\n                    frame.fill_round_box(rect, t.tab_corner_radius, t.border_width, t.tab_line, Color::rgba(0, 0, 0, 0));~
 

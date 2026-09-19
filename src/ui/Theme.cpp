@@ -390,6 +390,14 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
         else if (problems)
             problems->push_back("theme: name: expected a string");
     }
+    if (JsonValue const* const shape = root->get("tab-shape")) {
+        if (shape->is_string() && shape->as_string() == "floating")
+            theme.tab_shape = TabShape::Floating;
+        else if (shape->is_string() && shape->as_string() == "attached")
+            theme.tab_shape = TabShape::Attached;
+        else if (problems)
+            problems->push_back("theme: tab-shape: expected \"attached\" or \"floating\"");
+    }
 
     read_section(*root, "colors", color_tokens,
         [](JsonValue const& value, Color& target) -> std::optional<std::string> {
@@ -477,7 +485,7 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
     for (auto const& [key, value] : root->as_object()) {
         (void)value;
         if (key != "name" && key != "colors" && key != "metrics" && key != "type"
-            && key != "timings" && key != "new-tab" && key != "images" && problems)
+            && key != "timings" && key != "new-tab" && key != "images" && key != "tab-shape" && problems)
             problems->push_back("theme: " + key + ": unknown section");
     }
     return theme;

@@ -37,8 +37,21 @@ struct ThemePicture {
     friend bool operator==(ThemePicture const&, ThemePicture const&) = default;
 };
 
+// How the tabs sit in their strip. Attached, a tab's foot runs into the
+// toolbar and only its top corners are round — the tab in front and the
+// toolbar are one surface, as Chrome draws them. Floating, a tab is a pill
+// of its own, all four corners round, with the strip showing above and
+// below it, as Firefox draws them: what a theme of that browser's was drawn
+// for, whose tab in front may be white over a blue toolbar.
+enum class TabShape {
+    Attached,
+    Floating,
+};
+
 struct Theme {
     std::string name = "Sashfold";
+    // "tab-shape": "attached" (as unsaid) or "floating".
+    TabShape tab_shape = TabShape::Attached;
 
     // Colors.
     Color chrome_background = Color::rgb(0x1f, 0x22, 0x28);

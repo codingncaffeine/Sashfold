@@ -862,7 +862,11 @@ std::optional<ImportedTheme> import_browser_theme(std::string_view manifest, The
     else
         convert_firefox(c);
 
-    std::string json = "{\n  \"name\": " + json_text(c.out.name) + ",\n  \"colors\": {\n";
+    // The tabs sit as that theme's browser sets them: Firefox's float in the
+    // strip, Chrome's stand on the toolbar — which is what makes a front
+    // tab that is not the toolbar's color look meant, not broken.
+    std::string json = "{\n  \"name\": " + json_text(c.out.name) + ",\n  \"tab-shape\": "
+        + (c.out.kind == BrowserThemeKind::Firefox ? "\"floating\"" : "\"attached\"") + ",\n  \"colors\": {\n";
     std::size_t written = 0;
     for (auto const& [token, value] : c.tokens)
         json += "    " + json_text(token) + ": " + json_text(value) + (++written < c.tokens.size() ? ",\n" : "\n");

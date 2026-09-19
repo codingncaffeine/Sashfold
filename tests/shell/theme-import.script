@@ -22,13 +22,13 @@ assert-pixel 596 20 #ff0000
 assert-pixel 5 4 #203040
 assert-pixel 600 38 #182838
 assert-pixel 716 56 #ffffff
-assert-pixel 50 6 #ff8000
+assert-pixel 50 3 #ff8000
 
 # In a window whose width is no multiple of the weave's, where it is held
-# shows: it repeats from the left edge, not from the right.
+# shows: a dot at the left edge, none ten further on under the tab in front.
 resize 810 500
 assert-pixel 4 4 #ff0000
-assert-pixel 14 4 #203040
+assert-pixel 14 4 #182838
 resize 800 500
 
 # Its background tabs are the frame seen through, and the frame of a window
@@ -70,3 +70,26 @@ window-active off
 assert-pixel 600 10 #b0b5bb
 window-active on
 assert-pixel 600 10 #9098a0
+
+# The shape of the tabs is the theme's browser's. Firefox's float: a tab is a
+# rounded box of its own, 30 tall in the middle of a strip of 36 — the strip
+# shows above it, below it and at all four of its corners — and the tab in
+# front wears its line all round. (With the tab in front here the second of
+# two: x 228 to 447, y 3 to 32.)
+import-theme ../fixtures/themes/firefox-sample.xpi
+assert-theme Sample Fox
+assert-pixel 300 3 #ff8000
+assert-pixel 300 32 #ff8000
+assert-pixel 228 18 #ff8000
+assert-pixel 447 18 #ff8000
+assert-pixel 301 21 #182838
+assert-pixel 300 34 #203040
+assert-pixel 300 1 #203040
+assert-pixel 228 3 #203040
+assert-pixel 447 32 #203040
+
+# Chrome's stand on the toolbar: the tab in front runs into it, square-footed.
+import-theme ../fixtures/themes/chrome-sample.crx
+assert-pixel 300 35 #f0f0f0
+assert-pixel 228 35 #f0f0f0
+assert-pixel 228 6 #9098a0

@@ -1102,7 +1102,10 @@ struct Browser::Impl {
         int const available = width - 3 * t.padding - t.button_size - reserved;
         int tab_width = count > 0 ? (available - (count - 1) * t.tab_gap) / count : t.tab_max_width;
         tab_width = std::clamp(tab_width, t.tab_min_width, t.tab_max_width);
-        int const tab_y = t.tab_strip_height - t.tab_height;
+        // Attached, a tab stands on the toolbar; floating, it sits in the
+        // middle of the strip with the strip showing above and below it.
+        int const tab_y = t.tab_shape == TabShape::Floating ? (t.tab_strip_height - t.tab_height) / 2
+                                                            : t.tab_strip_height - t.tab_height;
         int const close_size = std::max(10, t.tab_height - 12);
         int x = t.padding;
         for (int i = 0; i < count; ++i) {
@@ -6220,11 +6223,12 @@ struct Browser::Impl {
             Rect const rect = c.tabs[i];
             bool const is_active = i == active;
             bool const hovered = (hover == Hover::Tab || hover == Hover::TabClose) && hover_index == i;
-            // Only the top corners round. The shape runs on below the tab
-            // by the corners' height and is cut off at the tab's foot, not
-            // left for the toolbar to cover: a toolbar with an alpha would
-            // show it.
-            Rect const shape { rect.x, rect.y, rect.width, rect.height + t.tab_corner_radius };
+            // Attached, only the top corners round: the shape runs on below
+            // the tab by the corners' height and is cut off at the tab's
+            // foot, not left for the toolbar to cover — a toolbar with an
+            // alpha would show it. Floating, the tab is its own rounded box.
+            bool const floating = t.tab_shape == TabShape::Floating;
+            Rect const shape { rect.x, rect.y, rect.width, rect.height + (floating ? 0 : t.tab_corner_radius) };
             auto const fill_tab = [&](Color color) {
                 // A tab the color of the frame is a tab that shows the frame.
                 if (color == t.chrome_background)
@@ -6254,12 +6258,16 @@ struct Browser::Impl {
                 if (hovered)
                     fill_tab(t.tab_hover_background);
             }
-            // The tab in front wears the theme's line along its top, when the
-            // theme names one.
+            // The tab in front wears the theme's line, when the theme names
+            // one: along its top where tabs are attached, around it where
+            // they float — the outline that browser gives its tab in front.
             if (is_active && t.tab_line.a != 0) {
-                frame.fill_rect(Rect { rect.x + t.tab_corner_radius, rect.y, std::max(0, rect.width - 2 * t.tab_corner_radius),
-                                    std::max(2, t.border_width * 2) },
-                    t.tab_line);
+                if (floating)
+                    frame.fill_round_box(rect, t.tab_corner_radius, t.border_width, t.tab_line, Color::rgba(0, 0, 0, 0));
+                else
+                    frame.fill_rect(Rect { rect.x + t.tab_corner_radius, rect.y, std::max(0, rect.width - 2 * t.tab_corner_radius),
+                                        std::max(2, t.border_width * 2) },
+                        t.tab_line);
             }
             // A tab in a container wears the container's colour along its top.
             if (Browser::Container const* const container = container_named(tabs[i].container)) {
@@ -6320,9 +6328,10 @@ struct Browser::Impl {
         frame.fill_rect(Rect { 0, c.toolbar.bottom() - t.border_width, width, t.border_width },
             t.chrome_border);
         // The line a theme may draw along the toolbar's top, broken where
-        // the tab in front runs into the toolbar.
+        // the tab in front runs into the toolbar — which a floating tab
+        // does not.
         if (t.toolbar_top_separator.a != 0) {
-            Rect const front = active < c.tabs.size() ? c.tabs[active] : Rect {};
+            Rect const front = active < c.tabs.size() && t.tab_shape == TabShape::Attached ? c.tabs[active] : Rect {};
             int const gap_from = front.is_empty() ? width : std::clamp(front.x, 0, width);
             int const gap_to = front.is_empty() ? width : std::clamp(front.right(), gap_from, width);
             frame.fill_rect(Rect { 0, c.toolbar.y, gap_from, t.border_width }, t.toolbar_top_separator);

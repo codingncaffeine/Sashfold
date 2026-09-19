@@ -278,6 +278,20 @@ int main(int argc, char** argv)
         CHECK_EQ(problems.size(), std::size_t { 1 });
     }
 
+    // --- How the tabs sit in their strip ----------------------------------------
+    {
+        std::vector<std::string> problems;
+        CHECK(Theme {}.tab_shape == TabShape::Attached); // as unsaid
+        CHECK(Theme::from_json("{ \"tab-shape\": \"floating\" }", &problems).tab_shape == TabShape::Floating);
+        CHECK(Theme::from_json("{ \"tab-shape\": \"attached\" }", &problems).tab_shape == TabShape::Attached);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(!(Theme::from_json("{ \"tab-shape\": \"floating\" }") == Theme {}));
+        CHECK(Theme::from_json("{ \"tab-shape\": \"round\" }", &problems) == Theme {});
+        CHECK(Theme::from_json("{ \"tab-shape\": 3 }", &problems) == Theme {});
+        CHECK_EQ(problems.size(), std::size_t { 2 });
+        CHECK(Theme::from_json("{ \"tab-shape\": \"floating\" }").scaled(2).tab_shape == TabShape::Floating);
+    }
+
     // --- The new-tab page's own colors ---------------------------------------
     {
         std::vector<std::string> problems;
