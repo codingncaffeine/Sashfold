@@ -1540,7 +1540,9 @@ bool convert_dropped_themes(std::string const& directory)
         std::filesystem::path const stamp = converted / (entry.path().filename().string() + ".stamp");
         std::filesystem::file_time_type const changed = std::filesystem::last_write_time(entry.path(), error);
         std::optional<std::string> const stamped = read_text_file(stamp);
-        std::string const now = std::to_string(changed.time_since_epoch().count());
+        // As sixty-four bits: one standard library counts a file's time in
+        // a hundred and twenty-eight, which to_string has no one answer for.
+        std::string const now = std::to_string(static_cast<long long>(changed.time_since_epoch().count()));
         if (stamped && *stamped == now)
             continue;
         std::vector<std::string> problems;
