@@ -620,6 +620,29 @@ void test_limits_and_termination()
         CHECK(run.ok && run.value.is_number() && run.value.as_number() == 5000);
         CHECK(!unbounded.out_of_memory());
     }
+    // The longest string. What would pass it is a RangeError a script can
+    // catch, thrown before the memory is asked for — by +, a template
+    // literal, concat, join, repeat and padStart alike. (A thousand code
+    // units here; 2^30 - 1 unless a heap is told otherwise.)
+    {
+        js::Interpreter& capped = fresh();
+        CHECK_EQ(capped.heap().max_string_length(), std::size_t { 0x3FFFFFFF });
+        capped.heap().set_max_string_length(1000);
+        CHECK_JS_NUMBER(capped, "var s = 'x'.repeat(1000); s.length", 1000); // the longest itself is a string
+        CHECK_JS_NUMBER(capped, "(s.slice(1) + 'y').length", 1000);
+        CHECK_JS_THROWS(capped, "s + 'y'", "RangeError");
+        CHECK_JS_THROWS(capped, "`${s}y`", "RangeError");
+        CHECK_JS_THROWS(capped, "s.concat('y')", "RangeError");
+        CHECK_JS_THROWS(capped, "[s, 'y'].join('')", "RangeError");
+        CHECK_JS_NUMBER(capped, "new Array(1001).join('x').length", 1000);
+        CHECK_JS_THROWS(capped, "new Array(1002).join('x')", "RangeError"); // separators alone
+        CHECK_JS_THROWS(capped, "'x'.repeat(1001)", "RangeError");
+        CHECK_JS_THROWS(capped, "'x'.padStart(2002, 'y')", "RangeError");
+        // The loop that doubles a string ends at its tenth doubling, caught.
+        CHECK_JS_STRING(capped,
+            "var t = 'ab'; for (var i = 0; i < 40; ++i) { try { t += t; } catch (e) { t = e.name + ':' + t.length; break; } } t",
+            "RangeError:512");
+    }
     // Two hundred thousand short strings: the collector keeps the heap
     // bounded and nothing in use is swept.
     {

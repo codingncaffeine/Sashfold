@@ -1022,7 +1022,7 @@ std::optional<Value> pad_string(Interpreter& in, Value const& this_value, Args a
     if (fill.empty())
         return Value::string(*string);
     auto const fill_length = static_cast<std::size_t>(*max_length - length);
-    if (fill_length > 0x3FFFFFFF)
+    if (fill_length > in.heap().max_string_length())
         return in.throw_range_error("Invalid string length");
     std::u16string padding;
     padding.reserve(fill_length);
@@ -1190,6 +1190,8 @@ void install_string_prototype(Interpreter& in, Object& prototype)
             std::optional<JsString*> const text = interp.to_string(arg);
             if (!text)
                 return std::nullopt;
+            if (out.size() + (*text)->length() > interp.heap().max_string_length())
+                return interp.throw_range_error("Invalid string length");
             out += (*text)->view();
         }
         return make_string(interp, out);
@@ -1352,7 +1354,7 @@ void install_string_prototype(Interpreter& in, Object& prototype)
             return interp.throw_range_error("Invalid count value: " + number_to_utf8(*count));
         if (*count == 0 || (*string)->is_empty())
             return Value::string(interp.atoms().empty);
-        if (static_cast<double>((*string)->length()) * *count > 0x3FFFFFFF)
+        if (static_cast<double>((*string)->length()) * *count > static_cast<double>(interp.heap().max_string_length()))
             return interp.throw_range_error("Invalid string length");
         std::u16string out;
         out.reserve(static_cast<std::size_t>(static_cast<double>((*string)->length()) * *count));

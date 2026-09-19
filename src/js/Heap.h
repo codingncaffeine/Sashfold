@@ -66,6 +66,14 @@ private:
     std::vector<Cell*> m_worklist;
 };
 
+// The longest string a script can make, in code units: 2^30 - 1, a
+// gigabyte's worth of characters and two of memory. Every engine has such
+// a number (the specification leaves it to them), and what would pass it —
+// `s += s` in a loop, a join, a repeat — is a RangeError, "Invalid string
+// length", thrown BEFORE the memory is asked for: one doubling of a string
+// already gigabytes long is more than any ceiling on the heap can stop.
+inline constexpr std::size_t max_string_length = 0x3FFFFFFF;
+
 // An immutable sequence of UTF-16 code units, which is what a JavaScript
 // string is (§6.1.4). Lone surrogates are legal and preserved. An atom is
 // a string the heap has interned: two atoms with the same contents are the
@@ -296,6 +304,11 @@ public:
     void set_limit(std::size_t bytes) { m_limit = bytes; }
     std::size_t limit() const { return m_limit; }
     bool over_limit() const { return m_over_limit; }
+    // The longest string a script of this heap can make (js::max_string_length
+    // unless told otherwise — a test tells it a thousand, and need not make
+    // a gigabyte of string to see the RangeError).
+    void set_max_string_length(std::size_t code_units) { m_max_string_length = code_units; }
+    std::size_t max_string_length() const { return m_max_string_length; }
 
     // A cell grows after it is made — an array pushed to, an object given
     // properties — and the running estimate knows only what it was when it
@@ -351,6 +364,7 @@ private:
     std::size_t m_bytes = 0; // estimated live + garbage since the last collection
     std::size_t m_threshold = 8u * 1024u * 1024u;
     std::size_t m_collections = 0;
+    std::size_t m_max_string_length = js::max_string_length;
     std::size_t m_limit = 0; // the ceiling; 0 is none
     bool m_over_limit = false; // what was live after a collection passed it
     std::size_t m_adopted_since_measure = 0; // cells adopted since they were all last asked their size

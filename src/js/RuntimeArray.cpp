@@ -472,8 +472,12 @@ std::optional<Value> join_elements(Interpreter& in, Object& object, double lengt
     // §23.1.3.18 join, and the element loop of toLocaleString (§23.1.3.32).
     std::u16string out;
     for (double k = 0; k < length; ++k) {
-        if (k > 0)
+        if (k > 0) {
+            // A long array of nothing joins into separators alone.
+            if (out.size() + separator.size() > in.heap().max_string_length())
+                return in.throw_range_error("Invalid string length");
             out += separator;
+        }
         Interpreter::Roots const roots(in);
         std::optional<Value> const element = get_at(in, object, k);
         if (!element)
@@ -491,6 +495,8 @@ std::optional<Value> join_elements(Interpreter& in, Object& object, double lengt
         std::optional<JsString*> const text = in.to_string(*value);
         if (!text)
             return std::nullopt;
+        if (out.size() + (*text)->length() > in.heap().max_string_length())
+            return in.throw_range_error("Invalid string length");
         out += (*text)->view();
     }
     return Value::string(in.string(std::u16string_view(out)));

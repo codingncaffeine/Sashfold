@@ -1793,6 +1793,10 @@ std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& l
                 return Value::string(*rstr);
             if ((*rstr)->is_empty())
                 return Value::string(*lstr);
+            if ((*lstr)->length() + (*rstr)->length() > heap().max_string_length()) {
+                self.throw_error(ErrorType::RangeError, "Invalid string length");
+                return std::nullopt;
+            }
             std::u16string joined;
             joined.reserve((*lstr)->length() + (*rstr)->length());
             joined += (*lstr)->view();

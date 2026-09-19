@@ -726,6 +726,11 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::StringConcat: {
+            if (frame.peek(1).as_string()->length() + frame.peek(0).as_string()->length() > h.max_string_length()) {
+                self.throw_range_error("Invalid string length");
+                ok = false;
+                break;
+            }
             JsString* joined = h.string(frame.peek(1).as_string()->data() + frame.peek(0).as_string()->data());
             frame.stack.pop_back();
             frame.top() = Value::string(joined);
