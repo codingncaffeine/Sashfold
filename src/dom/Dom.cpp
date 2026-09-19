@@ -71,6 +71,46 @@ void Node::remove()
                 --range->end_offset;
         }
     }
+    // The pre-removing steps of the iterators (DOM §6.1): a place inside
+    // what is going moves to the node after it, when the iterator has not
+    // given its reference yet and there is one within its root, and to
+    // the node before it otherwise.
+    auto const move_out = [this](Node const& root, Node*& stands_at, bool& before_it) {
+        if (!stands_at || !is_inclusive_ancestor_of(*this, *stands_at))
+            return;
+        if (before_it) {
+            Node* next = nullptr;
+            for (Node* node = this; node && node != &root && !next; node = node->parent()) {
+                if (!node->parent())
+                    break;
+                std::vector<Node*> const& around = node->parent()->children();
+                std::uint32_t const at = node->index();
+                if (at + 1 < around.size())
+                    next = around[at + 1];
+            }
+            if (next) {
+                stands_at = next;
+                return;
+            }
+            before_it = false;
+        }
+        Node* before = previous_sibling();
+        if (!before) {
+            stands_at = m_parent;
+            return;
+        }
+        while (before->last_child())
+            before = before->last_child();
+        stands_at = before;
+    };
+    for (IteratorPlace* place : m_document->places()) {
+        // What holds the root was never among what the iterator walks:
+        // taking it away takes the whole walk with it and moves nothing.
+        if (!place->root || is_inclusive_ancestor_of(*this, *place->root))
+            continue;
+        move_out(*place->root, place->reference, place->before_reference);
+        move_out(*place->root, place->candidate, place->before_candidate);
+    }
     siblings.erase(std::remove(siblings.begin(), siblings.end(), this), siblings.end());
     m_parent = nullptr;
 }
@@ -230,6 +270,28 @@ Document::~Document()
     for (Range* range : ranges)
         release_range(*range);
     m_ranges.clear();
+    // And an iterator's place among them holds nothing from here on.
+    for (IteratorPlace* place : m_places) {
+        place->root = nullptr;
+        place->reference = nullptr;
+        place->candidate = nullptr;
+    }
+    m_places.clear();
+}
+
+void hold_place(IteratorPlace& place)
+{
+    if (place.root)
+        place.root->document().m_places.push_back(&place);
+}
+
+void release_place(IteratorPlace& place)
+{
+    if (place.root)
+        std::erase(place.root->document().m_places, &place);
+    place.root = nullptr;
+    place.reference = nullptr;
+    place.candidate = nullptr;
 }
 
 void set_range(Range& range, Node* start_node, std::uint32_t start_offset, Node* end_node, std::uint32_t end_offset)

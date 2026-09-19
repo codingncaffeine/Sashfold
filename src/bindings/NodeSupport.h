@@ -70,6 +70,10 @@ void set_data(Realm::Internals&, dom::Node&, std::u16string_view units);
 dom::Text* split_text(Realm::Internals&, dom::Text&, std::size_t offset);
 // A new live range at (container, 0) (Range.cpp).
 js::Value new_range(Realm::Internals&, dom::Node& container);
+// document.createTreeWalker and createNodeIterator (Traversal.cpp): the
+// root, whatToShow and the filter, as the arguments give them.
+Native new_tree_walker(Realm::Internals&, Args);
+Native new_node_iterator(Realm::Internals&, Args);
 
 // --- Mutation (each counts as one) --------------------------------------------------
 

@@ -1064,6 +1064,7 @@ void install_xhr(Realm::Internals&); // Xhr.cpp: XMLHttpRequest
 void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSignal, MessageChannel, MessagePort, postMessage
 void install_origin(Realm::Internals&); // Origin.cpp: Origin
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
+void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 
 // Origins (Origin.cpp): a URL's origin, a new opaque one each time for a URL
 // without a tuple; and the origin of a realm's document, its opaque origin

@@ -60,6 +60,23 @@ struct Range {
     bool live = true; // a StaticRange is kept, never moved
 };
 
+// Where a NodeIterator stands (DOM §6.1): the node it last gave, or is about
+// to give, and which side of it the iterator is on. Kept with the document
+// of its root so that removing a node can move the place out of what is
+// removed — the iterator's pre-removing steps — as a live range's
+// boundaries are moved.
+struct IteratorPlace {
+    Node* root = nullptr;
+    Node* reference = nullptr;
+    bool before_reference = true;
+    // Where a traversal in flight has got to, while the filter is asked
+    // about that node: the reference stays the last node given until the
+    // filter accepts, and a removal the filter makes moves this one too.
+    // Null between traversals.
+    Node* candidate = nullptr;
+    bool before_candidate = true;
+};
+
 class Node {
 public:
     Node(Document& document, NodeType type)
@@ -271,12 +288,17 @@ public:
 
     // The ranges with a boundary among this document's nodes.
     std::vector<Range*> const& ranges() const { return m_ranges; }
+    // The iterators' places whose root is one of this document's nodes.
+    std::vector<IteratorPlace*> const& places() const { return m_places; }
 
 private:
     friend void set_range(Range&, Node*, std::uint32_t, Node*, std::uint32_t);
     friend void release_range(Range&);
+    friend void hold_place(IteratorPlace&);
+    friend void release_place(IteratorPlace&);
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<Range*> m_ranges;
+    std::vector<IteratorPlace*> m_places;
     std::uint32_t m_base_elements = 0;
 };
 
@@ -287,6 +309,10 @@ Node* clone_subtree(Node const& node, Document& document);
 void set_range(Range&, Node* start_node, std::uint32_t start_offset, Node* end_node, std::uint32_t end_offset);
 // Takes a range from its documents; both boundaries become null.
 void release_range(Range&);
+// Keeps a place with its root's document for as long as it is held, and
+// lets it go; a place whose document ended holds nothing.
+void hold_place(IteratorPlace&);
+void release_place(IteratorPlace&);
 // The live range steps of the character data algorithms, in UTF-16 code
 // units: `count` units at `offset` replaced by `inserted` of them (DOM §4.10
 // "replace data"), a Text node split at `offset` once `new_node` follows it

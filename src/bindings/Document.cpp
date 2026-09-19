@@ -558,11 +558,11 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "createRange", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
         return new_range(internals, d);
     });
-    document_method(in, *document, "createTreeWalker", 1, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return internals.throw_dom_exception("NotSupportedError", "Tree walkers are not supported");
+    document_method(in, *document, "createTreeWalker", 1, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
+        return new_tree_walker(internals, args);
     });
-    document_method(in, *document, "createNodeIterator", 1, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return internals.throw_dom_exception("NotSupportedError", "Node iterators are not supported");
+    document_method(in, *document, "createNodeIterator", 1, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
+        return new_node_iterator(internals, args);
     });
     document_method(in, *document, "importNode", 1, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
         dom::Node* node = internals.realm.node_of(js::argument(args, 0));

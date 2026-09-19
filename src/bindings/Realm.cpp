@@ -1178,6 +1178,7 @@ void install_interfaces(Realm::Internals& in)
     install_events(in);
     install_nodes(in);
     install_ranges(in);
+    install_traversal(in);
     install_style(in);
     install_window(in);
     install_binary(in);
@@ -1586,7 +1587,11 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     bool const blank = target ? target->scheme == "about" && target->serialize(true) == "about:blank"
                               : frame_source(iframe, base_url()).empty();
     std::optional<FrameDocument> answer
-        = !blank && hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors, target) : std::nullopt;
+        // The host names the frame's src against this document and asks for
+        // it in this document's name — which, for an about:blank or srcdoc
+        // document, is the document that made it.
+        = !blank && hooks.frame_document ? hooks.frame_document(iframe, fallback_base_url(), hooks.policy, ancestors, target)
+                                         : std::nullopt;
     if (!answer) {
         answer = FrameDocument {};
         answer->content_type = "text/html";
@@ -2210,7 +2215,7 @@ void Realm::Internals::update_embedder(dom::Element& element)
                 answer->policy = *hooks.policy;
         }
     } else if (hooks.frame_document) {
-        answer = hooks.frame_document(element, url, hooks.policy, *ancestors, target);
+        answer = hooks.frame_document(element, fallback_base_url(), hooks.policy, *ancestors, target);
     }
     // A load that failed — a network error, a refusal, or an HTTP status that
     // is not a success — is an object's error and fallback (§4.8.7 names a 404),
