@@ -284,6 +284,10 @@ public:
     void new_tab();
     void close_tab(std::size_t index);
     void select_tab(std::size_t index);
+    // The tab closed last comes back where it stood, with its history; a
+    // copy of a tab opens beside it. Neither fetches anything.
+    void reopen_closed_tab();
+    void duplicate_tab(std::size_t index);
 
     bool has_pending_load() const;
     // Performs one queued load; true when it did.
@@ -398,6 +402,8 @@ public:
     // --- Inspection (tests and --script) ------------------------------------
     std::size_t tab_count() const;
     std::size_t active_tab() const;
+    std::string tab_title(std::size_t index) const; // as the strip shows it, before any cutting
+    std::size_t closed_tab_count() const; // how many Ctrl+Shift+T could bring back
     net::Url const* current_url() const;
     HistoryEntry const* current_entry() const;
     bool can_go_back() const;

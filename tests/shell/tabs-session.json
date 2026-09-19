@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "active": 0,
+  "tabs": [
+    {"index": 0, "container": "", "entries": [
+      {"url": "data:text/html,<title>Kept</title>kept", "final_url": "data:text/html,<title>Kept</title>kept", "title": "Kept", "scroll": 0}
+    ]}
+  ],
+  "closed": [
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c1</title>closed 1", "final_url": "data:text/html,<title>c1</title>closed 1", "title": "c1", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c2</title>closed 2", "final_url": "data:text/html,<title>c2</title>closed 2", "title": "c2", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c3</title>closed 3", "final_url": "data:text/html,<title>c3</title>closed 3", "title": "c3", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c4</title>closed 4", "final_url": "data:text/html,<title>c4</title>closed 4", "title": "c4", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c5</title>closed 5", "final_url": "data:text/html,<title>c5</title>closed 5", "title": "c5", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c6</title>closed 6", "final_url": "data:text/html,<title>c6</title>closed 6", "title": "c6", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c7</title>closed 7", "final_url": "data:text/html,<title>c7</title>closed 7", "title": "c7", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c8</title>closed 8", "final_url": "data:text/html,<title>c8</title>closed 8", "title": "c8", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c9</title>closed 9", "final_url": "data:text/html,<title>c9</title>closed 9", "title": "c9", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c10</title>closed 10", "final_url": "data:text/html,<title>c10</title>closed 10", "title": "c10", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c11</title>closed 11", "final_url": "data:text/html,<title>c11</title>closed 11", "title": "c11", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c12</title>closed 12", "final_url": "data:text/html,<title>c12</title>closed 12", "title": "c12", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c13</title>closed 13", "final_url": "data:text/html,<title>c13</title>closed 13", "title": "c13", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c14</title>closed 14", "final_url": "data:text/html,<title>c14</title>closed 14", "title": "c14", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c15</title>closed 15", "final_url": "data:text/html,<title>c15</title>closed 15", "title": "c15", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c16</title>closed 16", "final_url": "data:text/html,<title>c16</title>closed 16", "title": "c16", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c17</title>closed 17", "final_url": "data:text/html,<title>c17</title>closed 17", "title": "c17", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c18</title>closed 18", "final_url": "data:text/html,<title>c18</title>closed 18", "title": "c18", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c19</title>closed 19", "final_url": "data:text/html,<title>c19</title>closed 19", "title": "c19", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c20</title>closed 20", "final_url": "data:text/html,<title>c20</title>closed 20", "title": "c20", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c21</title>closed 21", "final_url": "data:text/html,<title>c21</title>closed 21", "title": "c21", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c22</title>closed 22", "final_url": "data:text/html,<title>c22</title>closed 22", "title": "c22", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c23</title>closed 23", "final_url": "data:text/html,<title>c23</title>closed 23", "title": "c23", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c24</title>closed 24", "final_url": "data:text/html,<title>c24</title>closed 24", "title": "c24", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c25</title>closed 25", "final_url": "data:text/html,<title>c25</title>closed 25", "title": "c25", "scroll": 0}
+    ]},
+    {"index": 0, "container": "", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c26</title>closed 26", "final_url": "data:text/html,<title>c26</title>closed 26", "title": "c26", "scroll": 0}
+    ]},
+    {"index": 0, "container": "Work", "position": 1, "entries": [
+      {"url": "data:text/html,<title>c27</title>closed 27", "final_url": "data:text/html,<title>c27</title>closed 27", "title": "c27", "scroll": 0}
+    ]}
+  ]
+}

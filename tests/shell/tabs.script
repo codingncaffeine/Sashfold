@@ -1,0 +1,146 @@
+# Tabs, matured — the first of it: a closed tab comes back where it stood
+# with its history and the place it had scrolled to; a tab is copied beside
+# itself; a link sent to a tab of its own opens BEHIND the tab in front and
+# BESIDE it, one that asks for its own tab opens in front; the session keeps
+# the tabs closed last, as many as the browsers keep (25).
+# (assert-tab-titles writes the strip in order, the tab in front in [brackets].)
+resize 800 500
+open data:text/html,<title>One</title><body style="margin:0"><a href="data:text/html,<title>A</title>page a">alpha</a> <a href="data:text/html,<title>B</title>page b">beta</a> <a href="data:text/html,<title>C</title>page c">gamma</a> <a target="_blank" href="data:text/html,<title>D</title>page d">delta</a> <button onclick="window.open('data:text/html,<title>E</title>page e')">popup</button>
+
+# With nothing closed there is nothing to bring back, and the menu says so.
+right-click-tab 0
+assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | (Close other tabs) | (Close tabs to the right) | - | (Reopen closed tab)
+key Escape
+assert-closed-tabs 0
+
+new-tab
+open data:text/html,<title>Two</title><body style="margin:0"><div style="height:3000px">two</div>
+new-tab
+open data:text/html,<title>Three</title>three
+assert-tab-titles One | Two | [Three]
+
+# A tab with a history, scrolled to its foot (3000 px of page in the 424 the
+# window leaves it), closes: its right-hand neighbour comes to the front.
+# Ctrl+Shift+T brings it back where it stood, in front, the page drawn, the
+# scroll kept, and Back still goes where it went.
+select-tab 1
+open data:text/html,<title>Two B</title><body style="margin:0"><div style="height:3000px">two b</div>
+key End
+assert-scroll 2576
+close-tab
+assert-tab-titles One | [Three]
+assert-closed-tabs 1
+key ctrl+shift+t
+assert-tab-titles One | [Two B] | Three
+assert-closed-tabs 0
+assert-text two b
+assert-scroll 2576
+back
+assert-title Two
+# Closed while it was back a page, it comes back on that page, the way
+# forward still open.
+close-tab
+key ctrl+shift+t
+assert-title Two
+forward
+assert-title Two B
+
+# A tab that never left the new-tab page is not kept, as no browser keeps it.
+new-tab
+close-tab
+assert-closed-tabs 0
+assert-tab-titles One | Two B | [Three]
+
+# A copy opens beside its tab, in front, at the same place in the same
+# history — and is a tab of its own: it goes back, the original does not.
+select-tab 1
+duplicate-tab
+assert-tab-titles One | Two B | [Two B] | Three
+assert-scroll 2576
+back
+assert-title Two
+assert-tab-titles One | Two B | [Two] | Three
+close-tab
+assert-closed-tabs 1
+assert-tab-titles One | Two B | [Three]
+
+# A container's tab is copied into its container, and comes back into it.
+palette new tab in work
+key Enter
+open data:text/html,<title>Works</title>works
+assert-container Work
+duplicate-tab
+assert-container Work
+assert-tab-titles One | Two B | Three | Works | [Works]
+close-tab
+close-tab
+assert-closed-tabs 3
+key ctrl+shift+t
+assert-tab-titles One | Two B | Three | [Works]
+assert-container Work
+close-tab
+
+# The tab's own menu copies it and, now that tabs have closed, offers them back.
+right-click-tab 0
+assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
+menu Duplicate tab
+assert-tab-titles One | [One] | Two B | Three
+close-tab
+assert-closed-tabs 4
+
+# Links sent to tabs of their own open behind the tab in front, beside it,
+# in the order they were opened...
+select-tab 0
+ctrl-click-text alpha
+ctrl-click-text beta
+assert-tab-titles [One] | A | B | Two B | Three
+assert-title One
+# ...and once the reader has been elsewhere, the next stands right beside its
+# opener again, the link's menu opening where Ctrl with the click does.
+select-tab 3
+select-tab 0
+ctrl-click-text gamma
+assert-tab-titles [One] | C | A | B | Two B | Three
+right-click-text alpha
+menu Open link in new tab
+assert-tab-titles [One] | C | A | A | B | Two B | Three
+# A link that asks for a tab of its own, and a window a page opens, come to
+# the front right beside their opener.
+click-text delta
+assert-tab-titles One | [D] | C | A | A | B | Two B | Three
+select-tab 0
+click-text popup
+assert-tab-titles One | [E] | D | C | A | A | B | Two B | Three
+
+# A session brings the closed tabs over: of the 27 this one lists the newest
+# 25 are kept. One more closing keeps it at 25. The newest comes back first;
+# then the newest of the session's, c27, where it stood, in its container,
+# its page fetched now.
+session-restore tabs-session.json
+assert-tab-titles [Kept]
+assert-closed-tabs 25
+open data:text/html,<title>Last</title>last
+new-tab
+select-tab 0
+close-tab
+assert-closed-tabs 25
+key ctrl+shift+t
+assert-tab-titles [Last] | New Tab
+assert-closed-tabs 24
+key ctrl+shift+t
+assert-tab-titles Last | [c27] | New Tab
+assert-text closed 27
+assert-container Work
+assert-closed-tabs 23
+# And a session written now carries them.
+session-save
+key ctrl+shift+t
+assert-closed-tabs 22
+session-restore
+assert-closed-tabs 23
+assert-tab-titles Last | [c27] | New Tab
+
+# Ctrl and Shift with the click: a tab of its own, in front, right beside.
+open data:text/html,<title>Opener</title><a href="data:text/html,<title>F</title>page f">epsilon</a>
+ctrl-shift-click-text epsilon
+assert-tab-titles Last | Opener | [F] | New Tab

@@ -230,14 +230,16 @@ struct Runner {
             platform::Modifiers modifiers;
             modifiers.shift = command == "shift-right-click";
             click(*x, *y, 3, modifiers);
-        } else if (command == "right-click-text" || command == "shift-right-click-text" || command == "ctrl-click-text") {
+        } else if (command == "right-click-text" || command == "shift-right-click-text" || command == "ctrl-click-text"
+            || command == "ctrl-shift-click-text") {
             std::optional<std::pair<int, int>> const at = browser.find_text(argument);
             if (!at)
                 return fail(command + ": no text run contains \"" + argument + "\"");
+            bool const left = command == "ctrl-click-text" || command == "ctrl-shift-click-text";
             platform::Modifiers modifiers;
-            modifiers.shift = command == "shift-right-click-text";
-            modifiers.ctrl = command == "ctrl-click-text";
-            click(at->first, at->second, command == "ctrl-click-text" ? 1 : 3, modifiers);
+            modifiers.shift = command == "shift-right-click-text" || command == "ctrl-shift-click-text";
+            modifiers.ctrl = left;
+            click(at->first, at->second, left ? 1 : 3, modifiers);
         } else if (command == "right-click-tab") {
             // `right-click-tab <index>`: the menu of that tab in the strip.
             auto const index = int_arg(0);
@@ -537,6 +539,27 @@ struct Runner {
                     + argument + "\"");
         } else if (command == "assert-tabs") {
             expect_equal("assert-tabs", std::to_string(browser.tab_count()), argument);
+        } else if (command == "assert-tab-titles") {
+            // `assert-tab-titles A | B | C`: every tab's title, in the
+            // strip's order, the one in front in [brackets].
+            std::string titles;
+            for (std::size_t i = 0; i < browser.tab_count(); ++i) {
+                if (i > 0)
+                    titles += " | ";
+                std::string const title = browser.tab_title(i);
+                titles += i == browser.active_tab() ? "[" + title + "]" : title;
+            }
+            expect_equal("assert-tab-titles", titles, argument);
+        } else if (command == "assert-closed-tabs") {
+            // `assert-closed-tabs <count>`: how many closed tabs could come back.
+            expect_equal("assert-closed-tabs", std::to_string(browser.closed_tab_count()), argument);
+        } else if (command == "duplicate-tab") {
+            // `duplicate-tab [index]`: a copy beside the tab, the one in front unsaid.
+            std::optional<int> const index = int_arg(0);
+            if (!args.empty() && (!index || *index < 0))
+                return fail("duplicate-tab: the index must be a non-negative number");
+            browser.duplicate_tab(index ? static_cast<std::size_t>(*index) : browser.active_tab());
+            settle();
         } else if (command == "assert-scroll") {
             expect_equal("assert-scroll", std::to_string(browser.scroll_y()), argument);
         } else if (command == "assert-scrolled") {

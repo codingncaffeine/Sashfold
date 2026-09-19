@@ -532,6 +532,19 @@ struct Browser::Impl {
     struct PendingWindow {
         std::string container;
         net::Url url;
+        std::size_t opener = 0; // the tab whose page asked, as it stood then
+    };
+
+    // A tab that was closed, kept so that it can come back where it stood:
+    // its history with the pages' bytes, so that nothing is fetched again.
+    struct ClosedTab {
+        std::vector<HistoryEntry> history;
+        std::size_t index = 0;
+        std::string container;
+        std::size_t position = 0; // where it stood in the strip
+        // Its icon, so that the tab wears it the moment it is back.
+        std::shared_ptr<Bitmap const> favicon;
+        std::string favicon_key;
     };
 
     enum class Hover {
@@ -601,6 +614,14 @@ struct Browser::Impl {
     std::size_t active = 0;
     std::vector<Pending> pending;
     std::vector<PendingWindow> pending_windows;
+    // The tabs closed last, the newest at the back, as many as the browsers
+    // keep: Ctrl+Shift+T brings the newest back.
+    static constexpr std::size_t closed_tabs_kept = 25;
+    std::vector<ClosedTab> closed_tabs;
+    // The tabs the tab in front has opened since it came to the front: each
+    // goes after the last, so that three links opened from one page stand
+    // beside it in the order they were opened.
+    std::size_t opened_beside = 0;
     // The containers the shell offers, in order (see Browser::Container).
     std::vector<Browser::Container> containers;
     // Every page's localStorage, an area per container and origin (the
@@ -780,15 +801,40 @@ struct Browser::Impl {
 
     void add_blank_tab(std::string container = {})
     {
-        close_menus(); // a tab's menu names its tab by where it stood
         Tab tab;
         tab.container = std::move(container);
         tab.history.push_back(blank_entry());
-        tabs.push_back(std::move(tab));
-        active = tabs.size() - 1;
-        render(tabs[active]);
+        std::size_t const at = insert_tab(tabs.size(), std::move(tab), true);
+        render(tabs[at]);
         sync_address();
+    }
+
+    // A tab put into the strip at a place, in front or behind the one that
+    // is. Whatever names a tab by where it stands — a load under way, the
+    // tab in front — moves along with the tabs pushed right. Returns where
+    // it stands.
+    std::size_t insert_tab(std::size_t position, Tab tab, bool to_front)
+    {
+        close_menus(); // a tab's menu names its tab by where it stood
+        position = std::min(position, tabs.size());
+        bool const first = tabs.empty();
+        tabs.insert(tabs.begin() + static_cast<std::ptrdiff_t>(position), std::move(tab));
+        for (Pending& load : pending) {
+            if (load.tab >= position)
+                ++load.tab;
+        }
+        for (PendingWindow& window : pending_windows) {
+            if (window.opener >= position)
+                ++window.opener;
+        }
+        if (to_front || first) {
+            active = position;
+            opened_beside = 0;
+        } else if (active >= position) {
+            ++active;
+        }
         dirty = true;
+        return position;
     }
 
     // --- Containers -----------------------------------------------------------
@@ -933,31 +979,50 @@ struct Browser::Impl {
     {
         std::string out = "{\n  \"version\": 1,\n  \"active\": " + std::to_string(std::min(active, tabs.empty() ? 0 : tabs.size() - 1))
             + ",\n  \"tabs\": [\n";
-        for (std::size_t t = 0; t < tabs.size(); ++t) {
-            Tab const& tab = tabs[t];
-            out += "    {\"index\": " + std::to_string(tab.index) + ", \"container\": " + json_quoted(tab.container)
+        // A tab as the session writes one: where it is in its history, its
+        // container, `more` of its own, and every entry of the history.
+        auto const write_tab = [&out](std::size_t index, std::string const& container, std::string const& more,
+                                   std::vector<HistoryEntry> const& history, bool last) {
+            out += "    {\"index\": " + std::to_string(index) + ", \"container\": " + json_quoted(container) + more
                 + ", \"entries\": [\n";
-            for (std::size_t e = 0; e < tab.history.size(); ++e) {
-                HistoryEntry const& entry = tab.history[e];
+            for (std::size_t e = 0; e < history.size(); ++e) {
+                HistoryEntry const& entry = history[e];
                 out += "      {\"url\": " + json_quoted(entry.url.serialize()) + ", \"final_url\": "
                     + json_quoted(entry.final_url.serialize()) + ", \"title\": " + json_quoted(entry.title)
                     + ", \"scroll\": " + std::to_string(entry.scroll_y) + "}";
-                out += e + 1 < tab.history.size() ? ",\n" : "\n";
+                out += e + 1 < history.size() ? ",\n" : "\n";
             }
             out += "    ]}";
-            out += t + 1 < tabs.size() ? ",\n" : "\n";
+            out += last ? "\n" : ",\n";
+        };
+        for (std::size_t t = 0; t < tabs.size(); ++t)
+            write_tab(tabs[t].index, tabs[t].container, {}, tabs[t].history, t + 1 == tabs.size());
+        out += "  ]";
+        // The tabs closed last, the newest last, each with where it stood:
+        // Ctrl+Shift+T brings them back after a restart as before it.
+        if (!closed_tabs.empty()) {
+            out += ",\n  \"closed\": [\n";
+            for (std::size_t t = 0; t < closed_tabs.size(); ++t) {
+                ClosedTab const& closed = closed_tabs[t];
+                write_tab(closed.index, closed.container, ", \"position\": " + std::to_string(closed.position),
+                    closed.history, t + 1 == closed_tabs.size());
+            }
+            out += "  ]";
         }
-        out += "  ]\n}\n";
+        out += "\n}\n";
         return out;
     }
 
     // The tabs a session describes, or none when the text is not one. An
     // entry comes back unloaded — its page fetched again when shown — but
     // for about:blank, which is nothing to fetch.
-    static std::vector<Tab> tabs_of_session(JsonValue const& session)
+    // `list` names which of the session's lists: its open tabs, or the ones
+    // closed last, whose places in the strip go to `positions`.
+    static std::vector<Tab> tabs_of_session(JsonValue const& session, std::string_view list = "tabs",
+        std::vector<std::size_t>* positions = nullptr)
     {
         std::vector<Tab> restored;
-        JsonValue const* const tabs_value = session.get("tabs");
+        JsonValue const* const tabs_value = session.get(list);
         if (!tabs_value || !tabs_value->is_array())
             return restored;
         for (JsonValue const& tab_value : tabs_value->as_array()) {
@@ -995,6 +1060,12 @@ struct Browser::Impl {
                 tab.container = container->as_string();
             tab.scroll_y = tab.history[tab.index].scroll_y;
             restored.push_back(std::move(tab));
+            if (positions) {
+                JsonValue const* const position = tab_value.get("position");
+                positions->push_back(position && position->is_number() && position->as_number() >= 0
+                        ? static_cast<std::size_t>(std::min(position->as_number(), 1.0e6))
+                        : 0);
+            }
         }
         return restored;
     }
@@ -1019,8 +1090,18 @@ struct Browser::Impl {
         main_menu_open = false;
         tabs = std::move(restored);
         active = 0;
+        opened_beside = 0;
         if (JsonValue const* const active_value = session->get("active"); active_value && active_value->is_number() && active_value->as_number() >= 0)
             active = std::min(static_cast<std::size_t>(active_value->as_number()), tabs.size() - 1);
+        // The tabs closed last come over too, the newest of them kept when
+        // the file lists more than are kept.
+        closed_tabs.clear();
+        std::vector<std::size_t> positions;
+        std::vector<Tab> closed = tabs_of_session(*session, "closed", &positions);
+        std::size_t const from = closed.size() > closed_tabs_kept ? closed.size() - closed_tabs_kept : 0;
+        for (std::size_t i = from; i < closed.size(); ++i)
+            closed_tabs.push_back(ClosedTab { std::move(closed[i].history), closed[i].index,
+                std::move(closed[i].container), positions[i], nullptr, {} });
         // The active tab shows at once — its title until its page arrives —
         // and its page is queued like a navigation; the others wait to be
         // shown.
@@ -1873,7 +1954,7 @@ struct Browser::Impl {
         std::vector<FrameStep> const chain = frames_to(*tab, hover_link_frame);
         bool const self = target.empty() || ascii_ci_equals(target, "_self");
         if (ascii_ci_equals(target, "_blank")) {
-            open_in_new_tab(url);
+            open_in_front(url);
         } else if (ascii_ci_equals(target, "_top") || (chain.empty() && (self || ascii_ci_equals(target, "_parent")))) {
             open(url);
         } else if (ascii_ci_equals(target, "_parent")) {
@@ -1886,7 +1967,7 @@ struct Browser::Impl {
         } else if (FrameView* const named = view_named(tab->frames, target)) {
             named->realm->navigate(url);
         } else {
-            open_in_new_tab(url);
+            open_in_front(url); // a name no frame goes by: a tab of its own
         }
         dirty = true;
     }
@@ -2075,7 +2156,7 @@ struct Browser::Impl {
         // never in the middle of the script asking.
         hooks.open_window = [this, document](net::Url const& target, bool) {
             if (Tab const* const owner = tab_of(document))
-                pending_windows.push_back(PendingWindow { owner->container, target });
+                pending_windows.push_back(PendingWindow { owner->container, target, index_of(*owner) });
         };
         hooks.user_activation = [this] { return std::chrono::steady_clock::now() < activation_until; };
         hooks.scroll_to = [this, document](dom::Document const& from, int, int y) {
@@ -2887,11 +2968,98 @@ struct Browser::Impl {
         return new_tab_page(page);
     }
 
+    // A tab with somewhere to come back to: one that never left the blank
+    // page or the new-tab page is not kept, as no browser keeps it.
+    static bool worth_reopening(Tab const& tab)
+    {
+        return std::any_of(tab.history.begin(), tab.history.end(), [](HistoryEntry const& entry) {
+            return !is_about_blank(entry.url) && !is_about_newtab(entry.url);
+        });
+    }
+
+    // The tab about to close goes on the stack of those that can come back,
+    // and the oldest falls off the far end.
+    void remember_closed(std::size_t index)
+    {
+        Tab& tab = tabs[index];
+        if (!worth_reopening(tab))
+            return;
+        if (HistoryEntry* const entry = tab.current())
+            entry->scroll_y = tab.scroll_y;
+        closed_tabs.push_back(ClosedTab { std::move(tab.history), tab.index, tab.container, index,
+            std::move(tab.favicon), std::move(tab.favicon_key) });
+        tab.history.clear();
+        if (closed_tabs.size() > closed_tabs_kept)
+            closed_tabs.erase(closed_tabs.begin());
+    }
+
+    // The tab closed last comes back where it stood, in front, with its
+    // history and the place it had scrolled to; its page is drawn from the
+    // bytes kept, or fetched when a session brought it over without them.
+    void reopen_closed_tab()
+    {
+        if (closed_tabs.empty())
+            return;
+        ClosedTab closed = std::move(closed_tabs.back());
+        closed_tabs.pop_back();
+        if (closed.history.empty())
+            return;
+        blur_address();
+        Tab tab;
+        tab.history = std::move(closed.history);
+        tab.index = std::min(closed.index, tab.history.size() - 1);
+        tab.container = std::move(closed.container);
+        tab.favicon = std::move(closed.favicon);
+        tab.favicon_key = std::move(closed.favicon_key);
+        tab.scroll_y = tab.history[tab.index].scroll_y;
+        std::size_t const at = insert_tab(closed.position, std::move(tab), true);
+        show_kept(at);
+    }
+
+    // A tab beside the one it copies, in front, with the same history at the
+    // same place, in the same container; nothing is fetched for it.
+    void duplicate_tab(std::size_t index)
+    {
+        if (index >= tabs.size())
+            return;
+        blur_address();
+        Tab const& from = tabs[index];
+        Tab tab;
+        tab.history = from.history;
+        tab.index = from.index;
+        tab.container = from.container;
+        tab.favicon = from.favicon; // the same picture, shared
+        tab.favicon_key = from.favicon_key;
+        if (HistoryEntry* const entry = tab.current())
+            entry->scroll_y = from.scroll_y;
+        tab.scroll_y = from.scroll_y;
+        std::size_t const at = insert_tab(index + 1, std::move(tab), true);
+        show_kept(at);
+    }
+
+    // A tab whose history came with it is shown from what it holds.
+    void show_kept(std::size_t index)
+    {
+        Tab& tab = tabs[index];
+        HistoryEntry const* const entry = tab.current();
+        if (entry && entry->unloaded) {
+            ensure_loaded(index);
+        } else {
+            render(tab); // at the place its entry had scrolled to
+            tab.status = "Done";
+        }
+        sync_address();
+        refresh_hover();
+        dirty = true;
+    }
+
     void close_tab(std::size_t index)
     {
         if (index >= tabs.size())
             return;
         close_menus();
+        remember_closed(index);
+        opened_beside = 0;
         tabs.erase(tabs.begin() + static_cast<std::ptrdiff_t>(index));
         for (Pending& load : pending) {
             if (load.tab > index)
@@ -2900,6 +3068,10 @@ struct Browser::Impl {
         pending.erase(std::remove_if(pending.begin(), pending.end(),
                           [&](Pending const& load) { return load.tab == index; }),
             pending.end());
+        for (PendingWindow& window : pending_windows) {
+            if (window.opener > index)
+                --window.opener;
+        }
         if (tabs.empty()) {
             add_blank_tab();
             focus_address(false);
@@ -2920,6 +3092,8 @@ struct Browser::Impl {
     {
         if (index >= tabs.size())
             return;
+        if (index != active)
+            opened_beside = 0; // what another tab opens stands beside that tab
         active = index;
         ensure_loaded(index); // a restored tab fetches its page now
         ensure_fresh(tabs[index]); // its scripts may have run while another tab showed
@@ -3278,6 +3452,9 @@ struct Browser::Impl {
         for (Browser::Container const& container : containers)
             commands.push_back({ "New tab in " + container.name, [this, name = container.name] { new_tab_in(name); } });
         commands.push_back({ "Close tab", [this] { close_tab(active); } });
+        if (!closed_tabs.empty())
+            commands.push_back({ "Reopen closed tab", [this] { reopen_closed_tab(); } });
+        commands.push_back({ "Duplicate tab", [this] { duplicate_tab(active); } });
         commands.push_back({ "Reload", [this] { reload(); } });
         commands.push_back({ "Back", [this] { go(-1); } });
         commands.push_back({ "Forward", [this] { go(+1); } });
@@ -4088,7 +4265,8 @@ struct Browser::Impl {
             items.push_back(menu_item("Open link in new tab", {}, [this, url] { open_in_new_tab(url); }, opens));
             if (!containers.empty()) {
                 MenuItem in_container = menu_item("Open link in new container tab", {}, {}, opens);
-                in_container.children = container_items([this, url](std::string const& name) { open_tab_in(name, url); });
+                in_container.children = container_items(
+                    [this, url](std::string const& name) { open_tab_beside(name, url, active, false); });
                 items.push_back(std::move(in_container));
             }
             items.push_back({});
@@ -4182,11 +4360,15 @@ struct Browser::Impl {
         items.push_back(menu_item("New tab", "Ctrl+T", [this] { new_tab(); }));
         items.push_back({});
         items.push_back(menu_item("Reload tab", "Ctrl+R", [this, index] { reload_tab(index); }));
+        items.push_back(menu_item("Duplicate tab", {}, [this, index] { duplicate_tab(index); }));
         items.push_back({});
         items.push_back(menu_item("Close tab", "Ctrl+W", [this, index] { close_tab(index); }));
         items.push_back(menu_item("Close other tabs", {}, [this, index] { close_other_tabs(index); }, tabs.size() > 1));
         items.push_back(menu_item("Close tabs to the right", {}, [this, index] { close_tabs_after(index); },
             index + 1 < tabs.size()));
+        items.push_back({});
+        items.push_back(menu_item("Reopen closed tab", "Ctrl+Shift+T", [this] { reopen_closed_tab(); },
+            !closed_tabs.empty()));
         open_menu(std::move(items), x + 1, y + 1);
     }
 
@@ -5755,7 +5937,12 @@ struct Browser::Impl {
                     blur_control();
                     if (hover_link && modifiers.ctrl && is_navigable_scheme(hover_link->scheme)) {
                         net::Url const url = *hover_link; // the hover moves with the tabs
-                        open_in_new_tab(url); // Ctrl with the click: a tab of its own
+                        // Ctrl with the click: a tab of its own, behind the
+                        // page; with Shift as well, in front of it.
+                        if (modifiers.shift)
+                            open_in_front(url);
+                        else
+                            open_in_new_tab(url);
                     } else if (hover_link) {
                         follow_link();
                     } else if (Tab* const tab = active_tab()) {
@@ -5766,21 +5953,62 @@ struct Browser::Impl {
             case Hover::None: blur_address(); break;
             }
         } else if (button == 2) {
-            if (hover == Hover::Content && hover_link)
-                open_in_new_tab(*hover_link);
-            else if (hover == Hover::Tab || hover == Hover::TabClose)
+            if (hover == Hover::Content && hover_link) {
+                // The middle button: a tab of its own, as Ctrl with a click.
+                net::Url const url = *hover_link; // the hover moves with the tabs
+                if (modifiers.shift)
+                    open_in_front(url);
+                else
+                    open_in_new_tab(url);
+            } else if (hover == Hover::Tab || hover == Hover::TabClose)
                 close_tab(hover_index);
         }
         dirty = true;
     }
 
-    // A link opened in a new tab stays in the tab's container.
+    // A link the reader sends to a tab of its own — Ctrl or the middle button
+    // with the click, the link's menu — stays in the tab's container and
+    // opens BEHIND the tab in front, which the reader goes on reading.
     void open_in_new_tab(net::Url const& url)
     {
         Tab const* const from = active_tab();
-        open_tab_in(from ? from->container : std::string(), url);
+        open_tab_beside(from ? from->container : std::string(), url, active, false);
     }
 
+    // A link that asks for a tab of its own (target=_blank) opens in front.
+    void open_in_front(net::Url const& url)
+    {
+        Tab const* const from = active_tab();
+        open_tab_beside(from ? from->container : std::string(), url, active, true);
+    }
+
+    // A tab opened from a tab stands beside it. One that comes to the front
+    // stands right beside; one opened behind goes after the tabs the tab in
+    // front has already opened since it came to the front, so that three
+    // links opened from one page stand in the order they were opened. (Where
+    // both browsers put them.)
+    void open_tab_beside(std::string const& container, net::Url const& url, std::size_t opener, bool to_front)
+    {
+        if (to_front)
+            blur_address();
+        Tab tab;
+        tab.container = container;
+        tab.history.push_back(blank_entry());
+        // The run is the tab in front's: a tab behind it that opens a window
+        // neither reads it nor adds to it.
+        bool const from_front = !to_front && opener == active;
+        std::size_t const run = from_front ? opened_beside : 0;
+        std::size_t const position = tabs.empty() ? 0 : std::min(opener, tabs.size() - 1) + 1 + run;
+        std::size_t const at = insert_tab(position, std::move(tab), to_front);
+        if (from_front)
+            opened_beside = run + 1;
+        render(tabs[at]);
+        if (to_front)
+            sync_address();
+        queue(at, url, Mode::Push);
+    }
+
+    // A tab at the strip's end, in front: what the main menu opens.
     void open_tab_in(std::string const& container, net::Url const& url)
     {
         blur_address();
@@ -5936,7 +6164,12 @@ struct Browser::Impl {
         if (key.ctrl && key.key == Key::Letter) {
             switch (key.letter) {
             case U'L': focus_address(true); return;
-            case U'T': new_tab(); return;
+            case U'T':
+                if (key.shift)
+                    reopen_closed_tab(); // the tab closed last, back where it stood
+                else
+                    new_tab();
+                return;
             case U'U': view_source(); return;
             case U'X':
                 if (address_focus)
@@ -6942,6 +7175,8 @@ void Browser::reload() { m_impl->reload(); }
 void Browser::new_tab() { m_impl->new_tab(); }
 void Browser::close_tab(std::size_t index) { m_impl->close_tab(index); }
 void Browser::select_tab(std::size_t index) { m_impl->select_tab(index); }
+void Browser::reopen_closed_tab() { m_impl->reopen_closed_tab(); }
+void Browser::duplicate_tab(std::size_t index) { m_impl->duplicate_tab(index); }
 
 bool Browser::has_pending_load() const
 {
@@ -6958,7 +7193,8 @@ bool Browser::tick()
     if (!m_impl->pending_windows.empty()) {
         Impl::PendingWindow const window = m_impl->pending_windows.front();
         m_impl->pending_windows.erase(m_impl->pending_windows.begin());
-        m_impl->open_tab_in(window.container, window.url);
+        // In front, beside the tab whose page asked.
+        m_impl->open_tab_beside(window.container, window.url, window.opener, true);
     }
     if (m_impl->pending.empty()) {
         // The page shown takes the next of its pictures.
@@ -7088,6 +7324,11 @@ std::string Browser::window_title() const
 
 std::size_t Browser::tab_count() const { return m_impl->tabs.size(); }
 std::size_t Browser::active_tab() const { return m_impl->active; }
+std::string Browser::tab_title(std::size_t index) const
+{
+    return index < m_impl->tabs.size() ? m_impl->tab_title(m_impl->tabs[index]) : std::string();
+}
+std::size_t Browser::closed_tab_count() const { return m_impl->closed_tabs.size(); }
 
 net::Url const* Browser::current_url() const
 {

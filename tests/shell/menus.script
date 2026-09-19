@@ -34,28 +34,32 @@ assert-menus 0
 assert-clipboard data:text/html,<title>Second</title><p>Landed.
 right-click-text link
 menu Open link in new tab
-assert-tabs 2
+# The tab opens behind the page the reader is on, beside it.
+assert-tab-titles [Menus] | Second
+select-tab 1
 assert-title Second
 close-tab
 assert-tabs 1
 assert-title Menus
 
 # The submenu opens beside its item, and its choice opens the link in a
-# tab of that container.
+# tab of that container — behind, as well.
 right-click-text link
 menu Open link in new container tab
 assert-menus 2
 assert-menu No container | Personal | Work | Banking | Shopping
 menu Work
 assert-menus 0
-assert-tabs 2
+assert-tab-titles [Menus] | Second
+select-tab 1
 assert-container Work
 assert-title Second
 close-tab
 
-# Ctrl with a click opens the link in a tab of its own.
+# Ctrl with a click opens the link in a tab of its own, behind.
 ctrl-click-text link
-assert-tabs 2
+assert-tab-titles [Menus] | Second
+select-tab 1
 assert-title Second
 close-tab
 assert-title Menus
@@ -104,6 +108,8 @@ key Right
 key Down
 key Down
 key Enter
+assert-tab-titles [Menus] | Second
+select-tab 1
 assert-container Work
 close-tab
 
@@ -149,12 +155,12 @@ new-tab
 new-tab
 assert-tabs 3
 right-click-tab 0
-assert-menu New tab | - | Reload tab | - | Close tab | Close other tabs | Close tabs to the right
+assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | Close other tabs | Close tabs to the right | - | Reopen closed tab
 menu Close tabs to the right
 assert-tabs 1
 assert-title asked
 right-click-tab 0
-assert-menu New tab | - | Reload tab | - | Close tab | (Close other tabs) | (Close tabs to the right)
+assert-menu New tab | - | Reload tab | Duplicate tab | - | Close tab | (Close other tabs) | (Close tabs to the right) | - | Reopen closed tab
 menu New tab
 assert-tabs 2
 right-click-tab 0
@@ -233,9 +239,8 @@ press 205 96 3
 move 260 115
 release 3
 assert-menus 0
-assert-tabs 2
-assert-title Second
-close-tab
+assert-tab-titles [Menus] | Second
+close-tab 1
 
 # Quit asks the window to close.
 assert-window-request none

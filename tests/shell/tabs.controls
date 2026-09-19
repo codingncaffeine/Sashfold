@@ -1,0 +1,89 @@
+# Planted-fault controls for tests/shell/tabs.script: a closed tab comes back where it stood, a tab is copied beside itself, tabs open behind and beside their opener, the session keeps the tabs closed last.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/tabs.script
+
+control where
+file src/ui/Browser.cpp
+fails 34 52 58 59 61 62 65 74 79 87 96 103 106 110 113 128 131 141 146
+plant s~std::size_t const at = insert_tab\(closed\.position, std::move\(tab\), true\);~std::size_t const at = insert_tab(tabs.size(), std::move(tab), true);~
+
+control place
+file src/ui/Browser.cpp
+fails 44
+plant s~tab\.index = std::min\(closed\.index, tab\.history\.size\(\) - 1\);~tab.index = tab.history.size() - 1;~
+
+control scroll
+file src/ui/Browser.cpp
+fails 37 59
+plant s~\n            entry->scroll_y = tab\.scroll_y;~\n            entry->scroll_y = 0;~
+
+control blank
+file src/ui/Browser.cpp
+fails 51 64 77 89
+plant s~return !is_about_blank\(entry\.url\) && !is_about_newtab\(entry\.url\);~return !is_about_blank(entry.url) || !is_about_newtab(entry.url);~
+
+control beside
+file src/ui/Browser.cpp
+fails 58 62 87
+plant s~std::size_t const at = insert_tab\(index \+ 1, std::move\(tab\), true\);~std::size_t const at = insert_tab(tabs.size(), std::move(tab), true);~
+
+control front
+file src/ui/Browser.cpp
+fails 95 96 97 103 104 105 106 109 110 113
+plant s~open_tab_beside\(from \? from->container : std::string\(\), url, active, false\);~open_tab_beside(from ? from->container : std::string(), url, active, true);~
+
+control order
+file src/ui/Browser.cpp
+fails 96 103 106 110 113
+plant s~            opened_beside = run \+ 1;~            opened_beside = 0;~
+
+control reset
+file src/ui/Browser.cpp
+fails 103 106 110 113
+plant s~            opened_beside = 0; // what another tab opens stands beside that tab~            opened_beside += 0; // what another tab opens stands beside that tab~
+
+control blanktarget
+file src/ui/Browser.cpp
+fails 110 113 146
+plant s~open_tab_beside\(from \? from->container : std::string\(\), url, active, true\);~open_tab_beside(from ? from->container : std::string(), url, active, false);~
+
+control popup
+file src/ui/Browser.cpp
+fails 113
+plant s~m_impl->open_tab_beside\(window\.container, window\.url, window\.opener, true\);~m_impl->open_tab_in(window.container, window.url);~
+
+control cap
+file src/ui/Browser.cpp
+fails 126 129 134 138 140
+plant s~        if \(closed_tabs\.size\(\) > closed_tabs_kept\)~        if (closed_tabs.size() > closed_tabs_kept + 1)~
+
+control newest
+file src/ui/Browser.cpp
+fails 131 132 133 141
+plant s~        for \(std::size_t i = from; i < closed\.size\(\); \+\+i\)~        for (std::size_t i = 0; i + from < closed.size(); ++i)~
+
+control written
+file src/ui/Browser.cpp
+fails 140
+plant s~        if \(!closed_tabs\.empty\(\)\) \{~        if (closed_tabs.size() > 1000) {~
+
+control stood
+file src/ui/Browser.cpp
+fails 131 141 146
+plant s~\? static_cast<std::size_t>\(std::min\(position->as_number\(\), 1\.0e6\)\)~? static_cast<std::size_t>(std::min(position->as_number(), 0.0))~
+
+control container
+file src/ui/Browser.cpp
+fails 80 133
+plant s~tab\.container = std::move\(closed\.container\);~tab.container = std::string();~
+
+control copycontainer
+file src/ui/Browser.cpp
+fails 73
+plant s~tab\.container = from\.container;~tab.container = std::string();~
+
+control shift
+file src/ui/Browser.cpp
+fails 146
+plant s~                        if \(modifiers\.shift\)\n                            open_in_front\(url\);~                        if (modifiers.shift \&\& modifiers.alt)\n                            open_in_front(url);~
+
