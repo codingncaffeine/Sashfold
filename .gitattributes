@@ -9,3 +9,4 @@ tests/fixtures/brotli/* binary
 # Browser themes as they are handed around: zips, compared byte for byte.
 *.xpi binary
 *.crx binary
+*.zip binary
