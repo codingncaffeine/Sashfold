@@ -17,8 +17,9 @@
 #
 # In `args`, a path under tests/ is taken from the source tree, and {build}
 # is the build folder (a file the build writes, like the test font).
-# `plant` is a perl substitution over the whole file (\n between lines). It
-# must land exactly once. A control MATCHES when the planted tree builds,
+# `plant` is a perl substitution over the whole file (\n between lines), its
+# delimiter never inside its texts. Its text must be found exactly once.
+# A control MATCHES when the planted tree builds,
 # the script fails, and the lines that failed are exactly `fails`. Anything
 # else — the plant landing nowhere or twice, the build breaking, the script
 # passing, other lines failing — is reported as what it is, and the run
@@ -90,8 +91,12 @@ run_control() {
     for one in "${touched[@]:-}"; do [ "$one" = "$file" ] && known=1; done
     [ $known -eq 0 ] && touched+=("$file")
     local count
-    count=$(PLANT="$plant" perl -0pi -e 'our $c = eval "\$_ =~ $ENV{PLANT}"; die $@ if $@; $c ||= 0; END { print STDERR $c }' "$root/$file" 2>&1 >/dev/null)
-    if [ "$count" != "1" ]; then echo "CONTROL $name: the plant did not land once (count=$count) in $file"; return 1; fi
+    # How many places the plant's text is found in, counted before anything
+    # is changed: a substitution replaces the first and says 1 however many
+    # there are, and a fault planted in the wrong one of two is a control
+    # of something else.
+    count=$(PLANT="$plant" perl -0pi -e 'our $c = 0; my $p = $ENV{PLANT}; my @part = split /\Q@{[substr($p, 1, 1)]}\E/, $p, -1; my $flags = $part[3] // ""; $flags =~ s/[^msix]//g; my $re = (length $flags ? "(?$flags)" : "") . $part[1]; $c++ while $_ =~ /$re/g; if ($c == 1) { eval "\$_ =~ $p"; die $@ if $@; } END { print STDERR $c }' "$root/$file" 2>&1 >/dev/null)
+    if [ "$count" != "1" ]; then echo "CONTROL $name: the plant did not land once (its text is found $count times) in $file"; return 1; fi
     if cmp -s "$root/$file" "$keep/$file"; then echo "CONTROL $name: the source is unchanged"; return 1; fi
     if ! cmake --build "$root/$build" --target sashfold sashfold_test_sans > "$logs/$name.build.log" 2>&1; then
         echo "CONTROL $name: the planted tree did not BUILD ($logs/$name.build.log)"; return 1
@@ -147,6 +152,8 @@ if [ $self_test -eq 1 ]; then
     case "$out" in *MISMATCH*) ;; *) ok=0 ;; esac
     out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-no-such-text" "${sources[0]}" "1" 's~THIS TEXT IS NOWHERE IN THE SOURCE~x~'); echo "$out"
     case "$out" in *"did not land"*) ;; *) ok=0 ;; esac
+    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-text-found-twice" "${sources[0]}" "1" 's~;\n~; \n~'); echo "$out"
+    case "$out" in *"did not land"*) ;; *) ok=0 ;; esac
 else
     for i in "${!names[@]}"; do
         total=$((total + 1))
@@ -164,7 +171,7 @@ done
 [ $clean -eq 1 ] && forget
 cmake --build "$root/$build" --target sashfold > "$logs/restore.build.log" 2>&1 || { echo "the restored tree did not build"; clean=0; }
 if [ $self_test -eq 1 ]; then
-    [ $ok -eq 1 ] && [ $clean -eq 1 ] && echo "RUNNER SELF-TEST: ok (a match, a mismatch and a plant that landed nowhere each told apart; source restored)" && exit 0
+    [ $ok -eq 1 ] && [ $clean -eq 1 ] && echo "RUNNER SELF-TEST: ok (a match, a mismatch, a plant that landed nowhere and one whose text is there more than once each told apart; source restored)" && exit 0
     echo "RUNNER SELF-TEST: FAILED"; exit 1
 fi
 echo "CONTROLS: $matched of $total matched; source $([ $clean -eq 1 ] && echo "restored byte for byte" || echo "NOT RESTORED")"
