@@ -218,6 +218,12 @@ target_link_libraries(sashfold100 PRIVATE sashfold_core sashfold_warnings)
 add_executable(js_probe tools/js-probe.cpp)
 target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 
+# png_diff says where two pictures differ and whether that is only inside
+# the boxes given (tools/png-diff.cpp): what a change to the chrome shows
+# before its goldens are blessed. A build tool, never shipped.
+add_executable(png_diff tools/png-diff.cpp)
+target_link_libraries(png_diff PRIVATE sashfold_core sashfold_warnings)
+
 # gen_bindings turns idl/*.idl into src/bindings/generated/*.gen.cpp: the
 # interfaces, their tags and their reflected attributes (tools/gen-bindings.cpp).
 # The output is committed; the bindings-regen target rewrites it and a test
