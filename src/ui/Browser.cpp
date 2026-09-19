@@ -23,6 +23,7 @@
 #include "ui/InternalPages.h"
 #include "ui/Reader.h"
 #include "ui/SourceSet.h"
+#include "ui/ThemeGallery.h"
 #include "ui/ThemeImport.h"
 
 #include <algorithm>
@@ -617,6 +618,15 @@ struct Browser::Impl {
     // The reader's own themes (the profile's themes folder): where a theme
     // of another browser's, downloaded, is converted into. Empty: none is.
     std::string user_themes_directory;
+    // Where about:themes reads Firefox's themes from: the add-ons site's
+    // public search endpoint (a script's harness names a file instead).
+    std::string theme_gallery_api = "https://addons.mozilla.org/api/v5/addons/search/";
+    // Set by a download that turned out to be a theme and was put on: the
+    // page the reader was on stays, and nothing was saved.
+    bool theme_adopted = false;
+    // What the themes page says at its top the next time it is drawn: the
+    // theme just put on from it.
+    std::string themes_notice;
     int width;
     int height;
     std::vector<Tab> tabs;
@@ -2680,6 +2690,13 @@ struct Browser::Impl {
         std::string const name = download_file_name(disposition, response.final_url);
         std::string const type = entry.content_type;
         std::string const url = response.final_url.serialize();
+        // A theme of Firefox's or Chrome's: converted into the reader's themes
+        // from the bytes that arrived, offered from now on, and put on. No
+        // file is saved for it and the reader's page stays (see perform).
+        if (std::optional<std::string> const put_on = adopt_theme(name, type, response.body)) {
+            theme_adopted = true;
+            return "Theme put on: " + *put_on + " \xe2\x80\x94 it is under Themes in the menu from now on";
+        }
         entry.internal = true;
         if (downloads_directory.empty()) {
             set_document(entry, unsupported_content_page(url, type, response.body.size()));
@@ -2694,29 +2711,30 @@ struct Browser::Impl {
         }
         set_document(entry,
             download_page(saved.file_name, saved.path, response.body.size(), type, saved.marked));
-        // A theme of Firefox's or Chrome's, downloaded: it is converted into
-        // the reader's themes and put on, as one dropped into that folder is.
-        if (std::optional<std::string> const put_on = adopt_downloaded_theme(saved.path, type))
-            return "Theme put on: " + *put_on + " \xe2\x80\x94 it is under Themes in the menu from now on";
         return "Downloaded " + saved.file_name + " (" + std::to_string(response.body.size())
             + " bytes)";
     }
 
-    // A download that is a browser theme — by its name (.xpi, .crx, .zip) or
-    // by the type it came as — and converts as one: written among the
-    // reader's themes, offered from now on, and put on. Its name; nothing
-    // for a download that is anything else (an extension that is no theme, a
-    // zip of something else), which stays the download it was.
-    std::optional<std::string> adopt_downloaded_theme(std::string const& path, std::string const& type)
+    // What arrived is a browser theme — by its name (.xpi, .crx, .zip) or by
+    // the type it came as — and converts as one: written among the reader's
+    // themes, offered from now on, and put on. Its name; nothing for what is
+    // anything else (an extension that is no theme, a zip of something else),
+    // which is then the download it would have been.
+    std::optional<std::string> adopt_theme(std::string const& name, std::string const& type,
+        std::vector<std::uint8_t> const& bytes)
     {
         if (user_themes_directory.empty())
             return std::nullopt;
-        bool const typed = ascii_ci_equals(type, "application/x-xpinstall")
-            || ascii_ci_equals(type, "application/x-chrome-extension");
-        if (!typed && !is_browser_theme_path(path))
+        bool const firefox = ascii_ci_equals(type, "application/x-xpinstall") || name.ends_with(".xpi");
+        bool const chrome = ascii_ci_equals(type, "application/x-chrome-extension") || name.ends_with(".crx");
+        if (!firefox && !chrome && !name.ends_with(".zip"))
             return std::nullopt;
         std::vector<std::string> problems;
-        std::optional<ImportedTheme> const imported = import_browser_theme_from(path, &problems);
+        std::optional<ImportedTheme> const imported = import_browser_theme_archive(bytes,
+            firefox  ? std::optional<BrowserThemeKind>(BrowserThemeKind::Firefox)
+            : chrome ? std::optional<BrowserThemeKind>(BrowserThemeKind::Chrome)
+                     : std::nullopt,
+            name, &problems);
         if (!imported)
             return std::nullopt;
         std::optional<std::string> const written = write_imported_theme(*imported,
@@ -2730,6 +2748,73 @@ struct Browser::Impl {
             theme_presets.push_back({ converted->name, *written });
         put_on_theme(*written);
         return converted->name;
+    }
+
+    // about:themes (ui/ThemeGallery.h): the reader's themes to put on, the
+    // gallery of Firefox's — read from the add-ons site's catalogue now,
+    // because the page was opened, and at no other time — and the box for a
+    // Chrome theme's address. What the address asks for (?use, ?crx) is done
+    // on the way.
+    std::string themes_document(net::Url const& url, std::size_t tab_index, bool reload)
+    {
+        ThemesPage page;
+        page.query = gallery_query_of(url.query);
+        page.can_adopt = !user_themes_directory.empty();
+        page.notice = std::move(themes_notice);
+        themes_notice.clear();
+        if (page.query.use && *page.query.use < theme_presets.size()) {
+            Browser::ThemePreset const chosen = theme_presets[*page.query.use];
+            put_on_theme(chosen.path);
+            page.notice = "Put on: " + chosen.name;
+        }
+        if (page.query.crx) {
+            std::optional<std::string> const id = chrome_theme_id(*page.query.crx);
+            std::optional<net::Url> const crx = id ? net::parse_url(chrome_crx_url(*id)) : std::nullopt;
+            if (crx) {
+                // Fetched like any address; what arrives is a theme, and is put on.
+                queue(tab_index, *crx, Mode::Push);
+                page.notice = "Fetching that theme from the Chrome Web Store\xe2\x80\xa6";
+            } else {
+                page.notice = "That is no Chrome Web Store address or id: an id is thirty-two letters, a to p.";
+            }
+        }
+        for (Browser::ThemePreset const& preset : theme_presets)
+            page.own.push_back({ preset.name, preset.name == base_theme.name });
+
+        // A harness names a file to read in the catalogue's place; the
+        // catalogue itself is asked by a search address.
+        bool const catalogue = theme_gallery_api.starts_with("https://") || theme_gallery_api.starts_with("http://");
+        std::string const asked = catalogue ? amo_search_url(theme_gallery_api, page.query) : theme_gallery_api;
+        if (std::optional<net::Url> const source = net::parse_url(asked)) {
+            std::string const container = tab_index < tabs.size() ? tabs[tab_index].container : std::string();
+            net::FetchResult result = loader.load(*source, "", reload, container);
+            if (!result.response) {
+                page.gallery_error = result.error;
+            } else if (result.response->status != 200 && result.response->status != 0) {
+                page.gallery_error = "the catalogue answered " + std::to_string(result.response->status);
+            } else {
+                page.gallery = parse_amo_search(bytes_view(result.response->body), result.response->final_url.serialize());
+                if (!page.gallery)
+                    page.gallery_error = "what came back is not the catalogue's answer";
+            }
+        } else {
+            page.gallery_error = "no catalogue address";
+        }
+        return themes_page(page);
+    }
+
+    // The themes page in a tab of its own, in front — or the tab that has it.
+    void open_themes_page()
+    {
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            HistoryEntry const* const entry = tabs[i].current();
+            if (entry && entry->url.scheme == "about" && entry->url.serialize_path() == "themes") {
+                select_tab(i);
+                return;
+            }
+        }
+        if (std::optional<net::Url> const themes = net::parse_url("about:themes"))
+            open_tab_in({}, *themes);
     }
 
     void show_internal(std::string const& html, net::Url const& url, std::string const& status)
@@ -2780,6 +2865,10 @@ struct Browser::Impl {
             entry.status = 200;
         } else if (is_about_newtab(load.url)) {
             set_document(entry, new_tab_document());
+            entry.internal = true;
+            entry.status = 200;
+        } else if (load.url.scheme == "about" && load.url.serialize_path() == "themes") {
+            set_document(entry, themes_document(load.url, load.tab, load.mode == Mode::Reload));
             entry.internal = true;
             entry.status = 200;
         } else if (load.url.scheme == "view-source") {
@@ -2854,6 +2943,23 @@ struct Browser::Impl {
                     download_status = receive_download(entry, response, disposition, referrer);
                 else
                     entry.bytes = std::move(response.body);
+                if (theme_adopted) {
+                    // A theme, and it is on: the page the reader chose it
+                    // from stays where it is — nothing was navigated to,
+                    // nothing was saved — and the themes page, if that is
+                    // the page, is drawn again to say which is on now.
+                    theme_adopted = false;
+                    tab.status = download_status;
+                    if (from && from->url.scheme == "about" && from->url.serialize_path() == "themes") {
+                        themes_notice = download_status;
+                        // The same words, order and page as the reader had.
+                        if (std::optional<net::Url> const again = net::parse_url(gallery_address(gallery_query_of(from->url.query))))
+                            queue(load.tab, *again, Mode::Replace);
+                    }
+                    refresh_hover();
+                    dirty = true;
+                    return true;
+                }
             }
         }
 
@@ -3607,6 +3713,7 @@ struct Browser::Impl {
         commands.push_back({ "Back", [this] { go(-1); } });
         commands.push_back({ "Forward", [this] { go(+1); } });
         commands.push_back({ "Find in page", [this] { open_find(); } });
+        commands.push_back({ "More themes\xe2\x80\xa6", [this] { open_themes_page(); } });
         commands.push_back({ "Reader mode", [this] { toggle_reader(); } });
         commands.push_back({ "Developer tools", [this] { toggle_devtools(); } });
         commands.push_back({ "View source", [this] { view_source(); } });
@@ -4598,6 +4705,8 @@ struct Browser::Impl {
                 item.checked = preset.name == base_theme.name;
                 themes.children.push_back(std::move(item));
             }
+            themes.children.push_back({});
+            themes.children.push_back(menu_item("More themes\xe2\x80\xa6", {}, [this] { open_themes_page(); }));
             items.push_back(std::move(themes));
         }
         items.push_back(menu_item("Command palette", "Ctrl+Shift+P", [this] { open_palette({}); }));
@@ -7275,6 +7384,8 @@ void Browser::set_user_themes_directory(std::string directory)
 {
     m_impl->user_themes_directory = std::move(directory);
 }
+
+void Browser::set_theme_gallery_source(std::string address) { m_impl->theme_gallery_api = std::move(address); }
 
 void Browser::resize(int width, int height)
 {

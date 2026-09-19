@@ -20,6 +20,11 @@ inline constexpr std::string_view version_string = "0.3 (preview)";
 
 std::string html_escape(std::string_view text);
 
+// An internal page of the shell's: `body` under the style they all share,
+// and `more_style` (a <style> element) after it for a page with a look of
+// its own.
+std::string internal_page(std::string_view title, std::string_view body, std::string_view more_style = {});
+
 // What the new-tab page is drawn from: the local time it opens at and the
 // milliseconds until the next minute (its clock ticks from there on the
 // page's own timers), the date in words, the pictures it rotates through as

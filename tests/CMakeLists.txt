@@ -117,6 +117,9 @@ add_executable(test_theme_import test_theme_import.cpp)
 target_link_libraries(test_theme_import PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_theme_import COMMAND test_theme_import ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes
   ${CMAKE_SOURCE_DIR}/themes/light.json)
+add_executable(test_theme_gallery test_theme_gallery.cpp)
+target_link_libraries(test_theme_gallery PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_theme_gallery COMMAND test_theme_gallery ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes)
 sashfold_test(test_touch)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -213,6 +216,9 @@ add_test(NAME shell_newtab_colors
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_theme_import
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/theme-import.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_themes_page
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/themes-page.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_theme_download
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/theme-download.script

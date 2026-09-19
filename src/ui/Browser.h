@@ -221,6 +221,9 @@ public:
     // among the themes from then on, and put on at once; the file itself is
     // saved like any download. Empty (as unsaid): a download is a download.
     void set_user_themes_directory(std::string directory);
+    // Where about:themes reads Firefox's themes from: the add-ons site's
+    // search endpoint, unless a harness names a file of the same shape.
+    void set_theme_gallery_source(std::string address);
     void resize(int width, int height);
     int width() const;
     int height() const;

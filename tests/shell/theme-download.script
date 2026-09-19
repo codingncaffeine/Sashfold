@@ -23,7 +23,7 @@ assert-pixel 760 0 #00ff00
 # It is among the themes from now on, and the one in use.
 main-menu
 menu Themes
-assert-menu High Contrast | Nord | Sashfold | Sashfold Light | Solarized Dark | *Sample Fox
+assert-menu High Contrast | Nord | Sashfold | Sashfold Light | Solarized Dark | *Sample Fox | - | More themes…
 key Escape
 key Escape
 # A Chrome theme the same way; downloading the first again offers it once.
@@ -34,7 +34,7 @@ open ../fixtures/themes/firefox-sample.xpi
 assert-theme Sample Fox
 main-menu
 menu Themes
-assert-menu High Contrast | Nord | Sashfold | Sashfold Light | Solarized Dark | *Sample Fox | Sample Chrome
+assert-menu High Contrast | Nord | Sashfold | Sashfold Light | Solarized Dark | *Sample Fox | Sample Chrome | - | More themes…
 key Escape
 key Escape
 # A zip of something else is a download and nothing more: the theme stays.

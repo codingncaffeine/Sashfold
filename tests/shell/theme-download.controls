@@ -5,7 +5,7 @@ script tests/shell/theme-download.script
 control adopt
 file src/ui/Browser.cpp
 fails 18 19 21 22 26 31 32 34 37 43
-plant s~adopt_downloaded_theme\(saved\.path, type\)\)~adopt_downloaded_theme(std::string(), type))~
+plant s~adopt_theme\(name, type, response\.body\)\)~adopt_theme(name, type, {}))~
 
 control once
 file src/ui/Browser.cpp

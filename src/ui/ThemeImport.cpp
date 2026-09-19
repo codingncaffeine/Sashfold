@@ -851,7 +851,26 @@ std::optional<ImportedTheme> import_browser_theme_from(std::string const& path, 
     std::optional<std::vector<std::uint8_t>> bytes = read_whole(given, max_archive_bytes);
     if (!bytes)
         return refuse("cannot read");
-    std::optional<ZipArchive> const archive = ZipArchive::open(std::move(*bytes));
+    std::string const extension = lowered_extension(given);
+    std::optional<BrowserThemeKind> container;
+    if (extension == ".xpi")
+        container = BrowserThemeKind::Firefox;
+    else if (extension == ".crx")
+        container = BrowserThemeKind::Chrome;
+    return import_browser_theme_archive(std::move(*bytes), container, path, problems);
+}
+
+std::optional<ImportedTheme> import_browser_theme_archive(std::vector<std::uint8_t> bytes,
+    std::optional<BrowserThemeKind> container, std::string const& named, std::vector<std::string>* problems)
+{
+    auto const refuse = [&](std::string const& why) -> std::optional<ImportedTheme> {
+        if (problems)
+            problems->push_back("theme import: " + why + ": " + named);
+        return std::nullopt;
+    };
+    if (bytes.size() > max_archive_bytes)
+        return refuse("too large an archive");
+    std::optional<ZipArchive> const archive = ZipArchive::open(std::move(bytes));
     if (!archive)
         return refuse("not an archive this reads");
     ZipEntry const* const entry = archive->find("manifest.json");
@@ -863,12 +882,6 @@ std::optional<ImportedTheme> import_browser_theme_from(std::string const& path, 
         ZipEntry const* const file = archive->find(inside);
         return file ? archive->read(*file, max_picture_bytes) : std::nullopt;
     };
-    std::string const extension = lowered_extension(given);
-    std::optional<BrowserThemeKind> container;
-    if (extension == ".xpi")
-        container = BrowserThemeKind::Firefox;
-    else if (extension == ".crx")
-        container = BrowserThemeKind::Chrome;
     return import_browser_theme(std::string_view(reinterpret_cast<char const*>(manifest->data()), manifest->size()),
         read, container, problems);
 }

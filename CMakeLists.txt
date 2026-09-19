@@ -140,6 +140,7 @@ add_library(sashfold_core STATIC
   src/ui/ShellLoader.cpp
   src/ui/SourceSet.cpp
   src/ui/Theme.cpp
+  src/ui/ThemeGallery.cpp
   src/ui/ThemeImport.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp

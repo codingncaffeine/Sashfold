@@ -192,13 +192,13 @@ main-menu
 assert-menus 0
 main-menu
 menu Themes
-assert-menu High Contrast | Nord | *Sashfold | Sashfold Light | Solarized Dark
+assert-menu High Contrast | Nord | *Sashfold | Sashfold Light | Solarized Dark | - | More themes…
 assert-golden goldens/menus-main.png
 menu Nord
 assert-theme Nord
 main-menu
 menu Themes
-assert-menu High Contrast | *Nord | Sashfold | Sashfold Light | Solarized Dark
+assert-menu High Contrast | *Nord | Sashfold | Sashfold Light | Solarized Dark | - | More themes…
 menu Sashfold
 assert-theme Sashfold
 main-menu

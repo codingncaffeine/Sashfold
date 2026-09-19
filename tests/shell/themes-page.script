@@ -1,0 +1,57 @@
+# about:themes — the reader's themes and the two stores, inside the window:
+# the themes they have, to put on; Firefox's, read from the add-ons site's
+# catalogue (here a file of its shape stands in for it: a script never asks
+# the network), each with a "Put on" that is a plain link to the theme's
+# file; and a box for a Chrome Web Store theme's address. One click puts a
+# theme on: the page stays where it is, no file is saved, and the list of the
+# reader's themes has the new one, in use.
+resize 1000 700
+themes-folder
+themes-gallery ../fixtures/themes/amo-search.json
+open about:themes
+assert-title Themes
+assert-text Yours
+assert-text Solarized Dark
+assert-text Sample Fox
+assert-text by A Fox
+assert-text 1,234,567 users
+# A stranger's name is words, whatever it is made of; an entry with no file
+# to put on is left out.
+assert-text Chrome <b>d'essai</b>
+assert-no-text No file to it
+assert-text Page 1 of 3
+assert-theme Sashfold
+
+# The first card's "Put on".
+click 100 540
+assert-url about:themes
+assert-theme Sample Fox
+assert-pixel 759 0 #203040
+assert-text Theme put on: Sample Fox
+assert-tabs 1
+
+# One of the reader's own, put on from the list: the second of them.
+open about:themes?use=1
+assert-theme Nord
+assert-text Put on: Nord
+
+# What is no Chrome Web Store address is said to be none, and nothing is fetched.
+open about:themes?crx=hello+there
+assert-text That is no Chrome Web Store address or id
+assert-theme Nord
+
+# A catalogue that cannot be read: the page says so, and the reader's own
+# themes are there all the same.
+themes-gallery ../fixtures/themes/not-a-theme.zip
+open about:themes
+assert-text The gallery could not be read
+assert-text Solarized Dark
+
+# The window's menu leads here — to the tab that has it, when one does.
+new-tab
+main-menu
+menu Themes
+assert-menu High Contrast | *Nord | Sashfold | Sashfold Light | Solarized Dark | Sample Fox | - | More themes…
+menu More themes…
+assert-url about:themes
+assert-tabs 2

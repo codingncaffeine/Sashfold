@@ -33,6 +33,23 @@ std::string wrap(std::string_view title, std::string_view body)
     return page;
 }
 
+} // namespace
+
+std::string internal_page(std::string_view title, std::string_view body, std::string_view more_style)
+{
+    std::string page = "<!doctype html><html><head><meta charset=utf-8><title>";
+    page += html_escape(title);
+    page += "</title>";
+    page += page_style;
+    page += more_style;
+    page += "</head><body>";
+    page += body;
+    page += "</body></html>";
+    return page;
+}
+
+namespace {
+
 std::string bytes_as_text(std::vector<std::uint8_t> const& bytes)
 {
     return std::string(bytes.begin(), bytes.end());

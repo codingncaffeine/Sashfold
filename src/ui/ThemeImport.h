@@ -60,6 +60,12 @@ std::optional<ImportedTheme> import_browser_theme(std::string_view manifest, The
 std::optional<ImportedTheme> import_browser_theme_from(std::string const& path,
     std::vector<std::string>* problems = nullptr);
 
+// The same from an archive held in memory — an .xpi, a .zip or a .crx as it
+// arrived, never written down. `named` is what to call it in a problem.
+std::optional<ImportedTheme> import_browser_theme_archive(std::vector<std::uint8_t> bytes,
+    std::optional<BrowserThemeKind> container, std::string const& named,
+    std::vector<std::string>* problems = nullptr);
+
 // Writes the theme as `<directory>/<a name made of its name>/theme.json`
 // with its pictures beside it, replacing an earlier conversion of the same
 // name, and returns the theme file's path.

@@ -392,6 +392,14 @@ struct Runner {
             std::filesystem::remove_all(folder, error);
             std::filesystem::create_directories(folder, error);
             browser.set_user_themes_directory(folder.string());
+        } else if (command == "themes-gallery") {
+            // `themes-gallery <file>`: about:themes reads Firefox's themes
+            // from this file, named relative to the script, in the place of
+            // the add-ons site's catalogue — a script never asks the network.
+            std::optional<net::Url> const source = url_from(argument);
+            if (!source)
+                return fail("themes-gallery: not a file: " + argument);
+            browser.set_theme_gallery_source(source->serialize());
         } else if (command == "assert-theme-problem") {
             // `assert-theme-problem none`, or `assert-theme-problem <text>`:
             // what the theme in use could not put on — a picture it names

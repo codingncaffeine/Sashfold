@@ -1,0 +1,26 @@
+{
+  "page_size": 24,
+  "page_count": 3,
+  "count": 60,
+  "results": [
+    {
+      "name": {"de": "Beispiel Fuchs", "en-US": "Sample Fox"},
+      "authors": [{"name": "A Fox"}],
+      "average_daily_users": 1234567,
+      "previews": [{"image_url": "firefox-sample/header.png"}],
+      "current_version": {"file": {"url": "firefox-sample.xpi"}}
+    },
+    {
+      "name": {"fr": "Chrome <b>d'essai</b>"},
+      "authors": [],
+      "average_daily_users": 42,
+      "previews": [],
+      "current_version": {"files": [{"url": "chrome-sample.crx"}]}
+    },
+    {
+      "name": {"en-US": "No file to it"},
+      "average_daily_users": 7,
+      "current_version": {}
+    }
+  ]
+}

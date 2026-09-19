@@ -1,0 +1,29 @@
+# Planted-fault controls for tests/shell/themes-page.script: about:themes puts a theme on with one click and stays where it is, puts on the reader's own, and is where the menu leads.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/themes-page.script
+
+control stay
+file src/ui/Browser.cpp
+fails 27 30
+plant s~                if \(theme_adopted\) \{~                if (theme_adopted \&\& load.tab > 1000) {~
+
+control notice
+file src/ui/Browser.cpp
+fails 30
+plant s~                        themes_notice = download_status;~                        themes_notice.clear();~
+
+control use
+file src/ui/Browser.cpp
+fails 35 41 54
+plant s~            put_on_theme\(chosen\.path\);\n~~
+
+control menuentry
+file src/ui/Browser.cpp
+fails 54 55 56
+plant s~            themes\.children\.push_back\(menu_item\("More themes\\xe2\\x80\\xa6", \{\}, \[this\] \{ open_themes_page\(\); \}\)\);\n~~
+
+control sametab
+file src/ui/Browser.cpp
+fails 57
+plant s~if \(entry && entry->url\.scheme == "about" && entry->url\.serialize_path\(\) == "themes"\) \{~if (entry \&\& entry->url.scheme == "nothing") {~
+
