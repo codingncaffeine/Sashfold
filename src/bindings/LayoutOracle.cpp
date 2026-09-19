@@ -1,6 +1,7 @@
 #include "bindings/LayoutOracle.h"
 
 #include "bindings/Internal.h"
+#include "html/DocumentBase.h"
 #include "text/FontManager.h"
 
 #include <algorithm>
@@ -153,7 +154,8 @@ void LayoutOracle::ensure()
         // render: a test that measures text in Ahem and then sets a width
         // from it must measure in Ahem.
         text::FontManager::instance().set_page_fonts(css::collect_page_fonts(sheets, m_fetch, m_media));
-        m_style_set.emplace(sheets, m_media, &m_base);
+        net::Url const named_against = html::document_base_url(m_document, m_base);
+        m_style_set.emplace(sheets, m_media, &named_against);
         if (m_policy) {
             m_style_set->set_style_attribute_check([this](dom::Element const&, std::string_view text) {
                 return !m_policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);

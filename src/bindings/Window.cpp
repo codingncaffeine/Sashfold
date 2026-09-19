@@ -1266,7 +1266,7 @@ void install_window(Realm::Internals& in)
                 std::optional<std::string> const text = internals.to_utf8(url_value);
                 if (!text)
                     return std::nullopt;
-                std::optional<net::Url> const url = net::parse_url(*text, &internals.url);
+                std::optional<net::Url> const url = net::parse_url(*text, &internals.base_url());
                 if (!url || url->serialize_origin() != internals.url.serialize_origin())
                     return internals.throw_dom_exception("SecurityError", "A history state object with URL '" + *text + "' cannot be created in a document with origin '" + internals.url.serialize_origin() + "'.");
                 new_url = *url;
@@ -1279,6 +1279,9 @@ void install_window(Realm::Internals& in)
                 internals.url = *new_url;
             if (push)
                 ++internals.history_length;
+            // The page's own document: the host's history and address follow.
+            if (internals.parent_realm == nullptr && internals.hooks.history_changed && (push || new_url))
+                internals.hooks.history_changed(internals.url, push);
             return js::Value::undefined();
         });
     }

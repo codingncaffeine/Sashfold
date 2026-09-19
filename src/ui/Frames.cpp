@@ -7,6 +7,7 @@
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
+#include "html/DocumentBase.h"
 #include "html/TreeBuilder.h"
 #include "net/DataUrl.h"
 #include "paint/Painter.h"
@@ -240,7 +241,8 @@ Rendered render_document(dom::Document& document, net::Url const& document_url, 
         fetch_kind(net::ResourceKind::Stylesheet), media, inline_check);
     std::vector<text::PageFont> const fonts = css::collect_page_fonts(sheets, fetch_kind(net::ResourceKind::Font), media);
     text::FontManager::instance().set_page_fonts(fonts);
-    css::StyleSet style_set(sheets, media, &document_url);
+    net::Url const base = html::document_base_url(document, document_url);
+    css::StyleSet style_set(sheets, media, &base);
     style_set.set_style_attribute_check([&policy](dom::Element const&, std::string_view text) {
         return !policy.inline_refusal(net::InlineKind::StyleAttribute, {}, text);
     });
@@ -433,8 +435,12 @@ void draw_in(net::Url const& base, layout::LayoutResult& page, net::ContentSecur
         // that does not parse shows nothing.
         std::optional<net::Url> url;
         if (!bindings::container_srcdoc(element)) {
-            if (dom::Attr const* const src = element.find_attribute("src"); src && !src->value.empty())
-                url = net::parse_url(src->value, &base);
+            if (dom::Attr const* const src = element.find_attribute("src"); src && !src->value.empty()) {
+                // Named against the document's base URL; `base` stays the
+                // document's own, which is who asks for the frame.
+                net::Url const named_against = html::document_base_url(element.document(), base);
+                url = net::parse_url(src->value, &named_against);
+            }
         }
         std::string const source = bindings::frame_source(element, base);
         // A frame whose document has a realm here is drawn from that live
@@ -532,7 +538,8 @@ std::optional<bindings::FrameDocument> frame_document_for(dom::Element const& if
         dom::Attr const* const src = iframe.find_attribute("src");
         if (!src || src->value.empty())
             return std::nullopt;
-        url = net::parse_url(src->value, &base);
+        net::Url const named_against = html::document_base_url(iframe.document(), base);
+        url = net::parse_url(src->value, &named_against);
     }
     if (!from_srcdoc && (!url || url->scheme == "about"))
         return std::nullopt;

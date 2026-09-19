@@ -158,7 +158,7 @@ std::optional<Origin> hyperlink_origin(NodeWrapper& wrapper)
     }
     if (href == nullptr)
         return std::nullopt;
-    std::optional<net::Url> const url = net::parse_url(*href, &wrapper.realm().internals().url);
+    std::optional<net::Url> const url = net::parse_url(*href, &wrapper.realm().internals().base_url());
     if (!url)
         return std::nullopt;
     return origin_of_url(*url);

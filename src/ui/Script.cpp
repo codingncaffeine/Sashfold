@@ -563,6 +563,12 @@ struct Runner {
             expect_equal("assert-url", url ? url->serialize() : "", argument);
         } else if (command == "assert-address") {
             expect_equal("assert-address", browser.address_text(), argument);
+        } else if (command == "assert-address-ends") {
+            // The end of the address: a page opened from a file has the
+            // machine's own path in front of it.
+            if (!browser.address_text().ends_with(argument))
+                fail("assert-address-ends: the address is \"" + browser.address_text() + "\", expected it to end with \""
+                    + argument + "\"");
         } else if (command == "assert-title") {
             expect_equal("assert-title", browser.page_title(), argument);
         } else if (command == "assert-text") {

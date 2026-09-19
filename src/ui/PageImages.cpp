@@ -5,6 +5,7 @@
 #include "core/Jpeg.h"
 #include "core/Png.h"
 #include "dom/Dom.h"
+#include "html/DocumentBase.h"
 #include "svg/Svg.h"
 #include "ui/SourceSet.h"
 
@@ -136,7 +137,11 @@ layout::ImageMap collect_images(dom::Document const& document, net::Url const* b
     ImageFetcher const& fetch, css::MediaContext const& media, layout::EmbeddedStates const* embedded, ImagePass const& pass)
 {
     layout::ImageMap images;
-    Collector collector { base, media, fetch, images, embedded, pass, {}, {}, 0, 0 };
+    // `base` is the document's own URL; a picture is named against the
+    // document base URL, which a base element moves (HTML §2.4.3).
+    std::optional<net::Url> const named_against
+        = base ? std::optional<net::Url>(html::document_base_url(document, *base)) : std::nullopt;
+    Collector collector { named_against ? &*named_against : nullptr, media, fetch, images, embedded, pass, {}, {}, 0, 0 };
     collector.visit(document);
     return images;
 }

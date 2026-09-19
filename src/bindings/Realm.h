@@ -107,6 +107,11 @@ struct HostHooks {
     // Told once, when the page's heap is found over that ceiling and its
     // scripts are stopped: the host's to tell the reader.
     std::function<void()> out_of_memory;
+    // The page's own document gave itself another address without loading
+    // anything — history.pushState, or replaceState when `push` is false:
+    // the host's session history and its address field follow. A frame's
+    // document does not say this; its entries are not the page's.
+    std::function<void(net::Url const& url, bool push)> history_changed;
     // The border box of an element as laid out; nullopt for one that has no
     // box (display: none, or nothing laid out yet). The host lays the page
     // out first when the tree has changed since.
@@ -267,6 +272,9 @@ public:
     dom::Document& document();
     // The document's URL as scripts see it: history.pushState moves it.
     net::Url const& url() const;
+    // What the document's relative URLs are resolved against (HTML §2.4.3):
+    // its own URL, or the href of its base element.
+    net::Url const& base_url() const;
     // The URL of the document's origin: its own, or an srcdoc document's
     // parent's.
     net::Url const& origin_url() const;

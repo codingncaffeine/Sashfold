@@ -4,6 +4,7 @@
 
 #include "core/Ascii.h"
 #include "core/Unicode.h"
+#include "html/DocumentBase.h"
 #include "html/Serializer.h"
 #include "js/Module.h"
 #include "js/Strings.h"
@@ -488,7 +489,7 @@ void reflect_url(Realm::Internals& in, js::Object& prototype, std::string_view p
             dom::Attr const* value = (*element)->find_attribute(attribute_name);
             if (!value)
                 return internals.string("");
-            if (std::optional<net::Url> const resolved = net::parse_url(value->value, &internals.url))
+            if (std::optional<net::Url> const resolved = net::parse_url(value->value, &internals.base_url()))
                 return internals.string(resolved->serialize());
             return internals.string(value->value);
         },
@@ -649,7 +650,7 @@ bool Realm::Internals::scripts_sandboxed() const
     return (sandbox_flags & sandboxing::scripts) != 0 || (hooks.policy != nullptr && !hooks.policy->sandbox_allows_scripts());
 }
 
-net::Url const& Realm::Internals::base_url() const
+net::Url const& Realm::Internals::fallback_base_url() const
 {
     if (parent_realm != nullptr && url.scheme == "about") {
         std::string const address = url.serialize(true);
@@ -657,6 +658,21 @@ net::Url const& Realm::Internals::base_url() const
             return parent_realm->base_url();
     }
     return url;
+}
+
+net::Url const& Realm::Internals::base_url() const
+{
+    net::Url const& fallback = fallback_base_url();
+    // A document that was never given a base element — nearly every one —
+    // is asked nothing more than that.
+    if (document == nullptr || !document->may_have_base())
+        return fallback;
+    if (!base_url_kept || base_url_kept_at != mutations || base_url_kept_bases != document->base_elements_made()) {
+        base_url_kept = html::document_base_url(*document, fallback);
+        base_url_kept_at = mutations;
+        base_url_kept_bases = document->base_elements_made();
+    }
+    return *base_url_kept;
 }
 
 void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view where)
@@ -905,7 +921,7 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
     std::string name;
     std::string const nonce = attribute_or_empty(script, "nonce");
     if (dom::Attr const* src = script.find_attribute("src")) {
-        std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &url);
+        std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &base_url());
         std::optional<std::string> fetched;
         if (resolved && hooks.fetch_script)
             fetched = hooks.fetch_script(*resolved, request_guard(net::ResourceKind::Script, nonce, from_parser));
@@ -1056,7 +1072,7 @@ void Realm::Internals::prepare_module_script(dom::Element& script, bool from_par
     std::string name;
     std::string error;
     if (dom::Attr const* src = script.find_attribute("src")) {
-        std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &url);
+        std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &base_url());
         if (!resolved) {
             error = "its src is not a URL";
             name = src->value;
@@ -1352,6 +1368,7 @@ Realm::~Realm()
 js::Interpreter& Realm::interpreter() { return m_internals->interpreter; }
 dom::Document& Realm::document() { return *m_internals->document; }
 net::Url const& Realm::url() const { return m_internals->url; }
+net::Url const& Realm::base_url() const { return m_internals->base_url(); }
 HostHooks& Realm::hooks() { return m_internals->hooks; }
 js::Object* Realm::wrap(dom::Node& node) { return m_internals->wrap(node); }
 js::Object* Realm::window() const { return m_internals->realm_record->intrinsics.global; }
@@ -1500,7 +1517,7 @@ void Realm::document_parsed()
             // javascript: URL, which runs now, before the page's load, unless
             // a script has asked for a navigation of the frame since.
             if (!in.frame_navigations.contains(frame)) {
-                if (std::optional<net::Url> const script = javascript_src(*frame, in.url);
+                if (std::optional<net::Url> const script = javascript_src(*frame, in.base_url());
                     script && !in.inline_refused(net::InlineKind::Script, {}, script->serialize()))
                     in.run_javascript_url(*frame, *script, parsed_javascript_navigation(in));
             }
@@ -1512,10 +1529,10 @@ void Realm::document_parsed()
         // in the initial about:blank document, before the page's load, as a
         // parsed one does.
         in.frame_navigations.erase(frame);
-        if (std::optional<net::Url> const script = javascript_src(*frame, in.url)) {
+        if (std::optional<net::Url> const script = javascript_src(*frame, in.base_url())) {
             if (opened) {
                 listed->awaiting_navigation = false;
-                listed->source = frame_source(*frame, in.url);
+                listed->source = frame_source(*frame, in.base_url());
             } else {
                 in.open_blank_frame(*frame);
             }
@@ -1567,7 +1584,7 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     // document's origin, under this document's policy, as an srcdoc document
     // is. The host answers for everything else a frame shows.
     bool const blank = target ? target->scheme == "about" && target->serialize(true) == "about:blank"
-                              : frame_source(iframe, url).empty();
+                              : frame_source(iframe, base_url()).empty();
     std::optional<FrameDocument> answer
         = !blank && hooks.frame_document ? hooks.frame_document(iframe, url, hooks.policy, ancestors, target) : std::nullopt;
     if (!answer) {
@@ -1589,13 +1606,13 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
             std::optional<net::Url> asked = target;
             if (!asked) {
                 dom::Attr const* const src = container_srcdoc(iframe) ? nullptr : iframe.find_attribute("src");
-                asked = src ? net::parse_url(src->value, &url) : net::parse_url("about:srcdoc");
+                asked = src ? net::parse_url(src->value, &base_url()) : net::parse_url("about:srcdoc");
             }
             answer->url = asked ? *asked : *net::parse_url("about:blank");
             answer->origin = *net::parse_url("about:blank");
         }
     }
-    open_frame_document(iframe, std::move(*answer), target ? "url:" + target->serialize() : frame_source(iframe, url), mutations_from, false);
+    open_frame_document(iframe, std::move(*answer), target ? "url:" + target->serialize() : frame_source(iframe, base_url()), mutations_from, false);
 }
 
 void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument answer, std::string source, std::uint64_t mutations_from, bool initial_blank)
@@ -1928,8 +1945,8 @@ bool Realm::Internals::open_blank_frame(dom::Element& iframe)
     // and gets no navigable at all.
     if (!iframe.is_connected() || &iframe.document() != document || realm.frame_realm(iframe) != nullptr)
         return true;
-    bool const script = javascript_src(iframe, url).has_value();
-    bool const names_document = !script && !frame_source(iframe, url).empty();
+    bool const script = javascript_src(iframe, base_url()).has_value();
+    bool const names_document = !script && !frame_source(iframe, base_url()).empty();
     open_frame(iframe, 0, *net::parse_url("about:blank"));
     // Keyed by its attributes, as a frame they opened is, not by the
     // about:blank it was opened on — unless it awaits what they name.
@@ -1937,7 +1954,7 @@ bool Realm::Internals::open_blank_frame(dom::Element& iframe)
         if (listed.container == &iframe) {
             listed.initial_blank = true;
             listed.awaiting_navigation = names_document;
-            listed.source = names_document ? std::string() : frame_source(iframe, url);
+            listed.source = names_document ? std::string() : frame_source(iframe, base_url());
         }
     }
     if (script || names_document)
@@ -2272,7 +2289,7 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
         return;
     }
     if (!navigation.target) {
-        if (std::optional<net::Url> const script = javascript_src(iframe, url)) {
+        if (std::optional<net::Url> const script = javascript_src(iframe, base_url())) {
             if (inline_refused(net::InlineKind::Script, {}, script->serialize()))
                 return;
             FrameNavigation from_attributes = navigation;
@@ -2288,7 +2305,7 @@ void Realm::Internals::navigate_frame(dom::Element& iframe, std::uint64_t number
     // and unload are fired, a page that sets an iframe's src from that
     // iframe's own load would navigate it without end, so the frame is left
     // as it is.
-    std::string const key = navigation.target ? navigation.target->serialize() : frame_source(iframe, url);
+    std::string const key = navigation.target ? navigation.target->serialize() : frame_source(iframe, base_url());
     auto const existing = std::find_if(child_frames.begin(), child_frames.end(),
         [&iframe](ChildFrame const& listed) { return listed.container == &iframe; });
     std::uint64_t mutations_from = 0;
@@ -2370,7 +2387,7 @@ void Realm::Internals::run_javascript_url(dom::Element& iframe, net::Url const& 
         answer.policy = *target.hooks.policy;
     std::uint64_t const mutations_from = frame.tree_mutation_count() + 1;
     trace("frame navigates: " + text);
-    open_frame_document(iframe, std::move(answer), navigation.target ? "url:" + script_url.serialize() : frame_source(iframe, url), mutations_from, false);
+    open_frame_document(iframe, std::move(answer), navigation.target ? "url:" + script_url.serialize() : frame_source(iframe, base_url()), mutations_from, false);
     if (iframe.is_connected())
         fire_frame_load(iframe);
 }

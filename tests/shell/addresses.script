@@ -1,0 +1,41 @@
+# The addresses a page gives: what a base element moves its relative URLs to,
+# and what a script gives the page itself without loading anything.
+resize 800 600
+
+# --- base href ---
+# The sheet, the link and the form's action are named against based/; the
+# script sees the same base. A form with no action goes to its document.
+open base.html
+assert-title Base based/ based/there.html
+assert-pixel 400 300 #00ff00
+click-text onward
+assert-title There
+assert-address-ends tests/shell/based/there.html
+back
+click-text send
+assert-title Sent
+assert-address-ends tests/shell/based/sent.html?k=v
+back
+click-text stay
+assert-address-ends tests/shell/base.html?own=1
+
+# --- pushState, replaceState ---
+# The address field follows; Back leaves the pushed entry for the page as it
+# was opened, and Forward fetches the address the script gave.
+open pushing.html
+assert-address-ends tests/shell/pushing.html
+click-text push
+assert-title Pushed
+assert-address-ends tests/shell/based/there.html
+back
+assert-title Pushing
+assert-address-ends tests/shell/pushing.html
+forward
+assert-title There
+assert-address-ends tests/shell/based/there.html
+back
+click-text swap
+assert-title Replaced
+assert-address-ends tests/shell/based/sent.html
+back
+assert-title Base based/ based/there.html

@@ -2,6 +2,7 @@
 
 #include "core/Ascii.h"
 #include "dom/Dom.h"
+#include "html/DocumentBase.h"
 
 namespace sashfold::ui {
 
@@ -177,8 +178,12 @@ std::optional<net::Url> get_submission_url(dom::Element const& form, dom::Elemen
     }
     if (method != "get" && !method.empty())
         return std::nullopt;
+    // An action is resolved against the document base URL; with none, the
+    // form goes to its document's own URL, whatever a base element says
+    // (HTML §4.10.21.3).
+    net::Url const base = html::document_base_url(form.document(), document_url);
     std::optional<net::Url> url
-        = action.empty() ? std::optional<net::Url>(document_url) : net::parse_url(action, &document_url);
+        = action.empty() ? std::optional<net::Url>(document_url) : net::parse_url(action, &base);
     if (!url)
         return std::nullopt;
     url->query = urlencode_form(form_data_set(form, submitter, states));

@@ -27,6 +27,7 @@
 //   screenshot <path>    write the frame as PNG
 //   assert-golden <png>  frame bytes equal the file (--update-goldens blesses)
 //   assert-url <url>     assert-address <text>   assert-title <text>
+//   assert-address-ends <text>   (a file's address begins with the machine's path)
 //   assert-text <text>   assert-no-text <text>   assert-status <text>
 //   assert-tabs <n>      assert-scroll <n>       assert-scrolled
 //   assert-pixel <x> <y> <#rrggbb>

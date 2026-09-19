@@ -1035,7 +1035,7 @@ std::optional<RequestObject*> make_request(js::Interpreter& interp, js::Value co
         std::optional<std::string> const text = internals.to_utf8(input);
         if (!text)
             return std::nullopt;
-        std::optional<net::Url> const parsed = net::parse_url(*text, &internals.url);
+        std::optional<net::Url> const parsed = net::parse_url(*text, &internals.base_url());
         if (!parsed || parsed->includes_credentials())
             return interp.throw_type_error("Failed to construct 'Request': Failed to parse URL from " + *text);
         request->url = *parsed;
@@ -1906,7 +1906,7 @@ void install_response(Realm::Internals& in)
         std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
         if (!text)
             return std::nullopt;
-        std::optional<net::Url> const parsed = net::parse_url(*text, &internals.url);
+        std::optional<net::Url> const parsed = net::parse_url(*text, &internals.base_url());
         if (!parsed)
             return interp.throw_type_error("Failed to execute 'redirect' on 'Response': Failed to parse URL from " + *text);
         double status = 302;

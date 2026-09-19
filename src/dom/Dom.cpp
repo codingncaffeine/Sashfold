@@ -131,6 +131,8 @@ void Document::adopt(Node& node)
         if (current->is_element()) {
             if (Node* content = static_cast<Element*>(current)->template_content())
                 pending.push_back(content);
+            if (static_cast<Element*>(current)->is_html("base"))
+                ++m_base_elements;
         }
         auto const it = std::find_if(old.m_nodes.begin(), old.m_nodes.end(),
             [current](std::unique_ptr<Node> const& owned) { return owned.get() == current; });

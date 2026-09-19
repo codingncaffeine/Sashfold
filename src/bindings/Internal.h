@@ -737,10 +737,18 @@ struct Realm::Internals {
     // iframe is in (HTML's "determine the creation sandboxing flags"); none
     // for a page's.
     std::uint32_t sandbox_flags = 0;
-    // The URL a relative one is parsed against: the document's own, or for an
-    // about:srcdoc or about:blank frame document the parent's (HTML §2.4.1,
-    // the fallback base URL).
+    // The URL a relative one is parsed against — the document base URL (HTML
+    // §2.4.3): the href of the document's first base element that has one,
+    // resolved against the fallback base URL, and the fallback itself when
+    // there is none. The fallback is the document's own URL, or for an
+    // about:srcdoc or about:blank frame document the parent's base URL.
     net::Url const& base_url() const;
+    net::Url const& fallback_base_url() const;
+    // The base URL as last worked out, and what it was worked out at: the
+    // scripts' changes and the base elements the document has been given.
+    mutable std::optional<net::Url> base_url_kept;
+    mutable std::uint64_t base_url_kept_at = 0;
+    mutable std::uint32_t base_url_kept_bases = 0;
     // The frames of this document that have realms, in the order they were
     // opened; after the agent, so that they end before it.
     std::vector<ChildFrame> child_frames;

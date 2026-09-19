@@ -855,7 +855,7 @@ void install_node(Realm::Internals& in, js::Object& node)
     node_getter(in, node, "isConnected", [](Realm::Internals& internals, dom::Node& n) -> Native {
         return js::Value::boolean(&n.root() == internals.document || (n.root().type() == dom::NodeType::Document && &n.root() != internals.document));
     });
-    node_getter(in, node, "baseURI", [](Realm::Internals& internals, dom::Node&) -> Native { return internals.string(internals.url.serialize()); });
+    node_getter(in, node, "baseURI", [](Realm::Internals& internals, dom::Node&) -> Native { return internals.string(internals.base_url().serialize()); });
     node_method(in, node, "hasChildNodes", 0, [](Realm::Internals&, dom::Node& n, Args) -> Native { return js::Value::boolean(!n.children().empty()); });
     node_method(in, node, "getRootNode", 0, [](Realm::Internals& internals, dom::Node& n, Args) -> Native { return js::Value::object(internals.wrap(n.root())); });
     node_method(in, node, "appendChild", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {

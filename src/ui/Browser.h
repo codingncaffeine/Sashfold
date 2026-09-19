@@ -121,6 +121,12 @@ struct HistoryEntry {
     // known, its page is not — it is fetched again the first time the
     // entry is shown, and this replaces it.
     bool unloaded = false;
+    // An entry the page's script pushed (history.pushState). While the
+    // reader stays it is the document it was pushed from, under the address
+    // the script gave it, and its bytes are that document's. Come back to by
+    // Back or Forward, the script's state is gone: its own address is
+    // fetched, as a restored entry's is.
+    bool pushed = false;
 };
 
 // One open menu as the chrome lays it out: its box, and a row for every

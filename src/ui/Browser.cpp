@@ -9,6 +9,7 @@
 #include "core/Unicode.h"
 #include "css/StyleResolver.h"
 #include "dom/Dom.h"
+#include "html/DocumentBase.h"
 #include "html/TreeBuilder.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
@@ -1666,9 +1667,10 @@ struct Browser::Impl {
         bool compiled = false;
         if (!tab.style_set || (!same_viewport && !tab.style_set->same_rules_for(media))) {
             Stopwatch const compiling(profile.sheets_ms);
-            net::Url const* const page_url
-                = tab.index < tab.history.size() ? &tab.history[tab.index].final_url : nullptr;
-            tab.style_set.emplace(tab.sheets, media, page_url);
+            std::optional<net::Url> const base = tab.index < tab.history.size()
+                ? std::optional<net::Url>(base_of(tab, tab.history[tab.index]))
+                : std::nullopt;
+            tab.style_set.emplace(tab.sheets, media, base ? &*base : nullptr);
             if (net::ContentSecurityPolicy* const policy = tab.policy.get()) {
                 tab.style_set->set_style_attribute_check([policy](dom::Element const&, std::string_view text) {
                     return !policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);
@@ -2231,6 +2233,32 @@ struct Browser::Impl {
                 dirty = true;
             }
         };
+        // The page gave itself another address without loading anything
+        // (history.pushState, replaceState): the entry in front takes it, or
+        // a new one does and what was ahead of it goes — and the address
+        // field follows, so what the reader copies is where they are.
+        hooks.history_changed = [this, document](net::Url const& now_at, bool push) {
+            Tab* const owner = tab_of(document);
+            HistoryEntry* const entry = owner ? owner->current() : nullptr;
+            if (!entry)
+                return;
+            if (push) {
+                entry->scroll_y = owner->scroll_y;
+                HistoryEntry next = *entry;
+                next.url = now_at;
+                next.final_url = now_at;
+                next.pushed = true;
+                owner->history.resize(owner->index + 1);
+                owner->history.push_back(std::move(next));
+                owner->index = owner->history.size() - 1;
+            } else {
+                entry->url = now_at;
+                entry->final_url = now_at;
+            }
+            if (owner == active_tab())
+                sync_address();
+            dirty = true;
+        };
         // An element of a frame's document is measured in that document,
         // from the frame's own viewport: a frame's hooks are the page's.
         hooks.layout_box = [this, document](dom::Element const& element) -> std::optional<bindings::LayoutBox> {
@@ -2476,10 +2504,12 @@ struct Browser::Impl {
         // by what its bytes say, an ICO at the tab's size. A page with none,
         // or one whose icon fails, draws no icon and its title stays put.
         std::optional<net::Url> icon_url;
-        if (std::string const href = find_icon_href(*tab.document); !href.empty())
-            icon_url = net::parse_url(href, &page_url);
-        else if (is_web_scheme(page_url.scheme) && !entry->internal)
+        if (std::string const href = find_icon_href(*tab.document); !href.empty()) {
+            net::Url const base = base_of(tab, *entry);
+            icon_url = net::parse_url(href, &base);
+        } else if (is_web_scheme(page_url.scheme) && !entry->internal) {
             icon_url = net::parse_url("/favicon.ico", &page_url); // not for an error page: no request to a site that failed or was refused
+        }
         std::string const icon_key = icon_url ? icon_url->serialize() : std::string();
         if (icon_key != tab.favicon_key) {
             tab.favicon_key = icon_key;
@@ -2944,7 +2974,7 @@ struct Browser::Impl {
                 } else {
                     std::unique_ptr<dom::Document> const document
                         = html::parse_document_bytes(bytes_view(result.response->body));
-                    set_document(entry, reader_page(*document, result.response->final_url));
+                    set_document(entry, reader_page(*document, html::document_base_url(*document, result.response->final_url)));
                     entry.internal = true;
                     entry.status = result.response->status;
                     entry.from_cache = result.response->from_cache;
@@ -3098,8 +3128,9 @@ struct Browser::Impl {
         if (HistoryEntry* const entry = tab->current())
             entry->scroll_y = tab->scroll_y;
         tab->index = static_cast<std::size_t>(target);
-        if (HistoryEntry const* const entry = tab->current(); entry && entry->unloaded) {
-            // A restored entry: its page is fetched now, in place.
+        if (HistoryEntry const* const entry = tab->current(); entry && (entry->unloaded || entry->pushed)) {
+            // A restored entry, or one a script pushed: its page is fetched
+            // now, in place.
             queue(index_of(*tab), entry->url, Mode::Replace);
             sync_address();
             return;
@@ -3404,6 +3435,13 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // What a tab's document resolves its relative URLs against (HTML §2.4.3):
+    // the entry's own URL, or the href of the document's base element.
+    static net::Url base_of(Tab const& tab, HistoryEntry const& entry)
+    {
+        return tab.document ? html::document_base_url(*tab.document, entry.final_url) : entry.final_url;
+    }
+
     // --- Hit testing --------------------------------------------------------------
 
     // What a box that clips holds cannot be reached outside its padding
@@ -3510,12 +3548,12 @@ struct Browser::Impl {
         float py = static_cast<float>(y - c.content.y + tab->scroll_y);
         std::vector<FrameStep> const chain = frames_at(*tab, px, py);
         layout::Fragment const* root = &tab->layout.root;
-        net::Url base = entry->final_url;
+        net::Url base = base_of(*tab, *entry);
         dom::Element const* link_frame = nullptr;
         if (!chain.empty()) {
             FrameStep const& step = chain.back();
             root = &step.view->layout.root;
-            base = step.view->realm->url();
+            base = step.view->realm->base_url();
             link_frame = step.container;
             px = step.x;
             py = step.y;
@@ -4411,12 +4449,12 @@ struct Browser::Impl {
             return std::nullopt;
         std::vector<FrameStep> const chain = frames_at(*tab, point->first, point->second);
         layout::Fragment const* root = &tab->layout.root;
-        net::Url base = entry->final_url;
+        net::Url base = base_of(*tab, *entry);
         float px = point->first;
         float py = point->second;
         if (!chain.empty()) {
             root = &chain.back().view->layout.root;
-            base = chain.back().view->realm->url();
+            base = chain.back().view->realm->base_url();
             px = chain.back().x;
             py = chain.back().y;
         }
@@ -5391,6 +5429,7 @@ struct Browser::Impl {
         ChromeLayout const c = layout_chrome();
         float const top = static_cast<float>(tab.scroll_y);
         float const bottom = top + static_cast<float>(c.content.height);
+        net::Url const base = base_of(tab, *entry);
         std::vector<dom::Element const*> seen;
         for (layout::TextRun const* const run : tab.runs) {
             if (run->text.empty())
@@ -5411,7 +5450,7 @@ struct Browser::Impl {
             if (!anchor || std::find(seen.begin(), seen.end(), anchor) != seen.end())
                 continue;
             std::optional<net::Url> const url
-                = net::parse_url(anchor->find_attribute("href")->value, &entry->final_url);
+                = net::parse_url(anchor->find_attribute("href")->value, &base);
             if (!url)
                 continue;
             seen.push_back(anchor);

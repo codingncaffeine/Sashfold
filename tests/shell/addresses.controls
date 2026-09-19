@@ -1,0 +1,57 @@
+# Planted-fault controls for tests/shell/addresses.script: a base element moves what a document's relative URLs are resolved against - for its scripts, its links, its sheets and its forms' actions, each by its own road - and an address a script gives the page reaches the shell's history and its address field.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/addresses.script
+
+# No base element is ever found: every road resolves against the document's own URL.
+control basewalk
+file src/html/DocumentBase.cpp
+fails 9 10 12 13 16 17 41
+plant s~                    return \*url;\n~                    return fallback;\n~
+
+# A form's action is resolved against the document's own URL.
+control formaction
+file src/ui/Forms.cpp
+fails 16 17
+plant s~    net::Url const base = html::document_base_url\(form\.document\(\), document_url\);\n~    net::Url const base = document_url;\n~
+
+# A form with no action goes to the base URL, not to its document.
+control emptyaction
+file src/ui/Forms.cpp
+fails 20 41
+plant s~action\.empty\(\) \? std::optional<net::Url>\(document_url\)~action.empty() ? std::optional<net::Url>(base)~
+
+# The link under the pointer is resolved against the entry's own URL.
+control linkbase
+file src/ui/Browser.cpp
+fails 12 13
+plant s~        net::Url base = base_of\(\*tab, \*entry\);\n        dom::Element const\* link_frame = nullptr;\n~        net::Url base = entry->final_url;\n        dom::Element const* link_frame = nullptr;\n~
+
+# The sheets a document links to are named against its own URL.
+control sheetbase
+file src/css/Stylesheets.cpp
+fails 10
+plant s~    walk\(document, named_against \? &\*named_against : nullptr, collector\);\n~    walk(document, base, collector);\n~
+
+# The page's scripts see the document's own URL as its base.
+control scriptbase
+file src/bindings/Realm.cpp
+fails 9 41
+plant s~    return \*base_url_kept;\n~    return fallback;\n~
+
+# pushState and replaceState never reach the shell: Back leaves the page, and what follows fails with it.
+control pushhook
+file src/bindings/Window.cpp
+fails 29 31 32 34 35 37 38 39
+plant s~internals\.hooks\.history_changed && \(push \|\| new_url\)\)~internals.hooks.history_changed && (push || new_url) && internals.history_length == 0)~
+
+# A pushed entry come back to is drawn from the bytes of the document that pushed it.
+control pushedfetch
+file src/ui/Browser.cpp
+fails 34
+plant s~entry && \(entry->unloaded \|\| entry->pushed\)\) \{~entry && (entry->unloaded)) {~
+
+# replaceState leaves the entry's address as it was.
+control replace
+file src/ui/Browser.cpp
+fails 39
+plant s~            \} else \{\n                entry->url = now_at;\n                entry->final_url = now_at;\n            \}~            } else {\n            }~

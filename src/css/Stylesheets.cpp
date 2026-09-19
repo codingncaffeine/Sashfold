@@ -5,6 +5,7 @@
 #include "css/Parser.h"
 #include "css/Tokenizer.h"
 #include "dom/Dom.h"
+#include "html/DocumentBase.h"
 #include "html/Encoding.h"
 #include "text/FontManager.h"
 
@@ -165,7 +166,11 @@ std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net:
 {
     std::vector<SheetSource> sheets;
     Collector collector { fetch, sheets, media, check, {} };
-    walk(document, base, collector);
+    // `base` is the document's own URL; what it names is resolved against
+    // the document base URL, which a base element moves (HTML §2.4.3).
+    std::optional<net::Url> const named_against
+        = base ? std::optional<net::Url>(html::document_base_url(document, *base)) : std::nullopt;
+    walk(document, named_against ? &*named_against : nullptr, collector);
     return sheets;
 }
 

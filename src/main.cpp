@@ -9,6 +9,7 @@
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
+#include "html/DocumentBase.h"
 #include "html/TreeBuilder.h"
 #include "html/TreeDump.h"
 #include "layout/Layout.h"
@@ -897,7 +898,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
         = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures, net::ResourceKind::Font), media);
     text::FontManager::instance().set_page_fonts(fonts);
     auto const t2 = clock::now();
-    css::StyleSet style_set(sheets, media, &loaded.url);
+    net::Url const base = html::document_base_url(*document, loaded.url);
+    css::StyleSet style_set(sheets, media, &base);
     style_set.set_style_attribute_check(style_attribute_check(*loaded.policy));
     css::StyleMap const styles = css::resolve_styles(*document, style_set);
     auto const t3 = clock::now();

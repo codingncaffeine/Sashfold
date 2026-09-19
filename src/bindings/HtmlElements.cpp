@@ -152,7 +152,7 @@ void install_url_parts(Realm::Internals& in, js::Object& proto)
     auto const part = [](std::string_view which) {
         return [which](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* href = e.find_attribute("href");
-            std::optional<net::Url> const url = href ? net::parse_url(href->value, &internals.url) : std::nullopt;
+            std::optional<net::Url> const url = href ? net::parse_url(href->value, &internals.base_url()) : std::nullopt;
             if (!url)
                 return internals.string("");
             if (which == "protocol")
@@ -499,7 +499,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             dom::Attr const* src = e.find_attribute("src");
             if (!src)
                 return internals.string("");
-            std::optional<net::Url> const url = net::parse_url(src->value, &internals.url);
+            std::optional<net::Url> const url = net::parse_url(src->value, &internals.base_url());
             return internals.string(url ? url->serialize() : src->value);
         });
         element_getter(in, proto, "x", [](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -803,7 +803,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 dom::Attr const* action = e.find_attribute("action");
                 if (!action || action->value.empty())
                     return internals.string(internals.url.serialize());
-                std::optional<net::Url> const url = net::parse_url(action->value, &internals.url);
+                std::optional<net::Url> const url = net::parse_url(action->value, &internals.base_url());
                 return internals.string(url ? url->serialize() : action->value);
             },
             [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
@@ -979,7 +979,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
 
         element_getter(in, *media_element, "currentSrc", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* src = e.find_attribute("src");
-            std::optional<net::Url> const url = src ? net::parse_url(src->value, &internals.url) : std::nullopt;
+            std::optional<net::Url> const url = src ? net::parse_url(src->value, &internals.base_url()) : std::nullopt;
             return internals.string(url ? url->serialize() : "");
         });
         for (auto const& [name, value] : { std::pair { "paused", 1.0 }, std::pair { "ended", 0.0 }, std::pair { "seeking", 0.0 } }) {

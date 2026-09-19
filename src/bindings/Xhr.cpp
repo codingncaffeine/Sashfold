@@ -439,7 +439,7 @@ Native open(js::Interpreter& interp, js::Value const& this_value, Args args)
     std::optional<std::string> const url_text = internals.to_utf8(args[1]);
     if (!url_text)
         return std::nullopt;
-    std::optional<net::Url> parsed = net::parse_url(*url_text, &internals.url);
+    std::optional<net::Url> parsed = net::parse_url(*url_text, &internals.base_url());
     if (!parsed)
         return internals.throw_dom_exception("SyntaxError", "Failed to execute 'open' on 'XMLHttpRequest': Invalid URL");
     if (args.size() > 3 && !args[3].is_undefined() && !args[3].is_null()) {

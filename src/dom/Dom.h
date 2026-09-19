@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace sashfold::js {
@@ -242,8 +243,20 @@ public:
         auto node = std::make_unique<T>(*this, std::forward<Args>(args)...);
         T* raw = node.get();
         m_nodes.push_back(std::move(node));
+        if constexpr (std::is_base_of_v<Element, T>) {
+            if (raw->is_html("base"))
+                ++m_base_elements;
+        }
         return raw;
     }
+
+    // Whether a base element was ever made for this document or moved into
+    // it. Most documents have none, and for them the document base URL is
+    // the document's own, with no walk of the tree to find that out.
+    bool may_have_base() const { return m_base_elements != 0; }
+    // How many there have been: a number that moves when the parser makes
+    // one, for whoever keeps the base URL it last worked out.
+    std::uint32_t base_elements_made() const { return m_base_elements; }
 
     // Moves `node` and its whole subtree into this document's arena from
     // the document that made them (DOM §4.2.4 "adopt"), so a node parsed or
@@ -264,6 +277,7 @@ private:
     friend void release_range(Range&);
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<Range*> m_ranges;
+    std::uint32_t m_base_elements = 0;
 };
 
 // Deep-copies a subtree; the clone's nodes are owned by `document`.

@@ -1,0 +1,8 @@
+<!doctype html><title>Base</title><base href="based/"><link rel="stylesheet" href="green.css">
+<body><a id="l" href="there.html">onward</a>
+<form action="sent.html"><input type="hidden" name="k" value="v"><button>send</button></form>
+<form><input type="hidden" name="own" value="1"><button>stay</button></form>
+<script>
+var tail = function (u) { return u.split('/').slice(-2).join('/'); };
+document.title = 'Base ' + tail(document.baseURI) + ' ' + tail(document.getElementById('l').href);
+</script>
