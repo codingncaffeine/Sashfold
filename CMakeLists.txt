@@ -226,6 +226,12 @@ target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 add_executable(png_diff tools/png-diff.cpp)
 target_link_libraries(png_diff PRIVATE sashfold_core sashfold_warnings)
 
+# png_sheet lays pictures out on one labelled sheet (tools/png-sheet.cpp);
+# tools/theme-sheet.sh feeds it the chrome under each of many themes, for
+# judging a look by eye. A build tool, never shipped.
+add_executable(png_sheet tools/png-sheet.cpp)
+target_link_libraries(png_sheet PRIVATE sashfold_core sashfold_warnings)
+
 # gen_bindings turns idl/*.idl into src/bindings/generated/*.gen.cpp: the
 # interfaces, their tags and their reflected attributes (tools/gen-bindings.cpp).
 # The output is committed; the bindings-regen target rewrites it and a test

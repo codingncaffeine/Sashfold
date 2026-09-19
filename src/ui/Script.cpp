@@ -7,7 +7,9 @@
 #include "ui/Theme.h"
 #include "ui/ThemeImport.h"
 
+#include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <ostream>
@@ -633,6 +635,45 @@ struct Runner {
                 fail("assert-console: \"" + argument + "\" not found in:\n" + browser.console_text());
         } else if (command == "echo") {
             out << argument << "\n";
+        } else if (command == "print-pixel") {
+            // `print-pixel <x> <y>`: what the frame holds there, said and
+            // never judged — for whoever is writing a test, to read a
+            // pixel before asserting it.
+            auto const x = int_arg(0);
+            auto const y = int_arg(1);
+            if (!x || !y)
+                return fail("print-pixel: needs x y");
+            Color const actual = browser.frame().pixel(*x, *y);
+            char text[16];
+            std::snprintf(text, sizeof text, "#%02x%02x%02x%02x", actual.r, actual.g, actual.b, actual.a);
+            out << "pixel (" << *x << ", " << *y << ") is " << text << "\n";
+        } else if (command == "find-pixel") {
+            // `find-pixel <#rrggbb> [<x> <y> <w> <h>]`: where the frame is
+            // exactly that color — in the box given, else anywhere — the
+            // first few places and how many in all. Said, never judged: it
+            // finds the one pixel of a glyph its color fully covers, or
+            // shows that a color is nowhere, before an assertion is written.
+            std::optional<Color> const wanted = !args.empty() ? parse_theme_color(args[0]) : std::nullopt;
+            if (!wanted)
+                return fail("find-pixel: needs #rrggbb, then perhaps x y w h");
+            Bitmap const& frame = browser.frame();
+            int const from_x = std::max(0, int_arg(1).value_or(0));
+            int const from_y = std::max(0, int_arg(2).value_or(0));
+            int const to_x = std::min(frame.width(), from_x + int_arg(3).value_or(frame.width()));
+            int const to_y = std::min(frame.height(), from_y + int_arg(4).value_or(frame.height()));
+            int found = 0;
+            std::string places;
+            for (int y = from_y; y < to_y; ++y) {
+                for (int x = from_x; x < to_x; ++x) {
+                    if (!(frame.pixel(x, y) == *wanted))
+                        continue;
+                    if (found < 8)
+                        places += " (" + std::to_string(x) + ", " + std::to_string(y) + ")";
+                    ++found;
+                }
+            }
+            out << "find-pixel " << args[0] << ": " << found << " in all" << (found ? ";" : "") << places
+                << (found > 8 ? " ..." : "") << "\n";
         } else {
             fail("unknown command: " + command);
         }

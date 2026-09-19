@@ -1,0 +1,20 @@
+# Planted-fault controls for tests/shell/tokens.script: a button held down, the toolbar's top line broken under the front tab.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/tokens.script
+args --theme tests/shell/tokens-theme.json
+
+control release
+file src/ui/Browser.cpp
+fails 40
+plant s/            if \(pressed != Hover::None\) \{\n                pressed = Hover::None;\n                dirty = true;\n            \}/            if (pressed != Hover::None \&\& width < 0) {\n                pressed = Hover::None;\n                dirty = true;\n            }/
+
+control held
+file src/ui/Browser.cpp
+fails 38
+plant s/                held \? theme.button_active_background : theme.button_hover_background\);/                held \&\& width < 0 ? theme.button_active_background : theme.button_hover_background);/
+
+control gap
+file src/ui/Browser.cpp
+fails 33
+plant s/            int const gap_from = front.is_empty\(\) \? width : std::clamp\(front.x, 0, width\);/            int const gap_from = width;/
+

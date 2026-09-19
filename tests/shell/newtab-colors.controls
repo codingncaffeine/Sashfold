@@ -1,0 +1,30 @@
+# Planted-fault controls for tests/shell/newtab-colors.script: the new-tab page's own colors, and the page made again under another theme.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/newtab-colors.script
+args --theme tests/shell/newtab-colors-theme.json
+
+control background
+file src/ui/Browser.cpp
+fails 11 25
+plant s/        page.background = theme.new_tab_background.value_or\(theme.chrome_background\);/        page.background = theme.chrome_background;/
+
+control text
+file src/ui/Browser.cpp
+fails 13
+plant s/        page.text = theme.new_tab_text.value_or\(theme.chrome_text\);/        page.text = theme.chrome_text;/
+
+control muted
+file src/ui/Browser.cpp
+fails 14
+plant s/        page.text_muted = theme.new_tab_text_muted.value_or\(theme.chrome_text_muted\);/        page.text_muted = theme.chrome_text_muted;/
+
+control flat
+file src/ui/Browser.cpp
+fails 12
+plant s/            theme.new_tab_background \? \*theme.new_tab_background\n                                     : mix/            width < 0 ? *theme.new_tab_background\n                                     : mix/
+
+control rerender
+file src/ui/Browser.cpp
+fails 26 27
+plant s/            if \(entry && is_about_newtab\(entry->url\)\)\n                render\(tab\);\n            else\n                relayout\(tab\);/            if (entry \&\& is_about_newtab(entry->url) \&\& width < 0)\n                render(tab);\n            else\n                relayout(tab);/
+

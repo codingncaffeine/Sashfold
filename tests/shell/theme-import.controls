@@ -1,0 +1,34 @@
+# Planted-fault controls for tests/shell/theme-import.script: Firefox and Chrome themes converted: the archive, the fallbacks, the tints.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/theme-import.script
+
+control zipbase
+file src/core/Zip.cpp
+fails 57 58 60 61 62 63 64 65 66 67 68 70 72
+plant s/    archive.m_base = \*end - directory_size - directory_offset;/    archive.m_base = 0 * (*end - directory_size - directory_offset);/
+
+control align
+file src/ui/ThemeImport.cpp
+fails 30 31
+plant s/                    if \(said.is_string\(\) && is_picture_alignment\(said.as_string\(\)\)\)\n                        align = said.as_string\(\);/                    if (said.is_string() \&\& is_picture_alignment(said.as_string()) \&\& index > 99)\n                        align = said.as_string();/
+
+control tiling
+file src/ui/ThemeImport.cpp
+fails 21
+plant s/                    if \(said.is_string\(\) && is_picture_tiling\(said.as_string\(\)\)\)\n                        tile = said.as_string\(\);/                    if (said.is_string() \&\& is_picture_tiling(said.as_string()) \&\& index > 99)\n                        tile = said.as_string();/
+
+control tintpic
+file src/ui/ThemeImport.cpp
+fails 60 61 62
+plant s/std::string const file = c.picture\("images.theme_frame", \*picture, "frame-1", frame_tint\);/std::string const file = c.picture("images.theme_frame", *picture, "frame-1", HslTint {});/
+
+control inactive
+file src/ui/ThemeImport.cpp
+fails 70
+plant s/c.tint\("frame_inactive", HslTint \{ -1, -1, 0.642 \}\)/c.tint("frame_inactive", HslTint { -1, -1, -1 })/
+
+control foxtabs
+file src/ui/ThemeImport.cpp
+fails 38 40
+plant s/    c.set\("tab-inactive-background", Color::rgba\(0, 0, 0, 0\)\);\n    c.set\("tab-hover-background", with_alpha\(strip_text, 0x1c\)\);\n    if \(std::optional<Color> const line = c.color\("tab_line"\)\)/    c.set("tab-hover-background", with_alpha(strip_text, 0x1c));\n    if (std::optional<Color> const line = c.color("tab_line"))/
+

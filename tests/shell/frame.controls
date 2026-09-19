@@ -1,0 +1,50 @@
+# Planted-fault controls for tests/shell/frame.script: the frame's pictures, the fills that composite over them, the window's focus.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/frame.script
+args --theme tests/shell/frame-theme.json
+
+control ring
+file src/core/Bitmap.cpp
+fails 68 69 111
+plant s~        fill_rect\(Rect \{ outer_from, y, inner_from - outer_from, 1 \}, border\);\n~        fill_rect(Rect { outer_from, y, outer_to - outer_from, 1 }, border);\n~
+
+control strip
+file src/ui/Browser.cpp
+fails 69 111
+plant s~            frame.set_clip\(text_area\);\n~            frame.set_clip(text_area);\n            frame.blit(Bitmap(text_area.width, text_area.height, address_fill), text_area.x, text_area.y);\n~
+
+control tabclip
+file src/ui/Browser.cpp
+fails 57 111
+plant s~                frame.set_clip\(rect\);\n                frame.fill_round_rect\(shape, t.tab_corner_radius, color\);~                frame.fill_round_rect(shape, t.tab_corner_radius, color);~
+
+control rowcut
+file src/ui/Browser.cpp
+fails 81 111
+plant s~                    row.height = std::max\(0, std::min\(row.bottom\(\), rect.bottom\(\)\) - row.y\);\n~                    row.height = std::max(0, row.height);\n~
+
+control hover
+file src/ui/Browser.cpp
+fails 85
+plant s~                tab_pictures\(tab_background_pictures\);\n                if \(hovered\)\n                    fill_tab\(t.tab_hover_background\);\n~                if (hovered)\n                    fill_tab(t.tab_hover_background);\n                tab_pictures(tab_background_pictures);\n~
+
+control stale
+file src/ui/Browser.cpp
+fails 102 106
+plant s~if \(surface.laid && surface.laid->width\(\) == area.width && surface.laid->height\(\) == area.height~if (surface.laid \&\& surface.laid->width() > 0 \&\& surface.laid->height() == area.height~
+
+control active
+file src/ui/Browser.cpp
+fails 93 94
+plant s~frame.fill_rect\(header, window_active \? t.chrome_background : t.chrome_background_inactive\);~frame.fill_rect(header, (window_active || width > 0) ? t.chrome_background : t.chrome_background_inactive);~
+
+control switch
+file src/ui/Browser.cpp
+fails 129 130 131
+plant s~        theme = base_theme.scaled\(scale\);\n        load_theme_pictures\(\);\n~        theme = base_theme.scaled(scale);\n~
+
+control copies
+file src/ui/Browser.cpp
+fails 106
+plant s~                        if \(!layer->how.repeat_across\)\n                            break;\n~                        break;\n~
+
