@@ -1,0 +1,19 @@
+# Planted-fault controls for tests/shell/status.script: what the shell says floats over the page only while it says something, and the page has the window to its foot.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/status.script
+
+control never
+file src/ui/Browser.cpp
+fails 22 23 24 38 47 48
+plant s~    static bool status_worth_showing\(std::string const& said\) \{ return !said.empty\(\) && said != "Done"; \}~    static bool status_worth_showing(std::string const\& said) { return !said.empty() \&\& said != "Done" \&\& said.size() > 100000; }~
+
+control done
+file src/ui/Browser.cpp
+fails 14 15 16 32
+plant s~    static bool status_worth_showing\(std::string const& said\) \{ return !said.empty\(\) && said != "Done"; \}~    static bool status_worth_showing(std::string const\& said) { return !said.empty(); }~
+
+control bar
+file src/ui/Browser.cpp
+fails 12 13 14 15 16 22 25 26 31 32 38 46 47
+plant s~        c.content = Rect \{ 0, content_top, width, std::max\(0, height - content_top\) \};~        c.content = Rect { 0, content_top, width, std::max(0, height - content_top - t.status_height) };~
+

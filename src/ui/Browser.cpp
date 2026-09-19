@@ -1051,9 +1051,11 @@ struct Browser::Impl {
                 box_width, t.address_height };
             content_top += t.find_height;
         }
-        c.status = Rect { 0, height - t.status_height, width, t.status_height };
-        c.content = Rect { 0, content_top, width,
-            std::max(0, height - content_top - t.status_height) };
+        // The page has the window down to its foot. What the shell has to
+        // say — where a link leads, what is loading, a notice — floats over
+        // the page's bottom corner while there is something to say, and is
+        // not there otherwise: no bar is kept for it.
+        c.content = Rect { 0, content_top, width, std::max(0, height - content_top) };
         if (devtools_open) {
             // The panel takes the bottom of the content: the tree left, the
             // inspected element's box and style right.
@@ -1064,6 +1066,12 @@ struct Browser::Impl {
             c.devtools_tree = Rect { 0, c.devtools.y + t.border_width, tree_width, panel - t.border_width };
             c.devtools_styles = Rect { tree_width + t.padding, c.devtools.y + t.border_width + t.padding / 2,
                 std::max(0, width - tree_width - 2 * t.padding), panel - t.border_width };
+        }
+        if (std::string const said = status_text(); status_worth_showing(said)) {
+            // As wide as its words, up to three fifths of the window.
+            int const wanted = static_cast<int>(text_width(decode_utf8(said), t.status_font_size) + 0.5f) + 2 * t.padding;
+            int const box_width = std::min(wanted, std::max(0, width * 3 / 5));
+            c.status = Rect { 0, c.content.bottom() - t.status_height, box_width, t.status_height };
         }
         if (palette_open) {
             // The palette floats over the top of the content, centred: the
@@ -6621,13 +6629,21 @@ struct Browser::Impl {
             }
         }
 
-        // Status bar.
-        frame.fill_rect(c.status, t.status_background);
-        frame.fill_rect(Rect { 0, c.status.y, width, t.border_width }, t.chrome_border);
-        std::u32string const status = ellipsize(decode_utf8(status_text()),
-            static_cast<float>(width - 2 * t.padding), t.status_font_size);
-        draw_text(frame, status, static_cast<float>(t.padding),
-            centered_baseline(c.status, t.status_font_size), t.status_font_size, t.status_text);
+        // What the shell has to say, over the page's bottom left corner: a
+        // box bordered along its top and its right, the corner between them
+        // round — a bordered box hung a corner's width past the window's
+        // left and the content's foot, and shown through its own rectangle.
+        if (!c.status.is_empty()) {
+            int const r = t.button_corner_radius;
+            frame.set_clip(c.status);
+            frame.fill_round_box(Rect { c.status.x - r, c.status.y, c.status.width + r, c.status.height + r }, r,
+                t.border_width, t.chrome_border, t.status_background);
+            std::u32string const status = ellipsize(decode_utf8(status_text()),
+                static_cast<float>(c.status.width - 2 * t.padding), t.status_font_size);
+            draw_text(frame, status, static_cast<float>(c.status.x + t.padding),
+                centered_baseline(c.status, t.status_font_size), t.status_font_size, t.status_text);
+            frame.set_clip(std::nullopt);
+        }
 
         paint_menus(c);
 
@@ -6694,6 +6710,11 @@ struct Browser::Impl {
         auto const target = static_cast<std::ptrdiff_t>(tab->index) + delta;
         return target >= 0 && target < static_cast<std::ptrdiff_t>(tab->history.size());
     }
+
+    // Whether what the shell has to say is worth a box over the page: where
+    // a link leads, what is loading, a notice — not that a load is done,
+    // which is what a page being there already says.
+    static bool status_worth_showing(std::string const& said) { return !said.empty() && said != "Done"; }
 
     std::string status_text() const
     {

@@ -44,8 +44,8 @@ window-active on
 # Its new-tab page wears its ntp colors.
 assert-text 09:41
 assert-pixel 0 76 #102030
-assert-pixel 799 477 #102030
-assert-pixel 262 215 #f0e000
+assert-pixel 799 499 #102030
+assert-pixel 262 226 #f0e000
 
 # Sample Chrome: frame (32, 48, 64) under the theme's own tint, lightness
 # 0.75 — half way to white, #9098a0 — and, not in front, that under Chrome's

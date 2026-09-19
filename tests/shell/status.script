@@ -1,0 +1,48 @@
+# What the shell has to say floats over the page's bottom left corner while
+# there is something to say — where a link leads, a notice — and is not
+# there otherwise: the page has the window down to its foot, and no bar is
+# kept. (Default theme: the box is status-background #1f2228, bordered
+# along its top and right in chrome-border #121418, 22 tall.)
+resize 800 500
+open data:text/html,<title>Status</title><body style="margin:0"><a href="https://example.org/a" style="display:block;width:300px;height:100px;background:lime;font-size:60px">go</a><div style="position:fixed;left:0;bottom:0;width:40px;height:10px;background:fuchsia"></div>
+
+# A page that is simply there: nothing is said, and the page's own foot is
+# the window's — a box fixed to the bottom of the page sits on the last row.
+assert-status Done
+assert-pixel 200 480 #ffffff
+assert-pixel 200 499 #ffffff
+assert-pixel 5 499 #ff00ff
+assert-pixel 5 490 #ff00ff
+assert-pixel 5 489 #ffffff
+
+# The pointer over a link: where it leads, in a box as wide as its words —
+# over the page, the page's own foot under it.
+move 30 110
+assert-status https://example.org/a
+assert-pixel 100 478 #121418
+assert-pixel 100 479 #1f2228
+assert-pixel 5 499 #1f2228
+assert-pixel 100 477 #ffffff
+assert-pixel 600 490 #ffffff
+
+# Off the link, it is gone.
+move 500 300
+assert-status Done
+assert-pixel 100 479 #ffffff
+assert-pixel 5 499 #ff00ff
+
+# A notice stays until something else is said.
+palette new tab in work
+key Enter
+assert-status New tab in the Work container
+assert-pixel 100 478 #121418
+
+# With the developer tools open it sits over the page still, above the panel,
+# which takes the lower half: the box is the 22 rows that end at row 287.
+select-tab 0
+key f12
+move 30 110
+assert-status https://example.org/a
+assert-pixel 100 265 #ffffff
+assert-pixel 100 266 #121418
+assert-pixel 100 267 #1f2228

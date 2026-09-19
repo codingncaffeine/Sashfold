@@ -9,9 +9,9 @@ assert-theme New Tab Colors
 assert-theme-problem none
 assert-text 09:41
 assert-pixel 0 76 #102030
-assert-pixel 799 477 #102030
-assert-pixel 262 215 #f0e000
-assert-pixel 316 350 #00c0f0
+assert-pixel 799 499 #102030
+assert-pixel 262 226 #f0e000
+assert-pixel 316 361 #00c0f0
 
 # Another theme put on while the page is open: the page is made again in
 # its colors, not left in those it opened with. This one names both ends of
@@ -23,5 +23,5 @@ assert-theme New Tab Ends
 assert-tabs 2
 assert-text 09:41
 assert-pixel 0 76 #102030
-assert-pixel 799 477 #a0b0c0
-assert-pixel 262 215 #e6e8ec
+assert-pixel 799 499 #a0b0c0
+assert-pixel 262 226 #e6e8ec
