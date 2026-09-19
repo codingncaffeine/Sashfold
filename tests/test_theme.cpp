@@ -160,10 +160,18 @@ int main(int argc, char** argv)
         CHECK(broken.popup_background == Color::rgb(0xf1, 0xf2, 0xf4));
         problems.clear();
 
-        // The frame of a window that is not in front is the frame, until a
-        // theme says otherwise.
-        CHECK(light.chrome_background_inactive == Color::rgb(0xf1, 0xf2, 0xf4));
+        // The frame of a window that is not in front is the theme's frame
+        // dimmed, until the theme says otherwise — by the rule Chrome dims
+        // its own by: a light frame 28.4% of the way to white, which takes
+        // (241, 242, 244) to (245, 246, 247); a dark one a little more
+        // saturated and 13.4% of the way, which takes the built-in frame
+        // (31, 34, 40) to (59, 63, 71).
+        CHECK(light.chrome_background_inactive == Color::rgb(245, 246, 247));
         CHECK(!(light.chrome_background_inactive == Theme {}.chrome_background_inactive)); // the control: it moved
+        CHECK(Theme {}.chrome_background_inactive == Color::rgb(59, 63, 71));
+        CHECK(Theme {}.chrome_background_inactive == inactive_frame_of(Theme {}.chrome_background)); // the default is the rule's
+        CHECK(inactive_frame_of(Color::rgb(0, 0, 0)) == Color::rgb(34, 34, 34));
+        CHECK(inactive_frame_of(Color::rgb(255, 255, 255)) == Color::rgb(255, 255, 255));
         Theme const dimmed = Theme::from_json(
             "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"chrome-background-inactive\": \"#d0d2d6\" } }",
             &problems);

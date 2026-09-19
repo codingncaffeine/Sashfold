@@ -37,6 +37,24 @@ struct ThemePicture {
     friend bool operator==(ThemePicture const&, ThemePicture const&) = default;
 };
 
+// A tint of a color as Chrome's themes apply one: a hue to take (0 to 1), a
+// saturation and a lightness to move towards (0.5 leaves each as it is), and
+// -1 for any of the three to leave it alone. Alpha is kept.
+struct HslTint {
+    double hue = -1;
+    double saturation = -1;
+    double lightness = -1;
+    bool changes_nothing() const { return hue < 0 && saturation < 0 && lightness < 0; }
+};
+Color apply_tint(Color color, HslTint const& tint);
+
+// The frame of a window that is not the one in front, for a theme that
+// does not say: its frame under the tint Chrome gives one by default — a
+// little lighter, and for a dark frame a little more saturated — so that
+// which window has the keyboard can be seen where the shell draws its own
+// title bar. A theme that wants its frame the same either way names it so.
+Color inactive_frame_of(Color frame);
+
 // How the tabs sit in their strip. Attached, a tab's foot runs into the
 // toolbar and only its top corners are round — the tab in front and the
 // toolbar are one surface, as Chrome draws them. Floating, a tab is a pill
@@ -115,8 +133,9 @@ struct Theme {
     Color address_border_focus = Color::rgb(0x5b, 0x9c, 0xf6); // accent
     Color address_selection = Color::rgba(0x5b, 0x9c, 0xf6, 0x66); // selection
     // The frame — what shows behind the tabs — of a window that is not the
-    // one in front: frame_inactive.
-    Color chrome_background_inactive = Color::rgb(0x1f, 0x22, 0x28); // chrome-background
+    // one in front: frame_inactive. Unsaid, it is not the frame's color but
+    // inactive_frame_of it.
+    Color chrome_background_inactive = Color::rgb(0x3b, 0x3f, 0x47); // inactive_frame_of(chrome-background)
     // A toolbar button while it is held down — button_background_active —
     // the line between the tab strip and the toolbar —
     // toolbar_top_separator, drawn by no theme that does not name it — and

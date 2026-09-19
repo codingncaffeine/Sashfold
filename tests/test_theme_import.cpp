@@ -257,6 +257,17 @@ int main(int argc, char** argv)
             if (light)
                 CHECK(theme.address_background == light->address_background);
             CHECK(theme.toolbar_background == Color::rgba(255, 255, 255, 0x66)); // an unsaid toolbar veils, in white under dark words
+            // That browser does not dim a frame whose theme says nothing of a
+            // window not in front: the frame, as it is — where a theme of
+            // ours that left it unsaid would get it dimmed.
+            CHECK(theme.chrome_background_inactive == theme.chrome_background);
+        }
+        if (arrays) {
+            // Shown on a dark frame, which the rule would have moved: white
+            // cannot be dimmed towards white, and would prove nothing.
+            Theme const theme = Theme::from_json(arrays->json);
+            CHECK(theme.chrome_background_inactive == Color::rgb(1, 2, 3));
+            CHECK(!(inactive_frame_of(Color::rgb(1, 2, 3)) == Color::rgb(1, 2, 3))); // the control: it would have
         }
         // A name that is a message's key reads as its words...
         std::optional<ImportedTheme> const keyed_name = import_browser_theme(

@@ -88,7 +88,6 @@ constexpr Derived derived_colors[] = {
     { "address-text-focus", &Theme::address_text_focus, &Theme::address_text },
     { "address-border-focus", &Theme::address_border_focus, &Theme::accent },
     { "address-selection", &Theme::address_selection, &Theme::selection },
-    { "chrome-background-inactive", &Theme::chrome_background_inactive, &Theme::chrome_background },
     { "button-active-background", &Theme::button_active_background, &Theme::button_hover_background },
     // After address-text-focus, which it follows: the table is read in order.
     { "address-selection-text", &Theme::address_selection_text, &Theme::address_text_focus },
@@ -345,7 +344,104 @@ std::string beside(std::filesystem::path const& base, std::string const& named)
     return path.is_relative() ? (base / path).lexically_normal().string() : named;
 }
 
+std::uint8_t to_byte(double value)
+{
+    return static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(value)), 0, 255));
+}
+
+struct Hsl {
+    double h = 0;
+    double s = 0;
+    double l = 0;
+};
+
+Hsl to_hsl(Color color)
+{
+    double const r = color.r / 255.0;
+    double const g = color.g / 255.0;
+    double const b = color.b / 255.0;
+    double const high = std::max({ r, g, b });
+    double const low = std::min({ r, g, b });
+    double const delta = high - low;
+    Hsl hsl;
+    hsl.l = (high + low) / 2;
+    if (delta <= 0)
+        return hsl;
+    hsl.s = hsl.l < 0.5 ? delta / (high + low) : delta / (2 - high - low);
+    if (high == r)
+        hsl.h = (g - b) / delta + (g < b ? 6 : 0);
+    else if (high == g)
+        hsl.h = (b - r) / delta + 2;
+    else
+        hsl.h = (r - g) / delta + 4;
+    hsl.h /= 6;
+    return hsl;
+}
+
+Color from_hsl(Hsl hsl, std::uint8_t alpha)
+{
+    auto const channel = [](double p, double q, double t) {
+        if (t < 0)
+            t += 1;
+        if (t > 1)
+            t -= 1;
+        if (t < 1.0 / 6)
+            return p + (q - p) * 6 * t;
+        if (t < 1.0 / 2)
+            return q;
+        if (t < 2.0 / 3)
+            return p + (q - p) * (2.0 / 3 - t) * 6;
+        return p;
+    };
+    if (hsl.s <= 0)
+        return Color::rgba(to_byte(hsl.l * 255), to_byte(hsl.l * 255), to_byte(hsl.l * 255), alpha);
+    double const q = hsl.l < 0.5 ? hsl.l * (1 + hsl.s) : hsl.l + hsl.s - hsl.l * hsl.s;
+    double const p = 2 * hsl.l - q;
+    return Color::rgba(to_byte(channel(p, q, hsl.h + 1.0 / 3) * 255), to_byte(channel(p, q, hsl.h) * 255),
+        to_byte(channel(p, q, hsl.h - 1.0 / 3) * 255), alpha);
+}
+
 } // namespace
+
+Color apply_tint(Color color, HslTint const& tint)
+{
+    if (tint.changes_nothing())
+        return color;
+    if (tint.hue >= 0 || tint.saturation >= 0) {
+        Hsl hsl = to_hsl(color);
+        if (tint.hue >= 0)
+            hsl.h = tint.hue >= 1 ? 0 : tint.hue;
+        if (tint.saturation >= 0) {
+            // Below the middle the color loses saturation in proportion;
+            // above it, it gains that share of what it lacks.
+            if (tint.saturation <= 0.5)
+                hsl.s *= tint.saturation * 2;
+            else
+                hsl.s += (1 - hsl.s) * ((tint.saturation - 0.5) * 2);
+        }
+        color = from_hsl(hsl, color.a);
+    }
+    if (tint.lightness >= 0) {
+        // Towards black below the middle, towards white above it, by channel.
+        auto const moved = [&](std::uint8_t channel) {
+            double const value = channel;
+            if (tint.lightness <= 0.5)
+                return to_byte(value * tint.lightness * 2);
+            return to_byte(value + (255 - value) * ((tint.lightness - 0.5) * 2));
+        };
+        color = Color::rgba(moved(color.r), moved(color.g), moved(color.b), color.a);
+    }
+    return color;
+}
+
+Color inactive_frame_of(Color frame)
+{
+    // Chrome's own defaults for the frame of a window not in front: for a
+    // light frame a lightness of 0.642, for a dark one a saturation of 0.54
+    // and a lightness of 0.567 — which is where its dark look's gray comes from.
+    double const luma = (0.2126 * frame.r + 0.7152 * frame.g + 0.0722 * frame.b) / 255.0;
+    return apply_tint(frame, luma < 0.5 ? HslTint { -1, 0.54, 0.567 } : HslTint { -1, -1, 0.642 });
+}
 
 std::optional<Color> parse_theme_color(std::string_view text)
 {
@@ -413,11 +509,18 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
     // What the file did not name — or named with something that is no
     // color — follows the token it derives from, as the file set that one.
     JsonValue const* const colors = root->get("colors");
+    auto const names_a_color = [&](char const* key) {
+        JsonValue const* const named = colors && colors->is_object() ? colors->get(key) : nullptr;
+        return named && named->is_string() && parse_theme_color(named->as_string());
+    };
     for (Derived const& derived : derived_colors) {
-        JsonValue const* const named = colors && colors->is_object() ? colors->get(derived.key) : nullptr;
-        if (!named || !named->is_string() || !parse_theme_color(named->as_string()))
+        if (!names_a_color(derived.key))
             theme.*(derived.member) = theme.*(derived.source);
     }
+    // One token follows another through a rule and not as it stands: the
+    // frame of a window not in front is the frame, dimmed.
+    if (!names_a_color("chrome-background-inactive"))
+        theme.chrome_background_inactive = inactive_frame_of(theme.chrome_background);
     read_section(*root, "metrics", metric_tokens,
         [](JsonValue const& value, int& target) -> std::optional<std::string> {
             std::optional<int> const pixels = integer_in(value, 0, 4096);

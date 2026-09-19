@@ -138,58 +138,6 @@ std::optional<HslTint> tint_of(JsonValue const& value)
     return HslTint { part(0), part(1), part(2) };
 }
 
-struct Hsl {
-    double h = 0;
-    double s = 0;
-    double l = 0;
-};
-
-Hsl to_hsl(Color color)
-{
-    double const r = color.r / 255.0;
-    double const g = color.g / 255.0;
-    double const b = color.b / 255.0;
-    double const high = std::max({ r, g, b });
-    double const low = std::min({ r, g, b });
-    double const delta = high - low;
-    Hsl hsl;
-    hsl.l = (high + low) / 2;
-    if (delta <= 0)
-        return hsl;
-    hsl.s = hsl.l < 0.5 ? delta / (high + low) : delta / (2 - high - low);
-    if (high == r)
-        hsl.h = (g - b) / delta + (g < b ? 6 : 0);
-    else if (high == g)
-        hsl.h = (b - r) / delta + 2;
-    else
-        hsl.h = (r - g) / delta + 4;
-    hsl.h /= 6;
-    return hsl;
-}
-
-Color from_hsl(Hsl hsl, std::uint8_t alpha)
-{
-    auto const channel = [](double p, double q, double t) {
-        if (t < 0)
-            t += 1;
-        if (t > 1)
-            t -= 1;
-        if (t < 1.0 / 6)
-            return p + (q - p) * 6 * t;
-        if (t < 1.0 / 2)
-            return q;
-        if (t < 2.0 / 3)
-            return p + (q - p) * (2.0 / 3 - t) * 6;
-        return p;
-    };
-    if (hsl.s <= 0)
-        return Color::rgba(to_byte(hsl.l * 255), to_byte(hsl.l * 255), to_byte(hsl.l * 255), alpha);
-    double const q = hsl.l < 0.5 ? hsl.l * (1 + hsl.s) : hsl.l + hsl.s - hsl.l * hsl.s;
-    double const p = 2 * hsl.l - q;
-    return Color::rgba(to_byte(channel(p, q, hsl.h + 1.0 / 3) * 255), to_byte(channel(p, q, hsl.h) * 255),
-        to_byte(channel(p, q, hsl.h - 1.0 / 3) * 255), alpha);
-}
-
 // A picture with a tint worked into every pixel, as a PNG.
 std::optional<std::vector<std::uint8_t>> tinted_picture(std::vector<std::uint8_t> const& bytes, HslTint const& tint)
 {
@@ -433,8 +381,9 @@ void convert_firefox(Conversion& c)
 
     Color const frame = c.color("frame").value_or(palette.chrome_background);
     c.set("chrome-background", frame);
-    if (std::optional<Color> const inactive = c.color("frame_inactive"))
-        c.set("chrome-background-inactive", *inactive);
+    // That browser leaves a frame that says nothing of a window not in
+    // front as it is; ours would dim it, so it is said.
+    c.set("chrome-background-inactive", c.color("frame_inactive").value_or(frame));
     // The words of the strip — the background tabs' titles, the glyphs
     // beside them — are one color in that browser.
     Color const strip_text = c.color("tab_background_text").value_or(palette.chrome_text);
@@ -760,37 +709,6 @@ std::string lowered_extension(std::filesystem::path const& path)
     return extension;
 }
 
-}
-
-Color apply_tint(Color color, HslTint const& tint)
-{
-    if (tint.changes_nothing())
-        return color;
-    if (tint.hue >= 0 || tint.saturation >= 0) {
-        Hsl hsl = to_hsl(color);
-        if (tint.hue >= 0)
-            hsl.h = tint.hue >= 1 ? 0 : tint.hue;
-        if (tint.saturation >= 0) {
-            // Below the middle the color loses saturation in proportion;
-            // above it, it gains that share of what it lacks.
-            if (tint.saturation <= 0.5)
-                hsl.s *= tint.saturation * 2;
-            else
-                hsl.s += (1 - hsl.s) * ((tint.saturation - 0.5) * 2);
-        }
-        color = from_hsl(hsl, color.a);
-    }
-    if (tint.lightness >= 0) {
-        // Towards black below the middle, towards white above it, by channel.
-        auto const moved = [&](std::uint8_t channel) {
-            double const value = channel;
-            if (tint.lightness <= 0.5)
-                return to_byte(value * tint.lightness * 2);
-            return to_byte(value + (255 - value) * ((tint.lightness - 0.5) * 2));
-        };
-        color = Color::rgba(moved(color.r), moved(color.g), moved(color.b), color.a);
-    }
-    return color;
 }
 
 std::optional<ImportedTheme> import_browser_theme(std::string_view manifest, ThemeFileReader const& read,

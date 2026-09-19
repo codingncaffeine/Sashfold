@@ -46,3 +46,11 @@ menu-hover 0 0
 assert-pixel 600 200 #300030
 assert-pixel 770 88 #006000
 key Escape
+
+# The frame of a window that is not the one in front, in a theme that says
+# nothing of it — this one does not — is its frame dimmed by the rule: the
+# built-in frame #1f2228 becomes #3b3f47, and is itself again in front.
+window-active off
+assert-pixel 600 10 #3b3f47
+window-active on
+assert-pixel 600 10 #1f2228

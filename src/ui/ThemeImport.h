@@ -69,15 +69,4 @@ std::optional<std::string> write_imported_theme(ImportedTheme const& theme, std:
 // Whether the path looks like something import_browser_theme_from reads.
 bool is_browser_theme_path(std::string const& path);
 
-// Chrome's tint of a color: a hue to take (0 to 1), a saturation and a
-// lightness to move towards (0.5 leaves each as it is), and -1 for any of
-// the three to leave it alone. Alpha is kept.
-struct HslTint {
-    double hue = -1;
-    double saturation = -1;
-    double lightness = -1;
-    bool changes_nothing() const { return hue < 0 && saturation < 0 && lightness < 0; }
-};
-Color apply_tint(Color color, HslTint const& tint);
-
 }
