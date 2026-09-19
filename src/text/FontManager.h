@@ -26,6 +26,11 @@ struct FontRequest {
     int weight = 400;
     bool italic = false;
     int stretch = 100; // percent, as font-stretch
+    // Whether the fonts a page brought along may answer. A page's text asks
+    // with them; the browser's own words never do — a page that declares a
+    // font by the name the window's words are set in must not get to draw
+    // the address bar.
+    bool page_fonts = true;
 };
 
 // A font a page brings along through @font-face: the family name it

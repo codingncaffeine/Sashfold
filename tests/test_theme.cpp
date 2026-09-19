@@ -300,6 +300,28 @@ int main(int argc, char** argv)
         CHECK(Theme::from_json("{ \"tab-shape\": \"floating\" }").scaled(2).tab_shape == TabShape::Floating);
     }
 
+    // --- The face the chrome's words are set in -------------------------------
+    {
+        std::vector<std::string> problems;
+        CHECK(Theme {}.font_family.empty()); // as unsaid: the machine's own interface face
+        Theme const named = Theme::from_json(
+            "{ \"type\": { \"font-size\": 15, \"font-family\": \"Inter, 'Noto Sans', sans-serif\" } }", &problems);
+        CHECK_EQ(named.font_family, std::string("Inter, 'Noto Sans', sans-serif"));
+        CHECK_EQ(named.font_size, 15.0f); // a family beside the sizes leaves them as they were read
+        CHECK_EQ(problems.size(), std::size_t { 0 }); // and is no unknown token
+        CHECK(!(named == Theme {}));
+        CHECK_EQ(named.scaled(2).font_family, named.font_family);
+        // A family that is no string is said, and the chrome keeps the face it had.
+        Theme const numbered = Theme::from_json("{ \"type\": { \"font-family\": 12 } }", &problems);
+        CHECK(numbered.font_family.empty());
+        CHECK_EQ(problems.size(), std::size_t { 1 });
+        CHECK(!problems.empty() && problems.back().find("type.font-family") != std::string::npos);
+        // What the section does not know is still said.
+        problems.clear();
+        (void)Theme::from_json("{ \"type\": { \"font-famly\": \"Inter\" } }", &problems);
+        CHECK_EQ(problems.size(), std::size_t { 1 });
+    }
+
     // --- The new-tab page's own colors ---------------------------------------
     {
         std::vector<std::string> problems;

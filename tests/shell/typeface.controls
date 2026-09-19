@@ -1,0 +1,35 @@
+# Planted-fault controls for tests/shell/typeface.script: the chrome's words in a proportional face, measured and drawn glyph by glyph, and never in a page's font.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/typeface.script
+args --fonts builtin --add-font {build}/SashfoldTestSans.ttf --theme tests/shell/typeface-theme.json
+
+control family
+file src/ui/Browser.cpp
+fails 18 20 30 32 34 35 42 43 44 51 53 54 62 63
+plant s~        set_chrome_font_family\(base_theme\.font_family\);~        set_chrome_font_family({});~
+
+control caret
+file src/ui/Browser.cpp
+fails 34 35 43 44 54 63
+plant s~                return static_cast<int>\(text_width_to\(text, count, t\.font_size\) \+ 0\.5f\);~                return static_cast<int>(static_cast<float>(count) * text::SashfoldMono::advance(t.font_size) + 0.5f);~
+
+control kerning
+file src/ui/Browser.cpp
+fails 42 43
+plant s~        if \(previous && previous->face == glyph\.face\)~        if (previous \&\& previous->face != glyph.face)~
+
+control count
+file src/ui/Browser.cpp
+fails 22
+plant s~    if \(text_width\(text, size\) <= max_width\)~    if (static_cast<float>(text.size()) * text::SashfoldMono::advance(size) <= max_width)~
+
+control page
+file src/ui/Browser.cpp
+fails 62 63
+plant s~    request\.page_fonts = false;~    request.page_fonts = true;~
+
+control machine
+file src/text/FontManager.cpp
+fails 62 63
+plant s~        std::vector<Face const\*> const page = request\.page_fonts~        std::vector<Face const*> const page = true~
+

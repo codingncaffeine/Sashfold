@@ -35,6 +35,10 @@ assert-text Example Domain
 assert-status Done
 open https://example.org/
 assert-status from cache
+# A page that is simply there says nothing over itself, from the cache or
+# not: the window's bottom left corner is the page's own (its #eee), and not
+# the box what the shell says floats in (#1f2228).
+assert-pixel 5 755 #eeeeee
 open view-source:https://example.org/
 assert-text <title>Example Domain</title>
 open about:sashfold

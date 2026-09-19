@@ -1,0 +1,63 @@
+# The chrome's words are set in a face of the machine's, through the font
+# stack, by what each glyph measures: the families the theme names. Run with
+# --fonts builtin --add-font <build>/SashfoldTestSans.ttf and the theme beside
+# this script, which names that face at 20 px: its letters are plain boxes,
+# 14 px tall from the baseline, in cells of 5 px (f i j l r t), 18 px (m w)
+# and 10 px (the rest), each box 1 px in from either side of its cell, and a
+# middle letter before a wide one is kerned 2 px closer. Ink is #e6e8ec; the
+# front tab #2c313a; the address field #14161b; the caret #5b9cf6. The
+# built-in face's advance at this size is 12.5 px whatever the letter.
+resize 800 500
+open data:text/html,<title>mmmmmmmmmmmm</title><body style="margin:0">
+assert-theme-problem none
+
+# A tab's title, cut by what it measures and not by a count of its letters.
+# The title starts at x 14 and has 182 px; twelve m are 216. With 12.5 px kept
+# for the ellipsis nine fit (162 px): the ninth box is columns 159 to 174,
+# rows 13 to 26, and where a tenth would stand there is the tab.
+assert-pixel 165 13 #e6e8ec
+assert-pixel 165 12 #2c313a
+assert-pixel 165 26 #e6e8ec
+assert-pixel 165 27 #2c313a
+assert-pixel 185 14 #2c313a
+
+# The address: its words start at x 123 on the baseline at y 62, so a box is
+# rows 48 to 61. Four m are 72 px: the fourth box is columns 178 to 193, and
+# the caret stands at 123 + 72 = 195 — not at 173, where four advances of the
+# built-in face would put it.
+key ctrl+l
+type mmmm
+assert-pixel 185 48 #e6e8ec
+assert-pixel 185 47 #14161b
+assert-pixel 185 61 #e6e8ec
+assert-pixel 185 62 #14161b
+assert-pixel 195 47 #5b9cf6
+assert-pixel 173 47 #14161b
+
+# A kerned pair is drawn as close as it is measured: a is 10 px, m starts
+# 2 px sooner for it, so its box is columns 132 to 147 (not 134 to 149) and
+# the caret after it stands at 123 + 26 = 149 (not 151).
+key ctrl+l
+type am
+assert-pixel 132 49 #e6e8ec
+assert-pixel 148 49 #14161b
+assert-pixel 149 47 #5b9cf6
+assert-pixel 151 47 #14161b
+
+# A narrow letter takes a narrow cell: r is 5 px, its box columns 124 to 126;
+# then the m, columns 129 to 144; and the caret at 123 + 23 = 146.
+key ctrl+l
+type rm
+assert-pixel 125 49 #e6e8ec
+assert-pixel 127 49 #14161b
+assert-pixel 129 49 #e6e8ec
+assert-pixel 146 47 #5b9cf6
+
+# The window's words are never a page's to dress: a page that brings a font
+# along under the very name the chrome's face goes by — here the built-in
+# face's own outlines — changes nothing above the page.
+open data:text/html,<style>@font-face{font-family:"Sashfold Test Sans";src:url(data:font/ttf;base64,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)}</style><body style="margin:0;font:40px 'Sashfold Test Sans'">ae
+key ctrl+l
+type mmmm
+assert-pixel 185 48 #e6e8ec
+assert-pixel 195 47 #5b9cf6

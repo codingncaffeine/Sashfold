@@ -210,6 +210,16 @@ endif()
 add_executable(gen_font tools/gen-font.cpp)
 target_link_libraries(gen_font PRIVATE sashfold_core sashfold_warnings)
 
+# Sashfold Test Sans: a proportional face of plain boxes that gen_font makes
+# at build time, for the tests of what is set in a proportional face — the
+# same bytes on every machine, and no font file of anyone else's in the tree.
+set(SASHFOLD_TEST_SANS ${CMAKE_BINARY_DIR}/SashfoldTestSans.ttf)
+add_custom_command(OUTPUT ${SASHFOLD_TEST_SANS}
+  COMMAND gen_font ${SASHFOLD_TEST_SANS} --test-sans
+  DEPENDS gen_font
+  COMMENT "Writing Sashfold Test Sans")
+add_custom_target(sashfold_test_sans ALL DEPENDS ${SASHFOLD_TEST_SANS})
+
 # sashfold100 writes the Sashfold 100 dashboard from the renders and reports
 # that tools/sashfold100.sh leaves beside each page. A build tool, never shipped.
 add_executable(sashfold100 tools/sashfold100.cpp)

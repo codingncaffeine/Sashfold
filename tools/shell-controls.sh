@@ -15,6 +15,8 @@
 #   fails 68 69 111
 #   plant s~the text as it stands~the text with the fault~
 #
+# In `args`, a path under tests/ is taken from the source tree, and {build}
+# is the build folder (a file the build writes, like the test font).
 # `plant` is a perl substitution over the whole file (\n between lines). It
 # must land exactly once. A control MATCHES when the planted tree builds,
 # the script fails, and the lines that failed are exactly `fails`. Anything
@@ -84,13 +86,15 @@ run_control() {
     count=$(PLANT="$plant" perl -0pi -e 'our $c = eval "\$_ =~ $ENV{PLANT}"; die $@ if $@; $c ||= 0; END { print STDERR $c }' "$root/$file" 2>&1 >/dev/null)
     if [ "$count" != "1" ]; then echo "CONTROL $name: the plant did not land once (count=$count) in $file"; return 1; fi
     if cmp -s "$root/$file" "$keep/$file"; then echo "CONTROL $name: the source is unchanged"; return 1; fi
-    if ! cmake --build "$root/$build" --target sashfold > "$logs/$name.build.log" 2>&1; then
+    if ! cmake --build "$root/$build" --target sashfold sashfold_test_sans > "$logs/$name.build.log" 2>&1; then
         echo "CONTROL $name: the planted tree did not BUILD ($logs/$name.build.log)"; return 1
     fi
     # Run from the logs folder, with the script and what its arguments name
     # made absolute: a golden that fails writes the frame it got beside
-    # where it runs, and that is not to be the source tree.
+    # where it runs, and that is not to be the source tree. {build} in the
+    # arguments is the build folder, for a file the build writes.
     local there_args=${args//tests\//$root/tests/}
+    there_args=${there_args//\{build\}/$root/$build}
     # shellcheck disable=SC2086
     (cd "$logs" && "$binary" --script "$root/$script" $there_args --downloads "$root/$build/test-downloads") > "$logs/$name.run.log" 2>&1
     local rc=$?

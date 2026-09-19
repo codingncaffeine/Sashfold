@@ -68,9 +68,61 @@ constexpr std::int64_t max_theme_picture_pixels = 16 * 1024 * 1024;
 // be kept as a scaled copy to tile from; past it, it is drawn copy by copy.
 constexpr std::int64_t max_theme_tile_pixels = 1024 * 1024;
 
+// The chrome's words — a tab's title, an address, a menu — are set in a face
+// of the machine's: the families the theme names, else the machine's own
+// interface face and its sans-serif, through our own font stack, kerned as
+// the face's tables say. The list ends at the built-in face, which is all
+// there is where the machine's fonts are off, as they are for a script:
+// there every measure and every pixel is what it was when that face was all
+// the chrome had. The fonts a page brings along take no part: the window's
+// words are never a page's to dress.
+std::vector<std::string>& chrome_font_families()
+{
+    static std::vector<std::string> families;
+    return families;
+}
+
+// A list of families as CSS writes one: split at its commas, the space and
+// the quotes about each taken off.
+void set_chrome_font_family(std::string_view list)
+{
+    std::vector<std::string>& families = chrome_font_families();
+    families.clear();
+    std::size_t at = 0;
+    while (at <= list.size()) {
+        std::size_t const comma = std::min(list.find(',', at), list.size());
+        std::string_view name = list.substr(at, comma - at);
+        while (!name.empty() && (name.front() == ' ' || name.front() == '"' || name.front() == '\''))
+            name.remove_prefix(1);
+        while (!name.empty() && (name.back() == ' ' || name.back() == '"' || name.back() == '\''))
+            name.remove_suffix(1);
+        if (!name.empty())
+            families.emplace_back(name);
+        at = comma + 1;
+    }
+}
+
+text::FontStack const& chrome_fonts(bool bold = false)
+{
+    text::FontRequest request;
+    request.families = chrome_font_families();
+    if (request.families.empty())
+        request.families = { "system-ui", "sans-serif" };
+    request.weight = bold ? 700 : 400;
+    request.page_fonts = false;
+    return text::FontManager::instance().resolve(request);
+}
+
 float text_width(std::u32string_view text, float size)
 {
-    return text::SashfoldMono::measure(text, size);
+    return chrome_fonts().measure(text, size);
+}
+
+// The advance of the first `count` code points of a string of the chrome's:
+// where a caret stands, where an underline begins.
+float text_width_to(std::u32string_view text, std::size_t count, float size)
+{
+    return text_width(text.substr(0, std::min(count, text.size())), size);
 }
 
 // The ascent and descent of a page run's face at its size.
@@ -88,40 +140,59 @@ float prefix_width(layout::TextRun const& run, std::size_t count)
     std::u32string_view const text(run.text);
     std::u32string_view const prefix = text.substr(0, std::min(count, text.size()));
     float const size = run.style->font_size;
-    return run.fonts ? run.fonts->measure(prefix, size) : text_width(prefix, size);
+    // A run with no faces of its own is the built-in face's, not the chrome's.
+    return run.fonts ? run.fonts->measure(prefix, size) : text::SashfoldMono::measure(prefix, size);
 }
 
+// A string of the chrome's, glyph by glyph: each from the first face of the
+// stack that has it, a pair the same face draws side by side kerned, a
+// weight the face was not made in drawn heavier.
 void draw_text(Bitmap& target, std::u32string_view text, float x, float baseline, float size,
     Color color, bool bold = false)
 {
-    text::SashfoldMono const& font = text::SashfoldMono::instance();
-    float const advance = text::SashfoldMono::advance(size);
+    text::FontStack const& fonts = chrome_fonts(bold);
+    std::optional<text::FontStack::Glyph> previous;
     for (char32_t const c : text) {
-        font.draw_glyph(target, c, x, baseline, size, color, bold, false);
-        x += advance;
+        text::FontStack::Glyph const glyph = fonts.glyph_for(c);
+        if (previous && previous->face == glyph.face)
+            x += glyph.face->kerning(previous->glyph, glyph.glyph, size);
+        glyph.face->draw_glyph(target, glyph.glyph, x, baseline, size, color, bold && !glyph.face->is_bold(), false);
+        x += glyph.face->advance(glyph.glyph, size);
+        previous = glyph;
     }
 }
 
-// The baseline that centers the em box (ascent 25, descent 7 of 32) in a rect.
+// The baseline that centers the chrome's face — its ascent and its descent
+// at the size — in a rect.
 float centered_baseline(Rect const& rect, float size)
 {
-    float const ascent = size * font_ascent_ratio;
-    float const descent = size * font_descent_ratio;
+    text::FaceMetrics const metrics = chrome_fonts().primary().metrics(size);
     return static_cast<float>(rect.y)
-        + (static_cast<float>(rect.height) - ascent - descent) / 2.0f + ascent;
+        + (static_cast<float>(rect.height) - metrics.ascent - metrics.descent) / 2.0f + metrics.ascent;
 }
 
+// The string, or as much of its beginning as fits the width with an
+// ellipsis after it: by what the words measure, not by their count.
 std::u32string ellipsize(std::u32string text, float max_width, float size)
 {
-    float const advance = text::SashfoldMono::advance(size);
-    if (advance <= 0 || max_width <= 0)
+    if (max_width <= 0)
         return {};
-    auto const fit = static_cast<std::size_t>(max_width / advance);
-    if (text.size() <= fit)
+    if (text_width(text, size) <= max_width)
         return text;
-    if (fit == 0)
+    float const room = max_width - text_width(std::u32string_view(&glyph_ellipsis, 1), size);
+    if (room < 0)
         return {};
-    text.resize(fit - 1);
+    // The longest beginning that leaves the ellipsis its room.
+    std::size_t low = 0;
+    std::size_t high = text.size();
+    while (low < high) {
+        std::size_t const middle = (low + high + 1) / 2;
+        if (text_width_to(text, middle, size) <= room)
+            low = middle;
+        else
+            high = middle - 1;
+    }
+    text.resize(low);
     text.push_back(glyph_ellipsis);
     return text;
 }
@@ -3380,6 +3451,8 @@ struct Browser::Impl {
     // theme_problems says which and why.
     void load_theme_pictures()
     {
+        // The face its words are set in goes on with the rest of the theme.
+        set_chrome_font_family(base_theme.font_family);
         theme_problems.clear();
         auto const load = [&](std::vector<ThemePicture> const& named, ThemeLayers& into, char const* surface) {
             into = ThemeLayers {};
@@ -3538,27 +3611,30 @@ struct Browser::Impl {
     MenuBox lay_out_menu(MenuLevel const& level, MenuBox const* parent) const
     {
         Theme const& t = theme;
-        float const advance = text::SashfoldMono::advance(t.font_size);
-        std::size_t label_characters = 0;
-        std::size_t shortcut_characters = 0;
+        // The widest label and the widest shortcut as the chrome's face
+        // measures them, and between and beside them room counted in the
+        // width of its figures.
+        float const figure = text_width(U"0", t.font_size);
+        float label_width = 0;
+        float shortcut_width = 0;
         bool any_checked = false;
         bool any_children = false;
         int rows_height = 0;
         for (MenuItem const& item : level.items) {
-            label_characters = std::max(label_characters, decode_utf8(item.label).size());
-            shortcut_characters = std::max(shortcut_characters, decode_utf8(item.shortcut).size());
+            label_width = std::max(label_width, text_width(decode_utf8(item.label), t.font_size));
+            shortcut_width = std::max(shortcut_width, text_width(decode_utf8(item.shortcut), t.font_size));
             any_checked = any_checked || item.checked;
             any_children = any_children || !item.children.empty();
             rows_height += item.separator() ? menu_separator_height() : menu_row_height();
         }
         // The label, a column for the check marks when any item has one, and
         // at the right end the shortcuts or the mark of a submenu.
-        std::size_t const right_column = std::max<std::size_t>(shortcut_characters > 0 ? shortcut_characters + 3 : 0,
-            any_children ? 2 : 0);
-        std::size_t const characters = label_characters + (any_checked ? 2 : 0) + right_column;
+        float const right_column = std::max(shortcut_width > 0 ? shortcut_width + 3 * figure : 0.0f,
+            any_children ? 2 * figure : 0.0f);
+        float const columns = label_width + (any_checked ? 2 * figure : 0.0f) + right_column;
         int const inset = menu_inset();
-        int const wanted = static_cast<int>(std::ceil(static_cast<float>(characters) * advance)) + 4 * t.padding + 2 * inset;
-        int const least = static_cast<int>(std::ceil(12 * advance)) + 4 * t.padding + 2 * inset;
+        int const wanted = static_cast<int>(std::ceil(columns)) + 4 * t.padding + 2 * inset;
+        int const least = static_cast<int>(std::ceil(12 * figure)) + 4 * t.padding + 2 * inset;
         int const box_width = std::min(std::max(wanted, least), std::max(1, width));
         int const box_height = std::min(rows_height + 2 * inset, std::max(1, height));
         int x = level.x;
@@ -6114,8 +6190,9 @@ struct Browser::Impl {
         auto const caret_in = [&](Rect const& box, int text_left, std::string const& text, std::size_t at) {
             Rect const inner { box.x + t.border_width, box.y + t.border_width, box.width - 2 * t.border_width,
                 box.height - 2 * t.border_width };
-            std::size_t const index = decode_utf8(text.substr(0, std::min(at, text.size()))).size();
-            int const x = text_left + static_cast<int>(static_cast<float>(index) * text::SashfoldMono::advance(t.font_size) + 0.5f);
+            // After the words before it, as the chrome's face measures them.
+            std::u32string const before = decode_utf8(text.substr(0, std::min(at, text.size())));
+            int const x = text_left + static_cast<int>(text_width(before, t.font_size) + 0.5f);
             return Rect { std::min(x, inner.right()), inner.y, 1, std::max(1, inner.height) };
         };
         if (palette_open)
@@ -6365,7 +6442,10 @@ struct Browser::Impl {
             text.insert(std::min(caret_index, text.size()), composing);
             Rect const local { 0, 0, text_area.width, text_area.height };
             float const baseline = static_cast<float>(text_area.y) + centered_baseline(local, t.font_size);
-            float const advance = text::SashfoldMono::advance(t.font_size);
+            // Where the words before a place end, as the chrome's face measures them.
+            auto const reach = [&](std::size_t count) {
+                return static_cast<int>(text_width_to(text, count, t.font_size) + 0.5f);
+            };
             bool const selected = address_focus && select_all && !text.empty();
             if (selected)
                 frame.fill_rect(Rect { text_area.x, text_area.y + 2, static_cast<int>(text_width(text, t.font_size) + 0.5f),
@@ -6374,12 +6454,12 @@ struct Browser::Impl {
             draw_text(frame, text, static_cast<float>(text_area.x), baseline, t.font_size,
                 selected ? t.address_selection_text : address_ink);
             if (!composing.empty()) {
-                int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
-                int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
+                int const from = reach(caret_index);
+                int const to = reach(caret_index + composing.size());
                 frame.fill_rect(Rect { text_area.x + from, text_area.y + text_area.height - 6, to - from, 1 }, address_ink);
             }
             if (address_focus) {
-                int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
+                int const caret_x = reach(caret_index + composing.size());
                 frame.fill_rect(Rect { text_area.x + caret_x, text_area.y + 4, 1, text_area.height - 8 }, t.accent);
             }
             frame.set_clip(std::nullopt);
@@ -6407,7 +6487,9 @@ struct Browser::Impl {
                 query.insert(std::min(caret_index, query.size()), composing);
                 Rect const local { 0, 0, box_text.width, box_text.height };
                 float const baseline = static_cast<float>(box_text.y) + centered_baseline(local, t.font_size);
-                float const advance = text::SashfoldMono::advance(t.font_size);
+                auto const reach = [&](std::size_t count) {
+                    return static_cast<int>(text_width_to(query, count, t.font_size) + 0.5f);
+                };
                 if (find_focus && find_select_all && !query.empty())
                     frame.fill_rect(Rect { box_text.x, box_text.y + 2, static_cast<int>(text_width(query, t.font_size) + 0.5f),
                                         box_text.height - 4 },
@@ -6416,12 +6498,12 @@ struct Browser::Impl {
                     static_cast<float>(box_text.x), baseline, t.font_size,
                     find_focus && find_select_all && !query.empty() ? t.address_selection_text : find_ink);
                 if (!composing.empty()) {
-                    int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
-                    int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
+                    int const from = reach(caret_index);
+                    int const to = reach(caret_index + composing.size());
                     frame.fill_rect(Rect { box_text.x + from, box_text.y + box_text.height - 6, to - from, 1 }, find_ink);
                 }
                 if (find_focus) {
-                    int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
+                    int const caret_x = reach(caret_index + composing.size());
                     frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
                 }
                 frame.set_clip(std::nullopt);
@@ -6573,7 +6655,6 @@ struct Browser::Impl {
                 std::size_t const caret_index = decode_utf8(palette_query.substr(0, palette_caret)).size();
                 Rect const local { 0, 0, box_text.width, box_text.height };
                 float const baseline = static_cast<float>(box_text.y) + centered_baseline(local, t.font_size);
-                float const advance = text::SashfoldMono::advance(t.font_size);
                 float const left = static_cast<float>(box_text.x);
                 if (palette_select_all && !query.empty())
                     frame.fill_rect(Rect { box_text.x, box_text.y + 2, static_cast<int>(text_width(query, t.font_size) + 0.5f), box_text.height - 4 }, t.address_selection);
@@ -6582,7 +6663,7 @@ struct Browser::Impl {
                 else
                     draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size), left, baseline, t.font_size,
                         palette_select_all ? t.address_selection_text : t.address_text_focus);
-                int const caret_x = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
+                int const caret_x = static_cast<int>(text_width_to(query, caret_index, t.font_size) + 0.5f);
                 frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
                 frame.set_clip(std::nullopt);
             }
@@ -6638,7 +6719,7 @@ struct Browser::Impl {
     void paint_menus(ChromeLayout const& c)
     {
         Theme const& t = theme;
-        float const advance = text::SashfoldMono::advance(t.font_size);
+        float const advance = text_width(U"0", t.font_size); // the room between a menu's columns, as it is laid out
         for (std::size_t l = 0; l < c.menus.size() && l < menus.size(); ++l) {
             MenuBox const& box = c.menus[l];
             MenuLevel const& level = menus[l];
@@ -6695,7 +6776,7 @@ struct Browser::Impl {
     // Whether what the shell has to say is worth a box over the page: where
     // a link leads, what is loading, a notice — not that a load is done,
     // which is what a page being there already says.
-    static bool status_worth_showing(std::string const& said) { return !said.empty() && said != "Done"; }
+    static bool status_worth_showing(std::string const& said) { return !said.empty() && !said.starts_with("Done"); }
 
     std::string status_text() const
     {

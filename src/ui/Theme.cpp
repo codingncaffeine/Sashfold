@@ -142,9 +142,11 @@ constexpr Token<int> timing_tokens[] = {
 
 // Visits every member of a section object, applying known tokens and
 // reporting the rest. `apply` returns a problem description or nullopt.
+// `elsewhere` names a member of the section that is of another kind and is
+// read by whoever calls this.
 template<typename T, std::size_t N, typename Apply>
 void read_section(JsonValue const& root, char const* section, Token<T> const (&tokens)[N],
-    Apply&& apply, Theme& theme, std::vector<std::string>* problems)
+    Apply&& apply, Theme& theme, std::vector<std::string>* problems, std::string_view elsewhere = {})
 {
     auto const report = [&](std::string const& key, std::string const& what) {
         if (problems)
@@ -165,7 +167,8 @@ void read_section(JsonValue const& root, char const* section, Token<T> const (&t
                 found = &token;
         }
         if (!found) {
-            report(key, "unknown token");
+            if (key != elsewhere)
+                report(key, "unknown token");
             continue;
         }
         if (std::optional<std::string> const problem = apply(value, theme.*(found->member)))
@@ -537,7 +540,16 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
             target = static_cast<float>(value.as_number());
             return std::nullopt;
         },
-        theme, problems);
+        theme, problems, "font-family");
+    // The face the sizes are of: a list of families, which is no number.
+    if (JsonValue const* const type = root->get("type"); type && type->is_object()) {
+        if (JsonValue const* const family = type->get("font-family")) {
+            if (family->is_string())
+                theme.font_family = family->as_string();
+            else if (problems)
+                problems->push_back("theme: type.font-family: expected a list of families, like \"Inter, sans-serif\"");
+        }
+    }
     read_section(*root, "timings", timing_tokens,
         [](JsonValue const& value, int& target) -> std::optional<std::string> {
             std::optional<int> const ms = integer_in(value, 0, 10000);

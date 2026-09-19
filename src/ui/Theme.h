@@ -179,10 +179,15 @@ struct Theme {
     int scroll_step = 60;
     int tab_icon_size = 16; // a page's icon in its tab, drawn before the title
 
-    // Type, px.
+    // Type, px — and the face the chrome's words are set in: "font-family",
+    // a list as CSS writes one, first choice first ("Inter, sans-serif").
+    // Unsaid, it is the machine's own interface face, then its sans-serif.
+    // Either way the list ends at the built-in face, which is all there is
+    // where the machine's fonts are turned off, as they are for a script.
     float font_size = 14;
     float tab_font_size = 13;
     float status_font_size = 12;
+    std::string font_family;
 
     // Timings, ms — parsed now so themes can declare them; the animation
     // era consumes them.

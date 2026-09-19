@@ -451,6 +451,8 @@ FontStack const& FontManager::resolve(FontRequest const& request)
         key += '\n';
         key += family;
     }
+    if (!request.page_fonts)
+        key += "\n\tthe machine's alone";
     if (auto const it = m_stacks.find(key); it != m_stacks.end())
         return *it->second;
 
@@ -462,8 +464,11 @@ FontStack const& FontManager::resolve(FontRequest const& request)
     };
     auto const add_family = [&](std::string const& name) {
         std::string const lower = lowercased(name);
-        // A page's own font shadows an installed one of the same name.
-        std::vector<Face const*> const page = page_faces(lower, request.weight, request.stretch, request.italic);
+        // A page's own font shadows an installed one of the same name —
+        // for whoever asks on a page's behalf.
+        std::vector<Face const*> const page = request.page_fonts
+            ? page_faces(lower, request.weight, request.stretch, request.italic)
+            : std::vector<Face const*> {};
         if (!page.empty()) {
             for (Face const* face : page)
                 add(face);

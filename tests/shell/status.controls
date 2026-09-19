@@ -5,12 +5,12 @@ script tests/shell/status.script
 control never
 file src/ui/Browser.cpp
 fails 22 23 24 38 47 48
-plant s~    static bool status_worth_showing\(std::string const& said\) \{ return !said.empty\(\) && said != "Done"; \}~    static bool status_worth_showing(std::string const\& said) { return !said.empty() \&\& said != "Done" \&\& said.size() > 100000; }~
+plant s~    static bool status_worth_showing\(std::string const& said\) \{ return !said.empty\(\) && !said.starts_with\("Done"\); \}~    static bool status_worth_showing(std::string const\& said) { return !said.empty() \&\& !said.starts_with("Done") \&\& said.size() > 100000; }~
 
 control done
 file src/ui/Browser.cpp
 fails 14 15 16 32
-plant s~    static bool status_worth_showing\(std::string const& said\) \{ return !said.empty\(\) && said != "Done"; \}~    static bool status_worth_showing(std::string const\& said) { return !said.empty(); }~
+plant s~    static bool status_worth_showing\(std::string const& said\) \{ return !said.empty\(\) && !said.starts_with\("Done"\); \}~    static bool status_worth_showing(std::string const\& said) { return !said.empty(); }~
 
 control bar
 file src/ui/Browser.cpp
