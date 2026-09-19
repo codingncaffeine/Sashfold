@@ -198,6 +198,10 @@ add_test(NAME shell_frame
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/frame.script
     --theme ${CMAKE_CURRENT_SOURCE_DIR}/shell/frame-theme.json
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_newtab_colors
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-colors.script
+    --theme ${CMAKE_CURRENT_SOURCE_DIR}/shell/newtab-colors-theme.json
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_hidpi
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

@@ -278,6 +278,34 @@ int main(int argc, char** argv)
         CHECK_EQ(problems.size(), std::size_t { 1 });
     }
 
+    // --- The new-tab page's own colors ---------------------------------------
+    {
+        std::vector<std::string> problems;
+        // Unnamed, there are none: the page wears the chrome's.
+        CHECK(!Theme {}.new_tab_background.has_value());
+        CHECK(!Theme {}.new_tab_background_end.has_value());
+        CHECK(!Theme {}.new_tab_text.has_value());
+        CHECK(!Theme {}.new_tab_text_muted.has_value());
+        Theme const named = Theme::from_json(
+            "{ \"new-tab\": { \"background\": \"#102030\", \"background-end\": \"#405060\","
+            "  \"text\": \"#f0f0f0\", \"text-muted\": \"#a0a0a080\", \"rotate\": 1000 } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(named.new_tab_background == Color::rgb(0x10, 0x20, 0x30));
+        CHECK(named.new_tab_background_end == Color::rgb(0x40, 0x50, 0x60));
+        CHECK(named.new_tab_text == Color::rgb(0xf0, 0xf0, 0xf0));
+        CHECK(named.new_tab_text_muted == Color::rgba(0xa0, 0xa0, 0xa0, 0x80));
+        CHECK_EQ(named.new_tab_rotate_ms, 1000);
+        CHECK(named.scaled(2).new_tab_background == named.new_tab_background);
+        // What is no color is said by name and left unnamed.
+        Theme const wrong = Theme::from_json(
+            "{ \"new-tab\": { \"background\": \"sky\", \"text\": 7 } }", &problems);
+        CHECK_EQ(problems.size(), std::size_t { 2 });
+        CHECK(!wrong.new_tab_background.has_value());
+        CHECK(!wrong.new_tab_text.has_value());
+        CHECK(wrong == Theme {});
+    }
+
     // --- A theme's pictures are named relative to the theme file ---------------
     {
         std::filesystem::path const dir = std::filesystem::temp_directory_path() / "sashfold-test-theme-images";

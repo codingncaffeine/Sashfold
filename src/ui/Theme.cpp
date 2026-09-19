@@ -448,6 +448,17 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
                         theme.new_tab_rotate_ms = *ms;
                     else if (problems)
                         problems->push_back("theme: new-tab.rotate: expected a whole number of milliseconds, 0 to 3600000");
+                } else if (key == "background" || key == "background-end" || key == "text" || key == "text-muted") {
+                    std::optional<Color>& target = key == "background" ? theme.new_tab_background
+                        : key == "background-end"                      ? theme.new_tab_background_end
+                        : key == "text"                                ? theme.new_tab_text
+                                                                       : theme.new_tab_text_muted;
+                    std::optional<Color> const color
+                        = value.is_string() ? parse_theme_color(value.as_string()) : std::nullopt;
+                    if (color)
+                        target = color;
+                    else if (problems)
+                        problems->push_back("theme: new-tab." + key + ": expected a color like \"#rrggbb\"");
                 } else if (problems) {
                     problems->push_back("theme: new-tab." + key + ": unknown token");
                 }

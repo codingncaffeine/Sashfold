@@ -1,0 +1,27 @@
+# The new-tab page's own colors. Under newtab-colors-theme.json, which names
+# a background alone, a text color and a muted one, the page is that color
+# flat, corner to corner, its clock in the text color and its date in the
+# muted one. (A theme that names none of them gets the chrome's colors in a
+# gradient, which newtab.script's golden holds.)
+resize 800 500
+key ctrl+t
+assert-theme New Tab Colors
+assert-theme-problem none
+assert-text 09:41
+assert-pixel 0 76 #102030
+assert-pixel 799 477 #102030
+assert-pixel 262 215 #f0e000
+assert-pixel 316 350 #00c0f0
+
+# Another theme put on while the page is open: the page is made again in
+# its colors, not left in those it opened with. This one names both ends of
+# the background, and gets the gradient between them, corner to corner, and
+# the chrome's text, since it names none.
+palette theme: new tab ends
+key Enter
+assert-theme New Tab Ends
+assert-tabs 2
+assert-text 09:41
+assert-pixel 0 76 #102030
+assert-pixel 799 477 #a0b0c0
+assert-pixel 262 215 #e6e8ec

@@ -2802,10 +2802,14 @@ struct Browser::Impl {
             + months[std::clamp(now.month, 1, 12) - 1];
         page.pictures = new_tab_pictures();
         page.rotate_ms = theme.new_tab_rotate_ms;
-        page.background = theme.chrome_background;
-        page.background_end = mix(theme.tab_active_background, theme.accent, 0.35f);
-        page.text = theme.chrome_text;
-        page.text_muted = theme.chrome_text_muted;
+        // The page's own colors where the theme names them, the chrome's
+        // where it does not; a background named alone is that color flat.
+        page.background = theme.new_tab_background.value_or(theme.chrome_background);
+        page.background_end = theme.new_tab_background_end.value_or(
+            theme.new_tab_background ? *theme.new_tab_background
+                                     : mix(theme.tab_active_background, theme.accent, 0.35f));
+        page.text = theme.new_tab_text.value_or(theme.chrome_text);
+        page.text_muted = theme.new_tab_text_muted.value_or(theme.chrome_text_muted);
         return new_tab_page(page);
     }
 
@@ -3353,8 +3357,16 @@ struct Browser::Impl {
         base_theme = std::move(loaded);
         theme = base_theme.scaled(scale);
         load_theme_pictures();
-        for (Tab& tab : tabs)
-            relayout(tab);
+        for (Tab& tab : tabs) {
+            // The new-tab page is made of the theme's colors and pictures:
+            // one that is showing is made again, not left in the theme it
+            // opened under.
+            HistoryEntry const* const entry = tab.current();
+            if (entry && is_about_newtab(entry->url))
+                render(tab);
+            else
+                relayout(tab);
+        }
         refresh_hover();
         dirty = true;
     }

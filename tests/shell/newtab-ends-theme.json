@@ -1,0 +1,7 @@
+{
+  "name": "New Tab Ends",
+  "new-tab": {
+    "background": "#102030",
+    "background-end": "#a0b0c0"
+  }
+}

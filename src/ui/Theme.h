@@ -156,6 +156,16 @@ struct Theme {
     // never rotates).
     std::string new_tab_backgrounds;
     int new_tab_rotate_ms = 20000;
+    // The new-tab page's own colors — a browser theme's ntp_background and
+    // ntp_text. Unnamed, the page wears the chrome's as it always has: a
+    // gradient from chrome-background towards the accent, chrome-text and
+    // chrome-text-muted. A theme that names the background alone gets that
+    // color flat, as those browsers show it; one that names both ends gets
+    // the gradient between them.
+    std::optional<Color> new_tab_background;
+    std::optional<Color> new_tab_background_end;
+    std::optional<Color> new_tab_text;
+    std::optional<Color> new_tab_text_muted;
 
     // Parses a theme file's text over the defaults. Every problem — a bad
     // color, a wrong type, an unknown token, malformed JSON — is reported

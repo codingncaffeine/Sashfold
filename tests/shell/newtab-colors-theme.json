@@ -1,0 +1,8 @@
+{
+  "name": "New Tab Colors",
+  "new-tab": {
+    "background": "#102030",
+    "text": "#f0e000",
+    "text-muted": "#00c0f0"
+  }
+}
