@@ -423,6 +423,34 @@ int main()
     CHECK_EQ(measured_set.media().width, 500.0f);
     CHECK_EQ(width_of(css::resolve_styles(*measured, measured_set)), 250.0f);
     CHECK(measured_set.viewport_lengths());
+    // By side: a length against the height alone says so, and the width's
+    // is not said of it.
+    auto const tall = html::parse_document(std::string_view(R"HTML(<style>p { height: 50vh }</style><p id="p">x</p>)HTML"));
+    css::StyleSet const tall_set(css::collect_stylesheets(*tall, nullptr, {}), wide);
+    static_cast<void>(css::resolve_styles(*tall, tall_set));
+    CHECK(tall_set.viewport_height_lengths());
+    CHECK(!tall_set.viewport_width_lengths());
+    CHECK(measured_set.viewport_width_lengths());
+    CHECK(measured_set.viewport_height_lengths()); // its margin is in vh
+    // A sheet is read once and kept for the sets compiled from it — for the
+    // sixty-four sheets used last. A set holds what it was compiled from for
+    // as long as it lives: seventy other sheets later, this one's sheet long
+    // out of the keeping, it resolves as it did.
+    {
+        std::vector<css::SheetSource> early { css::SheetSource { "p { color: rgb(11, 0, 0) }", std::nullopt } };
+        css::StyleSet const early_set(early, wide);
+        CHECK_EQ(red_of(css::resolve_styles(*responsive, early_set), *responsive, "p"), 11);
+        for (int i = 0; i < 70; ++i) {
+            std::vector<css::SheetSource> other {
+                css::SheetSource { "p { color: rgb(" + std::to_string(100 + i) + ", 0, 0) }", std::nullopt } };
+            css::StyleSet const other_set(other, wide);
+            CHECK_EQ(red_of(css::resolve_styles(*responsive, other_set), *responsive, "p"), 100 + i);
+        }
+        CHECK_EQ(red_of(css::resolve_styles(*responsive, early_set), *responsive, "p"), 11);
+        // And read again, it is the sheet it was.
+        css::StyleSet const again_set(early, narrow);
+        CHECK_EQ(red_of(css::resolve_styles(*responsive, again_set), *responsive, "p"), 11);
+    }
     auto const link_media = html::parse_document(std::string_view(
         R"HTML(<style media="(max-width: 500px)">p { color: rgb(3, 0, 0) }</style><p id="p">x</p>)HTML"));
     CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, wide).size(), 0u);

@@ -1659,7 +1659,9 @@ struct Browser::Impl {
             return;
         text::FontManager::instance().set_page_fonts(tab.fonts);
         css::MediaContext const media = media_context();
-        bool const same_viewport = tab.style_media.width == media.width && tab.style_media.height == media.height
+        bool const width_changed = tab.style_media.width != media.width;
+        bool const height_changed = tab.style_media.height != media.height;
+        bool const same_viewport = !width_changed && !height_changed
             && tab.style_media.device_scale == media.device_scale;
         bool compiled = false;
         if (!tab.style_set || (!same_viewport && !tab.style_set->same_rules_for(media))) {
@@ -1677,8 +1679,12 @@ struct Browser::Impl {
             tab.style_set->set_viewport(media.width, media.height);
         }
         tab.style_media = media;
-        if (for_the_viewport && !compiled && !tab.styles.empty() && !tab.style_set->viewport_lengths())
-            return; // the same rules, and nothing in them measured against the viewport
+        // The same rules, and nothing in them measured against the side of
+        // the viewport that changed: the styles are what they were.
+        bool const touched = (width_changed && tab.style_set->viewport_width_lengths())
+            || (height_changed && tab.style_set->viewport_height_lengths());
+        if (for_the_viewport && !compiled && !tab.styles.empty() && !touched)
+            return;
         {
             Stopwatch const resolving(profile.restyle_ms);
             tab.styles = css::resolve_styles(*tab.document, *tab.style_set);

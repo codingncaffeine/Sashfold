@@ -69,3 +69,20 @@ assert-restyles 1
 resize-through 620 500
 assert-restyles 2
 assert-pixel 100 80 #00ff00
+
+# A length against the viewport's height alone (half of the 424 px the page
+# has under the toolbar is 212): the window made narrower changes no style;
+# made shorter — 404 px, half of it 202 — it does.
+resize 800 500
+open data:text/html,<title>H</title><body style="margin:0"><div style="height:50vh;width:40px;background:lime"></div>
+assert-pixel 10 287 #00ff00
+assert-pixel 10 289 #ffffff
+mark
+resize-through 760 500 700 500
+assert-restyles 0
+assert-relayouts 1
+assert-pixel 10 287 #00ff00
+resize-through 700 480
+assert-restyles 1
+assert-pixel 10 277 #00ff00
+assert-pixel 10 279 #ffffff

@@ -59,6 +59,11 @@ public:
     // against the viewport (vw, vh, vmin, vmax). When it did not, and the
     // rules are the same, the styles are the same at any size.
     bool viewport_lengths() const;
+    // The same by side: against the viewport's width (vw, vmin, vmax), and
+    // against its height (vh, vmin, vmax). A window made wider changes no
+    // style that measured only its height.
+    bool viewport_width_lengths() const;
+    bool viewport_height_lengths() const;
     // The page's say on style attributes, asked for each one at every
     // resolution; none set means every attribute applies.
     void set_style_attribute_check(StyleAttributeCheck check);

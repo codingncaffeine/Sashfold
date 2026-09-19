@@ -201,9 +201,56 @@ enum class CascadeRank : int {
     UserAgentImportant = 6,
 };
 
+// A sheet read once: its rules as parsed, and each qualified rule's
+// selectors parsed beside it (nothing for a prelude that is no selector
+// list). Reading a sheet is the dear part of compiling it, and the same
+// sheets are compiled again and again — the built-in one for every page and
+// every frame's document, a page's own whenever its window crosses one of
+// their breakpoints — so what was read is kept, by the sheet's text, for
+// the sixty-four sheets used last.
+struct PreparedSheet {
+    Stylesheet sheet;
+    std::unordered_map<QualifiedRule const*, std::optional<SelectorList>> selectors;
+};
+
+void prepare_rules(std::vector<Rule> const& rules, PreparedSheet& prepared)
+{
+    for (Rule const& rule : rules) {
+        if (rule.is_at_rule())
+            prepare_rules(std::get<AtRule>(rule.value).child_rules, prepared);
+        else if (rule.is_qualified())
+            prepared.selectors.emplace(&std::get<QualifiedRule>(rule.value),
+                parse_selector_list(std::get<QualifiedRule>(rule.value).prelude));
+    }
+}
+
+std::shared_ptr<PreparedSheet const> prepared_sheet(std::string_view text)
+{
+    struct Kept {
+        std::string text;
+        std::shared_ptr<PreparedSheet const> sheet;
+    };
+    static std::vector<Kept> kept; // the most recently used first
+    constexpr std::size_t most = 64;
+    for (std::size_t i = 0; i < kept.size(); ++i) {
+        if (kept[i].text.size() == text.size() && kept[i].text == text) {
+            std::rotate(kept.begin(), kept.begin() + static_cast<std::ptrdiff_t>(i), kept.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+            return kept.front().sheet;
+        }
+    }
+    auto prepared = std::make_shared<PreparedSheet>();
+    prepared->sheet = parse_stylesheet(text);
+    prepare_rules(prepared->sheet.rules, *prepared);
+    kept.insert(kept.begin(), Kept { std::string(text), prepared });
+    if (kept.size() > most)
+        kept.pop_back();
+    return prepared;
+}
+
 struct CompiledRule {
-    SelectorList selectors;
-    std::vector<Declaration> declarations;
+    // In a prepared sheet, which the rule set keeps for as long as it lives.
+    SelectorList const* selectors = nullptr;
+    std::vector<Declaration> const* declarations = nullptr;
     bool user_agent = false;
     int order = 0; // rule order across all sheets
     std::shared_ptr<net::Url const> base; // the sheet's URL: what its url() values resolve against
@@ -1208,9 +1255,10 @@ struct LengthContext {
     // Device px per CSS px: what an absolute length is multiplied by. The
     // relative units above are already in device px.
     float device_scale = 1;
-    // Set when a length is taken against the viewport (vw, vh, vmin, vmax):
-    // a style that did so is a style the viewport's size changes.
-    bool* used_viewport = nullptr;
+    // Noted when a length is taken against the viewport — its width (vw),
+    // its height (vh), or both (vmin, vmax): a style that did so is a style
+    // that side of the viewport changes. Bit 1 the width, bit 2 the height.
+    unsigned* used_viewport = nullptr;
 };
 
 // How much of a font size one `ex` and one `ch` are, for a face: ratios, not
@@ -1474,7 +1522,7 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ch_size)));
     // The viewport units, against the viewport this resolution is for.
     if (context.used_viewport && unit.size() >= 2 && (unit[0] == 'v' || unit[0] == 'V'))
-        *context.used_viewport = true;
+        *context.used_viewport |= ascii_ci_equals(unit, "vw") ? 1u : ascii_ci_equals(unit, "vh") ? 2u : 3u;
     if (ascii_ci_equals(unit, "vw"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_width) / 100.0));
     if (ascii_ci_equals(unit, "vh"))
@@ -2050,7 +2098,7 @@ struct RuleSet {
     void build_index()
     {
         for (std::uint32_t r = 0; r < rules.size(); ++r) {
-            std::vector<ComplexSelector> const& selectors = rules[r].selectors.selectors;
+            std::vector<ComplexSelector> const& selectors = rules[r].selectors->selectors;
             for (std::uint32_t s = 0; s < selectors.size(); ++s) {
                 std::string const* id = nullptr;
                 std::string const* class_name = nullptr;
@@ -2086,32 +2134,36 @@ struct RuleSet {
     std::vector<std::pair<std::vector<ComponentValue>, bool>> media_conditions;
     // Whether the last resolution against this set took a length against
     // the viewport. Said by the resolver; the set itself never changes.
-    mutable bool viewport_lengths = false;
+    mutable unsigned viewport_lengths = 0; // bit 1: against its width; bit 2: its height
     std::optional<net::Url> document_url; // the base for style attributes' URLs
     StyleAttributeCheck attribute_check; // the page's say on each style attribute; none passes all
 
     void compile_sheet(std::string_view text, bool user_agent, int& order,
         std::shared_ptr<net::Url const> const& base)
     {
-        Stylesheet sheet = parse_stylesheet(text);
-        compile_rules(sheet.rules, user_agent, order, base);
+        std::shared_ptr<PreparedSheet const> prepared = prepared_sheet(text);
+        compile_rules(*prepared, prepared->sheet.rules, user_agent, order, base);
+        sheets_kept.push_back(std::move(prepared));
     }
 
-    void compile_rules(std::vector<Rule>& source, bool user_agent, int& order,
+    // The prepared sheets the rules point into.
+    std::vector<std::shared_ptr<PreparedSheet const>> sheets_kept;
+
+    void compile_rules(PreparedSheet const& prepared, std::vector<Rule> const& source, bool user_agent, int& order,
         std::shared_ptr<net::Url const> const& base)
     {
-        for (Rule& rule : source) {
+        for (Rule const& rule : source) {
             if (rule.is_at_rule()) {
                 // @media blocks whose query the context satisfies contribute
                 // their rules in place; other at-rules (@supports,
                 // @font-face, @keyframes, @layer) are not supported yet.
-                auto& at = std::get<AtRule>(rule.value);
+                auto const& at = std::get<AtRule>(rule.value);
                 if (ascii_ci_equals(at.name, "media")) {
                     bool const matches = media_prelude_matches(at.prelude, media);
                     if (at.has_block)
                         media_conditions.emplace_back(at.prelude, matches);
                     if (at.has_block && matches)
-                        compile_rules(at.child_rules, user_agent, order, base);
+                        compile_rules(prepared, at.child_rules, user_agent, order, base);
                 } else if (gap_sink() && !ascii_ci_equals(at.name, "font-face") && !ascii_ci_equals(at.name, "import")
                     && !ascii_ci_equals(at.name, "charset")) {
                     // @font-face and @import are read where the sheets and fonts are collected.
@@ -2121,16 +2173,16 @@ struct RuleSet {
             }
             if (!rule.is_qualified())
                 continue;
-            auto& qualified = std::get<QualifiedRule>(rule.value);
-            std::optional<SelectorList> selectors = parse_selector_list(qualified.prelude);
-            if (!selectors) {
+            auto const& qualified = std::get<QualifiedRule>(rule.value);
+            auto const read = prepared.selectors.find(&qualified);
+            if (read == prepared.selectors.end() || !read->second) {
                 if (gap_sink())
                     note_gap("css selector", unparsed_selector_part(qualified.prelude));
                 continue;
             }
             CompiledRule compiled;
-            compiled.selectors = std::move(*selectors);
-            compiled.declarations = std::move(qualified.declarations);
+            compiled.selectors = &*read->second;
+            compiled.declarations = &qualified.declarations;
             compiled.user_agent = user_agent;
             compiled.order = order++;
             compiled.base = base;
@@ -2345,7 +2397,7 @@ struct Resolver {
                 if (!ancestors.may_contain_all(candidate.ancestor_hashes))
                     continue;
                 ComplexSelector const& selector
-                    = set.rules[candidate.rule].selectors.selectors[candidate.selector];
+                    = set.rules[candidate.rule].selectors->selectors[candidate.selector];
                 if (!matches(selector, element))
                     continue;
                 std::size_t const target = target_of(selector);
@@ -3357,7 +3409,7 @@ struct Resolver {
         for (std::uint32_t const index : matched_rules[target]) {
             CompiledRule const& rule = set.rules[index];
             Specificity const specificity = rule_best[target][index];
-            for (Declaration const& declaration : rule.declarations) {
+            for (Declaration const& declaration : *rule.declarations) {
                 MatchedDeclaration entry;
                 entry.declaration = &declaration;
                 entry.base = rule.base.get();
@@ -6002,11 +6054,13 @@ void StyleSet::set_viewport(float width, float height)
     m_rules->media.height = height;
 }
 
-bool StyleSet::viewport_lengths() const { return m_rules->viewport_lengths; }
+bool StyleSet::viewport_lengths() const { return m_rules->viewport_lengths != 0; }
+bool StyleSet::viewport_width_lengths() const { return (m_rules->viewport_lengths & 1u) != 0; }
+bool StyleSet::viewport_height_lengths() const { return (m_rules->viewport_lengths & 2u) != 0; }
 
 StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
 {
-    set.m_rules->viewport_lengths = false; // said again by this resolution
+    set.m_rules->viewport_lengths = 0; // said again by this resolution
     Resolver resolver(*set.m_rules);
     ComputedStyle initial;
     initial.font_size = resolver.initial_font_size;

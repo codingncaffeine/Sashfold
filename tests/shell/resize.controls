@@ -4,12 +4,12 @@ script tests/shell/resize.script
 
 control eager
 file src/ui/Browser.cpp
-fails 17 24 35 38 50 51
+fails 17 24 35 38 50 51 83
 plant s~    m_impl->height = std::max\(height, 1\);\n    m_impl->dirty = true;\n~    m_impl->height = std::max(height, 1);\n    m_impl->dirty = true;\n    if (Impl::Tab* const tab = m_impl->active_tab())\n        m_impl->ensure_fresh(*tab);\n~
 
 control never
 file src/ui/Browser.cpp
-fails 17 19 24 26 27 35 36 38 39 50 51 53 65 66 68 70
+fails 17 19 24 26 27 35 36 38 39 50 51 53 65 66 68 70 83 86 88
 plant s~        if \(tab\.laid_out_width != c\.content\.width \|\| tab\.laid_out_height != c\.content\.height~        if (tab.laid_out_width == -2 || tab.laid_out_height == -2~
 
 control recorded
@@ -19,8 +19,13 @@ plant s~        tab\.laid_out_width = c\.content\.width;\n~~
 
 control vwskip
 file src/ui/Browser.cpp
-fails 50 53
-plant s~&& !tab\.style_set->viewport_lengths\(\)\)~\&\& tab.style_set->viewport_lengths() == tab.style_set->viewport_lengths())~
+fails 50 53 86 88
+plant s~        if \(for_the_viewport && !compiled && !tab\.styles\.empty\(\) && !touched\)~        if (for_the_viewport \&\& !compiled \&\& !tab.styles.empty() \&\& (touched || !touched))~
+
+control axes
+file src/ui/Browser.cpp
+fails 82 86
+plant s~        bool const touched = \(width_changed && tab\.style_set->viewport_width_lengths\(\)\)\n            \|\| \(height_changed && tab\.style_set->viewport_height_lengths\(\)\);~        bool const touched = tab.style_set->viewport_lengths() \&\& (width_changed || height_changed);~
 
 control flip
 file src/ui/Browser.cpp
@@ -29,6 +34,6 @@ plant s~\(!same_viewport && !tab\.style_set->same_rules_for\(media\)\)~(!same_vi
 
 control viewportset
 file src/ui/Browser.cpp
-fails 53
+fails 53 88
 plant s~            tab\.style_set->set_viewport\(media\.width, media\.height\);~            (void)media;~
 
