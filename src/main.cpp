@@ -61,6 +61,7 @@ int usage(char const* program)
     std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>]\n"
               << "                 [--exit-after ms] [--timings out.json]   (a headless run under a compositor with no screen)\n"
               << "                 [--js-heap-limit MB] [--memory-ceiling MB]   (a page's script heap; the whole process; 0: none)\n"
+              << "                 [--trace-frames]   (every turn of the window's loop that did anything, on stderr: what it cost, and where)\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
@@ -256,6 +257,11 @@ std::string render_blocklists_path;
 // memory (platform::js_heap_limit_for), or what --js-heap-limit says; 0 is
 // none. Every shell a mode makes is given it.
 std::size_t js_heap_limit = 0;
+
+// Every turn of the window's loop that did anything says on stderr what it
+// cost and where (--trace-frames, or SASHFOLD_TRACE_FRAMES in the
+// environment); a turn of a quarter of a second or more always does.
+bool trace_frames = false;
 
 net::Blocklists load_blocklists(std::string const& path);
 ui::Theme load_theme(std::string const& path);
@@ -1851,13 +1857,28 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     while (running) {
         if (exit_after_ms > 0 && wall_ms(clock::now() - started).count() >= exit_after_ms)
             break;
+        // One turn of the loop, clocked: what it took in, what it cost, and
+        // where — said on stderr for a turn the reader could feel, and for
+        // every turn that did anything under --trace-frames.
+        auto const turn_started = clock::now();
+        ui::Profile const turn_profile = browser.profile();
+        std::size_t turn_events = 0;
+        std::size_t turn_resizes = 0;
+        // A window being dragged reports dozens of sizes a second; the last
+        // of a batch is the one the window has, and the only one acted on.
+        std::optional<std::pair<int, int>> resized;
+        std::optional<float> rescaled;
         platform::WindowEvent event;
         while (window->poll(event)) {
             using Kind = platform::WindowEvent::Kind;
+            ++turn_events;
             switch (event.kind) {
             case Kind::Close: running = false; break;
-            case Kind::Resize: browser.resize(event.width, event.height); break;
-            case Kind::Scale: browser.set_scale(event.scale); break;
+            case Kind::Resize:
+                resized = std::pair<int, int> { event.width, event.height };
+                ++turn_resizes;
+                break;
+            case Kind::Scale: rescaled = event.scale; break;
             case Kind::MouseMove: browser.mouse_move(event.x, event.y); break;
             case Kind::MouseDown: browser.mouse_down(event.x, event.y, event.button, event.modifiers); break;
             case Kind::MouseUp: browser.mouse_up(event.x, event.y, event.button); break;
@@ -1872,6 +1893,11 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         }
         if (!running)
             break;
+        if (rescaled)
+            browser.set_scale(*rescaled);
+        if (resized)
+            browser.resize(resized->first, resized->second);
+        auto const events_done = clock::now();
         // The input method follows the caret: told where it is whenever
         // that changes, and that there is none when no field has focus.
         if (std::optional<Rect> const caret = browser.text_input_area(); caret != last_caret) {
@@ -1904,13 +1930,42 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 break;
         }
 
-        if (browser.has_pending_load()) {
+        bool const loaded = browser.has_pending_load();
+        if (loaded) {
             present(browser.frame()); // the "Loading" frame, before the synchronous fetch
             browser.tick();
         }
+        auto const load_done = clock::now();
         browser.run_scripts(); // the pages' timers that came due
+        auto const scripts_done = clock::now();
+        std::size_t const presents_before = present_ms.size();
         if (browser.needs_paint())
             present(browser.frame());
+        auto const frame_done = clock::now();
+        {
+            // The turn's account. A turn the reader could feel — a quarter of
+            // a second — is always said; every turn that did anything is
+            // under --trace-frames. The journal then has what a stall was
+            // made of, and nobody has to guess.
+            double const total = wall_ms(frame_done - turn_started).count();
+            bool const worked = turn_events > 0 || loaded || present_ms.size() != presents_before;
+            if (total >= 250.0 || (trace_frames && worked)) {
+                ui::Profile const spent = profile_since(browser.profile(), turn_profile);
+                double const presented = present_ms.size() != presents_before ? present_ms.back() : 0.0;
+                std::cerr << std::fixed << std::setprecision(1) << "sashfold: turn " << total << " ms \xe2\x80\x94 "
+                          << turn_events << " events";
+                if (turn_resizes > 0)
+                    std::cerr << " (" << turn_resizes << " sizes, the last " << browser.width() << "x" << browser.height() << ")";
+                std::cerr << " " << wall_ms(events_done - turn_started).count() << " ms"
+                          << (loaded ? ", a load " : ", no load ") << wall_ms(load_done - events_done).count() << " ms"
+                          << ", scripts " << wall_ms(scripts_done - load_done).count() << " ms"
+                          << ", frame " << wall_ms(frame_done - scripts_done).count() << " ms [styles " << spent.restyles
+                          << " in " << spent.restyle_ms << " ms, layouts " << spent.relayouts << " in " << spent.relayout_ms
+                          << " ms, frames' documents " << spent.frames_ms << " ms, sheets " << spent.sheets_ms
+                          << " ms, pictures " << spent.images_ms << " ms, paint " << spent.paint_ms << " ms, present "
+                          << presented << " ms]\n";
+            }
+        }
         if (first_present_ms == 0 && !browser.has_pending_load() && !present_ms.empty()) {
             // The start page is on the frame, and nothing is left to load:
             // one moment today, two once pictures arrive after the page.
@@ -2105,6 +2160,8 @@ int main(int argc, char** argv)
         } else if (arg == "--timings") {
             if (!value_after(i, timings_path))
                 return usage(argv[0]);
+        } else if (arg == "--trace-frames") {
+            trace_frames = true;
         } else if (arg == "--js-heap-limit" || arg == "--memory-ceiling") {
             // Megabytes; 0 is none.
             std::string text;
@@ -2184,6 +2241,8 @@ int main(int argc, char** argv)
     }
 
     render_blocklists_path = blocklists_path;
+    if (char const* const asked = std::getenv("SASHFOLD_TRACE_FRAMES"); asked && *asked && *asked != '0')
+        trace_frames = true;
     js_heap_limit = js_heap_limit_mb >= 0 ? static_cast<std::size_t>(js_heap_limit_mb) * 1024u * 1024u
                                           : platform::js_heap_limit_for(platform::physical_memory_bytes());
     if (mode == "--script")

@@ -1,0 +1,71 @@
+# A window being dragged goes through dozens of sizes between two frames.
+# The shell takes each size and lays nothing out; the tab in front is laid
+# out once, for the size there is when the frame is asked for, and the tabs
+# behind it when they are shown. And a new size is a layout only, unless it
+# can change the styles: a breakpoint of the page's crossed (then its sheets
+# are read again and its styles computed), or a length of its taken against
+# the viewport (then its styles are computed).
+# (The pages: a lime bar 40 tall across the page with a red box 20 wide
+# floated to its right end, so a layout made for another width shows; the
+# page begins at y 76.)
+resize 800 500
+open data:text/html,<title>A</title><body style="margin:0"><div style="height:40px;background:lime"><div style="float:right;width:20px;height:40px;background:red"></div></div>
+assert-pixel 790 80 #ff0000
+assert-pixel 690 80 #00ff00
+mark
+resize-through 790 500 760 500 730 490 700 480
+assert-relayouts 1
+assert-restyles 0
+assert-pixel 690 80 #ff0000
+assert-pixel 670 80 #00ff00
+# Wider again, the same.
+mark
+resize-through 750 480 820 500 900 520
+assert-relayouts 1
+assert-restyles 0
+assert-pixel 890 80 #ff0000
+assert-pixel 790 80 #00ff00
+
+# A tab behind is not laid out as the sizes come — it is when it is shown.
+new-tab
+open data:text/html,<title>B</title><body style="margin:0"><div style="height:40px;background:lime"><div style="float:right;width:20px;height:40px;background:red"></div></div>
+select-tab 0
+mark
+resize-through 880 520 800 500 640 480
+assert-relayouts 1
+assert-pixel 630 80 #ff0000
+select-tab 1
+assert-relayouts 2
+assert-pixel 630 80 #ff0000
+assert-pixel 610 80 #00ff00
+close-tab
+
+# A length taken against the viewport: the styles are computed for the new
+# size (half of 640 is 320, half of 500 is 250), the sheets not read again.
+open data:text/html,<title>V</title><body style="margin:0"><div style="width:50vw;height:40px;background:lime"></div>
+assert-pixel 319 80 #00ff00
+assert-pixel 321 80 #ffffff
+mark
+resize-through 600 480 500 480
+assert-restyles 1
+assert-relayouts 1
+assert-pixel 249 80 #00ff00
+assert-pixel 251 80 #ffffff
+
+# A breakpoint: nothing but a layout until it is crossed, then the sheets
+# are read for the new size — and again on the way back.
+resize 800 500
+open data:text/html,<title>M</title><style>div{height:40px;background:lime}@media (max-width:600px){div{background:red}}</style><body style="margin:0"><div></div>
+assert-pixel 100 80 #00ff00
+mark
+resize-through 760 500 700 500
+assert-restyles 0
+assert-pixel 100 80 #00ff00
+resize-through 650 500 590 500
+assert-restyles 1
+assert-pixel 100 80 #ff0000
+resize-through 595 500 598 500
+assert-restyles 1
+resize-through 620 500
+assert-restyles 2
+assert-pixel 100 80 #00ff00

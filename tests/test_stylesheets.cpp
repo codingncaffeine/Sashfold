@@ -389,6 +389,40 @@ int main()
     CHECK_EQ(wide_set.rule_count(), narrow_set.rule_count());
     CHECK(wide_set.rule_count() > 3);
     CHECK_EQ(wide_set.media().width, 800.0f);
+    // Whether a set would hold the same rules for another viewport: it
+    // would while every condition it met comes to what it came to. The
+    // sheet's conditions turn at 500 and 600 px (the one inside the print
+    // block was never met); 800 wide, neither 700 nor 601 changes any, 599
+    // turns one, 450 two — and another scale is never the same.
+    CHECK(wide_set.same_rules_for(wide));
+    CHECK(wide_set.same_rules_for(css::MediaContext { 700, 300 }));
+    CHECK(wide_set.same_rules_for(css::MediaContext { 601, 600 }));
+    CHECK(!wide_set.same_rules_for(css::MediaContext { 599, 600 }));
+    CHECK(!wide_set.same_rules_for(narrow));
+    CHECK(narrow_set.same_rules_for(css::MediaContext { 500, 100 }));
+    CHECK(!narrow_set.same_rules_for(css::MediaContext { 501, 700 }));
+    CHECK(!wide_set.same_rules_for(css::MediaContext { 800, 600, 2 }));
+    // Whether the last resolution took a length against the viewport: none
+    // here; and one that does is resolved against the size the set was last
+    // told (set_viewport), the sheets not read again.
+    static_cast<void>(css::resolve_styles(*responsive, wide_set));
+    CHECK(!wide_set.viewport_lengths());
+    auto const measured = html::parse_document(std::string_view(
+        R"HTML(<style>p { width: 50vw; margin-left: 10vh }</style><p id="p">x</p>)HTML"));
+    css::StyleSet measured_set(css::collect_stylesheets(*measured, nullptr, {}), wide);
+    auto const width_of = [&](css::StyleMap const& styles) {
+        for (auto const& [element, style] : styles) {
+            if (element->is_html("p"))
+                return style.width.value;
+        }
+        return -1.0f;
+    };
+    CHECK_EQ(width_of(css::resolve_styles(*measured, measured_set)), 400.0f);
+    CHECK(measured_set.viewport_lengths());
+    measured_set.set_viewport(500, 600);
+    CHECK_EQ(measured_set.media().width, 500.0f);
+    CHECK_EQ(width_of(css::resolve_styles(*measured, measured_set)), 250.0f);
+    CHECK(measured_set.viewport_lengths());
     auto const link_media = html::parse_document(std::string_view(
         R"HTML(<style media="(max-width: 500px)">p { color: rgb(3, 0, 0) }</style><p id="p">x</p>)HTML"));
     CHECK_EQ(css::collect_stylesheets(*link_media, nullptr, {}, wide).size(), 0u);

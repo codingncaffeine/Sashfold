@@ -48,6 +48,17 @@ public:
     // compound names no id, class or type. A perf figure, not a feature.
     std::size_t universal_count() const;
     MediaContext const& media() const;
+    // Whether the set would hold the same rules compiled for `other`: the
+    // same scale, and every @media condition it met coming to what it came
+    // to. A window changing size crosses a breakpoint now and then; between
+    // two of them the sheets need not be read again, only told the size
+    // (set_viewport), which the viewport units are taken against.
+    bool same_rules_for(MediaContext const& other) const;
+    void set_viewport(float width, float height);
+    // Whether the last resolve_styles against this set took any length
+    // against the viewport (vw, vh, vmin, vmax). When it did not, and the
+    // rules are the same, the styles are the same at any size.
+    bool viewport_lengths() const;
     // The page's say on style attributes, asked for each one at every
     // resolution; none set means every attribute applies.
     void set_style_attribute_check(StyleAttributeCheck check);

@@ -1,0 +1,34 @@
+# Planted-fault controls for tests/shell/resize.script: sizes are taken without laying anything out, the tab in front is laid out once a frame and the others when shown, and a new size computes styles only when it can change them.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/resize.script
+
+control eager
+file src/ui/Browser.cpp
+fails 17 24 35 38 50 51
+plant s~    m_impl->height = std::max\(height, 1\);\n    m_impl->dirty = true;\n~    m_impl->height = std::max(height, 1);\n    m_impl->dirty = true;\n    if (Impl::Tab* const tab = m_impl->active_tab())\n        m_impl->ensure_fresh(*tab);\n~
+
+control never
+file src/ui/Browser.cpp
+fails 17 19 24 26 27 35 36 38 39 50 51 53 65 66 68 70
+plant s~        if \(tab\.laid_out_width != c\.content\.width \|\| tab\.laid_out_height != c\.content\.height~        if (tab.laid_out_width == -2 || tab.laid_out_height == -2~
+
+control recorded
+file src/ui/Browser.cpp
+fails 38
+plant s~        tab\.laid_out_width = c\.content\.width;\n~~
+
+control vwskip
+file src/ui/Browser.cpp
+fails 50 53
+plant s~&& !tab\.style_set->viewport_lengths\(\)\)~\&\& tab.style_set->viewport_lengths() == tab.style_set->viewport_lengths())~
+
+control flip
+file src/ui/Browser.cpp
+fails 65 66 68 70
+plant s~\(!same_viewport && !tab\.style_set->same_rules_for\(media\)\)~(!same_viewport \&\& !tab.style_set->same_rules_for(media) \&\& !tab.style_set)~
+
+control viewportset
+file src/ui/Browser.cpp
+fails 53
+plant s~            tab\.style_set->set_viewport\(media\.width, media\.height\);~            (void)media;~
+

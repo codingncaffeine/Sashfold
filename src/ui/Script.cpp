@@ -507,6 +507,25 @@ struct Runner {
             if (!width || !height)
                 return fail("resize: needs width height");
             browser.resize(*width, *height);
+            // The window's next frame, which is when the tab in front is
+            // laid out for the size: what the script reads next is that.
+            static_cast<void>(browser.frame());
+        } else if (command == "resize-through") {
+            // `resize-through <w> <h> [<w> <h> …]`: the sizes a window being
+            // dragged goes through between two frames, each reported to the
+            // shell as it comes, and then the one frame. However many there
+            // are, the tab in front is laid out once — for the last — and
+            // no other tab is laid out at all.
+            if (args.empty() || args.size() % 2 != 0)
+                return fail("resize-through: needs pairs of width height");
+            for (std::size_t i = 0; i + 1 < args.size(); i += 2) {
+                auto const width = int_arg(i);
+                auto const height = int_arg(i + 1);
+                if (!width || !height)
+                    return fail("resize-through: needs pairs of width height");
+                browser.resize(*width, *height);
+            }
+            static_cast<void>(browser.frame());
         } else if (command == "scale") {
             // `scale <factor>`: the display's device px per CSS px from here
             // on, as a window on a scaled display would report it.
@@ -515,6 +534,7 @@ struct Runner {
             if (argument.empty() || end == argument.c_str() || *end != '\0' || !(factor > 0))
                 return fail("scale: needs a factor above zero");
             browser.set_scale(static_cast<float>(factor));
+            static_cast<void>(browser.frame()); // the next frame, as after a resize
         } else if (command == "screenshot") {
             if (!write_file(resolve(argument), encode_png(browser.frame())))
                 fail("screenshot: cannot write " + argument);

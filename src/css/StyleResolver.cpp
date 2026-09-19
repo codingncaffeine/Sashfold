@@ -1208,6 +1208,9 @@ struct LengthContext {
     // Device px per CSS px: what an absolute length is multiplied by. The
     // relative units above are already in device px.
     float device_scale = 1;
+    // Set when a length is taken against the viewport (vw, vh, vmin, vmax):
+    // a style that did so is a style the viewport's size changes.
+    bool* used_viewport = nullptr;
 };
 
 // How much of a font size one `ex` and one `ch` are, for a face: ratios, not
@@ -1470,6 +1473,8 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
     if (ascii_ci_equals(unit, "ch"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ch_size)));
     // The viewport units, against the viewport this resolution is for.
+    if (context.used_viewport && unit.size() >= 2 && (unit[0] == 'v' || unit[0] == 'V'))
+        *context.used_viewport = true;
     if (ascii_ci_equals(unit, "vw"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_width) / 100.0));
     if (ascii_ci_equals(unit, "vh"))
@@ -2074,6 +2079,14 @@ struct RuleSet {
     }
 
     MediaContext media;
+    // Every @media condition met while compiling, with what it came to:
+    // the set is what it would be for another viewport exactly when each
+    // of these comes to the same there (a condition inside a block that
+    // was left out was never met, and stays out with its block).
+    std::vector<std::pair<std::vector<ComponentValue>, bool>> media_conditions;
+    // Whether the last resolution against this set took a length against
+    // the viewport. Said by the resolver; the set itself never changes.
+    mutable bool viewport_lengths = false;
     std::optional<net::Url> document_url; // the base for style attributes' URLs
     StyleAttributeCheck attribute_check; // the page's say on each style attribute; none passes all
 
@@ -2094,7 +2107,10 @@ struct RuleSet {
                 // @font-face, @keyframes, @layer) are not supported yet.
                 auto& at = std::get<AtRule>(rule.value);
                 if (ascii_ci_equals(at.name, "media")) {
-                    if (at.has_block && media_prelude_matches(at.prelude, media))
+                    bool const matches = media_prelude_matches(at.prelude, media);
+                    if (at.has_block)
+                        media_conditions.emplace_back(at.prelude, matches);
+                    if (at.has_block && matches)
                         compile_rules(at.child_rules, user_agent, order, base);
                 } else if (gap_sink() && !ascii_ci_equals(at.name, "font-face") && !ascii_ci_equals(at.name, "import")
                     && !ascii_ci_equals(at.name, "charset")) {
@@ -2287,7 +2303,7 @@ struct Resolver {
     LengthContext length_context(ComputedStyle const& style, FontRatios const& ratios) const
     {
         return LengthContext { style.font_size, root_font_size, set.media.width, set.media.height,
-            style.font_size * ratios.ex, style.font_size * ratios.ch, set.media.device_scale };
+            style.font_size * ratios.ex, style.font_size * ratios.ch, set.media.device_scale, &set.viewport_lengths };
     }
 
     explicit Resolver(RuleSet const& the_set)
@@ -5969,8 +5985,28 @@ std::size_t StyleSet::universal_count() const { return m_rules->universal.size()
 
 MediaContext const& StyleSet::media() const { return m_rules->media; }
 
+bool StyleSet::same_rules_for(MediaContext const& other) const
+{
+    if (other.device_scale != m_rules->media.device_scale)
+        return false; // every absolute length in it was scaled
+    for (auto const& [condition, matched] : m_rules->media_conditions) {
+        if (media_prelude_matches(condition, other) != matched)
+            return false;
+    }
+    return true;
+}
+
+void StyleSet::set_viewport(float width, float height)
+{
+    m_rules->media.width = width;
+    m_rules->media.height = height;
+}
+
+bool StyleSet::viewport_lengths() const { return m_rules->viewport_lengths; }
+
 StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
 {
+    set.m_rules->viewport_lengths = false; // said again by this resolution
     Resolver resolver(*set.m_rules);
     ComputedStyle initial;
     initial.font_size = resolver.initial_font_size;

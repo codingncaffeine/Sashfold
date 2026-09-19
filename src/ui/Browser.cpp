@@ -480,6 +480,15 @@ struct Browser::Impl {
         DrawnFrames frames; // its frames' pictures as last drawn, by element
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
         layout::LayoutResult layout;
+        // The viewport those styles and that layout were made for: the content
+        // area's size and the scale. The window changing size lays nothing
+        // out: a tab is brought up to date (ensure_fresh) when something is
+        // about to read it — the tab in front once a frame, however many
+        // sizes the window went through since the last; the others when
+        // they are shown, or when their scripts ask where something is.
+        int laid_out_width = -1;
+        int laid_out_height = -1;
+        float laid_out_scale = 0;
         std::vector<layout::TextRun const*> runs; // the layout's runs in tree order
         std::optional<Selection> selection; // positions into `runs`; dropped with the layout
         std::vector<Match> matches; // the find bar's query in this tab, refreshed with the layout
@@ -1636,14 +1645,25 @@ struct Browser::Impl {
 
     // Styles depend on the viewport through media queries: computed when a
     // page arrives and again when the content area changes size.
-    void restyle(Tab& tab)
+    // The styles, computed again. `for_the_viewport` says the viewport is all
+    // that has changed since they were last computed — the window changed
+    // size, the document did not: then the sheets are read again only when a
+    // breakpoint was crossed (a condition of theirs comes to something else
+    // at the new size), and the styles are computed again only when they can
+    // differ — a breakpoint crossed, or a length of theirs taken against the
+    // viewport. Between breakpoints, for a page with no such length, a new
+    // size costs a layout and nothing else.
+    void restyle(Tab& tab, bool for_the_viewport = false)
     {
         if (!tab.document)
             return;
         text::FontManager::instance().set_page_fonts(tab.fonts);
         css::MediaContext const media = media_context();
-        if (!tab.style_set || tab.style_media.width != media.width
-            || tab.style_media.height != media.height || tab.style_media.device_scale != media.device_scale) {
+        bool const same_viewport = tab.style_media.width == media.width && tab.style_media.height == media.height
+            && tab.style_media.device_scale == media.device_scale;
+        bool compiled = false;
+        if (!tab.style_set || (!same_viewport && !tab.style_set->same_rules_for(media))) {
+            Stopwatch const compiling(profile.sheets_ms);
             net::Url const* const page_url
                 = tab.index < tab.history.size() ? &tab.history[tab.index].final_url : nullptr;
             tab.style_set.emplace(tab.sheets, media, page_url);
@@ -1652,8 +1672,13 @@ struct Browser::Impl {
                     return !policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);
                 });
             }
-            tab.style_media = media;
+            compiled = true;
+        } else if (!same_viewport) {
+            tab.style_set->set_viewport(media.width, media.height);
         }
+        tab.style_media = media;
+        if (for_the_viewport && !compiled && !tab.styles.empty() && !tab.style_set->viewport_lengths())
+            return; // the same rules, and nothing in them measured against the viewport
         {
             Stopwatch const resolving(profile.restyle_ms);
             tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
@@ -1691,6 +1716,9 @@ struct Browser::Impl {
         // have set its own since.
         text::FontManager::instance().set_page_fonts(tab.fonts);
         ChromeLayout const c = layout_chrome();
+        tab.laid_out_width = c.content.width;
+        tab.laid_out_height = c.content.height;
+        tab.laid_out_scale = scale;
         layout::EmbeddedStates const embedded = tab.realm ? bindings::embedded_states(*tab.realm) : layout::EmbeddedStates {};
         {
             Stopwatch const laying_out(profile.relayout_ms);
@@ -2053,10 +2081,24 @@ struct Browser::Impl {
     // since they were last computed. Called before anything reads them.
     void ensure_fresh(Tab& tab)
     {
-        if (!tab.realm || !tab.document || tab.page_mutations == tab.realm->tree_mutation_count())
+        if (!tab.document)
             return;
-        refresh_page(tab);
-        dirty = true;
+        if (tab.realm && tab.page_mutations != tab.realm->tree_mutation_count()) {
+            refresh_page(tab); // styles and layout both, for the viewport as it is
+            dirty = true;
+            return;
+        }
+        // Laid out for another viewport — the window has changed size or
+        // scale since, or the find bar or the developer tools took room.
+        ChromeLayout const c = layout_chrome();
+        if (tab.laid_out_width != c.content.width || tab.laid_out_height != c.content.height
+            || tab.laid_out_scale != scale) {
+            restyle(tab, true);
+            relayout(tab);
+            if (&tab == active_tab())
+                refresh_hover();
+            dirty = true;
+        }
     }
 
     // How many of a page's pictures one pass fetches: the page shows after
@@ -3569,6 +3611,10 @@ struct Browser::Impl {
 
     void update_hover(int x, int y)
     {
+        // What is under the pointer is asked of the page as it is laid out
+        // for the window as it is now.
+        if (Tab* const front = active_tab())
+            ensure_fresh(*front);
         int const from_x = mouse_x;
         int const from_y = mouse_y;
         mouse_x = x;
@@ -6388,6 +6434,10 @@ struct Browser::Impl {
 
     void key_down(KeyEvent const& key)
     {
+        // A key scrolls, selects and moves through the page as it is laid
+        // out for the window as it is now.
+        if (Tab* const front = active_tab())
+            ensure_fresh(*front);
         clear_preedit();
         note_activation();
         // An open menu takes every key.
@@ -7362,12 +7412,7 @@ void Browser::set_scale(float scale)
     m_impl->close_menus(); // hung from a point of the old geometry
     m_impl->scale = clamped;
     m_impl->theme = m_impl->base_theme.scaled(clamped);
-    m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
-    for (Impl::Tab& tab : m_impl->tabs) {
-        m_impl->restyle(tab);
-        m_impl->relayout(tab);
-    }
-    m_impl->refresh_hover();
+    // Nothing is laid out here: see resize().
     m_impl->dirty = true;
 }
 
@@ -7389,15 +7434,17 @@ void Browser::set_theme_gallery_source(std::string address) { m_impl->theme_gall
 
 void Browser::resize(int width, int height)
 {
+    // The size is taken, and that is all: no tab is laid out and no frame is
+    // made. A window being dragged goes through dozens of sizes a second,
+    // and a page laid out for each — every tab's, as this once did — is a
+    // window that answers nothing for as long as the queue of sizes lasts.
+    // The tab in front is laid out for the size there is when the next
+    // frame is asked for (frame, ensure_fresh); the others when shown.
+    if (std::max(width, 1) == m_impl->width && std::max(height, 1) == m_impl->height)
+        return;
     m_impl->close_menus(); // hung from a point of the old geometry
     m_impl->width = std::max(width, 1);
     m_impl->height = std::max(height, 1);
-    m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
-    for (Impl::Tab& tab : m_impl->tabs) {
-        m_impl->restyle(tab);
-        m_impl->relayout(tab);
-    }
-    m_impl->refresh_hover();
     m_impl->dirty = true;
 }
 
@@ -7578,6 +7625,13 @@ std::string Browser::console_text() const
 
 Bitmap const& Browser::frame()
 {
+    // The frame is made at the window's size when one is asked for, and not
+    // as the sizes come in (see resize); the tab in front is laid out for
+    // that size here, once.
+    if (m_impl->frame.width() != m_impl->width || m_impl->frame.height() != m_impl->height) {
+        m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
+        m_impl->dirty = true;
+    }
     if (Impl::Tab* const tab = m_impl->active_tab())
         m_impl->ensure_fresh(*tab);
     if (m_impl->dirty)

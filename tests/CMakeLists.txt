@@ -226,6 +226,9 @@ add_test(NAME shell_theme_download
 add_test(NAME shell_status
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/status.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_resize
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/resize.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_tabs
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/tabs.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
