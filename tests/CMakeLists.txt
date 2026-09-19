@@ -235,6 +235,14 @@ add_test(NAME shell_pointing
 add_test(NAME shell_tabs
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/tabs.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# An option only a windowless run reads, with no such run named, opens
+# nothing. Were it to, the window would be on a profile of the test's own
+# and would close itself at once.
+add_test(NAME cli_windowless_option_needs_its_run
+  COMMAND sashfold --dump-layout ${CMAKE_CURRENT_SOURCE_DIR}/shell/cookie.html
+    --profile ${CMAKE_BINARY_DIR}/test-cli-profile --exit-after 1)
+set_tests_properties(cli_windowless_option_needs_its_run PROPERTIES
+  PASS_REGULAR_EXPRESSION "--dump-layout goes with --render, --bench or --script")
 # A page's script heap under a ceiling of 40 MB, which the script's page runs into.
 add_test(NAME shell_memory
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/memory.script

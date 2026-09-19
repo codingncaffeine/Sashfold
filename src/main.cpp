@@ -2087,6 +2087,12 @@ int main(int argc, char** argv)
     long memory_ceiling_mb = -1; // the whole process, MB, for the window's memory watch; the same
     bool update_goldens = false;
     RenderExtras extras;
+    // The first option met that only a run without a window reads: given
+    // with no such run named, the command is a mistyped one.
+    std::string windowless_option;
+    static constexpr std::string_view windowless_options[] = { "--dump-layout", "--no-scripts",
+        "--script-time", "--report", "--gaps", "--thumbnail", "--thumbnail-width", "--max-height", "-o",
+        "--output", "--runs", "--update-goldens" };
 
     auto const value_after = [&](std::size_t& i, std::string& into) {
         if (i + 1 >= args.size()) {
@@ -2098,6 +2104,9 @@ int main(int argc, char** argv)
     };
     for (std::size_t i = 0; i < args.size(); ++i) {
         std::string const& arg = args[i];
+        if (windowless_option.empty()
+            && std::ranges::find(windowless_options, arg) != std::end(windowless_options))
+            windowless_option = arg;
         if (arg == "--theme") {
             if (!value_after(i, theme_path))
                 return usage(argv[0]);
@@ -2215,6 +2224,15 @@ int main(int argc, char** argv)
         } else {
             start_url = arg;
         }
+    }
+
+    // With no run named the window opens, on the reader's own profile. An
+    // option only a windowless run reads says that is not what was meant —
+    // `--dump-layout page.html` with `--render` left out — so nothing opens.
+    if (mode.empty() && !windowless_option.empty()) {
+        std::cerr << "error: " << windowless_option
+                  << " goes with --render, --bench or --script, and none was named; no window was opened\n";
+        return usage(argv[0]);
     }
 
     // The machine's fonts serve the window, --render and --bench. The script
