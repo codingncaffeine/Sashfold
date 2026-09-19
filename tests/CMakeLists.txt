@@ -214,6 +214,9 @@ add_test(NAME shell_newtab_colors
 add_test(NAME shell_theme_import
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/theme-import.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_theme_download
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/theme-download.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_status
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/status.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

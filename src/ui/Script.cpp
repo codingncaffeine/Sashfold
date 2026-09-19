@@ -382,6 +382,16 @@ struct Runner {
                 return fail("import-theme: " + argument + " was not converted:" + said);
             }
             browser.set_theme(*theme);
+        } else if (command == "themes-folder") {
+            // `themes-folder`: the shell is given a themes folder of the
+            // reader's own, as the window gives it the profile's — a folder
+            // of the system's temporary ones, emptied first — so that a
+            // theme a script downloads is converted and put on.
+            std::filesystem::path const folder = std::filesystem::temp_directory_path() / "sashfold-script-themes-folder";
+            std::error_code error;
+            std::filesystem::remove_all(folder, error);
+            std::filesystem::create_directories(folder, error);
+            browser.set_user_themes_directory(folder.string());
         } else if (command == "assert-theme-problem") {
             // `assert-theme-problem none`, or `assert-theme-problem <text>`:
             // what the theme in use could not put on — a picture it names

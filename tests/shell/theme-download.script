@@ -1,0 +1,43 @@
+# A theme of Firefox's or Chrome's that the reader DOWNLOADS — the way a
+# theme store hands one to a browser that is not its own — is saved like any
+# download and, being a theme, converted into the reader's themes folder,
+# offered among the themes from then on, and put on at once. Anything else
+# that arrives stays the download it was. (The shell is given a themes folder
+# as the window gives it the profile's; the fixtures are theme-import's:
+# Sample Fox's frame is #203040 with a green pixel at the top right picture's
+# corner, Sample Chrome's frame is what theme-import.script reads.)
+resize 800 500
+open data:text/html,<title>Before</title><p>x</p>
+assert-theme Sashfold
+# With no themes folder to convert into, a theme is a download like any other.
+open ../fixtures/themes/firefox-sample.xpi
+assert-status Downloaded firefox-sample
+assert-theme Sashfold
+themes-folder
+open ../fixtures/themes/firefox-sample.xpi
+assert-status Theme put on: Sample Fox
+assert-theme Sample Fox
+assert-theme-problem none
+assert-pixel 759 0 #203040
+assert-pixel 760 0 #00ff00
+# It is among the themes from now on, and the one in use.
+main-menu
+menu Themes
+assert-menu High Contrast | Nord | Sashfold | Sashfold Light | Solarized Dark | *Sample Fox
+key Escape
+key Escape
+# A Chrome theme the same way; downloading the first again offers it once.
+open ../fixtures/themes/chrome-sample.crx
+assert-status Theme put on: Sample Chrome
+assert-theme Sample Chrome
+open ../fixtures/themes/firefox-sample.xpi
+assert-theme Sample Fox
+main-menu
+menu Themes
+assert-menu High Contrast | Nord | Sashfold | Sashfold Light | Solarized Dark | *Sample Fox | Sample Chrome
+key Escape
+key Escape
+# A zip of something else is a download and nothing more: the theme stays.
+open ../fixtures/themes/not-a-theme.zip
+assert-status Downloaded not-a-theme
+assert-theme Sample Fox

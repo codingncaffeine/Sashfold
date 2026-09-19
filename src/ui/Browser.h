@@ -216,6 +216,11 @@ public:
     // page stays as it is, and every other tab goes on. For the pages opened
     // from now on.
     void set_js_heap_limit(std::size_t bytes);
+    // The reader's own themes folder. With one set, a download that is a
+    // Firefox or Chrome theme (an .xpi, a .crx) is converted into it, offered
+    // among the themes from then on, and put on at once; the file itself is
+    // saved like any download. Empty (as unsaid): a download is a download.
+    void set_user_themes_directory(std::string directory);
     void resize(int width, int height);
     int width() const;
     int height() const;

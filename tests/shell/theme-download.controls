@@ -1,0 +1,24 @@
+# Planted-fault controls for tests/shell/theme-download.script: a theme of another browser's, downloaded, is converted into the reader's themes, offered once, and put on.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/theme-download.script
+
+control adopt
+file src/ui/Browser.cpp
+fails 18 19 21 22 26 31 32 34 37 43
+plant s~adopt_downloaded_theme\(saved\.path, type\)\)~adopt_downloaded_theme(std::string(), type))~
+
+control once
+file src/ui/Browser.cpp
+fails 37
+plant s~        if \(!offered\)\n~        if (offered || !offered)\n~
+
+control puton
+file src/ui/Browser.cpp
+fails 19 21 22 26 32 34 37 43
+plant s~        put_on_theme\(\*written\);\n        return converted->name;~        return converted->name;~
+
+control folder
+file src/ui/Browser.cpp
+fails 14 15 26 37
+plant s~        if \(user_themes_directory\.empty\(\)\)\n            return std::nullopt;~        if (user_themes_directory.size() > 4096)\n            return std::nullopt;~
+

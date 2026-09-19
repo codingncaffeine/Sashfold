@@ -1730,6 +1730,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         std::filesystem::create_directories(user_themes, error);
     convert_dropped_themes(user_themes);
     browser.set_theme_presets(all_theme_presets(theme_path, user_themes));
+    browser.set_user_themes_directory(user_themes); // a theme downloaded is converted here and put on at once
     // The cache lives in the profile too: what was fetched last time is
     // there, and a page that has not changed costs a conditional request.
     if (!profile_path.empty())

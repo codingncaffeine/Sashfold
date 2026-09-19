@@ -23,6 +23,7 @@
 #include "ui/InternalPages.h"
 #include "ui/Reader.h"
 #include "ui/SourceSet.h"
+#include "ui/ThemeImport.h"
 
 #include <algorithm>
 #include <cctype>
@@ -613,6 +614,9 @@ struct Browser::Impl {
     Hover pressed = Hover::None;
     float scale = 1; // device px per CSS px; the window's sizes and coordinates are device px
     std::string downloads_directory;
+    // The reader's own themes (the profile's themes folder): where a theme
+    // of another browser's, downloaded, is converted into. Empty: none is.
+    std::string user_themes_directory;
     int width;
     int height;
     std::vector<Tab> tabs;
@@ -2690,8 +2694,42 @@ struct Browser::Impl {
         }
         set_document(entry,
             download_page(saved.file_name, saved.path, response.body.size(), type, saved.marked));
+        // A theme of Firefox's or Chrome's, downloaded: it is converted into
+        // the reader's themes and put on, as one dropped into that folder is.
+        if (std::optional<std::string> const put_on = adopt_downloaded_theme(saved.path, type))
+            return "Theme put on: " + *put_on + " \xe2\x80\x94 it is under Themes in the menu from now on";
         return "Downloaded " + saved.file_name + " (" + std::to_string(response.body.size())
             + " bytes)";
+    }
+
+    // A download that is a browser theme — by its name (.xpi, .crx, .zip) or
+    // by the type it came as — and converts as one: written among the
+    // reader's themes, offered from now on, and put on. Its name; nothing
+    // for a download that is anything else (an extension that is no theme, a
+    // zip of something else), which stays the download it was.
+    std::optional<std::string> adopt_downloaded_theme(std::string const& path, std::string const& type)
+    {
+        if (user_themes_directory.empty())
+            return std::nullopt;
+        bool const typed = ascii_ci_equals(type, "application/x-xpinstall")
+            || ascii_ci_equals(type, "application/x-chrome-extension");
+        if (!typed && !is_browser_theme_path(path))
+            return std::nullopt;
+        std::vector<std::string> problems;
+        std::optional<ImportedTheme> const imported = import_browser_theme_from(path, &problems);
+        if (!imported)
+            return std::nullopt;
+        std::optional<std::string> const written = write_imported_theme(*imported,
+            (std::filesystem::path(user_themes_directory) / "converted").string(), &problems);
+        std::optional<Theme> const converted = written ? Theme::load(*written, &problems) : std::nullopt;
+        if (!converted)
+            return std::nullopt;
+        bool const offered = std::any_of(theme_presets.begin(), theme_presets.end(),
+            [&](Browser::ThemePreset const& preset) { return preset.path == *written; });
+        if (!offered)
+            theme_presets.push_back({ converted->name, *written });
+        put_on_theme(*written);
+        return converted->name;
     }
 
     void show_internal(std::string const& html, net::Url const& url, std::string const& status)
@@ -7232,6 +7270,11 @@ void Browser::set_downloads_directory(std::string directory)
 }
 
 void Browser::set_js_heap_limit(std::size_t bytes) { m_impl->js_heap_limit = bytes; }
+
+void Browser::set_user_themes_directory(std::string directory)
+{
+    m_impl->user_themes_directory = std::move(directory);
+}
 
 void Browser::resize(int width, int height)
 {
