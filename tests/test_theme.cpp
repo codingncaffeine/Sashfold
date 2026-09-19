@@ -96,6 +96,43 @@ int main(int argc, char** argv)
         CHECK(mentions("sounds: unknown section"));
         CHECK(mentions("name: expected a string"));
     }
+    // --- A surface's own tokens follow the theme's, unless the file names them ---
+    {
+        // A theme written before menus existed dresses them in its own
+        // colors, never in the built-in dark ones.
+        std::vector<std::string> problems;
+        Theme const light = Theme::from_json(
+            "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"chrome-text\": \"#101216\","
+            "  \"chrome-text-muted\": \"#5c6370\", \"address-border\": \"#c5c9d2\","
+            "  \"button-hover-background\": \"#dfe2e8\", \"button-disabled-text\": \"#a0a6b2\" } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(light.popup_background == Color::rgb(0xf1, 0xf2, 0xf4));
+        CHECK(light.popup_text == Color::rgb(0x10, 0x12, 0x16));
+        CHECK(light.popup_text_muted == Color::rgb(0x5c, 0x63, 0x70));
+        CHECK(light.popup_border == Color::rgb(0xc5, 0xc9, 0xd2));
+        CHECK(light.popup_highlight == Color::rgb(0xdf, 0xe2, 0xe8));
+        CHECK(light.popup_highlight_text == Color::rgb(0x10, 0x12, 0x16));
+        CHECK(light.popup_disabled_text == Color::rgb(0xa0, 0xa6, 0xb2));
+        CHECK(!(light.popup_background == Theme {}.popup_background)); // the control: it moved
+
+        // Named, a token is what the file says, whatever it would derive from.
+        Theme const named = Theme::from_json(
+            "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"popup-background\": \"#202020\","
+            "  \"popup-highlight-text\": \"#ffffff\" } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(named.popup_background == Color::rgb(0x20, 0x20, 0x20));
+        CHECK(named.popup_highlight_text == Color::rgb(0xff, 0xff, 0xff));
+        CHECK(named.popup_text == Theme {}.chrome_text); // not named: derived, from a token left at its default
+
+        // Named with something that is no color, it is reported and derived.
+        Theme const broken = Theme::from_json(
+            "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"popup-background\": \"paper\" } }", &problems);
+        CHECK_EQ(problems.size(), std::size_t { 1 });
+        CHECK(broken.popup_background == Color::rgb(0xf1, 0xf2, 0xf4));
+    }
+
     // --- The pictures folder is named relative to the theme file ---------------
     {
         std::filesystem::path const dir = std::filesystem::temp_directory_path() / "sashfold-test-theme";

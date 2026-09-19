@@ -1,0 +1,246 @@
+# Menus: a right click opens the menu of what it landed on — the page, a
+# link, a picture, a selection, a field, a tab, the address bar — and the
+# button at the toolbar's right end opens the window's main menu. The page
+# hears contextmenu first and may keep the shell's menu away, unless the
+# reader holds Shift. The keyboard works a menu too, and an open menu
+# holds the pointer: a press beside it closes it and does nothing more.
+resize 900 600
+open data:text/html,<title>Menus</title><body style="margin:0"><p style="margin:10px">Plain words and a <a href="data:text/html,<title>Second</title><p>Landed.">link</a> to follow.</p><p style="margin:10px" oncontextmenu="event.preventDefault();document.title='asked'">guarded</p><img width=40 height=40 style="position:absolute;left:20px;top:120px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="><input name=q value=hello style="position:absolute;left:20px;top:200px;width:200px"><div style="height:2000px"></div>
+assert-title Menus
+assert-menu
+
+# The page's own menu: Back leads to the blank page the tab opened on, and
+# there is nowhere forward to go.
+right-click-text Plain
+assert-menus 1
+assert-menu Back | (Forward) | Reload | - | Select all | - | View page source | - | Inspect
+key Escape
+assert-menus 0
+
+# A press beside an open menu closes it, and that is all it does: the link
+# under the press is not followed. The wheel moves nothing meanwhile.
+right-click-text Plain
+wheel -3
+assert-scroll 0
+click-text link
+assert-menus 0
+assert-title Menus
+
+# A link's menu. Its address goes to the clipboard as the page wrote it.
+right-click-text link
+assert-menu Open link in new tab | Open link in new container tab > | - | Copy link address | - | Inspect
+menu Copy link address
+assert-menus 0
+assert-clipboard data:text/html,<title>Second</title><p>Landed.
+right-click-text link
+menu Open link in new tab
+assert-tabs 2
+assert-title Second
+close-tab
+assert-tabs 1
+assert-title Menus
+
+# The submenu opens beside its item, and its choice opens the link in a
+# tab of that container.
+right-click-text link
+menu Open link in new container tab
+assert-menus 2
+assert-menu No container | Personal | Work | Banking | Shopping
+menu Work
+assert-menus 0
+assert-tabs 2
+assert-container Work
+assert-title Second
+close-tab
+
+# Ctrl with a click opens the link in a tab of its own.
+ctrl-click-text link
+assert-tabs 2
+assert-title Second
+close-tab
+assert-title Menus
+
+# The pointer over an item that has a submenu opens it; over another item
+# it closes again. Escape closes the innermost menu, then the rest.
+right-click-text link
+menu-hover 0 1
+assert-menus 2
+menu-hover 0 0
+assert-menus 1
+menu-hover 0 1
+assert-menus 2
+assert-golden goldens/menus-link.png
+key Escape
+assert-menus 1
+key Escape
+assert-menus 0
+
+# The keyboard: the Menu key opens the page's menu, the arrows pass over
+# what cannot be chosen and wrap, Right opens a submenu and Left closes it,
+# a letter goes to the item that begins with it, Enter chooses.
+key Menu
+assert-menus 1
+key Down
+key Down
+key Enter
+assert-menus 0
+assert-title Menus
+assert-status Done
+key shift+F10
+assert-menus 1
+type i
+key Enter
+assert-inspected html
+key F12
+right-click-text link
+key Down
+key Down
+key Right
+assert-menus 2
+key Down
+key Left
+assert-menus 1
+key Right
+key Down
+key Down
+key Enter
+assert-container Work
+close-tab
+
+# A page that answers contextmenu itself keeps the shell's menu away;
+# Shift with the click shows it regardless.
+right-click-text guarded
+assert-menus 0
+assert-title asked
+shift-right-click-text guarded
+assert-menus 1
+key Escape
+
+# A selection brings Copy.
+select-text words
+right-click-text words
+assert-menu Copy | - | Inspect
+menu Copy
+assert-clipboard words
+key Escape
+
+# A picture's menu. Saving it puts it in the downloads folder, as a download.
+right-click 40 216
+assert-menu Open image in new tab | Copy image address | Save image | - | Inspect
+menu Save image
+assert-status Saved download
+assert-status .png to 
+right-click 40 216
+menu Copy image address
+assert-clipboard data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+
+# A field takes the focus and offers Paste; it has no selection of its own,
+# so nothing to cut or copy.
+set-clipboard there
+right-click 100 288
+assert-focused q
+assert-menu (Cut) | (Copy) | Paste | - | Inspect
+menu Paste
+assert-value q hellothere
+key Escape
+
+# A tab's menu: the tabs beside it close, the one asked about stays.
+new-tab
+new-tab
+assert-tabs 3
+right-click-tab 0
+assert-menu New tab | - | Reload tab | - | Close tab | Close other tabs | Close tabs to the right
+menu Close tabs to the right
+assert-tabs 1
+assert-title asked
+right-click-tab 0
+assert-menu New tab | - | Reload tab | - | Close tab | (Close other tabs) | (Close tabs to the right)
+menu New tab
+assert-tabs 2
+right-click-tab 0
+menu Close other tabs
+assert-tabs 1
+assert-title asked
+
+# The address bar's menu: Cut empties it into the clipboard, Paste and go
+# navigates to what the clipboard holds.
+right-click-address
+assert-focus address
+assert-menu Cut | Copy | Paste | Paste and go | - | Select all
+menu Cut
+assert-address
+set-clipboard data:text/html,<title>Pasted</title><p>Went there.
+right-click-address
+assert-menu (Cut) | (Copy) | Paste | Paste and go | - | (Select all)
+menu Paste and go
+assert-title Pasted
+back
+assert-title Menus
+
+# The main menu, hung from its button: the theme in use is checked, a
+# theme chosen is put on, and a second press on the button closes it.
+main-menu
+assert-menus 1
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | - | Themes > | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
+main-menu
+assert-menus 0
+main-menu
+menu Themes
+assert-menu High Contrast | Nord | *Sashfold | Sashfold Light | Solarized Dark
+assert-golden goldens/menus-main.png
+menu Nord
+assert-theme Nord
+main-menu
+menu Themes
+assert-menu High Contrast | *Nord | Sashfold | Sashfold Light | Solarized Dark
+menu Sashfold
+assert-theme Sashfold
+main-menu
+menu Developer tools
+main-menu
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | - | Themes > | Command palette | - | *Developer tools | View page source | - | About Sashfold | Quit
+menu Developer tools
+main-menu
+menu New container tab
+menu Banking
+assert-container Banking
+close-tab
+
+# The button pressed and let go where it is leaves the menu open; held
+# down, the pointer slid to an item, and let go there, it chooses the item.
+press 880 56
+assert-menus 1
+release
+assert-menus 1
+key Escape
+press 880 56
+menu-hover 0 0
+release
+assert-menus 0
+assert-tabs 2
+close-tab
+
+# A menu opens with its first item a hair from the pointer: a click that
+# shakes onto it chooses nothing, a slide onto it does.
+press 205 96 3
+assert-menu Open link in new tab | Open link in new container tab > | - | Copy link address | - | Inspect
+move 210 101
+release 3
+assert-menus 1
+assert-tabs 1
+key Escape
+press 205 96 3
+move 260 115
+release 3
+assert-menus 0
+assert-tabs 2
+assert-title Second
+close-tab
+
+# Quit asks the window to close.
+assert-window-request none
+main-menu
+menu Quit
+assert-window-request close
+key ctrl+shift+q
+assert-window-request close

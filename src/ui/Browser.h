@@ -123,6 +123,13 @@ struct HistoryEntry {
     bool unloaded = false;
 };
 
+// One open menu as the chrome lays it out: its box, and a row for every
+// item in order, a separator's thin row included.
+struct MenuBox {
+    Rect box;
+    std::vector<Rect> rows;
+};
+
 struct ChromeLayout {
     Rect tab_strip;
     Rect toolbar;
@@ -132,6 +139,7 @@ struct ChromeLayout {
     Rect forward_button;
     Rect reload_button;
     Rect reader_button;
+    Rect menu_button; // the main menu, at the toolbar's right end
     Rect new_tab_button;
     Rect address;
     Rect find_bar; // empty unless the find bar is open
@@ -142,6 +150,7 @@ struct ChromeLayout {
     Rect palette; // empty unless the command palette is open
     Rect palette_box; // its query box
     std::vector<Rect> palette_rows; // the commands shown, top to bottom
+    std::vector<MenuBox> menus; // the open menu, then each submenu open from it; empty when none is
     std::vector<Rect> tabs;
     std::vector<Rect> tab_close_buttons;
     // The window's own controls at the tab strip's right end, drawn only
@@ -209,7 +218,10 @@ public:
 
     // --- Input, window coordinates ------------------------------------------
     void mouse_move(int x, int y);
-    void mouse_down(int x, int y, int button); // 1 left, 2 middle, 3 right
+    // 1 left, 2 middle, 3 right; with the keys held as it went down — Ctrl
+    // with a click on a link opens it in a new tab, Shift with a right
+    // click shows the shell's menu whatever the page says.
+    void mouse_down(int x, int y, int button, platform::Modifiers modifiers = {});
     void mouse_up(int x, int y, int button);
     void wheel(int x, int y, int notches); // positive scrolls the content up
     // The content under (x, y) moves by dx, dy device px: a finger's drag,
@@ -305,6 +317,26 @@ public:
     };
     void set_theme_presets(std::vector<ThemePreset> presets);
     std::optional<std::string> take_theme_request();
+
+    // --- Menus --------------------------------------------------------------
+    // A right click, the Menu key or Shift+F10 opens a menu for what is
+    // under the pointer — a link, a picture, a selection, a field, the
+    // page; a tab; the address bar — and the button at the toolbar's right
+    // end opens the window's main menu. The page hears `contextmenu`
+    // first and may keep the shell's menu away; Shift with the click shows
+    // it regardless. The arrow keys move along a menu and into a submenu,
+    // Enter runs the highlighted item, Escape closes the innermost menu,
+    // and a press anywhere else closes them all and does nothing more.
+    bool menu_open() const;
+    // The innermost open menu's items in order, joined by " | ": a
+    // separator as "-", an item that cannot be chosen in parentheses, a
+    // checked one after "*", one that opens a submenu before ">". Empty
+    // when no menu is open.
+    std::string menu_text() const;
+    // Chooses the first item with this label that can be chosen, innermost
+    // menu first: runs it, or opens its submenu. False when there is none.
+    bool choose_menu_item(std::string const& label);
+    void open_main_menu();
 
     // --- Storage ------------------------------------------------------------
     // Every page's localStorage — an area per container and origin, kept

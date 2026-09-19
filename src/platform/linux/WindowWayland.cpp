@@ -329,7 +329,9 @@ Key named_key(std::uint32_t keysym)
     case 0xff55: case 0xff9a: return Key::PageUp;
     case 0xff56: case 0xff9b: return Key::PageDown;
     case 0xffc2: return Key::F5;
+    case 0xffc7: return Key::F10;
     case 0xffc9: return Key::F12;
+    case 0xff67: return Key::Menu;
     default: return Key::None;
     }
 }
@@ -1297,6 +1299,9 @@ void WaylandWindow::listen_pointer()
             event.x = m_pointer_x;
             event.y = m_pointer_y;
             event.button = number;
+            event.modifiers.ctrl = (m_mods & xkb::control_mask) != 0;
+            event.modifiers.shift = (m_mods & xkb::shift_mask) != 0;
+            event.modifiers.alt = (m_mods & m_alt_mask) != 0;
             push(event);
             break;
         }

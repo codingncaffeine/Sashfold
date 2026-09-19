@@ -44,6 +44,24 @@ struct Theme {
     Color secure_indicator = Color::rgb(0x5c, 0xc8, 0x8a);
     Color insecure_indicator = Color::rgb(0xe0, 0x6c, 0x5c);
 
+    // Surfaces with tokens of their own, each derived from one of the
+    // tokens above when a theme file does not name it (so a theme written
+    // before the surface existed still dresses it, in its own colors), and
+    // each the counterpart of a key browser themes carry: a Firefox or
+    // Chrome theme's colors land on these one to one.
+    //
+    // Whatever pops up over the window — a menu, the command palette:
+    // Firefox's popup, popup_border, popup_text, popup_highlight and
+    // popup_highlight_text, and the two dimmer texts those themes get by
+    // fading popup_text.
+    Color popup_background = Color::rgb(0x1f, 0x22, 0x28); // chrome-background
+    Color popup_border = Color::rgb(0x3a, 0x40, 0x4b); // address-border
+    Color popup_text = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
+    Color popup_text_muted = Color::rgb(0x8f, 0x96, 0xa3); // chrome-text-muted: a shortcut, a row not highlighted
+    Color popup_disabled_text = Color::rgb(0x55, 0x5b, 0x66); // button-disabled-text
+    Color popup_highlight = Color::rgb(0x33, 0x39, 0x44); // button-hover-background
+    Color popup_highlight_text = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
+
     // Metrics, px.
     int tab_strip_height = 36;
     int tab_height = 30;

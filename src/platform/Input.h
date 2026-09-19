@@ -23,13 +23,22 @@ enum class Key {
     PageUp,
     PageDown,
     F5,
+    F10,
     F12,
+    Menu, // the key that asks for a context menu
     Letter, // a letter or digit key; KeyEvent::letter holds it, uppercase
 };
 
 struct KeyEvent {
     Key key = Key::None;
     char32_t letter = 0; // 'A'..'Z' or '0'..'9' when key == Key::Letter
+    bool ctrl = false;
+    bool shift = false;
+    bool alt = false;
+};
+
+// The keys held while a mouse button went down.
+struct Modifiers {
     bool ctrl = false;
     bool shift = false;
     bool alt = false;

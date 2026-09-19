@@ -43,6 +43,32 @@ constexpr Token<Color> color_tokens[] = {
     { "content-background", &Theme::content_background },
     { "secure-indicator", &Theme::secure_indicator },
     { "insecure-indicator", &Theme::insecure_indicator },
+    { "popup-background", &Theme::popup_background },
+    { "popup-border", &Theme::popup_border },
+    { "popup-text", &Theme::popup_text },
+    { "popup-text-muted", &Theme::popup_text_muted },
+    { "popup-disabled-text", &Theme::popup_disabled_text },
+    { "popup-highlight", &Theme::popup_highlight },
+    { "popup-highlight-text", &Theme::popup_highlight_text },
+};
+
+// A token a theme file may leave out takes the theme's own value of
+// another, never the built-in default: a light theme written before menus
+// existed gets light menus.
+struct Derived {
+    char const* key;
+    Color Theme::*member;
+    Color Theme::*source;
+};
+
+constexpr Derived derived_colors[] = {
+    { "popup-background", &Theme::popup_background, &Theme::chrome_background },
+    { "popup-border", &Theme::popup_border, &Theme::address_border },
+    { "popup-text", &Theme::popup_text, &Theme::chrome_text },
+    { "popup-text-muted", &Theme::popup_text_muted, &Theme::chrome_text_muted },
+    { "popup-disabled-text", &Theme::popup_disabled_text, &Theme::button_disabled_text },
+    { "popup-highlight", &Theme::popup_highlight, &Theme::button_hover_background },
+    { "popup-highlight-text", &Theme::popup_highlight_text, &Theme::chrome_text },
 };
 
 constexpr Token<int> metric_tokens[] = {
@@ -180,6 +206,14 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
             return std::nullopt;
         },
         theme, problems);
+    // What the file did not name — or named with something that is no
+    // color — follows the token it derives from, as the file set that one.
+    JsonValue const* const colors = root->get("colors");
+    for (Derived const& derived : derived_colors) {
+        JsonValue const* const named = colors && colors->is_object() ? colors->get(derived.key) : nullptr;
+        if (!named || !named->is_string() || !parse_theme_color(named->as_string()))
+            theme.*(derived.member) = theme.*(derived.source);
+    }
     read_section(*root, "metrics", metric_tokens,
         [](JsonValue const& value, int& target) -> std::optional<std::string> {
             std::optional<int> const pixels = integer_in(value, 0, 4096);

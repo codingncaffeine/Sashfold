@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Png.h"
 #include "core/Unicode.h"
+#include "platform/Clipboard.h"
 #include "ui/Theme.h"
 
 #include <charconv>
@@ -99,7 +100,7 @@ std::optional<KeyEvent> parse_chord(std::string const& chord)
         { "tab", Key::Tab }, { "space", Key::Space }, { "left", Key::Left },
         { "right", Key::Right }, { "up", Key::Up }, { "down", Key::Down }, { "home", Key::Home },
         { "end", Key::End }, { "pageup", Key::PageUp }, { "pagedown", Key::PageDown },
-        { "f5", Key::F5 }, { "f12", Key::F12 },
+        { "f5", Key::F5 }, { "f10", Key::F10 }, { "f12", Key::F12 }, { "menu", Key::Menu },
     };
     for (auto const& [text, key] : named) {
         if (name == text) {
@@ -167,10 +168,10 @@ struct Runner {
         return net::parse_url("file://" + generic);
     }
 
-    void click(int x, int y, int button)
+    void click(int x, int y, int button, platform::Modifiers modifiers = {})
     {
         browser.mouse_move(x, y);
-        browser.mouse_down(x, y, button);
+        browser.mouse_down(x, y, button, modifiers);
         browser.mouse_up(x, y, button);
         settle();
     }
@@ -216,6 +217,100 @@ struct Runner {
             if (!at)
                 return fail("click-text: no text run contains \"" + argument + "\"");
             click(at->first, at->second, 1);
+        } else if (command == "right-click" || command == "shift-right-click") {
+            // `right-click <x> <y>`: the menu of what is there; with Shift,
+            // the shell's menu whatever the page says.
+            auto const x = int_arg(0);
+            auto const y = int_arg(1);
+            if (!x || !y)
+                return fail(command + ": needs x y");
+            platform::Modifiers modifiers;
+            modifiers.shift = command == "shift-right-click";
+            click(*x, *y, 3, modifiers);
+        } else if (command == "right-click-text" || command == "shift-right-click-text" || command == "ctrl-click-text") {
+            std::optional<std::pair<int, int>> const at = browser.find_text(argument);
+            if (!at)
+                return fail(command + ": no text run contains \"" + argument + "\"");
+            platform::Modifiers modifiers;
+            modifiers.shift = command == "shift-right-click-text";
+            modifiers.ctrl = command == "ctrl-click-text";
+            click(at->first, at->second, command == "ctrl-click-text" ? 1 : 3, modifiers);
+        } else if (command == "right-click-tab") {
+            // `right-click-tab <index>`: the menu of that tab in the strip.
+            auto const index = int_arg(0);
+            ChromeLayout const chrome = browser.chrome_layout();
+            if (!index || *index < 0 || static_cast<std::size_t>(*index) >= chrome.tabs.size())
+                return fail("right-click-tab: no such tab");
+            Rect const tab = chrome.tabs[static_cast<std::size_t>(*index)];
+            click(tab.x + tab.width / 3, tab.y + tab.height / 2, 3);
+        } else if (command == "right-click-address") {
+            Rect const address = browser.chrome_layout().address;
+            click(address.x + address.width / 2, address.y + address.height / 2, 3);
+        } else if (command == "main-menu") {
+            // `main-menu`: a click on the toolbar's menu button.
+            Rect const button = browser.chrome_layout().menu_button;
+            click(button.x + button.width / 2, button.y + button.height / 2, 1);
+        } else if (command == "menu") {
+            // `menu <label>`: chooses that item of the open menus, the
+            // innermost first — it runs, or its submenu opens.
+            if (!browser.choose_menu_item(argument))
+                return fail("menu: no item \"" + argument + "\" can be chosen; the menu is \"" + browser.menu_text() + "\"");
+            settle();
+        } else if (command == "menu-hover") {
+            // `menu-hover <level> <row>`: the pointer over that row of that
+            // open menu, the outermost being 0.
+            auto const level = int_arg(0);
+            auto const row = int_arg(1);
+            ChromeLayout const chrome = browser.chrome_layout();
+            if (!level || !row || *level < 0 || *row < 0 || static_cast<std::size_t>(*level) >= chrome.menus.size()
+                || static_cast<std::size_t>(*row) >= chrome.menus[static_cast<std::size_t>(*level)].rows.size())
+                return fail("menu-hover: no such row of an open menu");
+            Rect const at = chrome.menus[static_cast<std::size_t>(*level)].rows[static_cast<std::size_t>(*row)];
+            browser.mouse_move(at.x + at.width / 2, at.y + at.height / 2);
+        } else if (command == "menu-click") {
+            // `menu-click <level> <row>`: a press on that row, as a reader's.
+            auto const level = int_arg(0);
+            auto const row = int_arg(1);
+            ChromeLayout const chrome = browser.chrome_layout();
+            if (!level || !row || *level < 0 || *row < 0 || static_cast<std::size_t>(*level) >= chrome.menus.size()
+                || static_cast<std::size_t>(*row) >= chrome.menus[static_cast<std::size_t>(*level)].rows.size())
+                return fail("menu-click: no such row of an open menu");
+            Rect const at = chrome.menus[static_cast<std::size_t>(*level)].rows[static_cast<std::size_t>(*row)];
+            click(at.x + at.width / 2, at.y + at.height / 2, 1);
+        } else if (command == "press") {
+            // `press <x> <y> [<button>]` and, later, `release [<button>]`:
+            // the two halves of a click, for a button held while the
+            // pointer moves; the button is 1 when not given. The release
+            // lands wherever the pointer was last moved to.
+            auto const x = int_arg(0);
+            auto const y = int_arg(1);
+            int const button = int_arg(2).value_or(1);
+            if (!x || !y || button < 1 || button > 3)
+                return fail("press: needs x y and a button from 1 to 3");
+            browser.mouse_move(*x, *y);
+            browser.mouse_down(*x, *y, button);
+            settle();
+        } else if (command == "release") {
+            int const button = int_arg(0).value_or(1);
+            if (button < 1 || button > 3)
+                return fail("release: the button is 1, 2 or 3");
+            browser.mouse_up(0, 0, button); // the shell knows where the pointer is
+            settle();
+        } else if (command == "assert-menu") {
+            // `assert-menu <items>`: the innermost open menu, as
+            // Browser::menu_text writes it; nothing when none is open.
+            expect_equal("assert-menu", browser.menu_text(), argument);
+        } else if (command == "assert-menus") {
+            // `assert-menus <count>`: how many menus are open, submenus counted.
+            auto const count = int_arg(0);
+            if (!count)
+                return fail("assert-menus: needs a count");
+            expect_equal("assert-menus", std::to_string(browser.chrome_layout().menus.size()), std::to_string(*count));
+        } else if (command == "assert-clipboard") {
+            // `assert-clipboard <text>`: what the process's clipboard holds.
+            expect_equal("assert-clipboard", platform::read_clipboard_text().value_or(""), argument);
+        } else if (command == "set-clipboard") {
+            platform::write_clipboard_text(argument);
         } else if (command == "move") {
             auto const x = int_arg(0);
             auto const y = int_arg(1);

@@ -37,6 +37,7 @@ struct WindowEvent {
     int height = 0;
     float scale = 1; // Scale: the display's device pixels per CSS px, from now on
     int button = 0; // 1 left, 2 middle, 3 right
+    Modifiers modifiers; // MouseDown: the keys held as the button went down
     int wheel = 0; // notches; positive rolls away from the user
     // Scroll: the content under (x, y) moves by this many device pixels —
     // positive scroll_y brings what is below into view, as a wheel rolled

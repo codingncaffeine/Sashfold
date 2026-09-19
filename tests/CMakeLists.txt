@@ -187,6 +187,9 @@ add_test(NAME shell_containers
 add_test(NAME shell_palette
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/palette.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_menus
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/menus.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_hidpi
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/hidpi.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

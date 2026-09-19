@@ -21,6 +21,7 @@
 #include "ui/Downloads.h"
 #include "ui/InternalPages.h"
 #include "ui/Reader.h"
+#include "ui/SourceSet.h"
 
 #include <algorithm>
 #include <cctype>
@@ -49,6 +50,9 @@ constexpr char32_t glyph_close = 0x00D7;
 constexpr char32_t glyph_plus = U'+';
 constexpr char32_t glyph_ellipsis = 0x2026;
 constexpr char32_t glyph_reader = 0x00B6; // the pilcrow: reader mode
+constexpr char32_t glyph_menu = 0x2261; // three bars: the main menu
+constexpr char32_t glyph_submenu = 0x203A; // an item that opens a menu of its own
+constexpr char32_t glyph_check = 0x2713;
 
 constexpr float font_ascent_ratio = 25.0f / 32.0f;
 constexpr float font_descent_ratio = 7.0f / 32.0f;
@@ -480,6 +484,9 @@ struct Browser::Impl {
         DragHandle,
         Palette, // the command palette's own box
         PaletteRow, // one of its commands, hover_index says which of the rows shown
+        MenuButton, // the main menu's button in the toolbar
+        Menu, // an open menu's box, off its rows
+        MenuRow, // an item that can be chosen: hover_level says which menu, hover_index which item
     };
 
     Loader& loader;
@@ -517,6 +524,7 @@ struct Browser::Impl {
     int mouse_y = -1;
     Hover hover = Hover::None;
     std::size_t hover_index = 0;
+    std::size_t hover_level = 0; // which of the open menus, for Hover::MenuRow
     std::optional<net::Url> hover_link;
     dom::Element const* hover_link_frame = nullptr; // the frame the link under the pointer is in, when it is in one
     std::string hover_link_target; // that link's target attribute
@@ -569,6 +577,41 @@ struct Browser::Impl {
     static constexpr std::size_t palette_rows_shown = 8;
     std::vector<Browser::ThemePreset> theme_presets;
     std::optional<std::string> theme_request; // a preset's file the reader chose, until the host takes it
+
+    // Menus: the one a right click, the Menu key or the toolbar's button
+    // opened, and the submenus open from it, outermost first. An item
+    // without a label is a separator; one with children opens them as a
+    // submenu instead of running. What an item does is settled when its
+    // menu is built, from values — a URL, a tab's index, a window point —
+    // never from a pointer into a page, which may be gone by the choosing.
+    struct MenuItem {
+        std::string label;
+        std::string shortcut; // shown at the row's right end, for the reader's memory only
+        std::function<void()> run;
+        bool enabled = true;
+        bool checked = false;
+        std::vector<MenuItem> children;
+
+        bool separator() const { return label.empty(); }
+        bool choosable() const { return !separator() && enabled; }
+    };
+    struct MenuLevel {
+        std::vector<MenuItem> items;
+        // Where it hangs from: its top left corner at (x, y), or, for a
+        // submenu, beside the row of its parent that opened it.
+        int x = 0;
+        int y = 0;
+        bool right_aligned = false; // (x, y) is its top right corner instead
+        std::optional<std::size_t> parent_row;
+        std::optional<std::size_t> highlighted;
+    };
+    std::vector<MenuLevel> menus;
+    bool main_menu_open = false; // the open menu is the toolbar button's, which stays lit
+    // The button whose press opened the menu, until it comes up: held down
+    // and let go over an item, it chooses that item.
+    int menu_press_button = 0;
+    int menu_press_x = 0; // where the pointer was when that button went down
+    int menu_press_y = 0;
 
     // The clock the pages' timers run on (ms); wall time unless the replay
     // installs a virtual one. And when the current entry into script began,
@@ -638,6 +681,7 @@ struct Browser::Impl {
 
     void add_blank_tab(std::string container = {})
     {
+        close_menus(); // a tab's menu names its tab by where it stood
         Tab tab;
         tab.container = std::move(container);
         tab.history.push_back(blank_entry());
@@ -872,6 +916,8 @@ struct Browser::Impl {
         find_focus = false;
         hints_active = false;
         hints.clear();
+        menus.clear();
+        main_menu_open = false;
         tabs = std::move(restored);
         active = 0;
         if (JsonValue const* const active_value = session->get("active"); active_value && active_value->is_number() && active_value->as_number() >= 0)
@@ -1036,12 +1082,20 @@ struct Browser::Impl {
         c.forward_button = Rect { t.padding + step, button_y, t.button_size, t.button_size };
         c.reload_button = Rect { t.padding + 2 * step, button_y, t.button_size, t.button_size };
         int const address_x = c.reload_button.right() + 2 * t.padding;
-        // The reader button sits at the toolbar's right end; the address
-        // bar takes what lies between.
-        c.reader_button = Rect { std::max(address_x, width - t.padding - t.button_size), button_y,
+        // The main menu's button sits at the toolbar's right end, the
+        // reader button before it; the address bar takes what lies between.
+        c.menu_button = Rect { std::max(address_x, width - t.padding - t.button_size), button_y,
+            t.button_size, t.button_size };
+        c.reader_button = Rect { std::max(address_x, c.menu_button.x - step), button_y,
             t.button_size, t.button_size };
         c.address = Rect { address_x, c.toolbar.y + (t.toolbar_height - t.address_height) / 2,
             std::max(0, c.reader_button.x - 2 * t.padding - address_x), t.address_height };
+
+        // The open menus, over everything: each submenu placed by the menu
+        // it opened from.
+        c.menus.reserve(menus.size());
+        for (std::size_t i = 0; i < menus.size(); ++i)
+            c.menus.push_back(lay_out_menu(menus[i], i > 0 ? &c.menus[i - 1] : nullptr));
         return c;
     }
 
@@ -2273,7 +2327,9 @@ struct Browser::Impl {
         case Key::PageUp: named("PageUp", 33); break;
         case Key::PageDown: named("PageDown", 34); break;
         case Key::F5: named("F5", 116); break;
+        case Key::F10: named("F10", 121); break;
         case Key::F12: named("F12", 123); break;
+        case Key::Menu: named("ContextMenu", 93); break;
         case Key::Letter: {
             char32_t const upper = key.letter;
             if (upper >= U'0' && upper <= U'9') {
@@ -2721,6 +2777,7 @@ struct Browser::Impl {
     {
         if (index >= tabs.size())
             return;
+        close_menus();
         tabs.erase(tabs.begin() + static_cast<std::ptrdiff_t>(index));
         for (Pending& load : pending) {
             if (load.tab > index)
@@ -2970,11 +3027,14 @@ struct Browser::Impl {
 
     void update_hover(int x, int y)
     {
+        int const from_x = mouse_x;
+        int const from_y = mouse_y;
         mouse_x = x;
         mouse_y = y;
         ChromeLayout const c = layout_chrome();
         Hover next = Hover::None;
         std::size_t index = 0;
+        std::size_t level = 0;
         std::optional<net::Url> link;
         dom::Element const* link_frame = nullptr;
         std::string link_target;
@@ -3009,6 +3069,8 @@ struct Browser::Impl {
                 next = Hover::Reload;
             else if (c.reader_button.contains(x, y))
                 next = Hover::Reader;
+            else if (c.menu_button.contains(x, y))
+                next = Hover::MenuButton;
             else if (c.address.contains(x, y))
                 next = Hover::Address;
             else if (find_open && c.find_box.contains(x, y))
@@ -3043,14 +3105,44 @@ struct Browser::Impl {
                 link_frame = nullptr;
             }
         }
-        if (next != hover || index != hover_index || !same_url(link, hover_link) || link_frame != hover_link_frame) {
+        if (!menus.empty()) {
+            // An open menu holds the pointer: nothing under it or beside it
+            // answers until it closes. The innermost menu is on top.
+            next = Hover::None;
+            index = 0;
+            link.reset();
+            link_frame = nullptr;
+            link_target.clear();
+            for (std::size_t l = std::min(c.menus.size(), menus.size()); l-- > 0 && next == Hover::None;) {
+                MenuBox const& box = c.menus[l];
+                for (std::size_t i = 0; i < box.rows.size(); ++i) {
+                    if (!box.rows[i].contains(x, y))
+                        continue;
+                    if (menus[l].items[i].choosable()) {
+                        next = Hover::MenuRow;
+                        index = i;
+                        level = l;
+                    } else {
+                        next = Hover::Menu;
+                    }
+                    break;
+                }
+                if (next == Hover::None && box.box.contains(x, y))
+                    next = Hover::Menu;
+            }
+        }
+        if (next != hover || index != hover_index || level != hover_level || !same_url(link, hover_link)
+            || link_frame != hover_link_frame) {
             hover = next;
             hover_index = index;
+            hover_level = level;
             hover_link = std::move(link);
             hover_link_frame = link_frame;
             hover_link_target = std::move(link_target);
             dirty = true;
         }
+        if (!menus.empty())
+            follow_pointer_in_menus(from_x, from_y);
     }
 
     // --- The command palette ----------------------------------------------------
@@ -3078,14 +3170,7 @@ struct Browser::Impl {
         commands.push_back({ "Find in page", [this] { open_find(); } });
         commands.push_back({ "Reader mode", [this] { toggle_reader(); } });
         commands.push_back({ "Developer tools", [this] { toggle_devtools(); } });
-        commands.push_back({ "View source", [this] {
-            Tab const* const tab = active_tab();
-            HistoryEntry const* const entry = tab ? tab->current() : nullptr;
-            if (!entry || entry->internal)
-                return;
-            if (std::optional<net::Url> const url = net::parse_url("view-source:" + entry->final_url.serialize()))
-                queue(active, *url, Mode::Push);
-        } });
+        commands.push_back({ "View source", [this] { view_source(); } });
         for (std::size_t i = 0; i < tabs.size(); ++i)
             commands.push_back({ "Switch to tab: " + tab_title(tabs[i]), [this, i] { select_tab(i); } });
         for (Browser::ThemePreset const& preset : theme_presets)
@@ -3235,6 +3320,709 @@ struct Browser::Impl {
             relayout(tab);
         refresh_hover();
         dirty = true;
+    }
+
+    // --- Menus ---------------------------------------------------------------------
+
+    int menu_row_height() const { return static_cast<int>(theme.font_size * 2); }
+    int menu_separator_height() const { return theme.padding + theme.border_width; }
+    // The room between a menu's edge and its rows: a menu opens with its
+    // corner at the pointer, and the pointer must not be on an item then.
+    int menu_inset() const { return std::max(3, theme.padding / 2 + theme.border_width); }
+
+    // An open menu's box and its rows. The outermost hangs from its corner
+    // — its far corner, when it is aligned to its right — and goes to the
+    // pointer's other side where the window leaves it no room; a submenu
+    // hangs beside the row that opened it, on whichever side has room. A
+    // window too short for every row shows the rows it has room for.
+    MenuBox lay_out_menu(MenuLevel const& level, MenuBox const* parent) const
+    {
+        Theme const& t = theme;
+        float const advance = text::SashfoldMono::advance(t.font_size);
+        std::size_t label_characters = 0;
+        std::size_t shortcut_characters = 0;
+        bool any_checked = false;
+        bool any_children = false;
+        int rows_height = 0;
+        for (MenuItem const& item : level.items) {
+            label_characters = std::max(label_characters, decode_utf8(item.label).size());
+            shortcut_characters = std::max(shortcut_characters, decode_utf8(item.shortcut).size());
+            any_checked = any_checked || item.checked;
+            any_children = any_children || !item.children.empty();
+            rows_height += item.separator() ? menu_separator_height() : menu_row_height();
+        }
+        // The label, a column for the check marks when any item has one, and
+        // at the right end the shortcuts or the mark of a submenu.
+        std::size_t const right_column = std::max<std::size_t>(shortcut_characters > 0 ? shortcut_characters + 3 : 0,
+            any_children ? 2 : 0);
+        std::size_t const characters = label_characters + (any_checked ? 2 : 0) + right_column;
+        int const inset = menu_inset();
+        int const wanted = static_cast<int>(std::ceil(static_cast<float>(characters) * advance)) + 4 * t.padding + 2 * inset;
+        int const least = static_cast<int>(std::ceil(12 * advance)) + 4 * t.padding + 2 * inset;
+        int const box_width = std::min(std::max(wanted, least), std::max(1, width));
+        int const box_height = std::min(rows_height + 2 * inset, std::max(1, height));
+        int x = level.x;
+        int y = level.y;
+        if (parent && level.parent_row && *level.parent_row < parent->rows.size()) {
+            // To the parent's right; to its left when only that side has
+            // room; and with room on neither, against the window's edge on
+            // the roomier side, over as little of the parent as it can be.
+            int const overlap = 2 * t.border_width;
+            int const to_right = parent->box.right() - overlap;
+            int const to_left = parent->box.x - box_width + overlap;
+            if (to_right + box_width <= width)
+                x = to_right;
+            else if (to_left >= 0)
+                x = to_left;
+            else
+                x = width - parent->box.right() >= parent->box.x ? width - box_width : 0;
+            y = parent->rows[*level.parent_row].y - inset;
+        } else {
+            if (level.right_aligned)
+                x -= box_width;
+            else if (x + box_width > width)
+                x = level.x - box_width;
+            if (y + box_height > height)
+                y = level.y - box_height >= 0 ? level.y - box_height : height - box_height;
+        }
+        x = std::clamp(x, 0, std::max(0, width - box_width));
+        y = std::clamp(y, 0, std::max(0, height - box_height));
+        MenuBox box;
+        box.box = Rect { x, y, box_width, box_height };
+        int row_y = y + inset;
+        for (MenuItem const& item : level.items) {
+            int const row_height = item.separator() ? menu_separator_height() : menu_row_height();
+            if (row_y + row_height > box.box.bottom() - inset)
+                break;
+            box.rows.push_back(Rect { x + inset, row_y, box_width - 2 * inset, row_height });
+            row_y += row_height;
+        }
+        return box;
+    }
+
+    // A separator divides two groups of items: one at either end, or a
+    // second in a row, divides nothing and is dropped.
+    static void tidy_menu(std::vector<MenuItem>& items)
+    {
+        std::vector<MenuItem> kept;
+        for (MenuItem& item : items) {
+            if (item.separator() && (kept.empty() || kept.back().separator()))
+                continue;
+            tidy_menu(item.children);
+            kept.push_back(std::move(item));
+        }
+        while (!kept.empty() && kept.back().separator())
+            kept.pop_back();
+        items = std::move(kept);
+    }
+
+    void open_menu(std::vector<MenuItem> items, int x, int y, bool right_aligned = false)
+    {
+        close_menus();
+        tidy_menu(items);
+        if (items.empty())
+            return;
+        MenuLevel level;
+        level.items = std::move(items);
+        level.x = x;
+        level.y = y;
+        level.right_aligned = right_aligned;
+        menus.push_back(std::move(level));
+        refresh_hover();
+        dirty = true;
+    }
+
+    void close_menus()
+    {
+        if (menus.empty())
+            return;
+        menus.clear();
+        main_menu_open = false;
+        refresh_hover();
+        dirty = true;
+    }
+
+    // The next item that can be chosen after `from` — before it, going
+    // backwards — round the ends; from nowhere, the first or the last.
+    static std::optional<std::size_t> next_choosable(std::vector<MenuItem> const& items,
+        std::optional<std::size_t> from, bool forwards)
+    {
+        std::size_t const count = items.size();
+        if (count == 0)
+            return std::nullopt;
+        std::size_t index = from ? *from : (forwards ? count - 1 : 0);
+        for (std::size_t step = 0; step < count; ++step) {
+            index = forwards ? (index + 1) % count : (index + count - 1) % count;
+            if (items[index].choosable())
+                return index;
+        }
+        return std::nullopt;
+    }
+
+    // The submenu of an item, open beside it; whatever was open deeper
+    // than the item's own menu closes first.
+    void open_submenu(std::size_t level, std::size_t index, bool highlight_first)
+    {
+        if (level >= menus.size() || index >= menus[level].items.size())
+            return;
+        menus.resize(level + 1);
+        MenuLevel next;
+        next.items = menus[level].items[index].children;
+        next.parent_row = index;
+        if (highlight_first)
+            next.highlighted = next_choosable(next.items, std::nullopt, true);
+        menus[level].highlighted = index;
+        menus.push_back(std::move(next));
+        dirty = true;
+    }
+
+    // An item chosen: its submenu opens, or the menus close and it runs —
+    // in that order, since what it does may open a menu of its own.
+    void choose_menu_item_at(std::size_t level, std::size_t index, bool by_keyboard)
+    {
+        if (level >= menus.size() || index >= menus[level].items.size())
+            return;
+        MenuItem& item = menus[level].items[index];
+        if (!item.choosable())
+            return;
+        if (!item.children.empty()) {
+            open_submenu(level, index, by_keyboard);
+            return;
+        }
+        std::function<void()> const run = std::move(item.run);
+        close_menus();
+        if (run)
+            run();
+        refresh_hover();
+        dirty = true;
+    }
+
+    bool choose_menu_item(std::string const& label)
+    {
+        for (std::size_t level = menus.size(); level-- > 0;) {
+            std::vector<MenuItem> const& items = menus[level].items;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (items[i].label == label && items[i].choosable()) {
+                    choose_menu_item_at(level, i, false);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    std::string menu_text() const
+    {
+        std::string out;
+        if (menus.empty())
+            return out;
+        for (MenuItem const& item : menus.back().items) {
+            if (!out.empty())
+                out += " | ";
+            if (item.separator()) {
+                out += "-";
+                continue;
+            }
+            std::string const label = (item.checked ? "*" : "") + item.label + (item.children.empty() ? "" : " >");
+            out += item.enabled ? label : "(" + label + ")";
+        }
+        return out;
+    }
+
+    // The pointer highlights the item it is over and opens that item's
+    // submenu, closing any other — unless it is on its way to the submenu
+    // already open and only crossing the rows between: a move that goes
+    // mostly towards that submenu leaves things as they are.
+    void follow_pointer_in_menus(int from_x, int from_y)
+    {
+        if (hover != Hover::MenuRow || hover_level >= menus.size())
+            return;
+        std::size_t const level = hover_level;
+        std::size_t const index = hover_index;
+        bool const submenu_open = menus.size() > level + 1;
+        if (menus[level].highlighted == index && (submenu_open || menus[level].items[index].children.empty()))
+            return;
+        if (submenu_open && from_x >= 0) {
+            ChromeLayout const c = layout_chrome();
+            if (level + 1 < c.menus.size()) {
+                int const dx = mouse_x - from_x;
+                int const dy = std::abs(mouse_y - from_y);
+                bool const towards = c.menus[level + 1].box.x >= c.menus[level].box.x ? dx > 0 : dx < 0;
+                if (towards && dy <= 2 * std::abs(dx))
+                    return;
+            }
+        }
+        menus.resize(level + 1);
+        menus[level].highlighted = index;
+        if (!menus[level].items[index].children.empty())
+            open_submenu(level, index, false);
+        dirty = true;
+    }
+
+    // A key while a menu is open: every one of them is the menu's.
+    void menu_key(KeyEvent const& key)
+    {
+        std::size_t const last = menus.size() - 1;
+        std::optional<std::size_t> const highlighted = menus[last].highlighted;
+        switch (key.key) {
+        case Key::Escape:
+            if (last > 0)
+                menus.pop_back();
+            else
+                close_menus();
+            break;
+        case Key::Menu:
+        case Key::F10:
+            close_menus();
+            break;
+        case Key::Down: menus[last].highlighted = next_choosable(menus[last].items, highlighted, true); break;
+        case Key::Up: menus[last].highlighted = next_choosable(menus[last].items, highlighted, false); break;
+        case Key::Home: menus[last].highlighted = next_choosable(menus[last].items, std::nullopt, true); break;
+        case Key::End: menus[last].highlighted = next_choosable(menus[last].items, std::nullopt, false); break;
+        case Key::Right:
+            if (highlighted && menus[last].items[*highlighted].choosable()
+                && !menus[last].items[*highlighted].children.empty())
+                open_submenu(last, *highlighted, true);
+            break;
+        case Key::Left:
+            if (last > 0)
+                menus.pop_back();
+            break;
+        case Key::Enter: // not Space: its text would arrive after the menu closed, at whatever has the focus
+            if (highlighted)
+                choose_menu_item_at(last, *highlighted, true);
+            break;
+        default:
+            break;
+        }
+        dirty = true;
+    }
+
+    // A letter typed at a menu goes to the next item that begins with it.
+    void menu_letter(char32_t code_point)
+    {
+        MenuLevel& level = menus.back();
+        std::size_t const count = level.items.size();
+        if (count == 0 || code_point >= 0x80)
+            return;
+        auto const lower = [](char32_t c) {
+            return static_cast<char32_t>(to_ascii_lowercase(static_cast<unsigned char>(c)));
+        };
+        std::size_t index = level.highlighted.value_or(count - 1);
+        for (std::size_t step = 0; step < count; ++step) {
+            index = (index + 1) % count;
+            MenuItem const& item = level.items[index];
+            if (!item.choosable() || static_cast<unsigned char>(item.label[0]) >= 0x80)
+                continue;
+            if (lower(static_cast<unsigned char>(item.label[0])) == lower(code_point)) {
+                level.highlighted = index;
+                dirty = true;
+                return;
+            }
+        }
+    }
+
+    // The items every menu builds from.
+    static MenuItem menu_item(std::string label, std::string shortcut, std::function<void()> run, bool enabled = true)
+    {
+        MenuItem item;
+        item.label = std::move(label);
+        item.shortcut = std::move(shortcut);
+        item.run = std::move(run);
+        item.enabled = enabled;
+        return item;
+    }
+
+    bool can_view_source() const
+    {
+        Tab const* const tab = active_tab();
+        HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+        return entry && !entry->internal;
+    }
+
+    void view_source()
+    {
+        Tab const* const tab = active_tab();
+        HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+        if (!entry || entry->internal)
+            return;
+        if (std::optional<net::Url> const url = net::parse_url("view-source:" + entry->final_url.serialize()))
+            queue(active, *url, Mode::Push);
+    }
+
+    // A tab in each container, the default first: what "new container
+    // tab" and "open link in new container tab" open into.
+    std::vector<MenuItem> container_items(std::function<void(std::string const&)> const& open_in) const
+    {
+        std::vector<MenuItem> items;
+        items.push_back(menu_item("No container", {}, [open_in] { open_in({}); }));
+        for (Browser::Container const& container : containers)
+            items.push_back(menu_item(container.name, {}, [open_in, name = container.name] { open_in(name); }));
+        return items;
+    }
+
+    // The picture box under a page point.
+    static dom::Element const* hit_picture(layout::Fragment const& fragment, float x, float y)
+    {
+        if (!reachable_within(fragment, x, y))
+            return nullptr;
+        for (layout::Fragment const& child : fragment.children) {
+            if (dom::Element const* const hit = hit_picture(child, x, y))
+                return hit;
+        }
+        if (fragment.image && fragment.element && x >= fragment.x && x < fragment.x + fragment.width
+            && y >= fragment.y && y < fragment.y + fragment.height)
+            return fragment.element;
+        return nullptr;
+    }
+
+    // The picture under a window point — an <img>'s, in the page or in a
+    // frame — by the URL the page chose for it.
+    std::optional<net::Url> picture_under(int x, int y)
+    {
+        Tab* const tab = active_tab();
+        HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!tab || !entry || !point)
+            return std::nullopt;
+        std::vector<FrameStep> const chain = frames_at(*tab, point->first, point->second);
+        layout::Fragment const* root = &tab->layout.root;
+        net::Url base = entry->final_url;
+        float px = point->first;
+        float py = point->second;
+        if (!chain.empty()) {
+            root = &chain.back().view->layout.root;
+            base = chain.back().view->realm->url();
+            px = chain.back().x;
+            py = chain.back().y;
+        }
+        dom::Element const* const hit = hit_picture(*root, px, py);
+        if (!hit || !hit->is_html("img"))
+            return std::nullopt;
+        std::optional<ImageSource> const source = select_image_source(*hit, &base, tab->style_media);
+        return source ? std::optional<net::Url>(source->url) : std::nullopt;
+    }
+
+    // The extension a picture's bytes ask for, by what they begin with;
+    // none when they are no format known here.
+    static std::string picture_extension(std::vector<std::uint8_t> const& bytes)
+    {
+        auto const begins = [&](std::string_view prefix) {
+            return bytes.size() >= prefix.size()
+                && std::equal(prefix.begin(), prefix.end(), bytes.begin(),
+                    [](char a, std::uint8_t b) { return static_cast<std::uint8_t>(a) == b; });
+        };
+        if (begins("\x89PNG"))
+            return ".png";
+        if (begins("GIF8"))
+            return ".gif";
+        if (begins("\xFF\xD8"))
+            return ".jpg";
+        if (begins("BM"))
+            return ".bmp";
+        if (begins("<svg") || begins("<?xml"))
+            return ".svg";
+        return {};
+    }
+
+    // A picture saved to the downloads folder, as a download is: fetched
+    // as the page fetched it, which the cache answers.
+    void save_picture(net::Url const& url)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || downloads_directory.empty())
+            return;
+        HistoryEntry const* const entry = tab->current();
+        std::optional<std::vector<std::uint8_t>> const bytes = image_fetcher(*tab)(url);
+        if (!bytes) {
+            tab->status = "Could not fetch " + url.serialize();
+        } else {
+            std::string const referrer = entry ? referrer_for(&entry->final_url, url) : std::string();
+            // A name without an extension — a data: URL's, a script's
+            // endpoint — takes the one its bytes say it should have.
+            std::string name = download_file_name(nullptr, url);
+            if (name.find('.') == std::string::npos)
+                name += picture_extension(*bytes);
+            DownloadResult const saved = save_download(downloads_directory, name, *bytes, url, referrer);
+            tab->status = saved.error.empty() ? "Saved " + saved.file_name + " to " + downloads_directory
+                                              : "Could not save the picture: " + saved.error;
+        }
+        dirty = true;
+    }
+
+    // The page hears a right click at a window point — `mousedown`, then
+    // `contextmenu`, in the document the point is in — and answers whether
+    // the shell's menu may show: preventing the default keeps it away.
+    bool page_allows_menu(Tab& tab, int x, int y)
+    {
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!point || !tab.document)
+            return true;
+        std::vector<FrameStep> const chain = frames_at(tab, point->first, point->second);
+        FrameView* const view = chain.empty() ? nullptr : chain.back().view;
+        bindings::Realm* const realm = view ? view->realm : tab.realm.get();
+        if (!realm)
+            return true;
+        layout::Fragment const& root = view ? view->layout.root : tab.layout.root;
+        float const px = view ? chain.back().x : point->first;
+        float const py = view ? chain.back().y : point->second;
+        dom::Element const* target = hit_run(root, px, py);
+        if (!target)
+            target = hit_control(root, px, py);
+        if (!target)
+            target = element_at_point(root, px, py);
+        if (!target)
+            return true;
+        ChromeLayout const chrome = layout_chrome();
+        bindings::MouseInit init;
+        init.button = 2;
+        init.client_x = static_cast<int>(std::lround(to_css_px(view ? px : static_cast<float>(x - chrome.content.x))));
+        init.client_y = static_cast<int>(std::lround(to_css_px(
+            view ? py - static_cast<float>(view->scroll_y) : static_cast<float>(y - chrome.content.y))));
+        dom::Element& element = const_cast<dom::Element&>(*target);
+        script_started = std::chrono::steady_clock::now();
+        realm->dispatch_mouse_event(element, "mousedown", init);
+        bool const proceed = realm->dispatch_mouse_event(element, "contextmenu", init);
+        ensure_fresh(tab);
+        dirty = true;
+        return proceed;
+    }
+
+    // The menu for what is at a window point of the content: a link, a
+    // picture, a selection or a field each bring their items, the page its
+    // own when none of them is there, and Inspect closes every one.
+    // `regardless` is the reader's Shift: the menu shows whatever the page
+    // said.
+    void open_content_menu(int x, int y, bool regardless)
+    {
+        Tab* const tab = active_tab();
+        if (!tab)
+            return;
+        blur_address();
+        blur_find();
+        bool const allowed = page_allows_menu(*tab, x, y);
+        if (!tab->document || (!allowed && !regardless))
+            return;
+        update_hover(x, y); // the page may have changed under the pointer
+        std::vector<MenuItem> items;
+        bool specific = false;
+        if (hover_link) {
+            net::Url const url = *hover_link;
+            bool const opens = is_navigable_scheme(url.scheme);
+            items.push_back(menu_item("Open link in new tab", {}, [this, url] { open_in_new_tab(url); }, opens));
+            if (!containers.empty()) {
+                MenuItem in_container = menu_item("Open link in new container tab", {}, {}, opens);
+                in_container.children = container_items([this, url](std::string const& name) { open_tab_in(name, url); });
+                items.push_back(std::move(in_container));
+            }
+            items.push_back({});
+            items.push_back(menu_item("Copy link address", {}, [url] { platform::write_clipboard_text(url.serialize()); }));
+            specific = true;
+        }
+        if (std::optional<net::Url> const picture = picture_under(x, y)) {
+            net::Url const url = *picture;
+            items.push_back({});
+            items.push_back(menu_item("Open image in new tab", {}, [this, url] { open_in_new_tab(url); }));
+            items.push_back(menu_item("Copy image address", {}, [url] { platform::write_clipboard_text(url.serialize()); }));
+            items.push_back(menu_item("Save image", {}, [this, url] { save_picture(url); }, !downloads_directory.empty()));
+            specific = true;
+        }
+        dom::Element const* const control = control_at(x, y);
+        bool const field = control && layout::is_text_kind(layout::control_kind(*control))
+            && !control->has_attribute("disabled");
+        if (field) {
+            // A right click puts the caret in the field, as a left one does.
+            activate_control(*control);
+            std::optional<std::string> const clipboard = platform::read_clipboard_text();
+            bool const can_paste = clipboard && !clipboard->empty() && !control->has_attribute("readonly");
+            items.push_back({});
+            // A field has a caret and no selection of its own yet, so there
+            // is nothing in it to cut or copy.
+            items.push_back(menu_item("Cut", "Ctrl+X", {}, false));
+            items.push_back(menu_item("Copy", "Ctrl+C", {}, false));
+            items.push_back(menu_item("Paste", "Ctrl+V", [this] { paste(); }, can_paste));
+            specific = true;
+        } else if (!selected_text(*tab).empty()) {
+            items.push_back({});
+            items.push_back(menu_item("Copy", "Ctrl+C", [this] { copy_selection(); }));
+            specific = true;
+        }
+        if (!specific) {
+            items.push_back(menu_item("Back", "Alt+Left", [this] { go(-1); }, can_go(-1)));
+            items.push_back(menu_item("Forward", "Alt+Right", [this] { go(+1); }, can_go(+1)));
+            items.push_back(menu_item("Reload", "Ctrl+R", [this] { reload(); }));
+            items.push_back({});
+            items.push_back(menu_item("Select all", "Ctrl+A", [this] {
+                if (Tab* const current = active_tab())
+                    select_all_text(*current);
+            }, !tab->runs.empty()));
+            items.push_back({});
+            items.push_back(menu_item("View page source", "Ctrl+U", [this] { view_source(); }, can_view_source()));
+        }
+        // The point the reader asked about, as the page's own coordinates:
+        // the panel opening moves the content's bottom edge, never its top.
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        items.push_back({});
+        items.push_back(menu_item("Inspect", "F12", [this, point] {
+            if (!devtools_open)
+                toggle_devtools();
+            Tab* const current = active_tab();
+            if (current && point)
+                inspect_page_point(*current, point->first, point->second);
+        }, point.has_value()));
+        open_menu(std::move(items), x + 1, y + 1);
+    }
+
+    void reload_tab(std::size_t index)
+    {
+        if (index >= tabs.size())
+            return;
+        if (HistoryEntry const* const entry = tabs[index].current())
+            queue(index, entry->url, Mode::Reload);
+    }
+
+    // Every tab but one closes, from the far end so the indices hold.
+    void close_other_tabs(std::size_t keep)
+    {
+        if (keep >= tabs.size())
+            return;
+        for (std::size_t i = tabs.size(); i-- > 0;) {
+            if (i != keep)
+                close_tab(i);
+        }
+    }
+
+    void close_tabs_after(std::size_t index)
+    {
+        for (std::size_t i = tabs.size(); i-- > index + 1;)
+            close_tab(i);
+    }
+
+    void open_tab_menu(std::size_t index, int x, int y)
+    {
+        if (index >= tabs.size())
+            return;
+        std::vector<MenuItem> items;
+        items.push_back(menu_item("New tab", "Ctrl+T", [this] { new_tab(); }));
+        items.push_back({});
+        items.push_back(menu_item("Reload tab", "Ctrl+R", [this, index] { reload_tab(index); }));
+        items.push_back({});
+        items.push_back(menu_item("Close tab", "Ctrl+W", [this, index] { close_tab(index); }));
+        items.push_back(menu_item("Close other tabs", {}, [this, index] { close_other_tabs(index); }, tabs.size() > 1));
+        items.push_back(menu_item("Close tabs to the right", {}, [this, index] { close_tabs_after(index); },
+            index + 1 < tabs.size()));
+        open_menu(std::move(items), x + 1, y + 1);
+    }
+
+    // The address bar's text, whole, to the clipboard and out of the bar.
+    void cut_address()
+    {
+        if (address.empty())
+            return;
+        platform::write_clipboard_text(address);
+        address.clear();
+        caret = 0;
+        select_all = false;
+        dirty = true;
+    }
+
+    void open_address_menu(int x, int y)
+    {
+        blur_find();
+        focus_address(true);
+        std::optional<std::string> const clipboard = platform::read_clipboard_text();
+        bool const can_paste = clipboard && !clipboard->empty();
+        bool const has_text = !address.empty();
+        std::vector<MenuItem> items;
+        items.push_back(menu_item("Cut", "Ctrl+X", [this] { cut_address(); }, has_text));
+        items.push_back(menu_item("Copy", "Ctrl+C", [this] { copy_selection(); }, has_text));
+        items.push_back(menu_item("Paste", "Ctrl+V", [this] { paste(); }, can_paste));
+        items.push_back(menu_item("Paste and go", {}, [this] {
+            std::optional<std::string> const text = platform::read_clipboard_text();
+            if (!text || trim(*text).empty())
+                return;
+            blur_address();
+            navigate(*text);
+        }, can_paste));
+        items.push_back({});
+        items.push_back(menu_item("Select all", "Ctrl+A", [this] { focus_address(true); }, has_text));
+        open_menu(std::move(items), x + 1, y + 1);
+    }
+
+    // The window's main menu, hung from its button's right end.
+    void open_main_menu()
+    {
+        ChromeLayout const c = layout_chrome();
+        std::vector<MenuItem> items;
+        items.push_back(menu_item("New tab", "Ctrl+T", [this] { new_tab(); }));
+        if (!containers.empty()) {
+            MenuItem in_container = menu_item("New container tab", {}, {});
+            in_container.children = container_items([this](std::string const& name) { new_tab_in(name); });
+            items.push_back(std::move(in_container));
+        }
+        items.push_back({});
+        items.push_back(menu_item("Find in page", "Ctrl+F", [this] { open_find(); }));
+        MenuItem reader = menu_item("Reader mode", {}, [this] { toggle_reader(); }, reader_available());
+        if (Tab const* const tab = active_tab(); tab && tab->current())
+            reader.checked = tab->current()->url.scheme == "reader";
+        items.push_back(std::move(reader));
+        items.push_back({});
+        if (!theme_presets.empty()) {
+            MenuItem themes = menu_item("Themes", {}, {});
+            for (Browser::ThemePreset const& preset : theme_presets) {
+                MenuItem item = menu_item(preset.name, {}, [this, path = preset.path] { put_on_theme(path); });
+                item.checked = preset.name == base_theme.name;
+                themes.children.push_back(std::move(item));
+            }
+            items.push_back(std::move(themes));
+        }
+        items.push_back(menu_item("Command palette", "Ctrl+Shift+P", [this] { open_palette({}); }));
+        items.push_back({});
+        MenuItem devtools = menu_item("Developer tools", "F12", [this] { toggle_devtools(); });
+        devtools.checked = devtools_open;
+        items.push_back(std::move(devtools));
+        items.push_back(menu_item("View page source", "Ctrl+U", [this] { view_source(); }, can_view_source()));
+        items.push_back({});
+        items.push_back(menu_item("About Sashfold", {}, [this] {
+            if (std::optional<net::Url> const about = net::parse_url("about:sashfold"))
+                open_tab_in({}, *about);
+        }));
+        items.push_back(menu_item("Quit", "Ctrl+Shift+Q", [this] { window_request = Browser::WindowRequest::Close; }));
+        open_menu(std::move(items), c.menu_button.right(), c.menu_button.bottom() + theme.border_width, true);
+        main_menu_open = !menus.empty();
+    }
+
+    // The menu the keyboard asks for — the Menu key, Shift+F10 — belongs
+    // to whatever has the focus: the address bar, a field, else the page
+    // at its top corner.
+    void open_menu_by_keyboard()
+    {
+        ChromeLayout const c = layout_chrome();
+        if (address_focus) {
+            open_address_menu(c.address.x + theme.padding, c.address.bottom());
+        } else if (std::optional<Rect> const field = tab_with_focused_control() ? text_input_area() : std::nullopt;
+                   field && c.content.contains(field->x, field->y)) {
+            open_content_menu(field->x, field->y, false);
+        } else {
+            open_content_menu(c.content.x + theme.padding, c.content.y + theme.padding, false);
+        }
+    }
+
+    // A right click: the menu of what it landed on.
+    void open_menu_at(int x, int y, bool regardless)
+    {
+        hints_active = false;
+        if (palette_open) {
+            close_palette(); // a press outside it, as any other
+            return;
+        }
+        switch (hover) {
+        case Hover::Tab:
+        case Hover::TabClose: open_tab_menu(hover_index, x, y); break;
+        case Hover::Address: open_address_menu(x, y); break;
+        case Hover::Content: open_content_menu(x, y, regardless); break;
+        default: break;
+        }
     }
 
     // --- Input ---------------------------------------------------------------------
@@ -3500,6 +4288,17 @@ struct Browser::Impl {
         if (button == 1) {
             selecting = false;
             bar_drag.reset();
+        }
+        // The button that opened a menu, let go over one of its items after
+        // a slide there, chooses it: press, slide, release. A click's own
+        // few pixels of travel are no slide — a menu opens with its first
+        // item a hair from the pointer, and a shaky click must not choose it.
+        if (button == menu_press_button) {
+            menu_press_button = 0;
+            int const travelled = std::abs(mouse_x - menu_press_x) + std::abs(mouse_y - menu_press_y);
+            int const slide = static_cast<int>(std::lround(12 * scale));
+            if (!menus.empty() && hover == Hover::MenuRow && travelled >= slide)
+                choose_menu_item_at(hover_level, hover_index, false);
         }
     }
 
@@ -3815,14 +4614,17 @@ struct Browser::Impl {
     // The element under a window point: its run, its control, or its box.
     void inspect_at(Tab& tab, int x, int y)
     {
-        std::optional<std::pair<float, float>> const point = page_point(x, y);
-        if (!point)
-            return;
-        dom::Element const* element = hit_run(tab.layout.root, point->first, point->second);
+        if (std::optional<std::pair<float, float>> const point = page_point(x, y))
+            inspect_page_point(tab, point->first, point->second);
+    }
+
+    void inspect_page_point(Tab& tab, float px, float py)
+    {
+        dom::Element const* element = hit_run(tab.layout.root, px, py);
         if (!element)
-            element = hit_control(tab.layout.root, point->first, point->second);
+            element = hit_control(tab.layout.root, px, py);
         if (!element)
-            element = element_at_point(tab.layout.root, point->first, point->second);
+            element = element_at_point(tab.layout.root, px, py);
         if (element)
             inspect(tab, element);
     }
@@ -4523,10 +5325,36 @@ struct Browser::Impl {
         dirty = true;
     }
 
-    void mouse_down(int x, int y, int button)
+    void mouse_down(int x, int y, int button, platform::Modifiers const& modifiers)
     {
         update_hover(x, y);
         note_activation();
+        menu_press_button = 0;
+        if (!menus.empty()) {
+            // An open menu takes the press: on an item it chooses it, on
+            // the menu's own box it does nothing, and anywhere else it
+            // closes the menus and does nothing more — but for a right
+            // click, which asks for the menu of where it landed.
+            if (hover == Hover::MenuRow) {
+                choose_menu_item_at(hover_level, hover_index, false);
+                return;
+            }
+            if (hover == Hover::Menu)
+                return;
+            close_menus();
+            if (button != 3)
+                return;
+        }
+        if (button == 3) {
+            open_menu_at(x, y, modifiers.shift);
+            if (!menus.empty()) {
+                menu_press_button = button;
+                menu_press_x = x;
+                menu_press_y = y;
+            }
+            dirty = true;
+            return;
+        }
         if (button == 1) {
             // The frame the shell draws: a press in the band along the
             // window's edges resizes it, before anything under the band.
@@ -4553,6 +5381,16 @@ struct Browser::Impl {
             case Hover::Forward: go(+1); break;
             case Hover::Reload: reload(); break;
             case Hover::Reader: toggle_reader(); break;
+            case Hover::MenuButton:
+                open_main_menu();
+                if (!menus.empty()) {
+                    menu_press_button = button;
+                    menu_press_x = x;
+                    menu_press_y = y;
+                }
+                break;
+            case Hover::Menu: // no menu is open here: the block above answered
+            case Hover::MenuRow: break;
             case Hover::Address: focus_address(true); break;
             case Hover::FindBox:
                 blur_address();
@@ -4615,6 +5453,9 @@ struct Browser::Impl {
                                 to_css_px(view ? px : static_cast<float>(x - chrome.content.x))));
                             init.client_y = static_cast<int>(std::lround(to_css_px(
                                 view ? py - static_cast<float>(view->scroll_y) : static_cast<float>(y - chrome.content.y))));
+                            init.ctrl = modifiers.ctrl;
+                            init.shift = modifiers.shift;
+                            init.alt = modifiers.alt;
                             dom::Element& element = const_cast<dom::Element&>(*target);
                             script_started = std::chrono::steady_clock::now();
                             realm->dispatch_mouse_event(element, "mousedown", init);
@@ -4631,7 +5472,10 @@ struct Browser::Impl {
                     activate_control(*control);
                 } else {
                     blur_control();
-                    if (hover_link) {
+                    if (hover_link && modifiers.ctrl && is_navigable_scheme(hover_link->scheme)) {
+                        net::Url const url = *hover_link; // the hover moves with the tabs
+                        open_in_new_tab(url); // Ctrl with the click: a tab of its own
+                    } else if (hover_link) {
                         follow_link();
                     } else if (Tab* const tab = active_tab()) {
                         start_selection(*tab, x, y);
@@ -4760,6 +5604,11 @@ struct Browser::Impl {
     {
         clear_preedit();
         note_activation();
+        // An open menu takes every key.
+        if (!menus.empty()) {
+            menu_key(key);
+            return;
+        }
         if (hints_active) {
             hint_key(key);
             return;
@@ -4795,10 +5644,23 @@ struct Browser::Impl {
                 }
             }
         }
+        if (key.key == Key::Menu || (key.key == Key::F10 && key.shift)) {
+            open_menu_by_keyboard();
+            return;
+        }
+        if (key.ctrl && key.shift && key.key == Key::Letter && key.letter == U'Q') {
+            window_request = Browser::WindowRequest::Close;
+            return;
+        }
         if (key.ctrl && key.key == Key::Letter) {
             switch (key.letter) {
             case U'L': focus_address(true); return;
             case U'T': new_tab(); return;
+            case U'U': view_source(); return;
+            case U'X':
+                if (address_focus)
+                    cut_address();
+                return;
             case U'N':
                 if (key.shift)
                     new_tab_in(next_container()); // the container after this tab's, round to the default
@@ -5079,6 +5941,10 @@ struct Browser::Impl {
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
         clear_preedit();
+        if (!menus.empty()) {
+            menu_letter(code_point);
+            return;
+        }
         if (palette_open) {
             type_into_palette(code_point);
             return;
@@ -5210,6 +6076,7 @@ struct Browser::Impl {
         paint_button(c.reload_button, glyph_reload, tab && tab->current() != nullptr,
             hover == Hover::Reload);
         paint_button(c.reader_button, glyph_reader, reader_available(), hover == Hover::Reader);
+        paint_button(c.menu_button, glyph_menu, true, hover == Hover::MenuButton || main_menu_open);
 
         // Address bar.
         frame.fill_round_rect(c.address, t.address_corner_radius,
@@ -5431,10 +6298,10 @@ struct Browser::Impl {
         // The command palette, over the page: the query box and the
         // commands the query leaves, the highlighted one marked.
         if (palette_open && !c.palette.is_empty()) {
-            frame.fill_round_rect(c.palette, t.address_corner_radius, t.address_border);
+            frame.fill_round_rect(c.palette, t.address_corner_radius, t.popup_border);
             Rect const palette_inner { c.palette.x + t.border_width, c.palette.y + t.border_width,
                 c.palette.width - 2 * t.border_width, c.palette.height - 2 * t.border_width };
-            frame.fill_round_rect(palette_inner, std::max(0, t.address_corner_radius - t.border_width), t.chrome_background);
+            frame.fill_round_rect(palette_inner, std::max(0, t.address_corner_radius - t.border_width), t.popup_background);
             frame.fill_round_rect(c.palette_box, t.address_corner_radius, t.accent);
             Rect const box_inner { c.palette_box.x + t.border_width, c.palette_box.y + t.border_width,
                 c.palette_box.width - 2 * t.border_width, c.palette_box.height - 2 * t.border_width };
@@ -5465,19 +6332,19 @@ struct Browser::Impl {
                     break;
                 bool const selected = match == palette_index;
                 if (selected) {
-                    frame.fill_round_rect(row, t.button_corner_radius, t.button_hover_background);
+                    frame.fill_round_rect(row, t.button_corner_radius, t.popup_highlight);
                     frame.fill_rect(Rect { row.x, row.y + 4, std::max(2, t.border_width * 3), row.height - 8 }, t.accent);
                 }
                 std::u32string const label = ellipsize(decode_utf8(palette_commands[palette_matches[match]].label),
                     static_cast<float>(row.width - 3 * t.padding), t.font_size);
                 draw_text(frame, label, static_cast<float>(row.x + 2 * t.padding), centered_baseline(row, t.font_size),
-                    t.font_size, selected ? t.chrome_text : t.chrome_text_muted);
+                    t.font_size, selected ? t.popup_highlight_text : t.popup_text_muted);
             }
             if (palette_matches.empty()) {
                 Rect const row { c.palette.x + t.padding, c.palette_box.bottom() + t.padding, c.palette.width - 2 * t.padding,
                     static_cast<int>(t.font_size * 2) };
                 draw_text(frame, U"No command matches", static_cast<float>(row.x + 2 * t.padding),
-                    centered_baseline(row, t.font_size), t.font_size, t.chrome_text_muted);
+                    centered_baseline(row, t.font_size), t.font_size, t.popup_text_muted);
             }
         }
 
@@ -5489,7 +6356,64 @@ struct Browser::Impl {
         draw_text(frame, status, static_cast<float>(t.padding),
             centered_baseline(c.status, t.status_font_size), t.status_font_size, t.status_text);
 
+        paint_menus(c);
+
         dirty = false;
+    }
+
+    // The open menus, over everything else: a bordered box each, a row an
+    // item — its check mark, its label, and at the right end its shortcut
+    // or the mark of a submenu — the highlighted row lit, an item that
+    // cannot be chosen dimmed, a separator a line.
+    void paint_menus(ChromeLayout const& c)
+    {
+        Theme const& t = theme;
+        float const advance = text::SashfoldMono::advance(t.font_size);
+        for (std::size_t l = 0; l < c.menus.size() && l < menus.size(); ++l) {
+            MenuBox const& box = c.menus[l];
+            MenuLevel const& level = menus[l];
+            frame.fill_round_rect(box.box, t.button_corner_radius, t.popup_border);
+            Rect const inner { box.box.x + t.border_width, box.box.y + t.border_width,
+                box.box.width - 2 * t.border_width, box.box.height - 2 * t.border_width };
+            frame.fill_round_rect(inner, std::max(0, t.button_corner_radius - t.border_width), t.popup_background);
+            bool any_checked = false;
+            for (MenuItem const& item : level.items)
+                any_checked = any_checked || item.checked;
+            for (std::size_t i = 0; i < box.rows.size() && i < level.items.size(); ++i) {
+                MenuItem const& item = level.items[i];
+                Rect const row = box.rows[i];
+                if (item.separator()) {
+                    frame.fill_rect(Rect { row.x + t.padding, row.y + row.height / 2,
+                                        std::max(0, row.width - 2 * t.padding), t.border_width },
+                        t.popup_border);
+                    continue;
+                }
+                bool const lit = level.highlighted == i && item.choosable();
+                if (lit)
+                    frame.fill_round_rect(row, t.button_corner_radius, t.popup_highlight);
+                Color const color = !item.enabled ? t.popup_disabled_text : lit ? t.popup_highlight_text : t.popup_text;
+                float const baseline = centered_baseline(row, t.font_size);
+                float x = static_cast<float>(row.x + 2 * t.padding);
+                float right = static_cast<float>(row.right() - 2 * t.padding);
+                if (any_checked) {
+                    if (item.checked)
+                        draw_text(frame, std::u32string_view(&glyph_check, 1), x, baseline, t.font_size, color);
+                    x += 2 * advance;
+                }
+                if (!item.children.empty()) {
+                    draw_text(frame, std::u32string_view(&glyph_submenu, 1), right - advance, baseline, t.font_size, color);
+                    right -= 2 * advance;
+                } else if (!item.shortcut.empty()) {
+                    std::u32string const shortcut = decode_utf8(item.shortcut);
+                    float const shortcut_x = right - text_width(shortcut, t.font_size);
+                    draw_text(frame, shortcut, shortcut_x, baseline, t.font_size,
+                        item.enabled ? t.popup_text_muted : t.popup_disabled_text);
+                    right = shortcut_x - advance;
+                }
+                draw_text(frame, ellipsize(decode_utf8(item.label), right - x, t.font_size), x, baseline,
+                    t.font_size, color);
+            }
+        }
     }
 
     bool can_go(int delta) const
@@ -5537,6 +6461,10 @@ Browser::~Browser() = default;
 void Browser::set_theme(Theme theme) { m_impl->set_base_theme(std::move(theme)); }
 
 void Browser::open_palette(std::string const& query) { m_impl->open_palette(query); }
+bool Browser::menu_open() const { return !m_impl->menus.empty(); }
+std::string Browser::menu_text() const { return m_impl->menu_text(); }
+bool Browser::choose_menu_item(std::string const& label) { return m_impl->choose_menu_item(label); }
+void Browser::open_main_menu() { m_impl->open_main_menu(); }
 bool Browser::palette_open() const { return m_impl->palette_open; }
 std::string Browser::palette_selection() const { return m_impl->palette_selection(); }
 void Browser::set_theme_presets(std::vector<ThemePreset> presets) { m_impl->theme_presets = std::move(presets); }
@@ -5554,6 +6482,7 @@ void Browser::set_scale(float scale)
     float const clamped = std::clamp(scale, 0.5f, 8.0f);
     if (!(scale > 0) || clamped == m_impl->scale)
         return;
+    m_impl->close_menus(); // hung from a point of the old geometry
     m_impl->scale = clamped;
     m_impl->theme = m_impl->base_theme.scaled(clamped);
     m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
@@ -5574,6 +6503,7 @@ void Browser::set_downloads_directory(std::string directory)
 
 void Browser::resize(int width, int height)
 {
+    m_impl->close_menus(); // hung from a point of the old geometry
     m_impl->width = std::max(width, 1);
     m_impl->height = std::max(height, 1);
     m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
@@ -5589,12 +6519,17 @@ int Browser::width() const { return m_impl->width; }
 int Browser::height() const { return m_impl->height; }
 
 void Browser::mouse_move(int x, int y) { m_impl->mouse_move(x, y); }
-void Browser::mouse_down(int x, int y, int button) { m_impl->mouse_down(x, y, button); }
+void Browser::mouse_down(int x, int y, int button, platform::Modifiers modifiers)
+{
+    m_impl->mouse_down(x, y, button, modifiers);
+}
 void Browser::mouse_up(int, int, int button) { m_impl->mouse_up(button); }
 
 void Browser::wheel(int x, int y, int notches)
 {
     m_impl->update_hover(x, y);
+    if (!m_impl->menus.empty())
+        return; // an open menu holds the pointer: nothing under it moves
     if (m_impl->layout_chrome().content.contains(x, y))
         m_impl->wheel_at(x, y, notches);
     m_impl->refresh_hover();
@@ -5604,6 +6539,8 @@ void Browser::scroll_pixels(int x, int y, int dx, int dy)
 {
     static_cast<void>(dx); // the page scrolls vertically only, as the wheel does
     m_impl->update_hover(x, y);
+    if (!m_impl->menus.empty())
+        return;
     if (m_impl->layout_chrome().content.contains(x, y))
         m_impl->scroll_pixels_at(x, y, dy);
     m_impl->refresh_hover();

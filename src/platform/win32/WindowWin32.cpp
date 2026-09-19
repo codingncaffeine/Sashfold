@@ -82,7 +82,9 @@ KeyEvent key_event_from(WPARAM virtual_key)
     case VK_PRIOR: event.key = Key::PageUp; break;
     case VK_NEXT: event.key = Key::PageDown; break;
     case VK_F5: event.key = Key::F5; break;
+    case VK_F10: event.key = Key::F10; break;
     case VK_F12: event.key = Key::F12; break;
+    case VK_APPS: event.key = Key::Menu; break;
     default:
         if ((virtual_key >= 'A' && virtual_key <= 'Z') || (virtual_key >= '0' && virtual_key <= '9')) {
             event.key = Key::Letter;
@@ -193,6 +195,9 @@ private:
         event.x = low_signed(lparam);
         event.y = high_signed(lparam);
         event.button = button;
+        event.modifiers.ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        event.modifiers.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        event.modifiers.alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
         push(event);
     }
 

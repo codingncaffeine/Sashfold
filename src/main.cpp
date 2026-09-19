@@ -1716,7 +1716,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             case Kind::Resize: browser.resize(event.width, event.height); break;
             case Kind::Scale: browser.set_scale(event.scale); break;
             case Kind::MouseMove: browser.mouse_move(event.x, event.y); break;
-            case Kind::MouseDown: browser.mouse_down(event.x, event.y, event.button); break;
+            case Kind::MouseDown: browser.mouse_down(event.x, event.y, event.button, event.modifiers); break;
             case Kind::MouseUp: browser.mouse_up(event.x, event.y, event.button); break;
             case Kind::Wheel: browser.wheel(event.x, event.y, event.wheel); break;
             case Kind::Scroll: browser.scroll_pixels(event.x, event.y, event.scroll_x, event.scroll_y); break;
