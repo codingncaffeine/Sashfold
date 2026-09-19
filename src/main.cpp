@@ -1519,6 +1519,14 @@ ui::Theme load_theme(std::string const& path)
     return theme.value_or(ui::Theme {});
 }
 
+// What kept a theme's pictures from being put on: a file that is not there
+// or is no picture is left out, the theme stands, and this says which.
+void report_theme_pictures(ui::Browser const& browser)
+{
+    for (std::string const& problem : browser.theme_problems())
+        std::cerr << problem << "\n";
+}
+
 // The blocklists folder: `--blocklists`, else blocklists/ beside the
 // executable or its parent (the repository's, which ships no lists).
 std::string default_blocklists_path(char const* program)
@@ -1544,6 +1552,7 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
     ui::ShellLoader loader;
     loader.set_blocklists(load_blocklists(blocklists_path));
     ui::Browser browser(loader, load_theme(theme_path), width, height);
+    report_theme_pictures(browser);
     platform::use_process_clipboard(true); // a script never touches the real clipboard
     browser.set_downloads_directory(downloads);
     // The four containers a fresh profile gets, so a script can open tabs
@@ -1591,6 +1600,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         }
     }
     ui::Browser browser(loader, load_theme(theme_file), window->width(), window->height());
+    report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
     browser.set_theme_presets(theme_presets_beside(theme_path));
@@ -1723,6 +1733,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             case Kind::KeyDown: browser.key_down(event.key); break;
             case Kind::Text: browser.text_input(event.text); break;
             case Kind::Preedit: browser.preedit(event.preedit); break;
+            case Kind::Active: browser.set_window_active(event.active); break;
             case Kind::None: break;
             }
         }
@@ -1783,6 +1794,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         // A theme chosen from the palette is on already; the window follows
         // that file from here on and keeps the choice for the next start.
         if (std::optional<std::string> const chosen = browser.take_theme_request()) {
+            report_theme_pictures(browser);
             theme_file = *chosen;
             theme_stamp = std::filesystem::last_write_time(theme_file, error);
             if (!profile_path.empty())
@@ -1798,6 +1810,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 if (!error && stamp != theme_stamp) {
                     theme_stamp = stamp;
                     browser.set_theme(load_theme(theme_file));
+                    report_theme_pictures(browser);
                 }
             }
         }

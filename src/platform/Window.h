@@ -29,6 +29,7 @@ struct WindowEvent {
         KeyDown,
         Text,
         Preedit,
+        Active,
     };
     Kind kind = Kind::None;
     int x = 0; // mouse position, client pixels
@@ -49,6 +50,9 @@ struct WindowEvent {
     // Preedit: an input method's composing text (UTF-8), to show at the
     // caret until it is committed as Text or replaced; empty clears it.
     std::string preedit;
+    // Active: whether the window is now the one in front, the one the
+    // keyboard goes to. A window is taken to be until an event says not.
+    bool active = true;
 };
 
 // An edge or corner of the window, for a resize the reader starts by

@@ -30,7 +30,9 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <utility>
@@ -60,6 +62,15 @@ constexpr float font_descent_ratio = 7.0f / 32.0f;
 // The most a page's icon may weigh: an icon is a few kilobytes, and a
 // server answering the icon's URL with a page is not one to decode.
 constexpr std::size_t max_icon_bytes = 1024u * 1024u;
+
+// The most one of a theme's pictures may weigh as a file and hold once
+// decoded: a header is a few thousand pixels wide and a couple of hundred
+// tall, and a wallpaper four times a 4K screen is not a header.
+constexpr std::uintmax_t max_theme_picture_bytes = 16u * 1024u * 1024u;
+constexpr std::int64_t max_theme_picture_pixels = 16 * 1024 * 1024;
+// The largest a repeating picture may be, at the display's scale, and still
+// be kept as a scaled copy to tile from; past it, it is drawn copy by copy.
+constexpr std::int64_t max_theme_tile_pixels = 1024 * 1024;
 
 float text_width(std::u32string_view text, float size)
 {
@@ -495,6 +506,30 @@ struct Browser::Impl {
     Browser::WindowRequest window_request = Browser::WindowRequest::None;
     Theme theme; // the theme drawn with: base_theme scaled to the display
     Theme base_theme; // the theme as written
+    // A surface's pictures as the theme file lists them, front to back,
+    // decoded when the theme is put on — one that cannot be had is left
+    // out and said so in theme_problems — and the whole stack as it lies
+    // over the header at this window's width and scale, laid out the first
+    // time it is painted and kept until one of those changes: a paint
+    // composites one bitmap, however many pictures and tiles made it.
+    struct ThemeLayers {
+        struct Layer {
+            Bitmap picture;
+            ThemePicture how;
+            std::optional<Bitmap> scaled; // the picture at `scaled_for` device px per CSS px, when that is not 1
+            float scaled_for = 0;
+        };
+        std::vector<Layer> layers;
+        std::optional<Bitmap> laid;
+        float laid_scale = 0;
+    };
+    ThemeLayers frame_pictures;
+    ThemeLayers toolbar_pictures;
+    ThemeLayers tab_background_pictures;
+    std::vector<std::string> theme_problems;
+    // Whether this window is the one in front: a theme may give the frame
+    // of one that is not a color of its own.
+    bool window_active = true;
     float scale = 1; // device px per CSS px; the window's sizes and coordinates are device px
     std::string downloads_directory;
     int width;
@@ -658,6 +693,7 @@ struct Browser::Impl {
         , height(std::max(the_height, 1))
         , frame(width, height, theme.chrome_background)
     {
+        load_theme_pictures();
         add_blank_tab();
     }
 
@@ -3316,10 +3352,159 @@ struct Browser::Impl {
     {
         base_theme = std::move(loaded);
         theme = base_theme.scaled(scale);
+        load_theme_pictures();
         for (Tab& tab : tabs)
             relayout(tab);
         refresh_hover();
         dirty = true;
+    }
+
+    // The pictures the theme names, read and decoded, a surface at a time.
+    // One that cannot be had — no such file, too large, in no format
+    // decoded here — is left out, the rest of the theme stands, and
+    // theme_problems says which and why.
+    void load_theme_pictures()
+    {
+        theme_problems.clear();
+        auto const load = [&](std::vector<ThemePicture> const& named, ThemeLayers& into, char const* surface) {
+            into = ThemeLayers {};
+            for (std::size_t i = 0; i < named.size(); ++i) {
+                auto const problem = [&](std::string const& what) {
+                    theme_problems.push_back(std::string("theme: images.") + surface + "[" + std::to_string(i)
+                        + "]: " + what + ": " + named[i].path);
+                };
+                std::error_code error;
+                std::uintmax_t const size = std::filesystem::file_size(named[i].path, error);
+                if (error) {
+                    problem("cannot read");
+                    continue;
+                }
+                if (size > max_theme_picture_bytes) {
+                    problem("larger than a theme's picture may be");
+                    continue;
+                }
+                std::vector<std::uint8_t> bytes;
+                bool opened = false;
+                {
+                    std::ifstream file(named[i].path, std::ios::binary);
+                    opened = static_cast<bool>(file);
+                    if (opened)
+                        bytes.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+                }
+                if (!opened) {
+                    problem("cannot read"); // there, and not ours to open
+                    continue;
+                }
+                std::optional<Bitmap> decoded = decode_image_bytes(bytes);
+                if (!decoded || decoded->width() <= 0 || decoded->height() <= 0) {
+                    problem("not a picture in a format read here");
+                    continue;
+                }
+                if (static_cast<std::int64_t>(decoded->width()) * decoded->height() > max_theme_picture_pixels) {
+                    problem("more pixels than a theme's picture may have");
+                    continue;
+                }
+                into.layers.push_back({ std::move(*decoded), named[i], std::nullopt, 0 });
+            }
+        };
+        load(base_theme.frame_pictures, frame_pictures, "frame");
+        load(base_theme.toolbar_pictures, toolbar_pictures, "toolbar");
+        load(base_theme.tab_background_pictures, tab_background_pictures, "tab-background");
+    }
+
+    // A surface's pictures as they lie over `area` — the header, from the
+    // window's top left — at this scale, back to front: each held where
+    // its theme holds it and repeated from there as it says. Laid out when
+    // first asked for and again when the area or the scale has changed;
+    // null for a surface with no pictures.
+    Bitmap const* laid_pictures(ThemeLayers& surface, Rect const& area)
+    {
+        if (surface.layers.empty() || area.is_empty())
+            return nullptr;
+        if (surface.laid && surface.laid->width() == area.width && surface.laid->height() == area.height
+            && surface.laid_scale == scale)
+            return &*surface.laid;
+        Bitmap laid(area.width, area.height, Color::rgba(0, 0, 0, 0));
+        auto const floor_div = [](int value, int by) { return value >= 0 ? value / by : -((-value + by - 1) / by); };
+        for (auto layer = surface.layers.rbegin(); layer != surface.layers.rend(); ++layer) {
+            // A picture's size is in CSS px, as every metric of a theme is.
+            int const tile_width = std::max(1, static_cast<int>(std::lround(static_cast<float>(layer->picture.width()) * scale)));
+            int const tile_height = std::max(1, static_cast<int>(std::lround(static_cast<float>(layer->picture.height()) * scale)));
+            auto const held = [&](ThemePicture::Hold hold, int room, int size) {
+                switch (hold) {
+                case ThemePicture::Hold::Start: return 0;
+                case ThemePicture::Hold::Center: return floor_div(room - size, 2);
+                case ThemePicture::Hold::End: return room - size;
+                }
+                return 0;
+            };
+            // Where the picture itself lies.
+            int const at_x = held(layer->how.across, area.width, tile_width);
+            int const at_y = held(layer->how.down, area.height, tile_height);
+            bool const repeats = layer->how.repeat_across || layer->how.repeat_down;
+            if (!repeats || static_cast<std::int64_t>(tile_width) * tile_height > max_theme_tile_pixels) {
+                // Shown once, or so large that few copies fit: drawn
+                // straight in, copy by copy. Only what lands inside the
+                // area is worked out, so a wallpaper held by its top costs
+                // the strip of it that shows, at any scale.
+                int const first_x = layer->how.repeat_across ? at_x + floor_div(-at_x, tile_width) * tile_width : at_x;
+                int const first_y = layer->how.repeat_down ? at_y + floor_div(-at_y, tile_height) * tile_height : at_y;
+                for (int y = first_y; y < area.height; y += tile_height) {
+                    for (int x = first_x; x < area.width; x += tile_width) {
+                        laid.draw_scaled(layer->picture, Rect { x, y, tile_width, tile_height });
+                        if (!layer->how.repeat_across)
+                            break;
+                    }
+                    if (!layer->how.repeat_down)
+                        break;
+                }
+                continue;
+            }
+            // A tile: scaled once and kept, then read around and around,
+            // so that a tile of a pixel or two costs the area and not a
+            // call for every copy.
+            Bitmap const* tile = &layer->picture;
+            if (scale != 1) {
+                if (!layer->scaled || layer->scaled_for != scale) {
+                    Bitmap scaled(tile_width, tile_height, Color::rgba(0, 0, 0, 0));
+                    scaled.draw_scaled(layer->picture, Rect { 0, 0, tile_width, tile_height });
+                    layer->scaled = std::move(scaled);
+                    layer->scaled_for = scale;
+                }
+                tile = &*layer->scaled;
+            }
+            int const from_x = layer->how.repeat_across ? 0 : std::max(0, at_x);
+            int const to_x = layer->how.repeat_across ? area.width : std::min(area.width, at_x + tile_width);
+            int const from_y = layer->how.repeat_down ? 0 : std::max(0, at_y);
+            int const to_y = layer->how.repeat_down ? area.height : std::min(area.height, at_y + tile_height);
+            for (int y = from_y; y < to_y; ++y) {
+                int const tile_y = (y - at_y) - floor_div(y - at_y, tile_height) * tile_height;
+                for (int x = from_x; x < to_x; ++x) {
+                    int const tile_x = (x - at_x) - floor_div(x - at_x, tile_width) * tile_width;
+                    laid.blend_pixel(x, y, tile->pixel(tile_x, tile_y));
+                }
+            }
+        }
+        surface.laid = std::move(laid);
+        surface.laid_scale = scale;
+        return &*surface.laid;
+    }
+
+    // A surface's pictures shown through `clip` — and, for a tab, through
+    // the rows of its rounded shape, so that they land on the pixels the
+    // tab's own fill takes and on no other.
+    void paint_pictures(ThemeLayers& surface, Rect const& area, std::vector<Rect> const& through)
+    {
+        Bitmap const* const laid = laid_pictures(surface, area);
+        if (!laid)
+            return;
+        for (Rect const& clip : through) {
+            if (clip.is_empty())
+                continue;
+            frame.set_clip(clip);
+            frame.draw(*laid, area.x, area.y);
+        }
+        frame.set_clip(std::nullopt);
     }
 
     // --- Menus ---------------------------------------------------------------------
@@ -6000,19 +6185,52 @@ struct Browser::Impl {
         Tab const* const tab = active_tab();
         net::Url const* const url = tab && tab->current() ? &tab->current()->final_url : nullptr;
 
+        // The header — the tab strip and the toolbar — begins as the frame:
+        // its color, another when the window is not the one in front, and
+        // over it the theme's pictures. Everything after composites, so
+        // whatever a theme makes translucent lets the frame through.
+        Rect const header { 0, 0, width, c.toolbar.bottom() };
+        frame.fill_rect(header, window_active ? t.chrome_background : t.chrome_background_inactive);
+        paint_pictures(frame_pictures, header, { header });
+
         // Tab strip.
-        frame.fill_rect(c.tab_strip, t.chrome_background);
         for (std::size_t i = 0; i < c.tabs.size(); ++i) {
             Rect const rect = c.tabs[i];
             bool const is_active = i == active;
             bool const hovered = (hover == Hover::Tab || hover == Hover::TabClose) && hover_index == i;
-            Color const background = is_active ? t.tab_active_background
-                : hovered                      ? t.tab_hover_background
-                                               : t.tab_inactive_background;
-            if (!(background == t.chrome_background)) {
-                // Only the top corners round: the toolbar paints over the rest.
-                frame.fill_round_rect(Rect { rect.x, rect.y, rect.width, rect.height + t.tab_corner_radius },
-                    t.tab_corner_radius, background);
+            // Only the top corners round. The shape runs on below the tab
+            // by the corners' height and is cut off at the tab's foot, not
+            // left for the toolbar to cover: a toolbar with an alpha would
+            // show it.
+            Rect const shape { rect.x, rect.y, rect.width, rect.height + t.tab_corner_radius };
+            auto const fill_tab = [&](Color color) {
+                // A tab the color of the frame is a tab that shows the frame.
+                if (color == t.chrome_background)
+                    return;
+                frame.set_clip(rect);
+                frame.fill_round_rect(shape, t.tab_corner_radius, color);
+                frame.set_clip(std::nullopt);
+            };
+            auto const tab_pictures = [&](ThemeLayers& pictures) {
+                if (pictures.layers.empty())
+                    return;
+                std::vector<Rect> rows = Bitmap::round_rect_bands(shape, t.tab_corner_radius);
+                for (Rect& row : rows) // cut off at the tab's foot, as its fill is
+                    row.height = std::max(0, std::min(row.bottom(), rect.bottom()) - row.y);
+                paint_pictures(pictures, header, rows);
+            };
+            if (is_active) {
+                // The tab in front is of a piece with the toolbar: its color,
+                // and the toolbar's pictures carried up into it.
+                fill_tab(t.tab_active_background);
+                tab_pictures(toolbar_pictures);
+            } else {
+                // Any other wears its color at rest and its pictures, and the
+                // pointer's color goes over both.
+                fill_tab(t.tab_inactive_background);
+                tab_pictures(tab_background_pictures);
+                if (hovered)
+                    fill_tab(t.tab_hover_background);
             }
             // The tab in front wears the theme's line along its top, when the
             // theme names one.
@@ -6076,6 +6294,7 @@ struct Browser::Impl {
 
         // Toolbar.
         frame.fill_rect(c.toolbar, t.toolbar_background);
+        paint_pictures(toolbar_pictures, header, { c.toolbar });
         frame.fill_rect(Rect { 0, c.toolbar.bottom() - t.border_width, width, t.border_width },
             t.chrome_border);
         paint_button(c.back_button, glyph_back, can_go(-1), hover == Hover::Back);
@@ -6090,12 +6309,10 @@ struct Browser::Impl {
         // set apart from the field at rest.
         Color const address_fill = address_focus ? t.address_background_focus : t.address_background;
         Color const address_ink = address_focus ? t.address_text_focus : t.address_text;
-        frame.fill_round_rect(c.address, t.address_corner_radius,
-            address_focus ? t.address_border_focus : t.address_border);
+        frame.fill_round_box(c.address, t.address_corner_radius, t.border_width,
+            address_focus ? t.address_border_focus : t.address_border, address_fill);
         Rect const inner { c.address.x + t.border_width, c.address.y + t.border_width,
             c.address.width - 2 * t.border_width, c.address.height - 2 * t.border_width };
-        frame.fill_round_rect(inner, std::max(0, t.address_corner_radius - t.border_width),
-            address_fill);
         int text_left = inner.x + t.padding + 2;
         if (url && is_web_scheme(url->scheme) && !address_focus) {
             int const dot = std::max(4, t.address_height / 4);
@@ -6106,7 +6323,10 @@ struct Browser::Impl {
         Rect const text_area { text_left, inner.y, std::max(0, inner.right() - t.padding - text_left),
             inner.height };
         if (!text_area.is_empty()) {
-            Bitmap strip(text_area.width, text_area.height, address_fill);
+            // Drawn onto the field through a clip, and not onto a strip of
+            // the field's color laid over it: a field a theme makes
+            // translucent must stay so under its text.
+            frame.set_clip(text_area);
             // The composing text of an input method sits at the caret,
             // underlined, and the caret stands after it.
             std::u32string const composing
@@ -6115,23 +6335,23 @@ struct Browser::Impl {
             std::u32string text = decode_utf8(address);
             text.insert(std::min(caret_index, text.size()), composing);
             Rect const local { 0, 0, text_area.width, text_area.height };
-            float const baseline = centered_baseline(local, t.font_size);
+            float const baseline = static_cast<float>(text_area.y) + centered_baseline(local, t.font_size);
             float const advance = text::SashfoldMono::advance(t.font_size);
             if (address_focus && select_all && !text.empty())
-                strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(text, t.font_size) + 0.5f),
+                frame.fill_rect(Rect { text_area.x, text_area.y + 2, static_cast<int>(text_width(text, t.font_size) + 0.5f),
                                     text_area.height - 4 },
                     t.address_selection);
-            draw_text(strip, text, 0, baseline, t.font_size, address_ink);
+            draw_text(frame, text, static_cast<float>(text_area.x), baseline, t.font_size, address_ink);
             if (!composing.empty()) {
                 int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                 int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
-                strip.fill_rect(Rect { from, text_area.height - 6, to - from, 1 }, address_ink);
+                frame.fill_rect(Rect { text_area.x + from, text_area.y + text_area.height - 6, to - from, 1 }, address_ink);
             }
             if (address_focus) {
                 int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
-                strip.fill_rect(Rect { caret_x, 4, 1, text_area.height - 8 }, t.accent);
+                frame.fill_rect(Rect { text_area.x + caret_x, text_area.y + 4, 1, text_area.height - 8 }, t.accent);
             }
-            frame.blit(strip, text_area.x, text_area.y);
+            frame.set_clip(std::nullopt);
         }
 
         // Find bar: the query box and the count of matches.
@@ -6141,40 +6361,38 @@ struct Browser::Impl {
                 t.chrome_border);
             Color const find_fill = find_focus ? t.address_background_focus : t.address_background;
             Color const find_ink = find_focus ? t.address_text_focus : t.address_text;
-            frame.fill_round_rect(c.find_box, t.address_corner_radius,
-                find_focus ? t.address_border_focus : t.address_border);
+            frame.fill_round_box(c.find_box, t.address_corner_radius, t.border_width,
+                find_focus ? t.address_border_focus : t.address_border, find_fill);
             Rect const box_inner { c.find_box.x + t.border_width, c.find_box.y + t.border_width,
                 c.find_box.width - 2 * t.border_width, c.find_box.height - 2 * t.border_width };
-            frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width),
-                find_fill);
             Rect const box_text { box_inner.x + t.padding, box_inner.y,
                 std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
             if (!box_text.is_empty()) {
-                Bitmap strip(box_text.width, box_text.height, find_fill);
+                frame.set_clip(box_text); // onto the box itself, as the address bar's text is
                 std::u32string const composing
                     = find_focus && preedit_owner == PreeditOwner::Find ? decode_utf8(preedit) : std::u32string();
                 std::size_t const caret_index = decode_utf8(find_query.substr(0, find_caret)).size();
                 std::u32string query = decode_utf8(find_query);
                 query.insert(std::min(caret_index, query.size()), composing);
                 Rect const local { 0, 0, box_text.width, box_text.height };
-                float const baseline = centered_baseline(local, t.font_size);
+                float const baseline = static_cast<float>(box_text.y) + centered_baseline(local, t.font_size);
                 float const advance = text::SashfoldMono::advance(t.font_size);
                 if (find_focus && find_select_all && !query.empty())
-                    strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f),
+                    frame.fill_rect(Rect { box_text.x, box_text.y + 2, static_cast<int>(text_width(query, t.font_size) + 0.5f),
                                         box_text.height - 4 },
                         t.address_selection);
-                draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0,
-                    baseline, t.font_size, find_ink);
+                draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size),
+                    static_cast<float>(box_text.x), baseline, t.font_size, find_ink);
                 if (!composing.empty()) {
                     int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                     int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
-                    strip.fill_rect(Rect { from, box_text.height - 6, to - from, 1 }, find_ink);
+                    frame.fill_rect(Rect { box_text.x + from, box_text.y + box_text.height - 6, to - from, 1 }, find_ink);
                 }
                 if (find_focus) {
                     int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
-                    strip.fill_rect(Rect { caret_x, 4, 1, box_text.height - 8 }, t.accent);
+                    frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
                 }
-                frame.blit(strip, box_text.x, box_text.y);
+                frame.set_clip(std::nullopt);
             }
             std::string const count = tab ? find_status(*tab) : std::string();
             if (!count.empty()) {
@@ -6311,31 +6529,29 @@ struct Browser::Impl {
         // The command palette, over the page: the query box and the
         // commands the query leaves, the highlighted one marked.
         if (palette_open && !c.palette.is_empty()) {
-            frame.fill_round_rect(c.palette, t.address_corner_radius, t.popup_border);
-            Rect const palette_inner { c.palette.x + t.border_width, c.palette.y + t.border_width,
-                c.palette.width - 2 * t.border_width, c.palette.height - 2 * t.border_width };
-            frame.fill_round_rect(palette_inner, std::max(0, t.address_corner_radius - t.border_width), t.popup_background);
-            frame.fill_round_rect(c.palette_box, t.address_corner_radius, t.address_border_focus);
+            frame.fill_round_box(c.palette, t.address_corner_radius, t.border_width, t.popup_border, t.popup_background);
+            frame.fill_round_box(c.palette_box, t.address_corner_radius, t.border_width, t.address_border_focus,
+                t.address_background_focus);
             Rect const box_inner { c.palette_box.x + t.border_width, c.palette_box.y + t.border_width,
                 c.palette_box.width - 2 * t.border_width, c.palette_box.height - 2 * t.border_width };
-            frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width), t.address_background_focus);
             Rect const box_text { box_inner.x + t.padding, box_inner.y, std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
             if (!box_text.is_empty()) {
-                Bitmap strip(box_text.width, box_text.height, t.address_background_focus);
+                frame.set_clip(box_text); // onto the box itself, as the address bar's text is
                 std::u32string const query = decode_utf8(palette_query);
                 std::size_t const caret_index = decode_utf8(palette_query.substr(0, palette_caret)).size();
                 Rect const local { 0, 0, box_text.width, box_text.height };
-                float const baseline = centered_baseline(local, t.font_size);
+                float const baseline = static_cast<float>(box_text.y) + centered_baseline(local, t.font_size);
                 float const advance = text::SashfoldMono::advance(t.font_size);
+                float const left = static_cast<float>(box_text.x);
                 if (palette_select_all && !query.empty())
-                    strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f), box_text.height - 4 }, t.address_selection);
+                    frame.fill_rect(Rect { box_text.x, box_text.y + 2, static_cast<int>(text_width(query, t.font_size) + 0.5f), box_text.height - 4 }, t.address_selection);
                 if (query.empty())
-                    draw_text(strip, U"Type a command", 0, baseline, t.font_size, t.chrome_text_muted);
+                    draw_text(frame, U"Type a command", left, baseline, t.font_size, t.chrome_text_muted);
                 else
-                    draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0, baseline, t.font_size, t.address_text_focus);
+                    draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size), left, baseline, t.font_size, t.address_text_focus);
                 int const caret_x = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
-                strip.fill_rect(Rect { caret_x, 4, 1, box_text.height - 8 }, t.accent);
-                frame.blit(strip, box_text.x, box_text.y);
+                frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
+                frame.set_clip(std::nullopt);
             }
             std::size_t const first = palette_first_shown();
             for (std::size_t i = 0; i < c.palette_rows.size(); ++i) {
@@ -6385,10 +6601,7 @@ struct Browser::Impl {
         for (std::size_t l = 0; l < c.menus.size() && l < menus.size(); ++l) {
             MenuBox const& box = c.menus[l];
             MenuLevel const& level = menus[l];
-            frame.fill_round_rect(box.box, t.button_corner_radius, t.popup_border);
-            Rect const inner { box.box.x + t.border_width, box.box.y + t.border_width,
-                box.box.width - 2 * t.border_width, box.box.height - 2 * t.border_width };
-            frame.fill_round_rect(inner, std::max(0, t.button_corner_radius - t.border_width), t.popup_background);
+            frame.fill_round_box(box.box, t.button_corner_radius, t.border_width, t.popup_border, t.popup_background);
             bool any_checked = false;
             for (MenuItem const& item : level.items)
                 any_checked = any_checked || item.checked;
@@ -6489,6 +6702,7 @@ std::optional<std::string> Browser::take_theme_request()
 }
 
 Theme const& Browser::theme() const { return m_impl->theme; }
+std::vector<std::string> const& Browser::theme_problems() const { return m_impl->theme_problems; }
 
 void Browser::set_scale(float scale)
 {
@@ -6581,6 +6795,16 @@ Browser::WindowRequest Browser::take_window_request()
     m_impl->window_request = WindowRequest::None;
     return request;
 }
+
+void Browser::set_window_active(bool active)
+{
+    if (m_impl->window_active == active)
+        return;
+    m_impl->window_active = active;
+    m_impl->dirty = true;
+}
+
+bool Browser::window_active() const { return m_impl->window_active; }
 
 void Browser::navigate(std::string const& typed) { m_impl->navigate(typed); }
 void Browser::open(net::Url const& url) { m_impl->open(url); }

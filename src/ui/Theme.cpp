@@ -58,6 +58,7 @@ constexpr Token<Color> color_tokens[] = {
     { "address-text-focus", &Theme::address_text_focus },
     { "address-border-focus", &Theme::address_border_focus },
     { "address-selection", &Theme::address_selection },
+    { "chrome-background-inactive", &Theme::chrome_background_inactive },
 };
 
 // A token a theme file may leave out takes the theme's own value of
@@ -84,7 +85,23 @@ constexpr Derived derived_colors[] = {
     { "address-text-focus", &Theme::address_text_focus, &Theme::address_text },
     { "address-border-focus", &Theme::address_border_focus, &Theme::accent },
     { "address-selection", &Theme::address_selection, &Theme::selection },
+    { "chrome-background-inactive", &Theme::chrome_background_inactive, &Theme::chrome_background },
 };
+
+// The surfaces a theme may lay pictures over.
+struct PictureList {
+    char const* key;
+    std::vector<ThemePicture> Theme::*member;
+};
+
+constexpr PictureList picture_lists[] = {
+    { "frame", &Theme::frame_pictures },
+    { "toolbar", &Theme::toolbar_pictures },
+    { "tab-background", &Theme::tab_background_pictures },
+};
+
+// More layers than any theme stacks; each is composited on every paint.
+constexpr std::size_t max_pictures_per_surface = 16;
 
 constexpr Token<int> metric_tokens[] = {
     { "tab-strip-height", &Theme::tab_strip_height },
@@ -162,6 +179,164 @@ std::optional<int> integer_in(JsonValue const& value, int low, int high)
     if (static_cast<double>(truncated) != number)
         return std::nullopt;
     return truncated;
+}
+
+// Where a picture is held: one or two of left, center, right, top and
+// bottom, as a browser theme's alignment is written and as CSS reads a
+// background-position — a side named alone leaves the other axis centered.
+bool parse_picture_hold(std::string_view text, ThemePicture& picture)
+{
+    using Hold = ThemePicture::Hold;
+    std::optional<Hold> across;
+    std::optional<Hold> down;
+    int centers = 0;
+    int words = 0;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        while (at < text.size() && text[at] == ' ')
+            ++at;
+        std::size_t const from = at;
+        while (at < text.size() && text[at] != ' ')
+            ++at;
+        if (at == from)
+            break;
+        std::string_view const word = text.substr(from, at - from);
+        ++words;
+        if (word == "center") {
+            ++centers;
+        } else if (word == "left" || word == "right") {
+            if (across)
+                return false;
+            across = word == "left" ? Hold::Start : Hold::End;
+        } else if (word == "top" || word == "bottom") {
+            if (down)
+                return false;
+            down = word == "top" ? Hold::Start : Hold::End;
+        } else {
+            return false;
+        }
+    }
+    if (words == 0 || words > 2)
+        return false;
+    // Every word found an axis, and a center takes whichever is left.
+    if ((across ? 1 : 0) + (down ? 1 : 0) + centers != words)
+        return false;
+    picture.across = across.value_or(Hold::Center);
+    picture.down = down.value_or(Hold::Center);
+    return true;
+}
+
+bool parse_picture_repeat(std::string_view text, ThemePicture& picture)
+{
+    if (text == "no-repeat") {
+        picture.repeat_across = false;
+        picture.repeat_down = false;
+    } else if (text == "repeat") {
+        picture.repeat_across = true;
+        picture.repeat_down = true;
+    } else if (text == "repeat-x") {
+        picture.repeat_across = true;
+        picture.repeat_down = false;
+    } else if (text == "repeat-y") {
+        picture.repeat_across = false;
+        picture.repeat_down = true;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// One picture of a surface: its path alone, or an object naming the path
+// and how it is held and repeated. Nullopt, and the reason reported, for
+// what names no picture.
+std::optional<ThemePicture> read_picture(JsonValue const& value, std::string const& where,
+    std::vector<std::string>* problems)
+{
+    auto const report = [&](std::string const& what) {
+        if (problems)
+            problems->push_back("theme: " + where + what);
+    };
+    ThemePicture picture;
+    if (value.is_string()) {
+        picture.path = value.as_string();
+    } else if (value.is_object()) {
+        for (auto const& [key, member] : value.as_object()) {
+            if (key == "picture") {
+                if (member.is_string())
+                    picture.path = member.as_string();
+                else
+                    report(".picture: expected a file path");
+            } else if (key == "align") {
+                if (!member.is_string() || !parse_picture_hold(member.as_string(), picture))
+                    report(".align: expected a side or two, like \"right top\" or \"center\"");
+            } else if (key == "tile") {
+                if (!member.is_string() || !parse_picture_repeat(member.as_string(), picture))
+                    report(".tile: expected no-repeat, repeat, repeat-x or repeat-y");
+            } else {
+                report("." + key + ": unknown token");
+            }
+        }
+    } else {
+        report(": expected a file path, or an object with a \"picture\"");
+        return std::nullopt;
+    }
+    if (picture.path.empty()) {
+        report(": names no picture");
+        return std::nullopt;
+    }
+    return picture;
+}
+
+// The images section: for each surface one picture or a list of them,
+// front to back.
+void read_pictures(JsonValue const& root, Theme& theme, std::vector<std::string>* problems)
+{
+    JsonValue const* const section = root.get("images");
+    if (!section)
+        return;
+    if (!section->is_object()) {
+        if (problems)
+            problems->push_back("theme: images: expected an object");
+        return;
+    }
+    for (auto const& [key, value] : section->as_object()) {
+        PictureList const* found = nullptr;
+        for (PictureList const& list : picture_lists) {
+            if (key == list.key)
+                found = &list;
+        }
+        if (!found) {
+            if (problems)
+                problems->push_back("theme: images." + key + ": unknown token");
+            continue;
+        }
+        std::vector<ThemePicture>& pictures = theme.*(found->member);
+        pictures.clear();
+        if (!value.is_array()) {
+            if (std::optional<ThemePicture> picture = read_picture(value, "images." + key, problems))
+                pictures.push_back(std::move(*picture));
+            continue;
+        }
+        std::size_t index = 0;
+        for (JsonValue const& entry : value.as_array()) {
+            std::string const where = "images." + key + "[" + std::to_string(index++) + "]";
+            if (pictures.size() == max_pictures_per_surface) {
+                if (problems)
+                    problems->push_back("theme: " + where + ": more pictures than the "
+                        + std::to_string(max_pictures_per_surface) + " a surface takes");
+                break;
+            }
+            if (std::optional<ThemePicture> picture = read_picture(entry, where, problems))
+                pictures.push_back(std::move(*picture));
+        }
+    }
+}
+
+// A path a theme file names, against the folder the file is in.
+std::string beside(std::filesystem::path const& base, std::string const& named)
+{
+    std::filesystem::path const path(named);
+    return path.is_relative() ? (base / path).lexically_normal().string() : named;
 }
 
 } // namespace
@@ -280,10 +455,12 @@ Theme Theme::from_json(std::string_view text, std::vector<std::string>* problems
         }
     }
 
+    read_pictures(*root, theme, problems);
+
     for (auto const& [key, value] : root->as_object()) {
         (void)value;
         if (key != "name" && key != "colors" && key != "metrics" && key != "type"
-            && key != "timings" && key != "new-tab" && problems)
+            && key != "timings" && key != "new-tab" && key != "images" && problems)
             problems->push_back("theme: " + key + ": unknown section");
     }
     return theme;
@@ -300,14 +477,15 @@ std::optional<Theme> Theme::load(std::string const& path, std::vector<std::strin
     std::ostringstream stream;
     stream << file.rdbuf();
     Theme theme = from_json(std::move(stream).str(), problems);
-    // The pictures folder is named relative to the theme file it belongs to.
-    if (!theme.new_tab_backgrounds.empty()) {
-        std::filesystem::path const folder(theme.new_tab_backgrounds);
-        if (folder.is_relative()) {
-            std::error_code error;
-            std::filesystem::path const base = std::filesystem::absolute(path, error).parent_path();
-            theme.new_tab_backgrounds = (base / folder).lexically_normal().string();
-        }
+    // What the file names — the new-tab page's folder, the chrome's
+    // pictures — it names relative to itself.
+    std::error_code error;
+    std::filesystem::path const base = std::filesystem::absolute(path, error).parent_path();
+    if (!theme.new_tab_backgrounds.empty())
+        theme.new_tab_backgrounds = beside(base, theme.new_tab_backgrounds);
+    for (PictureList const& list : picture_lists) {
+        for (ThemePicture& picture : theme.*(list.member))
+            picture.path = beside(base, picture.path);
     }
     return theme;
 }

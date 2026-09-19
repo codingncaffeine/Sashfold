@@ -1,0 +1,131 @@
+# The frame — what lies behind the tab strip and the toolbar: its color, the
+# color of a window that is not the one in front, the theme's pictures over
+# it, and every fill above them compositing, so that what frame-theme.json
+# makes translucent lets the frame through.
+#
+# The pictures (tests/shell/frame/), all placed against the header from the
+# window's top left:
+#   corner.png  40 x 20, magenta; (0,0) green, (1,0) white at half alpha,
+#               (39,19) blue. The frame's front picture: top right, once.
+#   dots.png    16 x 16, clear but for red at (4,4). Behind it: tiled.
+#   bar.png     16 x 32, clear but for cyan at (0,8). The toolbar's, tiled:
+#               it shows in the toolbar and in the tab in front.
+#   tab.png     16 x 32, clear but for yellow at (8,8). The other tabs', tiled.
+#   wide.png    1200 x 900, clear but for white at (500,0). Rearmost of the
+#               frame's: held at the top right and repeated across — too
+#               large to be kept as a tile, so drawn copy by copy.
+# The colors below are source-over by hand: the toolbar, #102030 at alpha
+# 128, over the frame #203040 is #182838, over a red dot #871018, over the
+# frame of a window not in front (#405060) #283848; the field, white at
+# alpha 64, over #182838 is #525e6a.
+resize 800 500
+open data:text/html,<title>Frame</title><p>x</p>
+assert-theme Frame
+
+# A picture that is not there is said, by the token that names it, and the
+# rest of the theme is put on.
+assert-theme-problem images.frame[2]: cannot read
+
+# The frame's front picture at the top right: its corners, the magenta
+# between, its half-transparent pixel over the frame, and the frame beside it.
+assert-pixel 760 0 #00ff00
+assert-pixel 799 19 #0000ff
+assert-pixel 780 10 #ff00ff
+assert-pixel 761 0 #9098a0
+assert-pixel 759 0 #203040
+assert-pixel 780 20 #203040
+
+# The picture behind it, tiled from the top left: a dot every sixteen, the
+# frame between them; under the front picture it does not show.
+assert-pixel 4 4 #ff0000
+assert-pixel 20 4 #ff0000
+assert-pixel 596 20 #ff0000
+assert-pixel 5 4 #203040
+assert-pixel 772 4 #ff00ff
+
+# And the rearmost, held at the right of an 800 px window: its one pixel
+# lands 500 px into a copy that begins 400 px to the left of the window.
+assert-pixel 100 0 #ffffff
+assert-pixel 101 0 #203040
+
+# The toolbar is translucent: the frame shows through it, and so does a dot.
+assert-pixel 600 38 #182838
+assert-pixel 596 36 #871018
+
+# The tab in front ends at its foot: the toolbar beneath it has the frame
+# under it, as the toolbar beside it has, and not the tab as well.
+assert-pixel 100 38 #182838
+
+# The toolbar's own picture is over its color, in the toolbar and carried up
+# into the tab in front — and nowhere else in the strip.
+assert-pixel 400 40 #00ffff
+assert-pixel 400 72 #00ffff
+assert-pixel 32 8 #00ffff
+assert-pixel 400 8 #203040
+
+# A translucent field lets the toolbar through — inside, never its border's
+# color — beside its text, and where the text is drawn.
+assert-pixel 716 56 #525e6a
+assert-pixel 600 56 #525e6a
+assert-pixel 114 56 #ff8000
+
+# A second tab: the first is now behind. It wears the background tabs'
+# picture and not the toolbar's; the tab in front wears the toolbar's.
+new-tab
+assert-tabs 2
+assert-pixel 24 8 #ffff00
+assert-pixel 32 8 #203040
+assert-pixel 240 8 #00ffff
+assert-pixel 248 8 #182838
+# ...and its pictures end at its foot, as its color does.
+assert-pixel 24 40 #182838
+
+# The pointer's color goes over a background tab's color and pictures both.
+move 100 20
+assert-pixel 24 8 #ffff40
+assert-pixel 40 10 #586470
+move 600 300
+assert-pixel 24 8 #ffff00
+
+# The window is no longer the one in front: the frame takes its other
+# color, under everything that lets it through, and takes it back.
+window-active off
+assert-pixel 600 10 #405060
+assert-pixel 600 38 #283848
+assert-pixel 760 0 #00ff00
+window-active on
+assert-pixel 600 10 #203040
+assert-pixel 600 38 #182838
+
+# A narrower window: what is held at the right follows the edge.
+resize 640 500
+assert-pixel 600 0 #00ff00
+assert-pixel 599 0 #203040
+# A wide one: the large picture repeats across it, copy by copy.
+resize 2000 500
+assert-pixel 1300 0 #ffffff
+assert-pixel 100 0 #ffffff
+assert-pixel 1301 0 #203040
+resize 800 500
+assert-pixel 760 0 #00ff00
+assert-golden goldens/frame.png
+
+# At two device px per CSS px a picture is twice the size, as the chrome is.
+scale 2
+assert-pixel 720 0 #00ff00
+assert-pixel 721 1 #00ff00
+assert-pixel 722 0 #9098a0
+assert-pixel 724 0 #ff00ff
+assert-pixel 798 39 #0000ff
+assert-pixel 8 8 #ff0000
+assert-pixel 9 9 #ff0000
+assert-pixel 10 8 #203040
+scale 1
+
+# Another theme put on: the pictures go with the one that named them.
+palette theme: tokens
+key Enter
+assert-theme Tokens
+assert-theme-problem none
+assert-pixel 760 0 #1f2228
+assert-pixel 4 4 #1f2228

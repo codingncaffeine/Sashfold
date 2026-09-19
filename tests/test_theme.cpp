@@ -158,6 +158,150 @@ int main(int argc, char** argv)
             "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"popup-background\": \"paper\" } }", &problems);
         CHECK_EQ(problems.size(), std::size_t { 1 });
         CHECK(broken.popup_background == Color::rgb(0xf1, 0xf2, 0xf4));
+        problems.clear();
+
+        // The frame of a window that is not in front is the frame, until a
+        // theme says otherwise.
+        CHECK(light.chrome_background_inactive == Color::rgb(0xf1, 0xf2, 0xf4));
+        CHECK(!(light.chrome_background_inactive == Theme {}.chrome_background_inactive)); // the control: it moved
+        Theme const dimmed = Theme::from_json(
+            "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"chrome-background-inactive\": \"#d0d2d6\" } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(dimmed.chrome_background == Color::rgb(0xf1, 0xf2, 0xf4));
+        CHECK(dimmed.chrome_background_inactive == Color::rgb(0xd0, 0xd2, 0xd6));
+    }
+
+    // --- Pictures over the chrome's surfaces ----------------------------------
+    {
+        using Hold = ThemePicture::Hold;
+        std::vector<std::string> problems;
+        // A path alone is a picture held at the top right and shown once, as
+        // a browser theme's is when it says nothing more.
+        Theme const plain = Theme::from_json("{ \"images\": { \"frame\": \"header.png\" } }", &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK_EQ(plain.frame_pictures.size(), std::size_t { 1 });
+        if (plain.frame_pictures.size() == 1) {
+            CHECK_EQ(plain.frame_pictures[0].path, "header.png");
+            CHECK(plain.frame_pictures[0].across == Hold::End);
+            CHECK(plain.frame_pictures[0].down == Hold::Start);
+            CHECK(!plain.frame_pictures[0].repeat_across);
+            CHECK(!plain.frame_pictures[0].repeat_down);
+        }
+        CHECK(plain.toolbar_pictures.empty());
+        CHECK(plain.tab_background_pictures.empty());
+        CHECK(!(plain == Theme {}));
+
+        // A list is front to back; each entry says where it is held and how
+        // it repeats, a side named alone leaving the other axis centered.
+        Theme const layered = Theme::from_json(
+            "{ \"images\": {"
+            "  \"frame\": [ \"front.png\","
+            "               { \"picture\": \"middle.png\", \"align\": \"left bottom\", \"tile\": \"repeat-x\" },"
+            "               { \"picture\": \"back.png\", \"align\": \"center\", \"tile\": \"repeat\" } ],"
+            "  \"toolbar\": { \"picture\": \"bar.png\", \"align\": \"top\", \"tile\": \"repeat-y\" },"
+            "  \"tab-background\": { \"picture\": \"tab.png\", \"align\": \"bottom right\", \"tile\": \"no-repeat\" } } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK_EQ(layered.frame_pictures.size(), std::size_t { 3 });
+        if (layered.frame_pictures.size() == 3) {
+            CHECK_EQ(layered.frame_pictures[0].path, "front.png");
+            CHECK_EQ(layered.frame_pictures[1].path, "middle.png");
+            CHECK(layered.frame_pictures[1].across == Hold::Start);
+            CHECK(layered.frame_pictures[1].down == Hold::End);
+            CHECK(layered.frame_pictures[1].repeat_across);
+            CHECK(!layered.frame_pictures[1].repeat_down);
+            CHECK(layered.frame_pictures[2].across == Hold::Center);
+            CHECK(layered.frame_pictures[2].down == Hold::Center);
+            CHECK(layered.frame_pictures[2].repeat_across);
+            CHECK(layered.frame_pictures[2].repeat_down);
+        }
+        CHECK_EQ(layered.toolbar_pictures.size(), std::size_t { 1 });
+        if (layered.toolbar_pictures.size() == 1) {
+            CHECK(layered.toolbar_pictures[0].across == Hold::Center);
+            CHECK(layered.toolbar_pictures[0].down == Hold::Start);
+            CHECK(!layered.toolbar_pictures[0].repeat_across);
+            CHECK(layered.toolbar_pictures[0].repeat_down);
+        }
+        CHECK_EQ(layered.tab_background_pictures.size(), std::size_t { 1 });
+        if (layered.tab_background_pictures.size() == 1) {
+            CHECK(layered.tab_background_pictures[0].across == Hold::End);
+            CHECK(layered.tab_background_pictures[0].down == Hold::End);
+        }
+        // Scaling a theme leaves its pictures as they are.
+        CHECK(layered.scaled(2).frame_pictures == layered.frame_pictures);
+
+        // What is wrong is said by name; a picture with a bad side or a bad
+        // repeat keeps the rest of what it says, and one that names no file
+        // is no picture.
+        Theme const wrong = Theme::from_json(
+            "{ \"images\": {"
+            "  \"frame\": [ { \"picture\": \"a.png\", \"align\": \"left right\" },"
+            "               { \"picture\": \"b.png\", \"align\": \"upper\", \"tile\": \"sometimes\", \"glow\": 1 },"
+            "               { \"align\": \"left\" }, 7, { \"picture\": 3 } ],"
+            "  \"sidebar\": \"s.png\" } }",
+            &problems);
+        auto const mentions = [&](std::string const& what) {
+            for (std::string const& problem : problems) {
+                if (problem.find(what) != std::string::npos)
+                    return true;
+            }
+            return false;
+        };
+        CHECK_EQ(wrong.frame_pictures.size(), std::size_t { 2 });
+        if (wrong.frame_pictures.size() == 2) {
+            CHECK_EQ(wrong.frame_pictures[1].path, "b.png");
+            CHECK(wrong.frame_pictures[1].across == Hold::End); // as unsaid
+            CHECK(wrong.frame_pictures[1].down == Hold::Start);
+        }
+        CHECK_EQ(problems.size(), std::size_t { 9 });
+        CHECK(mentions("images.frame[0].align"));
+        CHECK(mentions("images.frame[1].align"));
+        CHECK(mentions("images.frame[1].tile"));
+        CHECK(mentions("images.frame[1].glow: unknown token"));
+        CHECK(mentions("images.frame[2]: names no picture"));
+        CHECK(mentions("images.frame[3]: expected a file path"));
+        CHECK(mentions("images.frame[4].picture: expected a file path"));
+        CHECK(mentions("images.frame[4]: names no picture"));
+        CHECK(mentions("images.sidebar: unknown token"));
+        problems.clear();
+        CHECK(Theme::from_json("{ \"images\": [] }", &problems) == Theme {});
+        CHECK_EQ(problems.size(), std::size_t { 1 });
+        problems.clear();
+        // No surface takes pictures without end.
+        std::string many = "{ \"images\": { \"frame\": [";
+        for (int i = 0; i < 20; ++i)
+            many += std::string(i ? "," : "") + "\"p.png\"";
+        many += "] } }";
+        Theme const crowded = Theme::from_json(many, &problems);
+        CHECK_EQ(crowded.frame_pictures.size(), std::size_t { 16 });
+        CHECK_EQ(problems.size(), std::size_t { 1 });
+    }
+
+    // --- A theme's pictures are named relative to the theme file ---------------
+    {
+        std::filesystem::path const dir = std::filesystem::temp_directory_path() / "sashfold-test-theme-images";
+        std::filesystem::create_directories(dir);
+        std::filesystem::path const file = dir / "images.json";
+        std::filesystem::path const elsewhere = std::filesystem::temp_directory_path() / "sashfold-elsewhere.png";
+        {
+            std::ofstream out(file);
+            out << "{ \"images\": { \"frame\": [ \"art/header.png\", " << "\"" << elsewhere.generic_string() << "\" ],"
+                << " \"toolbar\": \"bar.png\" } }";
+        }
+        std::vector<std::string> problems;
+        std::optional<Theme> const theme = Theme::load(file.string(), &problems);
+        CHECK(theme.has_value());
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        if (theme && theme->frame_pictures.size() == 2 && theme->toolbar_pictures.size() == 1) {
+            CHECK_EQ(theme->frame_pictures[0].path, (dir / "art" / "header.png").lexically_normal().string());
+            CHECK_EQ(theme->frame_pictures[1].path, elsewhere.generic_string()); // absolute: as written
+            CHECK_EQ(theme->toolbar_pictures[0].path, (dir / "bar.png").lexically_normal().string());
+        } else {
+            CHECK(false);
+        }
+        std::filesystem::remove(file);
+        std::filesystem::remove(dir);
     }
 
     // --- The pictures folder is named relative to the theme file ---------------

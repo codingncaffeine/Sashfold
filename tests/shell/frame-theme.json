@@ -1,0 +1,23 @@
+{
+  "name": "Frame",
+  "colors": {
+    "chrome-background": "#203040",
+    "chrome-background-inactive": "#405060",
+    "toolbar-background": "#10203080",
+    "tab-active-background": "#10203080",
+    "tab-inactive-background": "#00000000",
+    "tab-hover-background": "#ffffff40",
+    "address-background": "#ffffff40",
+    "address-border": "#ff8000"
+  },
+  "images": {
+    "frame": [
+      "frame/corner.png",
+      { "picture": "frame/dots.png", "align": "left top", "tile": "repeat" },
+      "frame/not-there.png",
+      { "picture": "frame/wide.png", "align": "right top", "tile": "repeat-x" }
+    ],
+    "toolbar": { "picture": "frame/bar.png", "align": "left top", "tile": "repeat" },
+    "tab-background": { "picture": "frame/tab.png", "align": "left top", "tile": "repeat" }
+  }
+}

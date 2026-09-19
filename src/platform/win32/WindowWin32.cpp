@@ -261,6 +261,16 @@ private:
             }
             return 0;
         }
+        case WM_ACTIVATE: {
+            // Whether the window is the one in front, for the shell to
+            // draw its frame by; the system's own handling — the keyboard
+            // focus it gives an activated window — still follows.
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::Active;
+            event.active = (static_cast<unsigned>(wparam) & 0xFFFFu) != WA_INACTIVE;
+            push(event);
+            break;
+        }
         case WM_PAINT:
             paint();
             return 0;

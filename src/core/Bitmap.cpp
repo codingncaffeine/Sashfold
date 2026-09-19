@@ -158,34 +158,110 @@ void Bitmap::fill_rect(Rect rect, Color color)
     }
 }
 
+namespace {
+
+// The corner radius a rectangle of this size can carry.
+int fitted_radius(Rect const& rect, int radius)
+{
+    return std::max(0, std::min({ radius, rect.width / 2, rect.height / 2 }));
+}
+
+// How far a corner row is inset: to where its pixel centers fall inside
+// the corner circle; distances are kept doubled so the half-pixel centers
+// stay integral. Row 0 is the outermost.
+int corner_inset(int r, int row)
+{
+    int const rr4 = 4 * r * r;
+    int const dy2 = 2 * (r - row) - 1;
+    for (int col = 0; col < r; ++col) {
+        int const dx2 = 2 * (r - col) - 1;
+        if (dx2 * dx2 + dy2 * dy2 <= rr4)
+            return col;
+    }
+    return r;
+}
+
+// The columns [from, to) of a rounded rectangle on the row `y`; empty
+// (from == to) on a row the shape does not reach.
+void round_rect_span(Rect const& rect, int r, int y, int& from, int& to)
+{
+    from = to = 0;
+    if (y < rect.y || y >= rect.bottom())
+        return;
+    int const from_edge = std::min(y - rect.y, rect.bottom() - 1 - y);
+    int const inset = from_edge < r ? corner_inset(r, from_edge) : 0;
+    from = rect.x + inset;
+    to = std::max(from, rect.right() - inset);
+}
+
+}
+
 void Bitmap::fill_round_rect(Rect rect, int radius, Color color)
 {
     if (rect.is_empty() || color.a == 0)
         return;
-    int const r = std::max(0, std::min({ radius, rect.width / 2, rect.height / 2 }));
+    int const r = fitted_radius(rect, radius);
     if (r == 0) {
         fill_rect(rect, color);
         return;
     }
     // The band between the corner rows is a plain rectangle.
     fill_rect(Rect { rect.x, rect.y + r, rect.width, rect.height - 2 * r }, color);
-    // Each corner row is inset to where its pixel centers fall inside the
-    // corner circle; distances are kept doubled so the half-pixel centers
-    // stay integral.
-    int const rr4 = 4 * r * r;
     for (int row = 0; row < r; ++row) {
-        int const dy2 = 2 * (r - row) - 1;
-        int inset = r;
-        for (int col = 0; col < r; ++col) {
-            int const dx2 = 2 * (r - col) - 1;
-            if (dx2 * dx2 + dy2 * dy2 <= rr4) {
-                inset = col;
-                break;
-            }
-        }
+        int const inset = corner_inset(r, row);
         fill_rect(Rect { rect.x + inset, rect.y + row, rect.width - 2 * inset, 1 }, color);
         fill_rect(Rect { rect.x + inset, rect.bottom() - 1 - row, rect.width - 2 * inset, 1 },
             color);
+    }
+}
+
+std::vector<Rect> Bitmap::round_rect_bands(Rect rect, int radius)
+{
+    std::vector<Rect> bands;
+    if (rect.is_empty())
+        return bands;
+    int const r = fitted_radius(rect, radius);
+    for (int row = 0; row < r; ++row) {
+        int const inset = corner_inset(r, row);
+        bands.push_back(Rect { rect.x + inset, rect.y + row, rect.width - 2 * inset, 1 });
+    }
+    if (rect.height - 2 * r > 0)
+        bands.push_back(Rect { rect.x, rect.y + r, rect.width, rect.height - 2 * r });
+    for (int row = r - 1; row >= 0; --row) {
+        int const inset = corner_inset(r, row);
+        bands.push_back(Rect { rect.x + inset, rect.bottom() - 1 - row, rect.width - 2 * inset, 1 });
+    }
+    return bands;
+}
+
+void Bitmap::fill_round_box(Rect rect, int radius, int border_width, Color border, Color fill)
+{
+    if (rect.is_empty())
+        return;
+    int const width = std::max(0, border_width);
+    Rect const inner { rect.x + width, rect.y + width, rect.width - 2 * width, rect.height - 2 * width };
+    int const outer_r = fitted_radius(rect, radius);
+    int const inner_r = inner.is_empty() ? 0 : fitted_radius(inner, std::max(0, radius - width));
+    for (int y = rect.y; y < rect.bottom(); ++y) {
+        int outer_from = 0;
+        int outer_to = 0;
+        round_rect_span(rect, outer_r, y, outer_from, outer_to);
+        int inner_from = outer_to;
+        int inner_to = outer_to;
+        if (!inner.is_empty()) {
+            int from = 0;
+            int to = 0;
+            round_rect_span(inner, inner_r, y, from, to);
+            if (to > from) {
+                inner_from = std::clamp(from, outer_from, outer_to);
+                inner_to = std::clamp(to, inner_from, outer_to);
+            }
+        }
+        // The border on either side of the inside, the inside between: no
+        // pixel takes both.
+        fill_rect(Rect { outer_from, y, inner_from - outer_from, 1 }, border);
+        fill_rect(Rect { inner_from, y, inner_to - inner_from, 1 }, fill);
+        fill_rect(Rect { inner_to, y, outer_to - inner_to, 1 }, border);
     }
 }
 
@@ -306,6 +382,24 @@ void Bitmap::blit(Bitmap const& source, int x, int y)
     }
 }
 
+void Bitmap::draw(Bitmap const& source, int x, int y)
+{
+    int x0 = std::max(x, 0);
+    int y0 = std::max(y, 0);
+    int x1 = std::min(x + source.width(), m_width);
+    int y1 = std::min(y + source.height(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
+    for (int row = y0; row < y1; ++row) {
+        for (int column = x0; column < x1; ++column)
+            blend_pixel(column, row, source.pixel(column - x, row - y));
+    }
+}
+
 void Bitmap::blend_over(Bitmap const& source, int x, int y, float alpha)
 {
     if (alpha <= 0)
@@ -345,10 +439,18 @@ void Bitmap::draw_scaled(Bitmap const& source, Rect dest)
         return;
     int const source_width = source.width();
     int const source_height = source.height();
-    int const x0 = std::max(dest.x, 0);
-    int const y0 = std::max(dest.y, 0);
-    int const x1 = std::min(dest.right(), m_width);
-    int const y1 = std::min(dest.bottom(), m_height);
+    int x0 = std::max(dest.x, 0);
+    int y0 = std::max(dest.y, 0);
+    int x1 = std::min(dest.right(), m_width);
+    int y1 = std::min(dest.bottom(), m_height);
+    if (m_clip) {
+        // Nothing outside the clip is written, so nothing there is worked
+        // out: a wide picture shown through a narrow clip costs the clip.
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
     // The source span each destination row or column covers.
     auto const span = [](int index, int source_size, int dest_size, int& from, int& to) {
         from = static_cast<int>(static_cast<std::int64_t>(index) * source_size / dest_size);

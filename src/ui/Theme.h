@@ -16,6 +16,27 @@
 
 namespace sashfold::ui {
 
+// A picture a theme lays over a surface of the chrome: the file, where it
+// is held against the area it is placed in, and whether it repeats from
+// there. Browser themes say the same of theirs — Firefox's theme_frame and
+// each of its additional_backgrounds with their alignment and tiling,
+// Chrome's theme_frame, theme_toolbar and theme_tab_background — and what
+// they leave unsaid is what is unsaid here: the top right corner, once.
+struct ThemePicture {
+    enum class Hold {
+        Start, // the left, the top
+        Center,
+        End, // the right, the bottom
+    };
+    std::string path; // as written; resolved against the theme file when it is loaded from one
+    Hold across = Hold::End;
+    Hold down = Hold::Start;
+    bool repeat_across = false;
+    bool repeat_down = false;
+
+    friend bool operator==(ThemePicture const&, ThemePicture const&) = default;
+};
+
 struct Theme {
     std::string name = "Sashfold";
 
@@ -80,6 +101,23 @@ struct Theme {
     Color address_text_focus = Color::rgb(0xe6, 0xe8, 0xec); // address-text
     Color address_border_focus = Color::rgb(0x5b, 0x9c, 0xf6); // accent
     Color address_selection = Color::rgba(0x5b, 0x9c, 0xf6, 0x66); // selection
+    // The frame — what shows behind the tabs — of a window that is not the
+    // one in front: frame_inactive.
+    Color chrome_background_inactive = Color::rgb(0x1f, 0x22, 0x28); // chrome-background
+
+    // Pictures, each list front to back. All three are placed against one
+    // area — the tab strip and the toolbar together, from the window's top
+    // left corner — so that a picture runs on unbroken from the tab in
+    // front into the toolbar; what differs is where each shows. The frame's
+    // show behind everything in that area (theme_frame, and behind it the
+    // additional_backgrounds), over the frame's color; every fill above
+    // them composites, so a theme that gives its toolbar an alpha lets them
+    // through. The toolbar's show over the toolbar's color and the front
+    // tab's (theme_toolbar); the background tabs' over each other tab
+    // (theme_tab_background).
+    std::vector<ThemePicture> frame_pictures;
+    std::vector<ThemePicture> toolbar_pictures;
+    std::vector<ThemePicture> tab_background_pictures;
 
     // Metrics, px.
     int tab_strip_height = 36;
@@ -125,13 +163,16 @@ struct Theme {
     static Theme from_json(std::string_view text, std::vector<std::string>* problems = nullptr);
 
     // Reads and parses a theme file; nullopt when the file cannot be read.
+    // The paths it names — its pictures, its new-tab folder — are resolved
+    // against the folder the file is in.
     static std::optional<Theme> load(std::string const& path,
         std::vector<std::string>* problems = nullptr);
 
     // This theme for a display of `factor` device px per CSS px: every
     // metric and type size multiplied (a border stays at least one px),
-    // colors, timings and the new-tab settings as they are. The shell
-    // keeps the theme as written and draws with the scaled one.
+    // colors, timings, pictures and the new-tab settings as they are — a
+    // picture's size is in CSS px too, and whoever draws it multiplies. The
+    // shell keeps the theme as written and draws with the scaled one.
     Theme scaled(float factor) const;
 
     friend bool operator==(Theme const&, Theme const&) = default;

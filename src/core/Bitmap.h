@@ -119,6 +119,20 @@ public:
     // radius — integer geometry only, so it is byte-identical everywhere.
     void fill_round_rect(Rect rect, int radius, Color color);
 
+    // The shape `fill_round_rect` fills, as rectangles from the top down —
+    // a row each through the corners, the rows between them as one: what is
+    // drawn clipped to each in turn lands on exactly the pixels the fill
+    // takes.
+    static std::vector<Rect> round_rect_bands(Rect rect, int radius);
+
+    // A box with a border: `fill_round_rect`'s shape in `border`, and
+    // inside it, `border_width` in from every edge, the same shape in
+    // `fill` — the border only where the inside is not, so that each
+    // composites over what lies under the box and never over the other. A
+    // translucent inside shows what is behind the box, not its border's
+    // color. With opaque colors it is the two fills, one over the other.
+    void fill_round_box(Rect rect, int radius, int border_width, Color border, Color fill);
+
     // A filled shape with rounded corners, the curves antialiased; the
     // straight parts are filled as `fill_rect` would fill them.
     void fill_rounded(RoundedRect const& shape, Color color);
@@ -131,6 +145,12 @@ public:
     // Copies the source's pixels over this bitmap at (x, y), clipped; no
     // blending — the source replaces what was there.
     void blit(Bitmap const& source, int x, int y);
+
+    // Composites the source over this bitmap at (x, y), pixel for pixel,
+    // source-over and clipped as any other write is: what `blit` is for a
+    // picture with transparency in it, which must let through what it is
+    // laid on.
+    void draw(Bitmap const& source, int x, int y);
 
     // Moves every pixel of this bitmap `alpha` of the way towards the
     // source's, the source placed at (x, y) and clipped as any other write

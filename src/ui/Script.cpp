@@ -352,6 +352,21 @@ struct Runner {
             if (argument != "on" && argument != "off")
                 return fail("window-controls: on or off");
             browser.set_window_controls(argument == "on");
+        } else if (command == "window-active") {
+            // `window-active on|off`: whether the window is the one in
+            // front, as the system would say when another takes its place.
+            if (argument != "on" && argument != "off")
+                return fail("window-active: on or off");
+            browser.set_window_active(argument == "on");
+        } else if (command == "assert-theme-problem") {
+            // `assert-theme-problem none`, or `assert-theme-problem <text>`:
+            // what the theme in use could not put on — a picture it names
+            // that is not there — holds the text somewhere, or is nothing.
+            std::string said;
+            for (std::string const& problem : browser.theme_problems())
+                said += problem + "\n";
+            if (argument == "none" ? !said.empty() : said.find(argument) == std::string::npos)
+                fail("assert-theme-problem: wanted " + argument + ", the theme says: " + (said.empty() ? "nothing" : said));
         } else if (command == "assert-window-request") {
             // `assert-window-request <what>`: what the last press asked of
             // the window — none, move, minimize, maximize, close, or

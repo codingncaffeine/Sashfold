@@ -203,6 +203,11 @@ public:
 
     void set_theme(Theme theme);
     Theme const& theme() const;
+    // What stood in the way of the pictures the theme in use names — a file
+    // that could not be read, or is no picture in a format read here — each
+    // by the token that names it. Such a picture is left out and the rest of
+    // the theme stands.
+    std::vector<std::string> const& theme_problems() const;
     // Where downloads land. Empty disables downloading: a response the
     // engine cannot render then shows the unsupported-content page instead.
     void set_downloads_directory(std::string directory);
@@ -262,6 +267,11 @@ public:
     void set_window_controls(bool shown);
     bool window_controls() const;
     WindowRequest take_window_request();
+    // Whether this window is the one in front, as the system says: a theme
+    // may give the frame of one that is not a color of its own
+    // (chrome-background-inactive). In front until told otherwise.
+    void set_window_active(bool active);
+    bool window_active() const;
 
     // --- Navigation ---------------------------------------------------------
     // Address-bar semantics: a URL, or a bare host that tries https first.

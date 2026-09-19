@@ -204,6 +204,7 @@ namespace xdg_toplevel {
     constexpr std::uint16_t event_close = 1;
     constexpr std::uint16_t event_configure_bounds = 2; // since 4
     constexpr std::uint32_t state_maximized = 1;
+    constexpr std::uint32_t state_activated = 4;
     constexpr std::uint32_t edge_top = 1;
     constexpr std::uint32_t edge_bottom = 2;
     constexpr std::uint32_t edge_left = 4;
@@ -529,6 +530,9 @@ private:
     // one and agrees to draw it, else the shell's.
     bool m_client_decorations = false;
     bool m_maximized = false; // from the toplevel's configure states
+    // Likewise; begun as the shell begins, in front, so that the first
+    // configure that says otherwise is a change and is told.
+    bool m_activated = true;
     std::deque<WindowEvent> m_events;
 
     FrameBuffer m_frames[2];
@@ -797,16 +801,28 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
             m_pending_width = message.int_();
             m_pending_height = message.int_();
             // The states: whether the window is maximized is what the
-            // shell's own maximize button toggles against.
+            // shell's own maximize button toggles against, and whether it
+            // is the one in front is what the shell draws its frame by.
             std::span<std::uint8_t const> const states = message.array();
             bool maximized = false;
+            bool activated = false;
             for (std::size_t i = 0; i + 4 <= states.size(); i += 4) {
                 std::uint32_t const state = static_cast<std::uint32_t>(states[i]) | (static_cast<std::uint32_t>(states[i + 1]) << 8)
                     | (static_cast<std::uint32_t>(states[i + 2]) << 16) | (static_cast<std::uint32_t>(states[i + 3]) << 24);
                 if (state == xdg_toplevel::state_maximized)
                     maximized = true;
+                if (state == xdg_toplevel::state_activated)
+                    activated = true;
             }
             m_maximized = maximized;
+            if (activated != m_activated) {
+                m_activated = activated;
+                debug("window %s", activated ? "activated" : "deactivated");
+                WindowEvent event;
+                event.kind = WindowEvent::Kind::Active;
+                event.active = activated;
+                push(event);
+            }
             break;
         }
         case xdg_toplevel::event_close: {
