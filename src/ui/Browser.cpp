@@ -5986,7 +5986,7 @@ struct Browser::Impl {
         if (hovered && enabled)
             frame.fill_round_rect(rect, theme.button_corner_radius, theme.button_hover_background);
         draw_glyph_centered(frame, glyph, rect, theme.font_size * 1.15f,
-            enabled ? theme.chrome_text : theme.button_disabled_text);
+            enabled ? theme.toolbar_icon : theme.button_disabled_text);
     }
 
     void paint()
@@ -6014,6 +6014,13 @@ struct Browser::Impl {
                 frame.fill_round_rect(Rect { rect.x, rect.y, rect.width, rect.height + t.tab_corner_radius },
                     t.tab_corner_radius, background);
             }
+            // The tab in front wears the theme's line along its top, when the
+            // theme names one.
+            if (is_active && t.tab_line.a != 0) {
+                frame.fill_rect(Rect { rect.x + t.tab_corner_radius, rect.y, std::max(0, rect.width - 2 * t.tab_corner_radius),
+                                    std::max(2, t.border_width * 2) },
+                    t.tab_line);
+            }
             // A tab in a container wears the container's colour along its top.
             if (Browser::Container const* const container = container_named(tabs[i].container)) {
                 int const stripe = std::max(2, t.border_width * 2);
@@ -6034,12 +6041,12 @@ struct Browser::Impl {
             std::u32string const title
                 = ellipsize(decode_utf8(tab_title(tabs[i])), max_width, t.tab_font_size);
             draw_text(frame, title, text_x, centered_baseline(rect, t.tab_font_size), t.tab_font_size,
-                is_active ? t.chrome_text : t.chrome_text_muted);
+                is_active ? t.tab_text : t.chrome_text_muted);
             bool const close_hover = hover == Hover::TabClose && hover_index == i;
             if (close_hover)
                 frame.fill_round_rect(close, close.width / 2, t.button_hover_background);
             draw_glyph_centered(frame, glyph_close, close, t.tab_font_size,
-                is_active || close_hover ? t.chrome_text : t.chrome_text_muted);
+                is_active ? t.tab_text : close_hover ? t.chrome_text : t.chrome_text_muted);
         }
         if (hover == Hover::NewTab)
             frame.fill_round_rect(c.new_tab_button, t.button_corner_radius, t.button_hover_background);
@@ -6068,7 +6075,7 @@ struct Browser::Impl {
         }
 
         // Toolbar.
-        frame.fill_rect(c.toolbar, t.tab_active_background);
+        frame.fill_rect(c.toolbar, t.toolbar_background);
         frame.fill_rect(Rect { 0, c.toolbar.bottom() - t.border_width, width, t.border_width },
             t.chrome_border);
         paint_button(c.back_button, glyph_back, can_go(-1), hover == Hover::Back);
@@ -6079,12 +6086,16 @@ struct Browser::Impl {
         paint_button(c.menu_button, glyph_menu, true, hover == Hover::MenuButton || main_menu_open);
 
         // Address bar.
+        // A field with the focus wears its own colors, which a theme may
+        // set apart from the field at rest.
+        Color const address_fill = address_focus ? t.address_background_focus : t.address_background;
+        Color const address_ink = address_focus ? t.address_text_focus : t.address_text;
         frame.fill_round_rect(c.address, t.address_corner_radius,
-            address_focus ? t.accent : t.address_border);
+            address_focus ? t.address_border_focus : t.address_border);
         Rect const inner { c.address.x + t.border_width, c.address.y + t.border_width,
             c.address.width - 2 * t.border_width, c.address.height - 2 * t.border_width };
         frame.fill_round_rect(inner, std::max(0, t.address_corner_radius - t.border_width),
-            t.address_background);
+            address_fill);
         int text_left = inner.x + t.padding + 2;
         if (url && is_web_scheme(url->scheme) && !address_focus) {
             int const dot = std::max(4, t.address_height / 4);
@@ -6095,7 +6106,7 @@ struct Browser::Impl {
         Rect const text_area { text_left, inner.y, std::max(0, inner.right() - t.padding - text_left),
             inner.height };
         if (!text_area.is_empty()) {
-            Bitmap strip(text_area.width, text_area.height, t.address_background);
+            Bitmap strip(text_area.width, text_area.height, address_fill);
             // The composing text of an input method sits at the caret,
             // underlined, and the caret stands after it.
             std::u32string const composing
@@ -6109,12 +6120,12 @@ struct Browser::Impl {
             if (address_focus && select_all && !text.empty())
                 strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(text, t.font_size) + 0.5f),
                                     text_area.height - 4 },
-                    t.selection);
-            draw_text(strip, text, 0, baseline, t.font_size, t.address_text);
+                    t.address_selection);
+            draw_text(strip, text, 0, baseline, t.font_size, address_ink);
             if (!composing.empty()) {
                 int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                 int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
-                strip.fill_rect(Rect { from, text_area.height - 6, to - from, 1 }, t.address_text);
+                strip.fill_rect(Rect { from, text_area.height - 6, to - from, 1 }, address_ink);
             }
             if (address_focus) {
                 int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
@@ -6128,16 +6139,18 @@ struct Browser::Impl {
             frame.fill_rect(c.find_bar, t.chrome_background);
             frame.fill_rect(Rect { 0, c.find_bar.bottom() - t.border_width, width, t.border_width },
                 t.chrome_border);
+            Color const find_fill = find_focus ? t.address_background_focus : t.address_background;
+            Color const find_ink = find_focus ? t.address_text_focus : t.address_text;
             frame.fill_round_rect(c.find_box, t.address_corner_radius,
-                find_focus ? t.accent : t.address_border);
+                find_focus ? t.address_border_focus : t.address_border);
             Rect const box_inner { c.find_box.x + t.border_width, c.find_box.y + t.border_width,
                 c.find_box.width - 2 * t.border_width, c.find_box.height - 2 * t.border_width };
             frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width),
-                t.address_background);
+                find_fill);
             Rect const box_text { box_inner.x + t.padding, box_inner.y,
                 std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
             if (!box_text.is_empty()) {
-                Bitmap strip(box_text.width, box_text.height, t.address_background);
+                Bitmap strip(box_text.width, box_text.height, find_fill);
                 std::u32string const composing
                     = find_focus && preedit_owner == PreeditOwner::Find ? decode_utf8(preedit) : std::u32string();
                 std::size_t const caret_index = decode_utf8(find_query.substr(0, find_caret)).size();
@@ -6149,13 +6162,13 @@ struct Browser::Impl {
                 if (find_focus && find_select_all && !query.empty())
                     strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f),
                                         box_text.height - 4 },
-                        t.selection);
+                        t.address_selection);
                 draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0,
-                    baseline, t.font_size, t.address_text);
+                    baseline, t.font_size, find_ink);
                 if (!composing.empty()) {
                     int const from = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                     int const to = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
-                    strip.fill_rect(Rect { from, box_text.height - 6, to - from, 1 }, t.address_text);
+                    strip.fill_rect(Rect { from, box_text.height - 6, to - from, 1 }, find_ink);
                 }
                 if (find_focus) {
                     int const caret_x = static_cast<int>(static_cast<float>(caret_index + composing.size()) * advance + 0.5f);
@@ -6302,24 +6315,24 @@ struct Browser::Impl {
             Rect const palette_inner { c.palette.x + t.border_width, c.palette.y + t.border_width,
                 c.palette.width - 2 * t.border_width, c.palette.height - 2 * t.border_width };
             frame.fill_round_rect(palette_inner, std::max(0, t.address_corner_radius - t.border_width), t.popup_background);
-            frame.fill_round_rect(c.palette_box, t.address_corner_radius, t.accent);
+            frame.fill_round_rect(c.palette_box, t.address_corner_radius, t.address_border_focus);
             Rect const box_inner { c.palette_box.x + t.border_width, c.palette_box.y + t.border_width,
                 c.palette_box.width - 2 * t.border_width, c.palette_box.height - 2 * t.border_width };
-            frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width), t.address_background);
+            frame.fill_round_rect(box_inner, std::max(0, t.address_corner_radius - t.border_width), t.address_background_focus);
             Rect const box_text { box_inner.x + t.padding, box_inner.y, std::max(0, box_inner.width - 2 * t.padding), box_inner.height };
             if (!box_text.is_empty()) {
-                Bitmap strip(box_text.width, box_text.height, t.address_background);
+                Bitmap strip(box_text.width, box_text.height, t.address_background_focus);
                 std::u32string const query = decode_utf8(palette_query);
                 std::size_t const caret_index = decode_utf8(palette_query.substr(0, palette_caret)).size();
                 Rect const local { 0, 0, box_text.width, box_text.height };
                 float const baseline = centered_baseline(local, t.font_size);
                 float const advance = text::SashfoldMono::advance(t.font_size);
                 if (palette_select_all && !query.empty())
-                    strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f), box_text.height - 4 }, t.selection);
+                    strip.fill_rect(Rect { 0, 2, static_cast<int>(text_width(query, t.font_size) + 0.5f), box_text.height - 4 }, t.address_selection);
                 if (query.empty())
                     draw_text(strip, U"Type a command", 0, baseline, t.font_size, t.chrome_text_muted);
                 else
-                    draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0, baseline, t.font_size, t.address_text);
+                    draw_text(strip, ellipsize(query, static_cast<float>(box_text.width), t.font_size), 0, baseline, t.font_size, t.address_text_focus);
                 int const caret_x = static_cast<int>(static_cast<float>(caret_index) * advance + 0.5f);
                 strip.fill_rect(Rect { caret_x, 4, 1, box_text.height - 8 }, t.accent);
                 frame.blit(strip, box_text.x, box_text.y);

@@ -50,6 +50,14 @@ constexpr Token<Color> color_tokens[] = {
     { "popup-disabled-text", &Theme::popup_disabled_text },
     { "popup-highlight", &Theme::popup_highlight },
     { "popup-highlight-text", &Theme::popup_highlight_text },
+    { "toolbar-background", &Theme::toolbar_background },
+    { "toolbar-icon", &Theme::toolbar_icon },
+    { "tab-text", &Theme::tab_text },
+    { "tab-line", &Theme::tab_line },
+    { "address-background-focus", &Theme::address_background_focus },
+    { "address-text-focus", &Theme::address_text_focus },
+    { "address-border-focus", &Theme::address_border_focus },
+    { "address-selection", &Theme::address_selection },
 };
 
 // A token a theme file may leave out takes the theme's own value of
@@ -69,6 +77,13 @@ constexpr Derived derived_colors[] = {
     { "popup-disabled-text", &Theme::popup_disabled_text, &Theme::button_disabled_text },
     { "popup-highlight", &Theme::popup_highlight, &Theme::button_hover_background },
     { "popup-highlight-text", &Theme::popup_highlight_text, &Theme::chrome_text },
+    { "toolbar-background", &Theme::toolbar_background, &Theme::tab_active_background },
+    { "toolbar-icon", &Theme::toolbar_icon, &Theme::chrome_text },
+    { "tab-text", &Theme::tab_text, &Theme::chrome_text },
+    { "address-background-focus", &Theme::address_background_focus, &Theme::address_background },
+    { "address-text-focus", &Theme::address_text_focus, &Theme::address_text },
+    { "address-border-focus", &Theme::address_border_focus, &Theme::accent },
+    { "address-selection", &Theme::address_selection, &Theme::selection },
 };
 
 constexpr Token<int> metric_tokens[] = {

@@ -116,6 +116,33 @@ int main(int argc, char** argv)
         CHECK(light.popup_disabled_text == Color::rgb(0xa0, 0xa6, 0xb2));
         CHECK(!(light.popup_background == Theme {}.popup_background)); // the control: it moved
 
+        // The toolbar, its icons, the front tab's title and a focused field
+        // follow the tokens they were split from; the tab's line is drawn
+        // by no theme that does not name it.
+        Theme const split = Theme::from_json(
+            "{ \"colors\": { \"tab-active-background\": \"#ffffff\", \"chrome-text\": \"#101216\","
+            "  \"address-background\": \"#eeeeee\", \"address-text\": \"#222222\", \"accent\": \"#0a84ff\","
+            "  \"selection\": \"#0a84ff55\" } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(split.toolbar_background == Color::rgb(0xff, 0xff, 0xff));
+        CHECK(split.toolbar_icon == Color::rgb(0x10, 0x12, 0x16));
+        CHECK(split.tab_text == Color::rgb(0x10, 0x12, 0x16));
+        CHECK(split.address_background_focus == Color::rgb(0xee, 0xee, 0xee));
+        CHECK(split.address_text_focus == Color::rgb(0x22, 0x22, 0x22));
+        CHECK(split.address_border_focus == Color::rgb(0x0a, 0x84, 0xff));
+        CHECK(split.address_selection == Color::rgba(0x0a, 0x84, 0xff, 0x55));
+        CHECK_EQ(static_cast<int>(split.tab_line.a), 0);
+        Theme const apart = Theme::from_json(
+            "{ \"colors\": { \"tab-active-background\": \"#ffffff\", \"toolbar-background\": \"#f0f0f4cc\","
+            "  \"toolbar-icon\": \"#5b5b66\", \"tab-line\": \"#0a84ff\" } }",
+            &problems);
+        CHECK_EQ(problems.size(), std::size_t { 0 });
+        CHECK(apart.toolbar_background == Color::rgba(0xf0, 0xf0, 0xf4, 0xcc));
+        CHECK(apart.tab_active_background == Color::rgb(0xff, 0xff, 0xff));
+        CHECK(apart.toolbar_icon == Color::rgb(0x5b, 0x5b, 0x66));
+        CHECK(apart.tab_line == Color::rgb(0x0a, 0x84, 0xff));
+
         // Named, a token is what the file says, whatever it would derive from.
         Theme const named = Theme::from_json(
             "{ \"colors\": { \"chrome-background\": \"#f1f2f4\", \"popup-background\": \"#202020\","

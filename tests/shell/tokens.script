@@ -1,0 +1,33 @@
+# A surface's own tokens are read: under tokens-theme.json, which names
+# them in colors nothing else wears, the toolbar, its buttons' glyphs, the
+# front tab's title and line, a focused field and a menu each take theirs.
+# (Left out, each follows the token it derives from — test_theme — and the
+# chrome's goldens, drawn from themes that name none, hold that byte for
+# byte.)
+resize 800 500
+open data:text/html,<title>Tokens</title><p>x</p>
+assert-theme Tokens
+
+# The toolbar apart from the tab in front, and a glyph of its menu button.
+assert-pixel 300 38 #102030
+assert-pixel 780 55 #c3c70c
+
+# The front tab: its line along the top, its title.
+assert-pixel 50 6 #ff00ff
+assert-pixel 16 16 #00ff00
+
+# The address bar at rest wears the field's colors; with the focus, its own.
+assert-pixel 118 56 #14161b
+assert-pixel 114 56 #3a404b
+key ctrl+l
+assert-pixel 118 56 #203040
+assert-pixel 114 56 #ff8000
+key Escape
+assert-pixel 118 56 #14161b
+
+# A menu: its background, and the row under the pointer.
+main-menu
+menu-hover 0 0
+assert-pixel 600 200 #300030
+assert-pixel 770 88 #006000
+key Escape

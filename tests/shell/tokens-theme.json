@@ -1,0 +1,15 @@
+{
+  "name": "Tokens",
+  "colors": {
+    "toolbar-background": "#102030",
+    "toolbar-icon": "#ffff00",
+    "tab-text": "#00ff00",
+    "tab-line": "#ff00ff",
+    "address-background-focus": "#203040",
+    "address-text-focus": "#ffffff",
+    "address-border-focus": "#ff8000",
+    "address-selection": "#ff000080",
+    "popup-background": "#300030",
+    "popup-highlight": "#006000"
+  }
+}

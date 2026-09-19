@@ -61,6 +61,25 @@ struct Theme {
     Color popup_disabled_text = Color::rgb(0x55, 0x5b, 0x66); // button-disabled-text
     Color popup_highlight = Color::rgb(0x33, 0x39, 0x44); // button-hover-background
     Color popup_highlight_text = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
+    // The toolbar apart from the tab that is in front, and its buttons'
+    // glyphs apart from the chrome's text: toolbar and icons (Chrome's
+    // toolbar and toolbar_button_icon).
+    Color toolbar_background = Color::rgb(0x2c, 0x31, 0x3a); // tab-active-background
+    Color toolbar_icon = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
+    // The title of the tab in front — tab_text; the others' is
+    // chrome-text-muted, their tab_background_text — and a line along that
+    // tab's top edge, tab_line, which no theme of ours draws: transparent
+    // unless a file names it, and a container's stripe goes over it.
+    Color tab_text = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
+    Color tab_line = Color::rgba(0, 0, 0, 0);
+    // A field with the focus — the address bar, the find box, the
+    // palette's: toolbar_field_focus, toolbar_field_text_focus,
+    // toolbar_field_border_focus — and the band over its selected text,
+    // toolbar_field_highlight.
+    Color address_background_focus = Color::rgb(0x14, 0x16, 0x1b); // address-background
+    Color address_text_focus = Color::rgb(0xe6, 0xe8, 0xec); // address-text
+    Color address_border_focus = Color::rgb(0x5b, 0x9c, 0xf6); // accent
+    Color address_selection = Color::rgba(0x5b, 0x9c, 0xf6, 0x66); // selection
 
     // Metrics, px.
     int tab_strip_height = 36;
