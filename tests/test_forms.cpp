@@ -190,6 +190,64 @@ line2</textarea><input type=hidden name=h value=v><input name=dis disabled value
             = ui::get_submission_url(*override_form, by_id(*override_doc, "s"), nullptr, page);
         CHECK(overridden && overridden->serialize() == "https://example.org/b?x=1");
 
+        // What submitting asks for. A GET: the same address, nothing posted.
+        {
+            std::optional<ui::FormSubmission> const asked = ui::form_submission(*plain_form, nullptr, nullptr, page);
+            CHECK(asked && !asked->post && asked->body.empty() && asked->content_type.empty());
+            CHECK(asked && asked->url.serialize() == "https://example.org/dir/page.html?a=1");
+        }
+        // A POST: the action as written — its own query kept, the fragment
+        // dropped — and the data set as the body, urlencoded unless the form
+        // says otherwise.
+        {
+            auto const doc = parse(R"(<form method=POST action="/take?kept=1#top"><input name=who value="A & B"><input name=n value="line1
+line2"><input id=s type=submit name=go value=Send></form>)");
+            dom::Element const* const post_form = ui::form_owner(*named(*doc, "who"), *doc);
+            std::optional<ui::FormSubmission> const asked = ui::form_submission(*post_form, by_id(*doc, "s"), nullptr, page);
+            CHECK(asked && asked->post);
+            CHECK(asked && asked->url.serialize() == "https://example.org/take?kept=1");
+            CHECK(asked && asked->content_type == "application/x-www-form-urlencoded");
+            CHECK(asked && std::string(asked->body.begin(), asked->body.end()) == "who=A+%26+B&n=line1%0D%0Aline2&go=Send");
+        }
+        // multipart/form-data: a part a field, between lines of a boundary
+        // that nothing in the form holds, the same for the same form.
+        {
+            auto const doc = parse(R"(<form method=post enctype="multipart/form-data" action=up><input name='the "name"' value=plain><input name=t value=two></form>)");
+            dom::Element const* const multi = ui::form_owner(*named(*doc, "t"), *doc);
+            std::optional<ui::FormSubmission> const asked = ui::form_submission(*multi, nullptr, nullptr, page);
+            CHECK(asked && asked->post && asked->url.serialize() == "https://example.org/dir/up");
+            std::string const type = asked ? asked->content_type : std::string();
+            CHECK(type.starts_with("multipart/form-data; boundary=----SashfoldFormBoundary"));
+            std::string const boundary = type.substr(type.find('=') + 1);
+            std::string const body = asked ? std::string(asked->body.begin(), asked->body.end()) : std::string();
+            CHECK_EQ(body,
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"the %22name%22\"\r\n\r\nplain\r\n--" + boundary
+                    + "\r\nContent-Disposition: form-data; name=\"t\"\r\n\r\ntwo\r\n--" + boundary + "--\r\n");
+            std::optional<ui::FormSubmission> const again = ui::form_submission(*multi, nullptr, nullptr, page);
+            CHECK(again && again->content_type == type);
+            // A field that holds the boundary gets a longer one.
+            std::vector<ui::FormField> const awkward { { "a", "has " + ui::multipart_boundary_for({ { "a", "x" } }) + " in it" } };
+            std::string const other = ui::multipart_boundary_for(awkward);
+            CHECK(awkward[0].value.find(other) == std::string::npos);
+            CHECK_EQ(ui::multipart_form({}, "B"), std::string("--B--\r\n"));
+        }
+        // text/plain, by the submitter's formenctype; a formmethod of post on
+        // a form that says get; and what is no method at all is get.
+        {
+            auto const doc = parse(R"(<form action=t><input name=k value="v w"><input id=p type=submit formmethod=post formenctype=text/plain><input id=odd type=submit formmethod=purple></form>)");
+            dom::Element const* const form_t = ui::form_owner(*named(*doc, "k"), *doc);
+            std::optional<ui::FormSubmission> const plain_text = ui::form_submission(*form_t, by_id(*doc, "p"), nullptr, page);
+            CHECK(plain_text && plain_text->post && plain_text->content_type == "text/plain");
+            CHECK(plain_text && std::string(plain_text->body.begin(), plain_text->body.end()) == "k=v w\r\n");
+            std::optional<ui::FormSubmission> const odd = ui::form_submission(*form_t, by_id(*doc, "odd"), nullptr, page);
+            CHECK(odd && !odd->post && odd->url.serialize() == "https://example.org/dir/t?k=v+w");
+        }
+        // A form that names a dialog is nobody's navigation.
+        {
+            auto const doc = parse(R"(<form method=dialog><input name=k value=v></form>)");
+            CHECK(!ui::form_submission(*ui::form_owner(*named(*doc, "k"), *doc), nullptr, nullptr, page).has_value());
+        }
+
         std::vector<dom::Element const*> const focusable = ui::focusable_controls(*document);
         CHECK_EQ(focusable.size(), std::size_t { 15 }); // every drawn control but the disabled one
         CHECK(named(*document, "h") != nullptr); // hidden ones are still addressable by name

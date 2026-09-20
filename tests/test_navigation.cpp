@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -34,17 +35,53 @@ struct Served {
     int delay_ms = 0;
 };
 
+// A request's head and, after the blank line, as much body as the head's
+// Content-Length says there is.
 std::optional<std::string> read_request(platform::TcpSocket& client)
 {
-    std::string head;
+    std::string request;
     std::uint8_t buffer[4096];
-    while (head.find("\r\n\r\n") == std::string::npos) {
+    auto const more = [&] {
         std::ptrdiff_t const received = client.receive(buffer, sizeof buffer);
         if (received <= 0)
+            return false;
+        request.append(reinterpret_cast<char const*>(buffer), static_cast<std::size_t>(received));
+        return true;
+    };
+    while (request.find("\r\n\r\n") == std::string::npos) {
+        if (!more())
             return std::nullopt;
-        head.append(reinterpret_cast<char const*>(buffer), static_cast<std::size_t>(received));
     }
-    return head;
+    std::size_t const head_end = request.find("\r\n\r\n") + 4;
+    std::string lowered = request.substr(0, head_end);
+    for (char& c : lowered)
+        c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    std::size_t length = 0;
+    if (std::size_t const at = lowered.find("content-length:"); at != std::string::npos)
+        length = static_cast<std::size_t>(std::atoi(lowered.c_str() + at + 15));
+    while (request.size() < head_end + length) {
+        if (!more())
+            return std::nullopt;
+    }
+    return request;
+}
+
+// One header's value out of a request, by its name in lowercase.
+std::string header_of(std::string const& request, std::string const& name)
+{
+    std::size_t const head_end = request.find("\r\n\r\n");
+    std::string lowered = request.substr(0, head_end);
+    for (char& c : lowered)
+        c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    std::size_t const at = lowered.find("\r\n" + name + ":");
+    if (at == std::string::npos)
+        return "(none)";
+    std::size_t const from = at + 2 + name.size() + 1;
+    std::size_t const to = request.find("\r\n", from);
+    std::string value = request.substr(from, to - from);
+    while (!value.empty() && value.front() == ' ')
+        value.erase(0, 1);
+    return value;
 }
 
 // A loopback server of a few pages and their parts, each answered after its
@@ -99,14 +136,26 @@ private:
         std::optional<std::string> const head = read_request(client);
         if (!head)
             return;
-        std::string const path = head->substr(4, head->find(' ', 4) - 4);
+        std::size_t const method_end = head->find(' ');
+        std::string const method = head->substr(0, method_end);
+        std::string const path = head->substr(method_end + 1, head->find(' ', method_end + 1) - method_end - 1);
         {
             std::lock_guard<std::mutex> const lock(m_mutex);
             m_asked.push_back(path);
         }
         auto const found = m_site.find(path);
         std::string response;
-        if (found == m_site.end()) {
+        if (path == "/echo") {
+            // What was sent, said back: the method and the body as the title,
+            // the type and the origin it came with in the page.
+            std::string const sent = head->substr(head->find("\r\n\r\n") + 4);
+            std::string const page = "<!doctype html><title>" + method + " " + sent + "</title><p>type "
+                + header_of(*head, "content-type") + "</p><p>origin " + header_of(*head, "origin") + "</p>";
+            response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nContent-Length: "
+                + std::to_string(page.size()) + "\r\nConnection: close\r\n\r\n" + page;
+        } else if (path == "/moved") {
+            response = "HTTP/1.1 303 See Other\r\nLocation: /second\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        } else if (found == m_site.end()) {
             response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(found->second.delay_ms));
@@ -231,6 +280,55 @@ int main()
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         load_fully(browser);
         CHECK_EQ(browser.page_title(), std::string("First"));
+    }
+
+    // A form that posts: a press of Enter in its field sends the data set as
+    // the body of a navigation, with its type and the origin it came from;
+    // a script's form.submit() does the same; a 303 met on the way is followed
+    // with a GET; and Back is the form again.
+    {
+        std::map<std::string, Served> pages = site();
+        pages["/form"] = { "text/html",
+            "<!doctype html><title>Form</title><form method=post action=/echo><input name=a value=hello>"
+            "<input name=b value='1 2'><input type=submit value=Go></form>",
+            0 };
+        pages["/auto"] = { "text/html",
+            "<!doctype html><title>Auto</title><form id=f method=post action=/echo><input type=hidden name=token value=t0k></form>"
+            "<script>document.getElementById('f').submit()</script>",
+            0 };
+        pages["/mover"] = { "text/html",
+            "<!doctype html><title>Mover</title><form method=post action=/moved><input name=x value=1></form>", 0 };
+        SiteServer server(std::move(pages));
+        ui::ShellLoader loader;
+        ui::Browser browser(loader, ui::Theme {}, 800, 600);
+        platform::KeyEvent enter;
+        enter.key = platform::Key::Enter;
+
+        browser.open(server.url("/form"));
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("Form"));
+        CHECK(browser.focus_control("a"));
+        browser.key_down(enter);
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("POST a=hello&b=1+2"));
+        std::string const said = browser.page_text();
+        CHECK(said.find("type application/x-www-form-urlencoded") != std::string::npos);
+        CHECK(said.find("origin http://127.0.0.1:") != std::string::npos);
+        browser.back();
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("Form"));
+
+        browser.open(server.url("/auto"));
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("POST token=t0k"));
+
+        browser.open(server.url("/mover"));
+        load_fully(browser);
+        CHECK(browser.focus_control("x"));
+        browser.key_down(enter);
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("Second"));
+        CHECK_EQ(server.asked("/moved"), std::size_t { 1 });
     }
 
     // A page that is not there is said to be so, as it always was.

@@ -34,6 +34,15 @@ namespace sashfold::ui {
 // Where documents come from: the shell's loader goes through the fetch
 // choke point with the session's cookie jar and cache; tests inject canned
 // pages. This is also the seam a renderer-process boundary would cut at.
+// What a form that posts sends along with its navigation: the body, the
+// type it is sent as, and the origin of the document that submitted it (for
+// the Origin header; "null" for a document that has none to give).
+struct PostedForm {
+    std::string content_type;
+    std::vector<std::uint8_t> body;
+    std::string origin;
+};
+
 // Every request names the container its tab is in (empty for the
 // default): a container has a cookie jar of its own, so a site in one
 // never sees the cookies it set in another.
@@ -79,6 +88,28 @@ public:
         (void)first_party;
         (void)referrer;
         (void)kind;
+        (void)container;
+        return nullptr;
+    }
+    // A navigation that posts a form: load() with a method, a body and an
+    // Origin — never from the cache or into it — and the same begun on
+    // another thread. A redirect it meets is followed as browsers follow
+    // one: 301, 302 and 303 with a GET and no body, 307 and 308 as it was.
+    virtual net::FetchResult submit(net::Url const& url, std::string const& referrer, PostedForm const& form,
+        std::string_view container = {})
+    {
+        (void)url;
+        (void)referrer;
+        (void)form;
+        (void)container;
+        return { std::nullopt, "this loader does not post" };
+    }
+    virtual std::shared_ptr<net::FetchTicket> submit_ahead(net::Url const& url, std::string const& referrer,
+        PostedForm const& form, std::string_view container = {})
+    {
+        (void)url;
+        (void)referrer;
+        (void)form;
         (void)container;
         return nullptr;
     }

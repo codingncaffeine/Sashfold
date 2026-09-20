@@ -168,27 +168,125 @@ std::string urlencode_form(std::vector<FormField> const& fields)
 std::optional<net::Url> get_submission_url(dom::Element const& form, dom::Element const* submitter,
     layout::ControlStates const* states, net::Url const& document_url)
 {
+    // Where a GET lands is what its submission asks for; a form that posts
+    // is not submitted by an address alone.
+    std::optional<FormSubmission> asked = form_submission(form, submitter, states, document_url);
+    if (!asked || asked->post)
+        return std::nullopt;
+    return std::move(asked->url);
+}
+
+std::string multipart_boundary_for(std::vector<FormField> const& fields)
+{
+    // A boundary is any text no part holds. This one is made of the fields'
+    // own bytes, so the same form gives the same body, and lengthened until
+    // nothing in the form contains it.
+    std::uint32_t hash = 2166136261u;
+    auto const mix = [&hash](std::string const& text) {
+        for (char const c : text) {
+            hash ^= static_cast<unsigned char>(c);
+            hash *= 16777619u;
+        }
+        hash ^= 0xff;
+        hash *= 16777619u;
+    };
+    for (FormField const& field : fields) {
+        mix(field.name);
+        mix(field.value);
+    }
+    std::string boundary = "----SashfoldFormBoundary";
+    for (int nibble = 0; nibble < 8; ++nibble)
+        boundary += "0123456789abcdef"[(hash >> (4 * nibble)) & 15u];
+    auto const held = [&] {
+        for (FormField const& field : fields) {
+            if (field.name.find(boundary) != std::string::npos || field.value.find(boundary) != std::string::npos)
+                return true;
+        }
+        return false;
+    };
+    while (held())
+        boundary += 'x';
+    return boundary;
+}
+
+std::string multipart_form(std::vector<FormField> const& fields, std::string const& boundary)
+{
+    std::string out;
+    for (FormField const& field : fields) {
+        out += "--" + boundary + "\r\nContent-Disposition: form-data; name=\"";
+        for (char const c : field.name) {
+            if (c == '"')
+                out += "%22";
+            else if (c == '\n')
+                out += "%0A";
+            else if (c == '\r')
+                out += "%0D";
+            else
+                out += c;
+        }
+        out += "\"\r\n\r\n" + field.value + "\r\n";
+    }
+    out += "--" + boundary + "--\r\n";
+    return out;
+}
+
+std::string plain_text_form(std::vector<FormField> const& fields)
+{
+    std::string out;
+    for (FormField const& field : fields)
+        out += field.name + "=" + field.value + "\r\n";
+    return out;
+}
+
+std::optional<FormSubmission> form_submission(dom::Element const& form, dom::Element const* submitter,
+    layout::ControlStates const* states, net::Url const& document_url)
+{
     std::string method = lowercase(attribute_or(form, "method", "get"));
     std::string action = attribute_or(form, "action", "");
+    std::string enctype = lowercase(attribute_or(form, "enctype", ""));
     if (submitter) {
         if (dom::Attr const* own = submitter->find_attribute("formmethod"))
             method = lowercase(own->value);
         if (dom::Attr const* own = submitter->find_attribute("formaction"))
             action = own->value;
+        if (dom::Attr const* own = submitter->find_attribute("formenctype"))
+            enctype = lowercase(own->value);
     }
-    if (method != "get" && !method.empty())
+    if (method == "dialog")
         return std::nullopt;
+    // Anything that is not post is get: the invalid value default.
+    bool const post = method == "post";
     // An action is resolved against the document base URL; with none, the
     // form goes to its document's own URL, whatever a base element says
     // (HTML §4.10.21.3).
     net::Url const base = html::document_base_url(form.document(), document_url);
-    std::optional<net::Url> url
-        = action.empty() ? std::optional<net::Url>(document_url) : net::parse_url(action, &base);
+    std::optional<net::Url> url = action.empty() ? std::optional<net::Url>(document_url) : net::parse_url(action, &base);
     if (!url)
         return std::nullopt;
-    url->query = urlencode_form(form_data_set(form, submitter, states));
+    std::vector<FormField> const fields = form_data_set(form, submitter, states);
+    FormSubmission submission;
+    submission.post = post;
     url->fragment.reset();
-    return url;
+    if (!post) {
+        url->query = urlencode_form(fields);
+        submission.url = std::move(*url);
+        return submission;
+    }
+    submission.url = std::move(*url);
+    std::string text;
+    if (enctype == "multipart/form-data") {
+        std::string const boundary = multipart_boundary_for(fields);
+        text = multipart_form(fields, boundary);
+        submission.content_type = "multipart/form-data; boundary=" + boundary;
+    } else if (enctype == "text/plain") {
+        text = plain_text_form(fields);
+        submission.content_type = "text/plain";
+    } else {
+        text = urlencode_form(fields);
+        submission.content_type = "application/x-www-form-urlencoded";
+    }
+    submission.body.assign(text.begin(), text.end());
+    return submission;
 }
 
 dom::Element const* default_submitter(dom::Element const& form)

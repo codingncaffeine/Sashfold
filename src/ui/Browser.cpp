@@ -457,6 +457,8 @@ struct Browser::Impl {
         // one of (queue): only then is what such an address asks to be
         // DONE honoured.
         bool own_page = false;
+        // A form that posts: what goes with the navigation.
+        std::optional<PostedForm> post = std::nullopt;
     };
 
     // A load begun on another thread and not yet shown (perform,
@@ -2570,10 +2572,7 @@ struct Browser::Impl {
             // A form in a frame's document submits against that document's
             // URL, and lands in the frame.
             FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, form.document()));
-            std::optional<net::Url> const target = get_submission_url(form,
-                submitter ? submitter : default_submitter(form), &owner->controls, view ? view->realm->url() : entry->final_url);
-            if (target && submission_allowed(*owner, *target))
-                navigate_document(*owner, form.document(), *target);
+            submit_form(*owner, form, submitter ? submitter : default_submitter(form), view, *entry);
         };
         hooks.console = [this, document](std::string_view level, std::string_view message) {
             std::string const line = std::string(level) + ": " + std::string(message);
@@ -2960,7 +2959,8 @@ struct Browser::Impl {
 
     // --- Loading -----------------------------------------------------------------
 
-    void queue(std::size_t tab_index, net::Url url, Mode mode, bool https_first = false)
+    void queue(std::size_t tab_index, net::Url url, Mode mode, bool https_first = false,
+        std::optional<PostedForm> post = std::nullopt)
     {
         if (tab_index >= tabs.size())
             return;
@@ -2975,7 +2975,7 @@ struct Browser::Impl {
         HistoryEntry const* const from = tabs[tab_index].current();
         bool const own_page = from && from->internal && from->url.scheme == "about" && url.scheme == "about"
             && from->url.serialize_path() == url.serialize_path();
-        pending.push_back(Pending { tab_index, std::move(url), mode, https_first, own_page });
+        pending.push_back(Pending { tab_index, std::move(url), mode, https_first, own_page, std::move(post) });
         dirty = true;
     }
 
@@ -3251,8 +3251,9 @@ struct Browser::Impl {
             // strip and the bar. Whatever the tab was waiting for before
             // this is let go of.
             if (load.url.scheme == "http" || load.url.scheme == "https") {
-                if (std::shared_ptr<net::FetchTicket> ticket
-                    = loader.load_ahead(load.url, referrer, load.mode == Mode::Reload, tab.container)) {
+                if (std::shared_ptr<net::FetchTicket> ticket = load.post
+                        ? loader.submit_ahead(load.url, referrer, *load.post, tab.container)
+                        : loader.load_ahead(load.url, referrer, load.mode == Mode::Reload, tab.container)) {
                     Navigating navigating;
                     navigating.load = load;
                     navigating.referrer = referrer;
@@ -3262,8 +3263,9 @@ struct Browser::Impl {
                     return true;
                 }
             }
-            net::FetchResult result = loader.load(load.url, referrer, load.mode == Mode::Reload, tab.container);
-            if (!result.response && load.https_first
+            net::FetchResult result = load.post ? loader.submit(load.url, referrer, *load.post, tab.container)
+                                                : loader.load(load.url, referrer, load.mode == Mode::Reload, tab.container);
+            if (!result.response && load.https_first && !load.post
                 && result.error.find("could not connect") != std::string::npos) {
                 // HTTPS-first: a host that does not answer on 443 gets one
                 // plain-HTTP try, and the address bar says so.
@@ -6854,16 +6856,44 @@ struct Browser::Impl {
             = layout::control_kind(control) == layout::ControlKind::Submit ? &control
                                                                             : default_submitter(*form);
         FrameView const* const view = view_of(tab, frame_holding_in(tab.frames, document));
-        std::optional<net::Url> const url
-            = get_submission_url(*form, submitter, &tab.controls, view ? view->realm->url() : entry->final_url);
-        if (!url) {
-            tab.status = "This form posts; only GET forms are written yet";
+        submit_form(tab, *form, submitter, view, *entry);
+    }
+
+    // A form goes where it says: a GET to its action with the data set as
+    // the query, a POST to its action with the data set as the body — a
+    // navigation of the tab with that body, the submitting document's origin
+    // along with it. The page's policy is asked first. A form that posts
+    // from inside a frame is not written yet, and says so.
+    void submit_form(Tab& tab, dom::Element const& form, dom::Element const* submitter, FrameView const* view,
+        HistoryEntry const& entry)
+    {
+        net::Url const& document_url = view ? view->realm->url() : entry.final_url;
+        std::optional<FormSubmission> submission = form_submission(form, submitter, &tab.controls, document_url);
+        if (!submission) {
+            tab.status = "This form names a dialog, or an address that is none";
             dirty = true;
             return;
         }
-        if (!submission_allowed(tab, *url))
+        if (!submission_allowed(tab, submission->url))
             return;
-        navigate_document(tab, document, *url);
+        // A body goes to a web address only: a form that posts to anything
+        // else — a data: address, a file — goes there as a link would, its
+        // data left behind.
+        bool const to_the_web = submission->url.scheme == "http" || submission->url.scheme == "https";
+        if (!submission->post || !to_the_web) {
+            navigate_document(tab, form.document(), submission->url);
+            return;
+        }
+        if (view) {
+            tab.status = "A form that posts from inside a frame is not written yet";
+            dirty = true;
+            return;
+        }
+        std::string const origin = document_url.scheme == "http" || document_url.scheme == "https"
+            ? document_url.serialize_origin()
+            : std::string("null");
+        queue(index_of(tab), submission->url, Mode::Push, false,
+            PostedForm { std::move(submission->content_type), std::move(submission->body), origin });
     }
 
     // The page's policy's say on a form submission: a sandbox without

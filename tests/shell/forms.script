@@ -40,11 +40,13 @@ key Up
 click-text Go
 assert-url data:text/html,Landed?q=&c=on&s=one
 
-# A form that posts stays put and says so.
+# A form that posts to what is no web address goes there as a link would,
+# its data left behind (a body goes to a web address only; what a POST to
+# one sends is tests/test_navigation's, which has a server to send it to).
 open data:text/html,<title>Posting</title><form method="post" action="data:text/html,Nowhere"><input name="a"><input type="submit" value="Send"></form>
 click-text Send
-assert-title Posting
-assert-status posts
+assert-url data:text/html,Nowhere
+assert-text Nowhere
 
 # A placeholder is a hint and no value. Ctrl+A selects what a field holds:
 # what is typed next takes its place, and Backspace empties the field.

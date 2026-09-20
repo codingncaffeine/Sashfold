@@ -122,6 +122,38 @@ net::CookieJar& ShellLoader::cookies(std::string_view container)
     return m_container_jars[std::string(container)];
 }
 
+net::FetchResult ShellLoader::submit(net::Url const& url, std::string const& referrer, PostedForm const& form,
+    std::string_view container)
+{
+    net::RequestGuard const none;
+    if (std::optional<std::string> refused = refusal(url, nullptr, net::ResourceKind::Document, none, false))
+        return { std::nullopt, std::move(*refused) };
+    if (url.scheme != "http" && url.scheme != "https")
+        return { std::nullopt, "a form can be posted to a web address only" };
+    net::FetchOptions options;
+    options.cookie_jar = &cookies(container);
+    options.first_party = nullptr; // a navigation is its own first party
+    options.referrer = referrer;
+    options.cache = nullptr; // what a POST brings back is never the cache's
+    options.pool = &m_pool;
+    options.method = "POST";
+    options.headers.push_back({ "Content-Type", form.content_type });
+    options.headers.push_back({ "Origin", form.origin.empty() ? std::string("null") : form.origin });
+    options.body = form.body;
+    options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
+    return noted(net::ResourceKind::Document, net::fetch(url, options));
+}
+
+std::shared_ptr<net::FetchTicket> ShellLoader::submit_ahead(net::Url const& url, std::string const& referrer,
+    PostedForm const& form, std::string_view container)
+{
+    if (url.scheme != "http" && url.scheme != "https")
+        return nullptr;
+    return m_fetches.submit([this, url, referrer, form, held = std::string(container)] {
+        return submit(url, referrer, form, held);
+    });
+}
+
 std::vector<std::string> ShellLoader::container_names() const
 {
     std::vector<std::string> names;

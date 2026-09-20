@@ -39,6 +39,10 @@ public:
     std::shared_ptr<net::FetchTicket> load_ahead(net::Url const& url, std::string const& referrer,
         bool bypass_cache, std::string_view container = {}) override;
     bool ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container = {}) override;
+    net::FetchResult submit(net::Url const& url, std::string const& referrer, PostedForm const& form,
+        std::string_view container = {}) override;
+    std::shared_ptr<net::FetchTicket> submit_ahead(net::Url const& url, std::string const& referrer,
+        PostedForm const& form, std::string_view container = {}) override;
     std::string cookies_for(net::Url const& url, std::string_view container = {}) override;
     void set_cookie(net::Url const& url, std::string_view set_cookie_line, std::string_view container = {}) override;
     std::size_t blocked_requests() const override { return m_blocked.load(); }
