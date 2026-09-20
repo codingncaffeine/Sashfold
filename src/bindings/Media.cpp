@@ -1,7 +1,11 @@
 #include "bindings/Internal.h"
 #include "bindings/NodeSupport.h"
 
+#include "bindings/Fetching.h"
+
 #include "media/StreamBuffer.h"
+#include "media/Wav.h"
+#include "platform/Audio.h"
 
 #include <algorithm>
 #include <cmath>
@@ -120,6 +124,17 @@ public:
     bool timer_armed = false;
     bool load_considered = false; // the src the parser gave it has been looked at
     std::uint64_t generation = 0;
+
+    // A file the element fetched whole, and the way out to the speakers it
+    // is played through. The device is opened when playing begins and let
+    // go with the element; where the machine has no sound server there is
+    // none, and the element plays silently against the clock, which is what
+    // a browser does on a machine with no sound card.
+    std::shared_ptr<media::Sound const> sound;
+    std::unique_ptr<platform::AudioDevice> device;
+    bool device_tried = false;
+    double sound_base = 0; // where in the sound the open stream began
+    std::size_t fed_frames = 0; // of the sound, handed to the device
 
     void trace(js::Tracer& tracer) override;
 };
@@ -323,12 +338,23 @@ bool stream_parameter_ours(std::string_view name, std::string_view value)
 // one of them ours.
 int type_support(std::string_view type)
 {
-    if (!playback_enabled())
-        return 0;
     std::string const lowered = ascii_lowered(type);
     std::string_view rest = lowered;
     std::size_t const semicolon = rest.find(';');
     std::string_view const essence = trimmed(rest.substr(0, semicolon));
+    // WAVE needs no decoder between the file and the speakers, so it plays
+    // whatever else this build can do. Its only codec parameter anyone
+    // writes is "1", the whole numbers a plain file carries.
+    for (std::string_view const wave : { "audio/wav", "audio/wave", "audio/x-wav", "audio/vnd.wave" }) {
+        if (essence != wave)
+            continue;
+        if (semicolon == std::string_view::npos)
+            return 1;
+        std::string_view const parameter = trimmed(rest.substr(semicolon + 1));
+        return parameter == "codecs=1" || parameter == "codecs=\"1\"" ? 2 : 0;
+    }
+    if (!playback_enabled())
+        return 0;
     bool const video = essence == "video/webm";
     if (!video && essence != "audio/webm")
         return 0;
@@ -385,6 +411,11 @@ js::Value make_media_error(Realm::Internals& in, int code, std::string_view mess
 
 void run_load(Realm::Internals& in, MediaStateObject& state);
 void update_media(Realm::Internals& in, MediaStateObject& state);
+void update_sound(Realm::Internals& in, MediaStateObject& state);
+void restart_device(MediaStateObject& state);
+void fail_load(Realm::Internals& in, MediaStateObject& state, std::string_view message);
+void fetch_media(Realm::Internals& in, MediaStateObject& state, net::Url const& url);
+TimeRanges sound_buffered(MediaStateObject const& state);
 
 bool is_media_element(dom::Element const& element)
 {
@@ -427,6 +458,9 @@ double current_position(Realm::Internals& in, MediaStateObject const& state)
 
 TimeRanges element_buffered(MediaStateObject const& state)
 {
+    // A file the element holds whole is buffered from end to end.
+    if (state.sound)
+        return sound_buffered(state);
     if (state.source == nullptr || state.source->buffers == nullptr)
         return {};
     bool const ended = state.source->ready == MediaSourceObject::Ended;
@@ -537,6 +571,10 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
 {
     if (state.wrapper->detached() || state.ready_state == HaveNothing)
         return;
+    if (state.sound) {
+        update_sound(in, state);
+        return;
+    }
     double const now = in.now();
     TimeRanges const buffered = element_buffered(state);
     bool const source_ended = state.source != nullptr && state.source->ready == MediaSourceObject::Ended;
@@ -616,7 +654,7 @@ void arm_timer(Realm::Internals& in, MediaStateObject& state)
 {
     // The clock is only watched while it can change something: playing, or
     // a seek waiting for its data.
-    if (state.timer_armed || state.source == nullptr || (state.paused && !state.seeking))
+    if (state.timer_armed || (state.source == nullptr && !state.sound) || (state.paused && !state.seeking))
         return;
     state.timer_armed = true;
     js::Interpreter::Roots const roots(in.interpreter);
@@ -649,11 +687,189 @@ void seek(Realm::Internals& in, MediaStateObject& state, double time)
     state.ended_fired = false;
     state.position = time;
     state.position_at = in.now();
+    // What the speakers still hold is of the old position: it goes, and the
+    // sound is fed again from where the seek landed.
+    restart_device(state);
     queue_element_event(in, state, "seeking");
     auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
     in.post_task([&in, held] {
         Realm::Internals::Entry const entry(in);
         update_media(in, *static_cast<MediaStateObject*>(held->value().as_object()));
+    });
+}
+
+// --- A file, played through the machine's speakers ---------------------------------------------
+
+// Opens the way out, once, at the sound's own rate: a server resamples for
+// its sink, which is its business and not the engine's. A machine with no
+// sound server leaves the element playing silently against the clock, as a
+// browser does on a machine with no sound card.
+void open_device(MediaStateObject& state)
+{
+    if (state.device || state.device_tried || !state.sound)
+        return;
+    state.device_tried = true;
+    platform::AudioFormat format;
+    format.rate = state.sound->rate;
+    format.channels = state.sound->channels;
+    std::string error;
+    state.device = platform::AudioDevice::open(format, "Sashfold", error);
+    trace(state.device ? "opened the speakers" : "no speakers: " + error);
+    if (state.device) {
+        state.device->set_volume(state.muted ? 0.0 : state.volume);
+        state.sound_base = state.position;
+        state.fed_frames = static_cast<std::size_t>(state.position * static_cast<double>(state.sound->rate));
+    }
+}
+
+// Tops the device up with what it will take. The samples are decoded
+// already, so this is a copy of a few milliseconds' worth; the socket and
+// the waiting are the device's own thread.
+void feed_device(MediaStateObject& state)
+{
+    if (!state.device || !state.device->ok() || !state.sound)
+        return;
+    media::Sound const& sound = *state.sound;
+    std::size_t const total = sound.frames();
+    while (state.fed_frames < total) {
+        std::size_t const room = state.device->writable_frames();
+        if (room == 0)
+            return;
+        std::size_t const frames = std::min(room, total - state.fed_frames);
+        std::span<float const> const samples(sound.samples.data() + state.fed_frames * sound.channels, frames * sound.channels);
+        std::size_t const taken = state.device->write(samples);
+        if (taken == 0)
+            return;
+        state.fed_frames += taken;
+    }
+}
+
+// Where the sound begins again after a seek, or when it is first played.
+void restart_device(MediaStateObject& state)
+{
+    if (!state.device || !state.sound)
+        return;
+    state.device->flush();
+    state.sound_base = state.position;
+    state.fed_frames = std::min(static_cast<std::size_t>(state.position * static_cast<double>(state.sound->rate)), state.sound->frames());
+}
+
+// What a file the element holds whole does as time passes: everything is
+// buffered, so what moves is the position — by what has been HEARD where
+// there are speakers, and by the clock where there are none.
+void update_sound(Realm::Internals& in, MediaStateObject& state)
+{
+    media::Sound const& sound = *state.sound;
+    double const duration = sound.seconds();
+    double const now = in.now();
+    bool const playing = !state.paused && !state.seeking && !state.ended_fired;
+    // The device plays at the rate the samples were made for; a page that
+    // asks for another rate is answered by the clock until there is a
+    // resampler to ask for it properly.
+    bool const through_speakers = state.playback_rate == 1;
+    if (playing && through_speakers)
+        open_device(state);
+    if (state.device)
+        state.device->set_paused(!playing || !through_speakers);
+    if (playing && through_speakers)
+        feed_device(state);
+    bool const heard = playing && through_speakers && state.device && state.device->ok() && state.device->clock().valid;
+
+    double const before = state.position;
+    if (playing) {
+        if (heard)
+            state.position = state.sound_base + state.device->clock().played_seconds;
+        else
+            state.position += (now - state.position_at) / 1000.0 * state.playback_rate;
+        state.position = std::clamp(state.position, 0.0, duration);
+        note_played(state, before, state.position);
+    }
+    state.position_at = now;
+    state.advancing = playing;
+
+    if (state.seeking) {
+        state.seeking = false;
+        queue_element_event(in, state, "timeupdate");
+        queue_element_event(in, state, "seeked");
+    }
+    set_ready_state(in, state, HaveEnoughData);
+
+    // The end: the clock has run out, and nothing is left in flight.
+    bool const drained = !state.device || !state.device->ok() || state.fed_frames >= sound.frames();
+    if (state.position >= duration - 0.0005 && drained) {
+        dom::Node& node = state.wrapper->node();
+        bool const loops = node.is_element() && static_cast<dom::Element&>(node).find_attribute("loop") != nullptr;
+        state.position = duration;
+        if (loops) {
+            seek(in, state, 0);
+            return;
+        }
+        if (!state.ended_fired) {
+            state.ended_fired = true;
+            state.advancing = false;
+            queue_element_event(in, state, "timeupdate");
+            if (!state.paused) {
+                state.paused = true;
+                queue_element_event(in, state, "pause");
+                settle_play_promises(in, state, false, "AbortError", "The play() request was interrupted because playback ended.");
+            }
+            queue_element_event(in, state, "ended");
+        }
+    }
+    if (state.advancing && now - state.last_time_update >= time_update_ms) {
+        state.last_time_update = now;
+        queue_element_event(in, state, "timeupdate");
+    }
+    arm_timer(in, state);
+}
+
+// What the element holds of a file it fetched: all of it, from the moment
+// it is read.
+TimeRanges sound_buffered(MediaStateObject const& state)
+{
+    if (!state.sound || state.sound->frames() == 0)
+        return {};
+    return TimeRanges { { 0, state.sound->seconds() } };
+}
+
+// Fetches a src that names no MediaSource and reads what came back. Only
+// what this build decodes plays; anything else fails the way a browser
+// without that decoder does.
+void fetch_media(Realm::Internals& in, MediaStateObject& state, net::Url const& url)
+{
+    PageRequest request;
+    request.url = url;
+    request.mode = FetchMode::NoCors;
+    request.credentials = FetchCredentials::SameOrigin;
+    request.destination = "audio";
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
+    auto shared = std::make_shared<PageRequest>(std::move(request));
+    std::uint64_t const generation = state.generation;
+    in.post_task([&in, held, shared, generation] {
+        Realm::Internals::Entry const entry(in);
+        auto& target = *static_cast<MediaStateObject*>(held->value().as_object());
+        if (target.generation != generation)
+            return;
+        FetchOutcome const outcome = perform_fetch(in, *shared);
+        if (target.generation != generation)
+            return;
+        trace("fetched " + shared->url.serialize() + ": " + (outcome.ok ? std::to_string(outcome.body.size()) + " bytes" : outcome.error));
+        if (!outcome.ok || outcome.status < 200 || outcome.status >= 300) {
+            fail_load(in, target, "The media could not be fetched.");
+            return;
+        }
+        std::optional<media::Sound> decoded = media::decode_wav(outcome.body);
+        if (!decoded || decoded->frames() == 0) {
+            fail_load(in, target, "No decoder is available for this source.");
+            return;
+        }
+        target.sound = std::make_shared<media::Sound const>(std::move(*decoded));
+        target.network_state = NetworkIdle;
+        target.ready_state = HaveMetadata;
+        target.position_at = in.now();
+        queue_element_event(in, target, "loadedmetadata");
+        set_duration(in, target, target.sound->seconds());
+        update_sound(in, target);
     });
 }
 
@@ -720,6 +936,11 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
         state.video_height = 0;
         state.duration = std::nan("");
     }
+    state.sound.reset();
+    state.device.reset();
+    state.device_tried = false;
+    state.fed_frames = 0;
+    state.sound_base = 0;
     state.error = js::Value::null();
     state.playback_rate = state.default_playback_rate;
 
@@ -748,8 +969,17 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     std::optional<net::Url> const url = net::parse_url(src->value, &in.base_url());
     auto const named = url ? in.media_source_urls.find(url->serialize(true)) : in.media_source_urls.end();
     auto* const source = named != in.media_source_urls.end() ? dynamic_cast<MediaSourceObject*>(named->second) : nullptr;
-    if (source == nullptr || source->ready != MediaSourceObject::Closed || source->attached != nullptr) {
-        fail_load(in, state, source == nullptr ? "No decoder is available for this source." : "The MediaSource is already in use.");
+    if (source != nullptr && (source->ready != MediaSourceObject::Closed || source->attached != nullptr)) {
+        fail_load(in, state, "The MediaSource is already in use.");
+        return;
+    }
+    if (source == nullptr) {
+        // Anything else is a file to fetch and read.
+        if (!url) {
+            fail_load(in, state, "That is not an address a media element can load.");
+            return;
+        }
+        fetch_media(in, state, *url);
         return;
     }
     state.source = source;
@@ -1340,6 +1570,9 @@ void install_media_element(Realm::Internals& in)
     element_getter(in, element, "seekable", [](Realm::Internals& internals, dom::Element& e) -> Native {
         MediaStateObject const& state = live_state_of(internals, e);
         TimeRanges seekable;
+        // A file held whole can be sought anywhere within it.
+        if (state.sound)
+            return make_time_ranges(internals, sound_buffered(state));
         if (state.source != nullptr && !std::isnan(state.duration)) {
             if (std::isfinite(state.duration)) {
                 seekable.push_back({ 0, state.duration });
@@ -1394,6 +1627,8 @@ void install_media_element(Realm::Internals& in)
                 update_media(internals, state); // the position so far moved at the old rate
                 if (state.*member != *number) {
                     state.*member = *number;
+                    if (is_volume && state.device)
+                        state.device->set_volume(state.muted ? 0.0 : state.volume);
                     queue_element_event(internals, state, event);
                 }
                 update_media(internals, state);
@@ -1407,6 +1642,8 @@ void install_media_element(Realm::Internals& in)
             bool const muted = js::Interpreter::to_boolean(value);
             if (muted != state.muted) {
                 state.muted = muted;
+                if (state.device)
+                    state.device->set_volume(muted ? 0.0 : state.volume);
                 queue_element_event(internals, state, "volumechange");
             }
             return js::Value::undefined();
@@ -1425,6 +1662,7 @@ void install_media_element(Realm::Internals& in)
             queue_element_event(internals, state, "timeupdate");
             queue_element_event(internals, state, "pause");
             settle_play_promises(internals, state, false, "AbortError", "The play() request was interrupted by a call to pause().");
+            update_media(internals, state); // the speakers are held where they stand
         }
         return js::Value::undefined();
     });
@@ -1432,7 +1670,7 @@ void install_media_element(Realm::Internals& in)
         js::Interpreter& interp = internals.interpreter;
         trace("play()");
         MediaStateObject& state = live_state_of(internals, e);
-        if (!state.error.is_null() || state.network_state == NetworkNoSource || state.source == nullptr)
+        if (!state.error.is_null() || state.network_state == NetworkNoSource || (state.source == nullptr && !state.sound))
             return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "The element has no supported sources."));
         std::optional<js::PromiseCapability> const capability
             = js::new_promise_capability(interp, js::Value::object(interp.intrinsics().promise_constructor));

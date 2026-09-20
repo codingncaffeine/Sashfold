@@ -3486,6 +3486,125 @@ void test_interfaces_that_promise()
 
 } // namespace
 
+// A sound file played by the element itself: fetched, read, and moved
+// through by the clock. No machine running this has a sound server it may
+// open, so what is measured here is the element's own account of playing —
+// the events, the position, the ranges — which is the same account it gives
+// when the speakers are real.
+void test_a_sound_file_plays()
+{
+    // Half a second of quiet, at eight thousand frames a second: a RIFF
+    // header, the format, and the samples.
+    auto const put16 = [](std::string& out, unsigned value) {
+        out.push_back(static_cast<char>(value & 0xFF));
+        out.push_back(static_cast<char>((value >> 8) & 0xFF));
+    };
+    auto const put32 = [&put16](std::string& out, unsigned value) {
+        put16(out, value & 0xFFFF);
+        put16(out, value >> 16);
+    };
+    unsigned const rate = 8000;
+    unsigned const frames = 4000; // half a second
+    std::string wav = "RIFF";
+    put32(wav, 36 + frames * 2);
+    wav += "WAVEfmt ";
+    put32(wav, 16);
+    put16(wav, 1); // whole numbers
+    put16(wav, 1); // one channel
+    put32(wav, rate);
+    put32(wav, rate * 2);
+    put16(wav, 2);
+    put16(wav, 16);
+    wav += "data";
+    put32(wav, frames * 2);
+    for (unsigned i = 0; i < frames; ++i)
+        put16(wav, 0);
+
+    auto page = loaded("<!DOCTYPE html><body><audio id=a></audio></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    net::FetchResponse response;
+    response.status = 200;
+    response.status_text = "OK";
+    response.headers.push_back(net::Header { "Content-Type", "audio/wav" });
+    response.body.assign(wav.begin(), wav.end());
+    page->responses["https://example.test/dir/tone.wav"] = response;
+    net::FetchResponse missing;
+    missing.status = 404;
+    missing.status_text = "Not Found";
+    page->responses["https://example.test/dir/gone.wav"] = missing;
+    net::FetchResponse nonsense = response;
+    nonsense.body = { 'n', 'o', 't', ' ', 'a', ' ', 'w', 'a', 'v' };
+    page->responses["https://example.test/dir/nonsense.wav"] = nonsense;
+
+    page->eval(R"JS(
+        var log = [];
+        var take = function () { var s = log.join(' '); log = []; return s; };
+        var ranges = function (r) { var s = ''; for (var i = 0; i < r.length; i++) s += '[' + r.start(i) + ',' + r.end(i) + ')'; return s; };
+        var a = document.getElementById('a');
+        ['loadstart', 'loadedmetadata', 'durationchange', 'loadeddata', 'canplay', 'canplaythrough', 'play', 'playing',
+            'pause', 'ended', 'seeking', 'seeked', 'emptied'].forEach(function (t) { a.addEventListener(t, function () { log.push(t); }); });
+        a.addEventListener('error', function () { log.push('error ' + a.error.code + ' ' + a.networkState); });
+        var updates = 0;
+        a.addEventListener('timeupdate', function () { updates++; });
+        a.src = 'tone.wav';
+    )JS");
+    CHECK_EQ(page->string("a.networkState + ' ' + a.readyState"), "2 0"); // loading, nothing known yet
+    pump();
+    CHECK_EQ(page->string("take()"), "loadstart loadedmetadata durationchange loadeddata canplay canplaythrough");
+    CHECK_EQ(page->string("a.duration + ' ' + a.readyState + ' ' + a.networkState + ' ' + a.paused"), "0.5 4 1 true");
+    CHECK_EQ(page->string("ranges(a.buffered) + ' ' + ranges(a.seekable) + ' ' + ranges(a.played)"), "[0,0.5) [0,0.5) ");
+    CHECK_EQ(page->string("[a.canPlayType('audio/wav'), a.canPlayType('audio/wav; codecs=1'), a.canPlayType('audio/wav; codecs=\"mp3\"')].join('|')"),
+        "maybe|probably|");
+
+    // Playing moves the position with the clock, a tenth of a second at a time.
+    page->eval("a.play().then(function () { log.push('resolved'); });");
+    pump();
+    CHECK_EQ(page->string("take()"), "resolved play playing");
+    page->clock += 100;
+    pump();
+    CHECK(std::abs(page->number("a.currentTime") - 0.1) < 0.001);
+    page->clock += 100;
+    pump();
+    CHECK(std::abs(page->number("a.currentTime") - 0.2) < 0.001);
+    CHECK_EQ(page->string("a.paused + ' ' + a.ended + ' ' + take()"), "false false ");
+
+    // A seek lands where it was asked and says so.
+    page->eval("a.currentTime = 0.4;");
+    CHECK(page->boolean("a.seeking"));
+    pump();
+    CHECK_EQ(page->string("a.currentTime + ' ' + a.seeking + ' ' + take()"), "0.4 false seeking seeked");
+
+    // It runs out at the end, pauses itself, and says what it played.
+    page->clock += 200;
+    pump();
+    CHECK_EQ(page->string("a.currentTime + ' ' + a.ended + ' ' + a.paused + ' ' + take()"), "0.5 true true pause ended");
+    CHECK_EQ(page->string("ranges(a.played)"), "[0,0.2)[0.4,0.5)");
+    CHECK(page->number("updates") >= 2);
+
+    // Playing again from the end starts over.
+    page->eval("a.play();");
+    pump();
+    CHECK_EQ(page->string("a.currentTime + ' ' + a.ended + ' ' + a.paused"), "0 false false");
+
+    // What cannot be fetched, and what is fetched but is of no kind we read.
+    page->eval("a.src = 'gone.wav'; take();");
+    pump();
+    CHECK_EQ(page->string("take() + ' ' + a.readyState + ' ' + a.duration"), "emptied loadstart error 4 3 0 NaN");
+    page->eval("a.src = 'nonsense.wav'; take();");
+    pump();
+    CHECK_EQ(page->string("take()"), "emptied loadstart error 4 3");
+    // And a fresh element of its own, so that nothing above is what makes it work.
+    page->eval(R"JS(
+        var b = document.createElement('audio');
+        b.addEventListener('canplaythrough', function () { log.push('b ready ' + b.duration); });
+        b.src = 'tone.wav';
+    )JS");
+    pump();
+    CHECK_EQ(page->string("take()"), "b ready 0.5");
+}
+
 // Media Source Extensions over the media element: a page feeds two
 // SourceBuffers a WebM stream written here, and the element's buffered
 // ranges, ready state, events, play promise and clock follow — the clock
@@ -3621,7 +3740,9 @@ void test_media_source_and_the_media_element()
         v4.src = gone;
     )JS");
     pump();
-    CHECK_EQ(page->string("take()"), "play NotSupportedError v3 loadstart v3 error 4 3 v4 loadstart v4 error 4 3");
+    CHECK_EQ(page->string("take()"), // Both fetches are begun before either can fail: a source that is no
+        // MediaSource is now really asked for.
+        "play NotSupportedError v3 loadstart v4 loadstart v3 error 4 3 v4 error 4 3");
 }
 
 int main()
@@ -3632,6 +3753,9 @@ int main()
     _putenv_s("SASHFOLD_MEDIA", "1");
 #else
     setenv("SASHFOLD_MEDIA", "1", 1);
+    // No test may open the machine's speakers: the element plays against
+    // the clock, which is what it does where there is no sound server.
+    setenv("PULSE_SERVER", "unix:/nonexistent/sashfold-tests", 1);
 #endif
     test_inline_scripts_run_in_document_order();
     test_wrapper_identity_and_expandos_survive_collection();
@@ -3688,5 +3812,6 @@ int main()
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();
     test_media_source_and_the_media_element();
+    test_a_sound_file_plays();
     return test::report("test_bindings");
 }

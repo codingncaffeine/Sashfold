@@ -117,6 +117,7 @@ add_test(NAME test_theme COMMAND test_theme ${CMAKE_SOURCE_DIR}/themes/default.j
 add_executable(test_zip test_zip.cpp)
 target_link_libraries(test_zip PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_zip COMMAND test_zip ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes)
+sashfold_test(test_audio)
 add_executable(test_webm test_webm.cpp)
 target_link_libraries(test_webm PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_webm COMMAND test_webm ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media)
