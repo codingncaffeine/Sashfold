@@ -2088,6 +2088,8 @@ void Interpreter::Impl::trace(Tracer& tracer)
     }
     for (Frame* frame : vm_frames)
         tracer.visit(frame);
+    for (Frame* frame : frame_pool)
+        tracer.visit(frame);
     for (ClassBuilder* builder : class_builders)
         tracer.visit(builder);
 }

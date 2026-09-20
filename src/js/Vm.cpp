@@ -162,10 +162,11 @@ bool Interpreter::Impl::run_parameter_block(FunctionNode const& node, Environmen
     Frame* frame = nullptr;
     {
         Heap::NoCollect const guard(heap());
-        frame = new_frame(*code, binding_context);
+        frame = take_frame(*code, binding_context);
         frame->arguments.assign(arguments.begin(), arguments.end());
     }
     RunStatus const status = vm_run(*frame);
+    give_back(*frame);
     return status == RunStatus::Completed;
 }
 
@@ -181,16 +182,20 @@ std::optional<Value> Interpreter::Impl::run_compiled_node(FunctionNode const& no
     Frame* frame = nullptr;
     {
         Heap::NoCollect const guard(heap());
-        frame = new_frame(*code, cx);
+        frame = take_frame(*code, cx);
         if (field_key != nullptr)
             frame->field_key = key_to_value(heap(), *field_key);
     }
     RunStatus const status = vm_run(*frame);
+    Value const result = frame->result.is_empty() ? Value::undefined() : frame->result;
+    // Rooted by the caller's scope before the frame that held it is emptied.
+    self.root(result);
+    give_back(*frame);
     if (status == RunStatus::Threw)
         return std::nullopt;
     if (status != RunStatus::Completed)
         return self.throw_syntax_error("a plain function body suspended");
-    return frame->result.is_empty() ? Value::undefined() : frame->result;
+    return result;
 }
 
 Frame* Interpreter::Impl::new_frame(CodeBlock const& code, Context const& cx)
@@ -206,6 +211,51 @@ Frame* Interpreter::Impl::new_frame(CodeBlock const& code, Context const& cx)
     frame->private_environment = cx.private_environment;
     frame->strict = cx.strict;
     return frame;
+}
+
+Frame* Interpreter::Impl::take_frame(CodeBlock const& code, Context const& cx)
+{
+    if (frame_pool.empty())
+        return new_frame(code, cx);
+    Frame* const frame = frame_pool.back();
+    frame_pool.pop_back();
+    // Emptied when it was given back; what a new frame starts with.
+    frame->code = &code;
+    frame->pc = 0;
+    frame->registers.assign(code.register_count, Value::undefined());
+    frame->stack.reserve(code.max_stack + 1);
+    frame->envs.push_back(cx.lexical);
+    frame->variable = cx.variable;
+    frame->function = cx.function;
+    frame->program = cx.program;
+    frame->private_environment = cx.private_environment;
+    frame->strict = cx.strict;
+    return frame;
+}
+
+void Interpreter::Impl::give_back(Frame& frame)
+{
+    // Nothing of the call stays reachable through a frame that waits.
+    frame.code = nullptr;
+    frame.stack.clear();
+    frame.registers.clear();
+    frame.refs.clear();
+    frame.envs.clear();
+    frame.arguments.clear();
+    frame.builders.clear();
+    frame.field_key = Value();
+    frame.variable = nullptr;
+    frame.function = nullptr;
+    frame.program = nullptr;
+    frame.private_environment = nullptr;
+    frame.result = Value::empty();
+    frame.resume_kind = ResumeKind::Normal;
+    frame.resume_value = Value();
+    frame.resume_pending = false;
+    frame.result_is_iter_result = false;
+    static constexpr std::size_t kept = 256;
+    if (frame_pool.size() < kept)
+        frame_pool.push_back(&frame);
 }
 
 Context Interpreter::Impl::frame_context(Frame const& frame) const

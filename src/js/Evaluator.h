@@ -234,6 +234,16 @@ struct Interpreter::Impl {
     std::vector<ClassBuilder*> class_builders; // the classes under construction outside a frame; traced
     CodeBlock const* compiled_body(FunctionNode const& node); // null with a SyntaxError pending
     Frame* new_frame(CodeBlock const& code, Context const& cx);
+    // The frames of plain calls, used again. A plain function's frame is
+    // nothing's once its body has run — no generator keeps it, no closure
+    // reaches it — and a page makes millions: each was a cell for the
+    // collector to find and free, with six vectors to allocate. One that has
+    // finished is emptied and kept here for the next call, its vectors'
+    // room with it. Traced, so that a collection does not free what the
+    // pool still hands out.
+    std::vector<Frame*> frame_pool;
+    Frame* take_frame(CodeBlock const& code, Context const& cx);
+    void give_back(Frame& frame);
     Context frame_context(Frame const& frame) const;
     RunStatus vm_run(Frame& frame);
     bool vm_unwind(Frame& frame);
