@@ -1781,6 +1781,12 @@ void install_nodes(Realm::Internals& in)
 
     js::Object* html_element = define_interface(in, "HTMLElement", element);
     js::Object* svg_element = define_interface(in, "SVGElement", element);
+    // An SVG element has an inline style of its own, the same as an HTML
+    // one: both include ElementCSSInlineStyle (CSSOM §6.4). Pages that draw
+    // their icons in SVG set it constantly, and without it every such line
+    // is a failure they never see the cause of.
+    element_getter(in, *svg_element, "style",
+        [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); });
     install_svg_links(in, *svg_element);
     define_interface(in, "MathMLElement", element);
     install_html_elements(in, *html_element);

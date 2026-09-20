@@ -736,6 +736,15 @@ void test_named_access_on_the_window()
     // on the window shadows the element.
     page->eval("document.getElementById('lone').remove(); window.twice = 'mine';");
     CHECK_EQ(page->string("typeof lone + ':' + twice + ':' + typeof later"), "undefined:mine:object");
+    // An element drawn in SVG has an inline style of its own, as an HTML
+    // one does: pages that draw their icons that way set it constantly.
+    page->eval(R"JS(
+        var drawing = document.querySelector('svg > g');
+        drawing.style.pointerEvents = 'none';
+        drawing.style.cssText = 'opacity: 0.5';
+    )JS");
+    CHECK_EQ(page->string("typeof drawing.style + ':' + drawing.getAttribute('style')"), "object:opacity: 0.5;");
+    CHECK_EQ(page->string("drawing.style.opacity + ':' + drawing.style.length"), "0.5:1");
     CHECK_EQ(page->console, "");
 }
 

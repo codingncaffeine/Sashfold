@@ -123,6 +123,13 @@ std::nullopt_t Interpreter::throw_value(Value value)
 {
     m_exception = value;
     m_has_exception = true;
+    // Every exception the engine raises passes here, whether the page goes
+    // on to catch it or not. A page that swallows what it cannot do leaves
+    // no other trace, so this is the only place a count of them can be
+    // taken (SASHFOLD_THROW_TRACE=1 prints each one).
+    ++m_throws;
+    if (m_throw_watcher)
+        m_throw_watcher(value);
     return std::nullopt;
 }
 

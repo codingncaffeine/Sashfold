@@ -27,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -252,6 +253,12 @@ struct ScriptStats {
     int timers_fired = 0;
     int events_dispatched = 0;
     int uncaught_errors = 0; // in any callback: scripts, timers, listeners
+    // Every exception raised, whether the page caught it or not, and the
+    // messages of the first few kinds. A page that tries something the
+    // engine cannot do and catches the failure looks silent otherwise, so
+    // this is what says it happened at all.
+    std::uint64_t throws = 0;
+    std::map<std::string, long> throw_messages;
     double script_ms = 0; // time inside the engine, all entries together
     // Custom elements (§4.13): the names the page defined, how many
     // elements became one of them, and how many constructors threw. A page

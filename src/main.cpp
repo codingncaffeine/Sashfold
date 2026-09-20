@@ -908,6 +908,31 @@ int render_page(std::string const& path, std::string const& output, int viewport
         }
         realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));
         oracle.set_realm(realm.get());
+        // SASHFOLD_THROW_TRACE=1: every exception the engine raises, caught
+        // or not. A page that tries what the engine cannot do and catches
+        // the failure leaves no other trace, so this is what says which
+        // thing it tried.
+        if (char const* const watch = std::getenv("SASHFOLD_THROW_TRACE"); watch != nullptr && watch[0] == '1') {
+            js::Interpreter& interpreter = realm->interpreter();
+            interpreter.watch_throws([&interpreter](js::Value const& thrown) {
+                // Reading the message runs script, which could throw again:
+                // one at a time, and only for a plain error object.
+                static bool reading = false;
+                if (reading || !thrown.is_object())
+                    return;
+                reading = true;
+                std::string line = "threw: ";
+                if (std::optional<js::Value> const name = interpreter.get(*thrown.as_object(), interpreter.key("name"));
+                    name && name->is_string())
+                    line += name->as_string()->to_utf8() + ": ";
+                if (std::optional<js::Value> const message = interpreter.get(*thrown.as_object(), interpreter.key("message"));
+                    message && message->is_string())
+                    line += message->as_string()->to_utf8();
+                interpreter.clear_exception();
+                reading = false;
+                std::cerr << line << "\n";
+            });
+        }
     }
     // A document sandboxed without allow-scripts parses with scripting off.
     html::parse_document_bytes_into(*document, loaded.bytes,
@@ -1027,6 +1052,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
                 << ", \"external_failed\": " << scripts.external_failed << ", \"timers\": " << scripts.timers_fired
                 << ", \"events\": " << scripts.events_dispatched << ", \"errors\": " << scripts.uncaught_errors
                 << ", \"ms\": " << static_cast<long>(scripts.script_ms + 0.5) << " },\n";
+            out << "  \"throws\": " << realm->interpreter().throws() << ",\n";
             out << "  \"custom_elements\": { \"defined\": " << scripts.custom_elements_defined
                 << ", \"upgraded\": " << scripts.custom_elements_upgraded
                 << ", \"failed\": " << scripts.custom_elements_failed << " },\n";

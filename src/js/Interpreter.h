@@ -339,6 +339,11 @@ public:
     Value const& exception() const { return m_exception; }
     Value take_exception();
     void clear_exception();
+    // How many exceptions have been raised in this interpreter, caught or
+    // not, and a watcher called with each as it is raised. What a page
+    // catches and swallows is invisible everywhere else.
+    std::uint64_t throws() const { return m_throws; }
+    void watch_throws(std::function<void(Value const&)> watcher) { m_throw_watcher = std::move(watcher); }
 
     // Abstract operations (§7.1–§7.3). The ones that cannot throw are static.
     static bool to_boolean(Value const&);
@@ -661,6 +666,11 @@ private:
     std::vector<PromiseObject*> m_unhandled_rejections; // traced; rejected with no handler yet
     Value m_exception;
     bool m_has_exception = false;
+    // Every exception raised, caught or not, and a watcher for whoever
+    // counts them: a page that catches what it cannot do leaves no other
+    // trace of having tried.
+    std::uint64_t m_throws = 0;
+    std::function<void(Value const&)> m_throw_watcher;
     int m_call_depth = 0;
     int m_call_depth_limit = 1000;
     char const* m_stack_base = nullptr; // recorded whenever script is entered from outside
