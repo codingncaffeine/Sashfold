@@ -1161,28 +1161,46 @@ void RegExpObject::trace(Tracer& tracer)
 
 // ----------------------------------------------------------- Environment
 
+std::size_t Environment::place_of(JsString const* name) const
+{
+    std::size_t const count = m_bindings.size();
+    if (count < indexed_from) {
+        for (std::size_t i = 0; i < count; ++i) {
+            if (m_bindings[i].name == name)
+                return i;
+        }
+        return count;
+    }
+    if (m_index.size() != count) {
+        m_index.clear();
+        m_index.reserve(count * 2);
+        for (std::size_t i = 0; i < count; ++i)
+            m_index.emplace(m_bindings[i].name, static_cast<std::uint32_t>(i));
+    }
+    auto const found = m_index.find(name);
+    return found == m_index.end() ? count : found->second;
+}
+
 Environment::Binding* Environment::find(JsString* name)
 {
-    for (Binding& binding : m_bindings) {
-        if (binding.name == name)
-            return &binding;
-    }
-    return nullptr;
+    std::size_t const place = place_of(name);
+    return place < m_bindings.size() ? &m_bindings[place] : nullptr;
 }
 
 Environment::Binding const* Environment::find(JsString* name) const
 {
-    for (Binding const& binding : m_bindings) {
-        if (binding.name == name)
-            return &binding;
-    }
-    return nullptr;
+    std::size_t const place = place_of(name);
+    return place < m_bindings.size() ? &m_bindings[place] : nullptr;
 }
 
 Environment::Binding& Environment::declare(JsString* name, Value initial, bool mutable_, bool initialized, bool deletable)
 {
     if (Binding* existing = find(name))
         return *existing;
+    // An index that is up to date stays so; one that is not is made again
+    // by the next search.
+    if (m_index.size() == m_bindings.size() && !m_index.empty())
+        m_index.emplace(name, static_cast<std::uint32_t>(m_bindings.size()));
     Binding& binding = m_bindings.emplace_back();
     binding.name = name;
     binding.value = initial;
@@ -1208,6 +1226,10 @@ bool Environment::remove(JsString* name)
         if (!it->deletable)
             return false;
         m_bindings.erase(it);
+        // Every place after it has moved: the index is made again when next
+        // wanted. Emptied rather than left, since a declaration that follows
+        // would bring the counts level again with the places still wrong.
+        m_index.clear();
         return true;
     }
     return false;

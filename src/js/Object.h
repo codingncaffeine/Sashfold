@@ -1136,10 +1136,24 @@ public:
     void set_var_scope() { m_var_scope = true; }
 
     void trace(Tracer&) override;
-    std::size_t size_in_bytes() const override { return sizeof(*this) + m_bindings.size() * sizeof(Binding); }
+    std::size_t size_in_bytes() const override
+    {
+        return sizeof(*this) + m_bindings.size() * sizeof(Binding) + m_index.size() * (sizeof(void*) * 4);
+    }
 
 private:
+    // Past a handful of bindings a scope is found by hash rather than by
+    // walking: a bundle's outermost function declares hundreds of names, and
+    // every identifier in it would otherwise cost a walk of them all — as
+    // would every declaration, which looks for its name first. The index
+    // names each binding by its place; it is made the first time a scope
+    // that large is searched, kept up as bindings are declared, and made
+    // again after one is removed.
+    static constexpr std::size_t indexed_from = 12;
+    std::size_t place_of(JsString const* name) const; // m_bindings.size() for none
+
     std::vector<Binding> m_bindings;
+    mutable std::unordered_map<JsString const*, std::uint32_t> m_index;
     Environment* m_outer;
     Object* m_object;
     Value m_this;

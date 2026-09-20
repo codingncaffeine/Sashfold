@@ -1457,6 +1457,40 @@ void test_environment(Fixture& fx)
     js::JsString* a_copy = fx.string_cell("a");
     CHECK(outer->find(a_copy) == nullptr);
 
+    // A scope with many bindings is found by hash, and answers as the walk
+    // did: every name at its own value, a removed one gone, one declared
+    // after a removal found where it is and not where the index last had it.
+    js::Environment* wide = fx.make<js::Environment>(nullptr); // rooted by the fixture, as the others are
+    std::vector<js::JsString*> names;
+    for (int i = 0; i < 200; ++i) {
+        names.push_back(fx.heap.atom("wide" + std::to_string(i)));
+        wide->declare(names.back(), num(i), true, true, true);
+    }
+    bool every_name_found = true;
+    for (int i = 0; i < 200; ++i) {
+        js::Environment::Binding const* const found = wide->find(names[static_cast<std::size_t>(i)]);
+        every_name_found = every_name_found && found != nullptr && found->value == num(i);
+    }
+    CHECK(every_name_found);
+    CHECK(wide->find(a) == nullptr);
+    CHECK(wide->remove(names[10]));
+    CHECK(wide->find(names[10]) == nullptr);
+    js::JsString* const late = fx.heap.atom("late"sv);
+    wide->declare(late, num(1000), true, true, true);
+    CHECK_EQ(wide->bindings().size(), 200u);
+    bool still_right = wide->find(late) != nullptr && wide->find(late)->value == num(1000);
+    for (int i = 0; i < 200; ++i) {
+        if (i == 10)
+            continue;
+        js::Environment::Binding const* const found = wide->find(names[static_cast<std::size_t>(i)]);
+        still_right = still_right && found != nullptr && found->value == num(i);
+    }
+    CHECK(still_right);
+    // A name declared twice is one binding, as before.
+    wide->declare(names[3], num(-1), true, true, true);
+    CHECK_EQ(wide->bindings().size(), 200u);
+    CHECK(wide->find(names[3])->value == num(3));
+
     // A function environment's this, function and new.target; a with's object.
     js::Object* receiver = fx.object();
     js::NativeFunction* fn = fx.native();
