@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Modal</title>
+<style>
+  html { overflow-x: hidden; min-height: 100% }
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 14px; line-height: 20px }
+  .band { height: 400px; margin: 0; background: #ccddee }
+  .band.other { background: #eeddcc }
+  .card { position: relative; z-index: 1; overflow: hidden; width: 200px; height: 60px; margin: 20px; background: #88aa88 }
+  .tip { position: fixed; left: 300px; top: 30px; width: 120px; height: 120px; background: #aa3333 }
+</style></head>
+<body>
+<!-- A fixed box inside a box that clips and stacks: it is kept under that
+     box, and the viewport alone clips it and decides where it can be pressed. -->
+<div class="card"><div class="tip" onclick="document.title = 'Tip'"></div></div>
+<p class="band">one</p><p class="band other">two</p><p class="band">three</p><p class="band other">four</p>
+<script>
+  // The way a page holds itself still under a dialog: the body fixed to the
+  // viewport and clipped, a fixed backdrop over everything, and the dialog
+  // fixed inside the backdrop.
+  var page = document.body;
+  var kept = { maxHeight: page.style.maxHeight, height: page.style.height, width: page.style.width,
+      overflow: page.style.overflow, position: page.style.position };
+  var backdrop = page.appendChild(document.createElement('div'));
+  backdrop.style.cssText = 'background-color: rgba(0, 0, 0, 0.5); position: fixed; min-width: 100%; min-height: 100%;'
+      + ' top: 0; bottom: 0; left: 0; right: 0; z-index: 999999';
+  var dialog = backdrop.appendChild(document.createElement('div'));
+  dialog.style.cssText = 'position: fixed; display: block; width: 300px; min-height: 100px; padding: 20px; background-color: #ffffff';
+  dialog.appendChild(document.createTextNode('Terms '));
+  var agree = dialog.appendChild(document.createElement('a'));
+  agree.textContent = 'Accept';
+  agree.href = '#';
+  agree.addEventListener('click', function (event) {
+      event.preventDefault();
+      for (var name in kept)
+          page.style[name] = kept[name];
+      page.removeChild(backdrop);
+      document.title = 'Unlocked';
+  });
+  var box = dialog.getBoundingClientRect();
+  page.style.maxHeight = innerHeight + 'px';
+  page.style.height = innerHeight + 'px';
+  page.style.width = innerWidth + 'px';
+  page.style.overflow = 'hidden';
+  page.style.position = 'fixed';
+  dialog.style.top = (innerHeight - box.height) / 2 + 'px';
+  dialog.style.left = (innerWidth - box.width) / 2 + 'px';
+</script>
+</body></html>

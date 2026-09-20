@@ -238,6 +238,9 @@ add_test(NAME shell_resize
 add_test(NAME shell_bookmarks
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/bookmarks.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_modal
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/modal.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_bookmarks_manager
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/bookmarks-manager.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

@@ -1,0 +1,32 @@
+# A dialog over a page held still: the body fixed to the viewport and clipped,
+# a fixed backdrop over everything, the dialog fixed INSIDE the backdrop — the
+# way a consent dialog is written. The dialog is laid out at all (a fixed box
+# met while another fixed box is being placed), is drawn over its backdrop
+# (it is kept under the stacking context it was written in), can be pressed,
+# and the page scrolls again once it has gone. And a fixed box inside a box
+# that clips is clipped by the viewport alone.
+resize 800 600
+open modal.html
+assert-title Modal
+# The page under the backdrop: its blue, half darkened.
+assert-pixel 40 400 #666e77
+# The dialog, white, in the middle of the window — over the backdrop.
+assert-pixel 400 300 #ffffff
+assert-text Accept
+# The fixed box written inside the clipping card: all of it shows, darkened
+# by the backdrop like everything else, far outside the card's 200 by 60.
+assert-pixel 310 200 #551919
+assert-pixel 410 120 #551919
+# Held still: the wheel moves nothing.
+wheel -3
+assert-scroll 0
+# A press on the dialog's link reaches it, and lets the page go.
+click-text Accept
+assert-title Unlocked
+assert-pixel 40 400 #ccddee
+assert-no-text Accept
+wheel -3
+assert-scroll 180
+# The fixed box can be pressed where it shows, outside the card it is kept in.
+click 360 160
+assert-title Tip

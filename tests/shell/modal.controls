@@ -1,0 +1,27 @@
+# Planted-fault controls for tests/shell/modal.script: fixed boxes met while a fixed box is being placed are placed too, a fixed box is kept under the stacking context it was written in, and the viewport alone clips it and decides where it can be pressed.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/modal.script
+
+# The fixed boxes found while the first ones are being placed are never placed: no backdrop, no dialog, no fixed box in the card.
+control nested
+file src/layout/Layout.cpp
+fails 12 14 15 18 19 24 25 29 32
+plant s~        for \(int round = 0; !boxes\.empty\(\) && round < 16; \+\+round\) \{~        for (int round = 0; !boxes.empty() \&\& round < 1; ++round) {~
+
+# A fixed box stays a child of the root: the dialog is drawn, and pressed, beneath its own backdrop.
+control rehome
+file src/layout/Layout.cpp
+fails 14 25 26 27 29 32
+plant s~                    if \(found && found != &result\.root && found->stacking_context\)\n                        home = found;~                    if (found \&\& found != \&result.root \&\& found->stacking_context)\n                        home = nullptr;~
+
+# A fixed box is painted through the clips of the boxes it stands in.
+control fixedclip
+file src/paint/Painter.cpp
+fails 18 19
+plant s~            if \(child\.fixed\) \{\n                out\.push_back\(Layer \{ &child, context\.page_clip, \{\} \}\);~            if (child.fixed \&\& child.z_index > 2000000000) {\n                out.push_back(Layer { \&child, context.page_clip, {} });~
+
+# A fixed box can be pressed only where the boxes it stands in let a point through.
+control fixedreach
+file src/paint/Painter.cpp
+fails 32
+plant s~out\.push_back\(HitLayer \{ &child, child\.fixed \? true : child\.out_of_flow \? out_of_flow : in_flow \}\);~out.push_back(HitLayer { \&child, child.fixed \&\& child.z_index > 2000000000 ? true : child.out_of_flow ? out_of_flow : in_flow });~

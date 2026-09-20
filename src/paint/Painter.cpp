@@ -34,6 +34,9 @@ struct Context {
     layout::ScrollOffsets const* scrolls = nullptr;
     // Device px per CSS px, for the shapes the painter draws on its own.
     float device_scale = 1;
+    // The clip the page as a whole is painted through: all that clips a
+    // fixed box, wherever in the tree it stands.
+    std::optional<Rect> page_clip = std::nullopt;
 };
 
 int round_px(float value)
@@ -1262,8 +1265,12 @@ void collect_positioned(Context const& context, Fragment const& fragment, Clips 
 {
     for (Fragment const& child : fragment.children) {
         if (paints_as_layer(child)) {
-            Clips const& clips = child.out_of_flow ? out_of_flow : in_flow;
-            out.push_back(Layer { &child, clips.rect, clips.rounds });
+            if (child.fixed) {
+                out.push_back(Layer { &child, context.page_clip, {} });
+            } else {
+                Clips const& clips = child.out_of_flow ? out_of_flow : in_flow;
+                out.push_back(Layer { &child, clips.rect, clips.rounds });
+            }
         }
         if (child.stacking_context)
             continue;
@@ -1599,7 +1606,7 @@ void collect_hit_layers(Fragment const& fragment, Probe at, bool in_flow, bool o
 {
     for (Fragment const& child : fragment.children) {
         if (paints_as_layer(child))
-            out.push_back(HitLayer { &child, child.out_of_flow ? out_of_flow : in_flow });
+            out.push_back(HitLayer { &child, child.fixed ? true : child.out_of_flow ? out_of_flow : in_flow });
         if (child.stacking_context)
             continue;
         bool const through = clip_lets_through(child, at);
@@ -1694,7 +1701,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
     Fragment const* const owner = canvas_background_owner(page);
-    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale };
+    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale, target.clip() };
     // The canvas takes the whole background of the box that owns it, its
     // pictures included: they cover the surface, sized and placed against
     // the root element's box whichever box they came from.

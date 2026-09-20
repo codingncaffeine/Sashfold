@@ -125,6 +125,11 @@ struct Fragment {
     // ones under them.
     bool positioned = false;
     bool out_of_flow = false; // absolute or fixed: only its containing blocks' overflow clips it
+    // position: fixed. Laid against the viewport, which alone clips it,
+    // but painted where it stands in the tree: it is kept under the nearest
+    // ancestor that forms a stacking context, so a dialog written inside its
+    // backdrop is drawn over that backdrop and not beneath it.
+    bool fixed = false;
     int z_index = 0;
     // A positioned box with a z-index other than auto: a stacking context,
     // painted as one unit at its level in the parent context; a positioned

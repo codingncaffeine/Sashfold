@@ -1141,6 +1141,7 @@ struct Layouter {
         if (!style.positioned())
             return;
         box.positioned = true;
+        box.fixed = style.position == css::Position::Fixed;
         box.z_index = style.z_index.value_or(0);
         box.stacking_context = box.stacking_context || style.z_index.has_value() || style.opacity < 1;
         if (style.position == css::Position::Relative)
@@ -1374,6 +1375,7 @@ struct Layouter {
             shift_fragment(fragment, x - fragment.x, y - fragment.y);
             fragment.positioned = true;
             fragment.out_of_flow = true;
+            fragment.fixed = s.position == css::Position::Fixed;
             fragment.z_index = s.z_index.value_or(0);
             fragment.stacking_context = s.z_index.has_value() || s.opacity < 1 || s.transformed;
             if (s.transformed)
@@ -8506,6 +8508,18 @@ Fragment layout_frameset(Layouter& layouter, dom::Element const& frameset, float
     return box;
 }
 
+// The first box an element made, in tree order; null when it made none.
+Fragment* fragment_of(Fragment& within, dom::Element const& element)
+{
+    if (within.element == &element)
+        return &within;
+    for (Fragment& child : within.children) {
+        if (Fragment* const found = fragment_of(child, element))
+            return found;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 LayoutResult layout_document(dom::Document const& document, css::StyleMap const& styles,
@@ -8643,14 +8657,46 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         layouter.absolute_stack.pop_back();
         boxes.insert(boxes.end(), layouter.fixed_boxes.begin(), layouter.fixed_boxes.end());
         layouter.fixed_boxes.clear();
-        if (!boxes.empty()) {
+        // Placing one lays it out, and that can find more: a fixed box inside
+        // a fixed box — a dialog laid over a page whose body was itself fixed
+        // to hold the page still under it — is only met while its ancestor
+        // is being placed here. They are placed in turn, until none is left.
+        for (int round = 0; !boxes.empty() && round < 16; ++round) {
             float const icb_height = frame_height > 0 ? frame_height : frame_block_extent;
+            std::size_t const placed_from = result.root.children.size();
             layouter.place_out_of_flow(boxes, 0, 0, frame_width, icb_height, result.root, 0,
                 html_style->direction == css::Direction::Rtl);
             for (Fragment const& child : result.root.children) {
                 if (child.positioned)
                     frame_block_extent = std::max(frame_block_extent, child.y + child.height);
             }
+            // A fixed box is placed against the viewport and painted where it
+            // stands in the tree: each one just placed goes under the nearest
+            // ancestor of its element that forms a stacking context, when
+            // there is one below the root. The last first, so that taking
+            // one out moves none still to be looked at.
+            for (std::size_t i = result.root.children.size(); i > placed_from; --i) {
+                Fragment& placed = result.root.children[i - 1];
+                if (!placed.fixed || !placed.element)
+                    continue;
+                Fragment* home = nullptr;
+                for (dom::Node const* up = placed.element->parent(); up && !home; up = up->parent()) {
+                    if (!up->is_element())
+                        continue;
+                    Fragment* const found = fragment_of(result.root, static_cast<dom::Element const&>(*up));
+                    if (found && found != &result.root && found->stacking_context)
+                        home = found;
+                }
+                if (!home)
+                    continue;
+                Fragment moving = std::move(placed);
+                // Where `home` stands does not change by taking out a later
+                // child of the root: it is inside an earlier one.
+                result.root.children.erase(result.root.children.begin() + static_cast<std::ptrdiff_t>(i - 1));
+                home->children.push_back(std::move(moving));
+            }
+            boxes = std::move(layouter.fixed_boxes);
+            layouter.fixed_boxes.clear();
         }
     }
     // How far each box that scrolls can be moved to show the rest of what

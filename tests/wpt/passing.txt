@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9435 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9436 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -7361,6 +7361,7 @@ css/css-overflow/text-overflow-ellipsis-editing-input.html
 css/css-overflow/text-overflow-ellipsis-indent-001.html
 css/css-overflow/text-overflow-ellipsis-textarea-with-caret.html
 css/css-overflow/text-overflow-ellipsis-vertical-001.html
+css/css-position/absolute-pos-box-inside-fixed-pos-box-with-changing-height.html
 css/css-position/backdrop-inherit-rendered.html
 css/css-position/block-axis-constraint-changes-for-out-of-flow-box.html
 css/css-position/containing-block-change-button.html
