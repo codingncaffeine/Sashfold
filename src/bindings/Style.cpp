@@ -348,6 +348,23 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return style.z_index ? std::to_string(*style.z_index) : "auto";
     if (name == "box-sizing")
         return style.box_sizing == BoxSizing::BorderBox ? "border-box" : "content-box";
+    if (name == "aspect-ratio") {
+        if (style.aspect_ratio.ratio <= 0)
+            return "auto";
+        std::string const ratio = js::number_to_utf8(static_cast<double>(style.aspect_ratio.ratio)) + " / 1";
+        return style.aspect_ratio.with_auto ? "auto " + ratio : ratio;
+    }
+    if (name == "object-fit") {
+        switch (style.object_fit) {
+        case ObjectFit::Fill: return "fill";
+        case ObjectFit::Contain: return "contain";
+        case ObjectFit::Cover: return "cover";
+        case ObjectFit::None: return "none";
+        case ObjectFit::ScaleDown: return "scale-down";
+        }
+    }
+    if (name == "object-position")
+        return length_text(style.object_position_x) + " " + length_text(style.object_position_y);
     if (name == "color")
         return color_text(style.color);
     if (name == "background-color")

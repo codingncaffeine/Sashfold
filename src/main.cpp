@@ -1914,10 +1914,18 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         // of a batch is the one the window has, and the only one acted on.
         std::optional<std::pair<int, int>> resized;
         std::optional<float> rescaled;
-        platform::WindowEvent event;
-        while (window->poll(event)) {
+        // A pointer reports where it is up to a thousand times a second, and
+        // every report asks what is under it — a walk of the page as it is
+        // laid out. Everything that has arrived is taken in first, and of
+        // each run of moves only the last, which says where the pointer is,
+        // is acted on (platform::keep_last_pointer_moves).
+        std::vector<platform::WindowEvent> batch;
+        for (platform::WindowEvent arrived; window->poll(arrived);)
+            batch.push_back(std::move(arrived));
+        turn_events = batch.size();
+        platform::keep_last_pointer_moves(batch);
+        for (platform::WindowEvent const& event : batch) {
             using Kind = platform::WindowEvent::Kind;
-            ++turn_events;
             switch (event.kind) {
             case Kind::Close: running = false; break;
             case Kind::Resize:

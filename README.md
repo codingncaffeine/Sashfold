@@ -41,8 +41,8 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | Unicode line breaking conformance, `LineBreakTest` | **16,672 / 16,672** (100%) |
-| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **9427 / 14616 (64.5%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests, 74,294 subtests over 1260 test files under seventeen `dom/` and `html/` directories | **65822 / 74294 (88.6%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **9435 / 14616 (64.6%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT testharness tests, 75,902 subtests over 1278 test files under seventeen `dom/` and `html/` directories | **67622 / 75902 (89.1%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
 | test262, the ECMAScript conformance suite, 41,791 tests over 86 directories | **40358 / 41791 (96.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night by the Windows build and by the Linux build, and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 

@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace sashfold::platform {
 
@@ -59,6 +60,16 @@ struct WindowEvent {
     // window is taken to be until an event says not.
     bool visible = true;
 };
+
+// Of each run of pointer moves in a batch of events, the last alone is kept:
+// it says where the pointer is, and the ones before it said only where it
+// had been. A pointer can report a thousand times a second, and each report
+// acted on asks the page what is under it; every browser hands its pages one
+// move a frame for the same reason. A run ends at anything that happens AT
+// the pointer or to the keyboard — a button, a wheel, a key — so that what
+// is pressed is pressed where the pointer then was; a size, a scale and the
+// window's coming to the front or leaving sight do not end one.
+void keep_last_pointer_moves(std::vector<WindowEvent>& events);
 
 // An edge or corner of the window, for a resize the reader starts by
 // dragging the frame the shell draws.

@@ -126,6 +126,7 @@ add_test(NAME test_theme_gallery COMMAND test_theme_gallery ${CMAKE_CURRENT_SOUR
 sashfold_test(test_touch)
 sashfold_test(test_bookmarks)
 sashfold_test(test_bookmark_sources)
+sashfold_test(test_window_events)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The Wayland window's two halves that need no compositor: the wire

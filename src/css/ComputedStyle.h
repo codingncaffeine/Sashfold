@@ -340,6 +340,26 @@ enum class BoxSizing : std::uint8_t {
     BorderBox,
 };
 
+// aspect-ratio (css-sizing-4 §5): the box's preferred ratio, its width over
+// its height — none while `ratio` is zero. With `auto` written as well (or
+// alone, the initial value) a replaced element that has a ratio of its own
+// keeps its own; the number is then for one that has none yet.
+struct AspectRatio {
+    bool with_auto = true;
+    float ratio = 0;
+    bool operator==(AspectRatio const&) const = default;
+};
+
+// object-fit (css-images-3 §5.5): how a replaced element's picture is laid
+// into its content box when the two are not the same shape.
+enum class ObjectFit : std::uint8_t {
+    Fill, // stretched to the box, the initial value
+    Contain, // whole inside it, its ratio kept
+    Cover, // covering it, its ratio kept, the rest cut off
+    None, // at its own size
+    ScaleDown, // the smaller of none and contain
+};
+
 enum class Overflow : std::uint8_t {
     Visible,
     // clip: the box clips what it paints to its padding box and nothing
@@ -840,6 +860,12 @@ struct ComputedStyle {
     LengthPercent max_height = LengthPercent::auto_value();
     // Which box the six sizes above name.
     BoxSizing box_sizing = BoxSizing::ContentBox;
+    AspectRatio aspect_ratio;
+    // A replaced element's picture within its content box, and where in the
+    // box it stands: the middle, unless the author says.
+    ObjectFit object_fit = ObjectFit::Fill;
+    LengthPercent object_position_x = LengthPercent::percent_of(50);
+    LengthPercent object_position_y = LengthPercent::percent_of(50);
     LengthPercent margin_top = LengthPercent::px(0);
     LengthPercent margin_right = LengthPercent::px(0);
     LengthPercent margin_bottom = LengthPercent::px(0);

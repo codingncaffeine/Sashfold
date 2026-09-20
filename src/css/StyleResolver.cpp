@@ -483,8 +483,11 @@ std::string presentational_hints(dom::Element const& element)
     bool const column = tag == "col" || tag == "colgroup";
     bool const table = tag == "table";
     bool const heading = tag.size() == 2 && tag[0] == 'h' && tag[1] >= '1' && tag[1] <= '6';
+    // The elements whose width and height attributes map to the dimension
+    // properties (HTML §15.4.3): the embedded kinds, and an image button.
+    bool const image_button = tag == "input" && attribute("type") && ascii_ci_equals(*attribute("type"), "image");
     bool const embedded = tag == "img" || tag == "iframe" || tag == "video" || tag == "canvas"
-        || tag == "embed" || tag == "object";
+        || tag == "embed" || tag == "object" || image_button;
 
     // dir=auto: the direction is the one its own content reads as. The
     // ltr and rtl values are user-agent rules ([dir=ltr i], [dir=rtl i]);
@@ -2886,6 +2889,14 @@ struct Resolver {
             { "float", false, [](S& to, S const& from) { to.floating = from.floating; }, 0 },
             { "clear", false, [](S& to, S const& from) { to.clear = from.clear; }, 0 },
             { "box-sizing", false, [](S& to, S const& from) { to.box_sizing = from.box_sizing; }, 0 },
+            { "aspect-ratio", false, [](S& to, S const& from) { to.aspect_ratio = from.aspect_ratio; }, 0 },
+            { "object-fit", false, [](S& to, S const& from) { to.object_fit = from.object_fit; }, 0 },
+            { "object-position", false,
+                [](S& to, S const& from) {
+                    to.object_position_x = from.object_position_x;
+                    to.object_position_y = from.object_position_y;
+                },
+                0 },
             { "overflow", false,
                 [](S& to, S const& from) {
                     to.overflow = from.overflow;
@@ -4419,6 +4430,103 @@ struct Resolver {
                 style.floating = Float::Right;
             else if (ascii_ci_equals(keyword, "none"))
                 style.floating = Float::None;
+            return;
+        }
+        if (name == "aspect-ratio") {
+            // auto || <ratio>, a ratio being <number> [ / <number> ]?; a
+            // ratio with a zero in it is no ratio, and reads as auto.
+            AspectRatio parsed;
+            parsed.with_auto = false;
+            bool any_ratio = false;
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                ComponentValue const& value = *values[i];
+                if (value.is_token(Token::Type::Ident) && ascii_ci_equals(value.token().value, "auto")) {
+                    if (parsed.with_auto)
+                        return;
+                    parsed.with_auto = true;
+                    continue;
+                }
+                if (!value.is_token(Token::Type::Number) || any_ratio || value.token().numeric_value < 0)
+                    return;
+                double const over = value.token().numeric_value;
+                double under = 1;
+                if (i + 1 < values.size() && values[i + 1]->is_token(Token::Type::Delim) && values[i + 1]->token().delim == U'/') {
+                    if (i + 2 >= values.size() || !values[i + 2]->is_token(Token::Type::Number)
+                        || values[i + 2]->token().numeric_value < 0)
+                        return;
+                    under = values[i + 2]->token().numeric_value;
+                    i += 2;
+                }
+                any_ratio = true;
+                if (over > 0 && under > 0)
+                    parsed.ratio = static_cast<float>(over / under);
+                else
+                    parsed.with_auto = true; // a degenerate ratio behaves as auto
+            }
+            if (!any_ratio && !parsed.with_auto)
+                return;
+            style.aspect_ratio = parsed;
+            return;
+        }
+        if (name == "object-fit") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "fill"))
+                style.object_fit = ObjectFit::Fill;
+            else if (ascii_ci_equals(keyword, "contain"))
+                style.object_fit = ObjectFit::Contain;
+            else if (ascii_ci_equals(keyword, "cover"))
+                style.object_fit = ObjectFit::Cover;
+            else if (ascii_ci_equals(keyword, "none"))
+                style.object_fit = ObjectFit::None;
+            else if (ascii_ci_equals(keyword, "scale-down"))
+                style.object_fit = ObjectFit::ScaleDown;
+            return;
+        }
+        if (name == "object-position") {
+            // One or two of: left | center | right | top | bottom | a length
+            // or a percentage. One value leaves the other axis in the middle;
+            // two keywords may come in either order.
+            if (values.empty() || values.size() > 2)
+                return;
+            std::optional<LengthPercent> x;
+            std::optional<LengthPercent> y;
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                ComponentValue const& value = *values[i];
+                if (value.is_token(Token::Type::Ident)) {
+                    std::string_view const keyword = value.token().value;
+                    if (ascii_ci_equals(keyword, "left") && !x)
+                        x = LengthPercent::percent_of(0);
+                    else if (ascii_ci_equals(keyword, "right") && !x)
+                        x = LengthPercent::percent_of(100);
+                    else if (ascii_ci_equals(keyword, "top") && !y)
+                        y = LengthPercent::percent_of(0);
+                    else if (ascii_ci_equals(keyword, "bottom") && !y)
+                        y = LengthPercent::percent_of(100);
+                    else if (ascii_ci_equals(keyword, "center")) {
+                        if (!x && (i == 0 || y))
+                            x = LengthPercent::percent_of(50);
+                        else if (!y)
+                            y = LengthPercent::percent_of(50);
+                        else
+                            return;
+                    } else
+                        return;
+                    continue;
+                }
+                std::optional<LengthPercent> const length = parse_length_percent(value, context, false);
+                if (!length)
+                    return;
+                if (!x && i == 0)
+                    x = *length;
+                else if (!y)
+                    y = *length;
+                else
+                    return;
+            }
+            style.object_position_x = x.value_or(LengthPercent::percent_of(50));
+            style.object_position_y = y.value_or(LengthPercent::percent_of(50));
             return;
         }
         if (name == "box-sizing") {

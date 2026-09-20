@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Pictures</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 12px; line-height: 16px; width: 600px }
+  p { margin: 0 0 4px }
+  .row { display: flex; gap: 8px; margin: 0 0 8px }
+  .cell { width: 96px }
+  .box { width: 96px; height: 96px; background: #dddddd; display: block }
+  .fluid { width: 100%; height: auto }
+  .shaped { width: 100%; aspect-ratio: 1 / 1; object-fit: cover }
+  .plate { aspect-ratio: 4 / 1; background: #88aa88; margin: 0 0 8px }
+  .plate .half { height: 50%; background: #446644 }
+  .bordered { aspect-ratio: 2 / 1; width: 100px; box-sizing: border-box; border: 10px solid #444444; background: #aaaaaa }
+</style>
+</head>
+<body>
+<!-- A picture 48 by 24: red to the left, blue to the right, a yellow edge. -->
+<p>height auto beats the attribute; the attributes' shape before the picture comes</p>
+<div class="row">
+  <div class="cell"><img class="fluid" width="480" height="960" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII="></div>
+  <div class="cell"><img class="fluid" width="200" height="100" style="background: #cccccc" alt=""></div>
+  <div class="cell"><img width="96" height="24" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII="></div>
+</div>
+<p>object-fit: fill, contain, cover, none, scale-down; then positions</p>
+<div class="row">
+  <img class="box" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: contain" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: cover" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: none" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: scale-down" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+</div>
+<div class="row">
+  <img class="box" style="object-fit: cover; object-position: left" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: cover; object-position: 100% 0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: none; object-position: right bottom" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <img class="box" style="object-fit: contain; object-position: 50% 10px" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII=">
+  <div class="cell"><img class="shaped" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAIAAAAzn+mLAAAASklEQVRIx2N8d4ZhUAGmgXYAOmCBUO/DlCg0yJVhN4UmnFmlzDAIQ2jUQaMOGnXQqIMGGow6aNRBow4addBAg1EHEQKMo70OAgAAfDsHpRBkZUIAAAAASUVORK5CYII="></div>
+</div>
+<p>aspect-ratio on a box: four to one, its child half of that; a border box</p>
+<div class="plate"><div class="half"></div></div>
+<div class="bordered"></div>
+</body>
+</html>

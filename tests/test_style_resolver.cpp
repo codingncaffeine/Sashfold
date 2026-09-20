@@ -84,6 +84,12 @@ int main()
   #vars-initial { --main: initial; color: var(--main, rgb(8, 8, 8)) }
   #calc { width: calc(100% - 20px); margin-left: calc(2em + 4px); padding-top: calc(10px * 2); padding-bottom: calc((10px + 5px) / 3);
           height: 50vh; min-width: min(100px, 50px); max-width: clamp(10px, 5px, 20px); margin-top: max(10%, 30%); margin-right: calc(3em * 2 - 6px) }
+  #ratio-a { aspect-ratio: 16 / 9; object-fit: cover; object-position: left 25% }
+  #ratio-b { aspect-ratio: auto 2; object-fit: scale-down; object-position: 10px }
+  #ratio-c { aspect-ratio: 4 / 0; object-fit: sideways; object-position: bottom right }
+  #ratio-d { aspect-ratio: 3 / 2 1; object-position: left right }
+  #ratio-e { aspect-ratio: 1.5 auto; object-fit: CONTAIN; object-position: center top }
+  #ratio-parent { aspect-ratio: 2 / 1; object-fit: none }
   #calc-bad { width: calc(10px * 10px); height: calc(10px + 5); margin-top: calc(5px }
 </style></head>
 <body id="body">
@@ -111,8 +117,46 @@ int main()
   <div id="vars-initial">i</div>
   <div id="calc">c</div>
   <div id="calc-bad">b</div>
+  <div id="ratio-a"></div><div id="ratio-b"></div><div id="ratio-c"></div><div id="ratio-d"></div><div id="ratio-e"></div>
+  <div id="ratio-parent"><div id="ratio-child"></div></div>
 </body></html>)"));
     g_styles = css::resolve_styles(*g_document);
+
+    // --- aspect-ratio, object-fit, object-position -----------------------------
+    {
+        using css::ObjectFit;
+        using Kind = css::LengthPercent::Kind;
+        ComputedStyle const& a = style_of("ratio-a");
+        CHECK(close(a.aspect_ratio.ratio, 16.0f / 9.0f) && !a.aspect_ratio.with_auto);
+        CHECK(a.object_fit == ObjectFit::Cover);
+        CHECK(a.object_position_x.kind == Kind::Percent && close(a.object_position_x.value, 0));
+        CHECK(a.object_position_y.kind == Kind::Percent && close(a.object_position_y.value, 25));
+        // `auto` beside a ratio, in either order; one number is over one.
+        ComputedStyle const& b = style_of("ratio-b");
+        CHECK(close(b.aspect_ratio.ratio, 2) && b.aspect_ratio.with_auto);
+        CHECK(b.object_fit == ObjectFit::ScaleDown);
+        // One position is the horizontal one; the other stays in the middle.
+        CHECK(b.object_position_x.kind == Kind::Px && close(b.object_position_x.value, 10));
+        CHECK(b.object_position_y.kind == Kind::Percent && close(b.object_position_y.value, 50));
+        ComputedStyle const& e = style_of("ratio-e");
+        CHECK(close(e.aspect_ratio.ratio, 1.5f) && e.aspect_ratio.with_auto);
+        CHECK(e.object_fit == ObjectFit::Contain);
+        CHECK(close(e.object_position_x.value, 50) && close(e.object_position_y.value, 0));
+        // A ratio with a zero in it is no ratio and behaves as auto; a fit
+        // that is no keyword is dropped; two keywords come in either order.
+        ComputedStyle const& c = style_of("ratio-c");
+        CHECK(close(c.aspect_ratio.ratio, 0) && c.aspect_ratio.with_auto);
+        CHECK(c.object_fit == ObjectFit::Fill);
+        CHECK(close(c.object_position_x.value, 100) && close(c.object_position_y.value, 100));
+        // What is not the grammar is dropped whole: the initial values stand.
+        ComputedStyle const& d = style_of("ratio-d");
+        CHECK(close(d.aspect_ratio.ratio, 0) && d.aspect_ratio.with_auto);
+        CHECK(close(d.object_position_x.value, 50) && close(d.object_position_y.value, 50));
+        // None of the three is inherited.
+        ComputedStyle const& child = style_of("ratio-child");
+        CHECK(close(style_of("ratio-parent").aspect_ratio.ratio, 2));
+        CHECK(close(child.aspect_ratio.ratio, 0) && child.object_fit == ObjectFit::Fill);
+    }
 
     // --- calc(), min(), max(), clamp(), the viewport units ---------------------
     {

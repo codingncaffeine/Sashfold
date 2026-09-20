@@ -862,8 +862,26 @@ void paint_box_replaced(Context& context, Fragment const& fragment)
             if (!curve.is_rectangular())
                 context.target.push_round_clip(curve);
         }
-        context.target.draw_scaled(*box.bitmap,
-            snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
+        if (box.drawn) {
+            // object-fit: the picture at the shape it keeps, shown through
+            // its content box.
+            std::optional<Rect> const before = context.target.clip();
+            Rect through = snap(box.x + context.dx, box.y + context.dy, box.width, box.height);
+            if (before) {
+                int const left = std::max(through.x, before->x);
+                int const top = std::max(through.y, before->y);
+                int const right = std::min(through.right(), before->right());
+                int const bottom = std::min(through.bottom(), before->bottom());
+                through = Rect { left, top, std::max(0, right - left), std::max(0, bottom - top) };
+            }
+            context.target.set_clip(through);
+            context.target.draw_scaled(*box.bitmap,
+                snap(box.drawn->x + context.dx, box.drawn->y + context.dy, box.drawn->width, box.drawn->height));
+            context.target.set_clip(before);
+        } else {
+            context.target.draw_scaled(*box.bitmap,
+                snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
+        }
         context.target.truncate_round_clips(rounds);
     }
 }

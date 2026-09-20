@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9427 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9435 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -5838,6 +5838,7 @@ css/css-flexbox/anonymous-flex-item-004.html
 css/css-flexbox/anonymous-flex-item-005.html
 css/css-flexbox/anonymous-flex-item-006.html
 css/css-flexbox/anonymous-flex-item-restyle.html
+css/css-flexbox/aspect-ratio-transferred-max-size.html
 css/css-flexbox/auto-height-column-with-border-and-padding.html
 css/css-flexbox/auto-margins-002.html
 css/css-flexbox/balance/balance-004.html
@@ -5887,6 +5888,9 @@ css/css-flexbox/flex-align-content-end.html
 css/css-flexbox/flex-align-content-space-around.html
 css/css-flexbox/flex-align-content-space-between.html
 css/css-flexbox/flex-align-content-start.html
+css/css-flexbox/flex-aspect-ratio-content-box-padding-001.html
+css/css-flexbox/flex-aspect-ratio-cross-size-001.html
+css/css-flexbox/flex-aspect-ratio-cross-size-002.html
 css/css-flexbox/flex-aspect-ratio-img-column-001.html
 css/css-flexbox/flex-aspect-ratio-img-column-002.html
 css/css-flexbox/flex-aspect-ratio-img-column-003.html
@@ -6701,7 +6705,6 @@ css/css-grid/alignment/grid-content-distribution-025.html
 css/css-grid/alignment/grid-content-distribution-026.html
 css/css-grid/alignment/grid-content-distribution-027.html
 css/css-grid/alignment/grid-content-distribution-028.html
-css/css-grid/alignment/grid-content-distribution-029.html
 css/css-grid/alignment/grid-content-distribution-with-collapsed-tracks-001.html
 css/css-grid/alignment/grid-content-distribution-with-collapsed-tracks-002.html
 css/css-grid/alignment/grid-content-distribution-with-collapsed-tracks-003.html
@@ -6847,7 +6850,6 @@ css/css-grid/grid-items/grid-item-direction-rtl-001.html
 css/css-grid/grid-items/grid-item-margins-and-writing-modes-001.html
 css/css-grid/grid-items/grid-item-min-height-overrides-fixed-height-001.html
 css/css-grid/grid-items/grid-item-min-width-overrides-fixed-width-001.html
-css/css-grid/grid-items/grid-item-minmax-img-001.html
 css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage.html
 css/css-grid/grid-items/grid-item-rel-pos-001.html
 css/css-grid/grid-items/grid-item-rel-pos-002.html
@@ -6939,6 +6941,7 @@ css/css-grid/grid-items/replaced-element-002.html
 css/css-grid/grid-items/replaced-element-007.html
 css/css-grid/grid-items/replaced-element-010.html
 css/css-grid/grid-items/replaced-element-015.html
+css/css-grid/grid-items/replaced-element-016.tentative.html
 css/css-grid/grid-items/table-with-infinite-max-intrinsic-width.html
 css/css-grid/grid-lanes/abspos/column-grid-lanes-intrinsic-sizing-oof.html
 css/css-grid/grid-lanes/abspos/column-grid-lanes-out-of-flow-004.html
@@ -6955,9 +6958,7 @@ css/css-grid/grid-lanes/intrinsic-sizing/row-intrinsic-inline-container-size.htm
 css/css-grid/grid-lanes/item-placement/dense-packing/column-dense-packing-003.html
 css/css-grid/grid-lanes/item-placement/flow-tolerance/flow-tolerance-dynamic-update.html
 css/css-grid/grid-lanes/items/column-flex-spanning-items.html
-css/css-grid/grid-lanes/items/column-item-minmax-img-001.html
 css/css-grid/grid-lanes/items/row-flex-spanning-items.html
-css/css-grid/grid-lanes/items/row-item-minmax-img-001.html
 css/css-grid/grid-lanes/overflow/grid-lanes-overflowing-container-001.html
 css/css-grid/grid-lanes/overflow/grid-lanes-overflowing-container-002.html
 css/css-grid/grid-lanes/overflow/grid-lanes-overflowing-container-003.html
@@ -7009,6 +7010,11 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/auto-
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/column-auto-track-sizing-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/column-subgrid-auto-fit-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/column-subgrid-with-row-standalone-axis-size-005.html
+css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-auto-placed-subgrid-inherited-tracks-001.html
+css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-auto-placed-subgrid-inherited-tracks-002.html
+css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-auto-placed-subgrid-nested-subgrid-inherited-tracks-001.html
+css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-auto-placed-subgrid-nested-subgrid-inherited-tracks-002.html
+css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-auto-placed-subgrid-nested-subgrid-inherited-tracks-003.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-auto-track-sizing-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-subgrid-auto-fit-001.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-subgrid-with-column-standalone-axis-size-001.html
@@ -7021,6 +7027,7 @@ css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-s
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-subgrid-with-column-standalone-axis-size-008.html
 css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-subgrid-with-column-standalone-axis-size-009.html
 css/css-grid/grid-lanes/track-sizing/auto-repeat/column-auto-repeat-006.html
+css/css-grid/grid-lanes/track-sizing/auto-repeat/column-auto-repeat-007.html
 css/css-grid/grid-lanes/track-sizing/auto-repeat/column-auto-repeat-027.html
 css/css-grid/grid-lanes/track-sizing/auto-repeat/intrinsic-auto-repeat/column-auto-repeat-auto-008.html
 css/css-grid/grid-lanes/track-sizing/auto-repeat/intrinsic-auto-repeat/column-auto-repeat-auto-017.html
@@ -7091,6 +7098,7 @@ css/css-grid/grid-overflowing-item-in-nonstart-cell-is-painted.html
 css/css-grid/grid-overflowing-item-right-of-container-is-painted.html
 css/css-grid/grid-overflowing-multiple-items-are-painted.html
 css/css-grid/grid-relayout-with-nested-grid.html
+css/css-grid/grid-with-aspect-ratio-uses-content-box-height-for-track-sizing.html
 css/css-grid/grid-with-content-dynamic-display-001.html
 css/css-grid/grid-with-content-dynamic-display-002.html
 css/css-grid/grid-within-flexbox-definite-change.html

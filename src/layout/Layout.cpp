@@ -584,18 +584,36 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
     std::optional<ReplacedSize> const& intrinsic, float containing_width, bool keep_ratio,
     std::optional<float> containing_height = std::nullopt, bool edges_inside = false)
 {
+    // What the width and height attributes say is in the cascade already, as
+    // presentational hints (css::presentational_hints): a width or a height
+    // that comes out `auto` is the author's own word — `height: auto` on a
+    // picture that is as wide as its column — and the attribute has no second
+    // say here. What the attributes give a picture is a ratio to keep until
+    // its own is known, and that arrives as `intrinsic` (replaced_size).
+    // An <svg>'s own width and height are not among those hints: they are
+    // read here, as they always were.
     LengthPercent width = style.width;
-    if (width.is_auto()) {
-        if (std::optional<LengthPercent> const attribute = attribute_length(element, "width"))
-            width = *attribute;
-    }
     LengthPercent height = style.height;
-    if (height.is_auto()) {
-        if (std::optional<LengthPercent> const attribute = attribute_length(element, "height"))
-            height = *attribute;
+    if (element.is_svg("svg")) {
+        if (width.is_auto()) {
+            if (std::optional<LengthPercent> const attribute = attribute_length(element, "width"))
+                width = *attribute;
+        }
+        if (height.is_auto()) {
+            if (std::optional<LengthPercent> const attribute = attribute_length(element, "height"))
+                height = *attribute;
+        }
     }
     float const intrinsic_width = intrinsic ? intrinsic->width : 0;
     float const intrinsic_height = intrinsic ? intrinsic->height : 0;
+    // The ratio the box keeps, width over height: the style's aspect-ratio —
+    // unless it says `auto` as well and the content has a ratio of its own —
+    // else the content's own, for the kinds that keep one. Under border-box
+    // the style's ratio is the border box's (css-sizing-4 §5.1).
+    bool const own_ratio = keep_ratio && intrinsic_width > 0 && intrinsic_height > 0;
+    bool const styled_ratio = style.aspect_ratio.ratio > 0 && !(style.aspect_ratio.with_auto && own_ratio);
+    float const ratio = styled_ratio ? style.aspect_ratio.ratio : own_ratio ? intrinsic_width / intrinsic_height : 0.0f;
+    bool const of_border_box = styled_ratio && !edges_inside && sizes_border_box(style);
     // What the box carries either side of its picture. Under border-box the
     // written width and height hold these, so they come off the used size.
     // Vertical padding percentages are of the containing width, as CSS says.
@@ -612,43 +630,57 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
         else if (containing_height)
             used_height = as_content_size(style, resolve(height, *containing_height), vertical_edges);
     }
+    // One side from the other by the ratio: of the content boxes, or of the
+    // border boxes when that is what the style's ratio is of.
+    auto const height_for = [&](float content_width) {
+        return of_border_box ? std::max(0.0f, (content_width + horizontal_edges) / ratio - vertical_edges)
+                             : content_width / ratio;
+    };
+    auto const width_for = [&](float content_height) {
+        return of_border_box ? std::max(0.0f, (content_height + vertical_edges) * ratio - horizontal_edges)
+                             : content_height * ratio;
+    };
+    bool const scales = ratio > 0 && (keep_ratio || styled_ratio);
+    // Whether the author gave the box its shape and one side of it: the
+    // other side is then theirs as well, by their own ratio.
+    bool const shaped = styled_ratio && (used_width.has_value() || used_height.has_value());
     if (!used_width && !used_height) {
         if (!intrinsic)
             return std::nullopt;
         used_width = intrinsic_width;
-        used_height = intrinsic_height;
+        used_height = styled_ratio ? height_for(intrinsic_width) : intrinsic_height;
     } else if (!used_width) {
-        if (!keep_ratio && intrinsic)
-            used_width = intrinsic_width;
+        if (scales)
+            used_width = width_for(*used_height);
         else
-            used_width = intrinsic && intrinsic_height > 0
-                ? *used_height * intrinsic_width / intrinsic_height
-                : *used_height;
+            used_width = !keep_ratio && intrinsic ? intrinsic_width : *used_height;
     } else if (!used_height) {
-        if (!keep_ratio && intrinsic)
-            used_height = intrinsic_height;
+        if (scales)
+            used_height = height_for(*used_width);
         else
-            used_height = intrinsic && intrinsic_width > 0
-                ? *used_width * intrinsic_height / intrinsic_width
-                : *used_width;
+            used_height = !keep_ratio && intrinsic ? intrinsic_height : *used_width;
     }
-    if (containing_width > 0 && *used_width > containing_width) {
+    // A box wider than its container shrinks to fit it — a picture larger
+    // than the column it was dropped into. One the author shaped with
+    // aspect-ratio keeps the size that shape gives it, overflowing if it
+    // does, as it does everywhere.
+    if (!shaped && containing_width > 0 && *used_width > containing_width) {
         float const scale = containing_width / *used_width;
         used_width = containing_width;
-        if (keep_ratio)
+        if (scales)
             used_height = *used_height * scale;
     }
     // The bounds: a width held by its bounds scales the height with it
     // when the ratio is kept, then the height's own bounds hold that.
     if (float const bounded = clamp_width(style, *used_width, containing_width, horizontal_edges);
         bounded != *used_width) {
-        if (keep_ratio && *used_width > 0)
+        if (scales && *used_width > 0)
             used_height = *used_height * bounded / *used_width;
         used_width = bounded;
     }
     if (float const bounded = clamp_height(style, *used_height, containing_height, vertical_edges);
         bounded != *used_height) {
-        if (keep_ratio && *used_height > 0)
+        if (scales && *used_height > 0)
             used_width = *used_width * bounded / *used_height;
         used_height = bounded;
     }
@@ -710,7 +742,26 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
         } else {
             intrinsic = ReplacedSize { own.width.value_or(300) * scale, own.height.value_or(150) * scale };
         }
-    } else if (!element.is_html("img") && is_replaced(element)) {
+    } else if (element.is_html("canvas")) {
+        // A canvas's bitmap is as large as its attributes say, 300 by 150
+        // where they say nothing (HTML §4.12.5): that is its size, and the
+        // ratio it keeps when a style gives it one side.
+        auto const pixels = [&](char const* name, float otherwise) {
+            std::optional<LengthPercent> const written = attribute_length(element, name);
+            return written && written->kind == LengthPercent::Kind::Px ? written->value : otherwise;
+        };
+        intrinsic = no_content ? ReplacedSize { 0, 0 } : ReplacedSize { pixels("width", 300) * scale, pixels("height", 150) * scale };
+    } else if (element.is_html("img")) {
+        // A picture that has not arrived: its width and height attributes
+        // say what shape it will be (HTML §15.4.3 maps them to
+        // `aspect-ratio: auto w / h`), so a box as wide as its column is as
+        // tall as the picture will make it, and the page does not jump.
+        std::optional<LengthPercent> const wide = attribute_length(element, "width");
+        std::optional<LengthPercent> const tall = attribute_length(element, "height");
+        if (wide && tall && wide->kind == LengthPercent::Kind::Px && tall->kind == LengthPercent::Kind::Px && wide->value > 0
+            && tall->value > 0)
+            intrinsic = ReplacedSize { wide->value * scale, tall->value * scale };
+    } else if (is_replaced(element)) {
         intrinsic = no_content ? ReplacedSize { 0, 0 } : ReplacedSize { 300 * scale, 150 * scale };
     }
     return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element), containing_height);
@@ -1040,6 +1091,10 @@ struct Layouter {
         if (fragment.image) {
             fragment.image->x += dx;
             fragment.image->y += dy;
+            if (fragment.image->drawn) {
+                fragment.image->drawn->x += dx;
+                fragment.image->drawn->y += dy;
+            }
         }
         if (fragment.control) {
             fragment.control->x += dx;
@@ -1595,6 +1650,44 @@ struct Layouter {
         return picture;
     }
 
+    // A picture in its content box (css-images-3 §5.5): stretched over it
+    // unless object-fit says to keep its shape — whole inside the box,
+    // covering it, at its own size, or the smaller of the first and the
+    // last — and then object-position says where in the box it stands, a
+    // percentage lining that point of the picture up with the same point of
+    // the box. Only a picture of an <img> that reads across the page: an
+    // <svg> is drawn at its box's size, and a frame's box is its document's.
+    Fragment::ImageBox fitted_picture(dom::Element const& element, ComputedStyle const& style,
+        std::shared_ptr<Bitmap const> bitmap, float density, float x, float y, float width, float height) const
+    {
+        Fragment::ImageBox box { std::move(bitmap), x, y, width, height, std::nullopt };
+        if (!box.bitmap || style.object_fit == css::ObjectFit::Fill || !element.is_html("img") || width <= 0 || height <= 0
+            || css::is_vertical(frame_mode))
+            return box;
+        float const per_pixel = density > 0 ? 1.0f / density : 1.0f;
+        float const natural_width = static_cast<float>(box.bitmap->width()) * per_pixel;
+        float const natural_height = static_cast<float>(box.bitmap->height()) * per_pixel;
+        if (natural_width <= 0 || natural_height <= 0)
+            return box;
+        float const contain = std::min(width / natural_width, height / natural_height);
+        float const cover = std::max(width / natural_width, height / natural_height);
+        float by = 1;
+        switch (style.object_fit) {
+        case css::ObjectFit::Contain: by = contain; break;
+        case css::ObjectFit::Cover: by = cover; break;
+        case css::ObjectFit::None: by = 1; break;
+        case css::ObjectFit::ScaleDown: by = std::min(1.0f, contain); break;
+        case css::ObjectFit::Fill: break;
+        }
+        Fragment::ImageBox::Drawn drawn;
+        drawn.width = natural_width * by;
+        drawn.height = natural_height * by;
+        drawn.x = x + resolve(style.object_position_x, width - drawn.width);
+        drawn.y = y + resolve(style.object_position_y, height - drawn.height);
+        box.drawn = drawn;
+        return box;
+    }
+
     // An <img> becomes an image item when a picture or a size is known;
     // otherwise its alt text stands in. The other replaced elements always
     // have a size (their own, or 300 by 150).
@@ -1869,8 +1962,11 @@ struct Layouter {
             box.width = width;
             box.height = height;
         };
-        if (fragment.image)
+        if (fragment.image) {
             turn_box(*fragment.image);
+            if (fragment.image->drawn)
+                turn_box(*fragment.image->drawn);
+        }
         if (fragment.control) {
             if (fragment.control->caret_x)
                 *fragment.control->caret_x = page_y(t, *fragment.control->caret_x, 0);
@@ -2460,9 +2556,9 @@ struct Layouter {
         spec.size
             = sized_box(element, style, intrinsic, containing_width, false, std::nullopt, true).value_or(intrinsic);
         if (padded && style.box_sizing == css::BoxSizing::ContentBox) {
-            if (!style.width.is_auto() || attribute_length(element, "width"))
+            if (!style.width.is_auto())
                 spec.size.width += spec.pad_left + spec.pad_right;
-            if (!style.height.is_auto() || attribute_length(element, "height"))
+            if (!style.height.is_auto())
                 spec.size.height += spec.pad_top + spec.pad_bottom;
         }
 
@@ -2833,6 +2929,7 @@ struct Layouter {
             float width;
             dom::Element const* element;
             std::shared_ptr<Bitmap const> image; // an image item's picture (may be null)
+            float image_density = 1; // its pixels per CSS px: what its own size is reckoned by
             float image_height = 0; // a picture's or a control's margin box height: its reach above the baseline
             bool is_image = false; // a picture or a control: an atomic box on the baseline
             std::optional<ControlSpec> control;
@@ -3427,10 +3524,9 @@ struct Layouter {
                     if (placed.control)
                         fill_control(box, *placed.control, *placed.style);
                     else
-                        box.image = Fragment::ImageBox {
+                        box.image = fitted_picture(*placed.element, *placed.style,
                             picture_for(*placed.element, placed.image, placed.content_width, placed.content_height),
-                            box.x + e.left, box.y + e.top, placed.content_width, placed.content_height
-                        };
+                            placed.image_density, box.x + e.left, box.y + e.top, placed.content_width, placed.content_height);
                     // An atomic inline box is positioned like any other: its
                     // own offsets move it off the line it was placed on, and
                     // a z-index or an opacity makes it a stacking context.
@@ -4052,6 +4148,7 @@ struct Layouter {
                 Placed placed({}, item.style, false, width, item.element);
                 placed.aligned = item.aligned;
                 placed.image = item.image;
+                placed.image_density = item.image_density;
                 placed.edges = edges;
                 placed.content_width = size->width;
                 placed.content_height = size->height;
@@ -4698,8 +4795,8 @@ struct Layouter {
                 if (style.width.is_auto() || (settled && options.content_width))
                     fragment.width = width + border_left + border_right + padding_left + padding_right;
                 fragment.height = height + border_top + border_bottom + padding_top + padding_bottom;
-                fragment.image = Fragment::ImageBox { picture_for(element, std::move(image.bitmap), width, height),
-                    content_x, content_y, width, height };
+                fragment.image = fitted_picture(element, style, picture_for(element, std::move(image.bitmap), width, height),
+                    image.density, content_x, content_y, width, height);
                 return fragment;
             }
         }
@@ -4731,9 +4828,22 @@ struct Layouter {
         // its formatting context, written as a length, or a percentage of a
         // definite containing height: the base for its children's percentages.
         float const vertical_edges = padding_top + padding_bottom + border_top + border_bottom;
-        std::optional<float> const own_height = options.content_height
+        std::optional<float> const written_height = options.content_height
             ? options.content_height
             : definite_height_of(style, options.containing_height, vertical_edges);
+        // aspect-ratio (css-sizing-4 §5): a box with no height of its own —
+        // none written, or a percentage with nothing to be a percentage of —
+        // takes it from its width by the ratio: of the content boxes, or of
+        // the border boxes under border-box. That height is a definite one:
+        // what is inside may be a percentage of it.
+        std::optional<float> ratio_height;
+        if (!written_height && style.aspect_ratio.ratio > 0 && !options.height_is_minimum) {
+            float const edges_across = padding_left + padding_right + border_left + border_right;
+            ratio_height = std::max(0.0f,
+                sizes_border_box(style) ? (content_width + edges_across) / style.aspect_ratio.ratio - vertical_edges
+                                        : content_width / style.aspect_ratio.ratio);
+        }
+        std::optional<float> const own_height = written_height ? written_height : ratio_height;
         std::optional<float> const children_base = own_height
             ? std::optional<float>(clamp_height(style, *own_height, options.containing_height, vertical_edges))
             : std::nullopt;
@@ -4811,6 +4921,13 @@ struct Layouter {
             if (std::optional<float> const written
                 = definite_height_of(style, options.containing_height, vertical_edges))
                 used_height = *written;
+            else if (ratio_height) {
+                // The ratio's height — but no less than what is inside needs
+                // while that may show past the box (the automatic minimum,
+                // css-sizing-4 §5.3): a box that clips keeps the ratio.
+                bool const clips = style.overflow != css::Overflow::Visible && style.overflow_applies;
+                used_height = clips ? *ratio_height : std::max(*ratio_height, used_height);
+            }
             used_height = clamp_height(style, used_height, options.containing_height, vertical_edges);
         }
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
@@ -8351,7 +8468,7 @@ Fragment layout_frameset(Layouter& layouter, dom::Element const& frameset, float
                     frame.y = cy;
                     frame.width = col_width;
                     frame.height = row_height;
-                    frame.image = Fragment::ImageBox { nullptr, cx, cy, col_width, row_height };
+                    frame.image = Fragment::ImageBox { nullptr, cx, cy, col_width, row_height, std::nullopt };
                     box.children.push_back(std::move(frame));
                 }
             }

@@ -71,6 +71,17 @@ struct Fragment {
         float y = 0;
         float width = 0;
         float height = 0;
+        // Where the picture itself is drawn when object-fit gives it another
+        // shape than the content box above: it is then shown through that
+        // box, and what reaches past it is cut off. Unset, the picture is
+        // stretched over the box.
+        struct Drawn {
+            float x = 0;
+            float y = 0;
+            float width = 0;
+            float height = 0;
+        };
+        std::optional<Drawn> drawn;
     };
     std::optional<ImageBox> image;
 
