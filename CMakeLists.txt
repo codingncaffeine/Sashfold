@@ -45,6 +45,7 @@ endif()
 
 add_library(sashfold_core STATIC
   src/bindings/Binary.cpp
+  src/bindings/CustomElements.cpp
   src/bindings/Document.cpp
   src/bindings/Events.cpp
   src/bindings/Fetch.cpp

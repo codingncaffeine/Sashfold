@@ -55,6 +55,10 @@ struct EventHandler {
 
 using HandlerMap = std::unordered_map<std::string, EventHandler>;
 
+// One entry of the custom element registry (CustomElements.cpp): the class
+// a page gave a name of its own, and the callbacks the engine owes it.
+struct CustomElementDefinition;
+
 // The base of every host object that receives events: its listeners and
 // handlers live here, traced by the collector with the object.
 class EventTargetObject : public js::Object {
@@ -94,6 +98,15 @@ public:
     js::Object* same_object(std::string_view attribute) const;
     void keep_same_object(std::string_view attribute, js::Object*);
     void trace(js::Tracer&) override;
+
+    // What a custom element is (HTML §4.13): the definition whose
+    // constructor has run over this element, null while it is an ordinary
+    // element. The state lives with the wrapper because an upgraded element
+    // IS its wrapper — the constructor's own `this` — and the two end
+    // together. `custom_failed` marks one whose constructor threw: it is
+    // never tried again.
+    CustomElementDefinition* custom_definition = nullptr;
+    bool custom_failed = false;
 
 private:
     js::RealmRecord* m_record;
@@ -833,6 +846,10 @@ struct Realm::Internals {
     // The window's attributes that hold one object or value, behind their
     // getters (history, navigator, the storages, a script's status).
     std::unordered_map<std::string, js::Value> window_values;
+    // The custom element registry: the names a page has defined, in the
+    // order it defined them. Held by pointer so that a definition's address
+    // stands still while an element it upgraded points at it.
+    std::vector<std::shared_ptr<CustomElementDefinition>> custom_element_definitions;
     // The MediaSources URL.createObjectURL has named, by the URL, until it is
     // revoked: what a media element's src is looked up in (Media.cpp).
     std::unordered_map<std::string, js::Object*> media_source_urls;
@@ -1170,6 +1187,28 @@ void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, Stat
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
 void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRanges, MediaError, MediaSource, SourceBuffer
+// Custom elements (CustomElements.cpp, HTML §4.13): the registry, the
+// HTMLElement constructor a page's class calls through, and the callbacks
+// the tree owes a definition.
+void install_custom_elements(Realm::Internals&);
+void trace_custom_elements(Realm::Internals const&, js::Tracer&);
+// The definition for a local name, or null where there is none.
+CustomElementDefinition* custom_element_definition(Realm::Internals&, std::string_view local_name);
+// Runs a definition's constructor over an element that has none yet, and
+// then the callbacks its arrival owes.
+void upgrade_custom_element(Realm::Internals&, dom::Element&);
+// Makes an element of a defined name by running its class, which is how
+// createElement answers for one: null with the exception pending when the
+// constructor threw.
+Native construct_custom_element(Realm::Internals&, std::string_view local_name);
+// A subtree that entered or left a document: the connected and
+// disconnected callbacks of every custom element in it, and an upgrade for
+// any element whose definition arrived while it was out of the tree.
+void custom_elements_inserted(Realm::Internals&, dom::Node& subtree);
+void custom_elements_removed(Realm::Internals&, dom::Node& subtree);
+// An attribute a definition asked to watch was set, changed or removed.
+void custom_element_attribute_changed(Realm::Internals&, dom::Element&, std::string_view name,
+    std::optional<std::string> const& old_value);
 // A media element's src attribute was set, changed or removed: it loads again.
 void media_src_changed(Realm::Internals&, dom::Element&);
 // Names a MediaSource by this blob: URL; false for any other value.

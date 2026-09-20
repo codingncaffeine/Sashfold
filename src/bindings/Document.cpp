@@ -473,7 +473,12 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return std::nullopt;
         if (!is_valid_element_name(*name))
             return internals.throw_dom_exception("InvalidCharacterError", "The tag name provided ('" + *name + "') is not a valid name.");
-        dom::Element* element = d.create<dom::Element>(std::string(dom::ns::html), ascii_lower(*name));
+        std::string const local = ascii_lower(*name);
+        // A name the page has defined is made by running its own class, so
+        // that what comes back is already one of its elements.
+        if (custom_element_definition(internals, local) != nullptr)
+            return construct_custom_element(internals, local);
+        dom::Element* element = d.create<dom::Element>(std::string(dom::ns::html), local);
         return js::Value::object(internals.wrap(*element));
     });
     document_method(in, *document, "createElementNS", 2, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {

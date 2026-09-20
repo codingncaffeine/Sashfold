@@ -1027,6 +1027,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
                 << ", \"external_failed\": " << scripts.external_failed << ", \"timers\": " << scripts.timers_fired
                 << ", \"events\": " << scripts.events_dispatched << ", \"errors\": " << scripts.uncaught_errors
                 << ", \"ms\": " << static_cast<long>(scripts.script_ms + 0.5) << " },\n";
+            out << "  \"custom_elements\": { \"defined\": " << scripts.custom_elements_defined
+                << ", \"upgraded\": " << scripts.custom_elements_upgraded
+                << ", \"failed\": " << scripts.custom_elements_failed << " },\n";
         }
         out
             << "  \"connections\": { \"opened\": " << connections.opened << ", \"reused\": "

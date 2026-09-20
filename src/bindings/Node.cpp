@@ -238,6 +238,7 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
         for (dom::Element* script : scripts)
             in.realm.run_inserted_script(*script);
         in.frames_inserted(node);
+        custom_elements_inserted(in, node);
     }
 }
 
@@ -323,8 +324,11 @@ void remove_node(Realm::Internals& in, dom::Node& node)
 {
     if (!node.parent())
         return;
+    bool const was_connected = node.is_connected();
     in.frames_removed(node);
     node.remove();
+    if (was_connected)
+        custom_elements_removed(in, node);
     in.realm.note_mutation();
 }
 
@@ -354,15 +358,20 @@ void replace_children_with_markup(Realm::Internals& in, dom::Node& parent, dom::
 {
     std::vector<dom::Node*> const children = parse_markup(in, context, markup);
     std::vector<dom::Node*> const old = parent.children();
+    bool const was_connected = parent.is_connected();
     for (dom::Node* child : old) {
         in.frames_removed(*child);
         child->remove();
+        if (was_connected)
+            custom_elements_removed(in, *child);
     }
     for (dom::Node* child : children)
         parent.append_child(*child);
     if (parent.is_connected()) {
-        for (dom::Node* child : children)
+        for (dom::Node* child : children) {
             in.frames_inserted(*child);
+            custom_elements_inserted(in, *child);
+        }
     }
     in.realm.note_mutation();
 }

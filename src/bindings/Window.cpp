@@ -1500,23 +1500,8 @@ void install_window(Realm::Internals& in)
             constructor->as_object()->put(interpreter.key("supportedEntryTypes"), js::Value::object(interpreter.new_array()), js::builtin_attributes);
     }
 
-    // customElements: definitions are taken, never upgraded (classes are v1).
-    js::Object* custom_elements = interpreter.new_object();
-    global->put(interpreter.key("customElements"), js::Value::object(custom_elements), js::builtin_attributes);
-    js::define_method(interpreter, *custom_elements, "define", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
-        if (!name)
-            return std::nullopt;
-        internals.console("warn", "customElements.define('" + *name + "'): custom elements are not upgraded yet");
-        return js::Value::undefined();
-    });
-    js::define_method(interpreter, *custom_elements, "get", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    js::define_method(interpreter, *custom_elements, "getName", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
-    // whenDefined(): a promise for a definition that never comes while custom
-    // elements are not upgraded.
-    js::define_method(interpreter, *custom_elements, "whenDefined", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return pending_promise(interp); });
-    js::define_method(interpreter, *custom_elements, "upgrade", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    // customElements is installed with the rest of its machinery
+    // (CustomElements.cpp), after the element interfaces it builds on.
 
     // crypto: randomUUID and getRandomValues over an array-like.
     js::Object* crypto = interpreter.new_object();

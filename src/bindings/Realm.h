@@ -253,6 +253,13 @@ struct ScriptStats {
     int events_dispatched = 0;
     int uncaught_errors = 0; // in any callback: scripts, timers, listeners
     double script_ms = 0; // time inside the engine, all entries together
+    // Custom elements (§4.13): the names the page defined, how many
+    // elements became one of them, and how many constructors threw. A page
+    // built out of components that defines many and upgrades none is a page
+    // that will look empty, which is what the count is here to show.
+    int custom_elements_defined = 0;
+    int custom_elements_upgraded = 0;
+    int custom_elements_failed = 0;
 };
 
 // Every <meta http-equiv=content-security-policy> in the document's head

@@ -3486,6 +3486,98 @@ void test_interfaces_that_promise()
 
 } // namespace
 
+// Custom elements: a page names a class of its own and the tree becomes it.
+// Almost every page built out of components rests on this, so what is
+// checked here is the whole of what one needs — the element already in the
+// markup becoming an instance, the callbacks as it arrives, changes and
+// leaves, and the ways a page can get it wrong.
+void test_custom_elements()
+{
+    auto page = loaded(R"HTML(<!DOCTYPE html><body><my-card title=first>light</my-card><div id=host></div></body>)HTML");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval(R"JS(
+        var log = [];
+        var take = function () { var s = log.join(' '); log = []; return s; };
+        var host = document.getElementById('host');
+        class MyCard extends HTMLElement {
+            static get observedAttributes() { return ['title']; }
+            constructor() { super(); this.built = true; log.push('made'); }
+            connectedCallback() { log.push('in:' + this.getAttribute('title')); this.textContent = 'CARD'; }
+            disconnectedCallback() { log.push('out'); }
+            attributeChangedCallback(name, was, now) { log.push('attr:' + name + ':' + was + ':' + now); }
+        }
+    )JS");
+    // Nothing happens to it until the name is defined.
+    CHECK_EQ(page->string("document.querySelector('my-card').textContent + ' ' + take()"), "light ");
+    CHECK(page->boolean("document.querySelector('my-card').built === undefined"));
+
+    // Defining it upgrades what is already there: the constructor, then the
+    // attributes it watches, then the document it is already in.
+    page->eval("customElements.define('my-card', MyCard);");
+    CHECK_EQ(page->string("take()"), "made attr:title:null:first in:first");
+    CHECK(page->boolean("document.querySelector('my-card') instanceof MyCard"));
+    CHECK(page->boolean("document.querySelector('my-card').built === true"));
+    CHECK_EQ(page->string("document.querySelector('my-card').textContent"), "CARD");
+    CHECK_EQ(page->string("document.querySelector('my-card').constructor.name"), "MyCard");
+
+    // An element the document makes is already one of them, and is in no
+    // tree until something puts it in one.
+    page->eval("var made = document.createElement('my-card');");
+    CHECK_EQ(page->string("(made instanceof MyCard) + ' ' + made.localName + ' ' + made.isConnected + ' ' + take()"), "true my-card false made");
+    page->eval("made.setAttribute('title', 'second'); host.appendChild(made);");
+    CHECK_EQ(page->string("take()"), "attr:title:null:second in:second");
+    CHECK_EQ(page->string("made.textContent"), "CARD");
+    // An attribute it does not watch says nothing; leaving the tree does.
+    page->eval("made.setAttribute('hidden', ''); made.remove();");
+    CHECK_EQ(page->string("take() + ' ' + made.isConnected"), "out false");
+    // Made by the class itself, it is an element like any other.
+    page->eval("var byHand = new MyCard(); host.appendChild(byHand);");
+    CHECK_EQ(page->string("byHand.localName + ' ' + (byHand.parentNode === host) + ' ' + take()"), "my-card true made in:null");
+
+    // A definition that arrives after the element does upgrades it where it
+    // stands, callbacks and all.
+    page->eval(R"JS(
+        host.appendChild(document.createElement('my-late'));
+        class Late extends HTMLElement { connectedCallback() { log.push('late in'); } }
+        customElements.define('my-late', Late);
+    )JS");
+    CHECK_EQ(page->string("take()"), "late in");
+    CHECK(page->boolean("host.querySelector('my-late') instanceof Late"));
+
+    // The registry answers for what it holds.
+    CHECK(page->boolean("customElements.get('my-card') === MyCard"));
+    CHECK(page->boolean("customElements.get('my-nothing') === undefined"));
+    CHECK_EQ(page->string("customElements.getName(MyCard)"), "my-card");
+    page->eval("customElements.whenDefined('my-card').then(function (c) { log.push('when:' + (c === MyCard)); });");
+    pump();
+    CHECK_EQ(page->string("take()"), "when:true");
+
+    // The ways a page can get it wrong.
+    CHECK_EQ(page->string("var r = ''; try { customElements.define('nodash', MyCard); } catch (e) { r = e.name; } r"), "SyntaxError");
+    CHECK_EQ(page->string("var r = ''; try { customElements.define('my-card', class extends HTMLElement {}); } catch (e) { r = e.name; } r"), "NotSupportedError");
+    CHECK_EQ(page->string("var r = ''; try { customElements.define('my-again', MyCard); } catch (e) { r = e.name; } r"), "NotSupportedError");
+    CHECK_EQ(page->string("var r = ''; try { customElements.define('my-thing', {}); } catch (e) { r = e.name; } r"), "TypeError");
+    CHECK_EQ(page->string("var r = ''; try { new HTMLElement(); } catch (e) { r = e.name; } r"), "TypeError");
+
+    // A constructor that throws leaves the element as it was and the page
+    // carries on: it is reported, not fatal, and never tried again.
+    page->eval(R"JS(
+        host.appendChild(document.createElement('my-bad'));
+        class Bad extends HTMLElement { constructor() { super(); throw new Error('no'); } }
+        customElements.define('my-bad', Bad);
+    )JS");
+    CHECK(page->console.find("no") != std::string::npos);
+    // Its super() had already run, so it wears the class's prototype, as it
+    // does in a browser; what it never gets is the callbacks, nor a second
+    // attempt at its constructor.
+    CHECK(page->boolean("host.querySelector('my-bad') instanceof Bad"));
+    CHECK_EQ(page->string("host.querySelector('my-bad').localName + ' ' + take()"), "my-bad ");
+    page->eval("host.querySelector('my-bad').remove();");
+    CHECK_EQ(page->string("take()"), "");
+}
+
 // A sound file played by the element itself: fetched, read, and moved
 // through by the clock. No machine running this has a sound server it may
 // open, so what is measured here is the element's own account of playing —
@@ -3811,6 +3903,7 @@ int main()
     test_a_frame_measures_itself();
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();
+    test_custom_elements();
     test_media_source_and_the_media_element();
     test_a_sound_file_plays();
     return test::report("test_bindings");

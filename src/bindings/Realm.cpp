@@ -202,6 +202,9 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
     in.realm.note_mutation();
     if (!namespace_uri.empty())
         return;
+    // A custom element watching this attribute hears of it first: what it
+    // does about it may change everything below.
+    custom_element_attribute_changed(in, element, local_name, std::nullopt);
     switch (container_kind(element)) {
     case ContainerKind::IFrame:
         if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
@@ -1212,6 +1215,9 @@ void install_interfaces(Realm::Internals& in)
     }
     install_workers(in);
     install_media(in);
+    // Last of the element machinery: it makes HTMLElement constructible,
+    // which every interface above it must already exist for.
+    install_custom_elements(in);
     install_window_proxy(in, language_globals);
 }
 
@@ -2885,6 +2891,7 @@ void Realm::trace_roots(js::Tracer& tracer)
         tracer.visit(value);
     for (auto const& [url, source] : in.media_source_urls)
         tracer.visit(source);
+    trace_custom_elements(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)
             tracer.visit(*member.value);
