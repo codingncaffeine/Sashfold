@@ -62814,40 +62814,300 @@ html/dom/elements/the-innertext-and-outertext-properties/innertext-setter.html	i
 html/dom/elements/the-innertext-and-outertext-properties/innertext-setter.html	innerText on <wbr> element
 html/dom/elements/the-innertext-and-outertext-properties/innertext-setter.html	innerText on <wbr> element, detached
 html/dom/elements/the-innertext-and-outertext-properties/innertext-whitespace-pre-line.html	innerText should be the same for the pre-line and pre examples
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading linefeed should not appear if it's collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading linefeeds should not appear if they are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading mixed white-spaces should not appear if they are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading tab should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading tabs should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading white-space should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Leading white-spaces should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Multiple white-spaces between words may be invisible if they are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only multiple collapsible CRs should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only multiple collapsible linefeeds should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only multiple collapsible spaces should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only multiple collapsible tabs should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only single collapsible CR should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only single collapsible linefeed should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only single collapsible space should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Only single collapsible tab should be invisible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Single collapsible linefeed should be converted to an ASCII space
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Single collapsible tab should be converted to an ASCII space
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing linefeed should not appear if it's collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing linefeeds should not appear if they are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing mixed white-spaces should not appear if they are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing tab should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing tabs should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing white-space should not appear if white-spaces are collapsible
-html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html	Trailing white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR after <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR after <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR after <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR before <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR before <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR before <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR between <div>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	CR between <hr>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed after <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed after <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed after <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed before <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed before <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed before <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed between <div>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal	linefeed between <hr>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR after <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR after <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR after <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR before <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR before <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR before <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR between <div>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	CR between <hr>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed after <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed after <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed after <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed before <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed before <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed before <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed between <div>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=plaintext-only	linefeed between <hr>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR after <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR after <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR after <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR before <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR before <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR before <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR between <div>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	CR between <hr>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed after <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed after <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed after <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed before <br> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed before <div> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed before <hr> should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed between <div>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=normal&contenteditable=true	linefeed between <hr>s should be invisible if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Leading white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Multiple white-spaces between words may be invisible if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only multiple collapsible spaces should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only multiple collapsible tabs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only single collapsible space should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Only single collapsible tab should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Single collapsible tab should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre	Trailing white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Leading white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Multiple white-spaces between words may be invisible if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only multiple collapsible spaces should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only multiple collapsible tabs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only single collapsible space should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Only single collapsible tab should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Single collapsible tab should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=plaintext-only	Trailing white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Leading white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Multiple white-spaces between words may be invisible if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only multiple collapsible spaces should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only multiple collapsible tabs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only single collapsible space should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Only single collapsible tab should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Single collapsible tab should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre&contenteditable=true	Trailing white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=plaintext-only	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-line&contenteditable=true	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Leading white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Multiple white-spaces between words may be invisible if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only multiple collapsible spaces should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only multiple collapsible tabs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only single collapsible space should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Only single collapsible tab should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Single collapsible tab should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap	Trailing white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Leading white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Multiple white-spaces between words may be invisible if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only multiple collapsible spaces should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only multiple collapsible tabs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only single collapsible space should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Only single collapsible tab should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Single collapsible tab should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=plaintext-only	Trailing white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Leading white-spaces should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #1
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #2
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #3
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Multiple mixed white-spaces between words may be invisible if they are collapsible #4
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Multiple white-spaces between words may be invisible if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only multiple collapsible CRs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only multiple collapsible linefeeds should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only multiple collapsible spaces should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only multiple collapsible tabs should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only single collapsible CR should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only single collapsible linefeed should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only single collapsible space should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Only single collapsible tab should be invisible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Single collapsible CR should be converted to an ASCII space, or otherwise, a linefeed
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Single collapsible linefeed should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Single collapsible tab should be converted to an ASCII space
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing CR should be normalized to LF and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing CRs should be normalized to LFs and should not appear if linefeeds are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing linefeed should not appear if it's collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing linefeeds should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing mixed white-spaces should not appear if they are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing tab should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing tabs should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing white-space should not appear if white-spaces are collapsible
+html/dom/elements/the-innertext-and-outertext-properties/innertext-with-white-spaces.html?white-space=pre-wrap&contenteditable=true	Trailing white-spaces should not appear if white-spaces are collapsible
 html/dom/elements/the-innertext-and-outertext-properties/multiple-text-nodes.window.html	Ensure multiple text nodes get rendered properly
 html/dom/elements/the-innertext-and-outertext-properties/outertext-setter.html	" preserved
 html/dom/elements/the-innertext-and-outertext-properties/outertext-setter.html	& preserved
@@ -119822,115 +120082,159 @@ html/infrastructure/urls/dynamic-changes-to-base-urls/dynamic-urls.sub.html	The 
 html/infrastructure/urls/dynamic-changes-to-base-urls/dynamic-urls.sub.html	The 'src' attribute of the 'source' element
 html/infrastructure/urls/dynamic-changes-to-base-urls/dynamic-urls.sub.html	The 'src' attribute of the 'track' element
 html/infrastructure/urls/dynamic-changes-to-base-urls/dynamic-urls.sub.html	The 'src' attribute of the 'video' element
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <a>.href
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <a>.ping
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <area>.href
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <area>.ping
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <audio>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <base>.href
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <button>.formAction
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <embed>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <form>.action
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <iframe>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <img>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <input>.formAction
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <input>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <link>.href
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <object>.data
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <script>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <track>.src
-html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html	Getting <video>.src
-html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location [PutForwards]
-html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location.assign()
-html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location.href
-html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html	location.replace()
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme bitcoin (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme data (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme ftps (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme geo (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme gopher (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme httpbogus (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme im (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme irc (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme ircs (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme javascript (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme magnet (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme mailto (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme mms (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme news (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme nntp (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme sip (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme sms (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme smsto (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme ssh (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme tel (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme urn (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme web+http (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme webcal (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme ws (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme wss (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme wtai (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	Scheme xmpp (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	URL constructor, base
-html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html	URL constructor, url
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme bitcoin (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme data (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme ftps (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme geo (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme gopher (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme httpbogus (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme im (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme irc (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme ircs (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme javascript (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme magnet (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme mailto (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme mms (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme news (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme nntp (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme sip (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme sms (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme smsto (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme ssh (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme tel (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme urn (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme web+http (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme webcal (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme ws (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme wss (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme wtai (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	Scheme xmpp (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	URL constructor, base
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html	URL constructor, url
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme bitcoin (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme data (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme ftps (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme geo (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme gopher (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme httpbogus (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme im (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme irc (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme ircs (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme javascript (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme magnet (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme mailto (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme mms (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme news (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme nntp (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme sip (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme sms (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme smsto (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme ssh (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme tel (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme urn (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme web+http (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme webcal (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme ws (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme wss (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme wtai (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	Scheme xmpp (getting <a>.href)
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, base
-html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html	URL constructor, url
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <a>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <a>.ping
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <area>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <area>.ping
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <audio>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <base>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <button>.formAction
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <embed>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <form>.action
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <iframe>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <img>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <input>.formAction
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <input>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <link>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <object>.data
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <script>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <track>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=utf8	Getting <video>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <a>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <a>.ping
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <area>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <area>.ping
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <audio>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <base>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <button>.formAction
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <embed>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <form>.action
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <iframe>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <img>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <input>.formAction
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <input>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <link>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <object>.data
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <script>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <track>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=windows-1252	Getting <video>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <a>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <a>.ping
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <area>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <area>.ping
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <audio>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <base>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <button>.formAction
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <embed>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <form>.action
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <iframe>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <img>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <input>.formAction
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <input>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <link>.href
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <object>.data
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <script>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <track>.src
+html/infrastructure/urls/resolving-urls/query-encoding/attributes.sub.html?encoding=x-cp1251	Getting <video>.src
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=utf8	location [PutForwards]
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=utf8	location.assign()
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=utf8	location.href
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=utf8	location.replace()
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=windows-1252	location [PutForwards]
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=windows-1252	location.assign()
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=windows-1252	location.href
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=windows-1252	location.replace()
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location [PutForwards]
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location.assign()
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location.href
+html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location.replace()
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme bitcoin (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme data (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme ftps (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme geo (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme gopher (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme httpbogus (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme im (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme irc (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme ircs (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme javascript (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme magnet (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme mailto (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme mms (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme news (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme nntp (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme sip (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme sms (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme smsto (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme ssh (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme tel (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme urn (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme web+http (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme webcal (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme ws (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme wss (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme wtai (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme xmpp (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=url	URL constructor, base
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=url	URL constructor, url
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme bitcoin (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme data (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme ftps (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme geo (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme gopher (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme httpbogus (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme im (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme irc (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme ircs (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme javascript (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme magnet (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme mailto (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme mms (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme news (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme nntp (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme sip (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme sms (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme smsto (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme ssh (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme tel (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme urn (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme web+http (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme webcal (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme ws (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme wss (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme wtai (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme xmpp (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=url	URL constructor, base
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=url	URL constructor, url
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme bitcoin (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme data (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme ftps (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme geo (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme gopher (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme httpbogus (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme im (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme irc (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme ircs (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme javascript (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme magnet (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme mailto (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme mms (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme news (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme nntp (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme sip (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme sms (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme smsto (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme ssh (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme tel (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme urn (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme web+http (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme webcal (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme ws (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme wss (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme wtai (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme xmpp (getting <a>.href)
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=url	URL constructor, base
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=url	URL constructor, url
 html/infrastructure/urls/terminology-0/document-base-url-about-srcdoc.https.window.html	allow-same-origin
 html/infrastructure/urls/terminology-0/document-base-url-about-srcdoc.https.window.html	disallow-same-origin
 html/infrastructure/urls/terminology-0/document-base-url.html	The base URL of an iframe srcdoc document with a <base> tag should be set by that tag.
@@ -120190,6 +120494,201 @@ html/syntax/parsing/html-integration-point.html	MathML annotation-xml with encod
 html/syntax/parsing/html-integration-point.html	SVG desc should be an HTML integration point
 html/syntax/parsing/html-integration-point.html	SVG foreignObject should be an HTML integration point
 html/syntax/parsing/html-integration-point.html	SVG title should be an HTML integration point
+html/syntax/parsing/html5lib_url.html?file=adoption01	<b><em><foo><foob><fooc><aside></b></em> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</annotation-xml>X (innerHTML in math annotation-xml)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</br><foo> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</desc>X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</foreignObject>X (innerHTML in svg foreignObject)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</malignmark>X (innerHTML in math malignmark)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</math>X (innerHTML in math math)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</mfenced>X (innerHTML in math mfenced)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</mi>X (innerHTML in math mi)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</mn>X (innerHTML in math mn)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</mo>X (innerHTML in math mo)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</ms>X (innerHTML in math ms)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</mtext>X (innerHTML in math mtext)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</p><foo> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</path>X (innerHTML in svg path)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</svg>X (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	</title>X (innerHTML in svg title)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<b></b><mglyph/><i></i><malignmark/><u></u><mi/>X (innerHTML in math mi)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<b></b><mglyph/><i></i><malignmark/><u></u><mn/>X (innerHTML in math mn)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<b></b><mglyph/><i></i><malignmark/><u></u><mo/>X (innerHTML in math mo)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<b></b><mglyph/><i></i><malignmark/><u></u><ms/>X (innerHTML in math ms)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<b></b><mglyph/><i></i><malignmark/><u></u><mtext/>X (innerHTML in math mtext)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<body class="foo">X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<body><foo> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<body>X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math annotation-xml)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math math)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math mi)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math mn)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math mo)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math ms)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in math mtext)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in svg foreignObject)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div></div> (innerHTML in svg title)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<div><h1>X</h1></div> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math annotation-xml)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math math)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math mi)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math mn)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math mo)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math ms)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in math mtext)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in svg foreignObject)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<figure></figure> (innerHTML in svg title)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<font color></font>X (innerHTML in svg path)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<font></font>X (innerHTML in svg path)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<frameset>X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<g></path>X (innerHTML in svg path)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<head>X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<html class="foo">X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<html>X (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<malignmark></malignmark> (innerHTML in math mi)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<malignmark></malignmark> (innerHTML in math mn)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<malignmark></malignmark> (innerHTML in math mo)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<malignmark></malignmark> (innerHTML in math ms)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<malignmark></malignmark> (innerHTML in math mtext)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<nobr>X (innerHTML in svg path)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<p> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<p></p><foo> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<p><foo> (innerHTML in svg svg)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<plaintext><foo> (innerHTML in svg desc)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<svg></br><foo> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<svg></p><foo> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=foreign-fragment	<svg><p> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=math	<math><tbody><mo></table> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=math	<math><tbody><mo><tfoot> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=math	<math><tfoot><mo></table> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=math	<math><tfoot><mo><tbody> (innerHTML in tfoot)
+html/syntax/parsing/html5lib_url.html?file=math	<math><thead><mo></table> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=math	<math><thead><mo><tbody> (innerHTML in thead)
+html/syntax/parsing/html5lib_url.html?file=math	<math><tr><td><mo><tr> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=math	<math><tr><td><mo><tr> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=plain-text-unsafe	\\x00filler\\x00text (innerHTML in math ms)
+html/syntax/parsing/html5lib_url.html?file=plain-text-unsafe	\\x00filler\\x00text (innerHTML in svg path)
+html/syntax/parsing/html5lib_url.html?file=plain-text-unsafe	\\x00filler\\x00text (innerHTML in svg title)
+html/syntax/parsing/html5lib_url.html?file=plain-text-unsafe	\\x00x (innerHTML in math annotation-xml)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><tbody><title></table> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><tbody><title><tfoot> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><tfoot><title></table> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><tfoot><title><tbody> (innerHTML in tfoot)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><thead><title></table> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><thead><title><tbody> (innerHTML in thead)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><tr><td><title><tr> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=svg	<svg><tr><td><title><tr> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests4	<!-- inside </script> --> (innerHTML in script)
+html/syntax/parsing/html5lib_url.html?file=tests4	</plaintext> (innerHTML in plaintext)
+html/syntax/parsing/html5lib_url.html?file=tests4	<title>setting head's innerHTML</title> (innerHTML in head)
+html/syntax/parsing/html5lib_url.html?file=tests4	direct <title> content (innerHTML in title)
+html/syntax/parsing/html5lib_url.html?file=tests4	direct div content (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=tests4	direct textarea content (innerHTML in textarea)
+html/syntax/parsing/html5lib_url.html?file=tests4	setting html's innerHTML (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests4	textarea content with <em>pseudo</em> <foo>markup (innerHTML in textarea)
+html/syntax/parsing/html5lib_url.html?file=tests4	this is &#x0043;DATA inside a <style> element (innerHTML in style)
+html/syntax/parsing/html5lib_url.html?file=tests6	</body><div> (innerHTML in body)
+html/syntax/parsing/html5lib_url.html?file=tests6	</caption><div> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests6	</frameset><frame> (innerHTML in frameset)
+html/syntax/parsing/html5lib_url.html?file=tests6	</table></tbody></tfoot></thead></tr><div> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests6	</table><div> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests6	</table><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests6	</table><tr> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests6	</tbody></tfoot></thead><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests6	</tr><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests6	<body></body></html> (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests6	<body>\\n<div> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=tests6	<caption><col><colgroup><tbody><tfoot><thead><tr> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests6	foo<col> (innerHTML in colgroup)
+html/syntax/parsing/html5lib_url.html?file=tests7	<body>X</body></body> (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	 (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</caption><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</colgroup><col> (innerHTML in colgroup)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</frameset><frame> (innerHTML in frameset)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</html><!--abc--> (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</select><option> (innerHTML in select)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</table><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</table><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</table><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</table><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</table><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</tbody><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</td><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</tfoot><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</th><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</thead><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</tr><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	</tr><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><caption>a (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><col> (innerHTML in colgroup)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><colgroup><col> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><tbody><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><td> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><td> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><tfoot><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><th> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><thead><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<a><tr> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<body><span> (innerHTML in body)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<body><span> (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<caption><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<caption><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<caption><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<col><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<col><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<col><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<colgroup><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<colgroup><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<colgroup><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<frameset><span> (innerHTML in body)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<frameset><span> (innerHTML in html)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<input><option> (innerHTML in select)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<keygen><option> (innerHTML in select)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span></caption><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span></table> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span></table><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><body> (innerHTML in body)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><body> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><caption><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><col><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><colgroup><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><frameset> (innerHTML in body)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><frameset> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><html><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><tbody><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><td><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><tfoot><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><th><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><thead><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<span><tr><span> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<table></table><tbody> (innerHTML in caption)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<table><td><td> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<table><tr> (innerHTML in table)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tbody><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tbody><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tbody><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<td><table></table><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<td><table><a><tr></tr><tr> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<td><table><tbody><a><tr> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<textarea><option> (innerHTML in select)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tfoot><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tfoot><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tfoot><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<th><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<thead><a> (innerHTML in tbody)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<thead><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<thead><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tr><a> (innerHTML in td)
+html/syntax/parsing/html5lib_url.html?file=tests_innerHTML_1	<tr><td> (innerHTML in tr)
+html/syntax/parsing/html5lib_url.html?file=webkit02	<b><em><dcell><postfield><postfield><postfield><postfield><missing_glyph><missing_glyph><missing_glyph><missing_glyph><hkern><aside></b></em> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=webkit02	<b><em><foo><foo><foo><foo><foo><foo><foo><foo><foo><foo><aside></b></em> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=webkit02	<b><em><foo><foob><foob><foob><foob><fooc><fooc><fooc><fooc><food><aside></b></em> (innerHTML in div)
+html/syntax/parsing/html5lib_url.html?file=webkit02	<option><XH<optgroup></optgroup> (innerHTML in select)
 html/syntax/parsing/html_content_in_foreign_context.html	HTML namespace nodes should exit foreign contexts
 html/syntax/parsing/math-parse01.html	Empty element tags in annotation-xml parsed as per XML.
 html/syntax/parsing/math-parse01.html	Math has 2 children (empty tag syntax)
@@ -126254,9 +126753,18 @@ url/a-element-origin.html	Parsing origin: <wss:example.com/> against <about:blan
 url/a-element-origin.html	Parsing origin: <wss:example.com/> against <http://example.org/foo/bar>
 url/a-element-origin.html	Parsing origin: <x> against <sc://ñ>
 url/a-element-origin.html	Parsing origin: <中/test.txt> against <http://www.example.com/test>
-url/a-element-xhtml.xhtml	Loading data…
-url/a-element.html	Loading data…
-url/a-element.html	Test that embedded 0x0A is stripped
+url/a-element-xhtml.xhtml?exclude=(file|javascript|mailto)	Loading data…
+url/a-element-xhtml.xhtml?include=file	Loading data…
+url/a-element-xhtml.xhtml?include=javascript	Loading data…
+url/a-element-xhtml.xhtml?include=mailto	Loading data…
+url/a-element.html?exclude=(file|javascript|mailto)	Loading data…
+url/a-element.html?exclude=(file|javascript|mailto)	Test that embedded 0x0A is stripped
+url/a-element.html?include=file	Loading data…
+url/a-element.html?include=file	Test that embedded 0x0A is stripped
+url/a-element.html?include=javascript	Loading data…
+url/a-element.html?include=javascript	Test that embedded 0x0A is stripped
+url/a-element.html?include=mailto	Loading data…
+url/a-element.html?include=mailto	Test that embedded 0x0A is stripped
 url/failure.html	Loading data…
 url/failure.html	Location's href: asdf://%43|/ should throw
 url/failure.html	Location's href: data://:443 should throw

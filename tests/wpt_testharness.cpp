@@ -641,34 +641,100 @@ bool excluded_path(std::vector<std::string> const& parts)
     return false;
 }
 
-// The test's id — the path the suite's manifest names it by — for a file
-// under the checkout, or nothing for a file that is not a testharness test.
-std::optional<std::string> test_id_for(std::filesystem::path const& root, std::string const& rel)
+// The value of an attribute in the text of one tag, quoted or bare, or
+// nothing when the tag does not carry it.
+std::optional<std::string> tag_attribute(std::string_view tag, std::string_view name)
+{
+    auto const spacing = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; };
+    for (std::size_t at = 0; (at = tag.find(name, at)) != std::string_view::npos; at += name.size()) {
+        if (at == 0 || !spacing(tag[at - 1]))
+            continue;
+        std::size_t i = at + name.size();
+        while (i < tag.size() && spacing(tag[i]))
+            ++i;
+        if (i >= tag.size() || tag[i] != '=')
+            continue;
+        ++i;
+        while (i < tag.size() && spacing(tag[i]))
+            ++i;
+        if (i >= tag.size())
+            return std::nullopt;
+        if (tag[i] == '"' || tag[i] == '\'') {
+            char const quote = tag[i++];
+            std::size_t const end = tag.find(quote, i);
+            if (end == std::string_view::npos)
+                return std::nullopt;
+            return std::string(tag.substr(i, end - i));
+        }
+        std::size_t end = i;
+        while (end < tag.size() && !spacing(tag[end]) && tag[end] != '>')
+            ++end;
+        return std::string(tag.substr(i, end - i));
+    }
+    return std::nullopt;
+}
+
+// The variants a test declares, each a query (or fragment) to be appended to
+// its URL: `<meta name="variant" content="?file=adoption01">`. The suite runs
+// the file once per variant and counts each run as its own test, because the
+// file reads its own query to decide what to do — html5lib_url.html, for one,
+// asserts "bad config" when it cannot find a file name there. A file with no
+// such meta runs once, at its plain URL.
+std::vector<std::string> variants_of(std::string_view source)
+{
+    std::vector<std::string> out;
+    for (std::size_t at = 0; (at = source.find("<meta", at)) != std::string_view::npos;) {
+        std::size_t const end = source.find('>', at);
+        if (end == std::string_view::npos)
+            break;
+        std::string_view const tag = source.substr(at, end - at);
+        at = end + 1;
+        std::optional<std::string> const name = tag_attribute(tag, "name");
+        if (!name || lowercased(*name) != "variant")
+            continue;
+        std::optional<std::string> content = tag_attribute(tag, "content");
+        out.push_back(content ? std::move(*content) : std::string());
+    }
+    return out;
+}
+
+// The test's ids — the paths the suite's manifest names it by — for a file
+// under the checkout: one per declared variant, or the one path for a file
+// that declares none, and nothing at all for a file that is not a
+// testharness test.
+std::vector<std::string> test_ids_for(std::filesystem::path const& root, std::string const& rel)
 {
     std::vector<std::string> const parts = split(rel, '/');
     if (excluded_path(parts))
-        return std::nullopt;
+        return {};
     std::string const& filename = parts.back();
     if (filename.starts_with(".") || filename.starts_with("MANIFEST"))
-        return std::nullopt;
+        return {};
     std::string const lower = lowercased(filename);
     if (lower.ends_with(".any.js")) {
         std::optional<std::string> const source = read_file(root / rel);
         if (!source || !wants_window(*source))
-            return std::nullopt;
-        return rel.substr(0, rel.size() - 7) + ".any.html";
+            return {};
+        return { rel.substr(0, rel.size() - 7) + ".any.html" };
     }
     if (lower.ends_with(".window.js"))
-        return rel.substr(0, rel.size() - 10) + ".window.html";
+        return { rel.substr(0, rel.size() - 10) + ".window.html" };
     if (!(lower.ends_with(".html") || lower.ends_with(".htm") || lower.ends_with(".xhtml") || lower.ends_with(".xht")))
-        return std::nullopt;
+        return {};
     std::string const stem = std::filesystem::path(filename).stem().string();
     if (stem.ends_with("-manual") || stem.ends_with("-ref"))
-        return std::nullopt;
+        return {};
     std::optional<std::string> const source = read_file(root / rel);
     if (!source || source->find("testharness.js") == std::string::npos)
-        return std::nullopt;
-    return rel;
+        return {};
+    std::vector<std::string> const variants = variants_of(*source);
+    if (variants.empty())
+        return { rel };
+    std::vector<std::string> ids;
+    ids.reserve(variants.size());
+    for (std::string const& variant : variants)
+        ids.push_back(rel + variant);
+    return ids;
 }
 
 // --- Running one test ---------------------------------------------------------------------
@@ -1093,8 +1159,8 @@ int main(int argc, char** argv)
             std::string const rel = entry.path().lexically_relative(root).generic_string();
             if (!only.empty() && rel.find(only) == std::string::npos)
                 continue;
-            if (std::optional<std::string> id = test_id_for(root, rel))
-                tests.emplace_back(std::move(*id), d);
+            for (std::string& id : test_ids_for(root, rel))
+                tests.emplace_back(std::move(id), d);
         }
     }
     std::sort(tests.begin(), tests.end());
