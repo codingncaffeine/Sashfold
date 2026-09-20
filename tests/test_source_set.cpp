@@ -238,13 +238,13 @@ int main()
         };
         bool more = false;
         layout::ImageMap known = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
-            ui::ImagePass { nullptr, 2, &more });
+            ui::ImagePass { nullptr, 2, &more, {} });
         CHECK_EQ(known.size(), std::size_t { 2 });
         CHECK_EQ(fetches, 2);
         CHECK(more);
         more = false;
         layout::ImageMap const rest = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
-            ui::ImagePass { &known, 2, &more });
+            ui::ImagePass { &known, 2, &more, {} });
         CHECK_EQ(rest.size(), std::size_t { 2 });
         CHECK_EQ(fetches, 4);
         CHECK(!more);
@@ -254,10 +254,52 @@ int main()
             known[element] = image;
         // Nothing left: a third pass fetches nothing and enters nothing.
         layout::ImageMap const none = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
-            ui::ImagePass { &known, 2, &more });
+            ui::ImagePass { &known, 2, &more, {} });
         CHECK(none.empty());
         CHECK_EQ(fetches, 4);
         CHECK(!more);
+    }
+
+    // A pass that is told which sources have arrived takes those and leaves
+    // the rest for a later one — waiting for none, and spending none of its
+    // budget on what it left.
+    {
+        constexpr std::string_view html = R"HTML(<!doctype html><html><body>
+<img id="a" src="a.png"><img id="b" src="b.png"><img id="c" src="c.png">
+</body></html>)HTML";
+        auto const document = html::parse_document(html);
+        net::Url const base = page_url();
+        std::vector<std::string> fetched;
+        ui::ImageFetcher const fetcher = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            fetched.push_back(path_of(url));
+            return encode_png(Bitmap(4, 4, Color::rgb(0, 0, 0)));
+        };
+        std::string on_its_way = "/dir/b.png";
+        auto const arrived = [&](net::Url const& url) { return path_of(url) != on_its_way; };
+        bool more = false;
+        layout::ImageMap known = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
+            ui::ImagePass { nullptr, 2, &more, arrived });
+        // a and c, the budget of two spent on them and none on b.
+        CHECK_EQ(known.size(), std::size_t { 2 });
+        CHECK(fetched == (std::vector<std::string> { "/dir/a.png", "/dir/c.png" }));
+        CHECK(more);
+        dom::Element const* const b = find_img(*document, "b");
+        CHECK(b && !known.contains(b)); // not entered: it is asked for again
+        // Still on its way: a pass takes nothing and says there is more.
+        more = false;
+        CHECK(ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
+                  ui::ImagePass { &known, 2, &more, arrived })
+                  .empty());
+        CHECK(more);
+        CHECK_EQ(fetched.size(), std::size_t { 2 });
+        // It has come.
+        on_its_way.clear();
+        more = false;
+        layout::ImageMap const last = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 }, nullptr,
+            ui::ImagePass { &known, 2, &more, arrived });
+        CHECK(b && last.contains(b) && last.at(b).bitmap);
+        CHECK(!more);
+        CHECK_EQ(fetched.size(), std::size_t { 3 });
     }
 
     {

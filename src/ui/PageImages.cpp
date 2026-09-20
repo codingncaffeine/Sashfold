@@ -88,6 +88,11 @@ struct Collector {
                 *pass.more = true; // left for a later pass
             return;
         }
+        if (pass.arrived && !pass.arrived(url)) {
+            if (pass.more)
+                *pass.more = true; // on its way: taken by the pass after it has come
+            return;
+        }
         std::shared_ptr<Bitmap const> image;
         float drawn_at = 1; // an SVG drawn larger than its size reports the factor
         if (fetch && decoded_bytes < max_page_decoded_bytes) {

@@ -262,7 +262,7 @@ Rendered render_document(dom::Document& document, net::Url const& document_url, 
     layout::EmbeddedStates const* const decided = realm ? &embedded : nullptr;
     // A frame's pictures come in one pass of the page's size; the rest of a
     // long frame are left to its alt text until frames load in passes too.
-    layout::ImageMap images = collect_images(document, &document_url, fetch_image, media, decided, ImagePass { nullptr, 64, nullptr });
+    layout::ImageMap images = collect_images(document, &document_url, fetch_image, media, decided, ImagePass { nullptr, 64, nullptr, {} });
     layout::BackgroundImages backgrounds = collect_background_images(styles, fetch_image);
     layout::LayoutResult page = layout::layout_document(document, styles, static_cast<float>(width), &images,
         realm ? walk.controls : nullptr, static_cast<float>(height), walk.device_scale, decided);

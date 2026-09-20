@@ -142,7 +142,7 @@ std::optional<TcpListener> TcpListener::listen_loopback(std::uint16_t port)
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(port);
     if (::bind(handle, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0
-        || ::listen(handle, 4) != 0) {
+        || ::listen(handle, 64) != 0) {
         closesocket(handle);
         return std::nullopt;
     }

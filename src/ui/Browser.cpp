@@ -45,6 +45,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <thread>
 #include <utility>
 
 namespace sashfold::ui {
@@ -532,6 +533,12 @@ struct Browser::Impl {
         int tree_scroll = 0; // devtools: the first tree line shown
         bool images_owed = false; // pictures left for a later pass, taken on the next tick
         std::optional<Navigating> navigating; // a load on its way, the tab showing what it showed
+        // The page's pictures that were asked for ahead and have not all been
+        // taken up yet, and when the last pass over them was: the passes
+        // take what has come, a batch at a time, and wait for none.
+        std::vector<std::shared_ptr<net::FetchTicket>> pictures_coming;
+        std::chrono::steady_clock::time_point pictures_taken_at {};
+        bool pictures_asked_ahead = false; // this page's were: its passes wait for none
         int scroll_y = 0;
         // How far the reader has moved each box that scrolls, and how much
         // of that the fragment tree already carries: a fresh layout carries
@@ -2271,6 +2278,41 @@ struct Browser::Impl {
         };
     }
 
+    // Whether a picture's source can be had without waiting: not while a
+    // fetch asked ahead for it is still on its way.
+    std::function<bool(net::Url const&)> picture_arrived(Tab& tab)
+    {
+        net::ContentSecurityPolicy const* const policy = tab.policy.get();
+        bool const upgrades = policy && policy->upgrade_insecure_requests();
+        std::string const container = tab.container;
+        return [this, upgrades, container](net::Url const& url) {
+            return !loader.ahead_pending(upgrades ? net::upgraded_insecure(url) : url, net::ResourceKind::Image, container);
+        };
+    }
+
+    // Whether the pictures a page still owes are worth a pass now: some of
+    // those on their way have come — taken a batch at a time, a tenth of a
+    // second apart, since every pass lays the page out again — or none was
+    // asked for ahead, and the pass fetches them itself as it always did.
+    static bool pictures_ready(Tab const& tab)
+    {
+        if (!tab.images_owed)
+            return false;
+        if (!tab.pictures_asked_ahead)
+            return true;
+        bool const spaced = std::chrono::steady_clock::now() - tab.pictures_taken_at >= std::chrono::milliseconds(100);
+        // None of them followed any more, yet some still owed: they are on
+        // their way on somebody else's asking (another tab's, an older
+        // load's). Looked for again at the same unhurried pace.
+        if (tab.pictures_coming.empty())
+            return spaced;
+        bool const all = std::all_of(tab.pictures_coming.begin(), tab.pictures_coming.end(),
+            [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
+        bool const any = std::any_of(tab.pictures_coming.begin(), tab.pictures_coming.end(),
+            [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
+        return all || (any && spaced);
+    }
+
     // The next pass over a page's pictures, for a page shown before all of
     // them were in: the page is laid out again as they arrive.
     void continue_images(Tab& tab)
@@ -2279,18 +2321,27 @@ struct Browser::Impl {
         HistoryEntry const* const entry = tab.current();
         if (!entry || !tab.document)
             return;
+        // Those that have come are this pass's: what is left is still coming.
+        std::erase_if(tab.pictures_coming, [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
+        tab.pictures_taken_at = std::chrono::steady_clock::now();
         layout::EmbeddedStates const embedded = tab.realm ? bindings::embedded_states(*tab.realm) : layout::EmbeddedStates {};
         bool more = false;
+        bool took_some = false;
         {
             Stopwatch const collecting(profile.images_ms);
             layout::ImageMap fresh = collect_images(*tab.document, &entry->final_url, image_fetcher(tab), media_context(),
-                tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more });
+                tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab) });
+            took_some = !fresh.empty();
             for (auto& [element, image] : fresh)
                 tab.images[element] = std::move(image);
         }
         tab.images_owed = more;
-        relayout(tab);
-        dirty = true;
+        // Laid out again only when a picture came: a pass that found them
+        // all still on their way changes nothing.
+        if (took_some) {
+            relayout(tab);
+            dirty = true;
+        }
     }
 
     // What the stylesheets are: the elements that carry them, so that a
@@ -2649,15 +2700,22 @@ struct Browser::Impl {
                         return std::nullopt;
                     };
                     collect_images(*tab.document, &page_url, note, media_context(), tab.realm ? &embedded : nullptr,
-                        ImagePass { &tab.images, 0, nullptr });
+                        ImagePass { &tab.images, 0, nullptr, {} });
                     collect_background_images(tab.styles, note, &tab.backgrounds);
-                    for (net::Url const& url : wanted)
-                        ask_ahead(tab, page_url, url, net::ResourceKind::Image, tab.policy.get());
+                    for (net::Url const& url : wanted) {
+                        if (std::shared_ptr<net::FetchTicket> ticket
+                            = ask_ahead(tab, page_url, url, net::ResourceKind::Image, tab.policy.get());
+                            ticket && !ticket->done())
+                            tab.pictures_coming.push_back(std::move(ticket));
+                    }
+                    tab.pictures_asked_ahead = tab.pictures_asked_ahead || !tab.pictures_coming.empty();
+                    tab.pictures_taken_at = std::chrono::steady_clock::now();
                 }
-                // One pass now, so the page shows; the rest a pass per tick.
+                // One pass now, of what is here, so the page shows; what is
+                // on its way is taken as it comes, a pass per batch.
                 bool more = false;
                 layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
-                    tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more });
+                    tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab) });
                 for (auto& [element, image] : fresh)
                     tab.images[element] = std::move(image);
                 tab.images_owed = more;
@@ -2749,6 +2807,8 @@ struct Browser::Impl {
         tab.inspected = nullptr;
         tab.tree_scroll = 0;
         tab.images.clear();
+        tab.pictures_coming.clear(); // the pictures of the page that is going
+        tab.pictures_asked_ahead = false;
         tab.backgrounds.clear();
         tab.frames.clear();
         tab.sheets.clear();
@@ -8602,7 +8662,12 @@ void Browser::duplicate_tab(std::size_t index) { m_impl->duplicate_tab(index); }
 
 bool Browser::has_pending_load() const
 {
-    return load_ready() || m_impl->any_navigating();
+    if (load_ready() || m_impl->any_navigating())
+        return true;
+    // Pictures on their way to the page in front: nothing to do now, and
+    // not done either.
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab && tab->images_owed;
 }
 
 bool Browser::navigating() const
@@ -8618,7 +8683,7 @@ bool Browser::load_ready() const
     if (!m_impl->pending.empty() || !m_impl->pending_windows.empty() || m_impl->any_navigation_ready())
         return true;
     Impl::Tab const* const tab = m_impl->active_tab();
-    return tab && tab->images_owed;
+    return tab && Impl::pictures_ready(*tab);
 }
 
 bool Browser::tick()
@@ -8636,9 +8701,24 @@ bool Browser::tick()
     if (m_impl->advance_navigations())
         return true;
     if (m_impl->pending.empty()) {
-        // The page shown takes the next of its pictures.
+        // The page shown takes the next of its pictures: those that have come.
         if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->images_owed) {
-            m_impl->continue_images(*tab);
+            if (Impl::pictures_ready(*tab)) {
+                m_impl->continue_images(*tab);
+                return true;
+            }
+            // All still on their way: a moment's wait, as for a document —
+            // on one of them, or, when none is followed here, on the clock.
+            bool waited = false;
+            for (std::shared_ptr<net::FetchTicket> const& ticket : tab->pictures_coming) {
+                if (!ticket->done()) {
+                    ticket->wait_for(5);
+                    waited = true;
+                    break;
+                }
+            }
+            if (!waited)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
             return true;
         }
         // Nothing to do but wait for a fetch that is on its way: a moment of

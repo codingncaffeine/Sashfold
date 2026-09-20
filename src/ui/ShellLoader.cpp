@@ -303,6 +303,13 @@ std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net
     return ticket;
 }
 
+bool ShellLoader::ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container)
+{
+    std::lock_guard<std::mutex> const lock(m_mutex);
+    auto const it = m_ahead.find(ahead_key(url, kind, container));
+    return it != m_ahead.end() && it->second.ticket && !it->second.ticket->done();
+}
+
 std::shared_ptr<net::FetchTicket> ShellLoader::load_ahead(net::Url const& url, std::string const& referrer,
     bool bypass_cache, std::string_view container)
 {

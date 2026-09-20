@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -154,6 +155,8 @@ int main()
         for (std::size_t i = 0; i < paths.size(); ++i)
             CHECK_EQ(body_of(loader.load_subresource(server.url(paths[i]), page, page.serialize(), kinds[i])), "body of " + paths[i]);
         double const took = ms_since(started);
+        if (took < 190 || took >= 800)
+            std::cerr << "six fetches of 200 ms took " << took << " ms\n";
         CHECK(took >= 190);
         CHECK(took < 800);
         std::vector<std::string> const asked = server.asked();

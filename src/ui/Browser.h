@@ -82,6 +82,16 @@ public:
         (void)container;
         return nullptr;
     }
+    // Whether a resource asked for ahead is still on its way: asking for it
+    // now would wait. False for one that has come, and for one nobody asked
+    // for ahead.
+    virtual bool ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container = {})
+    {
+        (void)url;
+        (void)kind;
+        (void)container;
+        return false;
+    }
     // load(), begun on another thread: a ticket to ask after the document
     // by, so that the window is not held still while it comes. Null from a
     // loader that fetches where it is asked — and load() is then the way.

@@ -46,6 +46,11 @@ struct ImagePass {
     layout::ImageMap const* known = nullptr;
     std::size_t budget = 0;
     bool* more = nullptr;
+    // Whether a picture's source is here to be had without waiting. One that
+    // is still on its way — asked for ahead, on another thread — is left
+    // for a later pass like one past the budget, and costs none of it; with
+    // no such question every source is fetched where it is met.
+    std::function<bool(net::Url const&)> arrived;
 };
 
 // `media` is the viewport the sources are chosen for. The map returned

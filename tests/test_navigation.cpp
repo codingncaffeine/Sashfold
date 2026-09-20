@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -180,6 +181,8 @@ int main()
         load_fully(browser);
         double const took = ms_since(started);
         CHECK_EQ(browser.page_title(), std::string("Scripted"));
+        if (took < 540 || took >= 900)
+            std::cerr << "the page and its two parts took " << took << " ms\n";
         CHECK(took >= 540); // the document's 150, then the two together at 400
         CHECK(took < 900); // and not 150 + 400 + 400
         CHECK_EQ(server.asked("/page"), std::size_t { 1 });
