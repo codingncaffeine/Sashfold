@@ -47,5 +47,10 @@ Harnesses:
 - `bmp.cpp` — the BMP and ICO decoders: the DIB headers, palettes, masks,
   the run-length forms, the icon directory and its AND mask (seeds: a
   24-bit and an RLE8 bitmap, a 16-pixel icon); smoke run in CI.
+- `webm.cpp` — the WebM stream parser: element headers and sizes, the
+  initialization segment, Clusters with and without a size, block groups and
+  every lacing, fed whole and then in pieces whose lengths the input chooses
+  (seeds: a second of VP9 and a second of Opus from ffmpeg's test sources);
+  smoke run in CI.
 
 Still to come, one per parser as each lands: xkb, tls_records, js_lexer.

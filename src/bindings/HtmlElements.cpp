@@ -427,7 +427,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     // here is the hand-written rest of each interface.
     generated::install_html_element_interfaces(in);
     generated::install_reflected_attributes(in);
-    js::Object* media_element = in.prototype("HTMLMediaElement");
     auto const proto_of = [&](std::string_view name) -> js::Object& { return *in.prototype(name); };
 
     // Anchors and areas.
@@ -981,45 +980,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_method(in, canvas, "toDataURL", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native { return internals.string("data:,"); });
         element_method(in, canvas, "toBlob", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
         element_method(in, canvas, "captureStream", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
-
-        element_getter(in, *media_element, "currentSrc", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            dom::Attr const* src = e.find_attribute("src");
-            std::optional<net::Url> const url = src ? net::parse_url(src->value, &internals.base_url()) : std::nullopt;
-            return internals.string(url ? url->serialize() : "");
-        });
-        for (auto const& [name, value] : { std::pair { "paused", 1.0 }, std::pair { "ended", 0.0 }, std::pair { "seeking", 0.0 } }) {
-            bool const truth = value != 0.0;
-            element_getter(in, *media_element, name, [truth](Realm::Internals&, dom::Element&) -> Native { return js::Value::boolean(truth); });
-        }
-        for (std::string_view const name : { "muted", "defaultPlaybackRate", "playbackRate", "volume", "currentTime" }) {
-            double const initial = name == "muted" ? 0 : (name == "currentTime" ? 0 : 1);
-            bool const boolean = name == "muted";
-            element_accessor(
-                in, *media_element, name,
-                [initial, boolean](Realm::Internals&, dom::Element&) -> Native {
-                    return boolean ? js::Value::boolean(false) : js::Value::number(initial);
-                },
-                [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-        }
-        element_getter(in, *media_element, "duration", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(std::nan("")); });
-        element_getter(in, *media_element, "readyState", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
-        element_getter(in, *media_element, "networkState", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
-        element_getter(in, *media_element, "error", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-        for (std::string_view const name : { "pause", "load" })
-            element_method(in, *media_element, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
-        // play() is a promise, refused while no media plays here.
-        element_method(in, *media_element, "play", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
-            return rejected_promise(internals.interpreter,
-                dom_exception_value(internals, "NotSupportedError", "The element has no supported sources."));
-        });
-        element_method(in, *media_element, "canPlayType", 1, [](Realm::Internals& internals, dom::Element&, Args) -> Native { return internals.string(""); });
-        for (auto const& [name, value] : { std::pair { "NETWORK_EMPTY", 0 }, std::pair { "NETWORK_IDLE", 1 }, std::pair { "NETWORK_LOADING", 2 },
-                 std::pair { "NETWORK_NO_SOURCE", 3 }, std::pair { "HAVE_NOTHING", 0 }, std::pair { "HAVE_METADATA", 1 },
-                 std::pair { "HAVE_CURRENT_DATA", 2 }, std::pair { "HAVE_FUTURE_DATA", 3 }, std::pair { "HAVE_ENOUGH_DATA", 4 } })
-            media_element->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
-        js::Object& video = proto_of("HTMLVideoElement");
-        element_getter(in, video, "videoWidth", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
-        element_getter(in, video, "videoHeight", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
     }
 
     // Tables.

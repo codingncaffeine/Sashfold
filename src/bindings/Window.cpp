@@ -1783,6 +1783,11 @@ void install_window(Realm::Internals& in)
             js::define_method(interpreter, url_constructor, "createObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
                 Realm::Internals& internals = internals_of(interp);
                 js::Value const given = js::argument(args, 0);
+                // A MediaSource is named the same way (MSE §3.4), kept by the realm
+                // until the URL is revoked.
+                if (std::string named = "blob:" + internals.origin_url.serialize_origin() + "/" + random_uuid();
+                    register_media_source_url(internals, given, named))
+                    return internals.string(named);
                 auto const* const blob = given.is_object() ? dynamic_cast<BlobObject const*>(given.as_object()) : nullptr;
                 if (!blob)
                     return interp.throw_type_error("Failed to execute 'createObjectURL' on 'URL': parameter 1 is not of type 'Blob'.");
@@ -1800,6 +1805,7 @@ void install_window(Realm::Internals& in)
                 std::optional<net::Url> const url = net::parse_url(*text);
                 if (!url || url->scheme != "blob")
                     return js::Value::undefined();
+                internals.media_source_urls.erase(url->serialize(true));
                 auto const entry = internals.agent.blob_urls.find(url->serialize(true));
                 if (entry != internals.agent.blob_urls.end()
                     && entry->second.origin.serialize_origin() == internals.origin_url.serialize_origin())

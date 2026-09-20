@@ -46,7 +46,10 @@ std::optional<AbortSignalObject*> this_signal(js::Interpreter& interp, js::Value
     return interp.throw_type_error("Illegal invocation");
 }
 
-// A native function the timers can call: what AbortSignal.timeout arms.
+}
+
+// A native function the timers can call: what AbortSignal.timeout and a
+// playing media element arm.
 void schedule_native(Realm::Internals& in, double delay_ms, js::Value const& function)
 {
     Timer timer;
@@ -57,6 +60,8 @@ void schedule_native(Realm::Internals& in, double delay_ms, js::Value const& fun
     timer.callback = std::make_unique<js::Persistent>(in.interpreter.heap(), function);
     in.agent.timers.push_back(std::move(timer));
 }
+
+namespace {
 
 // --- MessagePort ---------------------------------------------------------------------------
 

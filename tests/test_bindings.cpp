@@ -1,12 +1,15 @@
 #include "JsTest.h"
+#include "WebmBuilder.h"
 
 #include "bindings/Realm.h"
+#include "core/Base64.h"
 #include "css/ComputedStyle.h"
 #include "dom/Dom.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <string>
@@ -3483,8 +3486,153 @@ void test_interfaces_that_promise()
 
 } // namespace
 
+// Media Source Extensions over the media element: a page feeds two
+// SourceBuffers a WebM stream written here, and the element's buffered
+// ranges, ready state, events, play promise and clock follow — the clock
+// being the test's own, so every position is exact.
+void test_media_source_and_the_media_element()
+{
+    using namespace sashfold::test::webm;
+    auto const base64 = [](Bytes const& bytes) { return base64_encode(bytes); };
+    auto const cluster = [](int track, std::initializer_list<int> times) {
+        Bytes body = element(0xE7, uint_body(0));
+        for (int const time : times)
+            sashfold::test::webm::append(body, element(0xA3, block(track, std::abs(time), time >= 0 ? 0x80 : 0x00, text("frame"))));
+        return element(0x1F43B675, body);
+    };
+    auto page = loaded("<!DOCTYPE html><body><video id=v></video></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    // Video: key frames at 0 and 1 s, a frame every half second to 2 s.
+    // Audio: a frame every half second to 2.5 s, which is the Info's duration.
+    page->eval("var VI = '" + base64(init_segment(true, false)) + "', AI = '" + base64(init_segment(false, true)) + "', VC = '"
+        + base64(cluster(1, { 0, -500, 1000, -1500 })) + "', AC = '" + base64(cluster(2, { 0, 500, 1000, 1500, 2000 })) + "';");
+    page->eval(R"JS(
+        var log = [];
+        var take = function () { var s = log.join(' '); log = []; return s; };
+        var bytes = function (b) { return Uint8Array.from(atob(b), function (c) { return c.charCodeAt(0); }); };
+        var ranges = function (r) { var s = ''; for (var i = 0; i < r.length; i++) s += '[' + r.start(i) + ',' + r.end(i) + ')'; return s; };
+        var watch = function (video, name) {
+            ['loadstart', 'durationchange', 'loadedmetadata', 'resize', 'loadeddata', 'canplay', 'canplaythrough', 'play', 'playing', 'waiting',
+                'pause', 'ended', 'seeking', 'seeked', 'emptied'].forEach(function (t) { video.addEventListener(t, function () { log.push(name + t); }); });
+            video.addEventListener('error', function () { log.push(name + 'error ' + video.error.code + ' ' + video.networkState); });
+        };
+        var append = function (b, d) { return new Promise(function (r) { b.addEventListener('updateend', r, { once: true }); b.appendBuffer(bytes(d)); }); };
+        var v = document.getElementById('v'), ms = new MediaSource(), vb, ab;
+        watch(v, '');
+        ['sourceopen', 'sourceended', 'sourceclose'].forEach(function (t) { ms.addEventListener(t, function () { log.push(t); }); });
+        ms.addEventListener('sourceopen', function () {
+            vb = ms.addSourceBuffer('video/webm; codecs="vp9"');
+            ab = ms.addSourceBuffer('audio/webm; codecs="opus"');
+            append(vb, VI).then(function () { return append(ab, AI); }).then(function () { return append(vb, VC); })
+                .then(function () { return append(ab, AC); }).then(function () { log.push('appended'); });
+        }, { once: true });
+    )JS");
+    CHECK_EQ(page->string("ms.readyState + ' ' + ms.duration + ' ' + v.readyState + ' ' + v.networkState + ' ' + v.duration + ' ' + v.paused"), "closed NaN 0 0 NaN true");
+    page->eval("v.src = URL.createObjectURL(ms);");
+    CHECK_EQ(page->string("ms.readyState"), "open");
+    pump();
+    CHECK_EQ(page->string("take()"), "loadstart sourceopen durationchange resize loadedmetadata appended loadeddata canplay");
+    CHECK_EQ(page->string("ranges(vb.buffered) + ' ' + ranges(ab.buffered) + ' ' + ranges(v.buffered) + ' ' + ranges(v.seekable)"), "[0,2) [0,2.5) [0,2) [0,2.5)");
+    CHECK_EQ(page->string("v.readyState + ' ' + v.duration + ' ' + v.videoWidth + 'x' + v.videoHeight + ' ' + ms.sourceBuffers.length + ' ' + ms.activeSourceBuffers.length"), "3 2.5 320x180 2 2");
+    CHECK(page->boolean("ms.sourceBuffers[0] === vb && ms.activeSourceBuffers[1] === ab && ms.sourceBuffers[2] === undefined"));
+    // A buffer at work refuses a second append.
+    CHECK_EQ(page->string("var r = ''; vb.appendBuffer(bytes(VC)); try { vb.appendBuffer(bytes(VC)); } catch (e) { r = e.name + ' ' + vb.updating; } r"), "InvalidStateError true");
+    pump();
+    CHECK_EQ(page->string("ranges(vb.buffered) + ' ' + vb.updating + take()"), "[0,2) false");
+
+    // Playing: the promise, then the events; the position is the clock's.
+    page->eval("v.play().then(function () { log.push('resolved'); });");
+    pump();
+    CHECK_EQ(page->string("take()"), "resolved play playing");
+    page->clock += 1000;
+    pump();
+    CHECK_EQ(page->number("v.currentTime"), 1.0);
+    // It runs out of pictures at 2 s and waits there.
+    page->clock += 2000;
+    pump();
+    CHECK_EQ(page->string("v.currentTime + ' ' + v.readyState + ' ' + v.paused + ' ' + take()"), "2 2 false waiting");
+    // The end of the stream: the shorter track counts as reaching the
+    // longer's end, and playback carries on to it.
+    page->eval("ms.endOfStream();");
+    pump();
+    CHECK_EQ(page->string("ms.readyState + ' ' + ranges(v.buffered) + ' ' + v.readyState + ' ' + take()"), "ended [0,2.5) 4 sourceended canplay playing canplaythrough");
+    page->clock += 1000;
+    pump();
+    CHECK_EQ(page->string("v.currentTime + ' ' + v.ended + ' ' + v.paused + ' ' + ranges(v.played) + ' ' + take()"), "2.5 true true [0,2.5) pause ended");
+    // Seeking back.
+    page->eval("v.currentTime = 1;");
+    CHECK(page->boolean("v.seeking"));
+    pump();
+    CHECK_EQ(page->string("v.currentTime + ' ' + v.seeking + ' ' + v.ended + ' ' + take()"), "1 false false seeking seeked");
+    // Removing the first second reopens the source; the pictures from the
+    // key frame at 1 s stay.
+    page->eval("vb.remove(0, 1);");
+    pump();
+    CHECK_EQ(page->string("ms.readyState + ' ' + ranges(vb.buffered) + ' ' + ranges(v.buffered) + ' ' + take()"), "open [1,2) [1,2) sourceopen");
+    // A removed buffer answers nothing more.
+    CHECK_EQ(page->string("ms.removeSourceBuffer(ab); var r = ms.sourceBuffers.length + ' '; try { ab.buffered; } catch (e) { r += e.name; } r"), "1 InvalidStateError");
+    // Loading something else lets the source go.
+    // (Removing src alone reloads nothing.)
+    page->eval("v.removeAttribute('src');");
+    pump();
+    CHECK_EQ(page->string("ms.readyState + take()"), "open");
+    page->eval("v.load();");
+    pump();
+    CHECK_EQ(page->string("ms.readyState + ' ' + ms.sourceBuffers.length + ' ' + v.readyState + ' ' + v.duration + ' ' + take()"), "closed 0 0 NaN sourceclose emptied");
+
+    // What the engine says it plays: VP9 at 8 bits and Opus in WebM, and a
+    // stream it could not is refused by its parameters.
+    CHECK_EQ(page->string(R"JS([ 'video/webm; codecs="vp9"', 'video/webm; codecs="vp09.00.10.08"', 'audio/webm; codecs="opus"', 'video/webm; codecs="vp9, opus"',
+        'video/webm', 'video/webm; codecs="vp09.02.51.10.01.09.16.09.00"', 'video/webm; codecs="vp8"', 'audio/webm; codecs="vp9"',
+        'video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp9"; width=3840; height=2160; framerate=60; bitrate=26523399; eotf=bt709',
+        'video/webm; codecs="vp9"; width=99999', 'video/webm; codecs="vp9"; framerate=9999', 'audio/webm; codecs="opus"; channels=99',
+        'video/webm; codecs="vp9"; eotf=catavision', 'video/webm; codecs="vp9"; decode-to-texture=nope', 'video/webm; codecs="vp9"; cryptoblockformat=subsample',
+        'video/webm; codecs=""' ].map(function (t) { return MediaSource.isTypeSupported(t) ? 'y' : 'n'; }).join(''))JS"),
+        "yyyyynnnnynnnnnnn");
+    CHECK_EQ(page->string("[v.canPlayType('video/webm; codecs=\"vp9\"'), v.canPlayType('audio/webm'), v.canPlayType('video/mp4')].join('|')"), "probably|maybe|");
+    CHECK_EQ(page->string("var r = ''; try { new MediaSource().addSourceBuffer('video/webm'); } catch (e) { r = e.name; } r"), "InvalidStateError");
+
+    // A stream that is not WebM: the buffer's error, the source ended, the
+    // element's load failed.
+    page->eval(R"JS(
+        var v2 = document.createElement('video'), ms2 = new MediaSource();
+        watch(v2, 'v2 ');
+        ms2.addEventListener('sourceopen', function () {
+            var b = ms2.addSourceBuffer('video/webm');
+            b.addEventListener('error', function () { log.push('buffer error'); });
+            b.appendBuffer(new Uint8Array([0, 0, 0, 1]));
+        });
+        ms2.addEventListener('sourceended', function () { log.push('ms2 ' + ms2.readyState); });
+        v2.src = URL.createObjectURL(ms2);
+    )JS");
+    pump();
+    CHECK_EQ(page->string("take()"), "v2 loadstart buffer error ms2 ended v2 error 4 3");
+    // A source that is no MediaSource, and a URL revoked before it is used.
+    page->eval(R"JS(
+        var v3 = document.createElement('video');
+        watch(v3, 'v3 ');
+        v3.src = 'movie.mp4';
+        v3.play().catch(function (e) { log.push('play ' + e.name); });
+        var v4 = document.createElement('video'), gone = URL.createObjectURL(new MediaSource());
+        watch(v4, 'v4 ');
+        URL.revokeObjectURL(gone);
+        v4.src = gone;
+    )JS");
+    pump();
+    CHECK_EQ(page->string("take()"), "play NotSupportedError v3 loadstart v3 error 4 3 v4 loadstart v4 error 4 3");
+}
+
 int main()
 {
+    // The media pipeline is behind a switch until it decodes; the realms made
+    // here are made with it on.
+#ifdef _WIN32
+    _putenv_s("SASHFOLD_MEDIA", "1");
+#else
+    setenv("SASHFOLD_MEDIA", "1", 1);
+#endif
     test_inline_scripts_run_in_document_order();
     test_wrapper_identity_and_expandos_survive_collection();
     test_tree_mutation_and_serialization();
@@ -3539,5 +3687,6 @@ int main()
     test_a_frame_measures_itself();
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();
+    test_media_source_and_the_media_element();
     return test::report("test_bindings");
 }

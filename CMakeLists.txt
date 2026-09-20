@@ -50,6 +50,7 @@ add_library(sashfold_core STATIC
   src/bindings/Fetch.cpp
   src/bindings/HtmlElements.cpp
   src/bindings/LayoutOracle.cpp
+  src/bindings/Media.cpp
   src/bindings/Node.cpp
   src/bindings/Origin.cpp
   src/bindings/Range.cpp
@@ -101,6 +102,8 @@ add_library(sashfold_core STATIC
   src/layout/TableBorders.cpp
   src/layout/TableStructure.cpp
   src/layout/TableWidths.cpp
+  src/media/StreamBuffer.cpp
+  src/media/WebM.cpp
   src/net/Cache.cpp
   src/net/Connections.cpp
   src/net/Cookies.cpp
@@ -308,4 +311,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(bmp)
   sashfold_fuzzer(svg)
   sashfold_fuzzer(zip)
+  sashfold_fuzzer(webm)
 endif()

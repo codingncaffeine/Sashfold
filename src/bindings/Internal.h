@@ -833,6 +833,9 @@ struct Realm::Internals {
     // The window's attributes that hold one object or value, behind their
     // getters (history, navigator, the storages, a script's status).
     std::unordered_map<std::string, js::Value> window_values;
+    // The MediaSources URL.createObjectURL has named, by the URL, until it is
+    // revoked: what a media element's src is looked up in (Media.cpp).
+    std::unordered_map<std::string, js::Object*> media_source_urls;
     // What scripts hold for this window, its WindowProxy; and whether an
     // object is this window, the proxy or the global object behind it.
     js::Object* window_proxy() const;
@@ -1166,6 +1169,13 @@ void install_origin(Realm::Internals&); // Origin.cpp: Origin
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
+void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRanges, MediaError, MediaSource, SourceBuffer
+// A media element's src attribute was set, changed or removed: it loads again.
+void media_src_changed(Realm::Internals&, dom::Element&);
+// Names a MediaSource by this blob: URL; false for any other value.
+bool register_media_source_url(Realm::Internals&, js::Value const&, std::string const& url);
+// Arms a timer of the realm's that calls a native function (Tasks.cpp).
+void schedule_native(Realm::Internals&, double delay_ms, js::Value const& function);
 // A worker's realm, after the installers above: the window taken out of the
 // global object — every name they gave it that a worker's scope does not
 // have — and the DedicatedWorkerGlobalScope put in its place.

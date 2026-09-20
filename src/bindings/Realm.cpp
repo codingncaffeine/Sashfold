@@ -226,6 +226,8 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
             in.schedule_embedder_update(element);
         return;
     case ContainerKind::None:
+        if (local_name == "src")
+            media_src_changed(in, element);
         return;
     }
 }
@@ -1209,6 +1211,7 @@ void install_interfaces(Realm::Internals& in)
         return;
     }
     install_workers(in);
+    install_media(in);
     install_window_proxy(in, language_globals);
 }
 
@@ -1391,6 +1394,7 @@ Realm::~Realm()
     // it made go with it.
     in.workers.clear();
     std::erase_if(in.agent.blob_urls, [&in](auto const& entry) { return entry.second.document == in.document; });
+    in.media_source_urls.clear();
     // Its frames end first, while this realm and the agent are whole.
     in.child_frames.clear();
     if (in.own_agent) {
@@ -1890,6 +1894,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
     terminate_workers(window);
     std::erase_if(agent.blob_urls, [&window](auto const& entry) { return entry.second.document == window.document; });
+    window.media_source_urls.clear();
     // The old document stays alive with the realm, so no wrapper into it, and
     // no element-keyed record of it, can dangle; so does its policy.
     window.extra_documents.push_back(std::move(frame.document));
@@ -2878,6 +2883,8 @@ void Realm::trace_roots(js::Tracer& tracer)
         tracer.visit(navigable.window_proxy);
     for (auto const& [name, value] : in.window_values)
         tracer.visit(value);
+    for (auto const& [url, source] : in.media_source_urls)
+        tracer.visit(source);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)
             tracer.visit(*member.value);

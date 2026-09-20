@@ -99,6 +99,7 @@ jobs:
       - run: ./build/fuzz_jpeg -max_total_time=30 -timeout=5 fuzz/corpus/jpeg
       - run: ./build/fuzz_bmp -max_total_time=30 -timeout=5 fuzz/corpus/bmp
       - run: ./build/fuzz_zip -max_total_time=30 -timeout=5 fuzz/corpus/zip
+      - run: ./build/fuzz_webm -max_total_time=30 -timeout=5 fuzz/corpus/webm
 
   windows-mingw:
     runs-on: windows-latest
