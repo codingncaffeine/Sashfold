@@ -3419,6 +3419,36 @@ window.facts = [innerWidth, innerHeight, root.clientWidth, root.clientHeight, w.
         std::string("152"));
 }
 
+// A script runs once, and only in a document that has a window: a copy of one
+// that has started has started too, and one put into a document made by
+// `new Document()`, createHTMLDocument or a clone never runs — a page that
+// clones itself into such a document must not run itself again inside it.
+void test_scripts_that_must_not_run_again()
+{
+    Page page(R"HTML(<!DOCTYPE html><body><script id=first>window.runs = (window.runs || 0) + 1;</script><script>
+      var made = new Document();
+      made.appendChild(document.documentElement.cloneNode(true));
+      var other = document.implementation.createHTMLDocument();
+      var inside = document.createElement('script');
+      inside.textContent = 'window.runs += 100';
+      other.body.appendChild(inside);
+      var copy = document.cloneNode(true);
+      var again = document.getElementById('first').cloneNode(true);
+      document.body.appendChild(again);
+      var imported = document.importNode(document.getElementById('first'), true);
+      document.body.appendChild(imported);
+      var fresh = document.createElement('script');
+      fresh.textContent = 'window.runs += 10';
+      document.body.appendChild(fresh);
+      // One that started where it could not run stays started.
+      document.body.appendChild(inside);
+    </script>)HTML");
+    page.load();
+    CHECK_EQ(page.number("runs"), 11.0);
+    CHECK_EQ(page.string("String(made.querySelectorAll('script').length) + copy.querySelectorAll('script').length"), std::string("22"));
+    CHECK_EQ(page.console, std::string(""));
+}
+
 // What the platform says is a promise is one, settled the way the engine can
 // honestly settle it — never `undefined`, which a page calls .then() on.
 void test_interfaces_that_promise()
@@ -3508,5 +3538,6 @@ int main()
     test_platform_objects_and_message_arrivals();
     test_a_frame_measures_itself();
     test_interfaces_that_promise();
+    test_scripts_that_must_not_run_again();
     return test::report("test_bindings");
 }

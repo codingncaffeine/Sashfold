@@ -382,7 +382,40 @@ void replace_children_with_text(Realm::Internals& in, dom::Node& parent, std::st
     in.realm.note_mutation();
 }
 
+void copy_started_scripts(Realm::Internals& in, dom::Node const& source, dom::Node const& clone)
+{
+    if (source.is_element() && clone.is_element()) {
+        auto const& element = static_cast<dom::Element const&>(source);
+        if ((element.is_html("script") || element.is_svg("script")) && !in.started_scripts.contains(static_cast<dom::Element const*>(&clone))) {
+            // The realm that ran it is the one of the document it was in.
+            Realm::Internals const* const home = in.realm_of(source.document());
+            if (in.started_scripts.contains(&element) || (home != nullptr && home->started_scripts.contains(&element)))
+                in.started_scripts.insert(static_cast<dom::Element const*>(&clone));
+        }
+    }
+    std::vector<dom::Node*> const& from = source.children();
+    std::vector<dom::Node*> const& to = clone.children();
+    for (std::size_t i = 0; i < from.size() && i < to.size(); ++i)
+        copy_started_scripts(in, *from[i], *to[i]);
+}
+
+namespace {
+
+dom::Node* clone_node_alone(Realm::Internals& in, dom::Node const& node, bool deep);
+
+}
+
 dom::Node* clone_node(Realm::Internals& in, dom::Node const& node, bool deep)
+{
+    dom::Node* const clone = clone_node_alone(in, node, deep);
+    if (clone != nullptr)
+        copy_started_scripts(in, node, *clone);
+    return clone;
+}
+
+namespace {
+
+dom::Node* clone_node_alone(Realm::Internals& in, dom::Node const& node, bool deep)
 {
     dom::Document& document = node.document();
     if (node.type() == dom::NodeType::Document) {
@@ -419,6 +452,8 @@ dom::Node* clone_node(Realm::Internals& in, dom::Node const& node, bool deep)
     }
     return document.create<dom::DocumentFragment>();
 }
+
+} // namespace
 
 // --- Selectors ----------------------------------------------------------------------------
 

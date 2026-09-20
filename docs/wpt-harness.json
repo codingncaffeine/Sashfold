@@ -1,13 +1,13 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-20",
-  "passed": 67353,
-  "total": 75628,
+  "passed": 67355,
+  "total": 75630,
   "files": 1278,
   "completed": 1277,
   "directories": [
     { "path": "dom/nodes", "passed": 10265, "total": 13066, "files": 316, "completed": 316 },
-    { "path": "dom/events", "passed": 314, "total": 728, "files": 168, "completed": 167 },
+    { "path": "dom/events", "passed": 316, "total": 730, "files": 168, "completed": 167 },
     { "path": "dom/ranges", "passed": 44354, "total": 44620, "files": 67, "completed": 67 },
     { "path": "dom/traversal", "passed": 1600, "total": 1608, "files": 18, "completed": 18 },
     { "path": "html/browsers/the-window-object", "passed": 447, "total": 700, "files": 90, "completed": 90 },

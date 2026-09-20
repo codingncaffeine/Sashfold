@@ -95,6 +95,10 @@ void replace_children_with_markup(Realm::Internals&, dom::Node& parent, dom::Ele
 std::vector<dom::Node*> parse_markup(Realm::Internals&, dom::Element& context, std::string_view markup, bool scripts_started = true);
 void replace_children_with_text(Realm::Internals&, dom::Node& parent, std::string_view text);
 dom::Node* clone_node(Realm::Internals&, dom::Node const& node, bool deep);
+// The cloning steps of a script element (HTML §4.12.1): a copy of one that
+// had started has started too, and so never runs. For a clone made of
+// `source`, subtree for subtree.
+void copy_started_scripts(Realm::Internals&, dom::Node const& source, dom::Node const& clone);
 
 // --- Selectors ----------------------------------------------------------------------
 

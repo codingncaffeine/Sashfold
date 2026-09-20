@@ -590,6 +590,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return internals.throw_dom_exception("NotSupportedError", "The node provided is a document, which may not be imported.");
         bool const deep = js::Interpreter::to_boolean(js::argument(args, 1));
         dom::Node* clone = deep ? dom::clone_subtree(*node, d) : clone_node(internals, *node, false);
+        copy_started_scripts(internals, *node, *clone);
         internals.adopt_into(d, *clone);
         return js::Value::object(internals.wrap(*clone));
     });

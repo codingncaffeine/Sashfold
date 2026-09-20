@@ -72,10 +72,12 @@ dom/events/Event-defaultPrevented.html	preventDefault() should change defaultPre
 dom/events/Event-defaultPrevented.html	preventDefault() should not change defaultPrevented if cancelable is false.
 dom/events/Event-defaultPrevented.html	returnValue should change defaultPrevented if cancelable is true.
 dom/events/Event-defaultPrevented.html	returnValue should not change defaultPrevented if cancelable is false.
+dom/events/Event-dispatch-bubbles-false.html	In DOMImplementation.createHTMLDocument()
 dom/events/Event-dispatch-bubbles-false.html	In new Document()
 dom/events/Event-dispatch-bubbles-false.html	In window.document with click event
 dom/events/Event-dispatch-bubbles-false.html	In window.document with load event
 dom/events/Event-dispatch-bubbles-false.html	In window.document.cloneNode(true)
+dom/events/Event-dispatch-bubbles-true.html	In DOMImplementation.createHTMLDocument()
 dom/events/Event-dispatch-bubbles-true.html	In new Document()
 dom/events/Event-dispatch-bubbles-true.html	In window.document with click event
 dom/events/Event-dispatch-bubbles-true.html	In window.document with load event

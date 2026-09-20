@@ -904,6 +904,11 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
     if (started_scripts.contains(&script))
         return;
     started_scripts.insert(&script);
+    // Scripting is disabled for an element whose document has no window —
+    // one made by `new Document()`, createHTMLDocument, a parser or a clone:
+    // a script put into it has started, and never runs.
+    if (&script.document() != document)
+        return;
     // Step 3 of the sandboxing: a document sandboxed without allow-scripts
     // runs none.
     if (scripts_sandboxed()) {
