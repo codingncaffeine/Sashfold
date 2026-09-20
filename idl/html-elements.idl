@@ -4,7 +4,10 @@
 // tools/gen-bindings.cpp turns this into src/bindings/generated/
 // HtmlElements.gen.cpp, which is committed; a test fails when the two fall
 // out of step. Everything else an interface has — the accessors that read
-// live state, the methods — is hand-written in src/bindings/HtmlElements.cpp.
+// live state, the methods — is hand-written in src/bindings/HtmlElements.cpp,
+// and is installed after these, so an attribute that needs more than the
+// content attribute (input.type, form.action, option.value) is left out here
+// and written there.
 //
 // The extended attributes the generator understands:
 //   [Existing]        the interface is defined elsewhere; only its attributes are emitted
@@ -12,14 +15,26 @@
 //   [Reflect]         the attribute reflects the content attribute of its own name, lowercased
 //   [Reflect=name]    ... of that name
 //   [URL]             a reflected attribute read resolved against the document
-//   [Default=n]       the value of a reflected long when the attribute is absent or not a number
-// The types it reads: DOMString, USVString, boolean, long.
+//   [OrDocumentUrl]   ... which reads as the document's URL when absent or empty (form action)
+//   [Enum=(a, b)]     an enumerated attribute limited to those keywords
+//   [Missing=a]       ... the state it is in when absent (default: a state with no keyword)
+//   [Invalid=a]       ... the state it is in when its value is no keyword (default: the same)
+//   [LegacyNullToEmptyString]  null written to the attribute writes the empty string
+//   [Default=n]       the value of a reflected number when the attribute is absent or unparsable
+//   [Limited]         a number limited to non-negative (long), greater than zero
+//                     (unsigned long, which throws IndexSizeError) or greater than
+//                     zero (double, where a smaller value is ignored)
+//   [Fallback]        an unsigned long greater than zero where a zero written takes [Default]
+//   [Clamp=(lo, hi)]  an unsigned long clamped on reading to that range
+// The types it reads: DOMString, USVString, boolean, long, unsigned long,
+// double, and a trailing `?` for an enumerated attribute that reads as null
+// in a state with no keyword, and whose content attribute null removes.
 
 [Existing]
 interface HTMLElement {
   [Reflect] attribute DOMString title;
   [Reflect] attribute DOMString lang;
-  [Reflect] attribute DOMString dir;
+  [Reflect, Enum=("ltr", "rtl", "auto")] attribute DOMString dir;
   [Reflect] attribute DOMString accessKey;
   [Reflect] attribute DOMString nonce;
   [Reflect] attribute DOMString popover;
@@ -29,6 +44,10 @@ interface HTMLElement {
   [Reflect] attribute boolean draggable;
   [Reflect] attribute boolean spellcheck;
   [Reflect] attribute boolean translate;
+  [Reflect, Enum=("none", "text", "tel", "url", "email", "numeric", "decimal", "search"), Missing="", Invalid=""]
+      attribute DOMString inputMode;
+  [Reflect, Enum=("enter", "done", "go", "next", "previous", "search", "send"), Missing="", Invalid=""]
+      attribute DOMString enterKeyHint;
 };
 
 [Tags=(a)]
@@ -39,8 +58,16 @@ interface HTMLAnchorElement : HTMLElement {
   [Reflect] attribute DOMString download;
   [Reflect] attribute DOMString hreflang;
   [Reflect] attribute DOMString type;
-  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect, Enum=("", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin",
+      "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"), Missing="", Invalid=""]
+      attribute DOMString referrerPolicy;
   [Reflect] attribute DOMString ping;
+  // Obsolete (HTML §16.3.2).
+  [Reflect] attribute DOMString coords;
+  [Reflect] attribute DOMString charset;
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString rev;
+  [Reflect] attribute DOMString shape;
 };
 
 [Tags=(area)]
@@ -51,17 +78,21 @@ interface HTMLAreaElement : HTMLElement {
   [Reflect] attribute DOMString download;
   [Reflect] attribute DOMString hreflang;
   [Reflect] attribute DOMString type;
-  [Reflect] attribute DOMString referrerPolicy;
+  [Reflect, Enum=("", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin",
+      "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"), Missing="", Invalid=""]
+      attribute DOMString referrerPolicy;
   [Reflect] attribute DOMString ping;
   [Reflect] attribute DOMString alt;
   [Reflect] attribute DOMString coords;
   [Reflect] attribute DOMString shape;
+  // Obsolete.
+  [Reflect] attribute boolean noHref;
 };
 
 interface HTMLMediaElement : HTMLElement {
   [Reflect, URL] attribute USVString src;
-  [Reflect] attribute DOMString preload;
-  [Reflect] attribute DOMString crossOrigin;
+  [Reflect, Enum=("none", "metadata", "auto"), Missing="metadata", Invalid="metadata"] attribute DOMString preload;
+  [Reflect, Enum=("anonymous", "use-credentials"), Invalid="anonymous"] attribute DOMString? crossOrigin;
   [Reflect] attribute boolean autoplay;
   [Reflect] attribute boolean loop;
   [Reflect] attribute boolean controls;
@@ -80,10 +111,19 @@ interface HTMLBaseElement : HTMLElement {
 
 [Tags=(body)]
 interface HTMLBodyElement : HTMLElement {
+  // Obsolete.
+  [Reflect, LegacyNullToEmptyString] attribute DOMString text;
+  [Reflect, LegacyNullToEmptyString] attribute DOMString link;
+  [Reflect=vlink, LegacyNullToEmptyString] attribute DOMString vLink;
+  [Reflect=alink, LegacyNullToEmptyString] attribute DOMString aLink;
+  [Reflect=bgcolor, LegacyNullToEmptyString] attribute DOMString bgColor;
+  [Reflect] attribute DOMString background;
 };
 
 [Tags=(br)]
 interface HTMLBRElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString clear;
 };
 
 [Tags=(button)]
@@ -92,16 +132,18 @@ interface HTMLButtonElement : HTMLElement {
   [Reflect] attribute DOMString name;
   [Reflect] attribute boolean autofocus;
   [Reflect] attribute DOMString value;
-  [Reflect] attribute DOMString formAction;
-  [Reflect] attribute DOMString formMethod;
-  [Reflect] attribute DOMString formTarget;
-  [Reflect] attribute boolean formNoValidate;
+  [Reflect=formaction, URL, OrDocumentUrl] attribute USVString formAction;
+  [Reflect=formenctype, Enum=("application/x-www-form-urlencoded", "multipart/form-data", "text/plain"),
+      Missing="", Invalid="application/x-www-form-urlencoded"] attribute DOMString formEnctype;
+  [Reflect=formmethod, Enum=("get", "post", "dialog"), Missing="", Invalid="get"] attribute DOMString formMethod;
+  [Reflect=formtarget] attribute DOMString formTarget;
+  [Reflect=formnovalidate] attribute boolean formNoValidate;
 };
 
 [Tags=(canvas)]
 interface HTMLCanvasElement : HTMLElement {
-  [Reflect, Default=300] attribute long width;
-  [Reflect, Default=150] attribute long height;
+  [Reflect, Default=300] attribute unsigned long width;
+  [Reflect, Default=150] attribute unsigned long height;
 };
 
 [Tags=(data)]
@@ -124,12 +166,22 @@ interface HTMLDialogElement : HTMLElement {
   [Reflect] attribute DOMString returnValue;
 };
 
+// Obsolete (HTML §16.3.2): the <dir> element.
+[Tags=(dir)]
+interface HTMLDirectoryElement : HTMLElement {
+  [Reflect] attribute boolean compact;
+};
+
 [Tags=(div)]
 interface HTMLDivElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
 };
 
 [Tags=(dl)]
 interface HTMLDListElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute boolean compact;
 };
 
 [Tags=(embed)]
@@ -140,6 +192,8 @@ interface HTMLEmbedElement : HTMLElement {
   [Reflect] attribute DOMString width;
   [Reflect] attribute DOMString height;
   [Reflect] attribute DOMString name;
+  // Obsolete.
+  [Reflect] attribute DOMString align;
 };
 
 [Tags=(fieldset)]
@@ -149,30 +203,40 @@ interface HTMLFieldSetElement : HTMLElement {
   [Reflect] attribute boolean autofocus;
 };
 
+// Obsolete (HTML §16.3.2): the <font> element.
+[Tags=(font)]
+interface HTMLFontElement : HTMLElement {
+  [Reflect, LegacyNullToEmptyString] attribute DOMString color;
+  [Reflect] attribute DOMString face;
+  [Reflect] attribute DOMString size;
+};
+
 [Tags=(form)]
 interface HTMLFormElement : HTMLElement {
   [Reflect] attribute DOMString name;
   [Reflect] attribute DOMString target;
-  [Reflect] attribute DOMString enctype;
-  [Reflect=enctype] attribute DOMString encoding;
+  [Reflect, Enum=("application/x-www-form-urlencoded", "multipart/form-data", "text/plain"),
+      Missing="application/x-www-form-urlencoded", Invalid="application/x-www-form-urlencoded"]
+      attribute DOMString enctype;
+  [Reflect=enctype, Enum=("application/x-www-form-urlencoded", "multipart/form-data", "text/plain"),
+      Missing="application/x-www-form-urlencoded", Invalid="application/x-www-form-urlencoded"]
+      attribute DOMString encoding;
   [Reflect="accept-charset"] attribute DOMString acceptCharset;
-  [Reflect] attribute DOMString autocomplete;
-  [Reflect] attribute boolean noValidate;
+  [Reflect, Enum=("on", "off"), Missing="on", Invalid="on"] attribute DOMString autocomplete;
+  [Reflect=novalidate] attribute boolean noValidate;
 };
 
-// Obsolete (HTML §16.3.2). marginHeight and marginWidth are
-// [LegacyNullToEmptyString] in HTML, which is not modelled here: null sets
-// "null".
+// Obsolete (HTML §16.3.2).
 [Tags=(frame)]
 interface HTMLFrameElement : HTMLElement {
   [Reflect] attribute DOMString name;
   [Reflect] attribute DOMString scrolling;
   [Reflect, URL] attribute USVString src;
-  [Reflect] attribute DOMString frameBorder;
-  [Reflect, URL] attribute USVString longDesc;
-  [Reflect] attribute boolean noResize;
-  [Reflect] attribute DOMString marginHeight;
-  [Reflect] attribute DOMString marginWidth;
+  [Reflect=frameborder] attribute DOMString frameBorder;
+  [Reflect=longdesc, URL] attribute USVString longDesc;
+  [Reflect=noresize] attribute boolean noResize;
+  [Reflect=marginheight, LegacyNullToEmptyString] attribute DOMString marginHeight;
+  [Reflect=marginwidth, LegacyNullToEmptyString] attribute DOMString marginWidth;
 };
 
 [Tags=(frameset)]
@@ -183,6 +247,8 @@ interface HTMLFrameSetElement : HTMLElement {
 
 [Tags=(h1, h2, h3, h4, h5, h6)]
 interface HTMLHeadingElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
 };
 
 [Tags=(head)]
@@ -191,10 +257,18 @@ interface HTMLHeadElement : HTMLElement {
 
 [Tags=(hr)]
 interface HTMLHRElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect] attribute DOMString color;
+  [Reflect=noshade] attribute boolean noShade;
+  [Reflect] attribute DOMString size;
+  [Reflect] attribute DOMString width;
 };
 
 [Tags=(html)]
 interface HTMLHtmlElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString version;
 };
 
 [Tags=(iframe)]
@@ -205,9 +279,18 @@ interface HTMLIFrameElement : HTMLElement {
   [Reflect] attribute DOMString allow;
   [Reflect] attribute DOMString width;
   [Reflect] attribute DOMString height;
-  [Reflect] attribute DOMString loading;
-  [Reflect] attribute DOMString referrerPolicy;
-  [Reflect] attribute boolean allowFullscreen;
+  [Reflect, Enum=("lazy", "eager"), Missing="eager", Invalid="eager"] attribute DOMString loading;
+  [Reflect, Enum=("", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin",
+      "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"), Missing="", Invalid=""]
+      attribute DOMString referrerPolicy;
+  [Reflect=allowfullscreen] attribute boolean allowFullscreen;
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect] attribute DOMString scrolling;
+  [Reflect=frameborder] attribute DOMString frameBorder;
+  [Reflect=longdesc, URL] attribute USVString longDesc;
+  [Reflect=marginheight, LegacyNullToEmptyString] attribute DOMString marginHeight;
+  [Reflect=marginwidth, LegacyNullToEmptyString] attribute DOMString marginWidth;
 };
 
 [Tags=(img)]
@@ -216,13 +299,23 @@ interface HTMLImageElement : HTMLElement {
   [Reflect] attribute DOMString srcset;
   [Reflect] attribute DOMString sizes;
   [Reflect] attribute DOMString alt;
-  [Reflect] attribute DOMString crossOrigin;
-  [Reflect] attribute DOMString useMap;
-  [Reflect] attribute DOMString loading;
-  [Reflect] attribute DOMString decoding;
-  [Reflect] attribute DOMString fetchPriority;
-  [Reflect] attribute DOMString referrerPolicy;
-  [Reflect] attribute boolean isMap;
+  [Reflect, Enum=("anonymous", "use-credentials"), Invalid="anonymous"] attribute DOMString? crossOrigin;
+  [Reflect=usemap] attribute DOMString useMap;
+  [Reflect, Enum=("lazy", "eager"), Missing="eager", Invalid="eager"] attribute DOMString loading;
+  [Reflect, Enum=("async", "sync", "auto"), Missing="auto", Invalid="auto"] attribute DOMString decoding;
+  [Reflect=fetchpriority] attribute DOMString fetchPriority;
+  [Reflect, Enum=("", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin",
+      "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"), Missing="", Invalid=""]
+      attribute DOMString referrerPolicy;
+  [Reflect=ismap] attribute boolean isMap;
+  // Obsolete.
+  [Reflect] attribute DOMString name;
+  [Reflect, URL] attribute USVString lowsrc;
+  [Reflect] attribute DOMString align;
+  [Reflect] attribute unsigned long hspace;
+  [Reflect] attribute unsigned long vspace;
+  [Reflect=longdesc, URL] attribute USVString longDesc;
+  [Reflect, LegacyNullToEmptyString] attribute DOMString border;
 };
 
 [Tags=(input)]
@@ -236,19 +329,29 @@ interface HTMLInputElement : HTMLElement {
   [Reflect] attribute DOMString accept;
   [Reflect] attribute DOMString alt;
   [Reflect] attribute DOMString autocomplete;
+  [Reflect=dirname] attribute DOMString dirName;
   [Reflect] attribute DOMString max;
   [Reflect] attribute DOMString min;
   [Reflect] attribute DOMString step;
   [Reflect] attribute DOMString pattern;
   [Reflect, URL] attribute USVString src;
-  [Reflect] attribute DOMString formAction;
-  [Reflect] attribute DOMString inputMode;
+  [Reflect=formaction, URL, OrDocumentUrl] attribute USVString formAction;
+  [Reflect=formenctype, Enum=("application/x-www-form-urlencoded", "multipart/form-data", "text/plain"),
+      Missing="", Invalid="application/x-www-form-urlencoded"] attribute DOMString formEnctype;
+  [Reflect=formmethod, Enum=("get", "post"), Missing="", Invalid="get"] attribute DOMString formMethod;
+  [Reflect=formtarget] attribute DOMString formTarget;
+  [Reflect=formnovalidate] attribute boolean formNoValidate;
   [Reflect] attribute boolean required;
-  [Reflect] attribute boolean readOnly;
+  [Reflect=readonly] attribute boolean readOnly;
   [Reflect] attribute boolean multiple;
-  [Reflect, Default=-1] attribute long maxLength;
-  [Reflect, Default=-1] attribute long minLength;
-  [Reflect, Default=20] attribute long size;
+  [Reflect=maxlength, Limited] attribute long maxLength;
+  [Reflect=minlength, Limited] attribute long minLength;
+  [Reflect, Limited, Default=20] attribute unsigned long size;
+  [Reflect] attribute unsigned long width;
+  [Reflect] attribute unsigned long height;
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect=usemap] attribute DOMString useMap;
 };
 
 [Tags=(label)]
@@ -258,12 +361,15 @@ interface HTMLLabelElement : HTMLElement {
 
 [Tags=(legend)]
 interface HTMLLegendElement : HTMLElement {
+  // Obsolete.
   [Reflect] attribute DOMString align;
 };
 
 [Tags=(li)]
 interface HTMLLIElement : HTMLElement {
   [Reflect, Default=0] attribute long value;
+  // Obsolete.
+  [Reflect] attribute DOMString type;
 };
 
 [Tags=(link)]
@@ -272,14 +378,21 @@ interface HTMLLinkElement : HTMLElement {
   [Reflect] attribute DOMString rel;
   [Reflect] attribute DOMString type;
   [Reflect] attribute DOMString media;
-  [Reflect] attribute DOMString as;
+  [Reflect, Enum=("fetch", "audio", "document", "embed", "font", "image", "manifest", "object", "report", "script",
+      "sharedworker", "style", "track", "video", "worker", "xslt"), Missing="", Invalid=""] attribute DOMString as;
   [Reflect] attribute DOMString hreflang;
-  [Reflect] attribute DOMString crossOrigin;
+  [Reflect, Enum=("anonymous", "use-credentials"), Invalid="anonymous"] attribute DOMString? crossOrigin;
   [Reflect] attribute DOMString integrity;
-  [Reflect] attribute DOMString referrerPolicy;
-  [Reflect] attribute DOMString imageSrcset;
-  [Reflect] attribute DOMString imageSizes;
+  [Reflect, Enum=("", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin",
+      "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"), Missing="", Invalid=""]
+      attribute DOMString referrerPolicy;
+  [Reflect=imagesrcset] attribute DOMString imageSrcset;
+  [Reflect=imagesizes] attribute DOMString imageSizes;
   [Reflect] attribute boolean disabled;
+  // Obsolete.
+  [Reflect] attribute DOMString charset;
+  [Reflect] attribute DOMString rev;
+  [Reflect] attribute DOMString target;
 };
 
 [Tags=(map)]
@@ -287,8 +400,25 @@ interface HTMLMapElement : HTMLElement {
   [Reflect] attribute DOMString name;
 };
 
+// Obsolete (HTML §16.3.2): the <marquee> element.
+[Tags=(marquee)]
+interface HTMLMarqueeElement : HTMLElement {
+  [Reflect, Enum=("scroll", "slide", "alternate"), Missing="scroll", Invalid="scroll"] attribute DOMString behavior;
+  [Reflect=bgcolor] attribute DOMString bgColor;
+  [Reflect, Enum=("left", "right", "up", "down"), Missing="left", Invalid="left"] attribute DOMString direction;
+  [Reflect] attribute DOMString height;
+  [Reflect] attribute unsigned long hspace;
+  [Reflect=scrollamount, Default=6] attribute unsigned long scrollAmount;
+  [Reflect=scrolldelay, Default=85] attribute unsigned long scrollDelay;
+  [Reflect=truespeed] attribute boolean trueSpeed;
+  [Reflect] attribute unsigned long vspace;
+  [Reflect] attribute DOMString width;
+};
+
 [Tags=(menu)]
 interface HTMLMenuElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute boolean compact;
 };
 
 [Tags=(meta)]
@@ -306,8 +436,8 @@ interface HTMLMeterElement : HTMLElement {
 
 [Tags=(ins, del)]
 interface HTMLModElement : HTMLElement {
-  [Reflect] attribute DOMString cite;
-  [Reflect] attribute DOMString dateTime;
+  [Reflect, URL] attribute USVString cite;
+  [Reflect=datetime] attribute DOMString dateTime;
 };
 
 [Tags=(object)]
@@ -318,7 +448,18 @@ interface HTMLObjectElement : HTMLElement {
   [Reflect] attribute DOMString width;
   [Reflect] attribute DOMString height;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute DOMString useMap;
+  [Reflect=usemap] attribute DOMString useMap;
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect] attribute DOMString archive;
+  [Reflect] attribute DOMString code;
+  [Reflect] attribute boolean declare;
+  [Reflect] attribute unsigned long hspace;
+  [Reflect] attribute DOMString standby;
+  [Reflect] attribute unsigned long vspace;
+  [Reflect=codebase, URL] attribute USVString codeBase;
+  [Reflect=codetype] attribute DOMString codeType;
+  [Reflect, LegacyNullToEmptyString] attribute DOMString border;
 };
 
 [Tags=(ol)]
@@ -326,6 +467,8 @@ interface HTMLOListElement : HTMLElement {
   [Reflect] attribute DOMString type;
   [Reflect] attribute boolean reversed;
   [Reflect, Default=1] attribute long start;
+  // Obsolete.
+  [Reflect] attribute boolean compact;
 };
 
 [Tags=(optgroup)]
@@ -351,6 +494,17 @@ interface HTMLOutputElement : HTMLElement {
 
 [Tags=(p)]
 interface HTMLParagraphElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+};
+
+// Obsolete (HTML §16.3.2): the <param> element.
+[Tags=(param)]
+interface HTMLParamElement : HTMLElement {
+  [Reflect] attribute DOMString name;
+  [Reflect] attribute DOMString value;
+  [Reflect] attribute DOMString type;
+  [Reflect=valuetype] attribute DOMString valueType;
 };
 
 [Tags=(picture)]
@@ -359,15 +513,18 @@ interface HTMLPictureElement : HTMLElement {
 
 [Tags=(pre, listing, xmp)]
 interface HTMLPreElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute long width;
 };
 
 [Tags=(progress)]
 interface HTMLProgressElement : HTMLElement {
+  [Reflect, Limited, Default=1] attribute double max;
 };
 
 [Tags=(q, blockquote)]
 interface HTMLQuoteElement : HTMLElement {
-  [Reflect] attribute DOMString cite;
+  [Reflect, URL] attribute USVString cite;
 };
 
 [Tags=(script)]
@@ -375,13 +532,18 @@ interface HTMLScriptElement : HTMLElement {
   [Reflect, URL] attribute USVString src;
   [Reflect] attribute DOMString type;
   [Reflect] attribute DOMString charset;
-  [Reflect] attribute DOMString crossOrigin;
+  [Reflect, Enum=("anonymous", "use-credentials"), Invalid="anonymous"] attribute DOMString? crossOrigin;
   [Reflect] attribute DOMString integrity;
-  [Reflect] attribute DOMString referrerPolicy;
-  [Reflect] attribute DOMString fetchPriority;
+  [Reflect, Enum=("", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin",
+      "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"), Missing="", Invalid=""]
+      attribute DOMString referrerPolicy;
+  [Reflect=fetchpriority] attribute DOMString fetchPriority;
   [Reflect] attribute boolean async;
   [Reflect] attribute boolean defer;
-  [Reflect] attribute boolean noModule;
+  [Reflect=nomodule] attribute boolean noModule;
+  // Obsolete.
+  [Reflect] attribute DOMString event;
+  [Reflect=for] attribute DOMString htmlFor;
 };
 
 [Tags=(select)]
@@ -392,7 +554,7 @@ interface HTMLSelectElement : HTMLElement {
   [Reflect] attribute boolean multiple;
   [Reflect] attribute boolean required;
   [Reflect] attribute DOMString autocomplete;
-  [Reflect, Default=0] attribute long size;
+  [Reflect, Default=0] attribute unsigned long size;
 };
 
 [Tags=(slot)]
@@ -422,32 +584,71 @@ interface HTMLStyleElement : HTMLElement {
 
 [Tags=(caption)]
 interface HTMLTableCaptionElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
 };
 
 [Tags=(td, th)]
 interface HTMLTableCellElement : HTMLElement {
-  [Reflect, Default=1] attribute long colSpan;
-  [Reflect, Default=1] attribute long rowSpan;
+  [Reflect=colspan, Default=1, Clamp=(1, 1000)] attribute unsigned long colSpan;
+  [Reflect=rowspan, Default=1, Clamp=(0, 65534)] attribute unsigned long rowSpan;
   [Reflect] attribute DOMString headers;
-  [Reflect] attribute DOMString scope;
+  [Reflect, Enum=("row", "col", "rowgroup", "colgroup"), Missing="", Invalid=""] attribute DOMString scope;
   [Reflect] attribute DOMString abbr;
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect] attribute DOMString axis;
+  [Reflect] attribute DOMString height;
+  [Reflect] attribute DOMString width;
+  [Reflect=char] attribute DOMString ch;
+  [Reflect=charoff] attribute DOMString chOff;
+  [Reflect=nowrap] attribute boolean noWrap;
+  [Reflect=valign] attribute DOMString vAlign;
+  [Reflect=bgcolor, LegacyNullToEmptyString] attribute DOMString bgColor;
 };
 
 [Tags=(col, colgroup)]
 interface HTMLTableColElement : HTMLElement {
-  [Reflect, Default=1] attribute long span;
+  [Reflect, Default=1, Clamp=(1, 1000)] attribute unsigned long span;
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect=char] attribute DOMString ch;
+  [Reflect=charoff] attribute DOMString chOff;
+  [Reflect=valign] attribute DOMString vAlign;
+  [Reflect] attribute DOMString width;
 };
 
 [Tags=(table)]
 interface HTMLTableElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect] attribute DOMString border;
+  [Reflect] attribute DOMString frame;
+  [Reflect] attribute DOMString rules;
+  [Reflect] attribute DOMString summary;
+  [Reflect] attribute DOMString width;
+  [Reflect=bgcolor, LegacyNullToEmptyString] attribute DOMString bgColor;
+  [Reflect=cellpadding, LegacyNullToEmptyString] attribute DOMString cellPadding;
+  [Reflect=cellspacing, LegacyNullToEmptyString] attribute DOMString cellSpacing;
 };
 
 [Tags=(tr)]
 interface HTMLTableRowElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect=char] attribute DOMString ch;
+  [Reflect=charoff] attribute DOMString chOff;
+  [Reflect=valign] attribute DOMString vAlign;
+  [Reflect=bgcolor, LegacyNullToEmptyString] attribute DOMString bgColor;
 };
 
 [Tags=(tbody, thead, tfoot)]
 interface HTMLTableSectionElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute DOMString align;
+  [Reflect=char] attribute DOMString ch;
+  [Reflect=charoff] attribute DOMString chOff;
+  [Reflect=valign] attribute DOMString vAlign;
 };
 
 [Tags=(template)]
@@ -462,17 +663,18 @@ interface HTMLTextAreaElement : HTMLElement {
   [Reflect] attribute DOMString placeholder;
   [Reflect] attribute DOMString wrap;
   [Reflect] attribute DOMString autocomplete;
+  [Reflect=dirname] attribute DOMString dirName;
   [Reflect] attribute boolean required;
-  [Reflect] attribute boolean readOnly;
-  [Reflect, Default=2] attribute long rows;
-  [Reflect, Default=20] attribute long cols;
-  [Reflect, Default=-1] attribute long maxLength;
-  [Reflect, Default=-1] attribute long minLength;
+  [Reflect=readonly] attribute boolean readOnly;
+  [Reflect, Fallback, Default=2] attribute unsigned long rows;
+  [Reflect, Fallback, Default=20] attribute unsigned long cols;
+  [Reflect=maxlength, Limited] attribute long maxLength;
+  [Reflect=minlength, Limited] attribute long minLength;
 };
 
 [Tags=(time)]
 interface HTMLTimeElement : HTMLElement {
-  [Reflect] attribute DOMString dateTime;
+  [Reflect=datetime] attribute DOMString dateTime;
 };
 
 [Tags=(title)]
@@ -482,7 +684,8 @@ interface HTMLTitleElement : HTMLElement {
 [Tags=(track)]
 interface HTMLTrackElement : HTMLElement {
   [Reflect, URL] attribute USVString src;
-  [Reflect] attribute DOMString kind;
+  [Reflect, Enum=("subtitles", "captions", "descriptions", "chapters", "metadata"), Missing="subtitles",
+      Invalid="metadata"] attribute DOMString kind;
   [Reflect] attribute DOMString srclang;
   [Reflect] attribute DOMString label;
   [Reflect] attribute boolean default;
@@ -490,16 +693,18 @@ interface HTMLTrackElement : HTMLElement {
 
 [Tags=(ul)]
 interface HTMLUListElement : HTMLElement {
+  // Obsolete.
+  [Reflect] attribute boolean compact;
+  [Reflect] attribute DOMString type;
 };
 
 [Tags=(video)]
 interface HTMLVideoElement : HTMLMediaElement {
-  [Reflect, Default=0] attribute long width;
-  [Reflect, Default=0] attribute long height;
+  [Reflect] attribute unsigned long width;
+  [Reflect] attribute unsigned long height;
   [Reflect, URL] attribute USVString poster;
-  [Reflect] attribute boolean playsInline;
+  [Reflect=playsinline] attribute boolean playsInline;
 };
 
 interface HTMLUnknownElement : HTMLElement {
 };
-

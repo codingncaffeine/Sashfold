@@ -1094,9 +1094,16 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::undefined();
         });
     }
+    // A meter's six numbers, and a progress bar's value, read their content
+    // attribute as a number. The progress bar has only value and max, and its
+    // max is an ordinary reflection limited to numbers greater than zero
+    // (idl/html-elements.idl), so nothing here may overwrite it.
     for (std::string_view const name : { "HTMLProgressElement", "HTMLMeterElement" }) {
         js::Object& proto = proto_of(name);
+        bool const meter = name == "HTMLMeterElement";
         for (std::string_view const attribute : { "value", "max", "min", "low", "high", "optimum" }) {
+            if (!meter && attribute != "value")
+                continue;
             std::string const attribute_name(attribute);
             element_accessor(
                 in, proto, attribute,

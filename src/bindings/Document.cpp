@@ -390,10 +390,48 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_getter(in, *document, "lastModified", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("01/01/1970 00:00:00"); });
     document_getter(in, *document, "hidden", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::boolean(false); });
     document_getter(in, *document, "visibilityState", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("visible"); });
-    document_getter(in, *document, "dir", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        dom::Element* html = document_element(d);
-        return internals.string(html ? attribute_or_empty(*html, "dir") : "");
-    });
+    // The document's own reflections, which read and write a content
+    // attribute of another element: dir is the root element's, and the
+    // colour attributes are the body element's (HTML §3.1.1, §16.3.3).
+    // With no such element there is nothing to read and nowhere to write.
+    document_accessor(
+        in, *document, "dir",
+        [](Realm::Internals& internals, dom::Document& d) -> Native {
+            dom::Element* html = document_element(d);
+            if (!html)
+                return internals.string("");
+            std::string const value = ascii_lower(attribute_or_empty(*html, "dir"));
+            bool const known = value == "ltr" || value == "rtl" || value == "auto";
+            return internals.string(known && html->has_attribute("dir") ? value : "");
+        },
+        [](Realm::Internals& internals, dom::Document& d, js::Value const& value) -> Native {
+            std::optional<std::string> text = internals.to_utf8(value);
+            if (!text)
+                return std::nullopt;
+            if (dom::Element* html = document_element(d))
+                set_attribute(internals, *html, "dir", std::move(*text));
+            return js::Value::undefined();
+        });
+    for (auto const& [property, attribute] : { std::pair<std::string_view, std::string_view> { "fgColor", "text" },
+             { "linkColor", "link" }, { "vlinkColor", "vlink" }, { "alinkColor", "alink" }, { "bgColor", "bgcolor" } }) {
+        std::string const name(attribute);
+        document_accessor(
+            in, *document, property,
+            [name](Realm::Internals& internals, dom::Document& d) -> Native {
+                dom::Element* body = body_element(d);
+                return internals.string(body ? attribute_or_empty(*body, name) : "");
+            },
+            [name](Realm::Internals& internals, dom::Document& d, js::Value const& value) -> Native {
+                // [LegacyNullToEmptyString]: null writes the empty string.
+                std::optional<std::string> text
+                    = value.is_null() ? std::optional<std::string>("") : internals.to_utf8(value);
+                if (!text)
+                    return std::nullopt;
+                if (dom::Element* body = body_element(d))
+                    set_attribute(internals, *body, name, std::move(*text));
+                return js::Value::undefined();
+            });
+    }
     document_getter(in, *document, "designMode", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("off"); });
     document_getter(in, *document, "activeElement", [](Realm::Internals& internals, dom::Document& d) -> Native {
         dom::Element const* focused = focused_element(internals);

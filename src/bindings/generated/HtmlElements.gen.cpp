@@ -37,6 +37,8 @@ void install_html_element_interfaces(Realm::Internals& in)
     in.tag_interfaces["details"] = "HTMLDetailsElement";
     define_interface(in, "HTMLDialogElement", in.prototype("HTMLElement"));
     in.tag_interfaces["dialog"] = "HTMLDialogElement";
+    define_interface(in, "HTMLDirectoryElement", in.prototype("HTMLElement"));
+    in.tag_interfaces["dir"] = "HTMLDirectoryElement";
     define_interface(in, "HTMLDivElement", in.prototype("HTMLElement"));
     in.tag_interfaces["div"] = "HTMLDivElement";
     define_interface(in, "HTMLDListElement", in.prototype("HTMLElement"));
@@ -45,6 +47,8 @@ void install_html_element_interfaces(Realm::Internals& in)
     in.tag_interfaces["embed"] = "HTMLEmbedElement";
     define_interface(in, "HTMLFieldSetElement", in.prototype("HTMLElement"));
     in.tag_interfaces["fieldset"] = "HTMLFieldSetElement";
+    define_interface(in, "HTMLFontElement", in.prototype("HTMLElement"));
+    in.tag_interfaces["font"] = "HTMLFontElement";
     define_interface(in, "HTMLFormElement", in.prototype("HTMLElement"));
     in.tag_interfaces["form"] = "HTMLFormElement";
     define_interface(in, "HTMLFrameElement", in.prototype("HTMLElement"));
@@ -80,6 +84,8 @@ void install_html_element_interfaces(Realm::Internals& in)
     in.tag_interfaces["link"] = "HTMLLinkElement";
     define_interface(in, "HTMLMapElement", in.prototype("HTMLElement"));
     in.tag_interfaces["map"] = "HTMLMapElement";
+    define_interface(in, "HTMLMarqueeElement", in.prototype("HTMLElement"));
+    in.tag_interfaces["marquee"] = "HTMLMarqueeElement";
     define_interface(in, "HTMLMenuElement", in.prototype("HTMLElement"));
     in.tag_interfaces["menu"] = "HTMLMenuElement";
     define_interface(in, "HTMLMetaElement", in.prototype("HTMLElement"));
@@ -101,6 +107,8 @@ void install_html_element_interfaces(Realm::Internals& in)
     in.tag_interfaces["output"] = "HTMLOutputElement";
     define_interface(in, "HTMLParagraphElement", in.prototype("HTMLElement"));
     in.tag_interfaces["p"] = "HTMLParagraphElement";
+    define_interface(in, "HTMLParamElement", in.prototype("HTMLElement"));
+    in.tag_interfaces["param"] = "HTMLParamElement";
     define_interface(in, "HTMLPictureElement", in.prototype("HTMLElement"));
     in.tag_interfaces["picture"] = "HTMLPictureElement";
     define_interface(in, "HTMLPreElement", in.prototype("HTMLElement"));
@@ -166,7 +174,9 @@ void install_reflected_attributes(Realm::Internals& in)
         js::Object& proto = *in.prototype("HTMLElement");
         reflect_string(in, proto, "title", "title");
         reflect_string(in, proto, "lang", "lang");
-        reflect_string(in, proto, "dir", "dir");
+        reflect_enum(in, proto, "dir", "dir",
+            ReflectedEnum { { { "ltr", "" }, { "rtl", "" }, { "auto", "" } },
+                std::nullopt, std::nullopt, false });
         reflect_string(in, proto, "accessKey", "accesskey");
         reflect_string(in, proto, "nonce", "nonce");
         reflect_string(in, proto, "popover", "popover");
@@ -176,6 +186,14 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_boolean(in, proto, "draggable", "draggable");
         reflect_boolean(in, proto, "spellcheck", "spellcheck");
         reflect_boolean(in, proto, "translate", "translate");
+        reflect_enum(in, proto, "inputMode", "inputmode",
+            ReflectedEnum { { { "none", "" }, { "text", "" }, { "tel", "" }, { "url", "" }, { "email", "" }, { "numeric", "" },
+                 { "decimal", "" }, { "search", "" } },
+                "", "", false });
+        reflect_enum(in, proto, "enterKeyHint", "enterkeyhint",
+            ReflectedEnum { { { "enter", "" }, { "done", "" }, { "go", "" }, { "next", "" }, { "previous", "" },
+                 { "search", "" }, { "send", "" } },
+                "", "", false });
     }
     {
         js::Object& proto = *in.prototype("HTMLAnchorElement");
@@ -185,8 +203,17 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "download", "download");
         reflect_string(in, proto, "hreflang", "hreflang");
         reflect_string(in, proto, "type", "type");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
+        reflect_enum(in, proto, "referrerPolicy", "referrerpolicy",
+            ReflectedEnum { { { "", "" }, { "no-referrer", "" }, { "no-referrer-when-downgrade", "" }, { "same-origin", "" },
+                 { "origin", "" }, { "strict-origin", "" }, { "origin-when-cross-origin", "" },
+                 { "strict-origin-when-cross-origin", "" }, { "unsafe-url", "" } },
+                "", "", false });
         reflect_string(in, proto, "ping", "ping");
+        reflect_string(in, proto, "coords", "coords");
+        reflect_string(in, proto, "charset", "charset");
+        reflect_string(in, proto, "name", "name");
+        reflect_string(in, proto, "rev", "rev");
+        reflect_string(in, proto, "shape", "shape");
     }
     {
         js::Object& proto = *in.prototype("HTMLAreaElement");
@@ -196,17 +223,26 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "download", "download");
         reflect_string(in, proto, "hreflang", "hreflang");
         reflect_string(in, proto, "type", "type");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
+        reflect_enum(in, proto, "referrerPolicy", "referrerpolicy",
+            ReflectedEnum { { { "", "" }, { "no-referrer", "" }, { "no-referrer-when-downgrade", "" }, { "same-origin", "" },
+                 { "origin", "" }, { "strict-origin", "" }, { "origin-when-cross-origin", "" },
+                 { "strict-origin-when-cross-origin", "" }, { "unsafe-url", "" } },
+                "", "", false });
         reflect_string(in, proto, "ping", "ping");
         reflect_string(in, proto, "alt", "alt");
         reflect_string(in, proto, "coords", "coords");
         reflect_string(in, proto, "shape", "shape");
+        reflect_boolean(in, proto, "noHref", "nohref");
     }
     {
         js::Object& proto = *in.prototype("HTMLMediaElement");
         reflect_url(in, proto, "src", "src");
-        reflect_string(in, proto, "preload", "preload");
-        reflect_string(in, proto, "crossOrigin", "crossorigin");
+        reflect_enum(in, proto, "preload", "preload",
+            ReflectedEnum { { { "none", "" }, { "metadata", "" }, { "auto", "" } },
+                "metadata", "metadata", false });
+        reflect_enum(in, proto, "crossOrigin", "crossorigin",
+            ReflectedEnum { { { "anonymous", "" }, { "use-credentials", "" } },
+                std::nullopt, "anonymous", true });
         reflect_boolean(in, proto, "autoplay", "autoplay");
         reflect_boolean(in, proto, "loop", "loop");
         reflect_boolean(in, proto, "controls", "controls");
@@ -218,20 +254,38 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "target", "target");
     }
     {
+        js::Object& proto = *in.prototype("HTMLBodyElement");
+        reflect_string(in, proto, "text", "text", true);
+        reflect_string(in, proto, "link", "link", true);
+        reflect_string(in, proto, "vLink", "vlink", true);
+        reflect_string(in, proto, "aLink", "alink", true);
+        reflect_string(in, proto, "bgColor", "bgcolor", true);
+        reflect_string(in, proto, "background", "background");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLBRElement");
+        reflect_string(in, proto, "clear", "clear");
+    }
+    {
         js::Object& proto = *in.prototype("HTMLButtonElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
         reflect_boolean(in, proto, "autofocus", "autofocus");
         reflect_string(in, proto, "value", "value");
-        reflect_string(in, proto, "formAction", "formaction");
-        reflect_string(in, proto, "formMethod", "formmethod");
+        reflect_url(in, proto, "formAction", "formaction", true);
+        reflect_enum(in, proto, "formEnctype", "formenctype",
+            ReflectedEnum { { { "application/x-www-form-urlencoded", "" }, { "multipart/form-data", "" }, { "text/plain", "" } },
+                "", "application/x-www-form-urlencoded", false });
+        reflect_enum(in, proto, "formMethod", "formmethod",
+            ReflectedEnum { { { "get", "" }, { "post", "" }, { "dialog", "" } },
+                "", "get", false });
         reflect_string(in, proto, "formTarget", "formtarget");
         reflect_boolean(in, proto, "formNoValidate", "formnovalidate");
     }
     {
         js::Object& proto = *in.prototype("HTMLCanvasElement");
-        reflect_long(in, proto, "width", "width", 300);
-        reflect_long(in, proto, "height", "height", 150);
+        reflect_number(in, proto, "width", "width", ReflectedNumber::UnsignedLong, 300);
+        reflect_number(in, proto, "height", "height", ReflectedNumber::UnsignedLong, 150);
     }
     {
         js::Object& proto = *in.prototype("HTMLDataElement");
@@ -247,6 +301,18 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "returnValue", "returnvalue");
     }
     {
+        js::Object& proto = *in.prototype("HTMLDirectoryElement");
+        reflect_boolean(in, proto, "compact", "compact");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLDivElement");
+        reflect_string(in, proto, "align", "align");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLDListElement");
+        reflect_boolean(in, proto, "compact", "compact");
+    }
+    {
         js::Object& proto = *in.prototype("HTMLEmbedElement");
         reflect_url(in, proto, "src", "src");
         reflect_url(in, proto, "data", "data");
@@ -254,6 +320,7 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "width", "width");
         reflect_string(in, proto, "height", "height");
         reflect_string(in, proto, "name", "name");
+        reflect_string(in, proto, "align", "align");
     }
     {
         js::Object& proto = *in.prototype("HTMLFieldSetElement");
@@ -262,13 +329,25 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_boolean(in, proto, "autofocus", "autofocus");
     }
     {
+        js::Object& proto = *in.prototype("HTMLFontElement");
+        reflect_string(in, proto, "color", "color", true);
+        reflect_string(in, proto, "face", "face");
+        reflect_string(in, proto, "size", "size");
+    }
+    {
         js::Object& proto = *in.prototype("HTMLFormElement");
         reflect_string(in, proto, "name", "name");
         reflect_string(in, proto, "target", "target");
-        reflect_string(in, proto, "enctype", "enctype");
-        reflect_string(in, proto, "encoding", "enctype");
+        reflect_enum(in, proto, "enctype", "enctype",
+            ReflectedEnum { { { "application/x-www-form-urlencoded", "" }, { "multipart/form-data", "" }, { "text/plain", "" } },
+                "application/x-www-form-urlencoded", "application/x-www-form-urlencoded", false });
+        reflect_enum(in, proto, "encoding", "enctype",
+            ReflectedEnum { { { "application/x-www-form-urlencoded", "" }, { "multipart/form-data", "" }, { "text/plain", "" } },
+                "application/x-www-form-urlencoded", "application/x-www-form-urlencoded", false });
         reflect_string(in, proto, "acceptCharset", "accept-charset");
-        reflect_string(in, proto, "autocomplete", "autocomplete");
+        reflect_enum(in, proto, "autocomplete", "autocomplete",
+            ReflectedEnum { { { "on", "" }, { "off", "" } },
+                "on", "on", false });
         reflect_boolean(in, proto, "noValidate", "novalidate");
     }
     {
@@ -279,13 +358,29 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "frameBorder", "frameborder");
         reflect_url(in, proto, "longDesc", "longdesc");
         reflect_boolean(in, proto, "noResize", "noresize");
-        reflect_string(in, proto, "marginHeight", "marginheight");
-        reflect_string(in, proto, "marginWidth", "marginwidth");
+        reflect_string(in, proto, "marginHeight", "marginheight", true);
+        reflect_string(in, proto, "marginWidth", "marginwidth", true);
     }
     {
         js::Object& proto = *in.prototype("HTMLFrameSetElement");
         reflect_string(in, proto, "cols", "cols");
         reflect_string(in, proto, "rows", "rows");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLHeadingElement");
+        reflect_string(in, proto, "align", "align");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLHRElement");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "color", "color");
+        reflect_boolean(in, proto, "noShade", "noshade");
+        reflect_string(in, proto, "size", "size");
+        reflect_string(in, proto, "width", "width");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLHtmlElement");
+        reflect_string(in, proto, "version", "version");
     }
     {
         js::Object& proto = *in.prototype("HTMLIFrameElement");
@@ -295,9 +390,21 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "allow", "allow");
         reflect_string(in, proto, "width", "width");
         reflect_string(in, proto, "height", "height");
-        reflect_string(in, proto, "loading", "loading");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
+        reflect_enum(in, proto, "loading", "loading",
+            ReflectedEnum { { { "lazy", "" }, { "eager", "" } },
+                "eager", "eager", false });
+        reflect_enum(in, proto, "referrerPolicy", "referrerpolicy",
+            ReflectedEnum { { { "", "" }, { "no-referrer", "" }, { "no-referrer-when-downgrade", "" }, { "same-origin", "" },
+                 { "origin", "" }, { "strict-origin", "" }, { "origin-when-cross-origin", "" },
+                 { "strict-origin-when-cross-origin", "" }, { "unsafe-url", "" } },
+                "", "", false });
         reflect_boolean(in, proto, "allowFullscreen", "allowfullscreen");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "scrolling", "scrolling");
+        reflect_string(in, proto, "frameBorder", "frameborder");
+        reflect_url(in, proto, "longDesc", "longdesc");
+        reflect_string(in, proto, "marginHeight", "marginheight", true);
+        reflect_string(in, proto, "marginWidth", "marginwidth", true);
     }
     {
         js::Object& proto = *in.prototype("HTMLImageElement");
@@ -305,13 +412,30 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "srcset", "srcset");
         reflect_string(in, proto, "sizes", "sizes");
         reflect_string(in, proto, "alt", "alt");
-        reflect_string(in, proto, "crossOrigin", "crossorigin");
+        reflect_enum(in, proto, "crossOrigin", "crossorigin",
+            ReflectedEnum { { { "anonymous", "" }, { "use-credentials", "" } },
+                std::nullopt, "anonymous", true });
         reflect_string(in, proto, "useMap", "usemap");
-        reflect_string(in, proto, "loading", "loading");
-        reflect_string(in, proto, "decoding", "decoding");
+        reflect_enum(in, proto, "loading", "loading",
+            ReflectedEnum { { { "lazy", "" }, { "eager", "" } },
+                "eager", "eager", false });
+        reflect_enum(in, proto, "decoding", "decoding",
+            ReflectedEnum { { { "async", "" }, { "sync", "" }, { "auto", "" } },
+                "auto", "auto", false });
         reflect_string(in, proto, "fetchPriority", "fetchpriority");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
+        reflect_enum(in, proto, "referrerPolicy", "referrerpolicy",
+            ReflectedEnum { { { "", "" }, { "no-referrer", "" }, { "no-referrer-when-downgrade", "" }, { "same-origin", "" },
+                 { "origin", "" }, { "strict-origin", "" }, { "origin-when-cross-origin", "" },
+                 { "strict-origin-when-cross-origin", "" }, { "unsafe-url", "" } },
+                "", "", false });
         reflect_boolean(in, proto, "isMap", "ismap");
+        reflect_string(in, proto, "name", "name");
+        reflect_url(in, proto, "lowsrc", "lowsrc");
+        reflect_string(in, proto, "align", "align");
+        reflect_number(in, proto, "hspace", "hspace", ReflectedNumber::UnsignedLong, 0);
+        reflect_number(in, proto, "vspace", "vspace", ReflectedNumber::UnsignedLong, 0);
+        reflect_url(in, proto, "longDesc", "longdesc");
+        reflect_string(in, proto, "border", "border", true);
     }
     {
         js::Object& proto = *in.prototype("HTMLInputElement");
@@ -324,19 +448,31 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "accept", "accept");
         reflect_string(in, proto, "alt", "alt");
         reflect_string(in, proto, "autocomplete", "autocomplete");
+        reflect_string(in, proto, "dirName", "dirname");
         reflect_string(in, proto, "max", "max");
         reflect_string(in, proto, "min", "min");
         reflect_string(in, proto, "step", "step");
         reflect_string(in, proto, "pattern", "pattern");
         reflect_url(in, proto, "src", "src");
-        reflect_string(in, proto, "formAction", "formaction");
-        reflect_string(in, proto, "inputMode", "inputmode");
+        reflect_url(in, proto, "formAction", "formaction", true);
+        reflect_enum(in, proto, "formEnctype", "formenctype",
+            ReflectedEnum { { { "application/x-www-form-urlencoded", "" }, { "multipart/form-data", "" }, { "text/plain", "" } },
+                "", "application/x-www-form-urlencoded", false });
+        reflect_enum(in, proto, "formMethod", "formmethod",
+            ReflectedEnum { { { "get", "" }, { "post", "" } },
+                "", "get", false });
+        reflect_string(in, proto, "formTarget", "formtarget");
+        reflect_boolean(in, proto, "formNoValidate", "formnovalidate");
         reflect_boolean(in, proto, "required", "required");
         reflect_boolean(in, proto, "readOnly", "readonly");
         reflect_boolean(in, proto, "multiple", "multiple");
-        reflect_long(in, proto, "maxLength", "maxlength", -1);
-        reflect_long(in, proto, "minLength", "minlength", -1);
-        reflect_long(in, proto, "size", "size", 20);
+        reflect_number(in, proto, "maxLength", "maxlength", ReflectedNumber::LimitedLong, -1);
+        reflect_number(in, proto, "minLength", "minlength", ReflectedNumber::LimitedLong, -1);
+        reflect_number(in, proto, "size", "size", ReflectedNumber::LimitedUnsignedLong, 20);
+        reflect_number(in, proto, "width", "width", ReflectedNumber::UnsignedLong, 0);
+        reflect_number(in, proto, "height", "height", ReflectedNumber::UnsignedLong, 0);
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "useMap", "usemap");
     }
     {
         js::Object& proto = *in.prototype("HTMLLabelElement");
@@ -348,7 +484,8 @@ void install_reflected_attributes(Realm::Internals& in)
     }
     {
         js::Object& proto = *in.prototype("HTMLLIElement");
-        reflect_long(in, proto, "value", "value", 0);
+        reflect_number(in, proto, "value", "value", ReflectedNumber::Long, 0);
+        reflect_string(in, proto, "type", "type");
     }
     {
         js::Object& proto = *in.prototype("HTMLLinkElement");
@@ -356,18 +493,53 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "rel", "rel");
         reflect_string(in, proto, "type", "type");
         reflect_string(in, proto, "media", "media");
-        reflect_string(in, proto, "as", "as");
+        reflect_enum(in, proto, "as", "as",
+            ReflectedEnum { { { "fetch", "" }, { "audio", "" }, { "document", "" }, { "embed", "" }, { "font", "" },
+                 { "image", "" }, { "manifest", "" }, { "object", "" }, { "report", "" },
+                 { "script", "" }, { "sharedworker", "" }, { "style", "" }, { "track", "" },
+                 { "video", "" }, { "worker", "" }, { "xslt", "" } },
+                "", "", false });
         reflect_string(in, proto, "hreflang", "hreflang");
-        reflect_string(in, proto, "crossOrigin", "crossorigin");
+        reflect_enum(in, proto, "crossOrigin", "crossorigin",
+            ReflectedEnum { { { "anonymous", "" }, { "use-credentials", "" } },
+                std::nullopt, "anonymous", true });
         reflect_string(in, proto, "integrity", "integrity");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
+        reflect_enum(in, proto, "referrerPolicy", "referrerpolicy",
+            ReflectedEnum { { { "", "" }, { "no-referrer", "" }, { "no-referrer-when-downgrade", "" }, { "same-origin", "" },
+                 { "origin", "" }, { "strict-origin", "" }, { "origin-when-cross-origin", "" },
+                 { "strict-origin-when-cross-origin", "" }, { "unsafe-url", "" } },
+                "", "", false });
         reflect_string(in, proto, "imageSrcset", "imagesrcset");
         reflect_string(in, proto, "imageSizes", "imagesizes");
         reflect_boolean(in, proto, "disabled", "disabled");
+        reflect_string(in, proto, "charset", "charset");
+        reflect_string(in, proto, "rev", "rev");
+        reflect_string(in, proto, "target", "target");
     }
     {
         js::Object& proto = *in.prototype("HTMLMapElement");
         reflect_string(in, proto, "name", "name");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLMarqueeElement");
+        reflect_enum(in, proto, "behavior", "behavior",
+            ReflectedEnum { { { "scroll", "" }, { "slide", "" }, { "alternate", "" } },
+                "scroll", "scroll", false });
+        reflect_string(in, proto, "bgColor", "bgcolor");
+        reflect_enum(in, proto, "direction", "direction",
+            ReflectedEnum { { { "left", "" }, { "right", "" }, { "up", "" }, { "down", "" } },
+                "left", "left", false });
+        reflect_string(in, proto, "height", "height");
+        reflect_number(in, proto, "hspace", "hspace", ReflectedNumber::UnsignedLong, 0);
+        reflect_number(in, proto, "scrollAmount", "scrollamount", ReflectedNumber::UnsignedLong, 6);
+        reflect_number(in, proto, "scrollDelay", "scrolldelay", ReflectedNumber::UnsignedLong, 85);
+        reflect_boolean(in, proto, "trueSpeed", "truespeed");
+        reflect_number(in, proto, "vspace", "vspace", ReflectedNumber::UnsignedLong, 0);
+        reflect_string(in, proto, "width", "width");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLMenuElement");
+        reflect_boolean(in, proto, "compact", "compact");
     }
     {
         js::Object& proto = *in.prototype("HTMLMetaElement");
@@ -379,7 +551,7 @@ void install_reflected_attributes(Realm::Internals& in)
     }
     {
         js::Object& proto = *in.prototype("HTMLModElement");
-        reflect_string(in, proto, "cite", "cite");
+        reflect_url(in, proto, "cite", "cite");
         reflect_string(in, proto, "dateTime", "datetime");
     }
     {
@@ -391,12 +563,23 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "height", "height");
         reflect_string(in, proto, "name", "name");
         reflect_string(in, proto, "useMap", "usemap");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "archive", "archive");
+        reflect_string(in, proto, "code", "code");
+        reflect_boolean(in, proto, "declare", "declare");
+        reflect_number(in, proto, "hspace", "hspace", ReflectedNumber::UnsignedLong, 0);
+        reflect_string(in, proto, "standby", "standby");
+        reflect_number(in, proto, "vspace", "vspace", ReflectedNumber::UnsignedLong, 0);
+        reflect_url(in, proto, "codeBase", "codebase");
+        reflect_string(in, proto, "codeType", "codetype");
+        reflect_string(in, proto, "border", "border", true);
     }
     {
         js::Object& proto = *in.prototype("HTMLOListElement");
         reflect_string(in, proto, "type", "type");
         reflect_boolean(in, proto, "reversed", "reversed");
-        reflect_long(in, proto, "start", "start", 1);
+        reflect_number(in, proto, "start", "start", ReflectedNumber::Long, 1);
+        reflect_boolean(in, proto, "compact", "compact");
     }
     {
         js::Object& proto = *in.prototype("HTMLOptGroupElement");
@@ -417,21 +600,48 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "defaultValue", "value");
     }
     {
+        js::Object& proto = *in.prototype("HTMLParagraphElement");
+        reflect_string(in, proto, "align", "align");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLParamElement");
+        reflect_string(in, proto, "name", "name");
+        reflect_string(in, proto, "value", "value");
+        reflect_string(in, proto, "type", "type");
+        reflect_string(in, proto, "valueType", "valuetype");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLPreElement");
+        reflect_number(in, proto, "width", "width", ReflectedNumber::Long, 0);
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLProgressElement");
+        reflect_number(in, proto, "max", "max", ReflectedNumber::LimitedDouble, 1);
+    }
+    {
         js::Object& proto = *in.prototype("HTMLQuoteElement");
-        reflect_string(in, proto, "cite", "cite");
+        reflect_url(in, proto, "cite", "cite");
     }
     {
         js::Object& proto = *in.prototype("HTMLScriptElement");
         reflect_url(in, proto, "src", "src");
         reflect_string(in, proto, "type", "type");
         reflect_string(in, proto, "charset", "charset");
-        reflect_string(in, proto, "crossOrigin", "crossorigin");
+        reflect_enum(in, proto, "crossOrigin", "crossorigin",
+            ReflectedEnum { { { "anonymous", "" }, { "use-credentials", "" } },
+                std::nullopt, "anonymous", true });
         reflect_string(in, proto, "integrity", "integrity");
-        reflect_string(in, proto, "referrerPolicy", "referrerpolicy");
+        reflect_enum(in, proto, "referrerPolicy", "referrerpolicy",
+            ReflectedEnum { { { "", "" }, { "no-referrer", "" }, { "no-referrer-when-downgrade", "" }, { "same-origin", "" },
+                 { "origin", "" }, { "strict-origin", "" }, { "origin-when-cross-origin", "" },
+                 { "strict-origin-when-cross-origin", "" }, { "unsafe-url", "" } },
+                "", "", false });
         reflect_string(in, proto, "fetchPriority", "fetchpriority");
         reflect_boolean(in, proto, "async", "async");
         reflect_boolean(in, proto, "defer", "defer");
         reflect_boolean(in, proto, "noModule", "nomodule");
+        reflect_string(in, proto, "event", "event");
+        reflect_string(in, proto, "htmlFor", "for");
     }
     {
         js::Object& proto = *in.prototype("HTMLSelectElement");
@@ -441,7 +651,7 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_boolean(in, proto, "multiple", "multiple");
         reflect_boolean(in, proto, "required", "required");
         reflect_string(in, proto, "autocomplete", "autocomplete");
-        reflect_long(in, proto, "size", "size", 0);
+        reflect_number(in, proto, "size", "size", ReflectedNumber::UnsignedLong, 0);
     }
     {
         js::Object& proto = *in.prototype("HTMLSlotElement");
@@ -462,16 +672,63 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_boolean(in, proto, "disabled", "disabled");
     }
     {
+        js::Object& proto = *in.prototype("HTMLTableCaptionElement");
+        reflect_string(in, proto, "align", "align");
+    }
+    {
         js::Object& proto = *in.prototype("HTMLTableCellElement");
-        reflect_long(in, proto, "colSpan", "colspan", 1);
-        reflect_long(in, proto, "rowSpan", "rowspan", 1);
+        reflect_number(in, proto, "colSpan", "colspan", ReflectedNumber::ClampedUnsignedLong, 1, 1, 1000);
+        reflect_number(in, proto, "rowSpan", "rowspan", ReflectedNumber::ClampedUnsignedLong, 1, 0, 65534);
         reflect_string(in, proto, "headers", "headers");
-        reflect_string(in, proto, "scope", "scope");
+        reflect_enum(in, proto, "scope", "scope",
+            ReflectedEnum { { { "row", "" }, { "col", "" }, { "rowgroup", "" }, { "colgroup", "" } },
+                "", "", false });
         reflect_string(in, proto, "abbr", "abbr");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "axis", "axis");
+        reflect_string(in, proto, "height", "height");
+        reflect_string(in, proto, "width", "width");
+        reflect_string(in, proto, "ch", "char");
+        reflect_string(in, proto, "chOff", "charoff");
+        reflect_boolean(in, proto, "noWrap", "nowrap");
+        reflect_string(in, proto, "vAlign", "valign");
+        reflect_string(in, proto, "bgColor", "bgcolor", true);
     }
     {
         js::Object& proto = *in.prototype("HTMLTableColElement");
-        reflect_long(in, proto, "span", "span", 1);
+        reflect_number(in, proto, "span", "span", ReflectedNumber::ClampedUnsignedLong, 1, 1, 1000);
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "ch", "char");
+        reflect_string(in, proto, "chOff", "charoff");
+        reflect_string(in, proto, "vAlign", "valign");
+        reflect_string(in, proto, "width", "width");
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLTableElement");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "border", "border");
+        reflect_string(in, proto, "frame", "frame");
+        reflect_string(in, proto, "rules", "rules");
+        reflect_string(in, proto, "summary", "summary");
+        reflect_string(in, proto, "width", "width");
+        reflect_string(in, proto, "bgColor", "bgcolor", true);
+        reflect_string(in, proto, "cellPadding", "cellpadding", true);
+        reflect_string(in, proto, "cellSpacing", "cellspacing", true);
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLTableRowElement");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "ch", "char");
+        reflect_string(in, proto, "chOff", "charoff");
+        reflect_string(in, proto, "vAlign", "valign");
+        reflect_string(in, proto, "bgColor", "bgcolor", true);
+    }
+    {
+        js::Object& proto = *in.prototype("HTMLTableSectionElement");
+        reflect_string(in, proto, "align", "align");
+        reflect_string(in, proto, "ch", "char");
+        reflect_string(in, proto, "chOff", "charoff");
+        reflect_string(in, proto, "vAlign", "valign");
     }
     {
         js::Object& proto = *in.prototype("HTMLTextAreaElement");
@@ -481,12 +738,13 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "placeholder", "placeholder");
         reflect_string(in, proto, "wrap", "wrap");
         reflect_string(in, proto, "autocomplete", "autocomplete");
+        reflect_string(in, proto, "dirName", "dirname");
         reflect_boolean(in, proto, "required", "required");
         reflect_boolean(in, proto, "readOnly", "readonly");
-        reflect_long(in, proto, "rows", "rows", 2);
-        reflect_long(in, proto, "cols", "cols", 20);
-        reflect_long(in, proto, "maxLength", "maxlength", -1);
-        reflect_long(in, proto, "minLength", "minlength", -1);
+        reflect_number(in, proto, "rows", "rows", ReflectedNumber::FallbackUnsignedLong, 2);
+        reflect_number(in, proto, "cols", "cols", ReflectedNumber::FallbackUnsignedLong, 20);
+        reflect_number(in, proto, "maxLength", "maxlength", ReflectedNumber::LimitedLong, -1);
+        reflect_number(in, proto, "minLength", "minlength", ReflectedNumber::LimitedLong, -1);
     }
     {
         js::Object& proto = *in.prototype("HTMLTimeElement");
@@ -495,15 +753,23 @@ void install_reflected_attributes(Realm::Internals& in)
     {
         js::Object& proto = *in.prototype("HTMLTrackElement");
         reflect_url(in, proto, "src", "src");
-        reflect_string(in, proto, "kind", "kind");
+        reflect_enum(in, proto, "kind", "kind",
+            ReflectedEnum { { { "subtitles", "" }, { "captions", "" }, { "descriptions", "" }, { "chapters", "" },
+                 { "metadata", "" } },
+                "subtitles", "metadata", false });
         reflect_string(in, proto, "srclang", "srclang");
         reflect_string(in, proto, "label", "label");
         reflect_boolean(in, proto, "default", "default");
     }
     {
+        js::Object& proto = *in.prototype("HTMLUListElement");
+        reflect_boolean(in, proto, "compact", "compact");
+        reflect_string(in, proto, "type", "type");
+    }
+    {
         js::Object& proto = *in.prototype("HTMLVideoElement");
-        reflect_long(in, proto, "width", "width", 0);
-        reflect_long(in, proto, "height", "height", 0);
+        reflect_number(in, proto, "width", "width", ReflectedNumber::UnsignedLong, 0);
+        reflect_number(in, proto, "height", "height", ReflectedNumber::UnsignedLong, 0);
         reflect_url(in, proto, "poster", "poster");
         reflect_boolean(in, proto, "playsInline", "playsinline");
     }

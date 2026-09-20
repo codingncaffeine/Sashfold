@@ -13,6 +13,9 @@
 // `[ExtendedAttributes] readonly? attribute Type name;` or a method
 // `Type name(...);`, which is read and passed over. Anything else is an
 // error that names its line.
+//
+// The kind of reflection an attribute gets follows from its type and its
+// extended attributes; idl/html-elements.idl lists them.
 
 #include <cctype>
 #include <cstdlib>
@@ -309,6 +312,112 @@ std::string lowercased(std::string text)
     return text;
 }
 
+// A C++ string literal of `text`. The keywords and attribute names here are
+// ASCII words and hyphens, but a quote or a backslash would otherwise go
+// through unescaped and write a file that does not compile.
+std::string quoted(std::string_view text)
+{
+    std::string out = "\"";
+    for (char const c : text) {
+        if (c == '"' || c == '\\')
+            out += '\\';
+        out += c;
+    }
+    out += '"';
+    return out;
+}
+
+// The state named by [Missing=x] / [Invalid=x], as the C++ that makes the
+// std::optional the reflection takes: a state with no keyword is std::nullopt.
+std::string state_of(std::vector<ExtendedAttribute> const& extended, char const* name)
+{
+    ExtendedAttribute const* found = find_extended(extended, name);
+    if (!found)
+        return "std::nullopt";
+    if (found->values.empty())
+        return quoted("");
+    return quoted(found->values.front());
+}
+
+// The number written for [Default=n], or the fallback the kind of reflection
+// has when the IDL gives none.
+std::string default_of(std::vector<ExtendedAttribute> const& extended, char const* fallback)
+{
+    ExtendedAttribute const* found = find_extended(extended, "Default");
+    if (found && !found->values.empty())
+        return found->values.front();
+    return fallback;
+}
+
+// One `reflect_*` call for an attribute the IDL marks [Reflect].
+std::string reflection_of(Interface const& interface, Attribute const& attribute, std::string const& content)
+{
+    std::string const property = quoted(attribute.name);
+    std::string const name = quoted(content);
+    std::string const head = "        ";
+    bool const nullable = !attribute.type.empty() && attribute.type.back() == '?';
+    std::string type = attribute.type;
+    if (nullable)
+        type.pop_back();
+
+    if (type == "boolean")
+        return head + "reflect_boolean(in, proto, " + property + ", " + name + ");\n";
+
+    if (type == "DOMString" || type == "USVString") {
+        if (find_extended(attribute.extended, "URL")) {
+            std::string const or_document = find_extended(attribute.extended, "OrDocumentUrl") ? ", true" : "";
+            return head + "reflect_url(in, proto, " + property + ", " + name + or_document + ");\n";
+        }
+        if (ExtendedAttribute const* keywords = find_extended(attribute.extended, "Enum")) {
+            std::string out = head + "reflect_enum(in, proto, " + property + ", " + name + ",\n"
+                + head + "    ReflectedEnum { {";
+            std::string line;
+            for (std::size_t i = 0; i < keywords->values.size(); ++i) {
+                std::string const piece = " { " + quoted(keywords->values[i]) + ", \"\" }"
+                    + (i + 1 < keywords->values.size() ? "," : "");
+                if (line.size() + piece.size() > 100) {
+                    out += line + "\n";
+                    line = head + "        ";
+                }
+                line += piece;
+            }
+            out += line + " },\n";
+            out += head + "        " + state_of(attribute.extended, "Missing") + ", "
+                + state_of(attribute.extended, "Invalid") + ", " + (nullable ? "true" : "false") + " });\n";
+            return out;
+        }
+        std::string const null_to_empty = find_extended(attribute.extended, "LegacyNullToEmptyString") ? ", true" : "";
+        return head + "reflect_string(in, proto, " + property + ", " + name + null_to_empty + ");\n";
+    }
+
+    bool const limited = find_extended(attribute.extended, "Limited") != nullptr;
+    auto const number = [&](char const* kind, std::string const& fallback, std::string const& range = "") {
+        return head + "reflect_number(in, proto, " + property + ", " + name + ", ReflectedNumber::" + kind + ", "
+            + fallback + range + ");\n";
+    };
+    if (type == "long")
+        return limited ? number("LimitedLong", default_of(attribute.extended, "-1"))
+                       : number("Long", default_of(attribute.extended, "0"));
+    if (type == "unsigned long") {
+        if (ExtendedAttribute const* clamp = find_extended(attribute.extended, "Clamp")) {
+            if (clamp->values.size() != 2)
+                fail(interface.line, "[Clamp] takes a minimum and a maximum: " + interface.name + "." + attribute.name);
+            return number("ClampedUnsignedLong", default_of(attribute.extended, "0"),
+                ", " + clamp->values[0] + ", " + clamp->values[1]);
+        }
+        if (limited)
+            return number("LimitedUnsignedLong", default_of(attribute.extended, "1"));
+        if (find_extended(attribute.extended, "Fallback"))
+            return number("FallbackUnsignedLong", default_of(attribute.extended, "1"));
+        return number("UnsignedLong", default_of(attribute.extended, "0"));
+    }
+    if (type == "double")
+        return limited ? number("LimitedDouble", default_of(attribute.extended, "0"))
+                       : number("Double", default_of(attribute.extended, "0"));
+
+    fail(interface.line, "attribute " + interface.name + "." + attribute.name + " reflects a type the generator cannot: " + attribute.type);
+}
+
 std::string generate(std::vector<Interface> const& interfaces, std::string const& source_name)
 {
     std::ostringstream out;
@@ -385,20 +494,7 @@ std::string generate(std::vector<Interface> const& interfaces, std::string const
             if (!reflect)
                 continue;
             std::string const content = reflect->values.empty() ? lowercased(attribute.name) : reflect->values.front();
-            if (attribute.type == "boolean") {
-                out << "        reflect_boolean(in, proto, \"" << attribute.name << "\", \"" << content << "\");\n";
-            } else if (attribute.type == "long" || attribute.type == "unsigned long") {
-                ExtendedAttribute const* fallback = find_extended(attribute.extended, "Default");
-                std::string const value = fallback && !fallback->values.empty() ? fallback->values.front() : "0";
-                out << "        reflect_long(in, proto, \"" << attribute.name << "\", \"" << content << "\", " << value << ");\n";
-            } else if (attribute.type == "DOMString" || attribute.type == "USVString") {
-                if (find_extended(attribute.extended, "URL"))
-                    out << "        reflect_url(in, proto, \"" << attribute.name << "\", \"" << content << "\");\n";
-                else
-                    out << "        reflect_string(in, proto, \"" << attribute.name << "\", \"" << content << "\");\n";
-            } else {
-                fail(interface.line, "attribute " + interface.name + "." + attribute.name + " reflects a type the generator cannot: " + attribute.type);
-            }
+            out << reflection_of(interface, attribute, content);
         }
         out << "    }\n";
     }

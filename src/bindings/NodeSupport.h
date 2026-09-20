@@ -204,6 +204,25 @@ void document_getter(Realm::Internals& in, js::Object& prototype, std::string_vi
     });
 }
 
+template<typename Read, typename Write>
+void document_accessor(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read, Write write)
+{
+    define_getter(
+        in, prototype, name,
+        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
+            if (!document)
+                return std::nullopt;
+            return read(internals_of(interpreter), **document);
+        },
+        [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
+            if (!document)
+                return std::nullopt;
+            return write(internals_of(interpreter), **document, js::argument(args, 0));
+        });
+}
+
 template<typename Body>
 void document_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {

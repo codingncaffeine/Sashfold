@@ -1293,14 +1293,65 @@ js::Object* define_interface(Realm::Internals&, std::string_view name, js::Objec
 // An accessor pair on a prototype.
 void define_getter(Realm::Internals&, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter,
     js::NativeFunction::Callback setter = {});
-// An attribute reflected as a string (getAttribute / setAttribute).
-void reflect_string(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute);
+// The IDL attributes reflected from content attributes (HTML §2.6.1), in
+// Reflect.cpp. Each of these defines one accessor pair on a prototype:
+// `property` is the IDL attribute's name, `attribute` the content
+// attribute's.
+
+// A string, got and set in a transparent, case-preserving manner.
+// `null_to_empty` is WebIDL's [LegacyNullToEmptyString].
+void reflect_string(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute,
+    bool null_to_empty = false);
 // A boolean attribute reflected (presence / toggle).
 void reflect_boolean(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute);
-// A URL-valued attribute: read resolved against the document, written as given.
-void reflect_url(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute);
-// An integer attribute with a default when absent or unparsable.
-void reflect_long(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute, int fallback);
+// A URL-valued attribute: read resolved against the document, written as
+// given. `document_url_if_empty` is a form's action, which reads as the
+// document's own URL when the attribute is absent or empty.
+void reflect_url(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute,
+    bool document_url_if_empty = false);
+
+// One keyword of an enumerated attribute, and the canonical keyword of the
+// state it maps to; `canonical` empty means the keyword is its own.
+struct ReflectedKeyword {
+    std::string_view keyword;
+    std::string_view canonical;
+};
+// An enumerated attribute limited to known values. `missing` names the state
+// the attribute is in when it is absent and `invalid` the state it is in when
+// its value is no keyword; std::nullopt is a state with no keyword, which the
+// IDL attribute reports as "" — or, when `nullable`, as null, which is also
+// what setting null writes (it removes the content attribute).
+struct ReflectedEnum {
+    std::vector<ReflectedKeyword> keywords;
+    std::optional<std::string_view> missing;
+    std::optional<std::string_view> invalid;
+    bool nullable = false;
+};
+void reflect_enum(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute,
+    ReflectedEnum);
+
+// The numeric reflections. Each parses the content attribute by HTML's rules
+// for its kind and answers `fallback` when that fails or the attribute is
+// absent; each writes the shortest string for the value it was set to.
+enum class ReflectedNumber {
+    Long, // a signed integer
+    LimitedLong, // ... limited to non-negative numbers: a negative set throws IndexSizeError
+    UnsignedLong, // an unsigned integer; a set outside 0..2147483647 writes the fallback
+    LimitedUnsignedLong, // ... greater than zero: a set of zero throws IndexSizeError
+    FallbackUnsignedLong, // ... greater than zero with fallback: a set of zero writes the fallback
+    ClampedUnsignedLong, // ... clamped on getting to [minimum, maximum]
+    Double, // a floating-point number
+    LimitedDouble, // ... greater than zero: a set of anything else is ignored
+};
+void reflect_number(Realm::Internals&, js::Object& prototype, std::string_view property, std::string_view attribute,
+    ReflectedNumber, double fallback, double minimum = 0, double maximum = 0);
+
+// HTML's rules for parsing integers, non-negative integers and
+// floating-point number values (§2.4.4). Trailing text is ignored; a value
+// too large to represent is an error, as the callers' ranges make it.
+std::optional<double> parse_html_integer(std::string_view);
+std::optional<double> parse_html_non_negative_integer(std::string_view);
+std::optional<double> parse_html_double(std::string_view);
 // Defines the on<type> handler accessors for these event types on a
 // prototype or the global.
 void define_event_handlers(Realm::Internals&, js::Object& target, std::span<std::string_view const> types);

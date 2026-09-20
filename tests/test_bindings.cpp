@@ -3807,6 +3807,116 @@ void test_a_sound_file_plays()
     CHECK_EQ(page->string("take()"), "b ready 0.5");
 }
 
+// The IDL attributes reflected from content attributes (HTML §2.6.1). Every
+// kind of reflection is here with the cases that tell it from a plain string:
+// the state an enumerated attribute is in, the rules for reading a number out
+// of an attribute, the numbers a setter refuses, and the ones it replaces
+// with the attribute's default.
+void test_reflected_attributes()
+{
+    auto page = loaded("<!DOCTYPE html><body><div id=d></div></body>");
+
+    // An enumerated attribute answers with the keyword of the state it is in,
+    // in the keyword's own case. A value that is no keyword, and an absent
+    // attribute, are the invalid and missing value defaults — for dir, states
+    // with no keyword at all, which read as the empty string.
+    page->eval("var d = document.getElementById('d');");
+    CHECK_EQ(page->string("d.dir"), "");
+    CHECK_EQ(page->string("d.setAttribute('dir', 'RTL'), d.dir"), "rtl");
+    CHECK_EQ(page->string("d.setAttribute('dir', 'sideways'), d.dir"), "");
+    // The setter writes the value as given, keyword or not.
+    CHECK_EQ(page->string("d.dir = 'LTR', d.getAttribute('dir')"), "LTR");
+    CHECK(page->boolean("d.dir === 'ltr'"));
+    // Every element has one, including an element with no interface of its own.
+    CHECK(page->boolean("var u = document.createElement('nosuchelement');"
+                        "u.setAttribute('dir', 'auto'), u.dir === 'auto' && u.inputMode === '' && u.enterKeyHint === ''"));
+    // An enumerated attribute whose states include one with no keyword reads
+    // as null there, and null written removes the attribute.
+    CHECK(page->boolean("var img = document.createElement('img'); img.crossOrigin === null"));
+    CHECK(page->boolean("img.setAttribute('crossorigin', ''), img.crossOrigin === 'anonymous'"));
+    CHECK(page->boolean("img.setAttribute('crossorigin', 'USE-CREDENTIALS'), img.crossOrigin === 'use-credentials'"));
+    CHECK(page->boolean("img.crossOrigin = null, !img.hasAttribute('crossorigin') && img.crossOrigin === null"));
+    CHECK(page->boolean("img.decoding === 'auto' && (img.setAttribute('decoding', 'sync'), img.decoding === 'sync')"));
+
+    // The rules for parsing integers: leading whitespace and a sign are
+    // allowed, trailing text is ignored, and anything else — or a value out of
+    // the IDL type's range — leaves the default.
+    CHECK(page->boolean("var li = document.createElement('li'); li.value === 0"));
+    CHECK(page->boolean("li.setAttribute('value', ' \\t\\n+12px'), li.value === 12"));
+    CHECK(page->boolean("li.setAttribute('value', '-7'), li.value === -7"));
+    CHECK(page->boolean("li.setAttribute('value', '\\u00a07'), li.value === 0")); // not ASCII whitespace
+    CHECK(page->boolean("li.setAttribute('value', '2147483648'), li.value === 0"));
+    CHECK(page->boolean("li.setAttribute('value', '2147483647'), li.value === 2147483647"));
+    // The setter takes WebIDL's long of the value: out of range it wraps.
+    CHECK_EQ(page->string("li.value = 2147483648, li.getAttribute('value')"), "-2147483648");
+    CHECK_EQ(page->string("li.value = 1.9, li.getAttribute('value')"), "1");
+
+    // An unsigned long parses as a non-negative integer, has the attribute's
+    // own default, and on setting takes the default for anything out of range.
+    CHECK(page->boolean("var c = document.createElement('canvas'); c.width === 300 && c.height === 150"));
+    CHECK(page->boolean("c.setAttribute('width', '-1'), c.width === 300"));
+    CHECK(page->boolean("c.setAttribute('width', '640'), c.width === 640"));
+    CHECK_EQ(page->string("c.width = 4294967295, c.getAttribute('width')"), "300");
+    CHECK_EQ(page->string("c.width = '-0', c.getAttribute('width')"), "0");
+
+    // Limited to non-negative numbers: a negative set is an IndexSizeError,
+    // and the default with no attribute is -1.
+    CHECK(page->boolean("var t = document.createElement('textarea'); t.maxLength === -1"));
+    CHECK(page->boolean("t.setAttribute('maxlength', '5'), t.maxLength === 5"));
+    CHECK_EQ(page->string("try { t.maxLength = -1; 'no throw'; } catch (e) { e.name; }"), "IndexSizeError");
+    CHECK(page->boolean("t.getAttribute('maxlength') === '5'"));
+    // Limited to greater than zero: a zero set throws for an input's size,
+    // and takes the default for a textarea's rows and cols.
+    CHECK(page->boolean("var i = document.createElement('input'); i.size === 20"));
+    CHECK(page->boolean("i.setAttribute('size', '0'), i.size === 20"));
+    CHECK_EQ(page->string("try { i.size = 0; 'no throw'; } catch (e) { e.name; }"), "IndexSizeError");
+    CHECK(page->boolean("t.rows === 2 && t.cols === 20"));
+    CHECK_EQ(page->string("t.cols = 0, t.getAttribute('cols')"), "20");
+    CHECK_EQ(page->string("t.rows = 8, t.getAttribute('rows')"), "8");
+
+    // Clamped on reading, not on writing: a cell spans at least one column
+    // and at most a thousand, and may span no rows at all.
+    CHECK(page->boolean("var td = document.createElement('td'); td.colSpan === 1 && td.rowSpan === 1"));
+    CHECK(page->boolean("td.setAttribute('colspan', '0'), td.colSpan === 1"));
+    CHECK(page->boolean("td.setAttribute('colspan', '4000'), td.colSpan === 1000"));
+    CHECK(page->boolean("td.setAttribute('rowspan', '0'), td.rowSpan === 0"));
+    CHECK(page->boolean("td.setAttribute('rowspan', 'nine'), td.rowSpan === 1"));
+
+    // The rules for parsing floating-point number values, limited to numbers
+    // greater than zero: a value that is not is the default, and setting one
+    // leaves the attribute alone.
+    CHECK(page->boolean("var p = document.createElement('progress'); p.max === 1"));
+    CHECK(page->boolean("p.setAttribute('max', '2.5e1'), p.max === 25"));
+    CHECK(page->boolean("p.setAttribute('max', '.5'), p.max === 0.5"));
+    CHECK(page->boolean("p.setAttribute('max', '-3'), p.max === 1"));
+    CHECK(page->boolean("p.setAttribute('max', '1.8e308'), p.max === 1"));
+    CHECK_EQ(page->string("p.max = 4, p.max = -1, p.getAttribute('max')"), "4");
+    CHECK_EQ(page->string("try { p.max = Infinity; 'no throw'; } catch (e) { e.name; }"), "TypeError");
+
+    // [LegacyNullToEmptyString]: null written to one of these writes the
+    // empty string, where any other attribute would write "null".
+    CHECK_EQ(page->string("document.body.bgColor = null, document.body.getAttribute('bgcolor')"), "");
+    CHECK_EQ(page->string("d.title = null, d.getAttribute('title')"), "null");
+
+    // A form's action, and a submit button's, read as the document's own URL
+    // when the attribute is absent or empty; any other URL is resolved.
+    CHECK_EQ(page->string("var f = document.createElement('form'); f.action"), "https://example.test/dir/page.html");
+    CHECK_EQ(page->string("i.formAction"), "https://example.test/dir/page.html");
+    CHECK_EQ(page->string("i.formAction = 'there', i.formAction"), "https://example.test/dir/there");
+    CHECK_EQ(page->string("i.getAttribute('formaction')"), "there");
+
+    // The document reflects two of its elements' attributes: dir is the root
+    // element's, and the colours are the body's.
+    CHECK_EQ(page->string("document.dir"), "");
+    CHECK_EQ(page->string("document.documentElement.setAttribute('dir', 'RTL'), document.dir"), "rtl");
+    CHECK_EQ(page->string("document.dir = 'ltr', document.documentElement.getAttribute('dir')"), "ltr");
+    CHECK_EQ(page->string("document.bgColor = 'red', document.body.getAttribute('bgcolor')"), "red");
+    CHECK_EQ(page->string("document.body.setAttribute('text', 'blue'), document.fgColor"), "blue");
+
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 // Media Source Extensions over the media element: a page feeds two
 // SourceBuffers a WebM stream written here, and the element's buffered
 // ranges, ready state, events, play promise and clock follow — the clock
@@ -4015,6 +4125,7 @@ int main()
     test_scripts_that_must_not_run_again();
     test_mutation_observer();
     test_custom_elements();
+    test_reflected_attributes();
     test_media_source_and_the_media_element();
     test_a_sound_file_plays();
     return test::report("test_bindings");
