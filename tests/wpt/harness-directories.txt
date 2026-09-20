@@ -22,3 +22,20 @@ html/webappapis/microtask-queuing
 html/infrastructure
 html/syntax/parsing
 url
+
+# Widened 2026-09-20 so the gap report covers what the engine has NOT built
+# as well as what it has: the score over the list above measures our own
+# work, and these are where the web's own tests say the holes are. Each is
+# disjoint from the ones above, since the runner walks every directory whole.
+# encoding/ is deliberately left out: its legacy multi-byte tests generate
+# about twenty-three thousand subtests EACH, one per code point, and they
+# would outweigh everything else in a report that ranks by subtests. The
+# legacy CJK encoders are one row of work, not a million.
+custom-elements
+shadow-dom
+dom/abort
+dom/collections
+dom/lists
+css/cssom
+html/dom
+html/webappapis/dynamic-markup-insertion
