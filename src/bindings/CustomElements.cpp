@@ -2,6 +2,8 @@
 #include "bindings/NodeSupport.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -60,6 +62,25 @@ bool is_valid_custom_element_name(std::string_view name)
     static constexpr std::string_view taken[] = { "annotation-xml", "color-profile", "font-face", "font-face-src", "font-face-uri",
         "font-face-format", "font-face-name", "missing-glyph" };
     return std::find(std::begin(taken), std::end(taken), name) == std::end(taken);
+}
+
+// The registry's own account on stderr, under SASHFOLD_CE_TRACE=1: what a
+// page defined and what actually became one of its elements. A page built
+// out of components that defines a thousand names and upgrades a handful
+// is a page that will look empty, and this says which handful.
+bool tracing()
+{
+    static bool const enabled = [] {
+        char const* const value = std::getenv("SASHFOLD_CE_TRACE");
+        return value != nullptr && value[0] == '1';
+    }();
+    return enabled;
+}
+
+void trace(std::string const& line)
+{
+    if (tracing())
+        std::cerr << "custom-element: " << line << "\n";
 }
 
 CustomElementDefinition* definition_for_constructor(Realm::Internals& in, js::Object const* constructor)
@@ -218,6 +239,7 @@ Native define(js::Interpreter& interp, js::Value const&, Args args)
         }
     }
     CustomElementDefinition& stored = *definition;
+    trace("defined <" + stored.name + "> (" + std::to_string(in.custom_element_definitions.size() + 1) + ")");
     in.custom_element_definitions.push_back(std::move(definition));
     ++in.stats.custom_elements_defined;
 
@@ -311,6 +333,7 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element)
         return;
     }
     ++in.stats.custom_elements_upgraded;
+    trace("upgraded <" + definition->name + ">");
     wrapper.custom_definition = definition;
 
     // What it missed while it was an ordinary element: the attributes it
