@@ -29,13 +29,15 @@ class FetchTicket {
 public:
     // Whether the fetch has ended: take() will not wait.
     bool done() const;
+    // Waits up to so many milliseconds for it to end; whether it has.
+    bool wait_for(int milliseconds) const;
     // The result, waited for if need be. Once: a second call has nothing.
     FetchResult take();
 
 private:
     friend class FetchPool;
     mutable std::mutex m_mutex;
-    std::condition_variable m_ended;
+    mutable std::condition_variable m_ended;
     std::optional<FetchResult> m_result;
     bool m_done = false;
 };
@@ -75,7 +77,7 @@ private:
     std::condition_variable m_work_arrived;
     std::deque<Job> m_queue;
     std::vector<std::thread> m_threads;
-    std::size_t m_idle = 0;
+    std::size_t m_waiting = 0; // threads in run()'s wait, woken or not
     std::size_t m_outstanding = 0;
     bool m_stopping = false;
     std::function<void()> m_wake;

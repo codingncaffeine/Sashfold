@@ -1229,7 +1229,12 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         };
         auto const started = clock::now();
         browser.open(*url);
-        browser.tick(); // the navigation: the document, and whatever the shell fetches before it shows a page
+        // The navigation: the document, and whatever the shell fetches
+        // before it shows a page — which comes on another thread, so the
+        // first frame that counts is the first after the page is in the tab.
+        do {
+            browser.tick();
+        } while (browser.navigating());
         browser.frame();
         run.first_paint_ms = ms(clock::now() - started).count();
         settle();
@@ -1985,9 +1990,12 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 break;
         }
 
-        bool const loaded = browser.has_pending_load();
+        // A step of loading that can be done now. A page of the web is
+        // fetched on another thread, and while it is on its way there is
+        // nothing to do here but what the reader asks.
+        bool const loaded = browser.load_ready();
         if (loaded) {
-            present(browser.frame()); // the "Loading" frame, before the synchronous fetch
+            present(browser.frame()); // the "Loading" frame, before a fetch that is made here
             browser.tick();
         }
         auto const load_done = clock::now();
@@ -2074,10 +2082,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             }
         }
         bool const profile_owed = save_profile(false);
-        if (!browser.has_pending_load()) {
+        if (!browser.load_ready()) {
             // Sleep until input, the theme check, the next page timer, or
-            // the profile write that is owed.
+            // the profile write that is owed — and, while a fetch is on its
+            // way, a moment at most: its arrival is looked for again then.
             int timeout = theme_file.empty() ? (user_themes.empty() ? -1 : 2000) : 500;
+            if (browser.has_pending_load())
+                timeout = timeout < 0 ? 8 : std::min(timeout, 8);
             if (std::optional<double> const due = browser.next_timer_ms()) {
                 int const ms = static_cast<int>(std::ceil(*due));
                 timeout = timeout < 0 ? ms : std::min(timeout, ms);

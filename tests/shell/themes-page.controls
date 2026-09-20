@@ -6,12 +6,12 @@ script tests/shell/themes-page.script
 control stay
 file src/ui/Browser.cpp
 fails 27 30 35 36 41 54 65
-plant s~                if \(theme_adopted\) \{~                if (theme_adopted \&\& load.tab > 1000) {~
+plant s~        if \(theme_adopted\) \{~        if (theme_adopted \&\& load.tab > 1000) {~
 
 control notice
 file src/ui/Browser.cpp
 fails 30
-plant s~                        themes_notice = download_status;~                        themes_notice.clear();~
+plant s~                themes_notice = download_status;~                themes_notice.clear();~
 
 control use
 file src/ui/Browser.cpp

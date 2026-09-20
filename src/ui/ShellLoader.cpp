@@ -263,17 +263,19 @@ std::string ShellLoader::ahead_key(net::Url const& url, net::ResourceKind kind, 
     return std::to_string(static_cast<unsigned>(kind)) + ' ' + std::string(container) + ' ' + url.serialize(true);
 }
 
-void ShellLoader::prefetch(net::Url const& url, net::Url const& first_party, std::string const& referrer,
-    net::ResourceKind kind, std::string_view container)
+std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net::Url const& first_party,
+    std::string const& referrer, net::ResourceKind kind, std::string_view container)
 {
     // Only what goes over the network is worth a thread, and only what the
     // lists let through is asked for at all.
     if (url.scheme != "http" && url.scheme != "https")
-        return;
+        return nullptr;
     if (refusal(url, &first_party, kind, net::RequestGuard {}, false))
-        return;
+        return nullptr;
     std::int64_t const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     std::string const key = ahead_key(url, kind, container);
+    // Asked for from one thread only — the window's — so what is looked for
+    // here and not found is still not there when it is entered below.
     {
         std::lock_guard<std::mutex> const lock(m_mutex);
         // What nobody claimed within a minute is let go; and no more than a
@@ -287,11 +289,9 @@ void ShellLoader::prefetch(net::Url const& url, net::Url const& first_party, std
             }
             m_ahead.erase(oldest);
         }
-        if (m_ahead.contains(key))
-            return;
-        // The slot is taken before the fetch starts, so that the page's own
-        // asking, a moment later, finds it.
-        m_ahead[key] = Ahead { nullptr, now };
+        // On its way already: the same ticket.
+        if (auto const it = m_ahead.find(key); it != m_ahead.end())
+            return it->second.ticket;
     }
     // The work owns copies: the page that asked may be gone before it runs.
     std::shared_ptr<net::FetchTicket> ticket = m_fetches.submit(
@@ -299,8 +299,18 @@ void ShellLoader::prefetch(net::Url const& url, net::Url const& first_party, std
             return fetch_subresource(url, first_party, referrer, kind, net::RequestGuard {}, held);
         });
     std::lock_guard<std::mutex> const lock(m_mutex);
-    if (auto const it = m_ahead.find(key); it != m_ahead.end() && !it->second.ticket)
-        it->second.ticket = std::move(ticket);
+    m_ahead[key] = Ahead { ticket, now };
+    return ticket;
+}
+
+std::shared_ptr<net::FetchTicket> ShellLoader::load_ahead(net::Url const& url, std::string const& referrer,
+    bool bypass_cache, std::string_view container)
+{
+    if (url.scheme != "http" && url.scheme != "https")
+        return nullptr;
+    return m_fetches.submit([this, url, referrer, bypass_cache, held = std::string(container)] {
+        return load(url, referrer, bypass_cache, held);
+    });
 }
 
 net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url const& first_party,

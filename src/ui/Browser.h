@@ -13,6 +13,7 @@
 
 #include "core/Bitmap.h"
 #include "net/Csp.h"
+#include "net/FetchPool.h"
 #include "net/Filters.h"
 #include "net/Http.h"
 #include "net/Url.h"
@@ -69,14 +70,29 @@ public:
     // answers with what came. Nothing is waited for; a loader that fetches
     // nothing ahead does nothing, and the page's own asking still judges the
     // request by its guard.
-    virtual void prefetch(net::Url const& url, net::Url const& first_party, std::string const& referrer,
-        net::ResourceKind kind, std::string_view container = {})
+    // The ticket says when it has come, for whoever holds a page back until
+    // what its parse will wait for is here; null when nothing was asked for.
+    virtual std::shared_ptr<net::FetchTicket> prefetch(net::Url const& url, net::Url const& first_party,
+        std::string const& referrer, net::ResourceKind kind, std::string_view container = {})
     {
         (void)url;
         (void)first_party;
         (void)referrer;
         (void)kind;
         (void)container;
+        return nullptr;
+    }
+    // load(), begun on another thread: a ticket to ask after the document
+    // by, so that the window is not held still while it comes. Null from a
+    // loader that fetches where it is asked — and load() is then the way.
+    virtual std::shared_ptr<net::FetchTicket> load_ahead(net::Url const& url, std::string const& referrer,
+        bool bypass_cache, std::string_view container = {})
+    {
+        (void)url;
+        (void)referrer;
+        (void)bypass_cache;
+        (void)container;
+        return nullptr;
     }
     // A request a page's script makes — fetch(), XMLHttpRequest — carried
     // out on the page's behalf through the same session: the method, the
@@ -363,9 +379,19 @@ public:
     void reopen_closed_tab();
     void duplicate_tab(std::size_t index);
 
+    // Whether a load is under way: queued, on its way from the network, or
+    // owing pictures. tick() until it is not is how a caller without a
+    // window loads a page.
     bool has_pending_load() const;
-    // Performs one queued load; true when it did.
+    // Whether there is a step of loading to be done NOW, without waiting —
+    // what the window's loop asks, so that it sleeps on its events while a
+    // fetch is on its way rather than turning over and over.
+    bool load_ready() const;
+    // Performs one step of loading; true while there is loading under way.
     bool tick();
+    // Whether the tab in front has a load on its way that has not reached
+    // it yet: it still shows what it showed.
+    bool navigating() const;
 
     // --- Containers ---------------------------------------------------------
     // A container keeps a set of tabs apart from the rest: its own cookie

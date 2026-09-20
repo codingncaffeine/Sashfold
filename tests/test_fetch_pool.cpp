@@ -75,6 +75,29 @@ int main()
         CHECK_EQ(body_of(tickets[0]->take()), std::string("error: the fetch's result was taken already"));
     }
 
+    // Work that arrives while a thread is free, and more right behind it: a
+    // thread each, at once — the second piece does not wait for the thread
+    // that was woken for the first. (A pool that counted "is anyone idle"
+    // ran these one after the other.)
+    {
+        FetchPool pool(8);
+        pool.submit([] { return answer("warm"); })->take();
+        std::this_thread::sleep_for(std::chrono::milliseconds(30)); // the thread is back waiting
+        auto const started = std::chrono::steady_clock::now();
+        std::vector<std::shared_ptr<FetchTicket>> tickets;
+        for (int i = 0; i < 4; ++i) {
+            tickets.push_back(pool.submit([] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                return answer("together");
+            }));
+        }
+        for (auto const& ticket : tickets)
+            ticket->take();
+        double const took = ms_since(started);
+        CHECK(took >= 290);
+        CHECK(took < 580); // two of them in a row would be 600
+    }
+
     // One thread takes the work in the order it was asked for, one piece at
     // a time.
     {

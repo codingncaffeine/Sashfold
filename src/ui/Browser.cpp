@@ -445,6 +445,34 @@ struct Browser::Impl {
         TextPosition end;
     };
 
+    enum class Mode { Push, Replace, Reload };
+
+    struct Pending {
+        std::size_t tab = 0;
+        net::Url url;
+        Mode mode = Mode::Push;
+        bool https_first = false;
+        // Asked for while the tab showed the internal page the address is
+        // one of (queue): only then is what such an address asks to be
+        // DONE honoured.
+        bool own_page = false;
+    };
+
+    // A load begun on another thread and not yet shown (perform,
+    // advance_navigations): first its document is awaited, then — the entry
+    // made of it kept here — the stylesheets and scripts its markup names.
+    struct Navigating {
+        Pending load;
+        std::string referrer;
+        std::shared_ptr<net::FetchTicket> document;
+        bool fell_back_to_http = false; // what is awaited is the plain-HTTP retry
+        std::string first_error; // what the HTTPS try said, should the retry fail too
+        std::optional<HistoryEntry> entry;
+        bool fell_back = false;
+        std::vector<std::shared_ptr<net::FetchTicket>> blocking;
+        std::chrono::steady_clock::time_point waiting_since;
+    };
+
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
@@ -503,6 +531,7 @@ struct Browser::Impl {
         dom::Node const* inspected = nullptr; // devtools: the node under inspection
         int tree_scroll = 0; // devtools: the first tree line shown
         bool images_owed = false; // pictures left for a later pass, taken on the next tick
+        std::optional<Navigating> navigating; // a load on its way, the tab showing what it showed
         int scroll_y = 0;
         // How far the reader has moved each box that scrolls, and how much
         // of that the fragment tree already carries: a fresh layout carries
@@ -540,18 +569,6 @@ struct Browser::Impl {
         HistoryEntry* current() { return history.empty() ? nullptr : &history[index]; }
     };
 
-    enum class Mode { Push, Replace, Reload };
-
-    struct Pending {
-        std::size_t tab = 0;
-        net::Url url;
-        Mode mode = Mode::Push;
-        bool https_first = false;
-        // Asked for while the tab showed the internal page the address is
-        // one of (queue): only then is what such an address asks to be
-        // DONE honoured.
-        bool own_page = false;
-    };
     // A window a page asked to open, kept until the next tick: the ask
     // comes in the middle of a script the shell is running for a tab, and
     // a tab added then would move every tab under the caller's feet.
@@ -2189,37 +2206,47 @@ struct Browser::Impl {
     // after another — for a page of the web, and only what its policy would
     // let go as it stands. The page's own request, which follows, claims
     // what came and is still judged by its guard.
-    void ask_ahead(Tab& tab, net::Url const& page_url, net::Url url, net::ResourceKind kind)
+    // `policy` is the page's: the tab's own once the page is in it, the one
+    // its headers state while it is still on its way. The ticket, for
+    // whoever wants to know when it has come; null when nothing was asked.
+    std::shared_ptr<net::FetchTicket> ask_ahead(Tab& tab, net::Url const& page_url, net::Url url, net::ResourceKind kind,
+        net::ContentSecurityPolicy const* policy)
     {
         if (page_url.scheme != "http" && page_url.scheme != "https")
-            return;
-        if (net::ContentSecurityPolicy const* const policy = tab.policy.get()) {
+            return nullptr;
+        if (policy) {
             if (policy->upgrade_insecure_requests())
                 url = net::upgraded_insecure(url);
             if (!policy->empty() && !policy->allows_quietly(kind, url))
-                return;
+                return nullptr;
         }
-        loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container);
+        return loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container);
     }
 
     // The stylesheets and the scripts a document's markup names, asked for
     // before it is parsed (html::scan_for_preloads). A document that states
     // a policy in a <meta> is left alone: what it names waits for that.
-    void ask_ahead_for_markup(Tab& tab, net::Url const& page_url, std::string_view source)
+    std::vector<std::shared_ptr<net::FetchTicket>> ask_ahead_for_markup(Tab& tab, net::Url const& page_url,
+        std::string_view source, net::ContentSecurityPolicy const* policy)
     {
+        std::vector<std::shared_ptr<net::FetchTicket>> asked;
         if (page_url.scheme != "http" && page_url.scheme != "https")
-            return;
+            return asked;
         html::PreloadScan const scan = html::scan_for_preloads(source);
         if (scan.meta_policy)
-            return;
+            return asked;
         std::optional<net::Url> const based
             = scan.base_href.empty() ? std::optional<net::Url>(page_url) : net::parse_url(scan.base_href, &page_url);
         net::Url const& base = based ? *based : page_url;
         for (html::Preload const& resource : scan.resources) {
-            if (std::optional<net::Url> const url = net::parse_url(resource.url, &base))
-                ask_ahead(tab, page_url, *url,
-                    resource.kind == html::Preload::Kind::Script ? net::ResourceKind::Script : net::ResourceKind::Stylesheet);
+            if (std::optional<net::Url> const url = net::parse_url(resource.url, &base)) {
+                if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, *url,
+                        resource.kind == html::Preload::Kind::Script ? net::ResourceKind::Script : net::ResourceKind::Stylesheet,
+                        policy))
+                    asked.push_back(std::move(ticket));
+            }
         }
+        return asked;
     }
 
     // How many of a page's pictures one pass fetches: the page shows after
@@ -2584,7 +2611,7 @@ struct Browser::Impl {
                     },
                     media_context());
                 for (net::Url const& url : wanted)
-                    ask_ahead(tab, page_url, url, net::ResourceKind::Font);
+                    ask_ahead(tab, page_url, url, net::ResourceKind::Font, tab.policy.get());
             }
             tab.fonts = css::collect_page_fonts(tab.sheets, fetch_font, media_context());
             tab.style_set.reset();
@@ -2625,7 +2652,7 @@ struct Browser::Impl {
                         ImagePass { &tab.images, 0, nullptr });
                     collect_background_images(tab.styles, note, &tab.backgrounds);
                     for (net::Url const& url : wanted)
-                        ask_ahead(tab, page_url, url, net::ResourceKind::Image);
+                        ask_ahead(tab, page_url, url, net::ResourceKind::Image, tab.policy.get());
                 }
                 // One pass now, so the page shows; the rest a pass per tick.
                 bool more = false;
@@ -2756,7 +2783,7 @@ struct Browser::Impl {
         // What its markup names is asked for before the parse begins, which
         // waits for each script where it stands.
         if (html)
-            ask_ahead_for_markup(tab, entry->final_url, source);
+            ask_ahead_for_markup(tab, entry->final_url, source, tab.policy.get());
         tab.realm = make_realm(tab, entry->final_url);
         script_started = std::chrono::steady_clock::now();
         html::parse_document_bytes_into(*tab.document, source,
@@ -3096,6 +3123,8 @@ struct Browser::Impl {
         if (load.tab >= tabs.size())
             return false;
         Tab& tab = tabs[load.tab];
+        // A load on its way for this tab is let go of: this one takes its place.
+        tab.navigating.reset();
         HistoryEntry const* const from = tab.current();
         HistoryEntry entry;
         entry.url = load.url;
@@ -3155,6 +3184,24 @@ struct Browser::Impl {
             }
         } else {
             std::string const referrer = referrer_for(from ? &from->final_url : nullptr, load.url);
+            // A page of the web is fetched on another thread, where the
+            // loader can: the load is begun here and taken up again when its
+            // document has come (advance_navigations), and the window is the
+            // reader's in between — the page it shows, the other tabs, the
+            // strip and the bar. Whatever the tab was waiting for before
+            // this is let go of.
+            if (load.url.scheme == "http" || load.url.scheme == "https") {
+                if (std::shared_ptr<net::FetchTicket> ticket
+                    = loader.load_ahead(load.url, referrer, load.mode == Mode::Reload, tab.container)) {
+                    Navigating navigating;
+                    navigating.load = load;
+                    navigating.referrer = referrer;
+                    navigating.document = std::move(ticket);
+                    tab.navigating = std::move(navigating);
+                    dirty = true;
+                    return true;
+                }
+            }
             net::FetchResult result = loader.load(load.url, referrer, load.mode == Mode::Reload, tab.container);
             if (!result.response && load.https_first
                 && result.error.find("could not connect") != std::string::npos) {
@@ -3169,48 +3216,69 @@ struct Browser::Impl {
                     fell_back_to_http = true;
                 }
             }
-            if (!result.response) {
-                fail_entry(entry, entry.url, result.error);
-            } else {
-                net::FetchResponse& response = *result.response;
-                entry.final_url = response.final_url;
-                entry.status = response.status;
-                entry.from_cache = response.from_cache;
-                if (std::string const* const type = net::find_header(response.headers, "content-type"))
-                    entry.content_type = *type;
-                for (net::Header const& header : response.headers) {
-                    if (ascii_ci_equals(header.name, "content-security-policy"))
-                        entry.csp_headers.push_back(header.value);
-                    else if (ascii_ci_equals(header.name, "content-security-policy-report-only"))
-                        entry.csp_report_only_headers.push_back(header.value);
-                }
-                std::string const* const disposition
-                    = net::find_header(response.headers, "content-disposition");
-                bool const attachment = disposition && starts_with_ci(trim(*disposition), "attachment");
-                if (attachment || !is_renderable_content_type(entry.content_type))
-                    download_status = receive_download(entry, response, disposition, referrer);
-                else
-                    entry.bytes = std::move(response.body);
-                if (theme_adopted) {
-                    // A theme, and it is on: the page the reader chose it
-                    // from stays where it is — nothing was navigated to,
-                    // nothing was saved — and the themes page, if that is
-                    // the page, is drawn again to say which is on now.
-                    theme_adopted = false;
-                    tab.status = download_status;
-                    if (from && from->url.scheme == "about" && from->url.serialize_path() == "themes") {
-                        themes_notice = download_status;
-                        // The same words, order and page as the reader had.
-                        if (std::optional<net::Url> const again = net::parse_url(gallery_address(gallery_query_of(from->url.query))))
-                            queue(load.tab, *again, Mode::Replace);
-                    }
-                    refresh_hover();
-                    dirty = true;
-                    return true;
-                }
-            }
+            if (!take_response(tab, load, entry, result, referrer, download_status))
+                return true;
         }
+        commit_loaded(tab, load, std::move(entry), download_status, fell_back_to_http);
+        return true;
+    }
 
+    // What a fetched document's response makes of the entry being loaded:
+    // where it ended up, its status and type, the policies its headers
+    // state, and its bytes — or, for what is no page, the download it
+    // becomes. False when the load ends here with nothing to show in the
+    // tab: what arrived was a theme, and it is on.
+    bool take_response(Tab& tab, Pending const& load, HistoryEntry& entry, net::FetchResult& result,
+        std::string const& referrer, std::string& download_status)
+    {
+        if (!result.response) {
+            fail_entry(entry, entry.url, result.error);
+            return true;
+        }
+        net::FetchResponse& response = *result.response;
+        entry.final_url = response.final_url;
+        entry.status = response.status;
+        entry.from_cache = response.from_cache;
+        if (std::string const* const type = net::find_header(response.headers, "content-type"))
+            entry.content_type = *type;
+        for (net::Header const& header : response.headers) {
+            if (ascii_ci_equals(header.name, "content-security-policy"))
+                entry.csp_headers.push_back(header.value);
+            else if (ascii_ci_equals(header.name, "content-security-policy-report-only"))
+                entry.csp_report_only_headers.push_back(header.value);
+        }
+        std::string const* const disposition = net::find_header(response.headers, "content-disposition");
+        bool const attachment = disposition && starts_with_ci(trim(*disposition), "attachment");
+        if (attachment || !is_renderable_content_type(entry.content_type))
+            download_status = receive_download(entry, response, disposition, referrer);
+        else
+            entry.bytes = std::move(response.body);
+        if (theme_adopted) {
+            // A theme, and it is on: the page the reader chose it
+            // from stays where it is — nothing was navigated to,
+            // nothing was saved — and the themes page, if that is
+            // the page, is drawn again to say which is on now.
+            theme_adopted = false;
+            tab.status = download_status;
+            HistoryEntry const* const from = tab.current();
+            if (from && from->url.scheme == "about" && from->url.serialize_path() == "themes") {
+                themes_notice = download_status;
+                // The same words, order and page as the reader had.
+                if (std::optional<net::Url> const again = net::parse_url(gallery_address(gallery_query_of(from->url.query))))
+                    queue(load.tab, *again, Mode::Replace);
+            }
+            refresh_hover();
+            dirty = true;
+            return false;
+        }
+        return true;
+    }
+
+    // The end of every load: the entry goes into the tab's history and is
+    // drawn, and the status line says how it went.
+    void commit_loaded(Tab& tab, Pending const& load, HistoryEntry entry, std::string const& download_status,
+        bool fell_back_to_http)
+    {
         std::string status;
         if (!download_status.empty()) {
             status = download_status;
@@ -3231,7 +3299,107 @@ struct Browser::Impl {
             sync_address();
         refresh_hover();
         dirty = true;
-        return true;
+    }
+
+    // Whether a load begun on another thread has something to be taken up
+    // with: its document has come, or what the parse will wait for has (or
+    // has been waited on long enough).
+    static bool navigation_ready(Navigating const& navigating)
+    {
+        if (!navigating.entry)
+            return navigating.document && navigating.document->done();
+        if (std::chrono::steady_clock::now() - navigating.waiting_since > std::chrono::seconds(4))
+            return true;
+        return std::all_of(navigating.blocking.begin(), navigating.blocking.end(),
+            [](std::shared_ptr<net::FetchTicket> const& ticket) { return !ticket || ticket->done(); });
+    }
+
+    bool any_navigation_ready() const
+    {
+        return std::any_of(tabs.begin(), tabs.end(),
+            [](Tab const& tab) { return tab.navigating && navigation_ready(*tab.navigating); });
+    }
+
+    bool any_navigating() const
+    {
+        return std::any_of(tabs.begin(), tabs.end(), [](Tab const& tab) { return tab.navigating.has_value(); });
+    }
+
+    // Takes up one load begun on another thread, where one is ready. Its
+    // document's arrival is the first step: the HTTPS-first retry where that
+    // is due, a download or a theme where that is what came, and for a page
+    // the stylesheets and scripts its markup names asked for together —
+    // which are then waited for HERE, a turn of the loop at a time, and not
+    // by a parser holding the window still. Their arrival is the second:
+    // the page is committed, parsed and drawn with what it needs to hand.
+    bool advance_navigations()
+    {
+        for (std::size_t index = 0; index < tabs.size(); ++index) {
+            Tab& tab = tabs[index];
+            if (!tab.navigating || !navigation_ready(*tab.navigating))
+                continue;
+            Navigating& navigating = *tab.navigating;
+            Pending load = navigating.load;
+            load.tab = index; // tabs may have come and gone since it began
+            if (!navigating.entry) {
+                net::FetchResult result = navigating.document->take();
+                if (!result.response && load.https_first && !navigating.fell_back_to_http
+                    && result.error.find("could not connect") != std::string::npos) {
+                    // HTTPS-first: a host that does not answer on 443 gets one
+                    // plain-HTTP try, and the address bar says so.
+                    net::Url http = load.url;
+                    http.scheme = "http";
+                    if (std::shared_ptr<net::FetchTicket> retry
+                        = loader.load_ahead(http, navigating.referrer, load.mode == Mode::Reload, tab.container)) {
+                        navigating.first_error = result.error;
+                        navigating.fell_back_to_http = true;
+                        navigating.document = std::move(retry);
+                        return true;
+                    }
+                }
+                HistoryEntry entry;
+                entry.url = load.url;
+                entry.final_url = load.url;
+                bool fell_back = false;
+                if (navigating.fell_back_to_http) {
+                    if (result.response) {
+                        entry.url.scheme = "http";
+                        fell_back = true;
+                    } else {
+                        result.error = navigating.first_error; // what the reader asked for is what failed
+                    }
+                }
+                std::string download_status;
+                if (!take_response(tab, load, entry, result, navigating.referrer, download_status)) {
+                    tab.navigating.reset();
+                    return true;
+                }
+                bool const page = download_status.empty() && entry.error.empty() && !entry.bytes.empty()
+                    && (entry.content_type.empty() || starts_with_ci(entry.content_type, "text/html")
+                        || starts_with_ci(entry.content_type, "application/xhtml"));
+                if (!page) {
+                    tab.navigating.reset();
+                    commit_loaded(tab, load, std::move(entry), download_status, fell_back);
+                    return true;
+                }
+                // The page's policy as its headers state it, to ask ahead by.
+                net::ContentSecurityPolicy policy(entry.final_url);
+                for (std::string const& header : entry.csp_headers)
+                    policy.add_header(header, false);
+                navigating.blocking = ask_ahead_for_markup(tab, entry.final_url, bytes_view(entry.bytes), &policy);
+                navigating.entry = std::move(entry);
+                navigating.fell_back = fell_back;
+                navigating.waiting_since = std::chrono::steady_clock::now();
+                if (!navigation_ready(navigating))
+                    return true;
+            }
+            HistoryEntry entry = std::move(*navigating.entry);
+            bool const fell_back = navigating.fell_back;
+            tab.navigating.reset();
+            commit_loaded(tab, load, std::move(entry), {}, fell_back);
+            return true;
+        }
+        return false;
     }
 
     // --- Navigation --------------------------------------------------------------
@@ -3300,6 +3468,7 @@ struct Browser::Impl {
             return;
         if (HistoryEntry* const entry = tab->current())
             entry->scroll_y = tab->scroll_y;
+        tab->navigating.reset(); // a load on its way was for where the tab stood
         tab->index = static_cast<std::size_t>(target);
         if (HistoryEntry const* const entry = tab->current(); entry && (entry->unloaded || entry->pushed)) {
             // A restored entry, or one a script pushed: its page is fetched
@@ -8433,7 +8602,20 @@ void Browser::duplicate_tab(std::size_t index) { m_impl->duplicate_tab(index); }
 
 bool Browser::has_pending_load() const
 {
-    if (!m_impl->pending.empty() || !m_impl->pending_windows.empty())
+    return load_ready() || m_impl->any_navigating();
+}
+
+bool Browser::navigating() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab && (tab->navigating.has_value() || std::any_of(m_impl->pending.begin(), m_impl->pending.end(), [this](Impl::Pending const& load) {
+        return load.tab == m_impl->active;
+    }));
+}
+
+bool Browser::load_ready() const
+{
+    if (!m_impl->pending.empty() || !m_impl->pending_windows.empty() || m_impl->any_navigation_ready())
         return true;
     Impl::Tab const* const tab = m_impl->active_tab();
     return tab && tab->images_owed;
@@ -8449,10 +8631,27 @@ bool Browser::tick()
         // Beside the tab whose page asked — in front, when a page asked.
         m_impl->open_tab_beside(window.container, window.url, window.opener, window.to_front);
     }
+    // A load begun on another thread is taken up where it has something to
+    // show for itself.
+    if (m_impl->advance_navigations())
+        return true;
     if (m_impl->pending.empty()) {
         // The page shown takes the next of its pictures.
         if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->images_owed) {
             m_impl->continue_images(*tab);
+            return true;
+        }
+        // Nothing to do but wait for a fetch that is on its way: a moment of
+        // that, so that a caller who ticks until the loading is over does
+        // not spin — the window's own loop asks load_ready() and sleeps on
+        // its events instead.
+        for (Impl::Tab const& tab : m_impl->tabs) {
+            if (!tab.navigating)
+                continue;
+            if (!tab.navigating->entry && tab.navigating->document)
+                tab.navigating->document->wait_for(5);
+            else if (!tab.navigating->blocking.empty() && tab.navigating->blocking.front())
+                tab.navigating->blocking.front()->wait_for(5);
             return true;
         }
         return false;

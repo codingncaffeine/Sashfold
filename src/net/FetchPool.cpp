@@ -1,5 +1,6 @@
 #include "net/FetchPool.h"
 
+#include <chrono>
 #include <utility>
 
 namespace sashfold::net {
@@ -8,6 +9,12 @@ bool FetchTicket::done() const
 {
     std::lock_guard<std::mutex> const lock(m_mutex);
     return m_done;
+}
+
+bool FetchTicket::wait_for(int milliseconds) const
+{
+    std::unique_lock<std::mutex> lock(m_mutex);
+    return m_ended.wait_for(lock, std::chrono::milliseconds(milliseconds), [this] { return m_done; });
 }
 
 FetchResult FetchTicket::take()
@@ -53,8 +60,12 @@ std::shared_ptr<FetchTicket> FetchPool::submit(Work work)
         std::lock_guard<std::mutex> const lock(m_mutex);
         m_queue.push_back(Job { std::move(work), ticket });
         ++m_outstanding;
-        // A thread for it when none is free and the limit allows another.
-        if (m_idle == 0 && m_threads.size() < m_thread_limit)
+        // A thread for it when there is more work waiting than threads
+        // waiting for work, and the limit allows another. Counted against
+        // the queue, not against "is anyone idle": a thread that has been
+        // woken for the piece before this one still counts as waiting until
+        // it has the lock again, and that piece is still in the queue.
+        if (m_queue.size() > m_waiting && m_threads.size() < m_thread_limit)
             m_threads.emplace_back([this] { run(); });
     }
     m_work_arrived.notify_one();
@@ -73,9 +84,9 @@ void FetchPool::run()
         Job job;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            ++m_idle;
+            ++m_waiting;
             m_work_arrived.wait(lock, [this] { return m_stopping || !m_queue.empty(); });
-            --m_idle;
+            --m_waiting;
             if (m_queue.empty())
                 return; // stopping, and nothing left to take
             job = std::move(m_queue.front());
