@@ -315,7 +315,12 @@ std::string lowercased(std::string text)
 // A C++ string literal of `text`. The keywords and attribute names here are
 // ASCII words and hyphens, but a quote or a backslash would otherwise go
 // through unescaped and write a file that does not compile.
-std::string quoted(std::string_view text)
+//
+// Not named `quoted`: an argument of type std::string would then find
+// std::quoted by argument-dependent lookup, which libc++ declares through
+// <sstream> and which beats a std::string_view parameter. libstdc++ does not
+// declare it there, so only the macOS lane would ever say so.
+std::string string_literal(std::string_view text)
 {
     std::string out = "\"";
     for (char const c : text) {
@@ -335,8 +340,8 @@ std::string state_of(std::vector<ExtendedAttribute> const& extended, char const*
     if (!found)
         return "std::nullopt";
     if (found->values.empty())
-        return quoted("");
-    return quoted(found->values.front());
+        return string_literal("");
+    return string_literal(found->values.front());
 }
 
 // The number written for [Default=n], or the fallback the kind of reflection
@@ -352,8 +357,8 @@ std::string default_of(std::vector<ExtendedAttribute> const& extended, char cons
 // One `reflect_*` call for an attribute the IDL marks [Reflect].
 std::string reflection_of(Interface const& interface, Attribute const& attribute, std::string const& content)
 {
-    std::string const property = quoted(attribute.name);
-    std::string const name = quoted(content);
+    std::string const property = string_literal(attribute.name);
+    std::string const name = string_literal(content);
     std::string const head = "        ";
     bool const nullable = !attribute.type.empty() && attribute.type.back() == '?';
     std::string type = attribute.type;
@@ -373,7 +378,7 @@ std::string reflection_of(Interface const& interface, Attribute const& attribute
                 + head + "    ReflectedEnum { {";
             std::string line;
             for (std::size_t i = 0; i < keywords->values.size(); ++i) {
-                std::string const piece = " { " + quoted(keywords->values[i]) + ", \"\" }"
+                std::string const piece = " { " + string_literal(keywords->values[i]) + ", \"\" }"
                     + (i + 1 < keywords->values.size() ? "," : "");
                 if (line.size() + piece.size() > 100) {
                     out += line + "\n";
