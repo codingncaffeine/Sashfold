@@ -64,6 +64,7 @@ add_library(sashfold_core STATIC
   src/bindings/generated/HtmlElements.gen.cpp
   src/core/Base64.cpp
   src/core/Bidi.cpp
+  src/core/AnimatedImage.cpp
   src/core/Bitmap.cpp
   src/core/LineBreak.cpp
   src/core/Bmp.cpp

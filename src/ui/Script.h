@@ -30,6 +30,7 @@
 //   assert-address-ends <text>   (a file's address begins with the machine's path)
 //   assert-text <text>   assert-no-text <text>   assert-status <text>
 //   assert-tabs <n>      assert-scroll <n>       assert-scrolled
+//   assert-header-paints <n>   (since `mark`: frames that drew the header alone, a theme's picture having moved)
 //   assert-pixel <x> <y> <#rrggbb>
 //   assert-focus address|page
 //   focus <name>         focus the first form control with that name

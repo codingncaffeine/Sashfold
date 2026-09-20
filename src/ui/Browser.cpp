@@ -4,6 +4,7 @@
 
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
+#include "core/AnimatedImage.h"
 #include "core/Ascii.h"
 #include "core/Json.h"
 #include "core/Unicode.h"
@@ -607,6 +608,15 @@ struct Browser::Impl {
             ThemePicture how;
             std::optional<Bitmap> scaled; // the picture at `scaled_for` device px per CSS px, when that is not 1
             float scaled_for = 0;
+            // A picture that moves — an animated PNG or GIF, which is what an
+            // animated Firefox theme is made of: `picture` is its canvas as it
+            // stands, and the next frame is due at this time on the shell's
+            // clock — below zero until the clock has first been read for it,
+            // which is not when the theme is loaded: a harness gives the
+            // shell its clock after it has made the shell. Null for a picture
+            // that stays still.
+            std::unique_ptr<AnimatedImage> animation;
+            double next_frame_at = -1;
         };
         std::vector<Layer> layers;
         std::optional<Bitmap> laid;
@@ -719,6 +729,9 @@ struct Browser::Impl {
         std::function<void()> run;
     };
     bool palette_open = false;
+    // A theme's picture moved on a frame and nothing else changed: the
+    // header is painted again, the page is not (advance_theme_pictures).
+    bool header_dirty = false;
     std::string palette_query;
     std::size_t palette_caret = 0; // bytes into palette_query
     bool palette_select_all = false;
@@ -3978,12 +3991,75 @@ struct Browser::Impl {
                     problem("more pixels than a theme's picture may have");
                     continue;
                 }
-                into.layers.push_back({ std::move(*decoded), named[i], std::nullopt, 0 });
+                ThemeLayers::Layer layer { std::move(*decoded), named[i], std::nullopt, 0, nullptr, -1 };
+                if (std::optional<AnimatedImage> moving = AnimatedImage::open(std::move(bytes))) {
+                    layer.animation = std::make_unique<AnimatedImage>(std::move(*moving));
+                    layer.picture = layer.animation->canvas();
+                }
+                into.layers.push_back(std::move(layer));
             }
         };
         load(base_theme.frame_pictures, frame_pictures, "frame");
         load(base_theme.toolbar_pictures, toolbar_pictures, "toolbar");
         load(base_theme.tab_background_pictures, tab_background_pictures, "tab-background");
+    }
+
+    // A theme's pictures that move take the frames that have come due. Only
+    // the header is to be painted again for it — the page under it has not
+    // changed, and painting a page ten times a second for a tab strip's
+    // sake is what makes a moving theme cost something. A window that slept
+    // (a stall, a suspended machine) does not play back what it missed.
+    bool advance_theme_pictures()
+    {
+        double const now = script_now();
+        bool moved = false;
+        for (ThemeLayers* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
+            for (ThemeLayers::Layer& layer : surface->layers) {
+                if (!layer.animation || layer.animation->finished())
+                    continue;
+                if (layer.next_frame_at < 0)
+                    layer.next_frame_at = now + layer.animation->delay_ms();
+                if (now < layer.next_frame_at)
+                    continue;
+                int steps = 0;
+                while (now >= layer.next_frame_at && steps < 8 && layer.animation->advance()) {
+                    layer.next_frame_at += layer.animation->delay_ms();
+                    ++steps;
+                }
+                if (now >= layer.next_frame_at)
+                    layer.next_frame_at = now + layer.animation->delay_ms();
+                if (steps == 0)
+                    continue;
+                layer.picture = layer.animation->canvas();
+                layer.scaled.reset();
+                layer.scaled_for = 0;
+                surface->laid.reset();
+                moved = true;
+            }
+        }
+        if (moved)
+            header_dirty = true;
+        return moved;
+    }
+
+    // Milliseconds until a theme's picture is next due a frame; nullopt when
+    // none moves.
+    std::optional<double> next_theme_frame_ms() const
+    {
+        std::optional<double> soonest;
+        for (ThemeLayers const* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
+            for (ThemeLayers::Layer const& layer : surface->layers) {
+                if (!layer.animation || layer.animation->finished())
+                    continue;
+                double const due = layer.next_frame_at < 0 ? script_now() + layer.animation->delay_ms()
+                                                           : layer.next_frame_at;
+                if (!soonest || due < *soonest)
+                    soonest = due;
+            }
+        }
+        if (!soonest)
+            return std::nullopt;
+        return std::max(0.0, *soonest - script_now());
     }
 
     // A surface's pictures as they lie over `area` — the header, from the
@@ -6831,8 +6907,23 @@ struct Browser::Impl {
     void paint()
     {
         Stopwatch const painting(profile.paint_ms, &profile.last_paint_ms);
-        ++profile.paints;
-        profile.painted_pixels += static_cast<std::uint64_t>(frame.width()) * static_cast<std::uint64_t>(frame.height());
+        // When a theme's picture moved and nothing else changed, and nothing
+        // floats over the header, the header is painted again and the page
+        // under it is left as it was painted.
+        bool const header_only = header_dirty && !dirty && menus.empty() && !palette_open && !find_open;
+        // A picture that moves starts its clock when it is first shown.
+        for (ThemeLayers* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
+            for (ThemeLayers::Layer& layer : surface->layers) {
+                if (layer.animation && layer.next_frame_at < 0)
+                    layer.next_frame_at = script_now() + layer.animation->delay_ms();
+            }
+        }
+        if (header_only) {
+            ++profile.header_paints;
+        } else {
+            ++profile.paints;
+            profile.painted_pixels += static_cast<std::uint64_t>(frame.width()) * static_cast<std::uint64_t>(frame.height());
+        }
         drop_stale_preedit();
         Theme const& t = theme;
         ChromeLayout const c = layout_chrome();
@@ -7083,6 +7174,11 @@ struct Browser::Impl {
             }
         }
 
+        if (header_only) {
+            header_dirty = false;
+            return;
+        }
+
         // Content.
         frame.fill_rect(c.content, t.content_background);
         if (tab && tab->document && !c.content.is_empty()) {
@@ -7276,6 +7372,7 @@ struct Browser::Impl {
         paint_menus(c);
 
         dirty = false;
+        header_dirty = false;
     }
 
     // The open menus, over everything else: a bordered box each, a row an
@@ -7582,6 +7679,10 @@ bool Browser::run_scripts()
     }
     if (Impl::Tab* const tab = impl.active_tab())
         impl.ensure_fresh(*tab);
+    // The shell's own clockwork rides the same wake: a theme's pictures
+    // that move.
+    if (impl.advance_theme_pictures())
+        ran = true;
     return ran;
 }
 
@@ -7596,9 +7697,14 @@ std::optional<double> Browser::next_timer_ms() const
                 soonest = *due;
         }
     }
-    if (!soonest)
-        return std::nullopt;
-    return std::max(0.0, *soonest - m_impl->script_now());
+    std::optional<double> due;
+    if (soonest)
+        due = std::max(0.0, *soonest - m_impl->script_now());
+    if (std::optional<double> const theme = m_impl->next_theme_frame_ms()) {
+        if (!due || *theme < *due)
+            due = *theme;
+    }
+    return due;
 }
 
 void Browser::set_clock(std::function<double()> now) { m_impl->clock = std::move(now); }
@@ -7627,12 +7733,12 @@ Bitmap const& Browser::frame()
     }
     if (Impl::Tab* const tab = m_impl->active_tab())
         m_impl->ensure_fresh(*tab);
-    if (m_impl->dirty)
+    if (m_impl->dirty || m_impl->header_dirty)
         m_impl->paint();
     return m_impl->frame;
 }
 
-bool Browser::needs_paint() const { return m_impl->dirty; }
+bool Browser::needs_paint() const { return m_impl->dirty || m_impl->header_dirty; }
 Profile const& Browser::profile() const { return m_impl->profile; }
 
 std::size_t Browser::pictures() const

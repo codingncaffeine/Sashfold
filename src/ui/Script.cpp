@@ -622,6 +622,8 @@ struct Runner {
             expect_equal("assert-relayouts", std::to_string(browser.profile().relayouts - marked.relayouts), argument);
         } else if (command == "assert-paints") {
             expect_equal("assert-paints", std::to_string(browser.profile().paints - marked.paints), argument);
+        } else if (command == "assert-header-paints") {
+            expect_equal("assert-header-paints", std::to_string(browser.profile().header_paints - marked.header_paints), argument);
         } else if (command == "assert-pictures") {
             expect_equal("assert-pictures", std::to_string(browser.pictures()), argument);
         } else if (command == "assert-pixel") {

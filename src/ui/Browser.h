@@ -190,6 +190,9 @@ struct Profile {
     std::uint64_t restyles = 0;
     std::uint64_t relayouts = 0;
     std::uint64_t paints = 0;
+    // The frames for which the header alone was drawn again — a theme's
+    // picture moved and nothing else had changed — and the page was not.
+    std::uint64_t header_paints = 0;
     std::uint64_t painted_pixels = 0;
     double sheets_ms = 0; // stylesheets and fonts collected
     double images_ms = 0; // pictures collected and decoded

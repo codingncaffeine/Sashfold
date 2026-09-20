@@ -369,122 +369,18 @@ constexpr std::array<Interlace, 7> adam7 { {
 
 } // namespace
 
-bool looks_like_png(std::vector<std::uint8_t> const& bytes)
+namespace {
+
+using Format = PngSamples;
+
+// A zlib stream of filtered scanlines into a picture of the size given: the
+// whole of a still PNG, or one frame of an animated one, which has a size
+// of its own.
+std::optional<Bitmap> decode_pixels(Format const& format, std::uint32_t image_width, std::uint32_t image_height,
+    std::vector<std::uint8_t> const& zlib_data)
 {
-    return bytes.size() >= png_signature.size()
-        && std::equal(png_signature.begin(), png_signature.end(), bytes.begin());
-}
-
-std::optional<Bitmap> decode_png(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels)
-{
-    if (!looks_like_png(bytes))
-        return std::nullopt;
-
-    struct Header {
-        std::uint32_t width = 0;
-        std::uint32_t height = 0;
-        int depth = 0;
-        int color_type = 0;
-        bool interlaced = false;
-    };
-    std::optional<Header> header;
-    std::vector<Color> palette;
-    bool has_key = false;
-    std::array<std::uint32_t, 3> key { 0, 0, 0 };
-    std::vector<std::uint8_t> idat;
-    bool saw_idat = false;
-    bool saw_iend = false;
-    constexpr std::size_t max_idat = 64u * 1024u * 1024u;
-
-    std::size_t at = png_signature.size();
-    while (at + 12 <= bytes.size() && !saw_iend) {
-        std::uint32_t const length = read_be32(&bytes[at]);
-        if (length > bytes.size() - at - 12)
-            return std::nullopt; // truncated
-        std::uint8_t const* type = &bytes[at + 4];
-        std::uint8_t const* data = &bytes[at + 8];
-        bool const critical = (type[0] & 0x20) == 0;
-        bool const crc_ok = crc32(type, 4u + length) == read_be32(data + length);
-        std::string const name(reinterpret_cast<char const*>(type), 4);
-        at += 12 + length;
-        if (!crc_ok) {
-            if (critical)
-                return std::nullopt;
-            continue;
-        }
-        if (name == "IHDR") {
-            if (header || length != 13)
-                return std::nullopt;
-            Header parsed;
-            parsed.width = read_be32(data);
-            parsed.height = read_be32(data + 4);
-            parsed.depth = data[8];
-            parsed.color_type = data[9];
-            parsed.interlaced = data[12] == 1;
-            if (parsed.width == 0 || parsed.height == 0 || parsed.width > 0x7FFFFFFFu
-                || parsed.height > 0x7FFFFFFFu || data[10] != 0 || data[11] != 0
-                || (data[12] != 0 && data[12] != 1) || !valid_depth(parsed.color_type, parsed.depth))
-                return std::nullopt;
-            if (static_cast<std::uint64_t>(parsed.width) * parsed.height > max_pixels
-                || parsed.width > 65535 || parsed.height > 65535)
-                return std::nullopt;
-            header = parsed;
-            continue;
-        }
-        if (!header)
-            return std::nullopt; // IHDR comes first
-        if (name == "PLTE") {
-            if (length == 0 || length % 3 != 0 || length > 768 || !palette.empty() || saw_idat)
-                return std::nullopt;
-            for (std::uint32_t i = 0; i < length; i += 3)
-                palette.push_back(Color::rgb(data[i], data[i + 1], data[i + 2]));
-        } else if (name == "tRNS") {
-            if (saw_idat)
-                return std::nullopt;
-            if (header->color_type == 3) {
-                if (length > palette.size())
-                    return std::nullopt;
-                for (std::uint32_t i = 0; i < length; ++i)
-                    palette[i].a = data[i];
-            } else if (header->color_type == 0) {
-                if (length != 2)
-                    return std::nullopt;
-                has_key = true;
-                key[0] = static_cast<std::uint32_t>(data[0]) << 8 | data[1];
-            } else if (header->color_type == 2) {
-                if (length != 6)
-                    return std::nullopt;
-                has_key = true;
-                for (int i = 0; i < 3; ++i)
-                    key[static_cast<std::size_t>(i)] = static_cast<std::uint32_t>(data[i * 2]) << 8 | data[i * 2 + 1];
-            } else {
-                return std::nullopt; // alpha types carry no tRNS
-            }
-        } else if (name == "IDAT") {
-            saw_idat = true;
-            if (idat.size() + length > max_idat)
-                return std::nullopt;
-            idat.insert(idat.end(), data, data + length);
-        } else if (name == "IEND") {
-            saw_iend = true;
-        } else if (critical) {
-            return std::nullopt; // a critical chunk this decoder does not know
-        }
-    }
-    if (!header || !saw_idat)
-        return std::nullopt;
-    if (header->color_type == 3 && palette.empty())
-        return std::nullopt;
-    // A color key is compared at the sample depth: a key out of range never matches.
-    if (has_key && header->depth < 16) {
-        std::uint32_t const limit = (1u << header->depth) - 1;
-        for (std::uint32_t const k : key)
-            if (k > limit)
-                has_key = false;
-    }
-
-    int const channels = channels_of(header->color_type);
-    std::size_t const bits_per_pixel = static_cast<std::size_t>(channels) * static_cast<std::size_t>(header->depth);
+    int const channels = channels_of(format.color_type);
+    std::size_t const bits_per_pixel = static_cast<std::size_t>(channels) * static_cast<std::size_t>(format.depth);
     std::size_t const bpp = std::max<std::size_t>(1, bits_per_pixel / 8);
     auto const row_bytes = [&](std::uint32_t width) {
         return (static_cast<std::size_t>(width) * bits_per_pixel + 7) / 8;
@@ -493,29 +389,31 @@ std::optional<Bitmap> decode_png(std::vector<std::uint8_t> const& bytes, std::si
         std::uint32_t width, height, x_start, y_start, x_step, y_step;
     };
     std::vector<Pass> passes;
-    if (header->interlaced) {
+    if (format.interlaced) {
         for (Interlace const& step : adam7) {
             std::uint32_t const width
-                = header->width > step.x_start ? (header->width - step.x_start + step.x_step - 1) / step.x_step : 0;
+                = image_width > step.x_start ? (image_width - step.x_start + step.x_step - 1) / step.x_step : 0;
             std::uint32_t const height
-                = header->height > step.y_start ? (header->height - step.y_start + step.y_step - 1) / step.y_step : 0;
+                = image_height > step.y_start ? (image_height - step.y_start + step.y_step - 1) / step.y_step : 0;
             if (width && height)
                 passes.push_back(Pass { width, height, step.x_start, step.y_start, step.x_step, step.y_step });
         }
     } else {
-        passes.push_back(Pass { header->width, header->height, 0, 0, 1, 1 });
+        passes.push_back(Pass { image_width, image_height, 0, 0, 1, 1 });
     }
     std::size_t expected = 0;
     for (Pass const& pass : passes)
         expected += static_cast<std::size_t>(pass.height) * (1 + row_bytes(pass.width));
-    std::optional<std::vector<std::uint8_t>> raw = zlib_decompress(idat, expected);
+    std::optional<std::vector<std::uint8_t>> raw = zlib_decompress(zlib_data, expected);
     if (!raw || raw->size() != expected)
         return std::nullopt;
 
-    Bitmap out(static_cast<int>(header->width), static_cast<int>(header->height),
-        Color::rgba(0, 0, 0, 0));
-    int const depth = header->depth;
-    int const color_type = header->color_type;
+    Bitmap out(static_cast<int>(image_width), static_cast<int>(image_height), Color::rgba(0, 0, 0, 0));
+    int const depth = format.depth;
+    int const color_type = format.color_type;
+    bool const has_key = format.has_key;
+    std::array<std::uint32_t, 3> const& key = format.key;
+    std::vector<Color> const& palette = format.palette;
     auto const store = [&](std::uint8_t const* line, Pass const& pass, std::uint32_t y) {
         for (std::uint32_t i = 0; i < pass.width; ++i) {
             Color color;
@@ -570,6 +468,215 @@ std::optional<Bitmap> decode_png(std::vector<std::uint8_t> const& bytes, std::si
         }
     }
     return out;
+}
+
+// A PNG's chunks, walked once: the header, what it says of its samples, the
+// still picture's data, and — for an animated one (APNG 1.0) — its frames.
+struct Parsed {
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    Format format;
+    std::vector<std::uint8_t> idat;
+    bool animated = false; // an acTL came before the picture's data
+    std::uint32_t plays = 0;
+    std::vector<ApngFrame> frames;
+};
+
+std::optional<Parsed> parse(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels, bool still_only)
+{
+    if (!looks_like_png(bytes))
+        return std::nullopt;
+    Parsed parsed;
+    bool have_header = false;
+    bool saw_idat = false;
+    bool saw_iend = false;
+    constexpr std::size_t max_idat = 64u * 1024u * 1024u;
+    constexpr std::size_t max_frames = 10000;
+    // The frame control chunk that came last and has had no data yet: the
+    // picture's own data belongs to it when it came before that data.
+    bool frame_open = false;
+
+    std::size_t at = png_signature.size();
+    while (at + 12 <= bytes.size() && !saw_iend) {
+        std::uint32_t const length = read_be32(&bytes[at]);
+        if (length > bytes.size() - at - 12)
+            return std::nullopt; // truncated
+        std::uint8_t const* type = &bytes[at + 4];
+        std::uint8_t const* data = &bytes[at + 8];
+        std::size_t const data_at = at + 8;
+        bool const critical = (type[0] & 0x20) == 0;
+        bool const crc_ok = crc32(type, 4u + length) == read_be32(data + length);
+        std::string const name(reinterpret_cast<char const*>(type), 4);
+        at += 12 + length;
+        if (!crc_ok) {
+            if (critical)
+                return std::nullopt;
+            continue;
+        }
+        if (name == "IHDR") {
+            if (have_header || length != 13)
+                return std::nullopt;
+            parsed.width = read_be32(data);
+            parsed.height = read_be32(data + 4);
+            parsed.format.depth = data[8];
+            parsed.format.color_type = data[9];
+            parsed.format.interlaced = data[12] == 1;
+            if (parsed.width == 0 || parsed.height == 0 || parsed.width > 0x7FFFFFFFu
+                || parsed.height > 0x7FFFFFFFu || data[10] != 0 || data[11] != 0
+                || (data[12] != 0 && data[12] != 1) || !valid_depth(parsed.format.color_type, parsed.format.depth))
+                return std::nullopt;
+            if (static_cast<std::uint64_t>(parsed.width) * parsed.height > max_pixels
+                || parsed.width > 65535 || parsed.height > 65535)
+                return std::nullopt;
+            have_header = true;
+            continue;
+        }
+        if (!have_header)
+            return std::nullopt; // IHDR comes first
+        Format& format = parsed.format;
+        if (name == "PLTE") {
+            if (length == 0 || length % 3 != 0 || length > 768 || !format.palette.empty() || saw_idat)
+                return std::nullopt;
+            for (std::uint32_t i = 0; i < length; i += 3)
+                format.palette.push_back(Color::rgb(data[i], data[i + 1], data[i + 2]));
+        } else if (name == "tRNS") {
+            if (saw_idat)
+                return std::nullopt;
+            if (format.color_type == 3) {
+                if (length > format.palette.size())
+                    return std::nullopt;
+                for (std::uint32_t i = 0; i < length; ++i)
+                    format.palette[i].a = data[i];
+            } else if (format.color_type == 0) {
+                if (length != 2)
+                    return std::nullopt;
+                format.has_key = true;
+                format.key[0] = static_cast<std::uint32_t>(data[0]) << 8 | data[1];
+            } else if (format.color_type == 2) {
+                if (length != 6)
+                    return std::nullopt;
+                format.has_key = true;
+                for (int i = 0; i < 3; ++i)
+                    format.key[static_cast<std::size_t>(i)] = static_cast<std::uint32_t>(data[i * 2]) << 8 | data[i * 2 + 1];
+            } else {
+                return std::nullopt; // alpha types carry no tRNS
+            }
+        } else if (name == "IDAT") {
+            saw_idat = true;
+            if (parsed.idat.size() + length > max_idat)
+                return std::nullopt;
+            parsed.idat.insert(parsed.idat.end(), data, data + length);
+            // The picture itself is the first frame when a frame control
+            // chunk came before it, and no part of the animation otherwise.
+            if (frame_open && !parsed.frames.empty())
+                parsed.frames.back().data.emplace_back(data_at, length);
+        } else if (name == "IEND") {
+            saw_iend = true;
+        } else if (name == "acTL" && !still_only) {
+            if (length == 8 && !saw_idat) {
+                parsed.animated = true;
+                parsed.plays = read_be32(data + 4);
+            }
+        } else if (name == "fcTL" && !still_only) {
+            if (!parsed.animated || length != 26 || parsed.frames.size() >= max_frames)
+                continue;
+            ApngFrame frame;
+            std::uint32_t const width = read_be32(data + 4);
+            std::uint32_t const height = read_be32(data + 8);
+            std::uint32_t const x = read_be32(data + 12);
+            std::uint32_t const y = read_be32(data + 16);
+            // A frame lies inside the picture, whole (APNG 1.0): one that
+            // does not is the end of what can be played.
+            if (width == 0 || height == 0 || x > parsed.width || y > parsed.height || width > parsed.width - x
+                || height > parsed.height - y)
+                break;
+            frame.x = static_cast<int>(x);
+            frame.y = static_cast<int>(y);
+            frame.width = static_cast<int>(width);
+            frame.height = static_cast<int>(height);
+            std::uint32_t const numerator = static_cast<std::uint32_t>(data[20]) << 8 | data[21];
+            std::uint32_t denominator = static_cast<std::uint32_t>(data[22]) << 8 | data[23];
+            if (denominator == 0)
+                denominator = 100;
+            frame.delay_ms = numerator * 1000u / denominator;
+            frame.dispose = data[24] <= 2 ? data[24] : 0;
+            frame.blend = data[25] == 1 ? 1 : 0;
+            parsed.frames.push_back(std::move(frame));
+            frame_open = true;
+        } else if (name == "fdAT" && !still_only) {
+            // A frame's data: a sequence number, then what an IDAT would hold.
+            if (frame_open && !parsed.frames.empty() && saw_idat && length > 4)
+                parsed.frames.back().data.emplace_back(data_at + 4, length - 4);
+        } else if (critical) {
+            return std::nullopt; // a critical chunk this decoder does not know
+        }
+    }
+    if (!have_header || !saw_idat)
+        return std::nullopt;
+    if (parsed.format.color_type == 3 && parsed.format.palette.empty())
+        return std::nullopt;
+    // A color key is compared at the sample depth: a key out of range never matches.
+    if (parsed.format.has_key && parsed.format.depth < 16) {
+        std::uint32_t const limit = (1u << parsed.format.depth) - 1;
+        for (std::uint32_t const k : parsed.format.key)
+            if (k > limit)
+                parsed.format.has_key = false;
+    }
+    // A frame that was given no data cannot be shown; it and what follows
+    // it are left out.
+    for (std::size_t i = 0; i < parsed.frames.size(); ++i) {
+        if (parsed.frames[i].data.empty()) {
+            parsed.frames.resize(i);
+            break;
+        }
+    }
+    return parsed;
+}
+
+} // namespace
+
+bool looks_like_png(std::vector<std::uint8_t> const& bytes)
+{
+    return bytes.size() >= png_signature.size()
+        && std::equal(png_signature.begin(), png_signature.end(), bytes.begin());
+}
+
+std::optional<Bitmap> decode_png(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels)
+{
+    std::optional<Parsed> const parsed = parse(bytes, max_pixels, true);
+    if (!parsed)
+        return std::nullopt;
+    return decode_pixels(parsed->format, parsed->width, parsed->height, parsed->idat);
+}
+
+std::optional<Apng> scan_apng(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels)
+{
+    std::optional<Parsed> parsed = parse(bytes, max_pixels, false);
+    if (!parsed || !parsed->animated || parsed->frames.empty())
+        return std::nullopt;
+    Apng animation;
+    animation.width = static_cast<int>(parsed->width);
+    animation.height = static_cast<int>(parsed->height);
+    animation.loops = parsed->plays;
+    animation.frames = std::move(parsed->frames);
+    animation.samples = std::move(parsed->format);
+    return animation;
+}
+
+std::optional<Bitmap> decode_apng_frame(std::vector<std::uint8_t> const& bytes, Apng const& animation, std::size_t index)
+{
+    if (index >= animation.frames.size())
+        return std::nullopt;
+    ApngFrame const& frame = animation.frames[index];
+    std::vector<std::uint8_t> data;
+    for (auto const& [offset, length] : frame.data) {
+        if (offset > bytes.size() || length > bytes.size() - offset)
+            return std::nullopt;
+        data.insert(data.end(), bytes.begin() + static_cast<std::ptrdiff_t>(offset),
+            bytes.begin() + static_cast<std::ptrdiff_t>(offset + length));
+    }
+    return decode_pixels(animation.samples, static_cast<std::uint32_t>(frame.width),
+        static_cast<std::uint32_t>(frame.height), data);
 }
 
 std::vector<std::uint8_t> encode_png(Bitmap const& bitmap)

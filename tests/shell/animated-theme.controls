@@ -1,0 +1,52 @@
+# Planted-fault controls for tests/shell/animated-theme.script: a theme's picture that moves takes its frames when they are due, the header alone is painted for it, and the frames are composed as the file says.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/animated-theme.script
+args --theme tests/shell/animated-theme.json
+
+# The pictures never take a frame.
+control still
+file src/ui/Browser.cpp
+fails 27 30 33 37 42 48 51 54 55 60 63 64 74 77
+plant s~                if \(now < layer\.next_frame_at\)\n                    continue;\n~                continue;\n~
+
+# Every frame a picture takes paints the whole window.
+control wholeframe
+file src/ui/Browser.cpp
+fails 37 38 55
+plant s~bool const header_only = header_dirty && !dirty && menus\.empty\(\)~bool const header_only = header_dirty \&\& dirty \&\& menus.empty()~
+
+# The stack laid over the header is not laid again when a picture in it moves.
+control stalestack
+file src/ui/Browser.cpp
+fails 27 30 33 42 48 51 54 60 63 74 77
+plant s~                surface->laid\.reset\(\);\n~~
+
+# The picture's copy at the display's scale is not made again.
+control stalescaled
+file src/ui/Browser.cpp
+fails 74 77
+plant s~                layer\.scaled\.reset\(\);\n                layer\.scaled_for = 0;\n~~
+
+# With a menu open over it the header is still painted alone.
+control underthemenu
+file src/ui/Browser.cpp
+fails 64 65
+plant s~bool const header_only = header_dirty && !dirty && menus\.empty\(\) && ~bool const header_only = header_dirty \&\& !dirty \&\& ~
+
+# A window that slept plays back every frame it missed and keeps the old beat.
+control replay
+file src/ui/Browser.cpp
+fails 51 52
+plant s~while \(now >= layer\.next_frame_at && steps < 8 && layer\.animation->advance\(\)\)~while (now >= layer.next_frame_at \&\& layer.animation->advance())~
+
+# A frame that is to be taken away by putting back what was under it is left where it is.
+control putback
+file src/core/AnimatedImage.cpp
+fails 29 32 76
+plant s~showing\.dispose == Dispose::Previous && m_has_before\) \{~showing.dispose == Dispose::Previous \&\& m_has_before \&\& m_index > 9000) {~
+
+# A delay of nothing is played as nothing.
+control tenth
+file src/core/AnimatedImage.cpp
+fails 27 30 33 42 48 51 52 54 60 63 74
+plant s~    return written <= 10 \? 100 : written;\n~    return written;\n~

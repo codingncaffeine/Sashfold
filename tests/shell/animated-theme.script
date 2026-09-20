@@ -1,0 +1,77 @@
+# A theme whose picture moves. animated-theme.json tiles
+# tests/fixtures/animated/moving.gif over the header from the top left: 16 by
+# 12, navy (#000080), four frames without end —
+#   frame 0  all navy                                     70 ms
+#   frame 1  red    (#ff0000) at 1..5, 1..5                0 ms written: played as 100
+#   frame 2  lime   (#00ff00) at 6..10, 3..7               70 ms
+#   frame 3  yellow (#ffff00) at 10..14, 6..10             70 ms
+# each block taken away again by putting back what was under it. The tile
+# that begins at x = 688 (16 x 43) lies in the tab strip's empty right end:
+# (691,3) is the red block's, (696,5) the lime's, (700,8) the yellow's.
+resize 800 600
+open data:text/html,<title>Page</title><body style="margin:0;background:white">page
+
+# The clock starts when the picture is first shown.
+assert-pixel 691 3 #000080
+assert-pixel 696 5 #000080
+mark
+
+# Nothing moves before its time.
+advance 69
+assert-pixel 691 3 #000080
+assert-header-paints 0
+
+# Each frame in its turn — the one with no delay written after a tenth of a
+# second — and the header alone painted for it: the page is not drawn again.
+advance 1
+assert-pixel 691 3 #ff0000
+advance 100
+assert-pixel 691 3 #000080
+assert-pixel 696 5 #00ff00
+advance 70
+assert-pixel 696 5 #000080
+assert-pixel 700 8 #ffff00
+advance 70
+assert-pixel 700 8 #000080
+assert-pixel 691 3 #000080
+assert-header-paints 4
+assert-paints 0
+
+# Round again: the second play begins as the first did.
+advance 70
+assert-pixel 691 3 #ff0000
+
+# A window that slept does not play back what it missed: eight frames at
+# most, then on from now. Eight on from frame 1 is frame 1 again, and its
+# tenth of a second starts over.
+advance 5000
+assert-pixel 691 3 #ff0000
+mark
+advance 99
+assert-pixel 691 3 #ff0000
+assert-header-paints 0
+advance 1
+assert-pixel 696 5 #00ff00
+assert-header-paints 1
+
+# With a menu open the whole frame is painted for a tick: a menu may lie
+# over the header, and would be painted under.
+main-menu
+assert-pixel 696 5 #00ff00
+mark
+advance 70
+assert-pixel 700 8 #ffff00
+assert-paints 1
+assert-header-paints 0
+key Escape
+
+# At twice the scale the tile is 32 by 24 device pixels and moves as it did:
+# in the tile that begins at x = 672 the red block is 674..683 by 2..11 and
+# the lime one 684..693 by 6..15.
+scale 2
+advance 70
+advance 70
+assert-pixel 678 6 #ff0000
+advance 100
+assert-pixel 678 6 #000080
+assert-pixel 688 10 #00ff00

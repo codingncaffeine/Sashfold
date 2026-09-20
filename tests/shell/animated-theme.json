@@ -1,0 +1,10 @@
+{
+  "name": "Moving",
+  "colors": {
+    "chrome-background": "#203040",
+    "tab-inactive-background": "#00000000"
+  },
+  "images": {
+    "frame": { "picture": "../fixtures/animated/moving.gif", "align": "left top", "tile": "repeat" }
+  }
+}

@@ -12,6 +12,9 @@ sashfold_test(test_memory_watch)
 sashfold_test(test_icons)
 sashfold_test(test_font)
 sashfold_test(test_gif)
+add_executable(test_animated_image test_animated_image.cpp)
+target_link_libraries(test_animated_image PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_animated_image COMMAND test_animated_image ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/animated)
 sashfold_test(test_bmp)
 sashfold_test(test_frames)
 sashfold_test(test_filters)
@@ -228,6 +231,10 @@ add_test(NAME shell_status
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_resize
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/resize.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_animated_theme
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/animated-theme.script
+    --theme ${CMAKE_CURRENT_SOURCE_DIR}/shell/animated-theme.json
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_addresses
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/addresses.script
