@@ -145,9 +145,22 @@ assert-clipboard data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfF
 set-clipboard there
 right-click 100 288
 assert-focused q
-assert-menu (Cut) | (Copy) | Paste | - | Inspect
+assert-menu (Cut) | (Copy) | Paste | - | Select all | - | Inspect
 menu Paste
 assert-value q hellothere
+# Its value selected whole is there to cut and to copy, and stays selected
+# under the menu that was asked about it.
+right-click 100 288
+menu Select all
+right-click 100 288
+assert-menu Cut | Copy | Paste | - | Select all | - | Inspect
+menu Copy
+assert-clipboard hellothere
+assert-value q hellothere
+right-click 100 288
+menu Cut
+assert-value q
+assert-clipboard hellothere
 key Escape
 
 # A tab's menu: the tabs beside it close, the one asked about stays.

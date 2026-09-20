@@ -181,6 +181,7 @@ mark { background-color: yellow }
 input, textarea, select, button { font-size: 13.333px; line-height: normal; font-family: sans-serif }
 input[type=hidden] { display: none }
 input[type=checkbox], input[type=radio] { margin: 3px 3px 3px 4px }
+button, select, input[type=button i], input[type=submit i], input[type=reset i], input[type=file i], input[type=checkbox i], input[type=radio i], input[type=search i] { box-sizing: border-box }
 textarea { white-space: pre-wrap }
 [dir=ltr i] { direction: ltr }
 [dir=rtl i] { direction: rtl }

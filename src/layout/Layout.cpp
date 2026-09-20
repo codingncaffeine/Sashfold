@@ -2358,9 +2358,20 @@ struct Layouter {
         ReplacedSize size; // the border box
         Fragment::ControlBox box; // kind and state; the position is filled at placement
         std::u32string shown; // the text drawn inside, cut to what fits
+        std::u32string full; // the whole of it, and the caret within that
+        std::size_t full_caret = 0;
+        std::u32string composing; // an input method's text, not yet part of the value
         std::size_t caret = 0; // an index into `shown`
         bool caret_visible = false;
         bool centered = false; // buttons center their caption
+        bool placeholder = false; // `shown` is the field's placeholder, not a value
+        bool all_selected = false; // the whole value is selected
+        // The author's padding, inside the border box like the control's own
+        // edges: what the text stands in from.
+        float pad_left = 0;
+        float pad_right = 0;
+        float pad_top = 0;
+        float pad_bottom = 0;
         std::size_t preedit_from = 0; // an input method's composing text within `shown`
         std::size_t preedit_length = 0;
     };
@@ -2381,12 +2392,24 @@ struct Layouter {
         float const edges = 6 * scale; // a 1px border and 2px of padding each side
         ReplacedSize intrinsic { 0, line + edges };
         std::u32string text = decode_utf8(control_caption(element, controls));
+        // A field with nothing in it shows its placeholder until something
+        // is typed or composed into it (HTML §4.10.5.3.10); a line break in
+        // an input's is no part of it.
+        bool const composing_here = controls && controls->preedit_owner == &element && !controls->preedit.empty();
+        if (is_text_kind(kind) && text.empty() && !composing_here) {
+            if (dom::Attr const* const hint = element.find_attribute("placeholder"); hint && !hint->value.empty()) {
+                text = decode_utf8(hint->value);
+                if (kind != ControlKind::TextArea)
+                    std::erase_if(text, [](char32_t c) { return c == U'\n' || c == U'\r'; });
+                spec.placeholder = !text.empty();
+            }
+        }
         switch (kind) {
         case ControlKind::Text:
         case ControlKind::Password: {
             int const size = std::max(1, attribute_int(element, "size", 20));
             intrinsic.width = static_cast<float>(size) * glyph + edges;
-            if (kind == ControlKind::Password)
+            if (kind == ControlKind::Password && !spec.placeholder)
                 text.assign(text.size(), U'•');
             break;
         }
@@ -2417,21 +2440,62 @@ struct Layouter {
         case ControlKind::Hidden:
             break;
         }
+        // Padding the author gives a control makes it that much larger, as
+        // it does any box: the built-in edges stand for the padding and the
+        // border a browser's own sheet gives one, and an author's padding is
+        // more than those. A checkbox and a radio button have none.
+        bool const padded = kind != ControlKind::Checkbox && kind != ControlKind::Radio && kind != ControlKind::Hidden;
+        if (padded) {
+            spec.pad_left = std::max(0.0f, resolve(style.padding_left, containing_width));
+            spec.pad_right = std::max(0.0f, resolve(style.padding_right, containing_width));
+            spec.pad_top = std::max(0.0f, resolve(style.padding_top, containing_width));
+            spec.pad_bottom = std::max(0.0f, resolve(style.padding_bottom, containing_width));
+            intrinsic.width += spec.pad_left + spec.pad_right;
+            intrinsic.height += spec.pad_top + spec.pad_bottom;
+        }
         // A control's own border and padding are inside the size reported
-        // here, so a written size names that whole box either way.
+        // here, so a border-box size names that whole box; a content-box one
+        // — what a size written for a field is, unless the author says — is
+        // the box without the author's padding, which then comes on top.
         spec.size
             = sized_box(element, style, intrinsic, containing_width, false, std::nullopt, true).value_or(intrinsic);
+        if (padded && style.box_sizing == css::BoxSizing::ContentBox) {
+            if (!style.width.is_auto() || attribute_length(element, "width"))
+                spec.size.width += spec.pad_left + spec.pad_right;
+            if (!style.height.is_auto() || attribute_length(element, "height"))
+                spec.size.height += spec.pad_top + spec.pad_bottom;
+        }
 
-        // The text is cut to what fits: a caption loses its tail, a field
-        // being edited loses its head so the caret stays in view.
+        spec.all_selected = state && state->all_selected && spec.box.focused && is_text_kind(kind) && !spec.placeholder;
+        spec.full = std::move(text);
+        spec.full_caret = state ? std::min(state->caret, spec.full.size()) : spec.full.size();
+        // An input method's composing text sits at the caret: part of what
+        // is shown, none of the value, and the caret moves past it.
+        if (composing_here && is_text_kind(kind) && !spec.box.disabled)
+            spec.composing = decode_utf8(controls->preedit);
+        fit_control_text(spec, style);
+        return spec;
+    }
+
+    // Cuts a control's text to the room its box has: a caption loses its
+    // tail, a field being edited loses its head so the caret stays in view.
+    // From the whole text each time, so whoever gives the box another width
+    // than it asked for — a flex line, a box stretched between two edges —
+    // calls it again.
+    void fit_control_text(ControlSpec& spec, ComputedStyle const& style) const
+    {
+        ControlKind const kind = spec.box.kind;
+        std::u32string text = spec.full;
         // The room for text: the edges, plus the arrow of a select or the
         // caret's own pixel or two in a field.
         float const inner = std::max(0.0f,
-            spec.size.width - (kind == ControlKind::Select ? 26.0f : spec.centered ? 2.0f : 8.0f));
-        std::size_t caret = state ? std::min(state->caret, text.size()) : text.size();
+            spec.size.width - spec.pad_left - spec.pad_right
+                - (kind == ControlKind::Select ? 26.0f : spec.centered ? 2.0f : 8.0f));
         std::size_t dropped = 0;
         if (kind != ControlKind::TextArea) {
-            if (spec.centered) {
+            // A field that is not being typed into shows its value from the
+            // start, as a caption is shown; one that is keeps its caret in view.
+            if (spec.centered || spec.placeholder || !spec.box.focused) {
                 while (!text.empty() && measure(style, text) > inner)
                     text.pop_back();
             } else {
@@ -2442,19 +2506,16 @@ struct Layouter {
             }
         }
         spec.shown = std::move(text);
-        spec.caret = std::min(caret > dropped ? caret - dropped : 0, spec.shown.size());
+        spec.caret = spec.placeholder ? 0 : std::min(spec.full_caret > dropped ? spec.full_caret - dropped : 0, spec.shown.size());
         spec.caret_visible = spec.box.focused && is_text_kind(kind) && !spec.box.disabled;
-        // An input method's composing text sits at the caret: part of what
-        // is shown, none of the value, and the caret moves past it.
-        if (controls && controls->preedit_owner == &element && !controls->preedit.empty() && is_text_kind(kind)
-            && !spec.box.disabled) {
-            std::u32string const composing = decode_utf8(controls->preedit);
-            spec.shown.insert(spec.caret, composing);
+        spec.preedit_from = 0;
+        spec.preedit_length = 0;
+        if (!spec.composing.empty()) {
+            spec.shown.insert(spec.caret, spec.composing);
             spec.preedit_from = spec.caret;
-            spec.preedit_length = composing.size();
-            spec.caret += composing.size();
+            spec.preedit_length = spec.composing.size();
+            spec.caret += spec.composing.size();
         }
-        return spec;
     }
 
     // Gives a placed fragment a control's box and the runs of its text.
@@ -2468,34 +2529,48 @@ struct Layouter {
         float const line = line_height_of(style);
         float const ascent = ascent_in_line(style);
         text::FontStack const* const stack = &fonts_for(style);
+        if (spec.box.kind != ControlKind::TextArea) {
+            control.pad_top = spec.pad_top;
+            control.pad_bottom = spec.pad_bottom;
+        }
         if (spec.box.kind == ControlKind::TextArea) {
             // One run per line, as many as fit; the caret sits at the end.
-            float const text_x = box.x + 4;
-            float baseline = box.y + 3 + ascent;
+            float const text_x = box.x + 4 + spec.pad_left;
+            float baseline = box.y + 3 + spec.pad_top + ascent;
             std::size_t start = 0;
-            while (baseline - ascent + line <= box.y + box.height - 2) {
+            while (baseline - ascent + line <= box.y + box.height - 2 - spec.pad_bottom) {
                 std::size_t const end = spec.shown.find(U'\n', start);
                 std::u32string const text
                     = spec.shown.substr(start, end == std::u32string::npos ? std::u32string::npos : end - start);
-                if (!text.empty())
+                if (!text.empty()) {
                     box.runs.push_back(TextRun { text_x, baseline, text, &style, box.element, stack,
                         measure(style, text) });
+                    box.runs.back().placeholder = spec.placeholder;
+                    if (spec.all_selected)
+                        control.selected.push_back({ text_x, text_x + box.runs.back().width, baseline - ascent, baseline - ascent + line });
+                }
                 if (end == std::u32string::npos) {
                     if (spec.caret_visible)
-                        control.caret_x = text_x + measure(style, text);
+                        control.caret_x = spec.placeholder ? text_x : text_x + measure(style, text);
                     break;
                 }
                 start = end + 1;
                 baseline += line;
             }
         } else {
+            // A caption is centered in the room the padding leaves; a field's
+            // text starts where the left padding ends.
             float const text_x = spec.centered
-                ? box.x + (box.width - measure(style, spec.shown)) / 2.0f
-                : box.x + 4;
-            float const baseline = box.y + (box.height - line) / 2.0f + ascent;
-            if (!spec.shown.empty())
+                ? box.x + spec.pad_left + (box.width - spec.pad_left - spec.pad_right - measure(style, spec.shown)) / 2.0f
+                : box.x + 4 + spec.pad_left;
+            float const baseline = box.y + spec.pad_top + (box.height - spec.pad_top - spec.pad_bottom - line) / 2.0f + ascent;
+            if (!spec.shown.empty()) {
                 box.runs.push_back(TextRun { text_x, baseline, spec.shown, &style, box.element, stack,
                     measure(style, spec.shown) });
+                box.runs.back().placeholder = spec.placeholder;
+                if (spec.all_selected)
+                    control.selected.push_back({ text_x, text_x + box.runs.back().width, baseline - ascent, baseline - ascent + line });
+            }
             if (spec.caret_visible)
                 control.caret_x = text_x
                     + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
@@ -2761,6 +2836,12 @@ struct Layouter {
             float image_height = 0; // a picture's or a control's margin box height: its reach above the baseline
             bool is_image = false; // a picture or a control: an atomic box on the baseline
             std::optional<ControlSpec> control;
+            // A control with a line of text in it — a field, a button, a
+            // select — stands on the line by that text's baseline, as an
+            // inline-block does by its last line's: how far below the top of
+            // its margin box that is. A picture, a checkbox, a radio button
+            // and a text area stand by their bottom edge, and have none.
+            std::optional<float> text_baseline;
             // A picture's or a control's edges (a control's border and
             // padding are inside its own size, so only its margins count)
             // and the content box within them; `width` is the margin box.
@@ -2990,11 +3071,16 @@ struct Layouter {
             auto const image_above = [&](float height) {
                 return css::is_vertical(frame_mode) ? height / 2.0f : height;
             };
+            auto const atomic_above = [&](Placed const& placed) {
+                if (placed.text_baseline && !css::is_vertical(frame_mode))
+                    return std::min(*placed.text_baseline, placed.image_height);
+                return image_above(placed.image_height);
+            };
             auto const extent_of = [&](Placed const& placed) -> Extent {
                 if (placed.block)
                     return { placed.ascent, placed.descent };
                 if (placed.is_image) {
-                    float const above = image_above(placed.image_height);
+                    float const above = atomic_above(placed);
                     return { above, placed.image_height - above };
                 }
                 float const ascent = ascent_in_line(*placed.style);
@@ -3335,7 +3421,7 @@ struct Layouter {
                     box.element = placed.element;
                     box.style = placed.style;
                     box.x = x + e.margin_left;
-                    box.y = own_baseline - image_above(placed.image_height) + e.margin_top;
+                    box.y = own_baseline - atomic_above(placed) + e.margin_top;
                     box.width = e.left + placed.content_width + e.right;
                     box.height = e.top + placed.content_height + e.bottom;
                     if (placed.control)
@@ -3913,6 +3999,14 @@ struct Layouter {
                 placed.content_height = spec.size.height;
                 placed.image_height = edges.margin_top + spec.size.height + edges.margin_bottom;
                 placed.is_image = true;
+                if (spec.box.kind != ControlKind::Checkbox && spec.box.kind != ControlKind::Radio
+                    && spec.box.kind != ControlKind::TextArea && spec.box.kind != ControlKind::Hidden) {
+                    // Where fill_control draws the text: its line centered
+                    // in the room the padding leaves.
+                    float const text_line = line_height_of(*item.style);
+                    placed.text_baseline = edges.margin_top + spec.pad_top
+                        + (spec.size.height - spec.pad_top - spec.pad_bottom - text_line) / 2.0f + ascent_in_line(*item.style);
+                }
                 placed.control = std::move(spec);
                 place(std::move(placed));
                 line_width += width;
@@ -4613,11 +4707,14 @@ struct Layouter {
             // A block-level control: its own box is the whole of it — unless
             // a formatting context settled its size (a control stretched
             // between left and right, or a flex line's item).
-            ControlSpec spec = control_spec(element, style, content_width);
+            // A written width is of the containing block, as a picture's is.
+            ControlSpec spec = control_spec(element, style, style.width.is_auto() ? content_width : containing_width);
             if (options.content_width)
                 spec.size.width = *options.content_width + horizontal_edges;
             if (options.content_height)
                 spec.size.height = *options.content_height + padding_top + padding_bottom + border_top + border_bottom;
+            if (options.content_width)
+                fit_control_text(spec, style);
             fragment.width = spec.size.width;
             fragment.height = spec.size.height;
             fill_control(fragment, spec, style);
@@ -5463,7 +5560,10 @@ struct Layouter {
             return { width, width };
         }
         if (is_control(element)) {
-            float const width = control_spec(element, style, 0).size.width;
+            // A control's size is its whole box, its padding and border in
+            // it; what is asked for here is the content's, and whoever asked
+            // puts the edges on again.
+            float const width = std::max(0.0f, control_spec(element, style, 0).size.width - horizontal_edges_of(style, 0));
             return { width, width };
         }
         if (is_flex_container(style))

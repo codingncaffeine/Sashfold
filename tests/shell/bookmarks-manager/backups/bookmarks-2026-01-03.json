@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "bar-shown": "always",
+  "bar": [
+    { "title": "Asitwas", "added": 5, "url": "data:text/html,<title>Asitwas</title>was" }
+  ],
+  "other": [
+    { "title": "Alsoasitwas", "url": "data:text/html,<title>Alsoasitwas</title>was" }
+  ]
+}

@@ -55,3 +55,11 @@ assert-menu High Contrast | *Nord | Sashfold | Sashfold Light | Solarized Dark |
 menu More themes…
 assert-url about:themes
 assert-tabs 2
+
+# What the address asks to be DONE is done only for the page itself: a page
+# of the web that names it in a link gets the page, and no theme is put on.
+open data:text/html,<title>Stranger</title><a href="about:themes?use=0">tempting</a>
+click-text tempting
+assert-title Themes
+assert-no-text Put on:
+assert-theme Nord

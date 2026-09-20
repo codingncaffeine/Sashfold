@@ -101,5 +101,5 @@ key Escape
 # Its toolbar folder comes onto the bar, the rest into the other bookmarks.
 import-bookmarks bookmarks-import.html
 assert-bookmarks-bar Delta page with a long title | Epsilon page with a long title | [News] | Imported from another browser
-open about:bookmarks
+open about:bookmarks?in=2
 assert-text Kept elsewhere

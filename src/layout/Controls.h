@@ -46,6 +46,10 @@ struct ControlState {
     std::optional<std::string> value; // UTF-8; nullopt = the markup's default
     std::optional<bool> checked;
     std::size_t caret = 0; // code points from the start of the value
+    // The whole value is selected (Ctrl+A): what is typed or pasted next
+    // takes its place, Backspace and Delete empty the field, and any other
+    // move of the caret lets go of it.
+    bool all_selected = false;
 };
 
 struct ControlStates {

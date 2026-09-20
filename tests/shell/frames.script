@@ -27,7 +27,7 @@ assert-scroll 0
 
 # The keyboard follows the frame: End and Home move its document.
 key End
-assert-box-scroll 150 200 0 431
+assert-box-scroll 150 200 0 426
 assert-scroll 0
 key Home
 assert-box-scroll 150 200 0 0
@@ -39,9 +39,9 @@ assert-scroll 0
 key End
 wheel-at 150 150 -1
 assert-scroll 60
-assert-box-scroll 150 150 0 431
+assert-box-scroll 150 150 0 426
 wheel-at 150 150 1
-assert-box-scroll 150 150 0 371
+assert-box-scroll 150 150 0 366
 assert-scroll 60
 key Home
 assert-box-scroll 150 150 0 0

@@ -321,6 +321,13 @@ public:
     void bookmark_page();
     // What a bookmarks file of another browser holds, added: how many came.
     std::size_t import_bookmarks_html(std::string_view html);
+    // For the page that manages them: the folder the dated copies of the
+    // bookmarks are kept in (the profile's), which it lists and puts back
+    // from; and the home folder other browsers' own bookmarks, and bookmarks
+    // files, are looked for under when the reader opens the page's import
+    // view. Unset, as in a script, nothing of the reader's is looked at.
+    void set_bookmark_backups_directory(std::string directory);
+    void set_bookmark_sources_home(std::string home);
     // The bar as it is shown now: each title in order, a folder's in [ ],
     // then » when some did not fit; empty while the bar is not shown.
     std::vector<std::string> bookmarks_bar_titles() const;
@@ -473,8 +480,9 @@ public:
     // its content moved, in CSS px; zero when the point is in no such box.
     std::pair<int, int> box_scroll_at(int x, int y) const;
     std::optional<net::Url> link_at(int x, int y) const;
-    // The window-coordinate center of the first text run containing `text`.
-    std::optional<std::pair<int, int>> find_text(std::string const& text) const;
+    // The window-coordinate center of the first text run containing `text`,
+    // or, with `nth`, of the one that many such runs after it.
+    std::optional<std::pair<int, int>> find_text(std::string const& text, std::size_t nth = 0) const;
     ChromeLayout chrome_layout() const;
 
     // --- Forms (tests and --script) -----------------------------------------

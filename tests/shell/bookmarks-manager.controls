@@ -1,0 +1,58 @@
+# Planted-fault controls for tests/shell/bookmarks-manager.script: what the page's address asks is done only for the page itself, a removal is put back where it stood, a sort puts folders first, a folder's tabs open behind, only a source that was found is read, a restore asks first and keeps what stood, and no rule of the style is words on the page.
+# Run by tools/shell-controls.sh, which says what each line means.
+# Line 109 is a golden of the whole window: a fault that changes the bookmarks bar or the tabs before it fails it too.
+script tests/shell/bookmarks-manager.script
+
+# What the address asks is done whoever asked: a link on a page of the web removes a bookmark.
+control guard
+file src/ui/Browser.cpp
+fails 95 96 100 109 117 137
+plant s~        if \(!own_page && request\.acts\(\)\) \{\n            BookmarksRequest looked_at;~        if (!own_page \&\& request.acts() \&\& request.edit) {\n            BookmarksRequest looked_at;~
+
+# Who asked is decided as the load is performed, not as it is asked: a page that asks for the bookmarks page and then for the act gets the act done.
+control askedwhen
+file src/ui/Browser.cpp
+fails 99 100 109 117 137
+plant s~bookmarks_document\(load\.url, entry, load\.tab, load\.own_page\)~bookmarks_document(load.url, entry, load.tab, from \&\& from->internal \&\& from->url.scheme == "about")~
+
+# What was removed comes back at its folder's end, not where it stood.
+control undoplace
+file src/ui/Bookmarks.cpp
+fails 50
+plant s~    std::size_t const place = std::min\(m_removed->at, parent->children\.size\(\)\);~    std::size_t const place = parent->children.size();~
+
+# A sort by name leaves the folders among the bookmarks.
+control sortfolders
+file src/ui/Bookmarks.cpp
+fails 56 59 63 70 77 96 100 109 117 137
+plant s~        if \(a\.folder != b\.folder\)\n            return a\.folder;\n        return key\(a\) < key\(b\);~        return key(a) < key(b);~
+
+# A folder opened all at once takes the front from the page.
+control openall
+file src/ui/Browser.cpp
+fails 82 84 85 109
+plant s~pending_windows\.push_back\(PendingWindow \{ container, \*where, tab_index, false \}\);~pending_windows.push_back(PendingWindow { container, *where, tab_index, true });~
+
+# Any key is taken for the first source found: a path nobody found is read for the asking.
+control sourcekey
+file src/ui/Browser.cpp
+fails 119 121 124 137
+plant s~\[&\]\(BookmarkSource const& source\) \{ return source\.key == \*request\.import_from; \}~[\&](BookmarkSource const\& source) { return source.key == *request.import_from || !source.key.empty(); }~
+
+# A dated copy is put back without the page asking first.
+control restoreasks
+file src/ui/Browser.cpp
+fails 136 137 138
+plant s~            \} else if \(request\.sure\) \{\n~            } else if (request.sure || request.restore) {\n~
+
+# The bookmarks as they stood are not kept before a copy takes their place.
+control keptfirst
+file src/ui/Browser.cpp
+fails 141
+plant s~                if \(!keep_bookmarks_before_restore\(bookmark_backups_directory, bookmarks\.to_json\(\), today\(\)\)\) \{~                if (request.edit) {~
+
+# Rules of the page's style reach the page as words.
+control styleleak
+file src/ui/BookmarksPage.cpp
+fails 21 22 109
+plant s~    return internal_page\("Bookmarks", body, style\);~    return internal_page("Bookmarks", body + std::string(style.substr(7, 700)), style);~

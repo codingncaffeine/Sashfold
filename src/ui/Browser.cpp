@@ -20,6 +20,7 @@
 #include "text/SashfoldMono.h"
 #include "ui/PageImages.h"
 #include "ui/Cosmetic.h"
+#include "ui/BookmarkSources.h"
 #include "ui/Bookmarks.h"
 #include "ui/BookmarksPage.h"
 #include "ui/Downloads.h"
@@ -544,6 +545,10 @@ struct Browser::Impl {
         net::Url url;
         Mode mode = Mode::Push;
         bool https_first = false;
+        // Asked for while the tab showed the internal page the address is
+        // one of (queue): only then is what such an address asks to be
+        // DONE honoured.
+        bool own_page = false;
     };
     // A window a page asked to open, kept until the next tick: the ask
     // comes in the middle of a script the shell is running for a tab, and
@@ -552,6 +557,7 @@ struct Browser::Impl {
         std::string container;
         net::Url url;
         std::size_t opener = 0; // the tab whose page asked, as it stood then
+        bool to_front = true; // a folder's bookmarks opened all at once stand behind
     };
 
     // A tab that was closed, kept so that it can come back where it stood:
@@ -745,6 +751,11 @@ struct Browser::Impl {
     // wide each of the bar's is, and their icons decoded.
     Bookmarks bookmarks;
     std::string bookmarks_notice;
+    // Where the dated copies of them are kept, and the home folder other
+    // browsers' bookmarks are looked for under: both empty until the window
+    // says, and then nothing is kept, nothing looked for.
+    std::string bookmark_backups_directory;
+    std::string bookmark_sources_home;
     mutable std::vector<int> bookmark_widths_kept;
     mutable std::uint64_t bookmark_widths_at = ~std::uint64_t { 0 };
     mutable float bookmark_widths_scale = 0;
@@ -2356,7 +2367,7 @@ struct Browser::Impl {
         // never in the middle of the script asking.
         hooks.open_window = [this, document](net::Url const& target, bool) {
             if (Tab const* const owner = tab_of(document))
-                pending_windows.push_back(PendingWindow { owner->container, target, index_of(*owner) });
+                pending_windows.push_back(PendingWindow { owner->container, target, index_of(*owner), true });
         };
         hooks.user_activation = [this] { return std::chrono::steady_clock::now() < activation_until; };
         hooks.scroll_to = [this, document](dom::Document const& from, int, int y) {
@@ -2791,7 +2802,17 @@ struct Browser::Impl {
         if (tab_index >= tabs.size())
             return;
         tabs[tab_index].status = "Loading " + url.serialize();
-        pending.push_back(Pending { tab_index, std::move(url), mode, https_first });
+        // What an internal page's address asks to be done — a bookmark
+        // removed, a theme put on — is honoured only when it was asked from
+        // that page: one of its links or forms, or the reader's typing over
+        // it. A page of the web can name such an address too, in a link or a
+        // script. Decided now, as it is asked, not as it is performed: a page
+        // can ask for two loads in a row, the internal page and then the
+        // act, and by the second the tab is showing the first.
+        HistoryEntry const* const from = tabs[tab_index].current();
+        bool const own_page = from && from->internal && from->url.scheme == "about" && url.scheme == "about"
+            && from->url.serialize_path() == url.serialize_path();
+        pending.push_back(Pending { tab_index, std::move(url), mode, https_first, own_page });
         dirty = true;
     }
 
@@ -2897,10 +2918,15 @@ struct Browser::Impl {
     // because the page was opened, and at no other time — and the box for a
     // Chrome theme's address. What the address asks for (?use, ?crx) is done
     // on the way.
-    std::string themes_document(net::Url const& url, std::size_t tab_index, bool reload)
+    std::string themes_document(net::Url const& url, std::size_t tab_index, bool reload, bool own_page)
     {
         ThemesPage page;
         page.query = gallery_query_of(url.query);
+        // Asked from anywhere but this page, the address is only looked at.
+        if (!own_page) {
+            page.query.use.reset();
+            page.query.crx.reset();
+        }
         page.can_adopt = !user_themes_directory.empty();
         page.notice = std::move(themes_notice);
         themes_notice.clear();
@@ -3010,11 +3036,11 @@ struct Browser::Impl {
             entry.internal = true;
             entry.status = 200;
         } else if (load.url.scheme == "about" && load.url.serialize_path() == "bookmarks") {
-            set_document(entry, bookmarks_document(load.url, entry));
+            set_document(entry, bookmarks_document(load.url, entry, load.tab, load.own_page));
             entry.internal = true;
             entry.status = 200;
         } else if (load.url.scheme == "about" && load.url.serialize_path() == "themes") {
-            set_document(entry, themes_document(load.url, load.tab, load.mode == Mode::Reload));
+            set_document(entry, themes_document(load.url, load.tab, load.mode == Mode::Reload, load.own_page));
             entry.internal = true;
             entry.status = 200;
         } else if (load.url.scheme == "view-source") {
@@ -3762,48 +3788,140 @@ struct Browser::Impl {
         open_tab_beside(from ? from->container : std::string(), *page, active, true);
     }
 
-    // The page about them (ui/BookmarksPage.h): what its address asks is done
-    // to the tree — and, for the bookmarks file of another browser, read from
-    // or written to this machine — and the page is drawn as the tree then
-    // stands. An address that did something is not one to come back to: the
-    // entry keeps the plain one.
-    std::string bookmarks_document(net::Url const& url, HistoryEntry& entry)
+    // YYYY-MM-DD, by the shell's own clock: what a bookmarks file written out
+    // and a copy kept before a restore are named by.
+    std::string today() const
     {
-        BookmarksRequest const request = bookmarks_request_of(url.query);
-        std::string notice = std::move(bookmarks_notice);
+        WallTime const now = wall_clock ? wall_clock() : local_now();
+        char text[16];
+        std::snprintf(text, sizeof text, "%04d-%02d-%02d", now.year % 10000, now.month % 100, now.day % 100);
+        return text;
+    }
+
+    // The page about them (ui/BookmarksPage.h), drawn as the tree stands once
+    // what its address asks has been done: to the tree itself, to the tabs —
+    // a folder opened all at once — and to this machine's files — bookmarks
+    // brought in from another browser or a bookmarks file, written out,
+    // a dated copy put back. Only what was asked from the page itself is done
+    // (Pending::own_page); from anywhere else the address is only looked at.
+    // An address that did something is not one to come back to: the entry
+    // keeps the address of the view.
+    std::string bookmarks_document(net::Url const& url, HistoryEntry& entry, std::size_t tab_index, bool own_page)
+    {
+        BookmarksRequest request = bookmarks_request_of(url.query);
+        // An address that asks for something to be done is not one to come
+        // back to, whether it was done or, asked from elsewhere, was not.
+        bool const asked = request.acts();
+        if (!own_page && request.acts()) {
+            BookmarksRequest looked_at;
+            looked_at.in = request.in;
+            looked_at.search = request.search;
+            looked_at.transfer = request.transfer;
+            request = std::move(looked_at);
+        }
+        BookmarksNotice notice;
+        notice.words = std::move(bookmarks_notice);
         bookmarks_notice.clear();
-        if (std::string said = apply_bookmarks_request(request, bookmarks); !said.empty())
-            notice = std::move(said);
-        if (request.import_path) {
-            std::error_code error;
-            std::uintmax_t const size = std::filesystem::file_size(*request.import_path, error);
-            std::ifstream file(*request.import_path, std::ios::binary);
-            if (request.import_path->empty() || error || !file) {
-                notice = "That file cannot be read: " + *request.import_path;
-            } else if (size > 64u * 1024u * 1024u) {
-                notice = "That file is larger than a bookmarks file is.";
-            } else {
-                std::string const html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-                std::size_t const came = bookmarks.import_netscape_html(html);
-                notice = came == 0 ? "No bookmarks were found in that file." : "Brought in " + std::to_string(came) + " bookmarks.";
+
+        // A removal can be taken back, from the notice that tells of it.
+        if (std::string said = apply_bookmarks_request(request, bookmarks); !said.empty()) {
+            notice.words = std::move(said);
+            if (request.remove && bookmarks.can_undo_remove()) {
+                std::string const back = bookmarks_view_address(request);
+                notice.link_words = "Undo";
+                notice.link_address = back + (back.find('?') == std::string::npos ? "?" : "&") + "undo=1";
             }
+        }
+
+        if (request.open_all) {
+            BookmarkNode const* const folder = bookmarks.find(*request.open_all);
+            std::size_t opened = 0;
+            std::string const container = tab_index < tabs.size() ? tabs[tab_index].container : std::string();
+            // Behind the page, in the folder's order; never more than thirty.
+            for (std::size_t i = 0; folder && folder->folder && i < folder->children.size() && opened < 30; ++i) {
+                BookmarkNode const& child = folder->children[i];
+                std::optional<net::Url> const where = child.folder ? std::nullopt : net::parse_url(child.url);
+                if (!where)
+                    continue;
+                pending_windows.push_back(PendingWindow { container, *where, tab_index, false });
+                ++opened;
+            }
+            notice.words = opened == 0 ? "There is no bookmark in that folder to open."
+                                       : "Opened " + std::to_string(opened) + (opened == 1 ? " bookmark in a tab." : " bookmarks in tabs.");
+        }
+
+        BookmarksSurroundings surroundings;
+        bool const looks_around = request.transfer || request.import_from || request.restore;
+        if (looks_around) {
+            if (!bookmark_sources_home.empty())
+                surroundings.sources = find_bookmark_sources(bookmark_sources_home, downloads_directory);
+            surroundings.backups = list_bookmark_backups(bookmark_backups_directory);
+        }
+
+        auto const brought_in = [](std::optional<std::size_t> came, std::string const& from) {
+            if (!came)
+                return "That cannot be read as bookmarks: " + from;
+            if (*came == 0)
+                return "No bookmarks were found in " + from + ".";
+            return "Brought in " + std::to_string(*came) + (*came == 1 ? " bookmark from " : " bookmarks from ") + from + ".";
+        };
+        if (request.import_from) {
+            // Only a source this machine was just found to hold: the key is a
+            // path, and no other path is read for the asking.
+            auto const found = std::find_if(surroundings.sources.begin(), surroundings.sources.end(),
+                [&](BookmarkSource const& source) { return source.key == *request.import_from; });
+            if (found == surroundings.sources.end()) {
+                notice.words = "That is not among the places found on this machine.";
+            } else {
+                notice.words = brought_in(import_bookmark_source(found->key, bookmarks),
+                    found->browser.empty() ? found->detail : found->browser + " (" + found->detail + ")");
+            }
+        }
+        if (request.import_path) {
+            std::string const path = trim(*request.import_path);
+            notice.words = path.empty() ? std::string("Name the bookmarks file to bring in, by its full path.")
+                                        : brought_in(import_bookmark_source(path, bookmarks), path);
         }
         if (request.export_file) {
             std::string const html = bookmarks.to_netscape_html();
-            DownloadResult const saved = save_download(downloads_directory, "bookmarks.html",
+            DownloadResult const saved = save_download(downloads_directory, "bookmarks-" + today() + ".html",
                 std::vector<std::uint8_t>(html.begin(), html.end()), url, "");
-            notice = saved.error.empty() ? "Written out as " + saved.file_name + " in " + downloads_directory
-                                         : "The bookmarks file could not be written: " + saved.error;
+            notice.words = saved.error.empty() ? "Written out as " + saved.file_name + " in " + downloads_directory + "."
+                                               : "The bookmarks file could not be written: " + saved.error;
         }
-        if (request.acts()) {
-            if (std::optional<net::Url> const plain = net::parse_url("about:bookmarks")) {
-                entry.url = *plain;
-                entry.final_url = *plain;
+        if (request.restore) {
+            auto const found = std::find_if(surroundings.backups.begin(), surroundings.backups.end(),
+                [&](BookmarkBackup const& backup) { return backup.key == *request.restore; });
+            std::optional<std::string> const text
+                = found == surroundings.backups.end() ? std::nullopt : read_bookmark_backup(bookmark_backups_directory, found->key);
+            std::optional<Bookmarks> held = text ? Bookmarks::from_json(*text) : std::nullopt;
+            if (!held) {
+                notice.words = "That copy cannot be read.";
+                request.restore.reset();
+            } else if (request.sure) {
+                // What stands now is kept first, so that this can be taken back.
+                if (!keep_bookmarks_before_restore(bookmark_backups_directory, bookmarks.to_json(), today())) {
+                    notice.words = "Nothing was put back: the bookmarks as they stand could not be copied first.";
+                } else {
+                    bookmarks.replace_with(std::move(*held));
+                    notice.words = "Put back the bookmarks of " + found->when
+                        + ". As they stood until now, they are kept among the copies below.";
+                    surroundings.backups = list_bookmark_backups(bookmark_backups_directory);
+                }
+                request.restore.reset();
+            }
+            // Not yet sure: the page asks, with the copy named.
+        }
+
+        if (asked) {
+            if (std::optional<net::Url> const view = net::parse_url(bookmarks_view_address(request))) {
+                entry.url = *view;
+                entry.final_url = *view;
             }
         }
         refresh_hover();
         dirty = true;
-        return bookmarks_page(bookmarks, notice, request.edit);
+        return bookmarks_page(bookmarks, request, notice, surroundings);
     }
 
     // What a tab's document resolves its relative URLs against (HTML §2.4.3):
@@ -3959,14 +4077,20 @@ struct Browser::Impl {
         int y = 0;
     };
 
+    // `skip` counts down the runs that hold the text and are passed over: the
+    // nth of them is asked for with n - 1.
     std::optional<TextHit> find_text_in(layout::Fragment const& fragment, std::string const& needle,
-        Tab const& tab, ChromeLayout const& c) const
+        Tab const& tab, ChromeLayout const& c, std::size_t& skip) const
     {
         for (layout::TextRun const& run : fragment.runs) {
             std::string const text = to_utf8(run.text);
             std::size_t const at = text.find(needle);
             if (at == std::string::npos)
                 continue;
+            if (skip > 0) {
+                --skip;
+                continue;
+            }
             std::size_t const before = decode_utf8(text.substr(0, at)).size();
             std::size_t const length = decode_utf8(needle).size();
             float const start = prefix_width(run, before);
@@ -3976,7 +4100,7 @@ struct Browser::Impl {
                 c.content.y + static_cast<int>(center_y) - tab.scroll_y };
         }
         for (layout::Fragment const& child : fragment.children) {
-            if (std::optional<TextHit> const hit = find_text_in(child, needle, tab, c))
+            if (std::optional<TextHit> const hit = find_text_in(child, needle, tab, c, skip))
                 return hit;
         }
         return std::nullopt;
@@ -5045,16 +5169,29 @@ struct Browser::Impl {
         bool const field = control && layout::is_text_kind(layout::control_kind(*control))
             && !control->has_attribute("disabled");
         if (field) {
-            // A right click puts the caret in the field, as a left one does.
+            // A right click puts the caret in the field, as a left one does —
+            // but a value that is selected stays so: the menu is about it.
+            bool const was_selected = tab->controls.focused == control && state_of(*tab, *control).all_selected;
             activate_control(*control);
+            if (was_selected)
+                select_all_in_control(*tab);
             std::optional<std::string> const clipboard = platform::read_clipboard_text();
-            bool const can_paste = clipboard && !clipboard->empty() && !control->has_attribute("readonly");
+            bool const locked = control->has_attribute("readonly");
+            bool const can_paste = clipboard && !clipboard->empty() && !locked;
+            // What there is to cut or copy is a value selected whole (a
+            // password's never); a field has no smaller selection yet.
+            std::optional<std::string> const chosen = selected_in_control(*tab);
+            bool const can_copy = chosen && !chosen->empty();
+            bool const has_value = !layout::control_value(*control, &tab->controls).empty();
             items.push_back({});
-            // A field has a caret and no selection of its own yet, so there
-            // is nothing in it to cut or copy.
-            items.push_back(menu_item("Cut", "Ctrl+X", {}, false));
-            items.push_back(menu_item("Copy", "Ctrl+C", {}, false));
+            items.push_back(menu_item("Cut", "Ctrl+X", [this] { cut_in_control(); }, can_copy && !locked));
+            items.push_back(menu_item("Copy", "Ctrl+C", [this] { copy_selection(); }, can_copy));
             items.push_back(menu_item("Paste", "Ctrl+V", [this] { paste(); }, can_paste));
+            items.push_back({});
+            items.push_back(menu_item("Select all", "Ctrl+A", [this] {
+                if (Tab* const with_control = tab_with_focused_control())
+                    select_all_in_control(*with_control);
+            }, has_value));
             specific = true;
         } else if (!selected_text(*tab).empty()) {
             items.push_back({});
@@ -5608,6 +5745,11 @@ struct Browser::Impl {
         if (address_focus) {
             if (!address.empty())
                 platform::write_clipboard_text(address);
+            return;
+        }
+        if (Tab* const with_control = tab_with_focused_control()) {
+            if (std::optional<std::string> const value = selected_in_control(*with_control); value && !value->empty())
+                platform::write_clipboard_text(*value);
             return;
         }
         Tab const* const tab = active_tab();
@@ -6317,9 +6459,53 @@ struct Browser::Impl {
     // Puts the caret at the end of a text control's value.
     void caret_to_end(Tab& tab, dom::Element const& control)
     {
-        if (layout::is_text_kind(layout::control_kind(control)))
-            state_of(tab, control).caret
-                = decode_utf8(layout::control_value(control, &tab.controls)).size();
+        if (layout::is_text_kind(layout::control_kind(control))) {
+            layout::ControlState& state = state_of(tab, control);
+            state.caret = decode_utf8(layout::control_value(control, &tab.controls)).size();
+            state.all_selected = false;
+        }
+    }
+
+    // Ctrl+A in a field: the whole of its value selected, when it has one.
+    void select_all_in_control(Tab& tab)
+    {
+        dom::Element const& control = *tab.controls.focused;
+        if (!layout::is_text_kind(layout::control_kind(control)))
+            return;
+        layout::ControlState& state = state_of(tab, control);
+        std::size_t const length = decode_utf8(layout::control_value(control, &tab.controls)).size();
+        state.all_selected = length > 0;
+        state.caret = length;
+        relayout(tab);
+        dirty = true;
+    }
+
+    // A field's selected value: copied, then gone as Delete takes it.
+    void cut_in_control()
+    {
+        Tab* const tab = tab_with_focused_control();
+        if (!tab || tab->controls.focused->has_attribute("readonly"))
+            return;
+        std::optional<std::string> const value = selected_in_control(*tab);
+        if (!value || value->empty())
+            return;
+        platform::write_clipboard_text(*value);
+        KeyEvent gone;
+        gone.key = Key::Delete;
+        edit_control(gone);
+    }
+
+    // The value of the focused field when the whole of it is selected — not
+    // a password's: what Ctrl+C and Ctrl+X take.
+    std::optional<std::string> selected_in_control(Tab& tab)
+    {
+        if (!tab.controls.focused)
+            return std::nullopt;
+        dom::Element const& control = *tab.controls.focused;
+        layout::ControlKind const kind = layout::control_kind(control);
+        if (!layout::is_text_kind(kind) || kind == layout::ControlKind::Password || !state_of(tab, control).all_selected)
+            return std::nullopt;
+        return layout::control_value(control, &tab.controls);
     }
 
     void blur_control()
@@ -6458,13 +6644,33 @@ struct Browser::Impl {
             bool const locked = control.has_attribute("readonly");
             std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
             std::size_t position = std::min(state.caret, value.size());
+            // A selected value: Backspace and Delete empty the field, an
+            // arrow lets go of the selection at that end of it.
+            bool const whole = state.all_selected;
+            if (key.key != Key::Enter)
+                state.all_selected = false;
+            if (whole && (key.key == Key::Backspace || key.key == Key::Delete)) {
+                if (!locked) {
+                    value.clear();
+                    position = 0;
+                }
+                state.value = utf8_of(value);
+                state.caret = position;
+                relayout(*tab);
+                dirty = true;
+                return true;
+            }
             switch (key.key) {
             case Key::Left:
-                if (position > 0)
+                if (whole)
+                    position = 0;
+                else if (position > 0)
                     --position;
                 break;
             case Key::Right:
-                if (position < value.size())
+                if (whole)
+                    position = value.size();
+                else if (position < value.size())
                     ++position;
                 break;
             case Key::Home:
@@ -6564,6 +6770,12 @@ struct Browser::Impl {
             return;
         layout::ControlState& state = state_of(*tab, control);
         std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
+        // What is typed takes a selected value's place.
+        if (state.all_selected) {
+            value.clear();
+            state.caret = 0;
+            state.all_selected = false;
+        }
         std::size_t const position = std::min(state.caret, value.size());
         value.insert(position, 1, code_point);
         state.value = utf8_of(value);
@@ -6994,8 +7206,11 @@ struct Browser::Impl {
                     open_bookmarks_page();
                 return;
             case U'X':
-                if (address_focus)
+                if (address_focus) {
                     cut_address();
+                } else {
+                    cut_in_control();
+                }
                 return;
             case U'N':
                 if (key.shift)
@@ -7007,7 +7222,9 @@ struct Browser::Impl {
                 if (address_focus) {
                     select_all = !address.empty();
                     dirty = true;
-                } else if (Tab* const tab = active_tab(); tab && !tab_with_focused_control()) {
+                } else if (Tab* const with_control = tab_with_focused_control()) {
+                    select_all_in_control(*with_control);
+                } else if (Tab* const tab = active_tab()) {
                     select_all_text(*tab);
                 }
                 return;
@@ -8109,6 +8326,9 @@ std::size_t Browser::import_bookmarks_html(std::string_view html)
     return came;
 }
 
+void Browser::set_bookmark_backups_directory(std::string directory) { m_impl->bookmark_backups_directory = std::move(directory); }
+void Browser::set_bookmark_sources_home(std::string home) { m_impl->bookmark_sources_home = std::move(home); }
+
 std::vector<std::string> Browser::bookmarks_bar_titles() const
 {
     ChromeLayout const c = m_impl->layout_chrome();
@@ -8150,8 +8370,8 @@ bool Browser::tick()
     if (!m_impl->pending_windows.empty()) {
         Impl::PendingWindow const window = m_impl->pending_windows.front();
         m_impl->pending_windows.erase(m_impl->pending_windows.begin());
-        // In front, beside the tab whose page asked.
-        m_impl->open_tab_beside(window.container, window.url, window.opener, true);
+        // Beside the tab whose page asked — in front, when a page asked.
+        m_impl->open_tab_beside(window.container, window.url, window.opener, window.to_front);
     }
     if (m_impl->pending.empty()) {
         // The page shown takes the next of its pictures.
@@ -8383,13 +8603,14 @@ std::pair<int, int> Browser::box_scroll_at(int x, int y) const
 
 std::optional<net::Url> Browser::link_at(int x, int y) const { return m_impl->link_at(x, y); }
 
-std::optional<std::pair<int, int>> Browser::find_text(std::string const& text) const
+std::optional<std::pair<int, int>> Browser::find_text(std::string const& text, std::size_t nth) const
 {
+    std::size_t skip = nth;
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || !tab->document || text.empty())
         return std::nullopt;
     ChromeLayout const chrome = m_impl->layout_chrome();
-    std::optional<Impl::TextHit> const hit = m_impl->find_text_in(tab->layout.root, text, *tab, chrome);
+    std::optional<Impl::TextHit> const hit = m_impl->find_text_in(tab->layout.root, text, *tab, chrome, skip);
     if (hit)
         return std::make_pair(hit->x, hit->y);
     // Then the frames' documents, the found run's center moved by where its
@@ -8399,7 +8620,7 @@ std::optional<std::pair<int, int>> Browser::find_text(std::string const& text) c
         for (auto& [element, frame] : drawn) {
             if (!frame.view)
                 continue;
-            if (std::optional<Impl::TextHit> const found = m_impl->find_text_in(frame.view->layout.root, text, *tab, chrome)) {
+            if (std::optional<Impl::TextHit> const found = m_impl->find_text_in(frame.view->layout.root, text, *tab, chrome, skip)) {
                 auto const [ox, oy] = Impl::origin_of(Impl::frames_to(*tab, element));
                 return std::make_pair(found->x + static_cast<int>(std::lround(ox)), found->y + static_cast<int>(std::lround(oy)));
             }

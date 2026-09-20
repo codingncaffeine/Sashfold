@@ -130,6 +130,7 @@ add_library(sashfold_core STATIC
   src/text/TrueTypeWriter.cpp
   src/text/Woff.cpp
   src/ui/Bookmarks.cpp
+  src/ui/BookmarkSources.cpp
   src/ui/BookmarksPage.cpp
   src/ui/Browser.cpp
   src/ui/Cosmetic.cpp

@@ -132,6 +132,7 @@ struct Runner {
     double clock_ms = 0;
     std::string held_session; // the last session-save without a path
     Profile marked; // the shell's counters when the script last marked them
+    std::string stem; // the script's own name: what a folder made for it is named by
 
     void fail(std::string const& what)
     {
@@ -219,6 +220,18 @@ struct Runner {
             std::optional<std::pair<int, int>> const at = browser.find_text(argument);
             if (!at)
                 return fail("click-text: no text run contains \"" + argument + "\"");
+            click(at->first, at->second, 1);
+        } else if (command == "click-text-nth") {
+            // `click-text-nth <n> <text>`: the nth run holding the text, from
+            // 1, in the page's order — for a page that says a word more than once.
+            auto const n = int_arg(0);
+            std::size_t const gap = argument.find(' ');
+            if (!n || *n < 1 || gap == std::string::npos)
+                return fail("click-text-nth: needs n, from 1, and the text");
+            std::string const wanted = argument.substr(gap + 1);
+            std::optional<std::pair<int, int>> const at = browser.find_text(wanted, static_cast<std::size_t>(*n - 1));
+            if (!at)
+                return fail("click-text-nth: fewer than " + std::to_string(*n) + " text runs contain \"" + wanted + "\"");
             click(at->first, at->second, 1);
         } else if (command == "right-click" || command == "shift-right-click") {
             // `right-click <x> <y>`: the menu of what is there; with Shift,
@@ -389,6 +402,42 @@ struct Runner {
                 return fail("import-bookmarks: cannot read " + argument);
             std::string const html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
             browser.import_bookmarks_html(html);
+        } else if (command == "downloads-folder") {
+            // `downloads-folder`: what the shell saves goes into a folder of
+            // the system's temporary ones, named for this script and emptied
+            // first — a script that writes a file finds the folder the same
+            // every time it runs.
+            std::filesystem::path const folder = std::filesystem::temp_directory_path() / ("sashfold-script-" + stem + "-downloads");
+            std::error_code error;
+            std::filesystem::remove_all(folder, error);
+            std::filesystem::create_directories(folder, error);
+            browser.set_downloads_directory(folder.string());
+        } else if (command == "bookmark-sources-home") {
+            // `bookmark-sources-home <folder>`: the home folder other
+            // browsers' bookmarks are looked for under, named relative to the
+            // script — a made-up one: a script never reads the reader's own.
+            browser.set_bookmark_sources_home(resolve(argument).string());
+        } else if (command == "bookmark-backups") {
+            // `bookmark-backups [<folder>]`: the shell is given a folder for
+            // the dated copies of the bookmarks, as the window gives it the
+            // profile's — one of the system's temporary ones, named for this
+            // script and emptied first, then filled with the files of the
+            // folder named, if one is.
+            std::filesystem::path const folder = std::filesystem::temp_directory_path() / ("sashfold-script-" + stem + "-bookmark-backups");
+            std::error_code error;
+            std::filesystem::remove_all(folder, error);
+            std::filesystem::create_directories(folder, error);
+            if (!argument.empty()) {
+                std::filesystem::directory_iterator it(resolve(argument), error);
+                if (error)
+                    return fail("bookmark-backups: cannot read " + argument);
+                for (std::filesystem::directory_iterator const end; it != end; it.increment(error)) {
+                    if (error)
+                        break;
+                    std::filesystem::copy_file(it->path(), folder / it->path().filename(), error);
+                }
+            }
+            browser.set_bookmark_backups_directory(folder.string());
         } else if (command == "window-visible") {
             // `window-visible on|off`: whether any of the window can be seen,
             // as a compositor says of one that is minimized or covered.
@@ -797,7 +846,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
 {
     std::ifstream file(path);
     Runner runner { browser, std::filesystem::absolute(std::filesystem::path(path)).parent_path(),
-        update_goldens, out, {}, 0, 0, {}, {} };
+        update_goldens, out, {}, 0, 0, {}, {}, std::filesystem::path(path).stem().string() };
     if (!file) {
         runner.fail("cannot read script " + path);
         return runner.result;

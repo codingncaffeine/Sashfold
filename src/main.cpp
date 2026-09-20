@@ -23,6 +23,8 @@
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueType.h"
+#include "ui/BookmarkSources.h"
+#include "ui/Bookmarks.h"
 #include "ui/Browser.h"
 #include "ui/Cosmetic.h"
 #include "ui/Frames.h"
@@ -1772,11 +1774,36 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         saved_storage = browser.storage_changes();
         // The reader's bookmarks. A file that cannot be read as one is left
         // alone — nothing is written over it until a bookmark changes.
+        std::filesystem::path const bookmark_backups = profile_path / "bookmark-backups";
         if (std::optional<std::string> const text = read_text_file(profile_path / "bookmarks.json")) {
-            if (!browser.restore_bookmarks(*text))
+            if (!browser.restore_bookmarks(*text)) {
                 std::cerr << "sashfold: bookmarks.json is not a bookmarks file; it is left as it is\n";
+            } else if (std::optional<ui::Bookmarks> const held = ui::Bookmarks::from_json(*text); held && held->count() > 0) {
+                // A dated copy of them as the day's first start found them,
+                // the last ten days' kept: what the bookmarks page puts back.
+                std::time_t const now_time = std::time(nullptr);
+                std::tm local {};
+#ifdef _WIN32
+                localtime_s(&local, &now_time);
+#else
+                localtime_r(&now_time, &local);
+#endif
+                char today[16];
+                std::snprintf(today, sizeof today, "%04d-%02d-%02d", (local.tm_year + 1900) % 10000, (local.tm_mon + 1) % 100, local.tm_mday % 100);
+                ui::keep_bookmark_backup(bookmark_backups.string(), *text, today);
+            }
         }
         saved_bookmarks = browser.bookmarks_changes();
+        browser.set_bookmark_backups_directory(bookmark_backups.string());
+#ifdef _WIN32
+        char const* const home = std::getenv("USERPROFILE");
+#else
+        char const* const home = std::getenv("HOME");
+#endif
+        // Where other browsers keep their bookmarks: looked at only when the
+        // reader opens the bookmarks page's import view, and only read.
+        if (home && *home)
+            browser.set_bookmark_sources_home(home);
         if (std::optional<std::string> const text = read_text_file(profile_path / "session.json")) {
             restored = browser.restore_session(*text);
             if (restored)

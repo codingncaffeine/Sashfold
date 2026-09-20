@@ -1,0 +1,141 @@
+# about:bookmarks, where the reader's bookmarks are managed: the folders down
+# the left and the one chosen on the right; a search over all of them; a
+# removal that can be taken back; a folder sorted, a bookmark moved, edited in
+# its place and written by hand; a folder opened all at once; bookmarks
+# brought in from the other browsers found under a home folder (a made-up
+# one here: a script never reads the reader's own) and from a bookmarks file,
+# written out, and a dated copy put back, asked twice. What the page's address
+# asks to be DONE is done only when the page itself asked.
+resize 1200 820
+bookmark-sources-home bookmarks-manager/home
+bookmark-backups bookmarks-manager/backups
+downloads-folder
+import-bookmarks bookmarks-manager/file.html
+
+# --- The folders down the left, the folder chosen on the right ---
+open about:bookmarks
+assert-title Bookmarks
+assert-text Alpha
+assert-no-text Zeta
+# No rule of the page's style is words on the page.
+assert-no-text border-radius
+assert-golden goldens/bookmarks-manager.png
+click-text Reading
+assert-url about:bookmarks?in=5
+assert-text Gamma
+assert-no-text Beta
+click-text Deep
+assert-text Delta
+# The crumbs lead back up: the second "Reading" on the page is theirs.
+click-text-nth 2 Reading
+assert-url about:bookmarks?in=5
+
+# --- A search over all of them, whatever the letters' case ---
+focus q
+type delta
+key Enter
+assert-url about:bookmarks?q=delta
+assert-text 1 bookmark found
+assert-text in Bookmarks bar
+assert-no-text Gamma
+
+# --- A removal, and the way back from it ---
+open about:bookmarks
+click-text Remove
+assert-text Removed: Alpha
+assert-bookmarks-bar Beta | [Reading]
+assert-url about:bookmarks
+click-text Undo
+assert-text Put back: Alpha
+assert-bookmarks-bar Alpha | Beta | [Reading]
+assert-no-text Undo
+
+# --- Sorted by name, folders first; then one moved down a place ---
+click-text Sort
+assert-text Sorted by name: Bookmarks bar
+assert-bookmarks-bar [Reading] | Alpha | Beta
+click-text Down
+assert-text Moved.
+assert-bookmarks-bar Alpha | [Reading] | Beta
+
+# --- Edited in its place in the list, and one written by hand ---
+click-text Edit
+assert-url about:bookmarks?edit=3
+focus title
+key Ctrl+A
+type Alphabet
+key Enter
+assert-text Saved.
+assert-url about:bookmarks
+assert-bookmarks-bar Alphabet | [Reading] | Beta
+focus title
+type Byhand
+focus url
+type data:text/html,<title>Byhand</title>byhand
+key Enter
+assert-text Bookmark added: Byhand
+assert-bookmarks-bar Alphabet | [Reading] | Beta | Byhand
+
+# --- A folder's bookmarks, each in a tab, behind the page ---
+click-text Reading
+click-text Open
+assert-text Opened 2 bookmarks in tabs.
+assert-tabs 3
+assert-tab-titles [Bookmarks] | Gamma | Eta
+assert-url about:bookmarks?in=5
+
+# --- Only the page's own asking is done ---
+# A page of the web names the address that removes a bookmark, in a link and
+# then in a script that asks for the page and the act in a row: the page is
+# shown, and nothing is removed.
+new-tab
+open data:text/html,<title>Stranger</title><a href="about:bookmarks?remove=3">tempting</a>
+click-text tempting
+assert-title Bookmarks
+assert-no-text Removed
+assert-bookmarks-bar Alphabet | [Reading] | Beta | Byhand
+open data:text/html,<title>Twice</title><script>location.href='about:bookmarks';location.href='about:bookmarks?remove=3'</script>
+assert-title Bookmarks
+assert-no-text Removed
+assert-bookmarks-bar Alphabet | [Reading] | Beta | Byhand
+
+# --- Bringing bookmarks in: what was found under the home folder ---
+open about:bookmarks?view=transfer
+assert-text Firefox
+assert-text 2026-01-02
+assert-text Chromium
+assert-text saved.html in Downloads
+assert-no-text notes.html
+assert-golden goldens/bookmarks-manager-transfer.png
+# The whole of the view in the window: a click needs what it clicks to be in it.
+resize 1200 1400
+# "Import" is said by the folders' list and the heading first: the third is
+# Firefox's, the fourth Chromium's, the fifth the file's.
+click-text-nth 3 Import
+assert-text Brought in 3 bookmarks from Firefox
+assert-url about:bookmarks?view=transfer
+assert-bookmarks-bar Alphabet | [Reading] | Beta | Byhand | [Firefoxreading] | Fromfirefoxtoolbar
+click-text-nth 4 Import
+assert-text Brought in 3 bookmarks from Chromium
+click-text-nth 5 Import
+assert-text Brought in 1 bookmark from saved.html in Downloads
+# A path the machine was not found to hold is not read for the asking.
+open about:bookmarks?view=transfer&importfrom=/etc/hostname
+assert-text That is not among the places found on this machine.
+focus import
+type /nowhere/at-all.html
+key Enter
+assert-text That cannot be read as bookmarks: /nowhere/at-all.html
+
+# --- Written out, under the day's date ---
+click-text-nth 3 Export
+assert-text Written out as bookmarks-2026-01-05
+
+# --- A dated copy put back: asked, then done, what stood kept first ---
+click-text Restore
+assert-text Replace your bookmarks with this copy?
+assert-bookmarks-bar Alphabet | [Reading] | Beta | Byhand | [Firefoxreading] | Fromfirefoxtoolbar | Fromchromium | [Chromiumtools]
+click-text Yes,
+assert-text Put back the bookmarks of 2026-01-03
+assert-bookmarks-bar Asitwas
+assert-text as they stood before a restore

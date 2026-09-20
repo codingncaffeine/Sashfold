@@ -11,3 +11,6 @@ tests/fixtures/brotli/* binary
 *.xpi binary
 *.crx binary
 *.zip binary
+
+# Firefox's compressed copies of its bookmarks: a size and an LZ4 block.
+*.jsonlz4 binary

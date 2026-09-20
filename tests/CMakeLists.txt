@@ -125,6 +125,7 @@ target_link_libraries(test_theme_gallery PRIVATE sashfold_core sashfold_warnings
 add_test(NAME test_theme_gallery COMMAND test_theme_gallery ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes)
 sashfold_test(test_touch)
 sashfold_test(test_bookmarks)
+sashfold_test(test_bookmark_sources)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The Wayland window's two halves that need no compositor: the wire
@@ -235,6 +236,9 @@ add_test(NAME shell_resize
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_bookmarks
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/bookmarks.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_bookmarks_manager
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/bookmarks-manager.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_bookmarks_theme
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/bookmarks-theme.script

@@ -696,6 +696,11 @@ void paint_run(Context& context, TextRun const& run)
     bool const kern = style.font_kerning != css::FontKerning::None;
     float const start_x = run.x + context.dx;
     float x = start_x;
+    // A placeholder is the field's own color at a little over half strength,
+    // so that it reads as a hint on a light field and on a dark one.
+    Color color = style.color;
+    if (run.placeholder)
+        color.a = static_cast<std::uint8_t>(color.a * 0.54f);
     text::FontStack::Glyph previous { nullptr, 0 };
     for (char32_t const c : run.text) {
         text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
@@ -705,7 +710,7 @@ void paint_run(Context& context, TextRun const& run)
         if (kern && previous.face == glyph.face)
             x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
         glyph.face->draw_glyph(context.target, glyph.glyph, x, baseline, style.font_size,
-            style.color, style.bold(), italic);
+            color, style.bold(), italic);
         x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
         if (c == U' ')
             x += style.word_spacing;
@@ -796,13 +801,20 @@ void paint_control(Context& context, Fragment const& fragment)
         break;
     }
     }
+    // A selected value: the selection's color behind the text, which is
+    // drawn after this.
+    for (Fragment::ControlBox::Span const& span : control.selected)
+        context.target.fill_rect(snap(span.x0 + context.dx, span.top + context.dy, span.x1 - span.x0, span.bottom - span.top),
+            Color::rgba(0x5b, 0x9c, 0xf6, 0x66));
     if (control.focused) {
         Color const accent = Color::rgb(0x00, 0x60, 0xdf);
         frame(rect, accent);
         frame(inset(rect, line), accent);
     }
     if (control.caret_x)
-        context.target.fill_rect(snap(*control.caret_x + context.dx, y + px(4), line, control.height - 2 * px(4)), ink);
+        context.target.fill_rect(snap(*control.caret_x + context.dx, y + control.pad_top + px(4), line,
+                                     control.height - control.pad_top - control.pad_bottom - 2 * px(4)),
+            ink);
     if (control.preedit_span && control.preedit_span->second > control.preedit_span->first) {
         // The composing text is underlined, as every editor shows it.
         context.target.fill_rect(snap(control.preedit_span->first + context.dx, y + control.height - px(5),

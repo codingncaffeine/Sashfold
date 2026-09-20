@@ -367,9 +367,95 @@ bool Bookmarks::remove(std::uint64_t id)
     BookmarkNode* const parent = parent_of_mutable(id);
     if (!parent)
         return false;
-    std::erase_if(parent->children, [id](BookmarkNode const& child) { return child.id == id; });
+    auto const where = std::find_if(parent->children.begin(), parent->children.end(),
+        [id](BookmarkNode const& child) { return child.id == id; });
+    if (where == parent->children.end())
+        return false;
+    m_removed = Removed { std::move(*where), parent->id, static_cast<std::size_t>(where - parent->children.begin()) };
+    parent->children.erase(where);
     touch();
     return true;
+}
+
+std::string Bookmarks::removed_name() const
+{
+    if (!m_removed)
+        return {};
+    return !m_removed->node.title.empty() ? m_removed->node.title : m_removed->node.url;
+}
+
+bool Bookmarks::undo_remove()
+{
+    if (!m_removed)
+        return false;
+    // Back into the folder it was in, or the other bookmarks when that
+    // folder has gone since.
+    BookmarkNode* parent = find_mutable(m_removed->parent);
+    if (!parent || !parent->folder)
+        parent = &m_other;
+    std::size_t const place = std::min(m_removed->at, parent->children.size());
+    parent->children.insert(parent->children.begin() + static_cast<std::ptrdiff_t>(place), std::move(m_removed->node));
+    m_removed.reset();
+    touch();
+    return true;
+}
+
+bool Bookmarks::sort_by_name(std::uint64_t folder)
+{
+    BookmarkNode* const node = find_mutable(folder);
+    if (!node || !node->folder)
+        return false;
+    auto const key = [](BookmarkNode const& n) {
+        std::string text = !n.title.empty() ? n.title : n.url;
+        for (char& c : text)
+            c = lowered(c);
+        return text;
+    };
+    std::stable_sort(node->children.begin(), node->children.end(), [&](BookmarkNode const& a, BookmarkNode const& b) {
+        if (a.folder != b.folder)
+            return a.folder;
+        return key(a) < key(b);
+    });
+    touch();
+    return true;
+}
+
+std::vector<BookmarkNode const*> Bookmarks::path_of(std::uint64_t id) const
+{
+    std::vector<BookmarkNode const*> path;
+    for (BookmarkNode const* parent = parent_of(id); parent; parent = parent_of(parent->id))
+        path.insert(path.begin(), parent);
+    return path;
+}
+
+std::vector<Bookmarks::Found> Bookmarks::search(std::string_view words) const
+{
+    std::string needle(words);
+    for (char& c : needle)
+        c = lowered(c);
+    std::vector<Found> found;
+    if (needle.empty())
+        return found;
+    auto const holds = [&](std::string const& text) {
+        std::string lower = text;
+        for (char& c : lower)
+            c = lowered(c);
+        return lower.find(needle) != std::string::npos;
+    };
+    std::vector<BookmarkNode const*> path;
+    auto const walk = [&](auto const& self, BookmarkNode const& folder) -> void {
+        path.push_back(&folder);
+        for (BookmarkNode const& child : folder.children) {
+            if (child.folder)
+                self(self, child);
+            else if (holds(child.title) || holds(child.url))
+                found.push_back(Found { &child, path });
+        }
+        path.pop_back();
+    };
+    walk(walk, m_bar);
+    walk(walk, m_other);
+    return found;
 }
 
 bool Bookmarks::rename(std::uint64_t id, std::string title)
@@ -428,6 +514,16 @@ bool Bookmarks::move(std::uint64_t id, std::uint64_t to_folder, std::size_t at)
     into->children.insert(into->children.begin() + static_cast<std::ptrdiff_t>(place), std::move(node));
     touch();
     return true;
+}
+
+void Bookmarks::replace_with(Bookmarks other)
+{
+    std::uint64_t const changes = m_changes;
+    BookmarksBarMode const mode = m_bar_mode;
+    *this = std::move(other);
+    m_bar_mode = mode;
+    m_removed.reset();
+    m_changes = changes + 1;
 }
 
 void Bookmarks::set_bar_mode(BookmarksBarMode mode)

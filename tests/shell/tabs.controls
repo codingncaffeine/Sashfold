@@ -4,7 +4,7 @@ script tests/shell/tabs.script
 
 control where
 file src/ui/Browser.cpp
-fails 34 52 58 59 61 62 65 74 79 87 96 103 106 110 113 128 131 141 146
+fails 34 52 58 59 61 62 65 74 79 87 96 103 106 110 113 128 131 141 146 197 201 203 206 209 211 215 219
 plant s~std::size_t const at = insert_tab\(closed\.position, std::move\(tab\), true\);~std::size_t const at = insert_tab(tabs.size(), std::move(tab), true);~
 
 control place
@@ -24,12 +24,12 @@ plant s~return !is_about_blank\(entry\.url\) && !is_about_newtab\(entry\.url\);~
 
 control beside
 file src/ui/Browser.cpp
-fails 58 62 87
+fails 58 62 87 206 209
 plant s~std::size_t const at = insert_tab\(index \+ 1, std::move\(tab\), true\);~std::size_t const at = insert_tab(tabs.size(), std::move(tab), true);~
 
 control front
 file src/ui/Browser.cpp
-fails 95 96 97 103 104 105 106 109 110 113
+fails 95 96 97 103 104 105 106 109 110 113 215
 plant s~open_tab_beside\(from \? from->container : std::string\(\), url, active, false\);~open_tab_beside(from ? from->container : std::string(), url, active, true);~
 
 control order
@@ -50,7 +50,7 @@ plant s~open_tab_beside\(from \? from->container : std::string\(\), url, active,
 control popup
 file src/ui/Browser.cpp
 fails 113
-plant s~m_impl->open_tab_beside\(window\.container, window\.url, window\.opener, true\);~m_impl->open_tab_in(window.container, window.url);~
+plant s~m_impl->open_tab_beside\(window\.container, window\.url, window\.opener, window\.to_front\);~m_impl->open_tab_in(window.container, window.url);~
 
 control cap
 file src/ui/Browser.cpp
@@ -124,7 +124,7 @@ plant s~tabs\[t\]\.pinned \? pinned_member : std::string\(\)~false ? pinned_memb
 
 control pinparsed
 file src/ui/Browser.cpp
-fails 211 215 219
+fails 211 215 219 225
 plant s~tab\.pinned = pinned->as_bool\(\);~tab.pinned = false;~
 
 control reopenpinned

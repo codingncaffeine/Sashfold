@@ -62,6 +62,29 @@ public:
     // To a place in a folder: `at` counts the folder's children as they are
     // before the move. Not a root, and not a folder into itself or below.
     bool move(std::uint64_t id, std::uint64_t to_folder, std::size_t at);
+    // A folder's children by name, folders first, as a manager's "sort by
+    // name" leaves them; what is inside its folders is left as it is.
+    bool sort_by_name(std::uint64_t folder);
+    // What remove() took away last can be put back where it stood, once:
+    // the way back from a slip of the hand.
+    bool can_undo_remove() const { return m_removed.has_value(); }
+    std::string removed_name() const;
+    bool undo_remove();
+
+    // Every bookmark whose name or address holds the words, in tree order,
+    // each with the folders it is under, outermost first.
+    struct Found {
+        BookmarkNode const* node = nullptr;
+        std::vector<BookmarkNode const*> path;
+    };
+    std::vector<Found> search(std::string_view words) const;
+    // The folders a node is under, outermost first; empty for a root.
+    std::vector<BookmarkNode const*> path_of(std::uint64_t id) const;
+
+    // Everything here replaced by what another tree holds — a dated copy put
+    // back — as one more change to this one. When the bar is shown is the
+    // reader's setting, not the copy's, and stays.
+    void replace_with(Bookmarks other);
 
     BookmarksBarMode bar_mode() const { return m_bar_mode; }
     void set_bar_mode(BookmarksBarMode mode);
@@ -90,6 +113,12 @@ private:
     BookmarkNode m_bar;
     BookmarkNode m_other;
     BookmarksBarMode m_bar_mode = BookmarksBarMode::Always;
+    struct Removed {
+        BookmarkNode node;
+        std::uint64_t parent = 0;
+        std::size_t at = 0;
+    };
+    std::optional<Removed> m_removed;
     std::uint64_t m_next_id = 3;
     std::uint64_t m_changes = 0;
 };

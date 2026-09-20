@@ -45,3 +45,22 @@ open data:text/html,<title>Posting</title><form method="post" action="data:text/
 click-text Send
 assert-title Posting
 assert-status posts
+
+# A placeholder is a hint and no value. Ctrl+A selects what a field holds:
+# what is typed next takes its place, and Backspace empties the field.
+open data:text/html,<title>Hints</title><form action="data:text/html,Landed"><input name="q" placeholder="words to look for"><input type="submit" value="Go"></form>
+focus q
+assert-value q
+type first
+key Ctrl+A
+type second
+assert-value q second
+key Ctrl+A
+key Left
+type the
+assert-value q thesecond
+key Ctrl+A
+key Backspace
+assert-value q
+click-text Go
+assert-url data:text/html,Landed?q=

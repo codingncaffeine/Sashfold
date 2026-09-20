@@ -47,6 +47,9 @@ struct TextRun {
     // them a quarter circle at a time, so whoever moves a run afterwards
     // has to know which of the two fields is currently the page's x.
     bool swapped = false;
+    // A field's placeholder, shown while the field is empty: drawn in the
+    // field's own color, dimmed.
+    bool placeholder = false;
 };
 
 struct Fragment {
@@ -83,9 +86,22 @@ struct Fragment {
         bool focused = false;
         bool disabled = false;
         std::optional<float> caret_x; // the caret's page x, when focused and editable
+        // The author's padding above and below a single line's text: what
+        // the caret stands clear of.
+        float pad_top = 0;
+        float pad_bottom = 0;
         // The page x range of an input method's composing text, shown in
         // the control's own run and underlined by the painter.
         std::optional<std::pair<float, float>> preedit_span;
+        // The text of a field whose whole value is selected, line by line:
+        // what the painter puts the selection's color behind.
+        struct Span {
+            float x0 = 0;
+            float x1 = 0;
+            float top = 0;
+            float bottom = 0;
+        };
+        std::vector<Span> selected;
     };
     std::optional<ControlBox> control;
 
