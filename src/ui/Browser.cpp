@@ -732,6 +732,8 @@ struct Browser::Impl {
     // A theme's picture moved on a frame and nothing else changed: the
     // header is painted again, the page is not (advance_theme_pictures).
     bool header_dirty = false;
+    // Whether any of the window can be seen (Browser::set_window_visible).
+    bool window_visible = true;
     std::string palette_query;
     std::size_t palette_caret = 0; // bytes into palette_query
     bool palette_select_all = false;
@@ -4011,6 +4013,8 @@ struct Browser::Impl {
     // (a stall, a suspended machine) does not play back what it missed.
     bool advance_theme_pictures()
     {
+        if (!window_visible)
+            return false; // nobody is looking
         double const now = script_now();
         bool moved = false;
         for (ThemeLayers* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
@@ -4046,6 +4050,8 @@ struct Browser::Impl {
     // none moves.
     std::optional<double> next_theme_frame_ms() const
     {
+        if (!window_visible)
+            return std::nullopt; // and the loop is not woken for it
         std::optional<double> soonest;
         for (ThemeLayers const* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
             for (ThemeLayers::Layer const& layer : surface->layers) {
@@ -7601,6 +7607,26 @@ void Browser::set_window_active(bool active)
 }
 
 bool Browser::window_active() const { return m_impl->window_active; }
+
+void Browser::set_window_visible(bool visible)
+{
+    if (m_impl->window_visible == visible)
+        return;
+    m_impl->window_visible = visible;
+    if (!visible)
+        return;
+    // Shown again: a picture that moves goes on from the frame it stopped
+    // on, its clock started afresh at the next paint — it does not play
+    // back the time it was out of sight — and the whole frame is painted.
+    for (Impl::ThemeLayers* const surface :
+        { &m_impl->frame_pictures, &m_impl->toolbar_pictures, &m_impl->tab_background_pictures }) {
+        for (Impl::ThemeLayers::Layer& layer : surface->layers)
+            layer.next_frame_at = -1;
+    }
+    m_impl->dirty = true;
+}
+
+bool Browser::window_visible() const { return m_impl->window_visible; }
 
 void Browser::navigate(std::string const& typed) { m_impl->navigate(typed); }
 void Browser::open(net::Url const& url) { m_impl->open(url); }

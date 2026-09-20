@@ -357,6 +357,12 @@ struct Runner {
             if (argument != "on" && argument != "off")
                 return fail("window-controls: on or off");
             browser.set_window_controls(argument == "on");
+        } else if (command == "window-visible") {
+            // `window-visible on|off`: whether any of the window can be seen,
+            // as a compositor says of one that is minimized or covered.
+            if (argument != "on" && argument != "off")
+                return fail("window-visible: on or off");
+            browser.set_window_visible(argument == "on");
         } else if (command == "window-active") {
             // `window-active on|off`: whether the window is the one in
             // front, as the system would say when another takes its place.

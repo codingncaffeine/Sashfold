@@ -30,6 +30,7 @@ struct WindowEvent {
         Text,
         Preedit,
         Active,
+        Visible,
     };
     Kind kind = Kind::None;
     int x = 0; // mouse position, client pixels
@@ -53,6 +54,10 @@ struct WindowEvent {
     // Active: whether the window is now the one in front, the one the
     // keyboard goes to. A window is taken to be until an event says not.
     bool active = true;
+    // Visible: whether any of the window can be seen — not minimized, not
+    // wholly covered, not on another desktop — as far as the system says. A
+    // window is taken to be until an event says not.
+    bool visible = true;
 };
 
 // An edge or corner of the window, for a resize the reader starts by

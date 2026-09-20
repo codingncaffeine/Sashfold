@@ -235,6 +235,18 @@ private:
             return 0; // the shell decides; the destructor destroys
         }
         case WM_SIZE: {
+            // Minimized, nothing of the window is shown: what only moves to be
+            // looked at stops until it is restored.
+            bool const minimized = wparam == SIZE_MINIMIZED;
+            if (minimized != m_minimized) {
+                m_minimized = minimized;
+                WindowEvent shown;
+                shown.kind = WindowEvent::Kind::Visible;
+                shown.visible = !minimized;
+                push(shown);
+            }
+            if (minimized)
+                return 0; // and its size is no size to lay a page out for
             m_width = static_cast<int>(static_cast<unsigned>(lparam) & 0xFFFFu);
             m_height = static_cast<int>((static_cast<unsigned>(lparam) >> 16) & 0xFFFFu);
             WindowEvent event;
@@ -365,6 +377,7 @@ private:
     HWND m_hwnd = nullptr;
     int m_width = 0;
     int m_height = 0;
+    bool m_minimized = false;
     float m_scale = 1; // the display's DPI over 96
     std::deque<WindowEvent> m_events;
     std::vector<std::uint8_t> m_bgra;

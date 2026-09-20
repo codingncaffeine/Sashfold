@@ -205,6 +205,7 @@ namespace xdg_toplevel {
     constexpr std::uint16_t event_configure_bounds = 2; // since 4
     constexpr std::uint32_t state_maximized = 1;
     constexpr std::uint32_t state_activated = 4;
+    constexpr std::uint32_t state_suspended = 9; // since version 6: nothing of the window is shown
     constexpr std::uint32_t edge_top = 1;
     constexpr std::uint32_t edge_bottom = 2;
     constexpr std::uint32_t edge_left = 4;
@@ -530,6 +531,7 @@ private:
     // one and agrees to draw it, else the shell's.
     bool m_client_decorations = false;
     bool m_maximized = false; // from the toplevel's configure states
+    bool m_suspended = false; // likewise: nothing of the window is shown
     // Likewise; begun as the shell begins, in front, so that the first
     // configure that says otherwise is a change and is told.
     bool m_activated = true;
@@ -810,6 +812,7 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
             std::span<std::uint8_t const> const states = message.array();
             bool maximized = false;
             bool activated = false;
+            bool suspended = false;
             for (std::size_t i = 0; i + 4 <= states.size(); i += 4) {
                 std::uint32_t const state = static_cast<std::uint32_t>(states[i]) | (static_cast<std::uint32_t>(states[i + 1]) << 8)
                     | (static_cast<std::uint32_t>(states[i + 2]) << 16) | (static_cast<std::uint32_t>(states[i + 3]) << 24);
@@ -817,6 +820,8 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
                     maximized = true;
                 if (state == xdg_toplevel::state_activated)
                     activated = true;
+                if (state == xdg_toplevel::state_suspended)
+                    suspended = true;
             }
             m_maximized = maximized;
             if (activated != m_activated) {
@@ -825,6 +830,17 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
                 WindowEvent event;
                 event.kind = WindowEvent::Kind::Active;
                 event.active = activated;
+                push(event);
+            }
+            // Minimized, wholly covered or on another desktop, the compositor
+            // says the window is suspended: what only moves to be looked at
+            // — a theme's pictures — stops until it is shown again.
+            if (suspended != m_suspended) {
+                m_suspended = suspended;
+                debug("window %s", suspended ? "suspended" : "shown again");
+                WindowEvent event;
+                event.kind = WindowEvent::Kind::Visible;
+                event.visible = !suspended;
                 push(event);
             }
             break;

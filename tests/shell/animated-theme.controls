@@ -50,3 +50,9 @@ control tenth
 file src/core/AnimatedImage.cpp
 fails 27 30 33 42 48 51 52 54 60 63 74
 plant s~    return written <= 10 \? 100 : written;\n~    return written;\n~
+
+# A window nobody can see goes on playing.
+control unseen
+file src/ui/Browser.cpp
+fails 89
+plant s~        if \(!window_visible\)\n            return false; // nobody is looking\n~~

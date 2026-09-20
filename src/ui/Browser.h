@@ -294,6 +294,11 @@ public:
     // (chrome-background-inactive). In front until told otherwise.
     void set_window_active(bool active);
     bool window_active() const;
+    // Whether any of the window can be seen, as far as the system says —
+    // not minimized, not wholly covered, not on another desktop. What only
+    // moves to be looked at, a theme's pictures, stops while it cannot.
+    void set_window_visible(bool visible);
+    bool window_visible() const;
 
     // --- Navigation ---------------------------------------------------------
     // Address-bar semantics: a URL, or a bare host that tries https first.

@@ -75,3 +75,24 @@ assert-pixel 678 6 #ff0000
 advance 100
 assert-pixel 678 6 #000080
 assert-pixel 688 10 #00ff00
+
+# --- Out of sight ---
+# A window that cannot be seen — minimized, wholly covered — stops its
+# pictures, and its loop is not woken for them. Shown again, the whole frame
+# is painted, the picture is on the frame it stopped on (the lime block's,
+# here), and goes on from there a delay later: the yellow block's frame, at
+# this scale 692..701 by 12..21.
+window-visible off
+mark
+advance 1000
+assert-pixel 688 10 #00ff00
+assert-header-paints 0
+assert-paints 0
+window-visible on
+assert-pixel 688 10 #00ff00
+assert-paints 1
+advance 69
+assert-pixel 688 10 #00ff00
+advance 1
+assert-pixel 688 10 #000080
+assert-pixel 696 16 #ffff00

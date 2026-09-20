@@ -1890,6 +1890,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             case Kind::Text: browser.text_input(event.text); break;
             case Kind::Preedit: browser.preedit(event.preedit); break;
             case Kind::Active: browser.set_window_active(event.active); break;
+            case Kind::Visible: browser.set_window_visible(event.visible); break;
             case Kind::None: break;
             }
         }
