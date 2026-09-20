@@ -3486,6 +3486,107 @@ void test_interfaces_that_promise()
 
 } // namespace
 
+// MutationObserver: what changed in a part of the tree, in one batch at the
+// end of the turn. The component libraries the web is built with watch
+// their own children with one, so an observer that takes registrations and
+// says nothing leaves those components holding nothing.
+void test_mutation_observer()
+{
+    auto page = loaded("<!DOCTYPE html><body><div id=box><span id=old>a</span></div><div id=other></div></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval(R"JS(
+        var seen = [];
+        var take = function () { var s = seen.join(' '); seen = []; return s; };
+        var box = document.getElementById('box');
+        var sameObserver = false;
+        var mo = new MutationObserver(function (records, who) {
+            sameObserver = who === mo;
+            records.forEach(function (r) {
+                seen.push(r.type + '|' + (r.attributeName || '-') + '|+' + r.addedNodes.length + '-' + r.removedNodes.length
+                    + '|' + r.oldValue + '|' + (r.target === box ? 'box' : r.target.nodeName));
+            });
+        });
+        mo.observe(box, { childList: true, attributes: true, characterData: true, subtree: true, characterDataOldValue: true });
+        box.appendChild(document.createElement('b'));
+        box.setAttribute('data-x', '1');
+        document.getElementById('old').firstChild.data = 'z';
+        // Nothing is delivered while the script that changed the tree is
+        // still running: the batch comes at the checkpoint after it.
+        var duringScript = seen.length;
+    )JS");
+    CHECK_EQ(page->string("duringScript + ''"), "0");
+    pump();
+    CHECK_EQ(page->string("take()"),
+        "childList|-|+1-0|null|box attributes|data-x|+0-0|null|box characterData|-|+0-0|a|#text");
+    CHECK(page->boolean("sameObserver"));
+
+    // A record says where in the children the change was.
+    page->eval("box.insertBefore(document.createElement('i'), box.firstChild);");
+    pump();
+    CHECK_EQ(page->string("take()"), "childList|-|+1-0|null|box");
+    // Taking a node out of the tree is one record, and putting it in
+    // another parent is two: it left one and joined the other.
+    page->eval("var moved = box.firstChild; document.getElementById('other').appendChild(moved);");
+    pump();
+    CHECK_EQ(page->string("take()"), "childList|-|+0-1|null|box");
+
+    // What it was not asked to watch, it does not report.
+    page->eval(R"JS(
+        var quiet = [];
+        var narrow = new MutationObserver(function (r) { r.forEach(function (x) { quiet.push(x.type); }); });
+        narrow.observe(box, { attributes: true, attributeFilter: ['data-y'] });
+        box.setAttribute('data-x', '2');
+        box.setAttribute('data-y', '3');
+        box.appendChild(document.createElement('u'));
+    )JS");
+    pump();
+    CHECK_EQ(page->string("quiet.join(',')"), "attributes");
+    CHECK_EQ(page->string("take()"), "attributes|data-x|+0-0|null|box attributes|data-y|+0-0|null|box childList|-|+1-0|null|box");
+
+    // One that did not ask for the subtree hears only of its own node.
+    page->eval(R"JS(
+        var shallow = [];
+        var near = new MutationObserver(function (r) { r.forEach(function (x) { shallow.push(x.type + ':' + x.target.nodeName); }); });
+        near.observe(box, { childList: true });
+        box.firstChild.appendChild(document.createElement('tt'));
+        box.appendChild(document.createElement('kbd'));
+    )JS");
+    pump();
+    CHECK_EQ(page->string("shallow.join(',')"), "childList:DIV");
+    page->eval("near.disconnect(); take();");
+
+    // Naming only a filter asks for attributes as well: the option counts
+    // as spoken for, which is what keeps this from throwing.
+    page->eval(R"JS(
+        var filtered = [];
+        var threw = '';
+        var only = new MutationObserver(function (r) { r.forEach(function (x) { filtered.push(x.attributeName); }); });
+        try { only.observe(box, { attributeFilter: ['data-z'] }); } catch (e) { threw = e.name; }
+        box.setAttribute('data-q', '1');
+        box.setAttribute('data-z', '2');
+    )JS");
+    pump();
+    CHECK_EQ(page->string("threw + '/' + filtered.join(',')"), "/data-z");
+    page->eval("only.disconnect(); take();");
+
+    // takeRecords hands over what is waiting and leaves nothing behind;
+    // disconnect ends it.
+    page->eval("box.appendChild(document.createElement('em')); var taken = mo.takeRecords();");
+    CHECK_EQ(page->string("taken.length + ' ' + taken[0].type + ' ' + mo.takeRecords().length"), "1 childList 0");
+    pump();
+    CHECK_EQ(page->string("take()"), "");
+    page->eval("mo.disconnect(); box.appendChild(document.createElement('s'));");
+    pump();
+    CHECK_EQ(page->string("take()"), "");
+
+    // The options must ask for something, and the target must be a node.
+    CHECK_EQ(page->string("var r = ''; try { new MutationObserver(function () {}).observe(box, {}); } catch (e) { r = e.name; } r"), "TypeError");
+    CHECK_EQ(page->string("var r = ''; try { new MutationObserver(function () {}).observe(7, { childList: true }); } catch (e) { r = e.name; } r"), "TypeError");
+    CHECK_EQ(page->string("var r = ''; try { new MutationObserver(1); } catch (e) { r = e.name; } r"), "TypeError");
+}
+
 // Custom elements: a page names a class of its own and the tree becomes it.
 // Almost every page built out of components rests on this, so what is
 // checked here is the whole of what one needs — the element already in the
@@ -3903,6 +4004,7 @@ int main()
     test_a_frame_measures_itself();
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();
+    test_mutation_observer();
     test_custom_elements();
     test_media_source_and_the_media_element();
     test_a_sound_file_plays();

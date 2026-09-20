@@ -1482,7 +1482,8 @@ void install_window(Realm::Internals& in)
     // Observers.
     install_observer(in, "IntersectionObserver", true, true);
     install_observer(in, "ResizeObserver", false, true);
-    install_observer(in, "MutationObserver", false, false);
+    // MutationObserver is its own machinery (Mutations.cpp): it watches the
+    // tree for real, so it is not one of the stand-ins above.
     js::Object* performance_observer = define_interface(in, "PerformanceObserver", nullptr,
         [](js::Interpreter& interp, Args args, js::Object*) -> Native {
             js::Value const callback = js::argument(args, 0);

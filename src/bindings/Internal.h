@@ -850,6 +850,11 @@ struct Realm::Internals {
     // order it defined them. Held by pointer so that a definition's address
     // stands still while an element it upgraded points at it.
     std::vector<std::shared_ptr<CustomElementDefinition>> custom_element_definitions;
+    // The MutationObservers watching parts of this document, and whether
+    // a delivery of what they are owed is already arranged for the end of
+    // this turn (Mutations.cpp).
+    std::vector<js::Object*> mutation_observers;
+    bool mutation_delivery_pending = false;
     // The MediaSources URL.createObjectURL has named, by the URL, until it is
     // revoked: what a media element's src is looked up in (Media.cpp).
     std::unordered_map<std::string, js::Object*> media_source_urls;
@@ -1190,6 +1195,15 @@ void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRange
 // Custom elements (CustomElements.cpp, HTML §4.13): the registry, the
 // HTMLElement constructor a page's class calls through, and the callbacks
 // the tree owes a definition.
+void install_mutation_observer(Realm::Internals&); // Mutations.cpp: MutationObserver, MutationRecord
+void trace_mutation_observers(Realm::Internals const&, js::Tracer&);
+// What the tree tells the observers: children added or taken away, an
+// attribute written, a text node changed.
+void mutation_children_changed(Realm::Internals&, dom::Node& parent, std::vector<dom::Node*> const& added,
+    std::vector<dom::Node*> const& removed, dom::Node* previous, dom::Node* next);
+void mutation_attribute_changed(Realm::Internals&, dom::Element&, std::string_view namespace_uri, std::string_view local_name,
+    std::optional<std::string> const& old_value);
+void mutation_character_data_changed(Realm::Internals&, dom::Node&, std::optional<std::string> const& old_value);
 void install_custom_elements(Realm::Internals&);
 void trace_custom_elements(Realm::Internals const&, js::Tracer&);
 // The definition for a local name, or null where there is none.

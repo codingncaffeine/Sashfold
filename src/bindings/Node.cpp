@@ -224,11 +224,16 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
 {
     // A node moved out of a tree takes its frames down with it (the removing
     // steps), before it is adopted and inserted.
-    if (node.parent())
+    dom::Node* const left_behind = node.parent();
+    std::vector<dom::Node*> const moved { &node };
+    if (left_behind != nullptr) {
         in.frames_removed(node);
+        mutation_children_changed(in, *left_behind, {}, moved, node.previous_sibling(), next_sibling_of(node));
+    }
     in.adopt_into(parent.document(), node);
     parent.insert_before(node, reference);
     in.realm.note_mutation();
+    mutation_children_changed(in, parent, moved, {}, node.previous_sibling(), next_sibling_of(node));
     // A script element inserted into the document runs (§4.12.1, the
     // insertion steps), unless it was already started — a fragment's are;
     // an iframe inserted navigates, in a task after the script.
@@ -325,10 +330,15 @@ void remove_node(Realm::Internals& in, dom::Node& node)
     if (!node.parent())
         return;
     bool const was_connected = node.is_connected();
+    dom::Node* const parent = node.parent();
+    dom::Node* const previous = node.previous_sibling();
+    dom::Node* const next = next_sibling_of(node);
     in.frames_removed(node);
     node.remove();
     if (was_connected)
         custom_elements_removed(in, node);
+    if (parent != nullptr)
+        mutation_children_changed(in, *parent, {}, { &node }, previous, next);
     in.realm.note_mutation();
 }
 
@@ -367,6 +377,8 @@ void replace_children_with_markup(Realm::Internals& in, dom::Node& parent, dom::
     }
     for (dom::Node* child : children)
         parent.append_child(*child);
+    // One record for the lot: the children of this node were replaced.
+    mutation_children_changed(in, parent, children, old, nullptr, nullptr);
     if (parent.is_connected()) {
         for (dom::Node* child : children) {
             in.frames_inserted(*child);
@@ -754,6 +766,8 @@ std::u16string data_units(dom::Node const& node)
 void replace_data(Realm::Internals& in, dom::Node& node, std::size_t offset, std::size_t count, std::u16string_view data)
 {
     std::u16string units = data_units(node);
+    std::optional<std::string> const before
+        = in.mutation_observers.empty() ? std::nullopt : std::optional<std::string>(js::utf8_from_utf16(units));
     count = std::min(count, units.size() - offset);
     units.replace(offset, count, data);
     std::string utf8 = js::utf8_from_utf16(units);
@@ -764,6 +778,7 @@ void replace_data(Realm::Internals& in, dom::Node& node, std::size_t offset, std
     else
         static_cast<dom::Comment&>(node).data = std::move(utf8);
     dom::ranges_data_replaced(node, static_cast<std::uint32_t>(offset), static_cast<std::uint32_t>(count), static_cast<std::uint32_t>(data.size()));
+    mutation_character_data_changed(in, node, before);
     in.realm.note_mutation();
 }
 
