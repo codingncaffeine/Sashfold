@@ -721,11 +721,15 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
         send(get_text_input);
         listen_text_input();
     }
-    // SASHFOLD_WAYLAND_CSD leaves the compositor's title bar unasked for, to
-    // see the shell's own frame on a compositor that would draw one.
-    char const* const force_client_frame = std::getenv("SASHFOLD_WAYLAND_CSD");
-    bool const client_frame_wanted = force_client_frame && *force_client_frame && *force_client_frame != '0';
-    m_decoration_manager = client_frame_wanted ? 0 : bind("zxdg_decoration_manager_v1", 1);
+    // The frame is the shell's own, as Firefox's and Chrome's is: the window's
+    // buttons sit on the tab strip, and a theme's frame — its color, its
+    // picture — reaches the top edge of the window. A title bar the
+    // compositor draws is one no theme of ours can dress. The compositor's
+    // is asked for only when the reader says so: SASHFOLD_WAYLAND_CSD=0,
+    // until the settings page has the switch both of those browsers have.
+    char const* const frame_asked = std::getenv("SASHFOLD_WAYLAND_CSD");
+    bool const system_title_bar = frame_asked && *frame_asked == '0';
+    m_decoration_manager = system_title_bar ? bind("zxdg_decoration_manager_v1", 1) : 0;
     m_cursor_shape_manager = bind("wp_cursor_shape_manager_v1", 1);
     m_data_device_manager = bind("wl_data_device_manager", 3);
     if (m_data_device_manager && m_seat)
