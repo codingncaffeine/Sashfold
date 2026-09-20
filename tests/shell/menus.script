@@ -187,7 +187,7 @@ assert-title Menus
 # theme chosen is put on, and a second press on the button closes it.
 main-menu
 assert-menus 1
-assert-menu New tab | New container tab > | - | Find in page | Reader mode | - | Themes > | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
 main-menu
 assert-menus 0
 main-menu
@@ -204,7 +204,7 @@ assert-theme Sashfold
 main-menu
 menu Developer tools
 main-menu
-assert-menu New tab | New container tab > | - | Find in page | Reader mode | - | Themes > | Command palette | - | *Developer tools | View page source | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | Command palette | - | *Developer tools | View page source | - | About Sashfold | Quit
 menu Developer tools
 main-menu
 menu New container tab

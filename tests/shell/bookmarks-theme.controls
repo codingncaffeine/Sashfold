@@ -1,0 +1,10 @@
+# Planted-fault control for tests/shell/bookmarks-theme.script: a theme's toolbar pictures run through the bookmarks bar.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/bookmarks-theme.script
+args --theme tests/shell/frame-theme.json
+
+# The toolbar's pictures stop at the toolbar's own foot.
+control barpictures
+file src/ui/Browser.cpp
+fails 12
+plant s~        paint_pictures\(toolbar_pictures, header, \{ toolbar_rows \}\);\n~        paint_pictures(toolbar_pictures, header, { c.toolbar });\n~

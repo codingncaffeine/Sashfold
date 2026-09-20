@@ -138,5 +138,36 @@ int main()
     CHECK_EQ(page(8, 8), 0);
     CHECK_EQ(static_cast<int>(icon_coverage(Icon::Reader, 16, 8, 8)), 191);
 
+    // The bookmarks' icons. A star is the same on its left as on its right,
+    // about x = 8: the pixel columns 7 and 8 mirror each other, 6 and 9, and
+    // so on. Its tip is inked, its corners are not, and the middle is empty
+    // in the outline and inked in the filled one.
+    for (Icon const star : { Icon::Star, Icon::StarFilled }) {
+        for (int y = 0; y < 16; ++y) {
+            for (int x = 0; x < 8; ++x)
+                CHECK_EQ(static_cast<int>(icon_coverage(star, 16, x, y)), static_cast<int>(icon_coverage(star, 16, 15 - x, y)));
+        }
+        CHECK(icon_coverage(star, 16, 7, 3) > 0);
+        CHECK_EQ(static_cast<int>(icon_coverage(star, 16, 0, 0)), 0);
+        CHECK_EQ(static_cast<int>(icon_coverage(star, 16, 15, 15)), 0);
+    }
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::Star, 16, 7, 8)), 0);
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::StarFilled, 16, 7, 8)), 255);
+    // Two chevrons, each the same above y = 8 as below it, the second the
+    // first moved 4.5 to the right; nothing at the far left.
+    for (int x = 0; x < 16; ++x) {
+        for (int y = 0; y < 8; ++y)
+            CHECK_EQ(static_cast<int>(icon_coverage(Icon::Chevrons, 16, x, y)), static_cast<int>(icon_coverage(Icon::Chevrons, 16, x, 15 - y)));
+    }
+    CHECK(icon_coverage(Icon::Chevrons, 16, 7, 7) > 0);
+    CHECK(icon_coverage(Icon::Chevrons, 16, 11, 7) > 0);
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::Chevrons, 16, 1, 8)), 0);
+    // A folder: its foot along y = 12.5, its tab at the top left and nothing
+    // where the tab is not, its inside empty.
+    CHECK(icon_coverage(Icon::Folder, 16, 8, 12) > 0);
+    CHECK(icon_coverage(Icon::Folder, 16, 4, 4) > 0);
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::Folder, 16, 11, 3)), 0);
+    CHECK_EQ(static_cast<int>(icon_coverage(Icon::Folder, 16, 8, 9)), 0);
+
     return sashfold::test::report("icons");
 }

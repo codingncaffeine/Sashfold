@@ -30,6 +30,10 @@ enum class Icon {
     Minimize,
     Maximize,
     Page, // a sheet with a folded corner: a pinned tab whose page has no icon of its own
+    Star, // the page is not bookmarked: a five-pointed outline
+    StarFilled, // it is: the same star, filled with its own strokes
+    Folder, // a folder of bookmarks
+    Chevrons, // two chevrons pointing right: the bookmarks that did not fit on the bar
 };
 
 // The icon `size` device px square, centered in `box`, in `color`.

@@ -394,6 +394,7 @@ void convert_firefox(Conversion& c)
         return text ? text : c.color("bookmark_text");
     }();
     c.set("tab-text", c.color("tab_text").value_or(toolbar_text.value_or(strip_text)));
+    c.set("toolbar-text", toolbar_text.value_or(strip_text));
     // A toolbar the theme does not color veils the header's picture just
     // enough to keep its own words readable.
     Color const toolbar = c.color("toolbar").value_or(dark ? Color::rgba(0, 0, 0, 0x66) : Color::rgba(255, 255, 255, 0x66));
@@ -565,6 +566,9 @@ void convert_chrome(Conversion& c)
         return text.value_or(palette.chrome_text);
     }();
     c.set("tab-text", c.color("tab_text").value_or(toolbar_text));
+    // The bar's titles are that browser's bookmark_text, which the toolbar's
+    // own text stands in for.
+    c.set("toolbar-text", c.color("bookmark_text").value_or(toolbar_text));
     Color const strip_text = c.color("tab_background_text").value_or(lightness_of(frame) < 0.5 ? Color::rgb(0xff, 0xff, 0xff) : Color::rgb(0x3c, 0x40, 0x43));
     c.set("chrome-text", strip_text);
     c.set("chrome-text-muted", strip_text);

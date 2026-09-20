@@ -1,0 +1,12 @@
+# The bookmarks bar is the toolbar's second row, and a theme runs through it.
+# frame-theme.json tiles a 16 by 32 picture over the toolbar from the header's
+# top left, clear but for cyan at (0, 8): a dot every 32 px down the header —
+# at y 40 and 72 in the toolbar, and at 104 in the bar once there is one.
+resize 800 500
+open data:text/html,<title>B</title><body style="margin:0;background:white">b
+assert-pixel 320 72 #00ffff
+assert-pixel 320 104 #ffffff
+bookmark-page
+assert-bookmarks-bar B
+assert-pixel 320 72 #00ffff
+assert-pixel 320 104 #00ffff

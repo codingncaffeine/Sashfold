@@ -21,7 +21,7 @@ assert-pixel 4 4 #ff0000
 assert-pixel 596 20 #ff0000
 assert-pixel 5 4 #203040
 assert-pixel 600 38 #182838
-assert-pixel 716 56 #ffffff
+assert-pixel 682 56 #ffffff
 assert-pixel 50 3 #ff8000
 
 # In a window whose width is no multiple of the weave's, where it is held

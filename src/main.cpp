@@ -1753,6 +1753,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // crash loses a second of it at most.
     std::string saved_session;
     std::uint64_t saved_storage = 0;
+    std::uint64_t saved_bookmarks = 0;
     std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
     bool restored = false;
     if (!profile_path.empty()) {
@@ -1769,6 +1770,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         if (std::optional<std::string> const text = read_text_file(profile_path / "storage.json"))
             browser.restore_storage(*text);
         saved_storage = browser.storage_changes();
+        // The reader's bookmarks. A file that cannot be read as one is left
+        // alone — nothing is written over it until a bookmark changes.
+        if (std::optional<std::string> const text = read_text_file(profile_path / "bookmarks.json")) {
+            if (!browser.restore_bookmarks(*text))
+                std::cerr << "sashfold: bookmarks.json is not a bookmarks file; it is left as it is\n";
+        }
+        saved_bookmarks = browser.bookmarks_changes();
         if (std::optional<std::string> const text = read_text_file(profile_path / "session.json")) {
             restored = browser.restore_session(*text);
             if (restored)
@@ -1811,6 +1819,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             } else {
                 if (write_text_file_atomically(profile_path / "session.json", session))
                     saved_session = std::move(session);
+                last_profile_write = now;
+            }
+        }
+        if (browser.bookmarks_changes() != saved_bookmarks) {
+            if (throttled) {
+                owed = true;
+            } else {
+                if (write_text_file_atomically(profile_path / "bookmarks.json", browser.bookmarks_json()))
+                    saved_bookmarks = browser.bookmarks_changes();
                 last_profile_write = now;
             }
         }

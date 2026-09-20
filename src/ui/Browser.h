@@ -145,6 +145,14 @@ struct ChromeLayout {
     Rect forward_button;
     Rect reload_button;
     Rect reader_button;
+    Rect star_button; // bookmark the page in front, before the reader's button
+    // The bookmarks bar under the toolbar — empty while it is not shown —
+    // with the bookmarks of it that fit, left to right, by their ids, and
+    // the chevrons at its right end when some did not.
+    Rect bookmarks_bar;
+    std::vector<Rect> bookmark_items;
+    std::vector<std::uint64_t> bookmark_ids;
+    Rect bookmarks_overflow;
     Rect menu_button; // the main menu, at the toolbar's right end
     Rect new_tab_button;
     Rect address;
@@ -299,6 +307,23 @@ public:
     // moves to be looked at, a theme's pictures, stops while it cannot.
     void set_window_visible(bool visible);
     bool window_visible() const;
+
+    // --- Bookmarks ----------------------------------------------------------
+    // The reader's bookmarks as the profile keeps them (bookmarks.json), and
+    // a number that moves with every change to them: what the window's loop
+    // saves by. restore_bookmarks is false, nothing changed, for a text that
+    // is not that file.
+    std::string bookmarks_json() const;
+    bool restore_bookmarks(std::string_view json);
+    std::uint64_t bookmarks_changes() const;
+    // Ctrl+D and the star: the page in front goes onto the bar, or, already
+    // bookmarked, has its bookmark taken away.
+    void bookmark_page();
+    // What a bookmarks file of another browser holds, added: how many came.
+    std::size_t import_bookmarks_html(std::string_view html);
+    // The bar as it is shown now: each title in order, a folder's in [ ],
+    // then » when some did not fit; empty while the bar is not shown.
+    std::vector<std::string> bookmarks_bar_titles() const;
 
     // --- Navigation ---------------------------------------------------------
     // Address-bar semantics: a URL, or a bare host that tries https first.

@@ -52,6 +52,7 @@ constexpr Token<Color> color_tokens[] = {
     { "popup-highlight-text", &Theme::popup_highlight_text },
     { "toolbar-background", &Theme::toolbar_background },
     { "toolbar-icon", &Theme::toolbar_icon },
+    { "toolbar-text", &Theme::toolbar_text },
     { "tab-text", &Theme::tab_text },
     { "tab-line", &Theme::tab_line },
     { "address-background-focus", &Theme::address_background_focus },
@@ -83,6 +84,7 @@ constexpr Derived derived_colors[] = {
     { "popup-highlight-text", &Theme::popup_highlight_text, &Theme::chrome_text },
     { "toolbar-background", &Theme::toolbar_background, &Theme::tab_active_background },
     { "toolbar-icon", &Theme::toolbar_icon, &Theme::chrome_text },
+    { "toolbar-text", &Theme::toolbar_text, &Theme::chrome_text },
     { "tab-text", &Theme::tab_text, &Theme::chrome_text },
     { "address-background-focus", &Theme::address_background_focus, &Theme::address_background },
     { "address-text-focus", &Theme::address_text_focus, &Theme::address_text },
@@ -116,6 +118,8 @@ constexpr Token<int> metric_tokens[] = {
     { "tab-corner-radius", &Theme::tab_corner_radius },
     { "tab-gap", &Theme::tab_gap },
     { "toolbar-height", &Theme::toolbar_height },
+    { "bookmarks-bar-height", &Theme::bookmarks_bar_height },
+    { "bookmark-max-width", &Theme::bookmark_max_width },
     { "address-height", &Theme::address_height },
     { "address-corner-radius", &Theme::address_corner_radius },
     { "button-size", &Theme::button_size },
@@ -638,6 +642,7 @@ Theme Theme::scaled(float factor) const
     auto const metric = [factor](int value) { return static_cast<int>(std::lround(static_cast<float>(value) * factor)); };
     for (int Theme::* const member : { &Theme::tab_strip_height, &Theme::tab_height, &Theme::tab_max_width,
              &Theme::tab_min_width, &Theme::tab_corner_radius, &Theme::tab_gap, &Theme::toolbar_height,
+             &Theme::bookmarks_bar_height, &Theme::bookmark_max_width,
              &Theme::address_height, &Theme::address_corner_radius, &Theme::button_size,
              &Theme::button_corner_radius, &Theme::padding, &Theme::status_height, &Theme::find_height,
              &Theme::devtools_height, &Theme::scroll_step, &Theme::tab_icon_size })

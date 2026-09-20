@@ -118,6 +118,9 @@ struct Theme {
     // toolbar and toolbar_button_icon).
     Color toolbar_background = Color::rgb(0x2c, 0x31, 0x3a); // tab-active-background
     Color toolbar_icon = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
+    // The words on the toolbar's own surface — the bookmarks bar's titles:
+    // Firefox's toolbar_text and bookmark_text, Chrome's bookmark_text.
+    Color toolbar_text = Color::rgb(0xe6, 0xe8, 0xec); // chrome-text
     // The title of the tab in front — tab_text; the others' is
     // chrome-text-muted, their tab_background_text — and a line along that
     // tab's top edge, tab_line, which no theme of ours draws: transparent
@@ -167,6 +170,8 @@ struct Theme {
     int tab_corner_radius = 6;
     int tab_gap = 2;
     int toolbar_height = 40;
+    int bookmarks_bar_height = 30; // the bar under the toolbar, while it is shown
+    int bookmark_max_width = 160; // one bookmark on it, its icon and its title
     int address_height = 28;
     int address_corner_radius = 8;
     int button_size = 28;

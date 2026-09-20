@@ -20,6 +20,8 @@
 #include "text/SashfoldMono.h"
 #include "ui/PageImages.h"
 #include "ui/Cosmetic.h"
+#include "ui/Bookmarks.h"
+#include "ui/BookmarksPage.h"
 #include "ui/Downloads.h"
 #include "ui/Icons.h"
 #include "ui/InternalPages.h"
@@ -571,6 +573,7 @@ struct Browser::Impl {
         Forward,
         Reload,
         Reader,
+        Star, // bookmark this page
         NewTab,
         Tab,
         TabClose,
@@ -588,6 +591,9 @@ struct Browser::Impl {
         MenuButton, // the main menu's button in the toolbar
         Menu, // an open menu's box, off its rows
         MenuRow, // an item that can be chosen: hover_level says which menu, hover_index which item
+        Bookmark, // one on the bar: hover_index says which of those shown
+        BookmarksOverflow, // the chevrons at the bar's right end
+        BookmarksBar, // the bar, off its bookmarks
     };
 
     Loader& loader;
@@ -734,6 +740,16 @@ struct Browser::Impl {
     bool header_dirty = false;
     // Whether any of the window can be seen (Browser::set_window_visible).
     bool window_visible = true;
+    // The reader's bookmarks, what the page about them says at its top the
+    // next time it is drawn, and what is kept of them between layouts: how
+    // wide each of the bar's is, and their icons decoded.
+    Bookmarks bookmarks;
+    std::string bookmarks_notice;
+    mutable std::vector<int> bookmark_widths_kept;
+    mutable std::uint64_t bookmark_widths_at = ~std::uint64_t { 0 };
+    mutable float bookmark_widths_scale = 0;
+    mutable std::unordered_map<std::uint64_t, std::shared_ptr<Bitmap const>> bookmark_icons;
+    mutable std::uint64_t bookmark_icons_at = ~std::uint64_t { 0 };
     std::string palette_query;
     std::size_t palette_caret = 0; // bytes into palette_query
     bool palette_select_all = false;
@@ -1253,6 +1269,11 @@ struct Browser::Impl {
         c.tab_strip = Rect { 0, 0, width, t.tab_strip_height };
         c.toolbar = Rect { 0, t.tab_strip_height, width, t.toolbar_height };
         int content_top = t.tab_strip_height + t.toolbar_height;
+        if (bookmarks_bar_shown()) {
+            // The bar is the toolbar's second row, and takes its height from the content.
+            c.bookmarks_bar = Rect { 0, content_top, width, t.bookmarks_bar_height };
+            content_top += t.bookmarks_bar_height;
+        }
         if (find_open) {
             // The find bar sits under the toolbar and takes its height from the content.
             c.find_bar = Rect { 0, content_top, width, t.find_height };
@@ -1357,8 +1378,31 @@ struct Browser::Impl {
             t.button_size, t.button_size };
         c.reader_button = Rect { std::max(address_x, c.menu_button.x - step), button_y,
             t.button_size, t.button_size };
+        c.star_button = Rect { std::max(address_x, c.reader_button.x - step), button_y, t.button_size, t.button_size };
         c.address = Rect { address_x, c.toolbar.y + (t.toolbar_height - t.address_height) / 2,
-            std::max(0, c.reader_button.x - 2 * t.padding - address_x), t.address_height };
+            std::max(0, c.star_button.x - 2 * t.padding - address_x), t.address_height };
+
+        // The bar's bookmarks, left to right while they fit. Every one but
+        // the last leaves room for the chevrons, which stand at the bar's
+        // right end when any did not fit and open the rest as a menu.
+        if (!c.bookmarks_bar.is_empty()) {
+            std::vector<int> const& widths = bookmark_widths();
+            std::vector<BookmarkNode> const& on_bar = bookmarks.bar().children;
+            int const item_height = std::max(1, t.bookmarks_bar_height - t.padding);
+            int const item_y = c.bookmarks_bar.y + (t.bookmarks_bar_height - item_height) / 2;
+            int bar_x = t.padding;
+            for (std::size_t i = 0; i < on_bar.size() && i < widths.size(); ++i) {
+                bool const last = i + 1 == on_bar.size();
+                int const limit = width - t.padding - (last ? 0 : t.button_size + t.padding);
+                if (bar_x + widths[i] > limit)
+                    break;
+                c.bookmark_items.push_back(Rect { bar_x, item_y, widths[i], item_height });
+                c.bookmark_ids.push_back(on_bar[i].id);
+                bar_x += widths[i] + t.padding / 2;
+            }
+            if (c.bookmark_items.size() < on_bar.size())
+                c.bookmarks_overflow = Rect { width - t.padding - t.button_size, item_y, t.button_size, item_height };
+        }
 
         // The open menus, over everything: each submenu placed by the menu
         // it opened from.
@@ -2537,6 +2581,14 @@ struct Browser::Impl {
                 }
             }
         }
+        // A bookmarked page's icon is kept with its bookmark: the bar shows it
+        // when the page is not open.
+        if (tab.favicon) {
+            if (BookmarkNode const* const marked = bookmarks.find_url(entry->final_url.serialize()); marked && marked->icon.empty()) {
+                std::vector<std::uint8_t> const png = encode_png(*tab.favicon);
+                bookmarks.set_icon(marked->id, std::string(png.begin(), png.end()));
+            }
+        }
         relayout(tab);
         tab.page_mutations = tab.realm ? tab.realm->tree_mutation_count() : 0;
     }
@@ -2955,6 +3007,10 @@ struct Browser::Impl {
             entry.status = 200;
         } else if (is_about_newtab(load.url)) {
             set_document(entry, new_tab_document());
+            entry.internal = true;
+            entry.status = 200;
+        } else if (load.url.scheme == "about" && load.url.serialize_path() == "bookmarks") {
+            set_document(entry, bookmarks_document(load.url, entry));
             entry.internal = true;
             entry.status = 200;
         } else if (load.url.scheme == "about" && load.url.serialize_path() == "themes") {
@@ -3450,6 +3506,306 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // --- Bookmarks ----------------------------------------------------------------
+
+    // Whether the bar is shown: when it holds something, and the reader's
+    // setting for it says so — always, never, or on the new-tab page alone.
+    bool bookmarks_bar_shown() const
+    {
+        if (bookmarks.bar().children.empty())
+            return false;
+        switch (bookmarks.bar_mode()) {
+        case BookmarksBarMode::Always: return true;
+        case BookmarksBarMode::Never: return false;
+        case BookmarksBarMode::NewTab: {
+            Tab const* const tab = active_tab();
+            return tab && tab->current() && is_about_newtab(tab->current()->url);
+        }
+        }
+        return false;
+    }
+
+    // What a bookmark is called on the bar and in a menu.
+    static std::string bookmark_label(BookmarkNode const& node)
+    {
+        return !node.title.empty() ? node.title : node.folder ? std::string("(no name)") : node.url;
+    }
+
+    // How wide each of the bar's bookmarks is — its icon, its title up to
+    // the widest a bookmark may be, the room about them — measured when the
+    // bookmarks, the scale or the theme change, not at every layout.
+    std::vector<int> const& bookmark_widths() const
+    {
+        if (bookmark_widths_at != bookmarks.changes() || bookmark_widths_scale != scale) {
+            Theme const& t = theme;
+            bookmark_widths_kept.clear();
+            for (BookmarkNode const& node : bookmarks.bar().children) {
+                int const words = static_cast<int>(text_width(decode_utf8(bookmark_label(node)), t.font_size) + 0.999f);
+                int const wanted = t.padding + t.tab_icon_size + t.padding + words + t.padding;
+                bookmark_widths_kept.push_back(std::clamp(wanted, 2 * t.padding + t.tab_icon_size, std::max(2 * t.padding + t.tab_icon_size, t.bookmark_max_width)));
+            }
+            bookmark_widths_at = bookmarks.changes();
+            bookmark_widths_scale = scale;
+        }
+        return bookmark_widths_kept;
+    }
+
+    // A bookmark's icon, decoded once for as long as the bookmarks stand.
+    std::shared_ptr<Bitmap const> bookmark_icon(BookmarkNode const& node) const
+    {
+        if (bookmark_icons_at != bookmarks.changes()) {
+            bookmark_icons.clear();
+            bookmark_icons_at = bookmarks.changes();
+        }
+        if (node.icon.empty())
+            return nullptr;
+        auto const found = bookmark_icons.find(node.id);
+        if (found != bookmark_icons.end())
+            return found->second;
+        std::shared_ptr<Bitmap const> icon;
+        if (node.icon.size() <= max_icon_bytes) {
+            std::vector<std::uint8_t> const bytes(node.icon.begin(), node.icon.end());
+            if (std::optional<Bitmap> decoded = decode_image_bytes(bytes, theme.tab_icon_size))
+                icon = std::make_shared<Bitmap const>(std::move(*decoded));
+        }
+        bookmark_icons.emplace(node.id, icon);
+        return icon;
+    }
+
+    // The page in front, when it is one a bookmark can stand for: not the
+    // page the shell draws for an address that failed.
+    HistoryEntry const* bookmarkable_entry() const
+    {
+        Tab const* const tab = active_tab();
+        HistoryEntry const* const entry = tab ? tab->current() : nullptr;
+        return entry && entry->error.empty() ? entry : nullptr;
+    }
+    bool can_bookmark_page() const { return bookmarkable_entry() != nullptr; }
+    bool page_bookmarked() const
+    {
+        HistoryEntry const* const entry = bookmarkable_entry();
+        return entry && bookmarks.find_url(entry->final_url.serialize()) != nullptr;
+    }
+
+    // Ctrl+D and the star: onto the bar, as both of those browsers put a new
+    // bookmark, under the page's title and with its icon; a page already
+    // bookmarked has the bookmark taken away.
+    void bookmark_page()
+    {
+        Tab* const tab = active_tab();
+        HistoryEntry const* const entry = bookmarkable_entry();
+        if (!tab || !entry)
+            return;
+        std::string const where = entry->final_url.serialize();
+        if (BookmarkNode const* const marked = bookmarks.find_url(where)) {
+            bookmarks.remove(marked->id);
+            tab->status = "Bookmark removed";
+        } else {
+            auto const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            std::uint64_t const made = bookmarks.add_bookmark(Bookmarks::bar_id, tab_title(*tab), where, static_cast<std::int64_t>(now));
+            if (made != 0 && tab->favicon) {
+                std::vector<std::uint8_t> const png = encode_png(*tab->favicon);
+                bookmarks.set_icon(made, std::string(png.begin(), png.end()));
+            }
+            tab->status = "Bookmarked: it is on the bookmarks bar";
+        }
+        refresh_hover();
+        dirty = true;
+    }
+
+    // Ctrl+Shift+B: shown, or not at all. (On the new-tab page alone is the
+    // page's own choice, under Manage bookmarks.)
+    void toggle_bookmarks_bar()
+    {
+        bookmarks.set_bar_mode(bookmarks.bar_mode() == BookmarksBarMode::Never ? BookmarksBarMode::Always : BookmarksBarMode::Never);
+        if (Tab* const tab = active_tab()) {
+            tab->status = bookmarks.bar_mode() == BookmarksBarMode::Never ? "The bookmarks bar is hidden"
+                : bookmarks.bar().children.empty()                         ? "The bookmarks bar is shown once it holds a bookmark (Ctrl+D)"
+                                                                           : "The bookmarks bar is shown";
+        }
+        refresh_hover();
+        dirty = true;
+    }
+
+    void open_bookmark(std::uint64_t id, bool in_a_tab_of_its_own)
+    {
+        BookmarkNode const* const node = bookmarks.find(id);
+        std::optional<net::Url> const url = node && !node->folder ? net::parse_url(node->url) : std::nullopt;
+        if (!url)
+            return;
+        if (in_a_tab_of_its_own)
+            open_in_new_tab(*url);
+        else
+            open(*url);
+    }
+
+    // A folder's bookmarks as a menu's rows, its folders as submenus. What a
+    // row does is settled by the bookmark's id, not by a pointer into the
+    // tree, which may have changed by the choosing.
+    std::vector<MenuItem> bookmark_menu_items(std::vector<BookmarkNode> const& nodes, std::size_t from)
+    {
+        std::vector<MenuItem> items;
+        for (std::size_t i = from; i < nodes.size(); ++i) {
+            BookmarkNode const& node = nodes[i];
+            std::string label = bookmark_label(node);
+            if (label.size() > 60)
+                label = label.substr(0, 57) + "...";
+            if (node.folder) {
+                MenuItem folder = menu_item(std::move(label), {}, {});
+                folder.children = bookmark_menu_items(node.children, 0);
+                if (folder.children.empty())
+                    folder.children.push_back(menu_item("Empty", {}, {}, false));
+                items.push_back(std::move(folder));
+            } else {
+                items.push_back(menu_item(std::move(label), {}, [this, id = node.id] { open_bookmark(id, false); }));
+            }
+        }
+        return items;
+    }
+
+    // A press on the bar: a bookmark opens — in a tab of its own for the
+    // middle button or with Ctrl — a folder drops its menu under itself, and
+    // the chevrons drop the bookmarks that did not fit.
+    void press_bookmark_under(Hover what, std::size_t index, int button)
+    {
+        ChromeLayout const c = layout_chrome();
+        if (what == Hover::BookmarksOverflow) {
+            if (c.bookmarks_overflow.is_empty())
+                return;
+            open_menu(bookmark_menu_items(bookmarks.bar().children, c.bookmark_items.size()), c.bookmarks_overflow.right(),
+                c.bookmarks_overflow.bottom(), true);
+            return;
+        }
+        if (index >= c.bookmark_ids.size())
+            return;
+        BookmarkNode const* const node = bookmarks.find(c.bookmark_ids[index]);
+        if (!node)
+            return;
+        if (node->folder) {
+            std::vector<MenuItem> items = bookmark_menu_items(node->children, 0);
+            if (items.empty())
+                items.push_back(menu_item("Empty", {}, {}, false));
+            open_menu(std::move(items), c.bookmark_items[index].x, c.bookmark_items[index].bottom());
+            return;
+        }
+        open_bookmark(node->id, button == 2);
+    }
+
+    // The menu of one bookmark on the bar.
+    void open_bookmark_menu(std::size_t index, int x, int y)
+    {
+        ChromeLayout const c = layout_chrome();
+        if (index >= c.bookmark_ids.size())
+            return;
+        std::uint64_t const id = c.bookmark_ids[index];
+        BookmarkNode const* const node = bookmarks.find(id);
+        if (!node)
+            return;
+        std::vector<MenuItem> items;
+        if (!node->folder) {
+            items.push_back(menu_item("Open", {}, [this, id] { open_bookmark(id, false); }));
+            items.push_back(menu_item("Open in new tab", {}, [this, id] { open_bookmark(id, true); }));
+            items.push_back({});
+        }
+        items.push_back(menu_item("Edit\xe2\x80\xa6", {}, [this, id] { open_bookmarks_page(id); }));
+        items.push_back(menu_item("Remove", {}, [this, id] {
+            bookmarks.remove(id);
+            refresh_hover();
+            dirty = true;
+        }));
+        items.push_back({});
+        items.push_back(menu_item("Manage bookmarks", "Ctrl+Shift+O", [this] { open_bookmarks_page(); }));
+        open_menu(std::move(items), x + 1, y + 1);
+    }
+
+    // The menu of the bar itself, and of the star.
+    void open_bookmarks_bar_menu(int x, int y)
+    {
+        std::vector<MenuItem> items;
+        items.push_back(menu_item(page_bookmarked() ? "Remove this page's bookmark" : "Bookmark this page", "Ctrl+D",
+            [this] { bookmark_page(); }, can_bookmark_page()));
+        items.push_back({});
+        auto const mode = [&](char const* label, BookmarksBarMode which) {
+            MenuItem item = menu_item(label, {}, [this, which] {
+                bookmarks.set_bar_mode(which);
+                refresh_hover();
+                dirty = true;
+            });
+            item.checked = bookmarks.bar_mode() == which;
+            return item;
+        };
+        items.push_back(mode("Always show the bar", BookmarksBarMode::Always));
+        items.push_back(mode("Show it on the new-tab page only", BookmarksBarMode::NewTab));
+        items.push_back(mode("Never show it", BookmarksBarMode::Never));
+        items.push_back({});
+        items.push_back(menu_item("Manage bookmarks", "Ctrl+Shift+O", [this] { open_bookmarks_page(); }));
+        open_menu(std::move(items), x + 1, y + 1);
+    }
+
+    // about:bookmarks, in the tab that already shows it when one does; with
+    // an id, the form for that bookmark.
+    void open_bookmarks_page(std::optional<std::uint64_t> editing = std::nullopt)
+    {
+        std::optional<net::Url> const page
+            = net::parse_url(editing ? "about:bookmarks?edit=" + std::to_string(*editing) : std::string("about:bookmarks"));
+        if (!page)
+            return;
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            HistoryEntry const* const entry = tabs[i].current();
+            if (entry && entry->url.scheme == "about" && entry->url.serialize_path() == "bookmarks") {
+                select_tab(i);
+                queue(i, *page, Mode::Replace);
+                return;
+            }
+        }
+        Tab const* const from = active_tab();
+        open_tab_beside(from ? from->container : std::string(), *page, active, true);
+    }
+
+    // The page about them (ui/BookmarksPage.h): what its address asks is done
+    // to the tree — and, for the bookmarks file of another browser, read from
+    // or written to this machine — and the page is drawn as the tree then
+    // stands. An address that did something is not one to come back to: the
+    // entry keeps the plain one.
+    std::string bookmarks_document(net::Url const& url, HistoryEntry& entry)
+    {
+        BookmarksRequest const request = bookmarks_request_of(url.query);
+        std::string notice = std::move(bookmarks_notice);
+        bookmarks_notice.clear();
+        if (std::string said = apply_bookmarks_request(request, bookmarks); !said.empty())
+            notice = std::move(said);
+        if (request.import_path) {
+            std::error_code error;
+            std::uintmax_t const size = std::filesystem::file_size(*request.import_path, error);
+            std::ifstream file(*request.import_path, std::ios::binary);
+            if (request.import_path->empty() || error || !file) {
+                notice = "That file cannot be read: " + *request.import_path;
+            } else if (size > 64u * 1024u * 1024u) {
+                notice = "That file is larger than a bookmarks file is.";
+            } else {
+                std::string const html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                std::size_t const came = bookmarks.import_netscape_html(html);
+                notice = came == 0 ? "No bookmarks were found in that file." : "Brought in " + std::to_string(came) + " bookmarks.";
+            }
+        }
+        if (request.export_file) {
+            std::string const html = bookmarks.to_netscape_html();
+            DownloadResult const saved = save_download(downloads_directory, "bookmarks.html",
+                std::vector<std::uint8_t>(html.begin(), html.end()), url, "");
+            notice = saved.error.empty() ? "Written out as " + saved.file_name + " in " + downloads_directory
+                                         : "The bookmarks file could not be written: " + saved.error;
+        }
+        if (request.acts()) {
+            if (std::optional<net::Url> const plain = net::parse_url("about:bookmarks")) {
+                entry.url = *plain;
+                entry.final_url = *plain;
+            }
+        }
+        refresh_hover();
+        dirty = true;
+        return bookmarks_page(bookmarks, notice, request.edit);
+    }
+
     // What a tab's document resolves its relative URLs against (HTML §2.4.3):
     // the entry's own URL, or the href of the document's base element.
     static net::Url base_of(Tab const& tab, HistoryEntry const& entry)
@@ -3680,6 +4036,19 @@ struct Browser::Impl {
                 next = Hover::Reload;
             else if (c.reader_button.contains(x, y))
                 next = Hover::Reader;
+            else if (c.star_button.contains(x, y))
+                next = Hover::Star;
+            else if (!c.bookmarks_bar.is_empty() && c.bookmarks_bar.contains(x, y)) {
+                next = Hover::BookmarksBar;
+                if (c.bookmarks_overflow.contains(x, y))
+                    next = Hover::BookmarksOverflow;
+                for (std::size_t i = 0; i < c.bookmark_items.size(); ++i) {
+                    if (c.bookmark_items[i].contains(x, y)) {
+                        next = Hover::Bookmark;
+                        index = i;
+                    }
+                }
+            }
             else if (c.menu_button.contains(x, y))
                 next = Hover::MenuButton;
             else if (c.address.contains(x, y))
@@ -3783,6 +4152,9 @@ struct Browser::Impl {
         commands.push_back({ "Forward", [this] { go(+1); } });
         commands.push_back({ "Find in page", [this] { open_find(); } });
         commands.push_back({ "More themes\xe2\x80\xa6", [this] { open_themes_page(); } });
+        commands.push_back({ page_bookmarked() ? "Remove this page's bookmark" : "Bookmark this page", [this] { bookmark_page(); } });
+        commands.push_back({ "Show or hide the bookmarks bar", [this] { toggle_bookmarks_bar(); } });
+        commands.push_back({ "Manage bookmarks", [this] { open_bookmarks_page(); } });
         commands.push_back({ "Reader mode", [this] { toggle_reader(); } });
         commands.push_back({ "Developer tools", [this] { toggle_devtools(); } });
         commands.push_back({ "View source", [this] { view_source(); } });
@@ -3954,6 +4326,7 @@ struct Browser::Impl {
     {
         // The face its words are set in goes on with the rest of the theme.
         set_chrome_font_family(base_theme.font_family);
+        bookmark_widths_at = ~std::uint64_t { 0 }; // another face, other widths
         theme_problems.clear();
         auto const load = [&](std::vector<ThemePicture> const& named, ThemeLayers& into, char const* surface) {
             into = ThemeLayers {};
@@ -4829,6 +5202,26 @@ struct Browser::Impl {
         if (Tab const* const tab = active_tab(); tab && tab->current())
             reader.checked = tab->current()->url.scheme == "reader";
         items.push_back(std::move(reader));
+        {
+            MenuItem marks = menu_item("Bookmarks", {}, {});
+            marks.children.push_back(menu_item(page_bookmarked() ? "Remove this page's bookmark" : "Bookmark this page", "Ctrl+D",
+                [this] { bookmark_page(); }, can_bookmark_page()));
+            MenuItem shown = menu_item("Show the bookmarks bar", "Ctrl+Shift+B", [this] { toggle_bookmarks_bar(); });
+            shown.checked = bookmarks.bar_mode() != BookmarksBarMode::Never;
+            marks.children.push_back(std::move(shown));
+            marks.children.push_back(menu_item("Manage bookmarks", "Ctrl+Shift+O", [this] { open_bookmarks_page(); }));
+            if (!bookmarks.bar().children.empty()) {
+                marks.children.push_back({});
+                for (MenuItem& item : bookmark_menu_items(bookmarks.bar().children, 0))
+                    marks.children.push_back(std::move(item));
+            }
+            if (!bookmarks.other().children.empty()) {
+                marks.children.push_back({});
+                for (MenuItem& item : bookmark_menu_items(bookmarks.other().children, 0))
+                    marks.children.push_back(std::move(item));
+            }
+            items.push_back(std::move(marks));
+        }
         items.push_back({});
         if (!theme_presets.empty()) {
             MenuItem themes = menu_item("Themes", {}, {});
@@ -4885,6 +5278,10 @@ struct Browser::Impl {
         case Hover::Tab:
         case Hover::TabClose: open_tab_menu(hover_index, x, y); break;
         case Hover::Address: open_address_menu(x, y); break;
+        case Hover::Bookmark: open_bookmark_menu(hover_index, x, y); break;
+        case Hover::Star:
+        case Hover::BookmarksOverflow:
+        case Hover::BookmarksBar: open_bookmarks_bar_menu(x, y); break;
         case Hover::Content: open_content_menu(x, y, regardless); break;
         default: break;
         }
@@ -6232,6 +6629,17 @@ struct Browser::Impl {
             case Hover::Forward: go(+1); break;
             case Hover::Reload: reload(); break;
             case Hover::Reader: toggle_reader(); break;
+            case Hover::Star: bookmark_page(); break;
+            case Hover::Bookmark:
+            case Hover::BookmarksOverflow:
+                press_bookmark_under(hover, hover_index, modifiers.ctrl ? 2 : 1);
+                if (!menus.empty()) {
+                    menu_press_button = button;
+                    menu_press_x = x;
+                    menu_press_y = y;
+                }
+                break;
+            case Hover::BookmarksBar: break;
             case Hover::MenuButton:
                 open_main_menu();
                 if (!menus.empty()) {
@@ -6343,8 +6751,11 @@ struct Browser::Impl {
                     open_in_front(url);
                 else
                     open_in_new_tab(url);
-            } else if (hover == Hover::Tab || hover == Hover::TabClose)
+            } else if (hover == Hover::Tab || hover == Hover::TabClose) {
                 close_tab(hover_index);
+            } else if (hover == Hover::Bookmark) {
+                press_bookmark_under(hover, hover_index, 2); // a tab of its own, as a link's is
+            }
         }
         dirty = true;
     }
@@ -6573,6 +6984,15 @@ struct Browser::Impl {
                     new_tab();
                 return;
             case U'U': view_source(); return;
+            case U'D': bookmark_page(); return;
+            case U'B':
+                if (key.shift)
+                    toggle_bookmarks_bar();
+                return;
+            case U'O':
+                if (key.shift)
+                    open_bookmarks_page();
+                return;
             case U'X':
                 if (address_focus)
                     cut_address();
@@ -6940,7 +7360,9 @@ struct Browser::Impl {
         // its color, another when the window is not the one in front, and
         // over it the theme's pictures. Everything after composites, so
         // whatever a theme makes translucent lets the frame through.
-        Rect const header { 0, 0, width, c.toolbar.bottom() };
+        // It runs down through the bookmarks bar while that is shown: the bar
+        // is the toolbar's second row, and a theme flows into it.
+        Rect const header { 0, 0, width, c.bookmarks_bar.is_empty() ? c.toolbar.bottom() : c.bookmarks_bar.bottom() };
         frame.fill_rect(header, window_active ? t.chrome_background : t.chrome_background_inactive);
         paint_pictures(frame_pictures, header, { header });
 
@@ -7051,10 +7473,13 @@ struct Browser::Impl {
             button(c.close_button, Hover::WindowClose, Icon::Close);
         }
 
-        // Toolbar.
-        frame.fill_rect(c.toolbar, t.toolbar_background);
-        paint_pictures(toolbar_pictures, header, { c.toolbar });
-        frame.fill_rect(Rect { 0, c.toolbar.bottom() - t.border_width, width, t.border_width },
+        // Toolbar — and under it the bookmarks bar, which is of a piece with
+        // it: its color, its pictures, and the line along its foot moved down
+        // to the bar's.
+        Rect const toolbar_rows { c.toolbar.x, c.toolbar.y, c.toolbar.width, header.bottom() - c.toolbar.y };
+        frame.fill_rect(toolbar_rows, t.toolbar_background);
+        paint_pictures(toolbar_pictures, header, { toolbar_rows });
+        frame.fill_rect(Rect { 0, toolbar_rows.bottom() - t.border_width, width, t.border_width },
             t.chrome_border);
         // The line a theme may draw along the toolbar's top, broken where
         // the tab in front runs into the toolbar — which a floating tab
@@ -7071,6 +7496,38 @@ struct Browser::Impl {
         paint_button(c.reload_button, Icon::Reload, tab && tab->current() != nullptr,
             hover == Hover::Reload, pressed == Hover::Reload);
         paint_button(c.reader_button, Icon::Reader, reader_available(), hover == Hover::Reader, pressed == Hover::Reader);
+        paint_button(c.star_button, page_bookmarked() ? Icon::StarFilled : Icon::Star, can_bookmark_page(), hover == Hover::Star,
+            pressed == Hover::Star);
+
+        // The bookmarks bar: each bookmark its icon — the page's own, a
+        // folder's, or a blank sheet — and its title in the toolbar's text
+        // color, the one under the pointer lit as a toolbar button is; the
+        // chevrons at the right end when some did not fit.
+        for (std::size_t i = 0; i < c.bookmark_items.size(); ++i) {
+            BookmarkNode const* const node = bookmarks.find(c.bookmark_ids[i]);
+            if (!node)
+                continue;
+            Rect const& item = c.bookmark_items[i];
+            if (hover == Hover::Bookmark && hover_index == i)
+                frame.fill_round_rect(item, t.button_corner_radius,
+                    pressed == Hover::Bookmark ? t.button_active_background : t.button_hover_background);
+            Rect const icon { item.x + t.padding, item.y + (item.height - t.tab_icon_size) / 2, t.tab_icon_size, t.tab_icon_size };
+            if (std::shared_ptr<Bitmap const> const picture = node->folder ? nullptr : bookmark_icon(*node))
+                frame.draw_scaled(*picture, icon);
+            else
+                draw_icon(frame, node->folder ? Icon::Folder : Icon::Page, icon, t.tab_icon_size, t.toolbar_text);
+            float const text_x = static_cast<float>(icon.right() + t.padding);
+            float const room = static_cast<float>(item.right() - t.padding) - text_x;
+            if (room > 0) {
+                draw_text(frame, ellipsize(decode_utf8(bookmark_label(*node)), room, t.font_size), text_x,
+                    centered_baseline(item, t.font_size), t.font_size, t.toolbar_text);
+            }
+        }
+        if (!c.bookmarks_overflow.is_empty()) {
+            if (hover == Hover::BookmarksOverflow)
+                frame.fill_round_rect(c.bookmarks_overflow, t.button_corner_radius, t.button_hover_background);
+            draw_icon(frame, Icon::Chevrons, c.bookmarks_overflow, icon_size(), t.toolbar_text);
+        }
         paint_button(c.menu_button, Icon::Menu, true, hover == Hover::MenuButton || main_menu_open);
 
         // Address bar.
@@ -7627,6 +8084,44 @@ void Browser::set_window_visible(bool visible)
 }
 
 bool Browser::window_visible() const { return m_impl->window_visible; }
+
+std::string Browser::bookmarks_json() const { return m_impl->bookmarks.to_json(); }
+std::uint64_t Browser::bookmarks_changes() const { return m_impl->bookmarks.changes(); }
+
+bool Browser::restore_bookmarks(std::string_view json)
+{
+    std::optional<Bookmarks> read = Bookmarks::from_json(json);
+    if (!read)
+        return false;
+    m_impl->bookmarks = std::move(*read);
+    m_impl->refresh_hover();
+    m_impl->dirty = true;
+    return true;
+}
+
+void Browser::bookmark_page() { m_impl->bookmark_page(); }
+
+std::size_t Browser::import_bookmarks_html(std::string_view html)
+{
+    std::size_t const came = m_impl->bookmarks.import_netscape_html(html);
+    m_impl->refresh_hover();
+    m_impl->dirty = true;
+    return came;
+}
+
+std::vector<std::string> Browser::bookmarks_bar_titles() const
+{
+    ChromeLayout const c = m_impl->layout_chrome();
+    std::vector<std::string> titles;
+    for (std::uint64_t const id : c.bookmark_ids) {
+        if (BookmarkNode const* const node = m_impl->bookmarks.find(id))
+            titles.push_back(node->folder ? "[" + Impl::bookmark_label(*node) + "]" : Impl::bookmark_label(*node));
+    }
+    if (!c.bookmarks_overflow.is_empty())
+        titles.push_back("\xc2\xbb");
+    return titles;
+}
+
 
 void Browser::navigate(std::string const& typed) { m_impl->navigate(typed); }
 void Browser::open(net::Url const& url) { m_impl->open(url); }

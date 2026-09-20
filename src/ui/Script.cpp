@@ -357,6 +357,38 @@ struct Runner {
             if (argument != "on" && argument != "off")
                 return fail("window-controls: on or off");
             browser.set_window_controls(argument == "on");
+        } else if (command == "bookmark-page") {
+            // `bookmark-page`: Ctrl+D — the page in front onto the bar, or its
+            // bookmark taken away.
+            browser.bookmark_page();
+        } else if (command == "assert-bookmarks-bar") {
+            // `assert-bookmarks-bar A | [Folder] | »`: the bar as it is shown,
+            // left to right; nothing after the verb when it is not shown.
+            std::string shown;
+            for (std::string const& title : browser.bookmarks_bar_titles())
+                shown += (shown.empty() ? "" : " | ") + title;
+            expect_equal("assert-bookmarks-bar", shown, argument);
+        } else if (command == "press-bookmark" || command == "middle-press-bookmark" || command == "right-press-bookmark") {
+            // `press-bookmark <n>`: a press on the bar's nth bookmark, from 1;
+            // one past the last shown is the chevrons.
+            auto const n = int_arg(0);
+            if (!n || *n < 1)
+                return fail(command + ": needs the bookmark's place on the bar, from 1");
+            ChromeLayout const chrome = browser.chrome_layout();
+            std::size_t const index = static_cast<std::size_t>(*n - 1);
+            bool const chevrons = index == chrome.bookmark_items.size() && !chrome.bookmarks_overflow.is_empty();
+            if (index >= chrome.bookmark_items.size() && !chevrons)
+                return fail(command + ": the bar shows no such bookmark");
+            Rect const& at = chevrons ? chrome.bookmarks_overflow : chrome.bookmark_items[index];
+            click(at.x + at.width / 2, at.y + at.height / 2, command == "press-bookmark" ? 1 : command == "middle-press-bookmark" ? 2 : 3);
+        } else if (command == "import-bookmarks") {
+            // `import-bookmarks <file>`: a bookmarks file of another browser,
+            // named relative to the script.
+            std::ifstream file(resolve(argument), std::ios::binary);
+            if (!file)
+                return fail("import-bookmarks: cannot read " + argument);
+            std::string const html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            browser.import_bookmarks_html(html);
         } else if (command == "window-visible") {
             // `window-visible on|off`: whether any of the window can be seen,
             // as a compositor says of one that is minimized or covered.

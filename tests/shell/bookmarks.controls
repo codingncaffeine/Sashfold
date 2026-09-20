@@ -1,0 +1,51 @@
+# Planted-fault controls for tests/shell/bookmarks.script: the bar and its chevrons, the star, what a press on a bookmark does, the bar as part of the toolbar, the page about them, and another browser's bookmarks file.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/bookmarks.script
+
+# The chevrons never stand at the bar's end: what did not fit cannot be reached.
+control chevrons
+file src/ui/Browser.cpp
+fails 40 45 46 47 48
+plant s~            if \(c\.bookmark_items\.size\(\) < on_bar\.size\(\)\)\n~            if (c.bookmark_items.size() < on_bar.size() \&\& on_bar.size() > 9000)\n~
+
+# The chevrons' menu lists the whole bar, not what did not fit.
+control overflowmenu
+file src/ui/Browser.cpp
+fails 46 48
+plant s~open_menu\(bookmark_menu_items\(bookmarks\.bar\(\)\.children, c\.bookmark_items\.size\(\)\), c\.bookmarks_overflow\.right\(\),~open_menu(bookmark_menu_items(bookmarks.bar().children, 0), c.bookmarks_overflow.right(),~
+
+# The middle button opens a bookmark in the tab in front.
+control middle
+file src/ui/Browser.cpp
+fails 57 58 63 69 71
+plant s~        open_bookmark\(node->id, button == 2\);\n~        open_bookmark(node->id, button == 9000);\n~
+
+# The star is an outline whether the page is bookmarked or not.
+control star
+file src/ui/Browser.cpp
+fails 23 28
+plant s~paint_button\(c\.star_button, page_bookmarked\(\) \? Icon::StarFilled : Icon::Star,~paint_button(c.star_button, page_bookmarked() ? Icon::Star : Icon::Star,~
+
+# The header stops at the toolbar: the bar under it is not painted as the toolbar's second row.
+control bartheme
+file src/ui/Browser.cpp
+fails 21
+plant s~Rect const header \{ 0, 0, width, c\.bookmarks_bar\.is_empty\(\) \? c\.toolbar\.bottom\(\) : c\.bookmarks_bar\.bottom\(\) \};~Rect const header { 0, 0, width, c.bookmarks_bar.is_empty() ? c.toolbar.bottom() : c.toolbar.bottom() };~
+
+# The page about them keeps the address that did something.
+control plainaddress
+file src/ui/Browser.cpp
+fails 86 93
+plant s~        if \(request\.acts\(\)\) \{\n            if \(std::optional<net::Url> const plain~        if (request.acts() \&\& request.edit) {\n            if (std::optional<net::Url> const plain~
+
+# Remove, in a bookmark's own menu, removes nothing; what follows counts from the wrong bookmark.
+control removemenu
+file src/ui/Browser.cpp
+fails 77 87 88 95 97 103
+plant s~        items\.push_back\(menu_item\("Remove", \{\}, \[this, id\] \{\n            bookmarks\.remove\(id\);\n~        items.push_back(menu_item("Remove", {}, [this, id] {\n            (void)id;\n~
+
+# A tag of another browser's file ends at the first >, inside a quoted address or not.
+control quoted
+file src/ui/Bookmarks.cpp
+fails 103 105
+plant s~            \} else if \(c == '"' \|\| c == '\\''\) \{\n                quote = c;\n~            } else if (c == '"' || c == '\\'') {\n                quote = 0;\n~

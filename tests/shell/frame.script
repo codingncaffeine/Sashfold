@@ -65,7 +65,7 @@ assert-pixel 400 8 #203040
 
 # A translucent field lets the toolbar through — inside, never its border's
 # color — beside its text, and where the text is drawn.
-assert-pixel 716 56 #525e6a
+assert-pixel 682 56 #525e6a
 assert-pixel 600 56 #525e6a
 assert-pixel 114 56 #ff8000
 

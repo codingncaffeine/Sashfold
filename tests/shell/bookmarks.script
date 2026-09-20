@@ -1,0 +1,105 @@
+# Bookmarks and their bar. The window is 800 wide; every title here is long
+# enough that its bookmark is as wide as one may be, 160 px, so the places are
+# certain: a bookmark every 163 px from x = 6, four of them fit, and a fifth
+# does not — the chevrons stand at the bar's right end for it.
+resize 800 600
+
+# --- No bookmarks: no bar ---
+# The page begins 76 px down; the star, in the toolbar before the reader's
+# button (its middle at 711, 56), is an outline — the toolbar shows through.
+open data:text/html,<title>Alpha page with a long title</title><body style="margin:0;background:lime">alpha
+assert-bookmarks-bar
+assert-pixel 400 80 #00ff00
+assert-pixel 711 56 #2c313a
+
+# --- The star and Ctrl+D ---
+# The page goes onto the bar under its title; the bar takes 30 px from the
+# page, in the toolbar's color; the star is filled.
+bookmark-page
+assert-bookmarks-bar Alpha page with a long title
+assert-status Bookmarked
+assert-pixel 700 90 #2c313a
+assert-pixel 400 110 #00ff00
+assert-pixel 711 56 #e6e8ec
+
+open data:text/html,<title>Beta page with a long title</title><body style="margin:0;background:white">beta
+assert-pixel 711 56 #2c313a
+key ctrl+d
+assert-pixel 711 56 #e6e8ec
+open data:text/html,<title>Gamma page with a long title</title>gamma
+key ctrl+d
+open data:text/html,<title>Delta page with a long title</title>delta
+key ctrl+d
+assert-bookmarks-bar Alpha page with a long title | Beta page with a long title | Gamma page with a long title | Delta page with a long title
+
+# --- The chevrons ---
+# A fifth does not fit in 800 px; in 1000 it does; and the chevrons' menu
+# holds what did not fit, and opens it.
+open data:text/html,<title>Epsilon page with a long title</title>epsilon
+key ctrl+d
+assert-bookmarks-bar Alpha page with a long title | Beta page with a long title | Gamma page with a long title | Delta page with a long title | »
+resize 1000 600
+assert-bookmarks-bar Alpha page with a long title | Beta page with a long title | Gamma page with a long title | Delta page with a long title | Epsilon page with a long title
+resize 800 600
+open data:text/html,<title>Elsewhere</title>elsewhere
+press-bookmark 5
+assert-menu Epsilon page with a long title
+menu-click 0 0
+assert-title Epsilon page with a long title
+
+# --- A press on a bookmark ---
+# It opens in the tab in front; the middle button opens a tab of its own,
+# behind.
+press-bookmark 1
+assert-title Alpha page with a long title
+assert-tabs 1
+middle-press-bookmark 2
+assert-tabs 2
+assert-title Alpha page with a long title
+
+# --- A bookmarked page's bookmark is taken away by the same key ---
+key ctrl+d
+assert-status Bookmark removed
+assert-bookmarks-bar Beta page with a long title | Gamma page with a long title | Delta page with a long title | Epsilon page with a long title
+assert-pixel 711 56 #2c313a
+
+# --- Ctrl+Shift+B ---
+key ctrl+shift+b
+assert-bookmarks-bar
+assert-pixel 400 80 #00ff00
+key ctrl+shift+b
+assert-bookmarks-bar Beta page with a long title | Gamma page with a long title | Delta page with a long title | Epsilon page with a long title
+
+# --- A bookmark's own menu ---
+right-press-bookmark 1
+assert-menu Open | Open in new tab | - | Edit… | Remove | - | Manage bookmarks
+menu-click 0 4
+assert-bookmarks-bar Gamma page with a long title | Delta page with a long title | Epsilon page with a long title
+
+# --- The page about them ---
+# What one of its links asks is done, and the address kept is the plain one.
+open about:bookmarks
+assert-title Bookmarks
+assert-text Gamma page with a long title
+assert-text Other bookmarks
+click-text Remove
+assert-url about:bookmarks
+assert-text Removed: Gamma page with a long title
+assert-bookmarks-bar Delta page with a long title | Epsilon page with a long title
+# A folder, made on the page, is on the bar, and drops its menu there.
+focus foldername
+type News
+key Enter
+assert-url about:bookmarks
+assert-text Folder made: News
+assert-bookmarks-bar Delta page with a long title | Epsilon page with a long title | [News]
+press-bookmark 3
+assert-menu (Empty)
+key Escape
+
+# --- Another browser's bookmarks file ---
+# Its toolbar folder comes onto the bar, the rest into the other bookmarks.
+import-bookmarks bookmarks-import.html
+assert-bookmarks-bar Delta page with a long title | Epsilon page with a long title | [News] | Imported from another browser
+open about:bookmarks
+assert-text Kept elsewhere

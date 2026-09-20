@@ -62,6 +62,33 @@ std::vector<Stroke> const& strokes_of(Icon icon)
         line(4.5, 2.5, 9, 2.5), line(9, 2.5, 11.5, 5), line(11.5, 5, 11.5, 13.5), line(11.5, 13.5, 4.5, 13.5),
         line(4.5, 13.5, 4.5, 2.5), line(9, 2.5, 9, 5), line(9, 5, 11.5, 5),
     };
+    // A five-pointed star about (8, 8.5): its ten corners, outer and inner
+    // by turns from the top, on half units so its edges stay crisp.
+    static std::vector<Stroke> const star = {
+        line(8, 2.5, 9.5, 6.5), line(9.5, 6.5, 13.5, 6.5), line(13.5, 6.5, 10.5, 9.5), line(10.5, 9.5, 11.5, 13.5),
+        line(11.5, 13.5, 8, 11), line(8, 11, 4.5, 13.5), line(4.5, 13.5, 5.5, 9.5), line(5.5, 9.5, 2.5, 6.5),
+        line(2.5, 6.5, 6.5, 6.5), line(6.5, 6.5, 8, 2.5),
+    };
+    // The same, with nothing of what is behind it left showing: spokes from
+    // the middle to every corner and the pentagon its inner corners make.
+    // The rasterizer draws strokes and nothing else; at the sizes an icon
+    // is drawn these close the star up.
+    static std::vector<Stroke> const star_filled = {
+        line(8, 2.5, 9.5, 6.5), line(9.5, 6.5, 13.5, 6.5), line(13.5, 6.5, 10.5, 9.5), line(10.5, 9.5, 11.5, 13.5),
+        line(11.5, 13.5, 8, 11), line(8, 11, 4.5, 13.5), line(4.5, 13.5, 5.5, 9.5), line(5.5, 9.5, 2.5, 6.5),
+        line(2.5, 6.5, 6.5, 6.5), line(6.5, 6.5, 8, 2.5),
+        line(8, 8.5, 8, 2.5), line(8, 8.5, 13.5, 6.5), line(8, 8.5, 11.5, 13.5), line(8, 8.5, 4.5, 13.5), line(8, 8.5, 2.5, 6.5),
+        line(8, 8.5, 9.5, 6.5), line(8, 8.5, 10.5, 9.5), line(8, 8.5, 8, 11), line(8, 8.5, 5.5, 9.5), line(8, 8.5, 6.5, 6.5),
+        line(9.5, 6.5, 10.5, 9.5), line(10.5, 9.5, 8, 11), line(8, 11, 5.5, 9.5), line(5.5, 9.5, 6.5, 6.5), line(6.5, 6.5, 9.5, 6.5),
+        line(8, 5, 8, 12), line(5, 7.5, 11, 7.5), line(6, 10, 10, 10),
+    };
+    // A folder: its tab at the top left, the body under it.
+    static std::vector<Stroke> const folder = {
+        line(2.5, 4.5, 6.5, 4.5), line(6.5, 4.5, 8, 6), line(8, 6, 13.5, 6), line(13.5, 6, 13.5, 12.5),
+        line(13.5, 12.5, 2.5, 12.5), line(2.5, 12.5, 2.5, 4.5),
+    };
+    static std::vector<Stroke> const chevrons
+        = { line(4, 4.5, 7.5, 8), line(7.5, 8, 4, 11.5), line(8.5, 4.5, 12, 8), line(12, 8, 8.5, 11.5) };
     switch (icon) {
     case Icon::Back: return back;
     case Icon::Forward: return forward;
@@ -73,6 +100,10 @@ std::vector<Stroke> const& strokes_of(Icon icon)
     case Icon::Minimize: return minimize;
     case Icon::Maximize: return maximize;
     case Icon::Page: return page;
+    case Icon::Star: return star;
+    case Icon::StarFilled: return star_filled;
+    case Icon::Folder: return folder;
+    case Icon::Chevrons: return chevrons;
     }
     return back;
 }
