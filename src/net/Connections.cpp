@@ -78,6 +78,7 @@ void ConnectionPool::expire(std::int64_t now)
 
 std::optional<Connection> ConnectionPool::take(std::string const& key, std::int64_t now)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     expire(now);
     auto const found = std::find_if(m_idle.rbegin(), m_idle.rend(),
         [&](Idle const& idle) { return idle.key == key; });
@@ -91,6 +92,7 @@ std::optional<Connection> ConnectionPool::take(std::string const& key, std::int6
 
 void ConnectionPool::give(std::string const& key, Connection connection, std::int64_t now)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     expire(now);
     if (m_max_idle == 0 || m_max_idle_per_origin == 0)
         return;

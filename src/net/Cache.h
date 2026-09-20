@@ -18,10 +18,16 @@
 // cap of their own. History navigation does not use this cache: the
 // shell keeps its own document copy per history entry, so Back never
 // re-fetches.
+//
+// One cache serves every fetch of the session, and those run on several
+// threads at once: every call takes the cache's lock, and what is handed out
+// is a copy made under it, never a view of what another call may be changing.
 
 #include "net/Http.h"
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -47,30 +53,41 @@ public:
     std::string const& directory() const { return m_directory; }
 
     struct Lookup {
-        FetchResponse const* response = nullptr; // the stored one, fresh or not; null for none
+        std::shared_ptr<FetchResponse const> response; // a copy of the stored one, fresh or not; null for none
         bool fresh = false; // it may be served as it is
         std::string etag; // its validators, for a conditional request; empty for none
         std::string last_modified;
     };
     // The stored response for the URL (fragment ignored) and whether it
-    // may be served as it is. The pointer stays valid until the next
-    // store(), refresh() or clear().
+    // may be served as it is.
     Lookup lookup(Url const& url, std::int64_t now);
 
     // A 304's headers renew the stored response (RFC 9111 §3.2, §4.3.4):
     // its headers are replaced by the 304's and its freshness recomputed
-    // from them. The response to serve, or null when nothing is stored
-    // for the URL any more.
-    FetchResponse const* refresh(Url const& url, std::vector<Header> const& headers, std::int64_t now);
+    // from them. The response to serve — a copy — or null when nothing is
+    // stored for the URL any more.
+    std::shared_ptr<FetchResponse const> refresh(Url const& url, std::vector<Header> const& headers, std::int64_t now);
 
     // Stores a cacheable 200 response under the URL (fragment ignored) —
     // fresh, or stale with a validator to revalidate it by — and returns
     // true; anything not storable is ignored.
     bool store(Url const& url, FetchResponse const& response, std::int64_t now);
 
-    std::size_t size() const { return m_entries.size(); }
-    std::size_t bytes() const { return m_bytes; } // in memory
-    std::size_t disk_bytes() const { return m_disk_bytes; }
+    std::size_t size() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_entries.size();
+    }
+    std::size_t bytes() const // in memory
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_bytes;
+    }
+    std::size_t disk_bytes() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_disk_bytes;
+    }
     // Forgets everything, the directory's files included.
     void clear();
 
@@ -104,6 +121,7 @@ private:
     std::size_t m_bytes = 0;
     std::size_t m_disk_bytes = 0;
     std::string m_directory;
+    mutable std::mutex m_mutex; // held by every public call; the private ones are called under it
 };
 
 // Exposed for tests: the instant (unix seconds) until which a response

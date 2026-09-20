@@ -206,6 +206,7 @@ void CookieJar::store(Url const& url, Url const* first_party,
 {
     if (third_party(url, first_party))
         return;
+    std::lock_guard<std::mutex> const lock(m_mutex);
 
     for (Header const& header : response_headers) {
         if (!ascii_ci_equals(header.name, "set-cookie"))
@@ -351,6 +352,7 @@ void CookieJar::store(Url const& url, Url const* first_party,
 
 std::string CookieJar::serialize() const
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     std::string out = "# Netscape HTTP Cookie File\n"
                       "# https://curl.se/docs/http-cookies.html\n"
                       "# Written by Sashfold; a line is domain, subdomains, path, secure, expiry, name, value.\n\n";
@@ -385,6 +387,7 @@ std::string CookieJar::serialize() const
 
 void CookieJar::load(std::string_view text, std::int64_t now)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     std::size_t start = 0;
     while (start < text.size()) {
         std::size_t end = text.find('\n', start);
@@ -452,6 +455,7 @@ std::string CookieJar::cookie_header(
 {
     if (third_party(url, first_party))
         return "";
+    std::lock_guard<std::mutex> const lock(m_mutex);
 
     std::string const host = ascii_lowercase(url.host);
     std::string request_path = url.serialize_path();

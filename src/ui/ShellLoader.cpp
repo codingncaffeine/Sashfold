@@ -117,12 +117,15 @@ net::CookieJar& ShellLoader::cookies(std::string_view container)
 {
     if (container.empty())
         return m_cookies;
+    // A jar, once made, stays where it is: only the finding of it is locked.
+    std::lock_guard<std::mutex> const lock(m_mutex);
     return m_container_jars[std::string(container)];
 }
 
 std::vector<std::string> ShellLoader::container_names() const
 {
     std::vector<std::string> names;
+    std::lock_guard<std::mutex> const lock(m_mutex);
     for (auto const& [name, jar] : m_container_jars)
         names.push_back(name);
     return names;
@@ -195,6 +198,7 @@ ShellLoader::Census::Kind ShellLoader::Census::total() const
 
 net::FetchResult ShellLoader::noted(net::ResourceKind kind, net::FetchResult result)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     Census::Kind& entry = m_census.of(kind);
     ++entry.fetches;
     if (!result.response)
@@ -219,6 +223,31 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
             return { std::nullopt, "a web page cannot read local files" };
         return load_file(url);
     }
+    // Asked for ahead: what came, or what is on its way, is the answer. Its
+    // redirects were judged by the lists alone — the page's policy was not
+    // to hand then — so where it ended up is judged by the guard now.
+    std::shared_ptr<net::FetchTicket> ahead;
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        if (auto const it = m_ahead.find(ahead_key(url, kind, container)); it != m_ahead.end()) {
+            ahead = std::move(it->second.ticket);
+            m_ahead.erase(it);
+        }
+    }
+    if (ahead) {
+        net::FetchResult result = ahead->take();
+        if (result.response && guard.refusal && result.response->final_url.serialize() != url.serialize()) {
+            if (std::optional<std::string> refused = guard.refusal(result.response->final_url, true))
+                return { std::nullopt, std::move(*refused) };
+        }
+        return result;
+    }
+    return fetch_subresource(url, first_party, referrer, kind, guard, std::string(container));
+}
+
+net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+    net::ResourceKind kind, net::RequestGuard const& guard, std::string const& container)
+{
     net::FetchOptions options;
     options.cookie_jar = &cookies(container);
     options.first_party = &first_party;
@@ -227,6 +256,51 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
     options.pool = &m_pool;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
     return noted(kind, net::fetch(url, options));
+}
+
+std::string ShellLoader::ahead_key(net::Url const& url, net::ResourceKind kind, std::string_view container)
+{
+    return std::to_string(static_cast<unsigned>(kind)) + ' ' + std::string(container) + ' ' + url.serialize(true);
+}
+
+void ShellLoader::prefetch(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+    net::ResourceKind kind, std::string_view container)
+{
+    // Only what goes over the network is worth a thread, and only what the
+    // lists let through is asked for at all.
+    if (url.scheme != "http" && url.scheme != "https")
+        return;
+    if (refusal(url, &first_party, kind, net::RequestGuard {}, false))
+        return;
+    std::int64_t const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string const key = ahead_key(url, kind, container);
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        // What nobody claimed within a minute is let go; and no more than a
+        // few hundred are kept at once, the oldest going first.
+        std::erase_if(m_ahead, [now](auto const& entry) { return now - entry.second.asked_at > 60; });
+        while (m_ahead.size() >= 512) {
+            auto oldest = m_ahead.begin();
+            for (auto it = m_ahead.begin(); it != m_ahead.end(); ++it) {
+                if (it->second.asked_at < oldest->second.asked_at)
+                    oldest = it;
+            }
+            m_ahead.erase(oldest);
+        }
+        if (m_ahead.contains(key))
+            return;
+        // The slot is taken before the fetch starts, so that the page's own
+        // asking, a moment later, finds it.
+        m_ahead[key] = Ahead { nullptr, now };
+    }
+    // The work owns copies: the page that asked may be gone before it runs.
+    std::shared_ptr<net::FetchTicket> ticket = m_fetches.submit(
+        [this, url, first_party, referrer, kind, held = std::string(container)] {
+            return fetch_subresource(url, first_party, referrer, kind, net::RequestGuard {}, held);
+        });
+    std::lock_guard<std::mutex> const lock(m_mutex);
+    if (auto const it = m_ahead.find(key); it != m_ahead.end() && !it->second.ticket)
+        it->second.ticket = std::move(ticket);
 }
 
 net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url const& first_party,

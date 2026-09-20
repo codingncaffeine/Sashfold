@@ -223,6 +223,7 @@ std::optional<std::int64_t> fresh_until(std::vector<Header> const& headers, std:
 
 HttpCache::Lookup HttpCache::lookup(Url const& url, std::int64_t now)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     Lookup result;
     std::string const key = url.serialize(true);
     auto const it = m_entries.find(key);
@@ -233,15 +234,16 @@ HttpCache::Lookup HttpCache::lookup(Url const& url, std::int64_t now)
         drop(it, true);
         return result;
     }
-    result.response = &entry.response;
+    result.response = std::make_shared<FetchResponse const>(entry.response);
     result.fresh = entry.fresh_until > now;
     result.etag = entry.etag;
     result.last_modified = entry.last_modified;
     return result;
 }
 
-FetchResponse const* HttpCache::refresh(Url const& url, std::vector<Header> const& headers, std::int64_t now)
+std::shared_ptr<FetchResponse const> HttpCache::refresh(Url const& url, std::vector<Header> const& headers, std::int64_t now)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     std::string const key = url.serialize(true);
     auto const it = m_entries.find(key);
     if (it == m_entries.end())
@@ -280,11 +282,12 @@ FetchResponse const* HttpCache::refresh(Url const& url, std::vector<Header> cons
     entry.last_modified = header_or_empty(entry.response.headers, "last-modified");
     if (!m_directory.empty())
         write_entry(key, entry, false);
-    return &entry.response;
+    return std::make_shared<FetchResponse const>(entry.response);
 }
 
 bool HttpCache::store(Url const& url, FetchResponse const& response, std::int64_t now)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     if (response.status != 200)
         return false;
     std::optional<std::int64_t> const until = fresh_until(response.headers, now, response.status);
@@ -327,6 +330,7 @@ bool HttpCache::store(Url const& url, FetchResponse const& response, std::int64_
 
 void HttpCache::clear()
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     for (auto it = m_entries.begin(); it != m_entries.end();)
         drop(it++, true);
     m_entries.clear();
@@ -416,6 +420,7 @@ std::string HttpCache::file_stem(std::string const& key) const
 
 void HttpCache::set_directory(std::string directory)
 {
+    std::lock_guard<std::mutex> const lock(m_mutex);
     m_directory = std::move(directory);
     if (m_directory.empty())
         return;

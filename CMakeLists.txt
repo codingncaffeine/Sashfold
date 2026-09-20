@@ -105,6 +105,7 @@ add_library(sashfold_core STATIC
   src/net/Cookies.cpp
   src/net/Csp.cpp
   src/net/DataUrl.cpp
+  src/net/FetchPool.cpp
   src/net/Filters.cpp
   src/net/Http.cpp
   src/net/Idna.cpp
@@ -151,6 +152,7 @@ add_library(sashfold_core STATIC
   src/html/DocumentBase.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
+  src/html/PreloadScanner.cpp
   src/html/Serializer.cpp
   src/html/Tokenizer.cpp
   src/html/TreeBuilder.cpp

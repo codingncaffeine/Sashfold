@@ -672,6 +672,25 @@ std::optional<std::string> ContentSecurityPolicy::request_refusal(ResourceKind k
     return refusal;
 }
 
+bool ContentSecurityPolicy::allows_quietly(ResourceKind kind, Url const& url) const
+{
+    std::string_view const effective = effective_directive_for(kind);
+    if (effective.empty())
+        return true;
+    for (Policy const& policy : m_policies) {
+        if (policy.report_only)
+            continue;
+        Directive const* const directive = governing(policy, effective);
+        if (!directive)
+            continue;
+        if (is_script_directive_name(effective) && directive->has_keyword("strict-dynamic"))
+            return false;
+        if (!list_matches(*directive, url, false))
+            return false;
+    }
+    return true;
+}
+
 RequestGuard ContentSecurityPolicy::guard(ResourceKind kind, std::string nonce, bool parser_inserted)
 {
     RequestGuard guard;

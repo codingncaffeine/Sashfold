@@ -10,11 +10,14 @@
 #include "net/Connections.h"
 #include "net/Cookies.h"
 #include "net/Csp.h"
+#include "net/FetchPool.h"
 #include "net/Filters.h"
 #include "ui/Browser.h"
 
+#include <atomic>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -31,9 +34,11 @@ public:
     net::FetchResult load_resource(net::Url const& url, net::Url const& first_party,
         std::string const& referrer, net::ResourceRequest const& request,
         net::RequestGuard const& guard = {}, std::string_view container = {}) override;
+    void prefetch(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+        net::ResourceKind kind, std::string_view container = {}) override;
     std::string cookies_for(net::Url const& url, std::string_view container = {}) override;
     void set_cookie(net::Url const& url, std::string_view set_cookie_line, std::string_view container = {}) override;
-    std::size_t blocked_requests() const override { return m_blocked; }
+    std::size_t blocked_requests() const override { return m_blocked.load(); }
     net::Blocklists const* content_lists() const override { return &m_blocklists; }
 
     // The lists every request is judged by. A navigation a list refuses
@@ -70,7 +75,11 @@ public:
         Kind const& of(net::ResourceKind kind) const;
         Kind total() const;
     };
-    Census const& census() const { return m_census; }
+    Census census() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_census;
+    }
     // The cookie jar of a container — the default's for an empty name —
     // made on first use; and the names of the containers that have one.
     net::CookieJar& cookies(std::string_view container = {});
@@ -88,14 +97,34 @@ private:
         net::RequestGuard const& guard);
     // Enters a fetch's outcome and cost into the census, and hands it on.
     net::FetchResult noted(net::ResourceKind kind, net::FetchResult result);
+    // The exchange itself, for a request already judged: what
+    // load_subresource does when nothing was asked for ahead, and what a
+    // prefetch does on a thread of the pool's.
+    net::FetchResult fetch_subresource(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+        net::ResourceKind kind, net::RequestGuard const& guard, std::string const& container);
+    // What was asked for ahead and not yet claimed, by kind, container and
+    // address.
+    struct Ahead {
+        std::shared_ptr<net::FetchTicket> ticket;
+        std::int64_t asked_at = 0; // unix seconds
+    };
+    static std::string ahead_key(net::Url const& url, net::ResourceKind kind, std::string_view container);
 
+    // The loader's fetches run on several threads at once (net::FetchPool):
+    // the cache, the pool and the jars each keep their own lock, and this one
+    // keeps the census and the map the containers' jars are found in. The
+    // lists are set before the first fetch and only read after it.
+    mutable std::mutex m_mutex;
     Census m_census;
     net::CookieJar m_cookies; // the default container's
     std::map<std::string, net::CookieJar> m_container_jars; // by name; the cache and the pool are shared
     net::HttpCache m_cache;
     net::ConnectionPool m_pool;
     net::Blocklists m_blocklists;
-    std::size_t m_blocked = 0;
+    std::atomic<std::size_t> m_blocked { 0 };
+    std::map<std::string, Ahead> m_ahead; // under m_mutex
+    // Last, so that it goes first: its threads use everything above.
+    net::FetchPool m_fetches { 8 };
 };
 
 }

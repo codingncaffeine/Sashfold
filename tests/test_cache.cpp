@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -45,7 +46,7 @@ std::string body_text(FetchResponse const& response)
 
 // The stored response for the URL when it may be served as it is; null
 // when there is none or it is stale.
-FetchResponse const* fresh_hit(HttpCache& cache, Url const& url, std::int64_t at)
+std::shared_ptr<FetchResponse const> fresh_hit(HttpCache& cache, Url const& url, std::int64_t at)
 {
     HttpCache::Lookup const found = cache.lookup(url, at);
     return found.fresh ? found.response : nullptr;
@@ -151,7 +152,7 @@ int main()
         Url const page = url_of("http://example.com/a?x=1#section");
         CHECK(cache.store(page, ok({ { "Cache-Control", "max-age=60" } }, "hello"), now));
         CHECK_EQ(cache.size(), std::size_t { 1 });
-        FetchResponse const* const hit = fresh_hit(cache, url_of("http://example.com/a?x=1"), now + 59);
+        std::shared_ptr<FetchResponse const> const hit = fresh_hit(cache, url_of("http://example.com/a?x=1"), now + 59);
         CHECK(hit != nullptr);
         if (hit) {
             CHECK(hit->from_cache);
@@ -180,7 +181,7 @@ int main()
             ok({ { "Set-Cookie", "sid=1" }, { "Content-Type", "text/html" },
                 { "Cache-Control", "max-age=60" }, { "set-cookie", "t=2" } }),
             now));
-        FetchResponse const* const hit = fresh_hit(cache, page, now);
+        std::shared_ptr<FetchResponse const> const hit = fresh_hit(cache, page, now);
         CHECK(hit != nullptr);
         if (hit) {
             CHECK(find_header(hit->headers, "set-cookie") == nullptr);
@@ -221,7 +222,7 @@ int main()
         std::size_t const before = cache.bytes();
         CHECK(cache.store(e, ok({ { "Cache-Control", "max-age=60" } }, std::string(200, 'E')), now + 12));
         CHECK_EQ(cache.bytes(), before);
-        FetchResponse const* const hit = fresh_hit(cache, e, now + 12);
+        std::shared_ptr<FetchResponse const> const hit = fresh_hit(cache, e, now + 12);
         CHECK(hit && body_text(*hit) == std::string(200, 'E'));
     }
 
@@ -339,7 +340,7 @@ int main()
         CHECK(fresh_hit(cache, page, now) == nullptr);
         // A 304 renews it: the new headers replace the old, the body stays,
         // and a Content-Length that describes no body is left out.
-        FetchResponse const* const renewed = cache.refresh(page,
+        std::shared_ptr<FetchResponse const> const renewed = cache.refresh(page,
             Headers { { "ETag", "\"v1\"" }, { "Cache-Control", "max-age=60" }, { "X-Renewed", "yes" }, { "Content-Length", "999" } },
             now + 5);
         CHECK(renewed != nullptr);
@@ -456,7 +457,7 @@ int main()
             CHECK_EQ(again.size(), std::size_t { 2 });
             CHECK_EQ(again.disk_bytes(), std::size_t { 25 });
             std::size_t const before = again.bytes(); // the headers; no body loaded yet
-            FetchResponse const* const hit = fresh_hit(again, page, now + 30);
+            std::shared_ptr<FetchResponse const> const hit = fresh_hit(again, page, now + 30);
             CHECK(hit != nullptr);
             if (hit) {
                 CHECK_EQ(body_text(*hit), "disk body");

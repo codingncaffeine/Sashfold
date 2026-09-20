@@ -17,6 +17,7 @@
 #include "net/Url.h"
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,6 +36,8 @@ struct Cookie {
     std::int64_t created = 0; // insertion order for the §5.4 sort
 };
 
+// A jar serves every fetch made for its container, and those run on several
+// threads at once: every call takes the jar's lock.
 class CookieJar {
 public:
     // Stores every Set-Cookie header of a response received for url. A
@@ -45,7 +48,11 @@ public:
     // The Cookie header value for a request ("" = send no header).
     std::string cookie_header(Url const& url, Url const* first_party, std::int64_t now) const;
 
-    std::size_t size() const { return m_cookies.size(); }
+    std::size_t size() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_cookies.size();
+    }
 
     // The jar as a Netscape cookies.txt file: one cookie per line —
     // domain (a leading dot where subdomains count), the subdomain flag,
@@ -57,9 +64,14 @@ public:
     void load(std::string_view text, std::int64_t now);
     // Moves whenever a cookie is stored, replaced, dropped or read in: a
     // host writes the jar out when it has moved.
-    std::uint64_t changes() const { return m_changes; }
+    std::uint64_t changes() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_changes;
+    }
 
 private:
+    mutable std::mutex m_mutex;
     std::vector<Cookie> m_cookies;
     std::int64_t m_counter = 0; // creation tiebreaker
     std::uint64_t m_changes = 0;

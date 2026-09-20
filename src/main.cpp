@@ -957,7 +957,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         std::size_t runs = 0;
         std::size_t characters = 0;
         count_text(page.root, runs, characters);
-        net::ConnectionPool::Stats const& connections = loaded.loader->pool().stats();
+        net::ConnectionPool::Stats const connections = loaded.loader->pool().stats();
         std::ofstream out(extras.report, std::ios::binary);
         out << "{\n"
             << "  \"input\": " << json_string(path) << ",\n"

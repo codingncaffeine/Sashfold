@@ -2,6 +2,8 @@
 #include "ui/Forms.h"
 #include "ui/Frames.h"
 
+#include "html/PreloadScanner.h"
+
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/AnimatedImage.h"
@@ -2182,6 +2184,44 @@ struct Browser::Impl {
         }
     }
 
+    // Asks the loader for one of a page's resources AHEAD of the page's own
+    // asking, so that what a page names is fetched together and not one
+    // after another — for a page of the web, and only what its policy would
+    // let go as it stands. The page's own request, which follows, claims
+    // what came and is still judged by its guard.
+    void ask_ahead(Tab& tab, net::Url const& page_url, net::Url url, net::ResourceKind kind)
+    {
+        if (page_url.scheme != "http" && page_url.scheme != "https")
+            return;
+        if (net::ContentSecurityPolicy const* const policy = tab.policy.get()) {
+            if (policy->upgrade_insecure_requests())
+                url = net::upgraded_insecure(url);
+            if (!policy->empty() && !policy->allows_quietly(kind, url))
+                return;
+        }
+        loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container);
+    }
+
+    // The stylesheets and the scripts a document's markup names, asked for
+    // before it is parsed (html::scan_for_preloads). A document that states
+    // a policy in a <meta> is left alone: what it names waits for that.
+    void ask_ahead_for_markup(Tab& tab, net::Url const& page_url, std::string_view source)
+    {
+        if (page_url.scheme != "http" && page_url.scheme != "https")
+            return;
+        html::PreloadScan const scan = html::scan_for_preloads(source);
+        if (scan.meta_policy)
+            return;
+        std::optional<net::Url> const based
+            = scan.base_href.empty() ? std::optional<net::Url>(page_url) : net::parse_url(scan.base_href, &page_url);
+        net::Url const& base = based ? *based : page_url;
+        for (html::Preload const& resource : scan.resources) {
+            if (std::optional<net::Url> const url = net::parse_url(resource.url, &base))
+                ask_ahead(tab, page_url, *url,
+                    resource.kind == html::Preload::Kind::Script ? net::ResourceKind::Script : net::ResourceKind::Stylesheet);
+        }
+    }
+
     // How many of a page's pictures one pass fetches: the page shows after
     // the first pass, and takes the rest a pass per tick.
     static constexpr std::size_t images_per_pass = 64;
@@ -2530,6 +2570,22 @@ struct Browser::Impl {
                 if (std::optional<css::SheetSource> hiding = cosmetic_sheet(*lists, page_url, *tab.document))
                     tab.sheets.push_back(std::move(*hiding));
             }
+            // The fonts the sheets name are asked for together first: the
+            // same choosing with nothing fetched — told that each face's
+            // first readable source arrived, so that a face's fallbacks are
+            // not asked for as well — and the collecting below then finds
+            // them arriving together.
+            {
+                std::vector<net::Url> wanted;
+                css::collect_page_fonts(tab.sheets,
+                    [&wanted](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
+                        wanted.push_back(url);
+                        return css::FetchedSheet { std::vector<std::uint8_t> { 0 }, "" };
+                    },
+                    media_context());
+                for (net::Url const& url : wanted)
+                    ask_ahead(tab, page_url, url, net::ResourceKind::Font);
+            }
             tab.fonts = css::collect_page_fonts(tab.sheets, fetch_font, media_context());
             tab.style_set.reset();
             tab.sheet_signature = signature;
@@ -2555,6 +2611,22 @@ struct Browser::Impl {
         {
             Stopwatch const collecting(profile.images_ms);
             if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images) || unfetched_embedded) {
+                // Every picture the page will want is asked for first, all
+                // at once — the same walk with nothing fetched, so the
+                // sources are the ones the passes below will choose — and
+                // the passes then find them arriving together.
+                {
+                    std::vector<net::Url> wanted;
+                    ImageFetcher const note = [&wanted](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+                        wanted.push_back(url);
+                        return std::nullopt;
+                    };
+                    collect_images(*tab.document, &page_url, note, media_context(), tab.realm ? &embedded : nullptr,
+                        ImagePass { &tab.images, 0, nullptr });
+                    collect_background_images(tab.styles, note, &tab.backgrounds);
+                    for (net::Url const& url : wanted)
+                        ask_ahead(tab, page_url, url, net::ResourceKind::Image);
+                }
                 // One pass now, so the page shows; the rest a pass per tick.
                 bool more = false;
                 layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
@@ -2681,6 +2753,10 @@ struct Browser::Impl {
         // goes by; a script that asks for a box gets the page laid out as
         // it stands. A document sandboxed without allow-scripts parses with
         // scripting off, so its <noscript> content shows.
+        // What its markup names is asked for before the parse begins, which
+        // waits for each script where it stands.
+        if (html)
+            ask_ahead_for_markup(tab, entry->final_url, source);
         tab.realm = make_realm(tab, entry->final_url);
         script_started = std::chrono::steady_clock::now();
         html::parse_document_bytes_into(*tab.document, source,

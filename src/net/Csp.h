@@ -104,6 +104,13 @@ public:
     // redirect's target is judged with the paths of the sources ignored.
     std::optional<std::string> request_refusal(ResourceKind kind, Url const& url, bool redirected,
         std::string_view nonce = {}, bool parser_inserted = true);
+    // Whether a request for `url` would be let through as the policy stands,
+    // asked ahead of time by whoever fetches a page's resources before the
+    // page asks for them: nothing is reported and nothing is counted. The
+    // nonce an element may carry is not known then, and neither is who will
+    // insert it, so a policy that leans on either answers no — which only
+    // means "do not fetch it early".
+    bool allows_quietly(ResourceKind kind, Url const& url) const;
     // An inline script, an event handler attribute, a <style> or a style=""
     // attribute: `source` is its text, hashed against the hash sources.
     std::optional<std::string> inline_refusal(InlineKind kind, std::string_view nonce, std::string_view source);

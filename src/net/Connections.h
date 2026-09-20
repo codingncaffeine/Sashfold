@@ -13,13 +13,16 @@
 // idle timeout won the race, or the network went away), which shows up as a
 // failure on the very next request. fetch() retries such a request once on
 // a fresh connection; GET is the only method sent, so that is safe.
-// Single-threaded, like the rest of the session.
+// The pool serves every fetch of the session, and those run on several
+// threads at once: every call takes the pool's lock. A connection handed out
+// is the caller's alone until it is given back.
 
 #include "platform/Net.h"
 #include "platform/Tls.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -83,8 +86,16 @@ public:
     // per-origin or the total limit, the longest-idle connection goes.
     void give(std::string const& key, Connection connection, std::int64_t now);
 
-    std::size_t size() const { return m_idle.size(); }
-    void clear() { m_idle.clear(); }
+    std::size_t size() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_idle.size();
+    }
+    void clear()
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        m_idle.clear();
+    }
 
     // What the session's connections cost, for --bench and tests:
     // connections opened, requests served on a pooled connection, and
@@ -94,9 +105,21 @@ public:
         std::size_t reused = 0;
         std::size_t retried = 0;
     };
-    Stats const& stats() const { return m_stats; }
-    void note_opened() { ++m_stats.opened; }
-    void note_retried() { ++m_stats.retried; }
+    Stats stats() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_stats;
+    }
+    void note_opened()
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        ++m_stats.opened;
+    }
+    void note_retried()
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        ++m_stats.retried;
+    }
 
 private:
     struct Idle {
@@ -109,6 +132,7 @@ private:
     std::size_t m_max_idle;
     std::size_t m_max_idle_per_origin;
     std::int64_t m_max_idle_seconds;
+    mutable std::mutex m_mutex;
     std::vector<Idle> m_idle; // longest idle first
     Stats m_stats;
 };

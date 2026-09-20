@@ -63,6 +63,21 @@ public:
         (void)container;
         return { std::nullopt, "this loader serves documents only" };
     }
+    // The same resource asked for AHEAD of the page's asking — named by its
+    // markup, or chosen for one of its pictures — so that it is on its way,
+    // or here, by the time load_subresource is called for it, which then
+    // answers with what came. Nothing is waited for; a loader that fetches
+    // nothing ahead does nothing, and the page's own asking still judges the
+    // request by its guard.
+    virtual void prefetch(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+        net::ResourceKind kind, std::string_view container = {})
+    {
+        (void)url;
+        (void)first_party;
+        (void)referrer;
+        (void)kind;
+        (void)container;
+    }
     // A request a page's script makes — fetch(), XMLHttpRequest — carried
     // out on the page's behalf through the same session: the method, the
     // headers and the body as given, cookies only when the request allows

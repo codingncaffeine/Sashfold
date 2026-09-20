@@ -127,6 +127,9 @@ sashfold_test(test_touch)
 sashfold_test(test_bookmarks)
 sashfold_test(test_bookmark_sources)
 sashfold_test(test_window_events)
+sashfold_test(test_fetch_pool)
+sashfold_test(test_preload_scanner)
+sashfold_test(test_prefetch)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The Wayland window's two halves that need no compositor: the wire

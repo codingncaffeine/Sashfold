@@ -593,7 +593,7 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
 
         // 304: the stored copy stands, renewed by what came back with it.
         if (revalidating && raw->status == 304) {
-            if (FetchResponse const* const renewed = options.cache->refresh(current, raw->headers, unix_now())) {
+            if (std::shared_ptr<FetchResponse const> const renewed = options.cache->refresh(current, raw->headers, unix_now())) {
                 FetchResponse copy = *renewed;
                 copy.redirected = redirected;
                 return { std::move(copy), "" };
