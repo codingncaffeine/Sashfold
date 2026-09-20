@@ -227,6 +227,8 @@ std::string_view effective_directive_for(ResourceKind kind)
         return "frame-src";
     case ResourceKind::Object:
         return "object-src";
+    case ResourceKind::Worker:
+        return "worker-src";
     case ResourceKind::Xhr:
     case ResourceKind::Other:
         return "connect-src";
@@ -269,6 +271,8 @@ std::string_view thing_named(ResourceKind kind)
         return "frame";
     case ResourceKind::Object:
         return "object";
+    case ResourceKind::Worker:
+        return "worker";
     case ResourceKind::Xhr:
     case ResourceKind::Other:
     case ResourceKind::Document:

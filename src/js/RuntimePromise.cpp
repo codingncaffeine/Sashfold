@@ -644,7 +644,7 @@ void Interpreter::report_unhandled_rejections()
             continue;
         promise->set_handled();
         if (on_console)
-            on_console("error", "Uncaught (in promise) " + describe(promise->result()));
+            on_console("error", "Uncaught (in promise) " + describe(promise->result()) + stack_lines_for_console(promise->result()));
     }
 }
 

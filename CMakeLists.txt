@@ -60,6 +60,7 @@ add_library(sashfold_core STATIC
   src/bindings/Tasks.cpp
   src/bindings/Window.cpp
   src/bindings/WindowProxy.cpp
+  src/bindings/Workers.cpp
   src/bindings/Xhr.cpp
   src/bindings/generated/HtmlElements.gen.cpp
   src/core/Base64.cpp

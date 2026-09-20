@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <deque>
 #include <limits>
 #include <memory>
@@ -2093,6 +2094,43 @@ void Interpreter::Impl::trace(Tracer& tracer)
 
 
 // ------------------------------------------------------- Interpreter
+
+std::string Interpreter::stack_text(Value const& error)
+{
+    std::string text = describe(error);
+    std::vector<Frame*> const& frames = m_impl->vm_frames;
+    std::size_t listed = 0;
+    for (auto it = frames.rbegin(); it != frames.rend() && listed < 12; ++it, ++listed) {
+        Frame const& frame = **it;
+        text += "\n    at ";
+        if (frame.function == nullptr) {
+            // A script's own statements, or an eval's.
+            text += frame.program != nullptr && !frame.program->name.empty() ? frame.program->name : std::string("<script>");
+            continue;
+        }
+        FunctionNode const& node = frame.function->node();
+        std::string where = node.program != nullptr && !node.program->name.empty() ? node.program->name : std::string("<script>");
+        where += ":" + std::to_string(node.position.line) + ":" + std::to_string(node.position.column);
+        if (node.name != nullptr && node.name->length() > 0)
+            text += node.name->to_utf8() + " (" + where + ")";
+        else
+            text += where;
+    }
+    return text;
+}
+
+std::string Interpreter::stack_lines_for_console(Value const& thrown)
+{
+    static bool const wanted = std::getenv("SASHFOLD_ERROR_STACKS") != nullptr;
+    if (!wanted || !thrown.is_object() || !thrown.as_object()->is_error())
+        return {};
+    JsString const* const stack = static_cast<ErrorObject*>(thrown.as_object())->stack();
+    if (stack == nullptr)
+        return {};
+    std::string const text = stack->to_utf8();
+    std::size_t const first_line_end = text.find('\n');
+    return first_line_end == std::string::npos ? std::string() : text.substr(first_line_end);
+}
 
 Interpreter::Interpreter()
     : m_heap(std::make_unique<Heap>())

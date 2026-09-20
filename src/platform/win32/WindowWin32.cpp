@@ -132,6 +132,13 @@ public:
             MWMO_INPUTAVAILABLE);
     }
 
+    void wake() override
+    {
+        // A posted message, which any thread may post, ends the wait above.
+        if (m_hwnd)
+            PostMessageW(m_hwnd, WM_NULL, 0, 0);
+    }
+
     void present(Bitmap const& frame) override
     {
         m_frame_width = frame.width();

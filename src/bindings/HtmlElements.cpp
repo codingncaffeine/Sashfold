@@ -510,7 +510,12 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             std::optional<LayoutBox> const box = client_box(internals, e);
             return js::Value::number(box ? std::round(static_cast<double>(box->y)) : 0);
         });
-        element_method(in, proto, "decode", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+        // decode(): settled by whether the host has the picture decoded.
+        element_method(in, proto, "decode", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+            if (internals.hooks.image_size && internals.hooks.image_size(e))
+                return resolved_promise(internals.interpreter, js::Value::undefined());
+            return rejected_promise(internals.interpreter, dom_exception_value(internals, "EncodingError", "The source image cannot be decoded."));
+        });
     }
 
     // Inputs.
@@ -1000,8 +1005,13 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_getter(in, *media_element, "readyState", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
         element_getter(in, *media_element, "networkState", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
         element_getter(in, *media_element, "error", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-        for (std::string_view const name : { "play", "pause", "load" })
+        for (std::string_view const name : { "pause", "load" })
             element_method(in, *media_element, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+        // play() is a promise, refused while no media plays here.
+        element_method(in, *media_element, "play", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
+            return rejected_promise(internals.interpreter,
+                dom_exception_value(internals, "NotSupportedError", "The element has no supported sources."));
+        });
         element_method(in, *media_element, "canPlayType", 1, [](Realm::Internals& internals, dom::Element&, Args) -> Native { return internals.string(""); });
         for (auto const& [name, value] : { std::pair { "NETWORK_EMPTY", 0 }, std::pair { "NETWORK_IDLE", 1 }, std::pair { "NETWORK_LOADING", 2 },
                  std::pair { "NETWORK_NO_SOURCE", 3 }, std::pair { "HAVE_NOTHING", 0 }, std::pair { "HAVE_METADATA", 1 },

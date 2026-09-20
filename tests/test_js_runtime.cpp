@@ -173,7 +173,16 @@ void test_error_library()
     CHECK_JS_TRUE(in, "(function () { var e = new Error('m', { cause: 0 }); return e.cause === 0 && Object.prototype.hasOwnProperty.call(e, 'cause') && !e.propertyIsEnumerable('cause'); })()");
     CHECK_JS_TRUE(in, "(function () { var e = new Error('m', {}); return !('cause' in e); })()");
     CHECK_JS_TRUE(in, "(function () { var e = new Error('m', { get cause() { return 'g'; } }); return e.cause === 'g'; })()");
-    CHECK_JS_TRUE(in, "typeof new Error('x').stack === 'string' && new RangeError('r').stack === 'RangeError: r'");
+    CHECK_JS_TRUE(in, "typeof new Error('x').stack === 'string' && new RangeError('r').stack.split('\\n')[0] === 'RangeError: r'");
+    // The stack: the "Name: message" line, then the functions running when
+    // the error was made, innermost first, each with the script it was written
+    // in and where it begins there; the script's own statements last.
+    CHECK_JS_TRUE(in, "function outer() { return inner(); } function inner() { return new Error('deep').stack; }"
+                      " /^Error: deep\\n    at inner \\(<test>:1:\\d+\\)\\n    at outer \\(<test>:1:\\d+\\)\\n    at <test>$/.test(outer())");
+    CHECK_JS_TRUE(in, "var anonymous = function () { return (() => new TypeError('t').stack)(); };"
+                      " /^TypeError: t\\n    at <test>:1:\\d+\\n    at (anonymous \\()?<test>:1:\\d+\\)?\\n    at <test>$/.test(anonymous())");
+    // One the engine throws itself carries the frames too.
+    CHECK_JS_TRUE(in, "function reads() { try { null.x; } catch (e) { return e.stack; } } /^TypeError: .*\\n    at reads \\(<test>:1:\\d+\\)\\n    at <test>$/.test(reads())");
     CHECK_JS_TRUE(in, "(function () { function My() {} My.prototype = Object.create(Error.prototype); var e = Reflect.construct(Error, ['m'], My); return Object.getPrototypeOf(e) === My.prototype && e.message === 'm'; })()");
     CHECK_JS_TRUE(in, "Error.prototype.constructor === Error && Error.length === 1 && typeof Error.prototype.toString === 'function'");
     CHECK_JS_STRING(in, "(function () { try { null.f(); } catch (e) { return String(e).slice === undefined ? e.name : e.name; } })()", "TypeError");

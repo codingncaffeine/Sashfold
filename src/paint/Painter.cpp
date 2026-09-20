@@ -749,7 +749,11 @@ void paint_control(Context& context, Fragment const& fragment)
     auto const solid = [](css::BorderSide const& side) {
         return side.style == BorderStyle::Solid && side.width > 0;
     };
-    bool const author_look = style.background_color.a != 0 || solid(style.border_top)
+    // A background picture is the author's look as much as a colour is: a
+    // button that is an icon — `border: 0; background: url(…)` — has no face
+    // of ours behind it.
+    bool const pictured = style.background_images && !style.background_images->empty();
+    bool const author_look = style.background_color.a != 0 || pictured || solid(style.border_top)
         || solid(style.border_bottom) || solid(style.border_left) || solid(style.border_right);
     Color const border = control.disabled ? Color::rgb(0xc0, 0xc0, 0xc0) : Color::rgb(0x76, 0x76, 0x76);
     Color const white = Color::rgb(0xff, 0xff, 0xff);

@@ -8,6 +8,7 @@
 #include "core/Ascii.h"
 #include "core/Base64.h"
 #include "core/Unicode.h"
+#include "crypto/Sha2.h"
 #include "css/Stylesheets.h"
 
 #include <algorithm>
@@ -491,6 +492,8 @@ void update_owner(SearchParamsObject& params)
 css::MediaContext media_context(Realm::Internals& in)
 {
     // The hooks speak CSS px; the evaluator's context is in device px.
+    if (in.hooks.refresh_viewport)
+        in.hooks.refresh_viewport();
     float const scale = in.hooks.device_scale > 0 ? in.hooks.device_scale : 1.0f;
     return css::MediaContext { in.hooks.viewport_width * scale, in.hooks.viewport_height * scale, scale };
 }
@@ -897,8 +900,18 @@ void install_window(Realm::Internals& in)
         net::Url const& url = internals_of(interp).url;
         return js::Value::boolean(url.scheme == "https" || url.scheme == "file" || url.scheme == "about" || url.host == "localhost");
     });
-    define_getter(in, *global, "innerWidth", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_width)); });
-    define_getter(in, *global, "innerHeight", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_height)); });
+    define_getter(in, *global, "innerWidth", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        HostHooks& hooks = internals_of(interp).hooks;
+        if (hooks.refresh_viewport)
+            hooks.refresh_viewport();
+        return js::Value::number(static_cast<double>(hooks.viewport_width));
+    });
+    define_getter(in, *global, "innerHeight", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        HostHooks& hooks = internals_of(interp).hooks;
+        if (hooks.refresh_viewport)
+            hooks.refresh_viewport();
+        return js::Value::number(static_cast<double>(hooks.viewport_height));
+    });
     define_getter(in, *global, "outerWidth", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_width)); });
     define_getter(in, *global, "outerHeight", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_height + 80)); });
     define_getter(in, *global, "devicePixelRatio", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
@@ -1500,12 +1513,62 @@ void install_window(Realm::Internals& in)
     });
     js::define_method(interpreter, *custom_elements, "get", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     js::define_method(interpreter, *custom_elements, "getName", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
-    js::define_method(interpreter, *custom_elements, "whenDefined", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    // whenDefined(): a promise for a definition that never comes while custom
+    // elements are not upgraded.
+    js::define_method(interpreter, *custom_elements, "whenDefined", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return pending_promise(interp); });
     js::define_method(interpreter, *custom_elements, "upgrade", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
 
     // crypto: randomUUID and getRandomValues over an array-like.
     js::Object* crypto = interpreter.new_object();
     global->put(interpreter.key("crypto"), js::Value::object(crypto), js::builtin_attributes);
+    // crypto.subtle (Web Crypto §14): digest() over the SHA-2 family, which
+    // is what a page hashes with — a checksum, a proof of work — and would
+    // otherwise do in script, a thousand times slower. Every other operation
+    // is a promise refused, NotSupportedError, until keys are written.
+    js::Object* subtle = interpreter.new_object();
+    crypto->put(interpreter.key("subtle"), js::Value::object(subtle), js::builtin_attributes);
+    js::define_method(interpreter, *subtle, "digest", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        // The algorithm: its name, or an object with one; matched without case.
+        js::Value algorithm = js::argument(args, 0);
+        if (algorithm.is_object()) {
+            std::optional<js::Value> const name = interp.get(algorithm, "name");
+            if (!name)
+                return std::nullopt;
+            algorithm = *name;
+        }
+        std::optional<std::string> const name = internals.to_utf8(algorithm);
+        if (!name)
+            return std::nullopt;
+        std::optional<std::span<std::uint8_t const>> const bytes = buffer_source_bytes(js::argument(args, 1));
+        if (!bytes) {
+            interp.throw_type_error("Failed to execute 'digest' on 'SubtleCrypto': parameter 2 is not a BufferSource");
+            return rejected_promise(interp, interp.take_exception());
+        }
+        std::optional<crypto::HashId> id;
+        if (ascii_ci_equals(*name, "SHA-256"))
+            id = crypto::HashId::Sha256;
+        else if (ascii_ci_equals(*name, "SHA-384"))
+            id = crypto::HashId::Sha384;
+        else if (ascii_ci_equals(*name, "SHA-512"))
+            id = crypto::HashId::Sha512;
+        if (!id)
+            return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "Unrecognized or unwritten algorithm: " + *name));
+        std::vector<std::uint8_t> const digest = crypto::hash_with(*id, *bytes);
+        std::optional<js::ArrayBufferObject*> const buffer = js::allocate_array_buffer(interp, nullptr, static_cast<double>(digest.size()), std::nullopt);
+        if (!buffer)
+            return std::nullopt;
+        std::copy(digest.begin(), digest.end(), (*buffer)->data());
+        return resolved_promise(interp, js::Value::object(*buffer));
+    });
+    for (std::string_view const unwritten : { "encrypt", "decrypt", "sign", "verify", "generateKey", "deriveKey", "deriveBits",
+             "importKey", "exportKey", "wrapKey", "unwrapKey" }) {
+        std::string const operation(unwritten);
+        js::define_method(interpreter, *subtle, unwritten, 0, [operation](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "crypto.subtle." + operation + " is not written yet"));
+        });
+    }
     js::define_method(interpreter, *crypto, "randomUUID", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).string(random_uuid());
     });

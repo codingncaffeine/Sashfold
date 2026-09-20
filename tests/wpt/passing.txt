@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9436 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9458 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -1148,6 +1148,7 @@ css/CSS2/css21-errata/s-11-1-1b-007.html
 css/CSS2/css21-errata/s-11-1-1b-008.html
 css/CSS2/css21-errata/s-11-1-1b-009.html
 css/CSS2/csswg-issues/submitted/css2.1/abspos-non-replaced-width-margin-000.xht
+css/CSS2/csswg-issues/submitted/css2.1/abspos-replaced-width-margin-000.xht
 css/CSS2/floats-clear/adjacent-floats-001.xht
 css/CSS2/floats-clear/adjoining-float-nested-forced-clearance-002.html
 css/CSS2/floats-clear/adjoining-float-nested-forced-clearance-003.html
@@ -1880,6 +1881,7 @@ css/CSS2/linebox/vertical-align-baseline-004a.xht
 css/CSS2/linebox/vertical-align-baseline-006.xht
 css/CSS2/linebox/vertical-align-baseline-007.xht
 css/CSS2/linebox/vertical-align-baseline-008.xht
+css/CSS2/linebox/vertical-align-baseline-009.xht
 css/CSS2/linebox/vertical-align-baseline-010.xht
 css/CSS2/linebox/vertical-align-nested-top-001.html
 css/CSS2/linebox/vertical-align-top-bottom-padding.html
@@ -3536,10 +3538,13 @@ css/CSS2/positioning/bottom-092.xht
 css/CSS2/positioning/bottom-100.xht
 css/CSS2/positioning/bottom-101.xht
 css/CSS2/positioning/bottom-102.xht
+css/CSS2/positioning/bottom-103.xht
+css/CSS2/positioning/bottom-104.xht
 css/CSS2/positioning/bottom-109.xht
 css/CSS2/positioning/bottom-110.xht
 css/CSS2/positioning/bottom-111.xht
 css/CSS2/positioning/bottom-112.xht
+css/CSS2/positioning/bottom-113.xht
 css/CSS2/positioning/bottom-applies-to-001.xht
 css/CSS2/positioning/bottom-applies-to-002.xht
 css/CSS2/positioning/bottom-applies-to-003.xht
@@ -3660,13 +3665,17 @@ css/CSS2/positioning/position-relative-033.xht
 css/CSS2/positioning/position-relative-035.xht
 css/CSS2/positioning/position-relative-037.xht
 css/CSS2/positioning/position-relative-038.xht
+css/CSS2/positioning/position-relative-nested-001.xht
 css/CSS2/positioning/position-static-001.xht
 css/CSS2/positioning/positioning-float-001.xht
 css/CSS2/positioning/positioning-float-002.xht
+css/CSS2/positioning/relpos-calcs-001.xht
+css/CSS2/positioning/relpos-calcs-002.xht
 css/CSS2/positioning/relpos-calcs-003.xht
 css/CSS2/positioning/relpos-calcs-004.xht
 css/CSS2/positioning/relpos-calcs-005.xht
 css/CSS2/positioning/relpos-calcs-006.xht
+css/CSS2/positioning/relpos-calcs-007.xht
 css/CSS2/positioning/right-004.xht
 css/CSS2/positioning/right-005.xht
 css/CSS2/positioning/right-006.xht
@@ -4514,6 +4523,7 @@ css/CSS2/tables/border-conflict-element-001c.xht
 css/CSS2/tables/border-spacing-095.html
 css/CSS2/tables/border-spacing-applies-to-016.xht
 css/CSS2/tables/border-spacing-percentage-001.xht
+css/CSS2/tables/caption-position-001.xht
 css/CSS2/tables/caption-side-applies-to-001.xht
 css/CSS2/tables/caption-side-applies-to-002.xht
 css/CSS2/tables/caption-side-applies-to-003.xht
@@ -5132,6 +5142,7 @@ css/CSS2/visuren/emptyspan-2.html
 css/CSS2/visuren/emptyspan-3.html
 css/CSS2/visuren/emptyspan-4.html
 css/CSS2/visuren/inherit-static-offset-001.xht
+css/CSS2/visuren/inherit-static-offset-002.xht
 css/CSS2/visuren/inherit-static-offset-003.xht
 css/CSS2/visuren/inline-formatting-context-001.xht
 css/CSS2/visuren/percent-height-1.html
@@ -5147,6 +5158,7 @@ css/CSS2/visuren/remove-split-inline-1.html
 css/CSS2/visuren/split-inner-inline-1.html
 css/CSS2/visuren/split-inner-inline-2.html
 css/CSS2/visuren/table-pseudo-in-part3-1.html
+css/CSS2/visuren/top-114.xht
 css/CSS2/visuren/top-115.xht
 css/CSS2/visuren/whitespace-present-1a.html
 css/CSS2/visuren/whitespace-present-1b.html
@@ -5338,6 +5350,7 @@ css/css-backgrounds/background-size/background-size-cover-contain-001.xht
 css/css-backgrounds/background-size/background-size-cover-contain-002.xht
 css/css-backgrounds/background-size/background-size-cover-svg-view.html
 css/css-backgrounds/background-size/background-size-cover-svg.html
+css/css-backgrounds/background-size/background-size-cover.xht
 css/css-backgrounds/background-size/background-size-near-zero-color.html
 css/css-backgrounds/background-size/vector/background-size-vector-001.html
 css/css-backgrounds/background-size/vector/background-size-vector-002.html
@@ -5502,6 +5515,7 @@ css/css-backgrounds/border-radius-009.xht
 css/css-backgrounds/border-radius-010.xht
 css/css-backgrounds/border-radius-011.xht
 css/css-backgrounds/border-radius-013.html
+css/css-backgrounds/border-radius-clip-001.html
 css/css-backgrounds/border-radius-clipping-002.html
 css/css-backgrounds/border-radius-clipping-with-transform-001.html
 css/css-backgrounds/border-radius-dynamic-from-no-radius.html
@@ -5974,7 +5988,6 @@ css/css-flexbox/flex-minimum-height-flex-items-014.html
 css/css-flexbox/flex-minimum-height-flex-items-015.html
 css/css-flexbox/flex-minimum-height-flex-items-018.html
 css/css-flexbox/flex-minimum-height-flex-items-020.html
-css/css-flexbox/flex-minimum-height-flex-items-023.html
 css/css-flexbox/flex-minimum-height-flex-items-026.html
 css/css-flexbox/flex-minimum-height-flex-items-027.html
 css/css-flexbox/flex-minimum-height-flex-items-028.html
@@ -6068,7 +6081,6 @@ css/css-flexbox/flexbox-flex-wrap-wrap.htm
 css/css-flexbox/flexbox-iframe-intrinsic-size-001.html
 css/css-flexbox/flexbox-items-as-stacking-contexts-002.html
 css/css-flexbox/flexbox-items-as-stacking-contexts-003.html
-css/css-flexbox/flexbox-min-height-auto-002b.html
 css/css-flexbox/flexbox-min-width-auto-001.html
 css/css-flexbox/flexbox-order-only-flexitems.html
 css/css-flexbox/flexbox-overflow-horiz-001.html
@@ -6384,6 +6396,8 @@ css/css-flexbox/percentage-size-subitems-001.html
 css/css-flexbox/percentage-widths-001.html
 css/css-flexbox/position-absolute-scrollbar-freeze.html
 css/css-flexbox/position-fixed-001.html
+css/css-flexbox/position-relative-percentage-top-002.html
+css/css-flexbox/position-relative-percentage-top-003.html
 css/css-flexbox/remove-wrapped-001.html
 css/css-flexbox/remove-wrapped-002.html
 css/css-flexbox/select-element-multiple.html
@@ -6559,6 +6573,7 @@ css/css-fonts/palette-values-rule-add-2.html
 css/css-fonts/palette-values-rule-delete-2.html
 css/css-fonts/quoted-generic-ignored.html
 css/css-fonts/rem-in-monospace.html
+css/css-fonts/remove-loaded-font-face-rule.html
 css/css-fonts/size-adjust-02.html
 css/css-fonts/standard-font-family-10.html
 css/css-fonts/standard-font-family-17.html
@@ -6588,12 +6603,15 @@ css/css-fonts/variations/variable-opsz.html
 css/css-fonts/web-font-no-longer-accessible-when-stylesheet-removed.html
 css/css-grid/abspos/absolute-positioning-changing-containing-block-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-001.html
+css/css-grid/abspos/grid-abspos-staticpos-align-self-img-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-safe-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-safe-outer-cb-002.tentative.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-last-baseline-002.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-001.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-img-001.html
+css/css-grid/abspos/grid-abspos-staticpos-justify-self-img-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-001.html
 css/css-grid/abspos/grid-abspos-staticpos-justify-self-rtl-last-baseline-002.html
@@ -6932,6 +6950,7 @@ css/css-grid/grid-items/grid-z-axis-ordering-overlapped-items-006.html
 css/css-grid/grid-items/item-with-table-with-infinite-max-intrinsic-width.html
 css/css-grid/grid-items/overflow-hidden-min-content-contribution-in-abs-pos-grid-in-flexbox.html
 css/css-grid/grid-items/percentage-margin-dynamic.html
+css/css-grid/grid-items/percentage-size-indefinite-replaced.html
 css/css-grid/grid-items/percentage-size-replaced-subitems-001.html
 css/css-grid/grid-items/percentage-size-subitems-001.html
 css/css-grid/grid-items/percentage-size-subitems-002.html
@@ -7143,6 +7162,7 @@ css/css-grid/placement/grid-placement-using-named-grid-lines-007.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-008.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-009.html
 css/css-grid/placement/grid-template-areas-must-keep-named-columns-order-001.html
+css/css-grid/relative-grandchild.html
 css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-001.html
 css/css-grid/replaced-element-percentage-height-in-grid-nested-in-flex-002.html
 css/css-grid/stretch-grid-item-button-overflow.html
@@ -7438,6 +7458,7 @@ css/css-position/sticky/position-sticky-column-reverse-flex.html
 css/css-position/sticky/position-sticky-fixed-ancestor-002.html
 css/css-position/sticky/position-sticky-fixed-ancestor-003.html
 css/css-position/sticky/position-sticky-fixed-ancestor-iframe.html
+css/css-position/sticky/position-sticky-fixed-ancestor.html
 css/css-position/sticky/position-sticky-in-fixed-container.html
 css/css-position/sticky/position-sticky-large-top.tentative.html
 css/css-position/sticky/position-sticky-left-004.html
@@ -7994,6 +8015,7 @@ css/css-text/text-indent/text-indent-length-001.html
 css/css-text/text-indent/text-indent-length-002.html
 css/css-text/text-indent/text-indent-list-001.html
 css/css-text/text-indent/text-indent-min-max-content-001.html
+css/css-text/text-indent/text-indent-overflow.html
 css/css-text/text-indent/text-indent-percentage-002.html
 css/css-text/text-indent/text-indent-percentage-003.html
 css/css-text/text-indent/text-indent-percentage-004.html
@@ -8537,6 +8559,7 @@ css/css-values/vh-support-margin.html
 css/css-values/vh-support-transform-origin.html
 css/css-values/vh-support-transform-translate.html
 css/css-values/vh-support.html
+css/css-values/vh-update-and-transition-in-subframe.html
 css/css-values/vh-zero-support.html
 css/css-values/viewport-unit-011.html
 css/css-values/viewport-units-scrollbars-custom-001.html
@@ -9222,7 +9245,6 @@ css/css-writing-modes/text-align-vrl-018.xht
 css/css-writing-modes/text-baseline-srl-008.xht
 css/css-writing-modes/text-baseline-vlr-007.xht
 css/css-writing-modes/text-baseline-vrl-006.xht
-css/css-writing-modes/text-combine-upright-decorations-001.html
 css/css-writing-modes/text-combine-upright-gen-con-001.html
 css/css-writing-modes/text-combine-upright-inherit-all-001.html
 css/css-writing-modes/text-combine-upright-inherit-all-002.html

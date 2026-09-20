@@ -11,9 +11,12 @@
 
 #include "js/Object.h"
 
+#include <algorithm>
 #include <cmath>
 #include <deque>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -98,11 +101,27 @@ js::Value frozen_ports(Realm::Internals& in, std::span<js::Value const> transfer
     return js::Value::object(list);
 }
 
-// Fires a MessageEvent carrying `data` at `target` (a port or the window),
-// with the ports the message transferred; a message a window posted carries
-// the origin of that window's document.
+} // namespace
+
+js::Value dom_exception_value(Realm::Internals& in, std::string_view name, std::string_view message)
+{
+    return dom_error(in, name, message);
+}
+
+Native pending_promise(js::Interpreter& interpreter)
+{
+    std::optional<js::PromiseCapability> const capability
+        = js::new_promise_capability(interpreter, js::Value::object(interpreter.intrinsics().promise_constructor));
+    if (!capability)
+        return std::nullopt;
+    return capability->promise;
+}
+
+// Fires a MessageEvent carrying `data` at `target` (a port, the window, a
+// Worker or a worker's scope), with the ports the message transferred; a
+// message a window posted carries the origin of that window's document.
 void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& data, std::string_view origin, js::Value const& source,
-    std::span<js::Value const> transferred, std::optional<Origin> const& sender_origin = std::nullopt)
+    std::span<js::Value const> transferred, std::optional<Origin> const& sender_origin)
 {
     js::Interpreter::Roots const roots(in.interpreter);
     in.interpreter.root(js::Value::object(target));
@@ -123,7 +142,7 @@ void deliver_message(Realm::Internals& in, js::Object* target, js::Value const& 
 // A message that could not be made in the receiving realm: a messageerror
 // event in its place (HTML §9.3.3, §9.5.3).
 void deliver_message_error(Realm::Internals& in, js::Object* target, std::string_view origin, js::Value const& source,
-    std::optional<Origin> const& sender_origin = std::nullopt)
+    std::optional<Origin> const& sender_origin)
 {
     in.interpreter.clear_exception();
     js::Interpreter::Roots const roots(in.interpreter);
@@ -138,6 +157,8 @@ void deliver_message_error(Realm::Internals& in, js::Object* target, std::string
     event->ports = frozen_ports(in, {});
     in.dispatch(*event, target);
 }
+
+namespace {
 
 // The task that delivers the message at the front of a port's message queue
 // (HTML §9.5.3), in the port's realm: one is posted for each message, as the
@@ -187,6 +208,144 @@ void start_port(MessagePortObject& port)
         post_port_task(port);
 }
 
+// Closes a port's end of its channel, if it has one: what was sent to it and
+// not taken is dropped, and the other end's messages go nowhere from now on.
+void close_channel_end(MessagePortObject& port)
+{
+    if (!port.channel)
+        return;
+    {
+        std::lock_guard<std::mutex> const lock(port.channel->mutex);
+        PortChannel::End& end = port.channel->ends[port.channel_end];
+        end.closed = true;
+        end.queue.clear();
+        end.wake = nullptr;
+    }
+    release_channel_end(port);
+}
+
+} // namespace
+
+MessagePortObject::~MessagePortObject()
+{
+    // Collected, or gone with its heap, while it was a channel's end: nothing
+    // will take that end's messages any more.
+    close_channel_end(*this);
+}
+
+void release_channel_end(MessagePortObject& port)
+{
+    if (port.channel_agent != nullptr)
+        std::erase(port.channel_agent->channel_ports, &port);
+    port.channel.reset();
+    port.channel_agent = nullptr;
+}
+
+void entangle_with_channel(MessagePortObject& port, std::shared_ptr<PortChannel> channel, int end)
+{
+    Agent& agent = port.realm().internals().agent;
+    port.channel = std::move(channel);
+    port.channel_end = end;
+    port.channel_agent = &agent;
+    agent.channel_ports.push_back(&port);
+    std::lock_guard<std::mutex> const lock(port.channel->mutex);
+    port.channel->ends[end].wake = agent.wake_loop;
+}
+
+ChannelEnd channel_end_of(MessagePortObject& detached)
+{
+    // What the port had queued travels with the end, in a form another agent
+    // may hold; made before any lock is taken, since it may make channels.
+    std::vector<std::shared_ptr<SerializedMessage const>> queued;
+    for (std::shared_ptr<SerializedMessage const> const& message : detached.pending)
+        queued.push_back(message_for_another_agent(message));
+    detached.pending.clear();
+    ChannelEnd result;
+    if (detached.channel) {
+        // Already an end: it moves on, and what this agent had taken off the
+        // channel and not delivered goes back to the front of it, in order.
+        result = ChannelEnd { detached.channel, detached.channel_end };
+        {
+            std::lock_guard<std::mutex> const lock(result.channel->mutex);
+            PortChannel::End& end = result.channel->ends[result.end];
+            for (auto it = queued.rbegin(); it != queued.rend(); ++it)
+                end.queue.push_front(*it);
+            end.wake = nullptr;
+        }
+        release_channel_end(detached);
+        return result;
+    }
+    // Entangled with a port of this agent: that port stays, as end 0 of a new
+    // channel, and end 1 travels.
+    result.channel = std::make_shared<PortChannel>();
+    result.end = 1;
+    for (std::shared_ptr<SerializedMessage const> const& message : queued)
+        result.channel->ends[1].queue.push_back(message);
+    MessagePortObject* const partner = detached.entangled;
+    detached.entangled = nullptr;
+    if (partner != nullptr) {
+        partner->entangled = nullptr;
+        entangle_with_channel(*partner, result.channel, 0);
+    } else {
+        result.channel->ends[0].closed = true;
+    }
+    return result;
+}
+
+bool pump_channel_ports(Agent& agent)
+{
+    bool any = false;
+    std::vector<MessagePortObject*> const ports = agent.channel_ports; // a copy: a delivery may change the list
+    for (MessagePortObject* const port : ports) {
+        if (std::find(agent.channel_ports.begin(), agent.channel_ports.end(), port) == agent.channel_ports.end())
+            continue;
+        // A port on its way to another realm takes nothing: its end waits.
+        if (port->detached || port->closed || !port->channel)
+            continue;
+        std::deque<std::shared_ptr<SerializedMessage const>> taken;
+        {
+            std::lock_guard<std::mutex> const lock(port->channel->mutex);
+            taken.swap(port->channel->ends[port->channel_end].queue);
+        }
+        for (std::shared_ptr<SerializedMessage const> const& message : taken) {
+            enqueue_port_message(*port, message);
+            any = true;
+        }
+    }
+    return any;
+}
+
+bool channel_ports_due(Agent const& agent)
+{
+    for (MessagePortObject const* const port : agent.channel_ports) {
+        if (port->detached || port->closed || !port->channel)
+            continue;
+        std::lock_guard<std::mutex> const lock(port->channel->mutex);
+        if (!port->channel->ends[port->channel_end].queue.empty())
+            return true;
+    }
+    return false;
+}
+
+void trace_channel_ports(Agent const& agent, js::Tracer& tracer)
+{
+    // A started port whose other end is open may be sent a message by a
+    // script no collection here can see: it stays for as long as that is so.
+    for (MessagePortObject* const port : agent.channel_ports) {
+        if (!port->started || port->closed || port->detached || !port->channel)
+            continue;
+        bool open = false;
+        {
+            std::lock_guard<std::mutex> const lock(port->channel->mutex);
+            open = !port->channel->ends[1 - port->channel_end].closed;
+        }
+        if (open)
+            tracer.visit(port);
+    }
+}
+
+namespace {
+
 void install_message_channel(Realm::Internals& in)
 {
     js::Interpreter& interpreter = in.interpreter;
@@ -220,6 +379,26 @@ void install_message_channel(Realm::Internals& in)
             if (target != nullptr && entry == target)
                 doomed = true;
         }
+        if (source.channel) {
+            // Entangled with a port of another agent: the message leaves in a
+            // form that holds nothing of this heap, and that agent is told.
+            std::shared_ptr<SerializedMessage const> const leaving
+                = structured_serialize_for_another_agent(internals, js::argument(args, 0), *transfer);
+            if (!leaving)
+                return std::nullopt;
+            std::function<void()> wake;
+            {
+                std::lock_guard<std::mutex> const lock(source.channel->mutex);
+                PortChannel::End& other = source.channel->ends[1 - source.channel_end];
+                if (other.closed)
+                    return js::Value::undefined();
+                other.queue.push_back(leaving);
+                wake = other.wake;
+            }
+            if (wake)
+                wake();
+            return js::Value::undefined();
+        }
         std::shared_ptr<SerializedMessage const> const message = structured_serialize(internals, js::argument(args, 0), *transfer);
         if (!message)
             return std::nullopt;
@@ -246,6 +425,7 @@ void install_message_channel(Realm::Internals& in)
             (*found)->entangled->entangled = nullptr;
             (*found)->entangled = nullptr;
         }
+        close_channel_end(**found);
         return js::Value::undefined();
     });
     // onmessage: setting it starts the port (HTML §9.5.2.1).

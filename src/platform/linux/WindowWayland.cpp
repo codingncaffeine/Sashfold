@@ -406,6 +406,7 @@ public:
 
     bool poll(WindowEvent& event) override;
     void wait(int timeout_ms) override;
+    void wake() override { m_connection->wake(); }
     void present(Bitmap const& frame) override;
     void set_title(std::string const& title) override;
     void set_cursor(Cursor cursor) override;

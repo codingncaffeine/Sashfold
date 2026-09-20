@@ -34,6 +34,9 @@
 
 namespace sashfold::bindings {
 
+class WorkerThreads; // Workers.h
+class WorkerRuntime; // a worker's side of itself, private to the bindings
+
 // A border box in page coordinates (CSS px), as last laid out.
 struct LayoutBox {
     float x = 0;
@@ -175,12 +178,28 @@ struct HostHooks {
     // window opens only then. Without it every ask counts as a gesture.
     std::function<bool()> user_activation;
 
+    // Dedicated workers (HTML §10.2, Workers.h). With `worker_threads`, each
+    // worker a document here starts runs on a thread of its own, and all it
+    // asks of the network — its script, importScripts, fetch, XMLHttpRequest
+    // — goes through `worker_fetch`, called ON that thread and for as long as
+    // the WorkerThreads lives, whatever has become of the page: it must be
+    // safe there and touch nothing of the page's. Without them a worker runs
+    // on the page's own thread, a turn of its loop inside each run_pending(),
+    // fetching through fetch_resource above and timed by `now`: what a test
+    // or a headless run wants, since it keeps the run deterministic.
+    WorkerThreads* worker_threads = nullptr;
+    std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&)> worker_fetch;
+
     // A line for each step of the event loop and the frames worth seeing — a
     // timer set or fired, a task run, a frame opened, closed or navigated, a
     // navigation asked, a message delivered — for a host that wants to know
     // why a page waits. Nothing by default.
     std::function<void(std::string_view)> trace;
 
+    // Called before the viewport below is read, by a realm whose viewport may
+    // have changed without anyone saying — a frame's, which is its container's
+    // box in a layout its page owns. The realm's own; a host leaves it unset.
+    std::function<void()> refresh_viewport;
     float viewport_width = 1024; // CSS px, for innerWidth and matchMedia
     float viewport_height = 768;
     // Device px per CSS px: devicePixelRatio, and the scale matchMedia's
@@ -366,6 +385,17 @@ public:
     // The agent's stand-in for its ended realms: an empty document, no hooks.
     struct StandIn { };
     Realm(StandIn, Agent& agent, dom::Document& document);
+    // A dedicated worker's realm (Workers.cpp): an agent of its own over a
+    // document nothing shows, whose global object is a
+    // DedicatedWorkerGlobalScope where a page's is its window. `url` is the
+    // worker script's, which the scope's location shows and its relative URLs
+    // are resolved against; `origin` is the origin it runs with, its owner's.
+    struct WorkerScope {
+        WorkerRuntime* runtime = nullptr;
+        std::string name;
+        net::Url origin;
+    };
+    Realm(WorkerScope scope, dom::Document& document, net::Url url, HostHooks hooks);
 
 private:
     std::unique_ptr<Internals> m_internals;

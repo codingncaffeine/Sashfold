@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -177,6 +178,7 @@ std::vector<std::uint8_t> const& Request::bytes()
 
 Connection::Connection(int fd)
     : m_fd(fd)
+    , m_wake_fd(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC))
 {
 }
 
@@ -186,6 +188,16 @@ Connection::~Connection()
         ::close(fd);
     if (m_fd >= 0)
         ::close(m_fd);
+    if (m_wake_fd >= 0)
+        ::close(m_wake_fd);
+}
+
+void Connection::wake()
+{
+    // One counter, however many callers: a full one is as good as written.
+    std::uint64_t const one = 1;
+    if (m_wake_fd >= 0)
+        (void)!::write(m_wake_fd, &one, sizeof one);
 }
 
 std::unique_ptr<Connection> Connection::connect(std::string& error)
@@ -441,13 +453,18 @@ int Connection::dispatch(int timeout_ms)
         return -1;
     int count = dispatch_buffered();
     if (count == 0 && timeout_ms != 0) {
-        pollfd waiter { m_fd, POLLIN, 0 };
-        int const ready = ::poll(&waiter, 1, timeout_ms);
+        pollfd waiters[2] = { { m_fd, POLLIN, 0 }, { m_wake_fd, POLLIN, 0 } };
+        int const ready = ::poll(waiters, m_wake_fd >= 0 ? 2 : 1, timeout_ms);
         if (ready < 0 && errno != EINTR) {
             fail(std::string("poll: ") + std::strerror(errno));
             return -1;
         }
-        if (ready > 0) {
+        if (ready > 0 && (waiters[1].revents & POLLIN) != 0) {
+            // Woken: the counter is emptied, and the caller's loop goes round.
+            std::uint64_t woken = 0;
+            (void)!::read(m_wake_fd, &woken, sizeof woken);
+        }
+        if (ready > 0 && waiters[0].revents != 0) {
             if (!read_available())
                 return -1;
             count = dispatch_buffered();

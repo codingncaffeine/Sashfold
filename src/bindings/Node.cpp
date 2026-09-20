@@ -1452,10 +1452,40 @@ void install_element(Realm::Internals& in, js::Object& element)
         default: return js::Value::number(std::round(static_cast<double>(box->x)));
         }
     };
-    element_getter(in, element, "clientWidth", [box_metric](Realm::Internals& internals, dom::Element& e) -> Native { return box_metric(internals, e, 0); });
-    element_getter(in, element, "clientHeight", [box_metric](Realm::Internals& internals, dom::Element& e) -> Native { return box_metric(internals, e, 1); });
-    element_getter(in, element, "clientTop", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
-    element_getter(in, element, "clientLeft", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); });
+    // clientWidth and clientHeight (CSSOM View §6): the root element's are
+    // the viewport's; any other box's are its padding box's, which is its
+    // border box without the borders. clientTop and clientLeft are those
+    // borders. The style's lengths are the engine's px; the box is CSS px.
+    auto const client_metric = [](Realm::Internals& internals, dom::Element& e, int which) -> Native {
+        // 0 width, 1 height, 2 top, 3 left.
+        bool const root = e.parent() != nullptr && e.parent()->type() == dom::NodeType::Document;
+        if (root && which < 2) {
+            if (internals.hooks.refresh_viewport)
+                internals.hooks.refresh_viewport();
+            return js::Value::number(static_cast<double>(which == 0 ? internals.hooks.viewport_width : internals.hooks.viewport_height));
+        }
+        if (!internals.hooks.layout_box)
+            return js::Value::number(0);
+        std::optional<LayoutBox> const box = internals.hooks.layout_box(e);
+        if (!box)
+            return js::Value::number(0);
+        css::ComputedStyle const* const style = internals.hooks.computed_style ? internals.hooks.computed_style(e) : nullptr;
+        float const scale = internals.hooks.device_scale > 0 ? internals.hooks.device_scale : 1.0f;
+        float const left = style ? style->border_left.width / scale : 0.0f;
+        float const right = style ? style->border_right.width / scale : 0.0f;
+        float const top = style ? style->border_top.width / scale : 0.0f;
+        float const bottom = style ? style->border_bottom.width / scale : 0.0f;
+        switch (which) {
+        case 0: return js::Value::number(std::round(static_cast<double>(std::max(0.0f, box->width - left - right))));
+        case 1: return js::Value::number(std::round(static_cast<double>(std::max(0.0f, box->height - top - bottom))));
+        case 2: return js::Value::number(std::round(static_cast<double>(top)));
+        default: return js::Value::number(std::round(static_cast<double>(left)));
+        }
+    };
+    element_getter(in, element, "clientWidth", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 0); });
+    element_getter(in, element, "clientHeight", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 1); });
+    element_getter(in, element, "clientTop", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 2); });
+    element_getter(in, element, "clientLeft", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 3); });
     element_getter(in, element, "scrollWidth", [box_metric](Realm::Internals& internals, dom::Element& e) -> Native { return box_metric(internals, e, 0); });
     element_getter(in, element, "scrollHeight", [box_metric](Realm::Internals& internals, dom::Element& e) -> Native { return box_metric(internals, e, 1); });
     element_accessor(
@@ -1474,7 +1504,11 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_method(in, element, "getAnimations", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
-    element_method(in, element, "requestFullscreen", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+    // requestFullscreen() is a promise, refused while the shell has no full screen.
+    element_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
+        internals.interpreter.throw_type_error("Fullscreen request denied");
+        return rejected_promise(internals.interpreter, internals.interpreter.take_exception());
+    });
 }
 
 // --- CharacterData, Text, Comment ------------------------------------------------------------

@@ -72,6 +72,14 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
             }
         }
     }
+    // A document with no window — one a parser or createHTMLDocument made,
+    // one a frame has gone on from — has scripting disabled (HTML §8.1.3.4):
+    // a handler attribute of its elements is never compiled, let alone run.
+    if (element && !from_body) {
+        NodeWrapper const* const wrapper = in.wrapper_of(js::Value::object(target));
+        if (wrapper != nullptr && wrapper->realm().internals().document != &element->document())
+            element = nullptr;
+    }
     if (element) {
         dom::Attr const* attribute = element->find_attribute("on" + key);
         auto it = map->find(key);
@@ -86,7 +94,11 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
                     ++in.stats.scripts_refused;
                 } else {
                     std::u16string const body = js::utf16_from_utf8(attribute->value);
-                    std::optional<js::Value> compiled = in.interpreter.compile_function(u"event", body);
+                    // The window's onerror, which the body's attribute is, takes
+                    // the error's five parts by name (HTML §8.1.8.1).
+                    bool const window_onerror = from_body && key == "error";
+                    std::optional<js::Value> compiled
+                        = in.interpreter.compile_function(window_onerror ? u"event, source, lineno, colno, error" : u"event", body);
                     if (compiled) {
                         handler.function = *compiled;
                     } else {
@@ -117,12 +129,25 @@ void call_handler(Realm::Internals& in, js::Object* target, EventObject& event)
     js::Interpreter::Roots const roots(interpreter);
     interpreter.root(handler);
     js::Value const event_value = js::Value::object(&event);
-    js::Value const arguments[1] = { event_value };
+    // An ErrorEvent named error at a window or a worker's scope: the handler
+    // is OnErrorEventHandler, called with the event's five parts, and true
+    // from it is what cancels (HTML §8.1.8.1, special error event handling).
+    bool const special = event.is_error_event && event.type == "error" && in.is_window(target);
+    std::vector<js::Value> arguments { event_value };
+    if (special) {
+        arguments = { interpreter.root(in.string(event.message)), interpreter.root(in.string(event.filename)),
+            js::Value::number(event.lineno), js::Value::number(event.colno), event.detail_value };
+    }
     Realm::Internals::Entry const entry(in);
     js::Outcome const outcome = interpreter.call_outcome(handler, js::Value::object(target), arguments);
     if (!outcome.ok) {
         if (!interpreter.terminated())
             in.report_uncaught(outcome.value, "on" + event.type + " handler");
+        return;
+    }
+    if (special) {
+        if (outcome.value.is_boolean() && outcome.value.as_boolean())
+            event.default_prevented = true;
         return;
     }
     if (event.type != "error" && outcome.value.is_boolean() && !outcome.value.as_boolean() && event.cancelable)
@@ -390,6 +415,21 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
             event->loaded = *loaded;
             event->total = *total;
         }
+        if (interface == "ErrorEvent") {
+            std::optional<std::string> message = init_string(interpreter, init, "message");
+            std::optional<std::string> filename = init_string(interpreter, init, "filename");
+            std::optional<double> const lineno = init_number(interpreter, init, "lineno", 0);
+            std::optional<double> const colno = init_number(interpreter, init, "colno", 0);
+            // The error is any value, undefined when the dictionary has none.
+            std::optional<js::Value> const error = init.is_object() ? interpreter.get(init, "error") : js::Value::undefined();
+            if (!message || !filename || !lineno || !colno || !error)
+                return std::nullopt;
+            event->message = std::move(*message);
+            event->filename = std::move(*filename);
+            event->lineno = to_unsigned_long(*lineno);
+            event->colno = to_unsigned_long(*colno);
+            event->detail_value = *error;
+        }
         if (interface == "MessageEvent") {
             std::optional<js::Value> const data = init_value(interpreter, init, "data");
             std::optional<std::string> origin = init_string(interpreter, init, "origin");
@@ -516,6 +556,7 @@ EventObject* Realm::Internals::new_event(std::string_view interface, std::string
     event->cancelable = cancelable;
     event->initialized = true;
     event->time_stamp = now() - time_origin;
+    event->is_error_event = interface == "ErrorEvent";
     return event;
 }
 
@@ -922,6 +963,15 @@ void install_events(Realm::Internals& in)
     event_getter(in, *progress_event, "loaded", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.loaded); });
     event_getter(in, *progress_event, "total", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.total); });
     define_interface(in, "HashChangeEvent", event, event_constructor("HashChangeEvent"), 1);
+
+    // ErrorEvent (HTML §8.1.4.3): an uncaught exception as its global is told
+    // of it, and as a Worker is told of its worker's.
+    js::Object* error_event = define_interface(in, "ErrorEvent", event, event_constructor("ErrorEvent"), 1);
+    event_getter(in, *error_event, "message", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.message); });
+    event_getter(in, *error_event, "filename", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.filename); });
+    event_getter(in, *error_event, "lineno", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.lineno); });
+    event_getter(in, *error_event, "colno", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.colno); });
+    event_getter(in, *error_event, "error", [](Realm::Internals&, EventObject& e) { return e.detail_value; });
 
     // MessageEvent (HTML §9.4.1): what a MessagePort or window.postMessage delivers.
     js::Object* message_event = define_interface(in, "MessageEvent", event, event_constructor("MessageEvent"), 1);

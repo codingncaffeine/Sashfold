@@ -72,8 +72,14 @@ dom/events/Event-defaultPrevented.html	preventDefault() should change defaultPre
 dom/events/Event-defaultPrevented.html	preventDefault() should not change defaultPrevented if cancelable is false.
 dom/events/Event-defaultPrevented.html	returnValue should change defaultPrevented if cancelable is true.
 dom/events/Event-defaultPrevented.html	returnValue should not change defaultPrevented if cancelable is false.
-dom/events/Event-dispatch-bubbles-false.html	In DOMImplementation.createHTMLDocument()
-dom/events/Event-dispatch-bubbles-true.html	In DOMImplementation.createHTMLDocument()
+dom/events/Event-dispatch-bubbles-false.html	In new Document()
+dom/events/Event-dispatch-bubbles-false.html	In window.document with click event
+dom/events/Event-dispatch-bubbles-false.html	In window.document with load event
+dom/events/Event-dispatch-bubbles-false.html	In window.document.cloneNode(true)
+dom/events/Event-dispatch-bubbles-true.html	In new Document()
+dom/events/Event-dispatch-bubbles-true.html	In window.document with click event
+dom/events/Event-dispatch-bubbles-true.html	In window.document with load event
+dom/events/Event-dispatch-bubbles-true.html	In window.document.cloneNode(true)
 dom/events/Event-dispatch-click.html	basic with wrong event class
 dom/events/Event-dispatch-click.html	disabled checkbox should fire onclick
 dom/events/Event-dispatch-click.html	disabled checkbox should get legacy-canceled-activation behavior 2
@@ -173,6 +179,7 @@ dom/events/EventListener-addEventListener.sub.window.html	EventListener.addEvent
 dom/events/EventListener-handleEvent.html	calls `handleEvent` method of `EventListener`
 dom/events/EventListener-handleEvent.html	doesn't call `handleEvent` method on callable `EventListener`
 dom/events/EventListener-handleEvent.html	performs `Get` every time event is dispatched
+dom/events/EventListener-handleEvent.html	rethrows errors when getting `handleEvent`
 dom/events/EventListenerOptions-capture.html	Capture boolean should be honored correctly
 dom/events/EventListenerOptions-capture.html	Capture option should be honored correctly
 dom/events/EventListenerOptions-capture.html	Equivalence of option values
@@ -304,11 +311,10 @@ dom/events/scrolling/scroll-event-fired-to-element.html	scrollTop and scrollLeft
 dom/events/scrolling/scroll-event-fired-to-element.html	scrollTop and scrollLeft being set with the same value.
 dom/events/scrolling/scroll-event-fired-to-iframe.html	scrollX and scrollY being set with invalid scroll Scroll.
 dom/events/scrolling/scroll-event-fired-to-iframe.html	scrollX and scrollY being set with the same value.
-dom/events/scrolling/scrollend-event-fires-to-iframe-window.html	Tests that the target_div within iframe gets scrollend event when clicking scrollbar.
-dom/events/scrolling/scrollend-event-fires-to-iframe-window.html	Tests that the target_div within iframe gets scrollend event when dragging the scrollbar thumb.
 dom/events/scrolling/scrollend-event-for-user-scroll.html	Tests that the target_div gets scrollend event when clicking scrollbar.
 dom/events/scrolling/scrollend-event-for-user-scroll.html	Tests that the target_div gets scrollend event when dragging the scrollbar thumb.
 dom/events/window-composed-path.html	window target has an empty path after dispatch
+dom/events/window-event-restored-after-throwing-onerror.html	window.event is restored after a throwing window.onerror handler
 dom/nodes/CharacterData-appendChild.html	Comment.appendChild(Comment)
 dom/nodes/CharacterData-appendChild.html	Comment.appendChild(ProcessingInstruction)
 dom/nodes/CharacterData-appendChild.html	Comment.appendChild(Text)
@@ -10546,8 +10552,6 @@ dom/nodes/insertion-removing-steps/script-does-not-run-on-child-removal.window.h
 dom/nodes/moveBefore/Node-moveBefore.html	Calling moveBefore with a non-Node first argument must throw TypeError.
 dom/nodes/moveBefore/Node-moveBefore.html	Calling moveBefore with second argument missing, or other than Node, null, or undefined, must throw TypeError.
 dom/nodes/moveBefore/Node-moveBefore.html	moveBefore() method does not exist on non-ParentNode Nodes
-dom/nodes/moveBefore/preserve-render-blocking-script.html	A moved script should keep its render-blocking state
-dom/nodes/moveBefore/preserve-render-blocking-style.html	A moved script should keep its render-blocking state
 dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: iframe removed before adoption (subtree not pre-detached)
 dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: subtree detached, iframe removed, then adopted
 dom/nodes/node-realm-mixed-across-adoption.html	Never-wrapped node keeps its creation realm across multiple adoptions
@@ -56732,6 +56736,8 @@ html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) retu
 html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) throws for cross-origin frames.
 html/browsers/origin/api/origin-from-window.window.html	Origin.from(Window) throws for sandboxed frames.
 html/browsers/origin/api/origin-from-window.window.html	Origin.from(window) returns a tuple origin.
+html/browsers/origin/api/origin-from-worker.window.html	Comparison of `Origin.from(Worker)` for opaque data URL origin.
+html/browsers/origin/api/origin-from-worker.window.html	Comparison of `Origin.from(Worker)` tuple origins.
 html/browsers/origin/api/origin-from.any.html	Origin.from(1) throws a TypeError.
 html/browsers/origin/api/origin-from.any.html	Origin.from(1.1) throws a TypeError.
 html/browsers/origin/api/origin-from.any.html	Origin.from([object Object]) throws a TypeError.
@@ -57469,20 +57475,28 @@ html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	prim
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive string, lone low surrogate
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive true
 html/infrastructure/safe-passing-of-structured-data/messagechannel.any.html	primitive undefined
+html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/blob-data.https.html	blob worker: self.origin
+html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/blob-data.https.html	data frame: self.origin
+html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/blob-data.https.html	data worker: self.origin
 html/infrastructure/safe-passing-of-structured-data/shared-array-buffers/no-coop-coep.https.any.html	SharedArrayBuffer constructor does not exist without COOP+COEP
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-extra.html	Errors sent across realms should preserve their type
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-extra.html	Throwing name getter fails serialization
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (same-origin iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	JS-engine-created TypeError (worker)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (same-origin iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created DOMException (worker)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (same-origin iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	page-created Error (worker)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (cross-site iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (same-origin iframe)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (structuredClone())
+html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack-optional.sub.window.html	web API-created DOMException (worker)
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on DOMException
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on Error
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on EvalError
@@ -57493,6 +57507,44 @@ html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-sta
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on URIError
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack on a thrown DOMException
 html/infrastructure/safe-passing-of-structured-data/structured-cloning-error-stack.window.html	structuredClone() preserves .stack via [[Stack]] internal slot, not as own property
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Cloning a modified Error
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Cycles are preserved in Arrays
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Cycles are preserved in Objects
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	DOMException objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	DOMException objects created by the UA can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Document objects cannot be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Empty Error objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Enumerable properties of Arrays are cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Error objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Error.message: getter is ignored when cloning
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Error.message: undefined property is stringified
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	EvalError objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Identity of duplicates is preserved
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Instance of Boolean is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Instance of Date is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Instance of Number is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Instance of RegExp is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Instance of String is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Object properties are cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive boolean is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive floating point (negative) is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive floating point is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive integer is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive number (hex) is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive number (scientific) is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Primitive string is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Property descriptors of Arrays are not cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Property descriptors of Objects are not cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Property order is preserved
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Prototype chains are not walked.
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	RangeError objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	ReferenceError objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	SyntaxError objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	TypeError objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	URIError objects can be cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	URIError objects from other realms are treated as URIError
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Value 'null' is cloned
+html/infrastructure/safe-passing-of-structured-data/structuredclone_0.html	Window objects cannot be cloned
 html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer ArrayBuffer detached while the message was serialized
 html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer MessagePort detached while the message was serialized
 html/infrastructure/safe-passing-of-structured-data/transfer-errors.window.html	Cannot transfer all objects
@@ -57909,6 +57961,7 @@ html/semantics/embedded-content/the-iframe-element/sandbox_031.htm	Block localSt
 html/semantics/embedded-content/the-iframe-element/sandbox_032.htm	Block XMLHttpRequest in an iframe with the sandbox attribute.
 html/semantics/embedded-content/the-iframe-element/srcdoc-anchor.html	Verify srcdoc content loads when src is about:srcdoc#foo.
 html/semantics/embedded-content/the-iframe-element/srcdoc-attribute-reset.html	Verify that the frame reloads with empty body after we remove srcdoc.
+html/semantics/embedded-content/the-iframe-element/srcdoc-lifecycle-crash-crbug-1472607.https.html	requestStorageAccess() from about:blank Document before it gets replaced with a srcdoc resource does not crash the host process
 html/semantics/embedded-content/the-iframe-element/srcdoc_process_attributes.html	Setting `srcdoc` (via property) triggers attributes processing
 html/semantics/embedded-content/the-object-element/block-object-with-ruby-crash.html	no crash
 html/semantics/embedded-content/the-object-element/document-getters-return-null-for-cross-origin.html	HTMLObjectElement.contentDocument for cross-origin document
@@ -60307,6 +60360,7 @@ html/syntax/parsing/zero.html	U+0000 should vanish after ampersand and three let
 html/syntax/parsing/zero.html	U+0000 should vanish after ampersand and two letters of entity prefix
 html/syntax/parsing/zero.html	U+0000 should vanish after semicolonless entity
 html/syntax/parsing/zero.html	U+0000 should vanish before required semicolon
+html/webappapis/microtask-queuing/queue-microtask-exceptions.any.html	It rethrows exceptions
 html/webappapis/microtask-queuing/queue-microtask.any.html	It calls the callback asynchronously
 html/webappapis/microtask-queuing/queue-microtask.any.html	It does not pass any arguments
 html/webappapis/microtask-queuing/queue-microtask.any.html	It exists and is a function
@@ -60316,17 +60370,35 @@ html/webappapis/scripting/event-loops/microtask_after_raf.html	Microtask execute
 html/webappapis/scripting/event-loops/microtask_after_script.html	Microtask immediately after script
 html/webappapis/scripting/event-loops/task_microtask_ordering.html	Basic task and microtask ordering
 html/webappapis/scripting/events/compile-event-handler-lexical-scopes-form-owner.html	<div> doesn't have a form owner
+html/webappapis/scripting/events/compile-event-handler-lexical-scopes.html	The EventHandler is not an element's event handler (i.e. Window's event handler) and has no form owner.
 html/webappapis/scripting/events/compile-event-handler-settings-objects.html	The Function instance must be created in the Realm of the node document
 html/webappapis/scripting/events/event-handler-handleEvent-ignored.html	non-callable "message" handler that is instance of Function
 html/webappapis/scripting/events/event-handler-handleEvent-ignored.html	plain object "mouseenter" handler
 html/webappapis/scripting/events/event-handler-javascript.html	Event handlers starting with 'javascript:' should treat that as a label.
 html/webappapis/scripting/events/event-handler-onresize.html	meta.onresize should set the meta.onresize handler
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/body-element-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Window, with a synthetic Event
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-errorevent.html	Initial values of ErrorEvent members
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-errorevent.html	error event is normal (return true does not cancel; one arg) on Document, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-errorevent.html	error member can be set to arbitrary
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-errorevent.html	error member can be set to null
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-errorevent.html	error member can be set to undefined
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/document-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Document, with a synthetic Event
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/frameset-element-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Window, with a synthetic Event
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/script-element.html	error event behaves normally (return true does not cancel; one arg) on a script element, with a 404 error
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/script-element.html	error event behaves normally (return true does not cancel; one arg) on a script element, with a synthetic ErrorEvent
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/script-element.html	error event behaves normally (return true does not cancel; one arg) on a script element, with a synthetic Event
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/synthetic-errorevent-click.html	click event is normal (return true does not cancel; one arg) on Document, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/synthetic-errorevent-click.html	click event is normal (return true does not cancel; one arg) on Window, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/synthetic-errorevent-click.html	click event is normal (return true does not cancel; one arg) on Worker, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/synthetic-errorevent-click.html	click event is normal (return true does not cancel; one arg) on a script element, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-runtime-error.html	error event has the right 5 args on Window, with a runtime error
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-runtime-error.html	error event is weird (return true cancels; many args) on Window, with a runtime error
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-synthetic-errorevent.html	error event has the right 5 args on Window, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-synthetic-errorevent.html	error event is weird (return true cancels; many args) on Window, with a synthetic ErrorEvent
 html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-synthetic-event.html	error event is normal (return true does not cancel; one arg) on Window, with a synthetic Event
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/worker.html	error event is normal (return true does not cancel; one arg) on Worker, with a syntax error in the worker code
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/worker.html	error event is normal (return true does not cancel; one arg) on Worker, with a synthetic ErrorEvent
+html/webappapis/scripting/events/event-handler-processing-algorithm-error/worker.html	error event is normal (return true does not cancel; one arg) on Worker, with a synthetic Event
 html/webappapis/scripting/events/event-handler-processing-algorithm.html	blur listener returning false cancels event
 html/webappapis/scripting/events/event-handler-processing-algorithm.html	click listener returning false cancels event
 html/webappapis/scripting/events/event-handler-processing-algorithm.html	dblclick listener returning false cancels event
@@ -60335,12 +60407,35 @@ html/webappapis/scripting/events/event-handler-processing-algorithm.html	mouseov
 html/webappapis/scripting/events/event-handler-processing-algorithm.html	mouseover listener returning true doesn't cancel event (using Event)
 html/webappapis/scripting/events/event-handler-processing-algorithm.html	mouseover listener returning true doesn't cancel event (using MouseEvent)
 html/webappapis/scripting/events/event-handler-spec-example.window.html	Event handler listeners should be registered when they are first set to an object value (function "function() {}").
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning "" from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning "abc" from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning -1 from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning 0 from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning 1 from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning 2.5 from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning Infinity from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning NaN from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning Symbol(Symbol.toStringTag) from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning [object Object] from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning false from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning null from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning true from [object Window]'s onerror event handler while ErrorEvent is firing should cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	Returning undefined from [object Window]'s onerror event handler while ErrorEvent is firing should not cancel the event
+html/webappapis/scripting/events/eventhandler-cancellation.html	event handler cancellation behavior
 html/webappapis/scripting/events/invalid-uncompiled-raw-handler-compiled-once.window.html	Invalid uncompiled raw handlers should only be compiled once
 html/webappapis/scripting/events/messageevent-constructor.https.html	MessageEvent constructor called as normal function
+html/webappapis/scripting/events/onerroreventhandler.html	onerror + !ErrorEvent + Window
+html/webappapis/scripting/events/onerroreventhandler.html	onerror + Document
+html/webappapis/scripting/events/onerroreventhandler.html	onerror + ErrorEvent + Window
 html/webappapis/scripting/events/uncompiled_event_handler_with_scripting_disabled.html	when scripting is disabled, the handler is never compiled
+html/webappapis/scripting/processing-model-2/addEventListener.html	window.onerror - addEventListener
 html/webappapis/scripting/processing-model-2/body-onerror-compile-error-data-url.html	<body onerror> - compile error in <script src=data:...> (column)
+html/webappapis/scripting/processing-model-2/body-onerror-compile-error.html	<body onerror> - compile error in <script>
 html/webappapis/scripting/processing-model-2/body-onerror-compile-error.html	<body onerror> - compile error in <script> (column)
+html/webappapis/scripting/processing-model-2/body-onerror-runtime-error.html	<body onerror> - runtime error in <script>
 html/webappapis/scripting/processing-model-2/body-onerror-runtime-error.html	<body onerror> - runtime error in <script> (column)
+html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setInterval.html	window.onerror - compile error in cross-origin setInterval
+html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setTimeout.html	window.onerror - compile error in cross-origin setTimeout
 html/webappapis/scripting/processing-model-2/compile-error-cross-origin.html	window.onerror - compile error in <script src=//www1...> (column)
 html/webappapis/scripting/processing-model-2/compile-error-in-attribute.html	window.onerror - compile error in attribute (column)
 html/webappapis/scripting/processing-model-2/compile-error-in-setInterval.html	window.onerror - compile error in setInterval (column)
@@ -60349,6 +60444,7 @@ html/webappapis/scripting/processing-model-2/compile-error-same-origin-with-hash
 html/webappapis/scripting/processing-model-2/compile-error-same-origin-with-hash.html	window.onerror - compile error in <script src=...> with hash (column)
 html/webappapis/scripting/processing-model-2/compile-error-same-origin.html	window.onerror - compile error in <script src=...>
 html/webappapis/scripting/processing-model-2/compile-error-same-origin.html	window.onerror - compile error in <script src=...> (column)
+html/webappapis/scripting/processing-model-2/compile-error.html	window.onerror - compile error in <script>
 html/webappapis/scripting/processing-model-2/compile-error.html	window.onerror - compile error in <script> (column)
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-detached-iframe.html	No job with detached iframe's realm should be used for Promise.reject on fulfilled promise
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-detached-iframe.html	No job with detached iframe's realm should be used for Promise.reject on rejected promise
@@ -60370,8 +60466,11 @@ html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Rejection handler on rejected promise
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Sanity check: this all works as expected with no promises involved
 html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html	Thenable resolution
+html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setInterval.html	window.onerror - runtime error in cross-origin setInterval
+html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setTimeout.html	window.onerror - runtime error in cross-origin setTimeout
 html/webappapis/scripting/processing-model-2/runtime-error-cross-origin.html	window.onerror - runtime error in <script src=//www1...> (column)
 html/webappapis/scripting/processing-model-2/runtime-error-in-attribute.html	window.onerror - runtime error in attribute (column)
+html/webappapis/scripting/processing-model-2/runtime-error-in-body-onerror.html	runtime error in <body onerror>
 html/webappapis/scripting/processing-model-2/runtime-error-in-setInterval.html	window.onerror - runtime error in setInterval (column)
 html/webappapis/scripting/processing-model-2/runtime-error-in-setTimeout.html	window.onerror - runtime error in setTimeout (column)
 html/webappapis/scripting/processing-model-2/runtime-error-in-window-onerror.html	runtime error in window.onerror
@@ -60379,8 +60478,26 @@ html/webappapis/scripting/processing-model-2/runtime-error-same-origin-with-hash
 html/webappapis/scripting/processing-model-2/runtime-error-same-origin-with-hash.html	window.onerror - runtime error in <script src=...> with hash (column)
 html/webappapis/scripting/processing-model-2/runtime-error-same-origin.html	window.onerror - runtime error in <script src=...>
 html/webappapis/scripting/processing-model-2/runtime-error-same-origin.html	window.onerror - runtime error in <script src=...> (column)
+html/webappapis/scripting/processing-model-2/runtime-error.html	window.onerror - runtime error in <script>
 html/webappapis/scripting/processing-model-2/runtime-error.html	window.onerror - runtime error in <script> (column)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-iframe.html	no unhandledrejection/rejectionhandled: promise is created in iframe and being rejected elsewhere
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a microtask delay before attaching a handler prevents both events (Promise.reject-created promise)
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a microtask delay before attaching a handler prevents both events (immediately-rejected new Promise-created promise)
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a microtask delay before attaching the handler, and before rejecting the promise, indirected through Promise.all
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: delaying handling by setTimeout(,10) will cause both events to fire
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of mutationObserverMicrotask + promise microtasks
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of mutationObserverMicrotask + promise microtasks, all inside a queueTask
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of mutationObserverMicrotask + promise microtasks, all inside a setTimeout
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask, all inside a queueTask
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask, all inside a setTimeout
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: all inside a queued task, a rejection handler attached synchronously to a promise created from returning a Promise.reject-created promise in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from returning a Promise.reject-created promise in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from returning a setTimeout-delayed rejection in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from throwing in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject, indirecting through Promise.all
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a synchronously-rejected promise created with new Promise
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a microtask delay before attaching a handler prevents both events (Promise.reject-created promise)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a microtask delay before attaching a handler prevents both events (immediately-rejected new Promise-created promise)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a microtask delay before attaching the handler, and before rejecting the promise, indirected through Promise.all
@@ -60403,8 +60520,14 @@ html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promis
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject, indirecting through Promise.all
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a synchronously-rejected promise created with new Promise
 html/webappapis/scripting/processing-model-2/window-onerror-parse-error.html	correct number of calls to window.onerror
+html/webappapis/scripting/processing-model-2/window-onerror-parse-error.html	correct url passed to window.onerror
 html/webappapis/scripting/processing-model-2/window-onerror-runtime-error-throw.html	correct number of calls to window.onerror
+html/webappapis/scripting/processing-model-2/window-onerror-runtime-error-throw.html	correct url passed to window.onerror
 html/webappapis/scripting/processing-model-2/window-onerror-runtime-error.html	correct number of calls to window.onerror
+html/webappapis/scripting/processing-model-2/window-onerror-runtime-error.html	correct url passed to window.onerror
+html/webappapis/scripting/processing-model-2/window-onerror-with-cross-frame-event-listeners-3.html	The error event from an event listener should fire on that listener's global
+html/webappapis/scripting/processing-model-2/window-onerror-with-cross-frame-event-listeners-4.html	The error event from an event listener should fire on that listener's global
+html/webappapis/scripting/reporterror-cross-realm-method.html	self.reportError() dispatches an "error" event for this's relevant global object
 html/webappapis/scripting/reporterror.any.html	self.reportError() doesn't invoke getters
 html/webappapis/structured-clone/structured-clone-cross-realm-method.html	Array instance
 html/webappapis/structured-clone/structured-clone-cross-realm-method.html	Date instance

@@ -189,13 +189,13 @@ Object* Interpreter::new_error(ErrorType type, std::string_view message)
 Object* Interpreter::new_error(ErrorType type, JsString* message)
 {
     // The error's own `message` (§20.5.1.1 step 3) and the non-standard
-    // `stack` every engine gives it — here the "Name: message" line alone,
-    // since the engine keeps no frame list for it yet.
+    // `stack` every engine gives it: the "Name: message" line and the
+    // functions running now (stack_text).
     Heap::NoCollect const guard(*m_heap);
     auto* error = m_heap->allocate<ErrorObject>(m_realm->intrinsics.error_prototypes[error_index(type)]);
     if (message)
         error->put(PropertyKey::atom(atoms().message), Value::string(message), builtin_attributes);
-    std::string const line = describe(Value::object(error));
+    std::string const line = stack_text(Value::object(error));
     error->set_stack(m_heap->string(std::string_view(line)));
     return error;
 }

@@ -84,12 +84,16 @@ struct SerializedMessage {
         std::optional<std::size_t> cause; // an error's own cause
         std::size_t transfer = 0; // Transferred: the data holder's index
     };
-    // A transferred ArrayBuffer's bytes, or the MessagePort detached for the
-    // transfer, which whoever holds the message keeps alive until it arrives.
+    // A transferred ArrayBuffer's bytes; or the MessagePort detached for the
+    // transfer, which whoever holds the message keeps alive until it arrives;
+    // or, in a message for another agent, the end of the channel that port
+    // became (Tasks.cpp), which holds nothing of any heap.
     struct TransferHolder {
         std::vector<std::uint8_t> bytes;
         std::optional<std::size_t> max_byte_length;
         MessagePortObject* port = nullptr;
+        std::shared_ptr<PortChannel> channel;
+        int channel_end = 0;
     };
     std::vector<Record> records;
     std::size_t root = 0; // the value's record
@@ -432,6 +436,12 @@ bool Serializer::serialize_error(js::Object& object, std::size_t index)
         at(index).name = (*name_text)->data();
         at(index).text = (*message_text)->data();
         at(index).has_message = true;
+        // Its stack goes with it, as an error's does: the clone says where
+        // the exception was made, not where the clone was.
+        if (object.is_error()) {
+            if (js::JsString const* const stack = static_cast<js::ErrorObject&>(object).stack())
+                at(index).stack = stack->data();
+        }
         return true;
     }
     // The name, when it is one of the seven; the own message, when it is a
@@ -588,6 +598,32 @@ std::shared_ptr<SerializedMessage const> structured_serialize(Realm::Internals& 
     return message;
 }
 
+std::shared_ptr<SerializedMessage const> message_for_another_agent(std::shared_ptr<SerializedMessage const> const& message)
+{
+    bool holds_a_port = false;
+    for (SerializedMessage::TransferHolder const& holder : message->transfers)
+        holds_a_port = holds_a_port || holder.port != nullptr;
+    if (!holds_a_port)
+        return message;
+    auto copy = std::make_shared<SerializedMessage>(*message);
+    for (SerializedMessage::TransferHolder& holder : copy->transfers) {
+        if (holder.port == nullptr)
+            continue;
+        ChannelEnd const end = channel_end_of(*holder.port);
+        holder.port = nullptr;
+        holder.channel = end.channel;
+        holder.channel_end = end.end;
+    }
+    return copy;
+}
+
+std::shared_ptr<SerializedMessage const> structured_serialize_for_another_agent(Realm::Internals& in, js::Value const& value,
+    std::span<js::Value const> transfer)
+{
+    std::shared_ptr<SerializedMessage const> const message = structured_serialize(in, value, transfer);
+    return message ? message_for_another_agent(message) : nullptr;
+}
+
 std::optional<Deserialized> structured_deserialize(Realm::Internals& target, SerializedMessage const& message)
 {
     // StructuredDeserializeWithTransfer into the target's realm: the
@@ -617,6 +653,22 @@ std::optional<Deserialized> structured_deserialize(Realm::Internals& target, Ser
                 }
                 port->pending = std::move(detached->pending);
                 detached->pending.clear();
+                // Entangled with another agent's port: the new port is the
+                // channel's end from now on.
+                if (detached->channel) {
+                    std::shared_ptr<PortChannel> const channel = detached->channel;
+                    int const end = detached->channel_end;
+                    release_channel_end(*detached);
+                    entangle_with_channel(*port, channel, end);
+                }
+                continue;
+            }
+            if (holder.channel) {
+                // A port from another agent: a new port here, entangled with
+                // the channel's end that travelled in its place.
+                auto* port = heap.allocate<MessagePortObject>(target.prototype("MessagePort"), *target.realm_record);
+                result.transferred.push_back(interp.root(js::Value::object(port)));
+                entangle_with_channel(*port, holder.channel, holder.channel_end);
                 continue;
             }
             std::optional<double> maximum;
@@ -722,6 +774,8 @@ std::optional<Deserialized> structured_deserialize(Realm::Internals& target, Ser
             case Kind::DomException:
                 target.throw_dom_exception(encode_utf8(record.name), encode_utf8(record.text));
                 made = interp.take_exception();
+                if (!record.stack.empty() && made.is_object() && made.as_object()->is_error())
+                    static_cast<js::ErrorObject*>(made.as_object())->set_stack(interp.string(std::u16string_view(record.stack)));
                 break;
             case Kind::Array: {
                 auto* array = heap.allocate<js::ArrayObject>(intrinsics.array_prototype);

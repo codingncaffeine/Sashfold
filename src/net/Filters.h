@@ -36,6 +36,9 @@ enum class ResourceKind : std::uint16_t {
     Media = 1 << 7,
     Other = 1 << 8,
     Object = 1 << 9, // an object's or an embed's document
+    // A worker's script, as a page's policy judges it (worker-src). The lists
+    // have no word for one: a loader asks them about a script.
+    Worker = 1 << 10,
 };
 
 struct FilterRequest {

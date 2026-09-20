@@ -262,6 +262,21 @@ void FontManager::retire_stacks()
     m_stacks.clear();
 }
 
+void FontManager::restore_page_faces(std::vector<PageFace> faces)
+{
+    bool same = faces.size() == m_page_faces.size();
+    for (std::size_t i = 0; same && i < faces.size(); ++i) {
+        same = faces[i].face == m_page_faces[i].face && faces[i].family_lower == m_page_faces[i].family_lower
+            && faces[i].weight == m_page_faces[i].weight && faces[i].italic == m_page_faces[i].italic
+            && faces[i].stretch == m_page_faces[i].stretch && faces[i].weight_max == m_page_faces[i].weight_max
+            && faces[i].stretch_max == m_page_faces[i].stretch_max;
+    }
+    if (same)
+        return;
+    m_page_faces = std::move(faces);
+    retire_stacks();
+}
+
 void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
 {
     std::vector<PageFace> faces;

@@ -10,6 +10,7 @@
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "layout/Layout.h"
+#include "text/FontManager.h"
 
 #include <cstdint>
 #include <optional>
@@ -37,6 +38,14 @@ public:
     void set_policy(net::ContentSecurityPolicy* policy) { m_policy = policy; }
     // Puts layout_box and computed_style on the hooks, answering from here.
     void install(HostHooks& hooks);
+    // A frame's answers (Realm.cpp). Its window goes on to another document;
+    // its viewport is its container's box, which the page may resize; and the
+    // fonts the process lays out with are the page's, put back after each
+    // layout here rather than left as this document's.
+    void retarget(dom::Document& document, net::Url const& base);
+    void set_viewport(float width, float height);
+    css::MediaContext const& media() const { return m_media; }
+    void keep_page_fonts(bool keep) { m_keep_page_fonts = keep; }
 
     std::optional<LayoutBox> box(dom::Element const& element);
     css::ComputedStyle const* style(dom::Element const& element);
@@ -44,8 +53,9 @@ public:
     void ensure();
 
 private:
-    dom::Document& m_document;
+    dom::Document* m_document;
     net::Url m_base;
+    bool m_keep_page_fonts = false;
     css::SheetFetcher m_fetch;
     css::MediaContext m_media;
     Realm* m_realm = nullptr;
@@ -57,6 +67,7 @@ private:
     // pay for a re-parse each time, only for the cascade and the layout.
     std::string m_sheet_signature;
     std::optional<css::StyleSet> m_style_set;
+    std::vector<text::PageFont> m_fonts; // the document's own, from its sheets
     css::StyleMap m_styles;
     layout::LayoutResult m_layout;
 };

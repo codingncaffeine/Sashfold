@@ -244,8 +244,10 @@ int main(int argc, char** argv)
         }
         CHECK(box_of("i5") == nullptr);
         if (layout::Fragment const* i6 = box_of("i6"); CHECK(i6 != nullptr)) {
-            CHECK_EQ(i6->width, 200.0f); // 400 asked, shrunk to the container
-            CHECK_EQ(i6->height, 300.0f);
+            // 400 asked of a container of 200: it is as wide as it was made and
+            // overflows, as in every browser; max-width is what would hold it.
+            CHECK_EQ(i6->width, 400.0f);
+            CHECK_EQ(i6->height, 600.0f);
         }
         if (layout::Fragment const* i7 = box_of("i7"); CHECK(i7 != nullptr)) {
             CHECK_EQ(i7->width, 30.0f); // reserved for a picture that has not arrived

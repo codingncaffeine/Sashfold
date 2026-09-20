@@ -97,6 +97,10 @@ public:
     virtual bool poll(WindowEvent& event) = 0;
     // Blocks until input arrives or the timeout (ms; negative = forever).
     virtual void wait(int timeout_ms) = 0;
+    // Ends a wait() in progress, or the next one, from any thread: what a
+    // thread that has something for the window's loop calls. Waking a window
+    // that is not waiting costs one early return.
+    virtual void wake() = 0;
     // Shows the frame. It normally matches the client size for a 1:1 blit;
     // between a resize and the next paint it is scaled.
     virtual void present(Bitmap const& frame) = 0;

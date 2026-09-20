@@ -678,27 +678,38 @@ net::Url const& Realm::Internals::base_url() const
 void Realm::Internals::report_uncaught(js::Value const& thrown, std::string_view where)
 {
     ++stats.uncaught_errors;
-    std::string const description = interpreter.describe(thrown);
-    // window.onerror(message, source, lineno, colno, error), when a page set
-    // one; its listeners on "error" are not fired (that needs ErrorEvent).
-    auto const handler = window_handlers.find("error");
-    if (handler != window_handlers.end() && js::Interpreter::is_callable(handler->second.function)) {
+    std::string const message = "Uncaught " + interpreter.describe(thrown);
+    // "Report an exception" (HTML §8.1.4.3): an ErrorEvent named error at the
+    // global object — the window, or a worker's scope — whose onerror handler
+    // takes the event's five parts and cancels it by answering true. What is
+    // thrown while one is being reported is said on the console alone.
+    if (!reporting_exception && !ended) {
+        reporting_exception = true;
         js::Interpreter::Roots const roots(interpreter);
-        js::Value const callee = interpreter.root(handler->second.function);
         interpreter.root(thrown);
-        js::Value const message = interpreter.root(string("Uncaught " + description));
-        js::Value const source = interpreter.root(string(where));
-        js::Value const arguments[5] = { message, source, js::Value::number(0), js::Value::number(0), thrown };
-        std::optional<js::Value> const result = interpreter.call(callee, js::Value::object(window_proxy()), arguments);
-        if (!result) {
-            js::Value const inner = interpreter.take_exception();
-            console("error", "Uncaught " + interpreter.describe(inner) + " (in window.onerror)");
+        EventObject* const event = new_event("ErrorEvent", "error", false, true);
+        interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        event->message = message;
+        // An inline script's file is its document: the console's "(inline)"
+        // is not part of the address.
+        std::string_view file = where;
+        if (file.ends_with(" (inline)"))
+            file.remove_suffix(9);
+        event->filename = std::string(file);
+        event->detail_value = thrown;
+        bool const handled = !dispatch(*event, window_proxy());
+        reporting_exception = false;
+        if (handled)
             return;
-        }
-        if (result->is_boolean() && result->as_boolean())
-            return; // the handler says it dealt with it
     }
-    console("error", "Uncaught " + description + (where.empty() ? std::string() : " (" + std::string(where) + ")"));
+    // A worker's goes on to the document that started it, whose Worker is
+    // told, and whose console says it when nothing there deals with it.
+    if (worker != nullptr) {
+        worker_report_error(*this, message, where);
+        return;
+    }
+    console("error", message + (where.empty() ? std::string() : " (" + std::string(where) + ")") + interpreter.stack_lines_for_console(thrown));
 }
 
 Realm::Internals::Entry::Entry(Internals& the_internals)
@@ -857,8 +868,6 @@ NodeWrapper* Realm::Internals::wrapper_of(js::Value const& value) const
 
 // --- Scripts -------------------------------------------------------------------------
 
-namespace {
-
 bool is_javascript_type(std::string_view type)
 {
     static constexpr std::string_view types[] = {
@@ -873,6 +882,8 @@ bool is_javascript_type(std::string_view type)
     }
     return false;
 }
+
+namespace {
 
 std::string trimmed(std::string_view text)
 {
@@ -1186,6 +1197,13 @@ void install_interfaces(Realm::Internals& in)
     install_xhr(in);
     install_tasks(in);
     install_origin(in);
+    if (in.worker != nullptr) {
+        // A worker's scope is its own global object: no WindowProxy stands in
+        // front of it, and no other origin ever reaches it.
+        install_worker_scope(in, language_globals);
+        return;
+    }
+    install_workers(in);
     install_window_proxy(in, language_globals);
 }
 
@@ -1252,6 +1270,31 @@ Realm::Realm(Internals& parent, dom::Element& container, dom::Document& document
     in.time_origin = in.now();
     // Its interfaces are made of its own intrinsics.
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    install_interfaces(in);
+}
+
+Realm::Realm(WorkerScope scope, dom::Document& document, net::Url url, HostHooks hooks)
+    : m_internals(std::make_unique<Internals>(*this, document, std::move(url), std::move(hooks)))
+{
+    Internals& in = *m_internals;
+    in.worker = scope.runtime;
+    in.worker_name = std::move(scope.name);
+    in.origin_url = std::move(scope.origin);
+    js::Interpreter& interpreter = in.interpreter;
+    interpreter.current_realm()->host_defined = this;
+    interpreter.heap().add_root_provider(this);
+    interpreter.on_console = [this](std::string_view level, std::string_view message) {
+        m_internals->console(level, message);
+    };
+    interpreter.on_compile_strings = [&interpreter]() { return internals_of(interpreter).compile_strings_refusal(); };
+    if (in.hooks.should_stop)
+        interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
+    // A worker's heap is its own, under a ceiling of the same height as its page's.
+    js::Heap& worker_heap = interpreter.heap();
+    worker_heap.set_limit(in.hooks.js_heap_limit);
+    in.time_origin = in.now();
+    // A worker has no document to show: nothing of it is ever loading.
+    in.ready_state = "complete";
     install_interfaces(in);
 }
 
@@ -1339,7 +1382,9 @@ Realm::~Realm()
         in.agent.ending = true;
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
-    // Its document unloads, and the blob: URLs it made go with it.
+    // Its document unloads: the workers it started end, and the blob: URLs
+    // it made go with it.
+    in.workers.clear();
     std::erase_if(in.agent.blob_urls, [&in](auto const& entry) { return entry.second.document == in.document; });
     // Its frames end first, while this realm and the agent are whole.
     in.child_frames.clear();
@@ -1620,6 +1665,92 @@ void Realm::Internals::open_frame(dom::Element& iframe, std::uint64_t mutations_
     open_frame_document(iframe, std::move(*answer), target ? "url:" + target->serialize() : frame_source(iframe, base_url()), mutations_from, false);
 }
 
+namespace {
+
+// A frame's geometry as its hooks hold it: the oracle over its document, the
+// realm once it is made, and where its container is — the realm of the
+// document the container is in, and the container itself.
+struct FrameGeometry {
+    Realm::Internals* parent = nullptr;
+    dom::Element* container = nullptr;
+    Realm* realm = nullptr;
+    LayoutOracle* oracle = nullptr;
+    std::unique_ptr<LayoutOracle> made; // until the frame's record takes it
+};
+
+// The container's content box as its document lays it out, in CSS px: what
+// the frame's document is laid out in, and its window's innerWidth and
+// innerHeight. 300 by 150 where nothing lays the container out.
+void refresh_frame_viewport(FrameGeometry& geometry)
+{
+    HostHooks& outer = geometry.parent->hooks;
+    float width = 300;
+    float height = 150;
+    if (outer.layout_box) {
+        if (std::optional<LayoutBox> const box = outer.layout_box(*geometry.container)) {
+            width = box->width;
+            height = box->height;
+            css::ComputedStyle const* const style = outer.computed_style ? outer.computed_style(*geometry.container) : nullptr;
+            if (style != nullptr) {
+                // The style's lengths are the engine's px; the box is CSS px.
+                float const scale = outer.device_scale > 0 ? outer.device_scale : 1.0f;
+                auto const px = [](css::LengthPercent const& length) {
+                    return length.kind == css::LengthPercent::Kind::Px ? length.value : 0.0f;
+                };
+                width -= (style->border_left.width + style->border_right.width + px(style->padding_left) + px(style->padding_right)) / scale;
+                height -= (style->border_top.width + style->border_bottom.width + px(style->padding_top) + px(style->padding_bottom)) / scale;
+            }
+        }
+    }
+    width = std::max(0.0f, width);
+    height = std::max(0.0f, height);
+    geometry.oracle->set_viewport(width, height);
+    if (geometry.realm != nullptr) {
+        geometry.realm->hooks().viewport_width = width;
+        geometry.realm->hooks().viewport_height = height;
+    }
+}
+
+// Makes a frame's geometry and puts its answers on the hooks its realm will
+// be made with. Its sheets come the way the frame's other requests do, under
+// the frame's own policy.
+std::shared_ptr<FrameGeometry> frame_geometry(Realm::Internals& parent, dom::Element& container, dom::Document& document,
+    net::Url const& url, HostHooks& frame_hooks)
+{
+    auto geometry = std::make_shared<FrameGeometry>();
+    geometry->parent = &parent;
+    geometry->container = &container;
+    css::SheetFetcher fetch = [geometry](net::Url const& target, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+        if (geometry->realm == nullptr || !geometry->realm->hooks().fetch_resource)
+            return std::nullopt;
+        HostHooks& own = geometry->realm->hooks();
+        net::ResourceRequest request;
+        request.destination = "style";
+        net::RequestGuard const guard = own.policy ? own.policy->guard(net::ResourceKind::Stylesheet, std::string(nonce)) : net::RequestGuard {};
+        net::FetchResult const result = own.fetch_resource(target, request, guard);
+        if (!result.response || result.response->status != 200)
+            return std::nullopt;
+        std::string const* const type = net::find_header(result.response->headers, "Content-Type");
+        return css::FetchedSheet { result.response->body, type ? *type : std::string() };
+    };
+    // Laid out in CSS px, which is what the hooks answer in.
+    geometry->made = std::make_unique<LayoutOracle>(document, url, std::move(fetch), css::MediaContext { 300, 150, 1 });
+    geometry->oracle = geometry->made.get();
+    geometry->oracle->keep_page_fonts(true);
+    frame_hooks.layout_box = [geometry](dom::Element const& element) {
+        refresh_frame_viewport(*geometry);
+        return geometry->oracle->box(element);
+    };
+    frame_hooks.computed_style = [geometry](dom::Element const& element) {
+        refresh_frame_viewport(*geometry);
+        return geometry->oracle->style(element);
+    };
+    frame_hooks.refresh_viewport = [geometry] { refresh_frame_viewport(*geometry); };
+    return geometry;
+}
+
+} // namespace
+
 void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument answer, std::string source, std::uint64_t mutations_from, bool initial_blank)
 {
     // A document that is not markup — a picture, text, JSON — is shown here
@@ -1679,11 +1810,18 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     frame_hooks.frame_document = hooks.frame_document;
     frame_hooks.image_decodes = hooks.image_decodes;
     frame_hooks.trace = hooks.trace;
-    frame_hooks.viewport_width = hooks.viewport_width;
-    frame_hooks.viewport_height = hooks.viewport_height;
     frame_hooks.device_scale = hooks.device_scale;
     frame_hooks.user_agent = hooks.user_agent;
+    // A worker a frame's document starts runs where the page's would.
+    frame_hooks.worker_threads = hooks.worker_threads;
+    frame_hooks.worker_fetch = hooks.worker_fetch;
+    // The frame's own geometry, and its viewport: its container's box.
+    std::shared_ptr<FrameGeometry> const geometry = frame_geometry(*this, iframe, *opened.document, answer.url, frame_hooks);
+    opened.geometry = std::move(geometry->made);
     opened.realm = std::make_unique<Realm>(*this, iframe, *opened.document, answer.url, std::move(frame_hooks));
+    geometry->realm = opened.realm.get();
+    opened.geometry->set_realm(opened.realm.get());
+    opened.geometry->set_policy(opened.policy.get());
     opened.realm->internals().origin_url = answer.origin;
     opened.realm->internals().sandbox_flags = flags;
     opened.realm->internals().document_content_type = type.empty() ? std::string("text/html") : mime_essence(type);
@@ -1745,6 +1883,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     // the parent's task, not the window's.
     std::erase_if(agent.timers, [&window](Timer const& timer) { return timer.owner == &window; });
     std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
+    terminate_workers(window);
     std::erase_if(agent.blob_urls, [&window](auto const& entry) { return entry.second.document == window.document; });
     // The old document stays alive with the realm, so no wrapper into it, and
     // no element-keyed record of it, can dangle; so does its policy.
@@ -1754,6 +1893,10 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
                                  : std::make_unique<net::ContentSecurityPolicy>(answer.url);
     frame.document = std::make_unique<dom::Document>();
     window.hooks.policy = frame.policy.get();
+    if (frame.geometry) {
+        frame.geometry->retarget(*frame.document, answer.url);
+        frame.geometry->set_policy(frame.policy.get());
+    }
     // Everything the window holds for its document starts again with the new
     // one; what it holds for itself — its listeners, expandos, Location,
     // History, storages, name — stays. The domain is set before the parse,
@@ -2567,14 +2710,20 @@ bool Realm::run_pending()
     Internals& in = *m_internals;
     Internals::HostEntry const host(in.agent);
     double const now = in.now();
+    Agent& agent = in.agent;
+    // The workers first: one on this thread has its turn, and what each has
+    // for its document is delivered.
+    bool workers_ran = !agent.worker_handles.empty() && pump_workers(agent);
+    // And what other agents' ports have sent the ports here.
+    if (!agent.channel_ports.empty() && pump_channel_ports(agent))
+        workers_ran = true;
     // Only the timers that exist now: one set while running waits for the
     // next pump, so a chain of zero-delay timers cannot hold the host.
-    Agent& agent = in.agent;
     std::uint64_t const cutoff = agent.next_sequence;
     // What a script asked of an ended realm's window never runs.
     std::erase_if(agent.timers, [](Timer const& timer) { return timer.owner->ended; });
     std::erase_if(agent.tasks, [](Task const& task) { return task.owner != nullptr && task.owner->ended; });
-    bool ran = false;
+    bool ran = workers_ran;
     // The tasks queued before this pump, oldest first; one a task queues
     // waits for the next pump, like a timer.
     while (!agent.tasks.empty() && agent.tasks.front().sequence < cutoff) {
@@ -2642,20 +2791,27 @@ bool Realm::run_pending()
 
 std::optional<double> Realm::next_timer_due() const
 {
-    // A queued task is due now.
-    if (!m_internals->agent.tasks.empty())
+    // A queued task is due now, and so is a message another agent's port sent.
+    if (!m_internals->agent.tasks.empty() || channel_ports_due(m_internals->agent))
         return m_internals->now();
     std::optional<double> due;
     for (Timer const& timer : m_internals->agent.timers) {
         if (!due || timer.due < *due)
             due = timer.due;
     }
+    // And what the documents' workers wait for.
+    if (!m_internals->agent.worker_handles.empty()) {
+        std::optional<double> const workers = workers_next_due(m_internals->agent, m_internals->now());
+        if (workers && (!due || *workers < *due))
+            due = workers;
+    }
     return due;
 }
 
 bool Realm::has_pending_timers() const
 {
-    return !m_internals->agent.timers.empty() || !m_internals->agent.tasks.empty();
+    return !m_internals->agent.timers.empty() || !m_internals->agent.tasks.empty() || workers_pending(m_internals->agent)
+        || channel_ports_due(m_internals->agent);
 }
 
 void Realm::perform_microtask_checkpoint()
@@ -2725,6 +2881,7 @@ void Realm::trace_roots(js::Tracer& tracer)
         if (member.set)
             tracer.visit(*member.set);
     }
+    trace_channel_ports(in.agent, tracer);
     // Timers and microtasks hold their callbacks in Persistents, which the
     // heap roots by itself.
 }

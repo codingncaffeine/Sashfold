@@ -201,6 +201,7 @@ ShellLoader::Census::Kind& ShellLoader::Census::of(net::ResourceKind kind)
     case net::ResourceKind::Stylesheet:
         return stylesheet;
     case net::ResourceKind::Script:
+    case net::ResourceKind::Worker:
         return script;
     case net::ResourceKind::Image:
         return image;

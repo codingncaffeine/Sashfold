@@ -110,6 +110,9 @@ public:
     // -1 once the connection has failed.
     int dispatch(int timeout_ms);
     int dispatch_pending() { return dispatch(0); }
+    // Ends a dispatch that is waiting, or the next one that would; from any
+    // thread.
+    void wake();
     // wl_display.sync, then dispatch until the compositor answers: every
     // request sent before it has been processed.
     bool roundtrip();
@@ -127,6 +130,7 @@ private:
     bool takes_fd(std::uint32_t id, std::uint16_t opcode) const;
 
     int m_fd;
+    int m_wake_fd = -1; // an eventfd: written by wake(), polled beside the socket
     std::vector<std::uint8_t> m_out;
     std::vector<std::uint8_t> m_in;
     std::deque<int> m_in_fds;

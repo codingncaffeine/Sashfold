@@ -4,6 +4,7 @@
 // internals the installer files share. Nothing outside src/bindings
 // includes this.
 
+#include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "js/Object.h"
 #include "js/Runtime.h"
@@ -11,7 +12,9 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -170,6 +173,12 @@ public:
     // The origin of the document whose window posted the message (HTML
     // §9.3.3), which Origin.from extracts; none for a constructed event.
     std::optional<Origin> sender_origin;
+    // ErrorEvent (HTML §8.1.4.3): the error is detail_value.
+    bool is_error_event = false;
+    std::string message;
+    std::string filename;
+    std::uint32_t lineno = 0;
+    std::uint32_t colno = 0;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -345,9 +354,28 @@ public:
 struct SerializedMessage;
 void trace_transferred_ports(js::Tracer&, SerializedMessage const&);
 
+struct Agent;
+
+// What entangles two MessagePorts that are in two agents — a document's and
+// its worker's, each with a heap and perhaps a thread of its own (Tasks.cpp):
+// for each end, the messages sent to it that its agent has not taken yet, in
+// a form that holds nothing of any heap; whether the end's port has closed,
+// or been collected; and how to tell the agent that holds the end that a
+// message has come. Behind a lock: it is all the two agents share.
+struct PortChannel {
+    std::mutex mutex;
+    struct End {
+        std::deque<std::shared_ptr<SerializedMessage const>> queue;
+        std::function<void()> wake; // called outside the lock
+        bool closed = false;
+    };
+    End ends[2];
+};
+
 // A MessagePort (Tasks.cpp, HTML §9.5.3): the realm it belongs to, named by
 // the realm's record as a node's wrapper names it; the port it is entangled
-// with; and its port message queue — every message sent to it and not yet
+// with — a port of this agent, or an end of a channel to a port of another —
+// and its port message queue — every message sent to it and not yet
 // delivered, with a task posted for each once the port has started. A port
 // transferred is detached, and its queue goes, in order, to the port made for
 // it in the receiving realm.
@@ -358,9 +386,15 @@ public:
         , record(&the_record)
     {
     }
+    ~MessagePortObject() override;
     Realm& realm() const { return *static_cast<Realm*>(record->host_defined); }
     js::RealmRecord* record;
     MessagePortObject* entangled = nullptr;
+    // Entangled with a port of another agent: the channel, which end of it
+    // this port is, and the agent whose loop takes this end's messages.
+    std::shared_ptr<PortChannel> channel;
+    int channel_end = 0;
+    Agent* channel_agent = nullptr;
     bool started = false;
     bool closed = false;
     bool detached = false;
@@ -404,6 +438,13 @@ struct OriginSnapshot {
 };
 
 struct ChildFrame;
+
+// A dedicated worker as the document that started it holds it (Workers.cpp).
+struct WorkerHandle;
+struct WorkerHandleDeleter {
+    void operator()(WorkerHandle*) const;
+};
+using WorkerHandlePtr = std::unique_ptr<WorkerHandle, WorkerHandleDeleter>;
 
 // One member a window or a location shows a script of another origin (HTML
 // §7.2.3.2, CrossOriginProperties): a method, or an accessor with a getter,
@@ -579,6 +620,10 @@ struct ChildFrame {
     bool awaiting_navigation = false;
     std::unique_ptr<net::ContentSecurityPolicy> policy;
     std::unique_ptr<dom::Document> document;
+    // What the frame's scripts measure: its document laid out at the size its
+    // container has in the layout of the document it is in (Realm.cpp). After
+    // the document, before the realm, whose hooks answer from it.
+    std::unique_ptr<LayoutOracle> geometry;
     std::unique_ptr<Realm> realm;
 };
 
@@ -628,6 +673,13 @@ struct FrameNavigation {
 // queue — its realms share, the event loop's tasks and timers, and how deep
 // the host's entries into script go. A page's realm makes one of its own.
 struct Agent {
+    // The ports here that are ends of channels to other agents' ports, which
+    // the loop takes the messages of. Before the interpreter, so that it is
+    // still here when the heap's last ports go and take themselves off it.
+    std::vector<MessagePortObject*> channel_ports;
+    // Tells this agent's loop, from any thread, that one of those channels
+    // has a message for it; nothing for an agent whose loop needs no telling.
+    std::function<void()> wake_loop;
     js::Interpreter interpreter;
     std::vector<Timer> timers;
     // Run before the timers at the next pump, oldest first, each holding what
@@ -666,6 +718,9 @@ struct Agent {
         dom::Document const* document = nullptr; // erased when it unloads
     };
     std::unordered_map<std::string, BlobUrlEntry> blob_urls;
+    // The workers the agent's documents have started and not seen end, each
+    // owned by its document's realm: what the loop gives a turn to.
+    std::vector<WorkerHandle*> worker_handles;
 };
 
 struct Realm::Internals {
@@ -698,6 +753,14 @@ struct Realm::Internals {
     Internals* parent_realm = nullptr;
     dom::Element* frame_element = nullptr;
     bool ended = false; // the agent's stand-in: no task or timer of its runs
+    // A dedicated worker's realm rather than a window's: the worker's side of
+    // itself, which its scope's members reach, and the name it was given.
+    // Null for every window's realm.
+    WorkerRuntime* worker = nullptr;
+    std::string worker_name;
+    // The workers this document started, until each has ended and its last
+    // word has been delivered.
+    std::vector<WorkerHandlePtr> workers;
     // A frame's window whose frame has closed, or has gone on to another
     // document: closed, and with no parent or top (HTML §7.2.2).
     bool discarded = false;
@@ -923,8 +986,11 @@ struct Realm::Internals {
     double now() const;
     void console(std::string_view level, std::string_view message) const;
     void trace(std::string_view message) const; // the hooks' trace, when given
-    // Reports an uncaught exception: the console, the count, window.onerror.
+    // Reports an uncaught exception: the count, an ErrorEvent at the global
+    // object and its onerror, then the console — or, from a worker's scope,
+    // the document that started the worker.
     void report_uncaught(js::Value const& thrown, std::string_view where);
+    bool reporting_exception = false; // one thrown meanwhile is not reported the same way
 
     // The document's Content Security Policy, asked through these: the
     // head's <meta> policies are adopted first each time.
@@ -1009,6 +1075,12 @@ AbortSignalObject* new_abort_signal(Realm::Internals&);
 void signal_abort(Realm::Internals&, AbortSignalObject&, js::Value const& reason);
 // An AbortError DOMException as a value, for a rejection.
 js::Value abort_error(Realm::Internals&, std::string_view message);
+// Any DOMException as a value: what a promise an interface returns is
+// rejected with.
+js::Value dom_exception_value(Realm::Internals&, std::string_view name, std::string_view message);
+// A promise of the realm's own that nothing settles: what an interface
+// answers with when what it waits for never comes here.
+Native pending_promise(js::Interpreter&);
 
 // Structured clone (StructuredClone.cpp, HTML §2.7).
 // StructuredSerializeWithTransfer in the realm of the call: null with the
@@ -1028,6 +1100,34 @@ struct Deserialized {
 };
 std::optional<Deserialized> structured_deserialize(Realm::Internals& target, SerializedMessage const&);
 std::vector<MessagePortObject*> transferred_ports(SerializedMessage const&);
+// The same for a message on its way to another agent — a worker's, or the
+// document's a worker belongs to: serialized, then with every port it
+// transfers turned into the end of a channel (Tasks.cpp), so that the message
+// holds nothing of this agent's heap and may be read on another thread.
+std::shared_ptr<SerializedMessage const> structured_serialize_for_another_agent(Realm::Internals&, js::Value const& value,
+    std::span<js::Value const> transfer);
+// A message as another agent may hold it: itself when it transfers no port,
+// else a copy whose ports are channel ends.
+std::shared_ptr<SerializedMessage const> message_for_another_agent(std::shared_ptr<SerializedMessage const> const&);
+
+// Ports across agents (Tasks.cpp). A detached port as the end of a channel
+// that travels in its place: the port it was entangled with stays, entangled
+// with the channel's other end, and what the port had queued goes along.
+struct ChannelEnd {
+    std::shared_ptr<PortChannel> channel;
+    int end = 0;
+};
+ChannelEnd channel_end_of(MessagePortObject& detached);
+// Entangles a port with an end of a channel, in the agent of the port's realm;
+// and lets a port go of its end without closing it, for another to take.
+void entangle_with_channel(MessagePortObject&, std::shared_ptr<PortChannel>, int end);
+void release_channel_end(MessagePortObject&);
+// The loop's part: the messages the agent's channels hold for its ports are
+// put on those ports' queues; whether any is waiting; and the ports a
+// collection must keep, since only another agent's port can reach them.
+bool pump_channel_ports(Agent&);
+bool channel_ports_due(Agent const&);
+void trace_channel_ports(Agent const&, js::Tracer&);
 // A transfer list as WebIDL converts one — a sequence<object>, the transfer
 // member of a StructuredSerializeOptions dictionary, or either of them as
 // MessagePort.postMessage's overloads take its second argument — each value
@@ -1065,6 +1165,35 @@ void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSigna
 void install_origin(Realm::Internals&); // Origin.cpp: Origin
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
+void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
+// A worker's realm, after the installers above: the window taken out of the
+// global object — every name they gave it that a worker's scope does not
+// have — and the DedicatedWorkerGlobalScope put in its place.
+void install_worker_scope(Realm::Internals&, std::vector<js::PropertyKey> const& language_globals);
+
+// The loop's part in the workers of an agent's documents (Workers.cpp). A
+// turn: a worker that runs on this thread runs what is due, and whatever
+// each worker has for its document — messages, errors, console lines — is
+// delivered. When the next turn is due, on the hooks' clock, and whether
+// any is: what the workers' own timers and undelivered words ask for.
+// pump_workers answers whether anything ran.
+bool pump_workers(Agent&);
+std::optional<double> workers_next_due(Agent const&, double now);
+bool workers_pending(Agent const&);
+// A document unloading: its workers are told to end, and end at the next turn.
+void terminate_workers(Realm::Internals&);
+// An exception nothing in a worker's scope dealt with, on its way to the
+// document that started the worker: called in the worker's realm.
+void worker_report_error(Realm::Internals&, std::string const& message, std::string_view where);
+
+// Messages (Tasks.cpp). Fires a MessageEvent carrying `data` at `target` — a
+// port, a window, a Worker, a worker's scope — with the ports the message
+// transferred, from the origin given; and the messageerror event in its
+// place for a message that could not be made in the receiving realm.
+void deliver_message(Realm::Internals&, js::Object* target, js::Value const& data, std::string_view origin, js::Value const& source,
+    std::span<js::Value const> transferred, std::optional<Origin> const& sender_origin = std::nullopt);
+void deliver_message_error(Realm::Internals&, js::Object* target, std::string_view origin, js::Value const& source,
+    std::optional<Origin> const& sender_origin = std::nullopt);
 
 // Origins (Origin.cpp): a URL's origin, a new opaque one each time for a URL
 // without a tuple; and the origin of a realm's document, its opaque origin
@@ -1125,6 +1254,8 @@ void set_attribute_ns(Realm::Internals&, dom::Element&, std::string_view namespa
 bool remove_attribute_ns(Realm::Internals&, dom::Element&, std::string_view namespace_uri, std::string_view local_name);
 std::string attribute_or_empty(dom::Element const&, std::string_view name);
 
+// Whether a MIME type's essence is a JavaScript MIME type (Realm.cpp).
+bool is_javascript_type(std::string_view essence);
 // ASCII lowercase / uppercase copies.
 std::string ascii_lower(std::string_view);
 std::string ascii_upper(std::string_view);

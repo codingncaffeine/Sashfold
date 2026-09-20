@@ -696,6 +696,9 @@ struct Browser::Impl {
     // The ceiling on each page's script heap, in bytes; 0 is none. A page
     // opened from now on has it (Browser::set_js_heap_limit).
     std::size_t js_heap_limit = 0;
+    // Where the pages' workers run, when not on this thread
+    // (Browser::set_worker_threads).
+    bindings::WorkerThreads* worker_threads = nullptr;
     // The tabs closed last, the newest at the back, as many as the browsers
     // keep: Ctrl+Shift+T brings the newest back.
     static constexpr std::size_t closed_tabs_kept = 25;
@@ -2408,6 +2411,13 @@ struct Browser::Impl {
         hooks.fetch_resource = [this, page_url, container](net::Url const& target, net::ResourceRequest const& request,
                                    net::RequestGuard const& guard) {
             return loader.load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
+        };
+        // A worker of the page's, on a thread of its own: the loader alone,
+        // which is safe there and outlives the threads — nothing of the tab.
+        hooks.worker_threads = worker_threads;
+        hooks.worker_fetch = [loader = &loader, page_url, container](net::Url const& target, net::ResourceRequest const& request,
+                                 net::RequestGuard const& guard) {
+            return loader->load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
         };
         hooks.local_storage = [this, container](std::string const& origin) { return storage_area(container, origin); };
         hooks.now = [this] { return script_now(); };
@@ -8529,6 +8539,7 @@ void Browser::set_downloads_directory(std::string directory)
 }
 
 void Browser::set_js_heap_limit(std::size_t bytes) { m_impl->js_heap_limit = bytes; }
+void Browser::set_worker_threads(bindings::WorkerThreads* threads) { m_impl->worker_threads = threads; }
 
 void Browser::set_user_themes_directory(std::string directory)
 {

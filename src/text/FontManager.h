@@ -117,7 +117,7 @@ public:
     // fonts: what draws a smiling face as a picture.
     Face const* color_face_for(char32_t code_point);
 
-private:
+    // One of the current page's fonts as the manager holds it.
     struct PageFace {
         std::string family_lower;
         int weight;
@@ -127,6 +127,13 @@ private:
         int weight_max; // a face answering a range of weights or stretches
         int stretch_max;
     };
+    // The current page's fonts as they stand, and putting that set back: what
+    // a layout of another document made meanwhile — a frame's, measured for
+    // its scripts — brackets itself with.
+    std::vector<PageFace> page_faces() const { return m_page_faces; }
+    void restore_page_faces(std::vector<PageFace> faces);
+
+private:
 
     FontManager() = default;
     void scan();

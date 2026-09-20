@@ -598,6 +598,17 @@ public:
     std::function<void(std::string_view level, std::string_view message)> on_console;
     // A description of a thrown value: "TypeError: x is not a function".
     std::string describe(Value const&);
+    // What an error's `stack` holds: the "Name: message" line, then a line
+    // for each function running now, innermost first — its name, the script
+    // it was written in and where in that script it begins (the engine keeps
+    // no position for the instruction itself). Never runs script.
+    std::string stack_text(Value const& error);
+    // The lines of an error's captured stack after its first, each on a line
+    // of its own and led by one, when SASHFOLD_ERROR_STACKS is set in the
+    // environment; empty otherwise, and for a value that is no error. What a
+    // host appends to the console's line for an uncaught error when someone
+    // is looking for where it came from.
+    std::string stack_lines_for_console(Value const& thrown);
     // The realm keeps every program it ran: functions point into them.
     void keep(std::unique_ptr<Program>);
 

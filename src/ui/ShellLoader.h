@@ -56,6 +56,10 @@ public:
 
     net::HttpCache& cache() { return m_cache; }
     net::ConnectionPool& pool() { return m_pool; }
+    // Called, on a thread of the loader's, each time a fetch asked for ahead
+    // has its answer: a host whose loop sleeps wakes it. Set it before the
+    // first load.
+    void set_on_fetch_done(std::function<void()> wake) { m_fetches.set_on_done(std::move(wake)); }
 
     // What the session's fetches cost, by what they were for: the account
     // --render's report and --bench write and tools/perf-census.sh ranks.

@@ -16,6 +16,17 @@ namespace sashfold::bindings {
 
 namespace {
 
+// Whether a document's cookies are its own to use: the page's are, and a
+// frame's on the page's host; to every other frame — a third party — the
+// jar is closed, which is what the loader does with its requests.
+bool has_storage_access(Realm::Internals const& in)
+{
+    Realm::Internals const* page = &in;
+    while (page->parent_realm != nullptr)
+        page = page->parent_realm;
+    return page == &in || in.origin_url.host == page->origin_url.host;
+}
+
 bool is_valid_element_name(std::string_view name)
 {
     if (name.empty())
@@ -408,7 +419,14 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         fonts->put(internals.interpreter.key("status"), internals.string("loaded"));
         fonts->put(internals.interpreter.key("size"), js::Value::number(0));
         js::define_method(internals.interpreter, *fonts, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
-        js::define_method(internals.interpreter, *fonts, "load", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        // The page's fonts are loaded by the layout, not through here: load()
+        // answers at once with no faces, and ready is already so.
+        js::define_method(internals.interpreter, *fonts, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            return resolved_promise(interp, js::Value::object(interp.new_array()));
+        });
+        js::define_accessor(internals.interpreter, *fonts, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            return resolved_promise(interp, this_value);
+        });
         js::define_method(internals.interpreter, *fonts, "addEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
         js::define_method(internals.interpreter, *fonts, "removeEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
         return js::Value::object(fonts);
@@ -613,11 +631,25 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     });
     document_method(in, *document, "caretRangeFromPoint", 2, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
     document_method(in, *document, "hasFocus", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(true); });
-    document_method(in, *document, "hasStorageAccess", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
+    // The Storage Access API: a document has its cookies when it is the page
+    // or on the page's host — the jar is closed to every other frame, the
+    // third parties — and asking for them changes nothing here, so a frame
+    // that has none is refused.
+    document_method(in, *document, "hasStorageAccess", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+        return resolved_promise(internals.interpreter, js::Value::boolean(has_storage_access(internals)));
+    });
+    document_method(in, *document, "requestStorageAccess", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+        if (has_storage_access(internals))
+            return resolved_promise(internals.interpreter, js::Value::undefined());
+        return rejected_promise(internals.interpreter,
+            dom_exception_value(internals, "NotAllowedError", "A frame of another site is not given the page's cookies."));
+    });
     document_method(in, *document, "execCommand", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
     document_method(in, *document, "queryCommandSupported", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
     document_method(in, *document, "queryCommandEnabled", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
-    document_method(in, *document, "exitFullscreen", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
+    document_method(in, *document, "exitFullscreen", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+        return resolved_promise(internals.interpreter, js::Value::undefined());
+    });
     document_method(in, *document, "exitPointerLock", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
     document_method(in, *document, "getSelection", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return internals.interpreter.get(js::Value::object(internals.interpreter.global()), "getSelection").and_then(

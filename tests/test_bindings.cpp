@@ -3375,6 +3375,82 @@ void test_platform_objects_and_message_arrivals()
     CHECK_EQ(page->console, "");
 }
 
+// A frame's scripts measure the frame's own document, laid out at the size
+// its container has in the page's layout: its viewport, its boxes and its
+// computed styles are its own, not the page's and not nothing.
+void test_a_frame_measures_itself()
+{
+    bindings::HostHooks hooks;
+    hooks.viewport_width = 1280;
+    hooks.viewport_height = 900;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy*,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        return answer;
+    };
+    // The page's layout, as its host would answer: the iframe's border box.
+    hooks.layout_box = [](dom::Element const& element) -> std::optional<bindings::LayoutBox> {
+        if (element.is_html("iframe"))
+            return bindings::LayoutBox { 10, 20, 400, 580 };
+        return std::nullopt;
+    };
+    Page page(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<!DOCTYPE html><style>body{margin:0} #w{padding:24px;height:66px;border:2px solid;font-size:20px}</style><div id=w><span id=s>x</span></div>
+<script>var w = document.getElementById('w'), cs = getComputedStyle(w), root = document.documentElement;
+window.facts = [innerWidth, innerHeight, root.clientWidth, root.clientHeight, w.offsetWidth, w.offsetHeight, w.clientWidth, w.clientHeight,
+  w.clientTop, w.clientLeft, cs.width, cs.height, cs.paddingLeft, cs.fontSize, w.getBoundingClientRect().width, matchMedia('(max-width: 500px)').matches].join();</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page.load();
+    CHECK_EQ(page.string("document.getElementById('f').contentWindow.facts"),
+        std::string("400,580,400,580,400,118,396,114,2,2,348px,66px,24px,20px,400,true"));
+    // The page's own window is still the page's.
+    CHECK_EQ(page.string("[innerWidth, innerHeight, matchMedia('(max-width: 500px)').matches].join()"), std::string("1280,900,false"));
+    // A change to the frame's document is measured afresh.
+    CHECK_EQ(page.string("var inner = document.getElementById('f').contentWindow; inner.document.getElementById('w').style.height = '100px';"
+                         " String(inner.document.getElementById('w').offsetHeight)"),
+        std::string("152"));
+}
+
+// What the platform says is a promise is one, settled the way the engine can
+// honestly settle it — never `undefined`, which a page calls .then() on.
+void test_interfaces_that_promise()
+{
+    Page page("<!DOCTYPE html><body><p>x</p></body>");
+    page.load();
+    page.eval(R"JS(
+        var out = [];
+        function hex(buffer) { return Array.prototype.map.call(new Uint8Array(buffer), function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
+        document.hasStorageAccess().then(function (v) { out.push('has ' + v); });
+        document.requestStorageAccess().then(function (v) { out.push('request ' + v); });
+        document.fonts.ready.then(function (f) { out.push('fonts ' + typeof f.check); });
+        document.fonts.load('12px serif').then(function (faces) { out.push('load ' + faces.length); });
+        document.createElement('video').play().catch(function (e) { out.push('play ' + e.name); });
+        new Image().decode().catch(function (e) { out.push('decode ' + e.name); });
+        document.exitFullscreen().then(function () { out.push('exit'); });
+        document.body.requestFullscreen().catch(function (e) { out.push('full ' + e.name); });
+        out.push('when ' + (customElements.whenDefined('x-y') instanceof Promise));
+        crypto.subtle.digest('SHA-256', new TextEncoder().encode('abc')).then(function (b) { out.push(hex(b)); });
+        crypto.subtle.digest({ name: 'sha-512' }, new Uint8Array(0)).then(function (b) { out.push('512 ' + b.byteLength + ' ' + (b instanceof ArrayBuffer)); });
+        crypto.subtle.digest('SHA-384', new Uint8Array([1, 2, 3]).buffer).then(function (b) { out.push('384 ' + b.byteLength); });
+        crypto.subtle.digest('SHA-1', new Uint8Array(0)).catch(function (e) { out.push('sha1 ' + e.name); });
+        crypto.subtle.digest('SHA-256', 'not bytes').catch(function (e) { out.push('bytes ' + e.name); });
+        crypto.subtle.sign().catch(function (e) { out.push('sign ' + e.name); });
+    )JS");
+    CHECK_EQ(page.string("out.join(' | ')"),
+        std::string("when true | has true | request undefined | fonts function | load 0 | play NotSupportedError | decode EncodingError | exit"
+                    " | full TypeError | ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad | 512 64 true | 384 48"
+                    " | sha1 NotSupportedError | bytes TypeError | sign NotSupportedError"));
+    CHECK_EQ(page.console, std::string(""));
+}
+
 } // namespace
 
 int main()
@@ -3430,5 +3506,7 @@ int main()
     test_structured_clone_across_realms();
     test_a_message_keeps_what_it_transfers();
     test_platform_objects_and_message_arrivals();
+    test_a_frame_measures_itself();
+    test_interfaces_that_promise();
     return test::report("test_bindings");
 }

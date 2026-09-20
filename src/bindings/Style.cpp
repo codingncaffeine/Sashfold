@@ -324,8 +324,24 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
     if (name == "overflow-y")
         return overflow_text(style.overflow_y);
     if (name == "width" || name == "height") {
-        if (std::optional<LayoutBox> const b = box_of())
-            return px(name == "width" ? b->width : b->height);
+        // The used value, which is what the property sizes: the content box,
+        // or the border box under box-sizing: border-box. The style's own
+        // lengths are the engine's px; the box is CSS px.
+        if (std::optional<LayoutBox> const b = box_of()) {
+            bool const wide = name == "width";
+            float used = wide ? b->width : b->height;
+            if (style.box_sizing != BoxSizing::BorderBox) {
+                float const scale = in.hooks.device_scale > 0 ? in.hooks.device_scale : 1.0f;
+                auto const fixed = [](LengthPercent const& length) {
+                    return length.kind == LengthPercent::Kind::Px ? length.value : 0.0f;
+                };
+                float const edges = wide
+                    ? style.border_left.width + style.border_right.width + fixed(style.padding_left) + fixed(style.padding_right)
+                    : style.border_top.width + style.border_bottom.width + fixed(style.padding_top) + fixed(style.padding_bottom);
+                used = std::max(0.0f, used - edges / scale);
+            }
+            return px(used);
+        }
         return length_text(name == "width" ? style.width : style.height);
     }
     if (name == "min-width") return length_text(style.min_width);

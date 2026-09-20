@@ -86,11 +86,33 @@ std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Ele
 }
 
 LayoutOracle::LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media)
-    : m_document(document)
+    : m_document(&document)
     , m_base(base)
     , m_fetch(std::move(fetch))
     , m_media(media)
 {
+}
+
+void LayoutOracle::retarget(dom::Document& document, net::Url const& base)
+{
+    m_document = &document;
+    m_base = base;
+    m_computed = false;
+    m_style_set.reset();
+    m_sheet_signature.clear();
+    m_styles.clear();
+    m_layout = {};
+}
+
+void LayoutOracle::set_viewport(float width, float height)
+{
+    if (width == m_media.width && height == m_media.height)
+        return;
+    m_media.width = width;
+    m_media.height = height;
+    // Media queries may answer otherwise now: the sheets are compiled again.
+    m_computed = false;
+    m_style_set.reset();
 }
 
 void LayoutOracle::install(HostHooks& hooks)
@@ -140,7 +162,7 @@ void LayoutOracle::ensure()
         return;
     // The sheets are parsed and compiled again only when the elements
     // carrying them changed; every mutation still cascades and lays out.
-    std::string signature = sheet_signature(m_document);
+    std::string signature = sheet_signature(*m_document);
     if (!m_style_set || signature != m_sheet_signature) {
         css::InlineSheetCheck check;
         if (m_policy) {
@@ -149,12 +171,12 @@ void LayoutOracle::ensure()
                 return !m_policy->inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
             };
         }
-        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(m_document, &m_base, m_fetch, m_media, check);
+        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*m_document, &m_base, m_fetch, m_media, check);
         // The page's own fonts answer its measurements, as they do the
         // render: a test that measures text in Ahem and then sets a width
         // from it must measure in Ahem.
-        text::FontManager::instance().set_page_fonts(css::collect_page_fonts(sheets, m_fetch, m_media));
-        net::Url const named_against = html::document_base_url(m_document, m_base);
+        m_fonts = css::collect_page_fonts(sheets, m_fetch, m_media);
+        net::Url const named_against = html::document_base_url(*m_document, m_base);
         m_style_set.emplace(sheets, m_media, &named_against);
         if (m_policy) {
             m_style_set->set_style_attribute_check([this](dom::Element const&, std::string_view text) {
@@ -163,12 +185,28 @@ void LayoutOracle::ensure()
         }
         m_sheet_signature = std::move(signature);
     }
-    m_styles = css::resolve_styles(m_document, *m_style_set);
+    // A frame's document is laid out in its own fonts, and the page's are put
+    // back: the process has one set at a time, and it is the page's between
+    // layouts.
+    std::vector<text::FontManager::PageFace> page_faces;
+    if (m_keep_page_fonts)
+        page_faces = text::FontManager::instance().page_faces();
+    text::FontManager::instance().set_page_fonts(m_fonts);
+    struct FontsBack {
+        bool wanted;
+        std::vector<text::FontManager::PageFace>& faces;
+        ~FontsBack()
+        {
+            if (wanted)
+                text::FontManager::instance().restore_page_faces(std::move(faces));
+        }
+    } const fonts_back { m_keep_page_fonts, page_faces };
+    m_styles = css::resolve_styles(*m_document, *m_style_set);
     // The objects and embeds as the realm has decided them, so that a script
     // measuring an object's fallback, or an embed that represents nothing,
     // measures what is drawn.
     layout::EmbeddedStates const embedded = m_realm ? embedded_states(*m_realm) : layout::EmbeddedStates {};
-    m_layout = layout::layout_document(m_document, m_styles, m_media.width, nullptr, nullptr, m_media.height, 1,
+    m_layout = layout::layout_document(*m_document, m_styles, m_media.width, nullptr, nullptr, m_media.height, 1,
         m_realm ? &embedded : nullptr);
     m_computed = true;
     m_mutations = mutations;

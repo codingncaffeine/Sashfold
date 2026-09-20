@@ -1,5 +1,6 @@
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
+#include "bindings/Workers.h"
 #include "core/Ascii.h"
 #include "core/Bitmap.h"
 #include "core/Json.h"
@@ -10,6 +11,7 @@
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
 #include "html/DocumentBase.h"
+#include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 #include "html/TreeDump.h"
 #include "layout/Layout.h"
@@ -69,6 +71,7 @@ int usage(char const* program)
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
               << "                 [--report out.json] [--gaps out.tsv] [--dump-layout] [--no-scripts] [--script-time ms]\n"
+              << "                 [--dump-live-dom prefix]\n"
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N] [--height N] [--report out.json]\n"
               << "       " << program << " --fetch <url>\n"
               << "       " << program << " --dump-dom <file.html>\n"
@@ -103,7 +106,9 @@ int usage(char const* program)
               << "          wrote that the engine dropped (unknown properties, skipped at-rules,\n"
               << "          selectors that do not parse, uncaught script errors, custom and\n"
               << "          unknown elements) as kind, item and hits, --dump-layout prints every\n"
-              << "          laid-out box and text run with its position and size. The page's\n"
+              << "          laid-out box and text run with its position and size, --dump-live-dom\n"
+              << "          writes the document as its scripts left it to <prefix>.html and each\n"
+              << "          frame's to <prefix>-frame-N.html. The page's\n"
               << "          scripts run first, their timers on a virtual clock given --script-time\n"
               << "          milliseconds (3000); --no-scripts renders the markup alone.\n"
               << "  --bench runs a session on a page the way the window does and times it: first paint, pixels,\n"
@@ -525,6 +530,7 @@ struct RenderExtras {
     bool scripts = true; // run the page's scripts before laying it out
     double script_time_ms = 3000; // how much virtual time the page's timers get
     std::string gaps; // a census of what the page wrote that the engine dropped
+    std::string live_dom; // where the documents go as the scripts left them: <this>.html, <this>-frame-N.html
 };
 
 // --gaps: what a page wrote that the engine dropped, counted while it loads
@@ -593,6 +599,34 @@ bool write_gaps(std::string const& path, GapCensus const& census)
 
 // The fragment tree as text, one box per line — the instrument for a
 // layout question: what box is where, how big, on which baseline.
+// --dump-live-dom: a document as its scripts left it, and then each of its
+// frames' the same way, numbered in tree order: what a page built is often
+// not what it was sent, and a frame's document is nowhere else to be read.
+void dump_live_dom(bindings::Realm& realm, std::string const& prefix, int& frames)
+{
+    std::string const path = frames == 0 ? prefix + ".html" : prefix + "-frame-" + std::to_string(frames) + ".html";
+    std::ofstream out(path, std::ios::binary);
+    out << "<!-- " << realm.url().serialize() << " -->\n" << html::serialize_children(realm.document());
+    std::cerr << "wrote " << path << " (" << realm.url().serialize().substr(0, 100) << ")\n";
+    std::vector<dom::Node const*> pending { &realm.document() };
+    while (!pending.empty()) {
+        dom::Node const* const node = pending.back();
+        pending.pop_back();
+        if (node->is_element()) {
+            auto const& element = static_cast<dom::Element const&>(*node);
+            if (bindings::is_navigable_container(element)) {
+                if (bindings::Realm* const inner = realm.frame_realm(element)) {
+                    ++frames;
+                    dump_live_dom(*inner, prefix, frames);
+                }
+            }
+        }
+        std::vector<dom::Node*> const& children = node->children();
+        for (auto it = children.rbegin(); it != children.rend(); ++it)
+            pending.push_back(*it);
+    }
+}
+
 void dump_fragments(layout::Fragment const& fragment, int depth)
 {
     std::string const indent(static_cast<std::size_t>(depth) * 2, ' ');
@@ -925,6 +959,10 @@ int render_page(std::string const& path, std::string const& output, int viewport
         std::cout << "layout " << viewport_width << "x" << viewport_height << ", page height "
                   << page.page_height << "\n";
         dump_fragments(page.root, 0);
+    }
+    if (!extras.live_dom.empty() && realm) {
+        int frames = 0;
+        dump_live_dom(*realm, extras.live_dom, frames);
     }
 
     int height = std::max(1, static_cast<int>(page.page_height + 0.5f));
@@ -1732,11 +1770,19 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             }
         }
     }
+    // What runs beside the window's thread says when it has something for
+    // it: a fetch that has its answer, a worker with a word for its page. The
+    // window and the loader outlive the threads; the browser does not.
+    platform::Window* const waker = window.get();
+    loader.set_on_fetch_done([waker] { waker->wake(); });
+    bindings::WorkerThreads worker_threads;
+    worker_threads.set_wake([waker] { waker->wake(); });
     ui::Browser browser(loader, load_theme(theme_file), window->width(), window->height());
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
     browser.set_js_heap_limit(js_heap_limit);
+    browser.set_worker_threads(&worker_threads);
     // The reader's own themes join the shipped ones: what is in the
     // profile's themes folder, a Firefox or Chrome theme dropped there
     // converted first.
@@ -2157,7 +2203,7 @@ int main(int argc, char** argv)
     // with no such run named, the command is a mistyped one.
     std::string windowless_option;
     static constexpr std::string_view windowless_options[] = { "--dump-layout", "--no-scripts",
-        "--script-time", "--report", "--gaps", "--thumbnail", "--thumbnail-width", "--max-height", "-o",
+        "--script-time", "--report", "--gaps", "--dump-live-dom", "--thumbnail", "--thumbnail-width", "--max-height", "-o",
         "--output", "--runs", "--update-goldens" };
 
     auto const value_after = [&](std::size_t& i, std::string& into) {
@@ -2271,6 +2317,9 @@ int main(int argc, char** argv)
                 return usage(argv[0]);
         } else if (arg == "--gaps") {
             if (!value_after(i, extras.gaps))
+                return usage(argv[0]);
+        } else if (arg == "--dump-live-dom") {
+            if (!value_after(i, extras.live_dom))
                 return usage(argv[0]);
         } else if (arg == "--thumbnail") {
             if (!value_after(i, extras.thumbnail))

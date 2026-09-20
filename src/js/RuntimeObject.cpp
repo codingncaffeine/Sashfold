@@ -957,7 +957,7 @@ std::optional<Value> construct_error(Interpreter& interp, ErrorType type, Args a
             error->put(PropertyKey::atom(interp.atoms().cause), *cause, builtin_attributes);
         }
     }
-    std::string const line = interp.describe(Value::object(error));
+    std::string const line = interp.stack_text(Value::object(error));
     error->set_stack(interp.string(std::string_view(line)));
     return Value::object(error);
 }

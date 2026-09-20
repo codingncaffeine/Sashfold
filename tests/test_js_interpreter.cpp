@@ -682,7 +682,7 @@ void test_describe_and_errors()
     CHECK_EQ(test::eval_throws(in, "'x' in 5"), std::string("TypeError: Cannot use 'in' operator to search for 'x' in 5"));
     CHECK_EQ(test::eval_throws(in, "1 instanceof 2"), std::string("TypeError: Right-hand side of 'instanceof' is not an object"));
     CHECK_EQ(test::eval_throws(in, "1 instanceof {}"), std::string("TypeError: Right-hand side of 'instanceof' is not callable"));
-    CHECK_JS_TRUE(in, "(function () { try { throw new Error('m', { cause: 'c' }); } catch (e) { return e.cause === 'c' && e.stack === 'Error: m'; } })()");
+    CHECK_JS_TRUE(in, "(function () { try { throw new Error('m', { cause: 'c' }); } catch (e) { return e.cause === 'c' && e.stack.split('\\n')[0] === 'Error: m'; } })()");
 }
 
 void test_function_properties()

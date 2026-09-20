@@ -641,9 +641,6 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
                              : content_height * ratio;
     };
     bool const scales = ratio > 0 && (keep_ratio || styled_ratio);
-    // Whether the author gave the box its shape and one side of it: the
-    // other side is then theirs as well, by their own ratio.
-    bool const shaped = styled_ratio && (used_width.has_value() || used_height.has_value());
     if (!used_width && !used_height) {
         if (!intrinsic)
             return std::nullopt;
@@ -660,16 +657,10 @@ std::optional<ReplacedSize> sized_box(dom::Element const& element, ComputedStyle
         else
             used_height = !keep_ratio && intrinsic ? intrinsic_height : *used_width;
     }
-    // A box wider than its container shrinks to fit it — a picture larger
-    // than the column it was dropped into. One the author shaped with
-    // aspect-ratio keeps the size that shape gives it, overflowing if it
-    // does, as it does everywhere.
-    if (!shaped && containing_width > 0 && *used_width > containing_width) {
-        float const scale = containing_width / *used_width;
-        used_width = containing_width;
-        if (scales)
-            used_height = *used_height * scale;
-    }
+    // A box wider than its container stays as wide as it was made, and
+    // overflows: a picture is kept inside its column by the author's
+    // max-width, and one given `width: 300%` inside a box that clips — a
+    // sprite sheet showing one of its tiles — is meant to be three boxes wide.
     // The bounds: a width held by its bounds scales the height with it
     // when the ratio is kept, then the height's own bounds hold that.
     if (float const bounded = clamp_width(style, *used_width, containing_width, horizontal_edges);
@@ -1130,7 +1121,7 @@ struct Layouter {
     // opacity below one, and a relative one is shifted by its offsets. Called
     // once the flow has read the box's bottom, since the shift is not flow.
     static void mark_positioned(Fragment& box, ComputedStyle const& style, float containing_width,
-        bool cb_rtl = false)
+        bool cb_rtl = false, std::optional<float> containing_height = std::nullopt)
     {
         if (style.transformed) {
             // A translation moves the box after layout, percentages of its
@@ -1145,13 +1136,14 @@ struct Layouter {
         box.z_index = style.z_index.value_or(0);
         box.stacking_context = box.stacking_context || style.z_index.has_value() || style.opacity < 1;
         if (style.position == css::Position::Relative)
-            shift_fragment(box, relative_dx(style, containing_width, cb_rtl), relative_dy(style));
+            shift_fragment(box, relative_dx(style, containing_width, cb_rtl), relative_dy(style, containing_height));
     }
 
     // A relatively positioned box's shift: left, else the negative of
     // right; top, else the negative of bottom (percentages of the
-    // containing block's width horizontally; vertical percentages wait for
-    // a definite height and count as zero). With both offsets written the
+    // containing block's width horizontally, and of its height vertically
+    // when that height is definite — a percentage of a height that depends
+    // on the content counts as auto, which is zero). With both offsets written the
     // pair is over-constrained and one is ignored — the right when the
     // containing block reads left to right, the left when it reads the
     // other way (§9.4.3).
@@ -1166,10 +1158,12 @@ struct Layouter {
         return 0;
     }
 
-    static float relative_dy(ComputedStyle const& style)
+    static float relative_dy(ComputedStyle const& style, std::optional<float> containing_height = std::nullopt)
     {
-        auto const px = [](LengthPercent const& length) {
-            return length.kind == LengthPercent::Kind::Px ? length.value : 0.0f;
+        auto const px = [&containing_height](LengthPercent const& length) {
+            if (length.kind == LengthPercent::Kind::Px)
+                return length.value;
+            return containing_height ? resolve(length, *containing_height) : 0.0f;
         };
         if (!style.top.is_auto())
             return px(style.top);
@@ -3357,10 +3351,18 @@ struct Layouter {
                 }
             }
             float x = line_left;
-            if (align == css::TextAlign::Center)
+            // A line whose contents are too long for it is start-aligned,
+            // whatever text-align says, and what does not fit overflows its
+            // end edge (css-text-3 §7.1): a picture three boxes wide in a
+            // centred cell begins at the cell's start, not a box before it.
+            if (line_width > line_avail) {
+                if (block_rtl)
+                    x += line_avail - line_width;
+            } else if (align == css::TextAlign::Center) {
                 x += (line_avail - line_width) / 2.0f;
-            else if (align == css::TextAlign::Right)
+            } else if (align == css::TextAlign::Right) {
                 x += line_avail - line_width;
+            }
             // A right-to-left line is drawn from its end, so what hangs past
             // that end comes first: it starts that much further left, and
             // the rest lands where the alignment put it.
@@ -3510,7 +3512,7 @@ struct Layouter {
                         + resolve(placed.style->margin_top, content_width);
                     shift_fragment(*placed.block, dx, dy);
                     shift_recorded(placed.since, placed.until, dx, dy);
-                    mark_positioned(*placed.block, *placed.style, content_width, block_rtl);
+                    mark_positioned(*placed.block, *placed.style, content_width, block_rtl, containing_height);
                     out.children.push_back(std::move(*placed.block));
                 } else if (placed.is_image) {
                     // The border box inside the margin box, the content
@@ -3532,7 +3534,7 @@ struct Layouter {
                     // An atomic inline box is positioned like any other: its
                     // own offsets move it off the line it was placed on, and
                     // a z-index or an opacity makes it a stacking context.
-                    mark_positioned(box, *placed.style, content_width, block_rtl);
+                    mark_positioned(box, *placed.style, content_width, block_rtl, containing_height);
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
                     // Rule L2 again, this time inside the run: painting walks
@@ -3636,7 +3638,7 @@ struct Layouter {
                 if (s.position != css::Position::Relative)
                     continue;
                 float const dx = relative_dx(s, content_width, block_rtl);
-                float const dy = relative_dy(s);
+                float const dy = relative_dy(s, containing_height);
                 if (dx == 0 && dy == 0)
                     continue;
                 std::size_t const from = std::min(run.from, line.size());
@@ -4792,6 +4794,16 @@ struct Layouter {
                         height = *options.content_width * size->height / size->width;
                     width = *options.content_width;
                 }
+                // And one whose width is auto, settled narrower than its own
+                // by a formatting context — a flex item held to its line's
+                // cross size — takes that width, the ratio following unless
+                // the height was settled too. (Left to itself a picture wider
+                // than its container overflows; this is the container's say.)
+                if (!settled && options.content_width && style.width.is_auto() && *options.content_width < width) {
+                    if (size->width > 0 && style.height.is_auto() && !options.content_height)
+                        height = *options.content_width * size->height / size->width;
+                    width = *options.content_width;
+                }
                 if (!settled && options.content_height && !style.height.is_auto())
                     height = *options.content_height;
                 if (style.width.is_auto() || (settled && options.content_width))
@@ -5312,7 +5324,7 @@ struct Layouter {
             // its bottom; sticky stays put until scroll containers land.
             // Either paints in the positioned layer.
             auto const hand_over = [&](Fragment& box) {
-                mark_positioned(box, *child_style, content_width, style.direction == css::Direction::Rtl);
+                mark_positioned(box, *child_style, content_width, style.direction == css::Direction::Rtl, containing_height);
                 fragment.children.push_back(std::move(box));
             };
 
