@@ -17,6 +17,14 @@
 # its last failing subtest. "<= chrome" caps each file's share at what Chrome
 # passes there beyond us, so it is a ceiling, and causes sharing a file
 # overlap.
+#
+# ⚠ "in largest" is how much of a cause comes from its single biggest file,
+# and it is the column that says whether a rank is worth what it looks like.
+# A cause spread over a hundred files is a gap in the engine; a cause almost
+# entirely inside one file is that file, and may be a duplicate of one that
+# already passes elsewhere — 2,019 subtests once ranked second here, of which
+# 1,975 were one XHTML copy of a test we pass in HTML. Read the cause text
+# too: it names what actually failed, which the file's name does not.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 failures="${1:?usage: tools/wpt-gaps.sh <failures.tsv> <out-dir>}"
@@ -129,7 +137,7 @@ END {
         }
     }
     for (c in blocked)
-        printf "%d\t%d\t%d\t%s\t%s\n", blocked[c], ceiling[c], files[c], c, example[c] > (out "/causes.unsorted")
+        printf "%d\t%d\t%d\t%s\t%d\t%s\n", blocked[c], ceiling[c], files[c], c, example_size[c], example[c] > (out "/causes.unsorted")
     all_files = all_passed = all_reported = all_total = all_chrome = all_firefox = all_unknown = 0
     for (d in dir_files) {
         printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", d, dir_files[d], dir_passed[d], dir_reported[d], dir_total[d], dir_chrome[d], dir_firefox[d], dir_unknown[d] > (out "/directories.unsorted")
@@ -141,7 +149,7 @@ END {
 AWK
 
 tab=$'\t'
-{ printf 'blocked\t<= chrome\tfiles\tcause\tlargest file\n'; sort -t "$tab" -k1,1nr -k4,4 "$out/causes.unsorted"; } > "$out/causes.tsv"
+{ printf 'blocked\t<= chrome\tfiles\tcause\tin largest\tlargest file\n'; sort -t "$tab" -k1,1nr -k4,4 "$out/causes.unsorted"; } > "$out/causes.tsv"
 { printf 'directory\tfiles\tpassed\treported\tchrome subtests\tchrome passed\tfirefox passed\tfiles without browser counts\n'; sort "$out/directories.unsorted"; } > "$out/directories.tsv"
 { printf 'hidden\tfile\tpassed / reported\tchrome subtests\tstopped by\n'; sort -t "$tab" -k1,1nr -k2,2 "$out/short-files.unsorted" 2>/dev/null || true; } > "$out/short-files.tsv"
 rm -f "$out/causes.unsorted" "$out/directories.unsorted" "$out/short-files.unsorted"

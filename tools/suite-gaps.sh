@@ -227,7 +227,7 @@ section() { # title, file, top, columns to show (awk field list), headings
         "test262 $(grep -a 'TOTAL' "$out/test262.log" | tr -s ' ')" \
         "reference tests $(grep -a 'TOTAL' "$out/reftest.log" | tr -s ' ')"
     printf '<main>\n'
-    section "Scripted WPT: causes by subtests blocked" "$out/scripted/causes.tsv" "$top" "1,3,4"
+    section "Scripted WPT: causes by subtests blocked" "$out/scripted/causes.tsv" "$top" "1,3,4,5,6"
     section "test262: features" "$out/test262-features.tsv" "$top" "1,2,3"
     section "Reference tests: properties the failing tests use" "$out/reftest-properties.tsv" "$top" "1,2,3"
     section "Scripted WPT: files that stop early" "$out/scripted/short-files.tsv" "$top" "1,2,5"
