@@ -3,6 +3,7 @@
 #include "media/Opus.h"
 #include "media/RangeDecoder.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
