@@ -1183,6 +1183,25 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         });
     option_constructor->put(interpreter.key("prototype"), js::Value::object(&proto_of("HTMLOptionElement")), js::frozen_attributes);
     interpreter.global()->put(interpreter.key("Option"), js::Value::object(option_constructor), js::builtin_attributes);
+
+    // The Audio constructor (HTML §4.8.11): a preload="auto" audio element,
+    // its src content attribute set when the caller gave one.
+    js::NativeFunction* audio_constructor = interpreter.new_native("Audio", 0,
+        [](js::Interpreter& interp, js::Value const&, Args) -> Native { return interp.throw_type_error("Please use the 'new' operator"); },
+        [](js::Interpreter& interp, Args args, js::Object*) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            dom::Element* audio = internals.document->create<dom::Element>(std::string(dom::ns::html), "audio");
+            audio->attributes().push_back(dom::Attr { "preload", "auto", "", "" });
+            if (!args.empty() && !args[0].is_undefined()) {
+                std::optional<std::string> src = internals.to_utf8(args[0]);
+                if (!src)
+                    return std::nullopt;
+                audio->attributes().push_back(dom::Attr { "src", std::move(*src), "", "" });
+            }
+            return js::Value::object(internals.wrap(*audio));
+        });
+    audio_constructor->put(interpreter.key("prototype"), js::Value::object(&proto_of("HTMLAudioElement")), js::frozen_attributes);
+    interpreter.global()->put(interpreter.key("Audio"), js::Value::object(audio_constructor), js::builtin_attributes);
 }
 
 }
