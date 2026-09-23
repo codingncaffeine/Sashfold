@@ -1240,6 +1240,12 @@ Native construct_custom_element(Realm::Internals&, std::string_view local_name);
 // any element whose definition arrived while it was out of the tree.
 void custom_elements_inserted(Realm::Internals&, dom::Node& subtree);
 void custom_elements_removed(Realm::Internals&, dom::Node& subtree);
+// A subtree that cloneNode or importNode just made: every element of a
+// defined name in it is upgraded as the call returns, whether or not it is
+// in a document yet (DOM "clone a node" creates it with the synchronous
+// custom elements flag unset, which enqueues the upgrade), so a template
+// stamped and configured before it is inserted is configured on the class.
+void custom_elements_cloned(Realm::Internals&, dom::Node& subtree);
 // An attribute a definition asked to watch was set, changed or removed.
 void custom_element_attribute_changed(Realm::Internals&, dom::Element&, std::string_view name,
     std::optional<std::string> const& old_value);

@@ -961,6 +961,7 @@ void install_node(Realm::Internals& in, js::Object& node)
     });
     node_method(in, node, "cloneNode", 0, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         dom::Node* clone = clone_node(internals, n, js::Interpreter::to_boolean(js::argument(args, 0)));
+        custom_elements_cloned(internals, *clone);
         return js::Value::object(internals.wrap(*clone));
     });
     node_method(in, node, "contains", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {

@@ -385,6 +385,24 @@ void custom_elements_removed(Realm::Internals& in, dom::Node& subtree)
     }
 }
 
+void custom_elements_cloned(Realm::Internals& in, dom::Node& subtree)
+{
+    // Only this document's registry knows the names: a clone in a template's
+    // contents, whose document has no window, is left as it is.
+    if (in.custom_element_definitions.empty() || &subtree.document() != in.document)
+        return;
+    std::vector<dom::Element*> elements;
+    collect_elements(subtree, elements);
+    // The clone is held while the constructors run: one may take a node out
+    // of it, and nothing else would keep the rest.
+    js::Interpreter::Roots const roots(in.interpreter);
+    in.interpreter.root(js::Value::object(in.wrap(subtree)));
+    for (dom::Element* const element : elements) {
+        if (custom_element_definition(in, element->local_name()) != nullptr)
+            upgrade_custom_element(in, *element);
+    }
+}
+
 void custom_element_attribute_changed(Realm::Internals& in, dom::Element& element, std::string_view name,
     std::optional<std::string> const& old_value)
 {

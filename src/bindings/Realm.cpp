@@ -18,6 +18,13 @@
 
 namespace sashfold::bindings {
 
+namespace {
+
+// Every wrapper in a tree, and in its templates' contents (below, with the roots).
+void trace_tree(dom::Node const& node, js::Tracer& tracer);
+
+}
+
 // --- Host object tracing ------------------------------------------------------
 
 void EventTargetObject::trace(js::Tracer& tracer)
@@ -73,6 +80,14 @@ void NodeWrapper::trace(js::Tracer& tracer)
     dom::Node& root = m_node->root();
     if (&root != &realm().document() && root.wrapper && root.wrapper != this)
         tracer.visit(root.wrapper);
+    // And the root of a detached subtree keeps every wrapper in it, as the
+    // realm keeps every wrapper of the connected tree: a wrapper is where a
+    // node's expandos live, and an upgraded custom element's class. A
+    // template stamped into a fragment and configured before it is inserted
+    // must not lose what was set on its elements to a collection that runs
+    // in between.
+    if (&root == m_node && m_node != &realm().document())
+        trace_tree(*m_node, tracer);
 }
 
 void EventObject::trace(js::Tracer& tracer)

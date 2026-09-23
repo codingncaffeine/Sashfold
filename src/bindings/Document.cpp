@@ -645,6 +645,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         dom::Node* clone = deep ? dom::clone_subtree(*node, d) : clone_node(internals, *node, false);
         copy_started_scripts(internals, *node, *clone);
         internals.adopt_into(d, *clone);
+        custom_elements_cloned(internals, *clone);
         return js::Value::object(internals.wrap(*clone));
     });
     document_method(in, *document, "adoptNode", 1, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {

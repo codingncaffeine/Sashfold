@@ -3822,6 +3822,26 @@ void test_custom_elements()
     CHECK_EQ(page->string("take()"), "late in");
     CHECK(page->boolean("host.querySelector('my-late') instanceof Late"));
 
+    // A template's contents cloned into the document are upgraded as the
+    // clone is made, before anything inserts them: a framework stamps a
+    // template and sets data on what it stamped, and must be setting it on
+    // the class. The template's own contents, in a document with no
+    // registry, stay as they are.
+    page->eval(R"JS(
+        var template = document.createElement('template');
+        template.innerHTML = '<div><my-card title=stamped></my-card></div>';
+        var stamped = document.importNode(template.content, true);
+        var inStamp = stamped.firstChild.firstChild;
+    )JS");
+    CHECK_EQ(page->string("(inStamp instanceof MyCard) + ' ' + inStamp.built + ' ' + inStamp.isConnected + ' ' + take()"),
+        "true true false made attr:title:null:stamped");
+    CHECK(page->boolean("!(template.content.firstChild.firstChild instanceof MyCard)"));
+    page->eval("host.appendChild(stamped);");
+    CHECK_EQ(page->string("take()"), "in:stamped");
+    // cloneNode makes an upgraded copy too, connected or not.
+    page->eval("var copy = inStamp.cloneNode(false);");
+    CHECK_EQ(page->string("(copy instanceof MyCard) + ' ' + copy.isConnected + ' ' + take()"), "true false made attr:title:null:stamped");
+
     // The registry answers for what it holds.
     CHECK(page->boolean("customElements.get('my-card') === MyCard"));
     CHECK(page->boolean("customElements.get('my-nothing') === undefined"));
