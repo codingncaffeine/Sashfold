@@ -273,17 +273,21 @@ std::optional<Vp9FrameHeader> Vp9HeaderReader::read(std::span<std::uint8_t const
     m_loop_filter.level = in.bits(6);
     m_loop_filter.sharpness = in.bits(3);
     m_loop_filter.delta_update = false;
+    m_loop_filter.ref_deltas_updated.fill(false);
+    m_loop_filter.mode_deltas_updated.fill(false);
     m_loop_filter.delta_enabled = in.bit();
     if (m_loop_filter.delta_enabled) {
         m_loop_filter.delta_update = in.bit();
         if (m_loop_filter.delta_update) {
-            for (int& delta : m_loop_filter.ref_deltas) {
-                if (in.bit())
-                    delta = in.signed_bits(6);
+            for (std::size_t i = 0; i < m_loop_filter.ref_deltas.size(); ++i) {
+                m_loop_filter.ref_deltas_updated[i] = in.bit();
+                if (m_loop_filter.ref_deltas_updated[i])
+                    m_loop_filter.ref_deltas[i] = in.signed_bits(6);
             }
-            for (int& delta : m_loop_filter.mode_deltas) {
-                if (in.bit())
-                    delta = in.signed_bits(6);
+            for (std::size_t i = 0; i < m_loop_filter.mode_deltas.size(); ++i) {
+                m_loop_filter.mode_deltas_updated[i] = in.bit();
+                if (m_loop_filter.mode_deltas_updated[i])
+                    m_loop_filter.mode_deltas[i] = in.signed_bits(6);
             }
         }
     }

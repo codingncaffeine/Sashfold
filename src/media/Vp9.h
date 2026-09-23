@@ -46,6 +46,10 @@ struct Vp9LoopFilter {
     bool delta_update = false;
     std::array<int, 4> ref_deltas { 1, 0, -1, -1 }; // intra, last, golden, altref
     std::array<int, 2> mode_deltas { 0, 0 };
+    // Which of the deltas this frame's own header set (Vulkan Video is
+    // told, beside the values carried).
+    std::array<bool, 4> ref_deltas_updated {};
+    std::array<bool, 2> mode_deltas_updated {};
 };
 
 struct Vp9FrameHeader {
