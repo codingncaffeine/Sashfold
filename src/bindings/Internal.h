@@ -855,6 +855,19 @@ struct Realm::Internals {
     // this turn (Mutations.cpp).
     std::vector<js::Object*> mutation_observers;
     bool mutation_delivery_pending = false;
+    // The IntersectionObservers with something to watch or to deliver, and
+    // what the last update saw, so that an update with nothing moved since
+    // costs nothing (Intersection.cpp).
+    struct IntersectionState {
+        std::vector<js::Object*> observers;
+        bool delivery_pending = false;
+        bool dirty = false; // a target was added since the last update
+        std::uint64_t mutations = 0;
+        std::pair<int, int> scroll { 0, 0 };
+        float viewport_width = 0;
+        float viewport_height = 0;
+        double updated_at = -1e300;
+    } intersection;
     // The MediaSources URL.createObjectURL has named, by the URL, until it is
     // revoked: what a media element's src is looked up in (Media.cpp).
     std::unordered_map<std::string, js::Object*> media_source_urls;
@@ -1197,6 +1210,13 @@ void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRange
 // the tree owes a definition.
 void install_mutation_observer(Realm::Internals&); // Mutations.cpp: MutationObserver, MutationRecord
 void trace_mutation_observers(Realm::Internals const&, js::Tracer&);
+// Intersection.cpp: IntersectionObserver and its entries. The update runs
+// at the end of each turn of the event loop, and measures only when a
+// target was added, the tree or the scroll or the viewport moved, or a
+// quarter of a second has passed; true when it queued entries.
+void install_intersection_observer(Realm::Internals&);
+void trace_intersection_observers(Realm::Internals const&, js::Tracer&);
+bool update_intersection_observations(Realm::Internals&, bool force = false);
 // What the tree tells the observers: children added or taken away, an
 // attribute written, a text node changed.
 void mutation_children_changed(Realm::Internals&, dom::Node& parent, std::vector<dom::Node*> const& added,

@@ -845,6 +845,10 @@ int render_page(std::string const& path, std::string const& output, int viewport
 {
     using clock = std::chrono::steady_clock;
     auto const started = clock::now();
+    // When the current turn of the page's event loop began: a script is
+    // stopped after ten seconds of one turn, the window's own rule, so that
+    // a render shows what the window would and not a budget of its own.
+    auto turn_started = started;
     std::optional<RenderLoad> const load = load_for_render(path);
     if (!load)
         return 1;
@@ -885,7 +889,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
             return loaded.loader->load_resource(url, loaded.url, "", request, guard);
         };
         hooks.now = [&script_clock] { return script_clock; };
-        hooks.should_stop = [started] { return clock::now() - started > std::chrono::seconds(30); };
+        hooks.should_stop = [&turn_started] { return clock::now() - turn_started > std::chrono::seconds(10); };
         oracle.install(hooks);
         hooks.console = [&gap_census, counting_gaps](std::string_view level, std::string_view message) {
             std::cerr << "console." << level << ": " << message << "\n";
@@ -927,6 +931,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         }
     }
     // A document sandboxed without allow-scripts parses with scripting off.
+    turn_started = clock::now();
     html::parse_document_bytes_into(*document, loaded.bytes,
         loaded.policy->sandbox_allows_scripts() ? realm.get() : nullptr);
     if (realm) {
@@ -940,6 +945,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
             if (due > extras.script_time_ms)
                 break;
             script_clock = std::max(script_clock, due);
+            turn_started = clock::now();
             realm->run_pending();
         }
     }

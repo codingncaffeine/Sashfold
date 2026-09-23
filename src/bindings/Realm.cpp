@@ -1129,6 +1129,7 @@ void install_interfaces(Realm::Internals& in)
     // which every interface above it must already exist for.
     install_custom_elements(in);
     install_mutation_observer(in);
+    install_intersection_observer(in);
     install_window_proxy(in, language_globals);
 }
 
@@ -2713,6 +2714,11 @@ bool Realm::run_pending()
         if (in.interpreter.terminated())
             break;
     }
+    // The page's share of the rendering update, once the turn's work is
+    // done: what its intersection observers see now. Measuring costs
+    // nothing when nothing has moved since the last time.
+    if (!in.interpreter.terminated() && update_intersection_observations(in))
+        ran = true;
     return ran;
 }
 
@@ -2804,6 +2810,7 @@ void Realm::trace_roots(js::Tracer& tracer)
         tracer.visit(source);
     trace_custom_elements(in, tracer);
     trace_mutation_observers(in, tracer);
+    trace_intersection_observers(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)
             tracer.visit(*member.value);

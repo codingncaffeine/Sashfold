@@ -994,11 +994,14 @@ void test_window_location_url_storage_navigator()
     CHECK_EQ(page->string("document.cookie"), "a=3; b=2");
     page->eval("document.cookie = 'b=; max-age=0';");
     CHECK_EQ(page->string("document.cookie"), "a=3");
-    // Observers deliver once, on the next turn.
+    // An intersection observer measures at the end of a turn and delivers in
+    // the task after it; a page with no layout has no boxes, so nothing it
+    // watches is intersecting (test_intersection_observer has the geometry).
     page->eval("var io = new IntersectionObserver(function (entries, observer) { window.seen = entries.length + ':' + entries[0].isIntersecting + ':' + (entries[0].target === document.body) + ':' + (observer === io); }); io.observe(document.body); io.observe(document.documentElement);");
     page->clock += 10;
     page->realm->run_pending();
-    CHECK_EQ(page->string("window.seen"), "2:true:true:true");
+    page->realm->run_pending();
+    CHECK_EQ(page->string("window.seen"), "2:false:true:true");
     CHECK(page->boolean("(function () { var m = new MutationObserver(function () {}); m.observe(document.body, { childList: true }); return m.takeRecords().length === 0; })()"));
     CHECK_EQ(page->realm->stats().uncaught_errors, 0);
 }
@@ -3621,6 +3624,104 @@ void test_mutation_observer()
     CHECK_EQ(page->string("var r = ''; try { new MutationObserver(1); } catch (e) { r = e.name; } r"), "TypeError");
 }
 
+// IntersectionObserver with geometry the test decides: each element's box by
+// its id, an 800 by 600 viewport, and a scroll position the test moves. The
+// entries come only when a target crosses a threshold or goes in or out of
+// view, and a page checking for the interface finds all of it.
+void test_intersection_observer()
+{
+    std::map<std::string, bindings::LayoutBox> boxes;
+    boxes["top"] = { 0, 100, 200, 100 }; // wholly in view
+    boxes["half"] = { 0, 550, 200, 100 }; // half in view: 550 to 650 against 0 to 600
+    boxes["below"] = { 0, 2000, 200, 100 }; // out of view until the page scrolls
+    std::pair<int, int> scroll { 0, 0 };
+    bindings::HostHooks hooks;
+    hooks.layout_box = [&boxes](dom::Element const& element) -> std::optional<bindings::LayoutBox> {
+        dom::Attr const* const id = element.find_attribute("id");
+        if (id == nullptr)
+            return std::nullopt;
+        auto const it = boxes.find(id->value);
+        if (it == boxes.end())
+            return std::nullopt;
+        return it->second;
+    };
+    hooks.scroll_position = [&scroll](dom::Document const&) { return scroll; };
+    hooks.viewport_width = 800;
+    hooks.viewport_height = 600;
+    auto page = std::make_unique<Page>(
+        "<!DOCTYPE html><body><div id=top></div><div id=half></div><div id=below></div><div id=none></div></body>",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    auto const pump = [&page] {
+        for (int i = 0; i < 10 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval(R"JS(
+        var log = [];
+        var take = function () { var s = log.join(' '); log = []; return s; };
+        var io = new IntersectionObserver(function (entries, observer) {
+            entries.forEach(function (e) { log.push(e.target.id + ':' + e.isIntersecting + ':' + e.intersectionRatio); });
+        }, { threshold: [0, 0.5, 1] });
+        ['top', 'half', 'below', 'none'].forEach(function (id) { io.observe(document.getElementById(id)); });
+    )JS");
+    pump();
+    CHECK_EQ(page->string("take()"), "top:true:1 half:true:0.5 below:false:0 none:false:0");
+    // Nothing has moved, so there is nothing more to say.
+    page->clock += 1000;
+    pump();
+    CHECK_EQ(page->string("take()"), "");
+    // Scrolling takes two out of view and brings the third in.
+    scroll = { 0, 1500 };
+    page->clock += 50;
+    pump();
+    CHECK_EQ(page->string("take()"), "top:false:0 half:false:0 below:true:1");
+    // The entry's rectangles are in the viewport's coordinates.
+    page->eval(R"JS(
+        var rects = '';
+        var measuring = new IntersectionObserver(function (entries) {
+            var e = entries[0];
+            rects = [e.boundingClientRect.y, e.intersectionRect.height, e.rootBounds.height, typeof e.time].join(',');
+        });
+        measuring.observe(document.getElementById('below'));
+    )JS");
+    pump();
+    CHECK_EQ(page->string("rects"), "500,100,600,number");
+    // rootMargin grows the root: a margin of 1500px at the bottom brings the
+    // first one back into what the second observer calls view.
+    page->eval(R"JS(
+        var near = '';
+        var ahead = new IntersectionObserver(function (entries) { near = entries.map(function (e) { return e.target.id + ':' + e.isIntersecting; }).join(' '); },
+            { rootMargin: '1500px 0px 0px 0px' });
+        ahead.observe(document.getElementById('top'));
+    )JS");
+    pump();
+    CHECK_EQ(page->string("near"), "top:true");
+    // takeRecords hands over what is waiting; unobserve and disconnect end it.
+    page->eval("io.unobserve(document.getElementById('below')); ahead.disconnect(); measuring.disconnect();");
+    scroll = { 0, 0 };
+    page->clock += 50;
+    pump();
+    CHECK_EQ(page->string("take()"), "top:true:1 half:true:0.5");
+    // Crossing a threshold while staying in view is news too; and a box that
+    // moves with no change to the tree (a picture arriving above it) is seen
+    // on the quarter-second refresh.
+    boxes["half"] = { 0, 575, 200, 100 };
+    page->clock += 300;
+    pump();
+    CHECK_EQ(page->string("take()"), "half:true:0.25");
+
+    // The interface as a page checks for it before deciding to bring its own.
+    CHECK(page->boolean("'intersectionRatio' in IntersectionObserverEntry.prototype && 'isIntersecting' in IntersectionObserverEntry.prototype"));
+    CHECK_EQ(page->string("new IntersectionObserver(function () {}, { rootMargin: '10px 5%' }).rootMargin"), "10px 5% 10px 5%");
+    CHECK_EQ(page->string("new IntersectionObserver(function () {}).rootMargin"), "0px 0px 0px 0px");
+    CHECK_EQ(page->string("new IntersectionObserver(function () {}, { threshold: [1, 0, 0.5] }).thresholds.join()"), "0,0.5,1");
+    CHECK(page->boolean("new IntersectionObserver(function () {}).root === null"));
+    CHECK(page->throws("new IntersectionObserver(function () {}, { threshold: 2 })").starts_with("RangeError"));
+    CHECK(page->throws("new IntersectionObserver(function () {}, { rootMargin: '10' })").starts_with("SyntaxError"));
+    CHECK(page->throws("new IntersectionObserver(function () {}, { root: {} })").starts_with("TypeError"));
+    CHECK(page->throws("new IntersectionObserver(function () {}).observe({})").starts_with("TypeError"));
+    CHECK_EQ(page->realm->stats().uncaught_errors, 0);
+}
+
 // Custom elements: a page names a class of its own and the tree becomes it.
 // Almost every page built out of components rests on this, so what is
 // checked here is the whole of what one needs — the element already in the
@@ -4154,6 +4255,7 @@ int main()
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();
+    test_intersection_observer();
     test_custom_elements();
     test_reflected_attributes();
     test_media_source_and_the_media_element();

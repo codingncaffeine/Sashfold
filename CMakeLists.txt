@@ -50,6 +50,7 @@ add_library(sashfold_core STATIC
   src/bindings/Events.cpp
   src/bindings/Fetch.cpp
   src/bindings/HtmlElements.cpp
+  src/bindings/Intersection.cpp
   src/bindings/LayoutOracle.cpp
   src/bindings/Media.cpp
   src/bindings/Mutations.cpp

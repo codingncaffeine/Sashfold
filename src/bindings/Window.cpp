@@ -1479,8 +1479,8 @@ void install_window(Realm::Internals& in)
     performance->put(interpreter.key("navigation"), js::Value::object(object_with(in, { { "type", js::Value::number(0) }, { "redirectCount", js::Value::number(0) } })), js::builtin_attributes);
     performance->put(interpreter.key("eventCounts"), js::Value::object(object_with(in, { { "size", js::Value::number(0) } })), js::builtin_attributes);
 
-    // Observers.
-    install_observer(in, "IntersectionObserver", true, true);
+    // Observers. IntersectionObserver is its own machinery (Intersection.cpp),
+    // installed with the element machinery.
     install_observer(in, "ResizeObserver", false, true);
     // MutationObserver is its own machinery (Mutations.cpp): it watches the
     // tree for real, so it is not one of the stand-ins above.
