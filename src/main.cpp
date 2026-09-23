@@ -915,21 +915,13 @@ int render_page(std::string const& path, std::string const& output, int viewport
         if (char const* const watch = std::getenv("SASHFOLD_THROW_TRACE"); watch != nullptr && watch[0] == '1') {
             js::Interpreter& interpreter = realm->interpreter();
             interpreter.watch_throws([&interpreter](js::Value const& thrown) {
-                // Reading the message runs script, which could throw again:
-                // one at a time, and only for a plain error object.
-                static bool reading = false;
-                if (reading || !thrown.is_object())
-                    return;
-                reading = true;
-                std::string line = "threw: ";
-                if (std::optional<js::Value> const name = interpreter.get(*thrown.as_object(), interpreter.key("name"));
-                    name && name->is_string())
-                    line += name->as_string()->to_utf8() + ": ";
-                if (std::optional<js::Value> const message = interpreter.get(*thrown.as_object(), interpreter.key("message"));
-                    message && message->is_string())
-                    line += message->as_string()->to_utf8();
-                interpreter.clear_exception();
-                reading = false;
+                // Whatever was thrown, error or not, and the functions that
+                // were running when it was. Neither runs script nor touches
+                // the exception being thrown, so the watcher cannot change
+                // what it watches.
+                std::string line = "threw: " + interpreter.stack_text(thrown);
+                for (std::size_t at = line.find("\n    at "); at != std::string::npos; at = line.find("\n    at ", at))
+                    line.replace(at, 8, "  <- ");
                 std::cerr << line << "\n";
             });
         }
@@ -939,7 +931,11 @@ int render_page(std::string const& path, std::string const& output, int viewport
         loaded.policy->sandbox_allows_scripts() ? realm.get() : nullptr);
     if (realm) {
         realm->document_parsed();
-        for (int i = 0; i < 200 && realm->has_pending_timers(); ++i) {
+        // The page's timers run until its virtual time is spent. The count
+        // only stops a runaway: an application that schedules its work in
+        // small pieces takes a thousand turns for twenty seconds, and the
+        // old cap of two hundred ended it long before its time was up.
+        for (int turns = 0; turns < 20000 && realm->has_pending_timers(); ++turns) {
             double const due = *realm->next_timer_due();
             if (due > extras.script_time_ms)
                 break;

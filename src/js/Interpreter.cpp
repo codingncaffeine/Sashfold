@@ -2105,14 +2105,23 @@ std::string Interpreter::stack_text(Value const& error)
     for (auto it = frames.rbegin(); it != frames.rend() && listed < 12; ++it, ++listed) {
         Frame const& frame = **it;
         text += "\n    at ";
+        // Where the frame is now, as the browsers give it: the statement
+        // running (or the call it is waiting in); the function's own start
+        // when the block kept no positions.
+        std::optional<SourcePosition> now;
+        if (frame.code != nullptr && frame.pc > 0)
+            now = source_position_of(*frame.code, frame.pc - 1);
         if (frame.function == nullptr) {
             // A script's own statements, or an eval's.
             text += frame.program != nullptr && !frame.program->name.empty() ? frame.program->name : std::string("<script>");
+            if (now)
+                text += ":" + std::to_string(now->line) + ":" + std::to_string(now->column);
             continue;
         }
         FunctionNode const& node = frame.function->node();
+        SourcePosition const position = now.value_or(node.position);
         std::string where = node.program != nullptr && !node.program->name.empty() ? node.program->name : std::string("<script>");
-        where += ":" + std::to_string(node.position.line) + ":" + std::to_string(node.position.column);
+        where += ":" + std::to_string(position.line) + ":" + std::to_string(position.column);
         if (node.name != nullptr && node.name->length() > 0)
             text += node.name->to_utf8() + " (" + where + ")";
         else

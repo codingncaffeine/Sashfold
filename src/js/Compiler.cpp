@@ -573,6 +573,12 @@ private:
     {
         if (!m_error.empty())
             return;
+        // Where this statement's instructions begin; a statement that emits
+        // nothing before the next one does is overwritten by it.
+        if (!m_code->positions.empty() && m_code->positions.back().instruction == here())
+            m_code->positions.back().position = statement->position;
+        else
+            m_code->positions.push_back({ here(), statement->position });
         switch (statement->type) {
         case NodeType::VariableDeclaration:
             compile_declaration(*static_cast<VariableDeclaration const*>(statement));
@@ -2309,6 +2315,23 @@ std::unique_ptr<CodeBlock> compile_parameter_list(FunctionNode const& node, Heap
 }
 
 // ---- disassembly ------------------------------------------------------
+
+std::optional<SourcePosition> source_position_of(CodeBlock const& code, std::uint32_t instruction)
+{
+    if (instruction < code.code.size()) {
+        Instruction const& ins = code.code[instruction];
+        bool const has_node = ins.op == Opcode::Call || ins.op == Opcode::CallArray || ins.op == Opcode::CallEval
+            || ins.op == Opcode::CallEvalArray || ins.op == Opcode::New || ins.op == Opcode::NewArray;
+        if (has_node && ins.b < code.nodes.size() && code.nodes[ins.b] != nullptr)
+            return code.nodes[ins.b]->position;
+    }
+    // The last statement that began at or before the instruction.
+    auto const after = std::upper_bound(code.positions.begin(), code.positions.end(), instruction,
+        [](std::uint32_t at, CodeBlock::Position const& entry) { return at < entry.instruction; });
+    if (after == code.positions.begin())
+        return std::nullopt;
+    return std::prev(after)->position;
+}
 
 std::string disassemble(CodeBlock const& code)
 {

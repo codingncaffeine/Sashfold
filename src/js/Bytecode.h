@@ -16,6 +16,7 @@
 #include "js/Value.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -155,6 +156,15 @@ struct CodeBlock {
     std::vector<Declarations const*> declarations;
     std::vector<std::vector<JsString*>> name_lists;
     std::vector<Expression const*> nodes; // for messages: "x is not a function"
+    // Where in the source each statement's instructions begin, in the order
+    // they were emitted: the first instruction of the statement and the
+    // statement's position. A stack's lines are read from it, so an error
+    // names the statement that raised it rather than the function it is in.
+    struct Position {
+        std::uint32_t instruction = 0;
+        SourcePosition position;
+    };
+    std::vector<Position> positions;
     std::vector<Handler> handlers;
     std::vector<std::vector<std::uint32_t>> jump_tables;
     std::uint32_t register_count = 0;
@@ -180,5 +190,10 @@ enum class ResumeKind : std::uint8_t { Normal, Throw, Return };
 // A listing for the tests and the probe: one instruction per line, the
 // pools, the handlers.
 std::string disassemble(CodeBlock const&);
+
+// The source position of an instruction: a call's own node when it is one,
+// otherwise the start of the statement it belongs to; none for a block
+// that recorded no statements.
+std::optional<SourcePosition> source_position_of(CodeBlock const&, std::uint32_t instruction);
 
 }
