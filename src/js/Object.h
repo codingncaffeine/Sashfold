@@ -147,6 +147,13 @@ public:
     bool is_error() const { return m_class == Class::Error; }
     bool is_host() const { return m_class == Class::Host; }
 
+    // [[IsHTMLDDA]] (HTML's "the all exotic object" is the only object the
+    // web ever gives this slot, via `document.all`): ToBoolean, the abstract
+    // equality comparison and typeof all treat an object with this slot as
+    // if it were undefined, even though it is very much an object.
+    bool is_html_dda() const { return m_is_html_dda; }
+    void set_html_dda() { m_is_html_dda = true; }
+
     // The essential internal methods (§10.1), ordinary here.
     virtual std::optional<PropertyDescriptor> get_own_property(PropertyKey const&) const;
     // ValidateAndApplyPropertyDescriptor; false = rejected. The caller
@@ -195,6 +202,7 @@ protected:
     Object* m_prototype;
     Class m_class;
     bool m_extensible = true;
+    bool m_is_html_dda = false;
 };
 
 // IsCompatiblePropertyDescriptor (§10.1.6.2): may `desc` be applied over

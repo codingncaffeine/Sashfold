@@ -450,6 +450,19 @@ void test_selectors_and_collections()
     CHECK(page->boolean("(function () { try { document.querySelector('p['); } catch (e) { return e instanceof DOMException && e instanceof Error && e.name === 'SyntaxError' && e.code === 12; } })()"));
     CHECK(page->boolean("document.getElementById('x').getElementsByTagName('p').namedItem('nope') === null"));
     CHECK_EQ(page->number("document.getElementById('x').querySelectorAll('.a').length"), 1);
+    // document.all (HTML's "all exotic object"): a real HTMLCollection of
+    // every element, but wearing [[IsHTMLDDA]] (Annex B.3.7) so it reads as
+    // undefined everywhere except a direct reference to it — the guard a
+    // page takes to be sure a value is genuinely absent, `x !== document.all`,
+    // must not itself be fooled into treating undefined as "present".
+    CHECK_EQ(page->number("document.all.length"), 7);
+    CHECK(page->boolean("document.all instanceof HTMLCollection"));
+    CHECK_EQ(page->string("typeof document.all"), "undefined");
+    CHECK(page->boolean("document.all == null && document.all == undefined"));
+    CHECK(page->boolean("document.all !== null && document.all !== undefined"));
+    CHECK(page->boolean("!document.all"));
+    CHECK(page->boolean("(function (f) { return !f && f !== document.all; })(undefined) === true"));
+    CHECK(page->boolean("(function () { var all = document.all; return !all && all !== all; })() === false"));
     CHECK_EQ(page->console, "");
 }
 
@@ -3479,6 +3492,24 @@ void test_scripts_that_must_not_run_again()
     CHECK_EQ(page.console, std::string(""));
 }
 
+// The Audio constructor (HTML §4.8.11) makes a preload="auto" element off
+// the tree, its src content attribute set only when a caller gave one.
+void test_the_audio_constructor()
+{
+    Page page("<!DOCTYPE html><body></body>");
+    page.load();
+    page.eval("var a = new Audio(); var b = new Audio('clip.mp3');");
+    CHECK_EQ(page.string("a.tagName"), std::string("AUDIO"));
+    CHECK_EQ(page.string("a.getAttribute('preload')"), std::string("auto"));
+    CHECK(page.boolean("!a.hasAttribute('src')"));
+    CHECK(page.boolean("a instanceof HTMLAudioElement && a instanceof HTMLMediaElement"));
+    CHECK(page.boolean("Object.getPrototypeOf(a) === Audio.prototype"));
+    CHECK_EQ(page.string("b.getAttribute('src')"), std::string("clip.mp3"));
+    CHECK(page.boolean("typeof a.play === 'function' && typeof a.pause === 'function'"));
+    CHECK(page.boolean("(function () { try { Audio(); return false; } catch (e) { return e instanceof TypeError; } })()"));
+    CHECK_EQ(page.console, std::string(""));
+}
+
 // What the platform says is a promise is one, settled the way the engine can
 // honestly settle it — never `undefined`, which a page calls .then() on.
 void test_interfaces_that_promise()
@@ -4350,6 +4381,7 @@ int main()
     test_a_message_keeps_what_it_transfers();
     test_platform_objects_and_message_arrivals();
     test_a_frame_measures_itself();
+    test_the_audio_constructor();
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();

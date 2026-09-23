@@ -229,6 +229,10 @@ JsString* Interpreter::type_of(Value const& value)
     case Value::Type::BigInt:
         return atoms().bigint;
     case Value::Type::Object:
+        // Annex B.3.7: typeof document.all is "undefined", the other half of
+        // [[IsHTMLDDA]] alongside its ToBoolean and its loose equality.
+        if (value.as_object()->is_html_dda())
+            return atoms().undefined;
         return value.as_object()->is_callable() ? atoms().function : atoms().object;
     case Value::Type::Empty:
         break;
@@ -256,8 +260,11 @@ bool Interpreter::to_boolean(Value const& value)
     case Value::Type::BigInt:
         return !value.as_bigint()->value().is_zero();
     case Value::Type::Symbol:
-    case Value::Type::Object:
         return true;
+    case Value::Type::Object:
+        // Annex B.3.7: `document.all`'s [[IsHTMLDDA]] slot makes it the one
+        // object in the language that is falsy.
+        return !value.as_object()->is_html_dda();
     }
     return false;
 }
@@ -1047,8 +1054,12 @@ std::optional<bool> Interpreter::loose_equals(Value const& x, Value const& y)
         return strict_equals(x, y);
     if (x.is_nullish() && y.is_nullish())
         return true;
-    if (x.is_nullish() || y.is_nullish())
-        return false;
+    if (x.is_nullish() || y.is_nullish()) {
+        // Annex B.3.7: null and undefined also match document.all, the one
+        // object [[IsHTMLDDA]] makes loosely equal to them.
+        Value const& other = x.is_nullish() ? y : x;
+        return other.is_object() && other.as_object()->is_html_dda();
+    }
     if (x.is_number() && y.is_string())
         return x.as_number() == string_to_number(y.as_string()->view());
     if (x.is_string() && y.is_number())

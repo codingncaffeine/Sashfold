@@ -503,6 +503,16 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_getter(in, *document, "plugins", [](Realm::Internals& internals, dom::Document& d) -> Native {
         return collection_of(internals, d, [](dom::Element& e) { return e.is_html("embed"); });
     });
+    document_getter(in, *document, "all", [](Realm::Internals& internals, dom::Document& d) -> Native {
+        // The all exotic object (HTML §3.1.2): every element, rooted at the
+        // document, wearing [[IsHTMLDDA]] so a script's `x !== document.all`
+        // — a common "is this really absent" guard — still lets a genuine
+        // undefined through instead of falling into whatever `x` was not.
+        Native collection = collection_of(internals, d, [](dom::Element&) { return true; });
+        if (collection)
+            collection->as_object()->set_html_dda();
+        return collection;
+    });
 
     // Creating nodes.
     document_method(in, *document, "createElement", 1, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
