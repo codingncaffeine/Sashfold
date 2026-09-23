@@ -9,6 +9,10 @@
 #include "html/TreeBuilder.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <span>
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -3819,6 +3823,100 @@ void test_custom_elements()
     CHECK_EQ(page->string("take()"), "");
 }
 
+// A MediaSource's sound, decoded as it plays: a real Opus stream (a second
+// of a 440 Hz sine, made by ffmpeg in CELT alone) appended by the page,
+// played into a device that lets the test listen to every sample it was
+// given. The device hears at half the page clock's pace, so that the
+// element's time — which is what has been heard, as a browser's is its
+// sound card's — cannot be mistaken for the page clock's.
+void test_media_source_plays_its_sound()
+{
+    std::filesystem::path const fixture = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "media" / "tiny-opus-celt.webm";
+    std::ifstream in(fixture, std::ios::binary);
+    std::vector<std::uint8_t> const opus_stream { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+    CHECK(opus_stream.size() > 1000);
+
+    std::vector<float> heard;
+    int devices = 0;
+    double* clock = nullptr;
+    bindings::HostHooks hooks;
+    hooks.open_audio = [&heard, &devices, &clock](platform::AudioFormat const& format, std::string&) {
+        devices++;
+        return platform::open_virtual_audio(format, [&clock] { return *clock / 2; },
+            [&heard](std::span<float const> samples) { heard.insert(heard.end(), samples.begin(), samples.end()); });
+    };
+    auto page = std::make_unique<Page>("<!DOCTYPE html><body><audio id=a></audio></body>", "https://example.test/dir/page.html", std::move(hooks));
+    clock = &page->clock;
+    page->load();
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval("var OI = '" + base64_encode(opus_stream) + "';");
+    page->eval(R"JS(
+        var log = [];
+        var a = document.getElementById('a'), ms = new MediaSource();
+        ['playing', 'ended', 'seeked'].forEach(function (t) { a.addEventListener(t, function () { log.push(t); }); });
+        ms.addEventListener('sourceopen', function () {
+            var sb = ms.addSourceBuffer('audio/webm; codecs="opus"');
+            sb.addEventListener('updateend', function () { ms.endOfStream(); log.push('appended'); }, { once: true });
+            sb.appendBuffer(Uint8Array.from(atob(OI), function (c) { return c.charCodeAt(0); }));
+        }, { once: true });
+        a.src = URL.createObjectURL(ms);
+    )JS");
+    pump();
+    CHECK_EQ(page->string("log.join(' ') + ' ' + a.readyState"), "appended 4");
+    page->eval("a.play();");
+    pump();
+    CHECK_EQ(page->string("log.join(' ')"), "appended playing");
+    page->eval("log = [];");
+    page->clock += 500;
+    pump();
+    // A quarter of a second heard in half a second of the page's: the time
+    // is where the sound is, and the device was given the whole second at
+    // once, as far ahead as it takes.
+    CHECK_EQ(devices, 1);
+    CHECK_EQ(page->number("Math.round(a.currentTime * 1000)"), 250);
+    CHECK(heard.size() >= 48000u * 2u * 9u / 10u);
+    // What it was given is the tone: 440 cycles a second cross zero 880
+    // times, and at the level it was made (ffmpeg's sine is an eighth of
+    // full scale, a mean square of 1/128), not a whisper of noise.
+    std::size_t crossings = 0;
+    double energy = 0;
+    std::size_t const from = 48000 / 4;
+    std::size_t const to = 48000 * 3 / 4;
+    for (std::size_t i = from; i < to && 2 * i + 2 < heard.size(); ++i) {
+        float const now = heard[2 * i];
+        float const next = heard[2 * i + 2];
+        if ((now < 0) != (next < 0))
+            crossings++;
+        energy += static_cast<double>(now) * static_cast<double>(now);
+    }
+    CHECK(crossings >= 420 && crossings <= 460);
+    double const mean_square = energy / static_cast<double>(to - from);
+    CHECK(mean_square > 0.006 && mean_square < 0.0095);
+    // It plays out to the end of the stream and says so.
+    page->clock += 2000;
+    pump();
+    pump();
+    CHECK_EQ(page->string("log.join(' ') + ' ' + a.ended + ' ' + (a.currentTime === a.duration)"), "ended true true");
+    // A seek starts the sound again where it lands, a little before so the
+    // decoder settles, and throws the settling away.
+    std::size_t const before = heard.size();
+    page->eval("log = []; a.currentTime = 0.5; a.play();");
+    pump();
+    page->clock += 200;
+    pump();
+    // The whole stream went out the first time. From the seek, what lies
+    // after half a second by the container's own times does, the pre-roll
+    // thrown away: decoding starts in the frame 80 ms back, which this file
+    // stamps 0.401 s (ffmpeg rounds the codec delay into every block after
+    // the first), so 20 frames of 960 samples and 99 ms of the 21st are not
+    // played, two channels each.
+    CHECK_EQ(heard.size() - before, before - 2u * (20u * 960u + 4752u));
+    CHECK_EQ(page->string("log.join(' ') + ' ' + (Math.round(a.currentTime * 10) / 10)"), "seeked playing 0.6");
+    CHECK_EQ(page->realm->stats().uncaught_errors, 0);
+}
+
 // A sound file played by the element itself: fetched, read, and moved
 // through by the clock. No machine running this has a sound server it may
 // open, so what is measured here is the element's own account of playing —
@@ -4259,6 +4357,7 @@ int main()
     test_custom_elements();
     test_reflected_attributes();
     test_media_source_and_the_media_element();
+    test_media_source_plays_its_sound();
     test_a_sound_file_plays();
     return test::report("test_bindings");
 }

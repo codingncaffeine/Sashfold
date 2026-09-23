@@ -3,6 +3,7 @@
 
 #include "bindings/Fetching.h"
 
+#include "media/Opus.h"
 #include "media/StreamBuffer.h"
 #include "media/Wav.h"
 #include "platform/Audio.h"
@@ -135,6 +136,21 @@ public:
     bool device_tried = false;
     double sound_base = 0; // where in the sound the open stream began
     std::size_t fed_frames = 0; // of the sound, handed to the device
+
+    // Sound from a MediaSource, decoded as it is played: the decoder, what
+    // it made that the device has not taken yet (with the frames at its
+    // head still to be thrown away after a seek's pre-roll), and the
+    // presentation time of the next coded frame to read.
+    std::unique_ptr<media::OpusDecoder> opus;
+    std::vector<float> pending;
+    std::size_t pending_skip = 0;
+    std::int64_t next_audio_ns = 0;
+    bool stream_started = false;
+    // For the media trace: packets decoded, and those that failed or that
+    // no decoder here reads (stood in for by silence).
+    std::uint64_t packets_decoded = 0;
+    std::uint64_t packets_failed = 0;
+    double last_stream_trace = 0;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -416,6 +432,9 @@ void restart_device(MediaStateObject& state);
 void fail_load(Realm::Internals& in, MediaStateObject& state, std::string_view message);
 void fetch_media(Realm::Internals& in, MediaStateObject& state, net::Url const& url);
 TimeRanges sound_buffered(MediaStateObject const& state);
+void stream_media(Realm::Internals& in, MediaStateObject& state);
+std::optional<double> heard_position(MediaStateObject const& state);
+bool stream_played_out(MediaStateObject const& state);
 
 bool is_media_element(dom::Element const& element)
 {
@@ -579,13 +598,20 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     TimeRanges const buffered = element_buffered(state);
     bool const source_ended = state.source != nullptr && state.source->ready == MediaSourceObject::Ended;
 
+    // While the element advances, what has been heard is the clock
+    // everything else keeps to, as in every browser.
     if (state.advancing) {
         double const from = state.position;
         double target = from + (now - state.position_at) / 1000.0 * state.playback_rate;
+        std::optional<double> const heard = heard_position(state);
+        if (heard)
+            target = std::max(from, *heard);
         TimeRange const* const range = media::range_at(buffered, from, true);
         double limit = range != nullptr ? range->end : from;
         if (!std::isnan(state.duration))
             limit = std::min(limit, state.duration);
+        if (heard && source_ended && limit - target < 0.1 && stream_played_out(state))
+            target = limit;
         target = std::clamp(target, 0.0, std::max(limit, 0.0));
         state.position = target;
         note_played(state, from, target);
@@ -643,6 +669,9 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
 
     state.advancing = !state.paused && !state.seeking && !state.ended_fired && state.ready_state >= HaveFutureData
         && state.playback_rate > 0;
+    // The sound follows at once: it starts the moment playback does, and it
+    // holds the moment playback stops.
+    stream_media(in, state);
     if (state.advancing && now - state.last_time_update >= time_update_ms) {
         state.last_time_update = now;
         queue_element_event(in, state, "timeupdate");
@@ -700,11 +729,20 @@ void seek(Realm::Internals& in, MediaStateObject& state, double time)
 
 // --- A file, played through the machine's speakers ---------------------------------------------
 
+// The speakers, or whatever the host plays sound through instead (a
+// headless run hears on the page's clock and makes no sound).
+std::unique_ptr<platform::AudioDevice> open_speakers(Realm::Internals& in, platform::AudioFormat const& format, std::string& error)
+{
+    if (in.hooks.open_audio)
+        return in.hooks.open_audio(format, error);
+    return platform::AudioDevice::open(format, "Sashfold", error);
+}
+
 // Opens the way out, once, at the sound's own rate: a server resamples for
 // its sink, which is its business and not the engine's. A machine with no
 // sound server leaves the element playing silently against the clock, as a
 // browser does on a machine with no sound card.
-void open_device(MediaStateObject& state)
+void open_device(Realm::Internals& in, MediaStateObject& state)
 {
     if (state.device || state.device_tried || !state.sound)
         return;
@@ -713,7 +751,7 @@ void open_device(MediaStateObject& state)
     format.rate = state.sound->rate;
     format.channels = state.sound->channels;
     std::string error;
-    state.device = platform::AudioDevice::open(format, "Sashfold", error);
+    state.device = open_speakers(in, format, error);
     trace(state.device ? "opened the speakers" : "no speakers: " + error);
     if (state.device) {
         state.device->set_volume(state.muted ? 0.0 : state.volume);
@@ -747,11 +785,166 @@ void feed_device(MediaStateObject& state)
 // Where the sound begins again after a seek, or when it is first played.
 void restart_device(MediaStateObject& state)
 {
+    // A MediaSource's sound starts again from the new position at the next
+    // tick, pre-roll and all.
+    if (state.opus) {
+        state.stream_started = false;
+        if (state.device)
+            state.device->flush();
+        return;
+    }
     if (!state.device || !state.sound)
         return;
     state.device->flush();
     state.sound_base = state.position;
     state.fed_frames = std::min(static_cast<std::size_t>(state.position * static_cast<double>(state.sound->rate)), state.sound->frames());
+}
+
+// --- A MediaSource's sound, decoded as it plays ---------------------------------------------
+
+// The Opus track among the element's buffers, if it has one.
+StreamBuffer::Track const* opus_track(MediaStateObject const& state)
+{
+    if (state.source == nullptr || state.source->buffers == nullptr)
+        return nullptr;
+    for (SourceBufferObject const* buffer : state.source->buffers->items) {
+        for (StreamBuffer::Track const& track : buffer->buffer.tracks()) {
+            if (track.description.kind == media::WebmTrack::Kind::Audio && track.description.codec_id == "A_OPUS")
+                return &track;
+        }
+    }
+    return nullptr;
+}
+
+constexpr std::int64_t nanoseconds = 1'000'000'000;
+constexpr unsigned stream_rate = 48000;
+constexpr std::size_t stream_channels = 2;
+
+// Begins the device's stream at the playback position. Opus settles over
+// what came before (the track's SeekPreRoll, 80 ms where it names none), so
+// decoding starts that far back and the pre-roll is thrown away.
+void start_stream(MediaStateObject& state, StreamBuffer::Track const& track)
+{
+    auto const position_ns = static_cast<std::int64_t>(state.position * static_cast<double>(nanoseconds));
+    auto const preroll_ns = static_cast<std::int64_t>(track.description.seek_preroll_ns > 0 ? track.description.seek_preroll_ns : 80'000'000u);
+    auto it = track.frames.upper_bound(std::max<std::int64_t>(0, position_ns - preroll_ns));
+    if (it != track.frames.begin())
+        --it;
+    // Nothing buffered where playback stands: nothing to start from yet.
+    if (it == track.frames.end() || it->first > position_ns + 20'000'000)
+        return;
+    state.opus->reset();
+    state.pending.clear();
+    state.next_audio_ns = it->first;
+    state.pending_skip = position_ns > it->first ? static_cast<std::size_t>((position_ns - it->first) * stream_rate / nanoseconds) : 0;
+    state.device->flush();
+    state.sound_base = state.position;
+    state.stream_started = true;
+    trace("sound starts at " + std::to_string(state.position) + " from the frame at " + std::to_string(static_cast<double>(it->first) / 1e9));
+}
+
+// Decodes ahead of the device as far as it will take and the buffers hold:
+// its ring takes two seconds, so a page busy for a moment is not heard.
+void feed_stream(MediaStateObject& state, StreamBuffer::Track const& track)
+{
+    for (int turns = 0; turns < 4096; ++turns) {
+        if (state.pending_skip > 0 && !state.pending.empty()) {
+            std::size_t const frames = std::min(state.pending_skip, state.pending.size() / stream_channels);
+            state.pending.erase(state.pending.begin(), state.pending.begin() + static_cast<std::ptrdiff_t>(frames * stream_channels));
+            state.pending_skip -= frames;
+        }
+        if (!state.pending.empty()) {
+            std::size_t const room = state.device->writable_frames();
+            if (room == 0)
+                return;
+            std::size_t const frames = std::min(room, state.pending.size() / stream_channels);
+            std::size_t const taken = state.device->write(std::span<float const>(state.pending.data(), frames * stream_channels));
+            if (taken == 0)
+                return;
+            state.pending.erase(state.pending.begin(), state.pending.begin() + static_cast<std::ptrdiff_t>(taken * stream_channels));
+            continue;
+        }
+        if (state.device->writable_frames() == 0)
+            return;
+        // The next frame by time, allowing its start to round a nanosecond
+        // or so either side of where the last one ended; a hole wider than
+        // that waits for the page to fill it, and the speakers run dry.
+        auto const it = track.frames.lower_bound(state.next_audio_ns - 1'000'000);
+        if (it == track.frames.end() || it->first > state.next_audio_ns + 50'000'000)
+            return;
+        media::OpusDecoder::Result result = state.opus->decode(it->second.data, state.pending);
+        if (result.outcome == media::OpusDecoder::Outcome::Invalid) {
+            state.opus->conceal(960, state.pending);
+            result.samples = 960;
+        }
+        if (result.outcome == media::OpusDecoder::Outcome::Decoded)
+            state.packets_decoded++;
+        else
+            state.packets_failed++;
+        state.next_audio_ns = it->first + static_cast<std::int64_t>(result.samples) * nanoseconds / stream_rate;
+    }
+}
+
+// Plays a MediaSource's sound while the element advances: the speakers are
+// opened once, held while it waits, and topped up at every tick.
+void stream_media(Realm::Internals& in, MediaStateObject& state)
+{
+    StreamBuffer::Track const* const track = opus_track(state);
+    if (track == nullptr)
+        return;
+    bool const through_speakers = state.advancing && state.playback_rate == 1;
+    if (through_speakers && !state.device && !state.device_tried) {
+        state.device_tried = true;
+        platform::AudioFormat format;
+        format.rate = stream_rate;
+        format.channels = static_cast<unsigned>(stream_channels);
+        std::string error;
+        state.device = open_speakers(in, format, error);
+        trace(state.device ? "opened the speakers for the stream" : "no speakers: " + error);
+        if (state.device)
+            state.device->set_volume(state.muted ? 0.0 : state.volume);
+    }
+    if (!state.device)
+        return;
+    state.device->set_paused(!through_speakers);
+    if (!through_speakers)
+        return;
+    if (!state.opus)
+        state.opus = std::make_unique<media::OpusDecoder>(static_cast<int>(stream_channels));
+    if (!state.stream_started)
+        start_stream(state, *track);
+    if (state.stream_started)
+        feed_stream(state, *track);
+    if (tracing() && state.device->clock().played_seconds - state.last_stream_trace >= 1.0) {
+        platform::AudioClock const clock = state.device->clock();
+        state.last_stream_trace = clock.played_seconds;
+        trace("sound: heard " + std::to_string(state.sound_base + clock.played_seconds) + " s, " + std::to_string(clock.latency_seconds)
+            + " s in flight, " + std::to_string(state.packets_decoded) + " packets decoded, " + std::to_string(state.packets_failed) + " not");
+    }
+}
+
+// Where playback is by what has been heard, once the speakers have said.
+std::optional<double> heard_position(MediaStateObject const& state)
+{
+    if (!state.stream_started || !state.device || !state.device->ok())
+        return std::nullopt;
+    platform::AudioClock const clock = state.device->clock();
+    if (!clock.valid)
+        return std::nullopt;
+    return state.sound_base + clock.played_seconds;
+}
+
+// Whether everything decodable has been decoded and heard: the last frame
+// of an ended stream rarely reaches the declared duration to the sample.
+bool stream_played_out(MediaStateObject const& state)
+{
+    StreamBuffer::Track const* const track = opus_track(state);
+    if (track == nullptr || !state.stream_started || !state.device || !state.pending.empty())
+        return false;
+    if (track->frames.lower_bound(state.next_audio_ns - 1'000'000) != track->frames.end())
+        return false;
+    platform::AudioClock const clock = state.device->clock();
+    return clock.valid && clock.written_seconds - clock.played_seconds < 0.01;
 }
 
 // What a file the element holds whole does as time passes: everything is
@@ -768,7 +961,7 @@ void update_sound(Realm::Internals& in, MediaStateObject& state)
     // resampler to ask for it properly.
     bool const through_speakers = state.playback_rate == 1;
     if (playing && through_speakers)
-        open_device(state);
+        open_device(in, state);
     if (state.device)
         state.device->set_paused(!playing || !through_speakers);
     if (playing && through_speakers)
@@ -941,6 +1134,11 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     state.device_tried = false;
     state.fed_frames = 0;
     state.sound_base = 0;
+    state.opus.reset();
+    state.pending.clear();
+    state.pending_skip = 0;
+    state.next_audio_ns = 0;
+    state.stream_started = false;
     state.error = js::Value::null();
     state.playback_rate = state.default_playback_rate;
 

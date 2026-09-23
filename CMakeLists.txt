@@ -106,6 +106,9 @@ add_library(sashfold_core STATIC
   src/layout/TableBorders.cpp
   src/layout/TableStructure.cpp
   src/layout/TableWidths.cpp
+  src/media/Celt.cpp
+  src/media/Opus.cpp
+  src/media/RangeDecoder.cpp
   src/media/StreamBuffer.cpp
   src/media/Wav.cpp
   src/media/WebM.cpp
@@ -126,6 +129,7 @@ add_library(sashfold_core STATIC
   src/net/tls/X509.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
+  src/platform/AudioVirtual.cpp
   src/platform/PulseProtocol.cpp
   src/platform/MemoryWatch.cpp
   src/platform/Tls.cpp

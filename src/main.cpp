@@ -890,6 +890,11 @@ int render_page(std::string const& path, std::string const& output, int viewport
         };
         hooks.now = [&script_clock] { return script_clock; };
         hooks.should_stop = [&turn_started] { return clock::now() - turn_started > std::chrono::seconds(10); };
+        // A render makes no sound: a page's media plays into a device that
+        // hears on the page's own clock, so the whole path runs silently.
+        hooks.open_audio = [&script_clock](platform::AudioFormat const& format, std::string&) {
+            return platform::open_virtual_audio(format, [&script_clock] { return script_clock; });
+        };
         oracle.install(hooks);
         hooks.console = [&gap_census, counting_gaps](std::string_view level, std::string_view message) {
             std::cerr << "console." << level << ": " << message << "\n";
@@ -2409,6 +2414,18 @@ int main(int argc, char** argv)
         trace_frames = true;
     js_heap_limit = js_heap_limit_mb >= 0 ? static_cast<std::size_t>(js_heap_limit_mb) * 1024u * 1024u
                                           : platform::js_heap_limit_for(platform::physical_memory_bytes());
+    // Only the window makes sound. Every other mode is a run nobody is
+    // listening to — a render, a replay, a benchmark — and a page's media in
+    // one must never reach the machine's speakers, whatever a host hook says
+    // or forgets to: the sound server they would open is named as one that
+    // does not exist.
+    if (!mode.empty()) {
+#ifdef _WIN32
+        _putenv_s("PULSE_SERVER", "unix:/nonexistent/sashfold-headless");
+#else
+        setenv("PULSE_SERVER", "unix:/nonexistent/sashfold-headless", 1);
+#endif
+    }
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
             theme_path, blocklists_path, downloads.value_or(""));

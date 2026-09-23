@@ -121,6 +121,10 @@ sashfold_test(test_audio)
 add_executable(test_webm test_webm.cpp)
 target_link_libraries(test_webm PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_webm COMMAND test_webm ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media)
+# The RFC 8251 test vectors, when tools/opus-vectors-fetch.sh has fetched them.
+add_executable(test_opus test_opus.cpp)
+target_link_libraries(test_opus PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_opus COMMAND test_opus ${CMAKE_SOURCE_DIR}/opus-vectors)
 add_executable(test_theme_import test_theme_import.cpp)
 target_link_libraries(test_theme_import PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_theme_import COMMAND test_theme_import ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes

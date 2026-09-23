@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -69,5 +70,15 @@ protected:
     }
     AudioFormat m_format;
 };
+
+// A device that plays nothing and hears on a clock the caller gives: what
+// was written counts as heard as that clock passes, at the format's rate,
+// two seconds of it held at most, as the real one does. What a headless run
+// and the tests play through, so the whole path from the page to the
+// speakers runs, silently and in the page's own time. The clock is in
+// milliseconds; `tap`, when given, sees every sample taken, for a test to
+// listen to what would have been played.
+std::unique_ptr<AudioDevice> open_virtual_audio(AudioFormat const&, std::function<double()> now_ms,
+    std::function<void(std::span<float const>)> tap = {});
 
 }

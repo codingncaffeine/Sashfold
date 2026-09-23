@@ -22,6 +22,7 @@
 #include "net/Csp.h"
 #include "net/Http.h"
 #include "net/Url.h"
+#include "platform/Audio.h"
 
 #include <cstdint>
 #include <functional>
@@ -190,6 +191,11 @@ struct HostHooks {
     // or a headless run wants, since it keeps the run deterministic.
     WorkerThreads* worker_threads = nullptr;
     std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&)> worker_fetch;
+
+    // Where a media element's sound goes. Unset, the machine's speakers
+    // (platform::AudioDevice::open); a headless run and the tests give a
+    // device that hears on the page's own clock, which plays nothing.
+    std::function<std::unique_ptr<platform::AudioDevice>(platform::AudioFormat const&, std::string& error)> open_audio;
 
     // A line for each step of the event loop and the frames worth seeing — a
     // timer set or fired, a task run, a frame opened, closed or navigated, a
