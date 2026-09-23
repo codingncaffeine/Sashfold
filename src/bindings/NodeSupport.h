@@ -181,6 +181,39 @@ void element_accessor(Realm::Internals& in, js::Object& prototype, std::string_v
         });
 }
 
+// An attribute declared [PutForwards=forward] (WebIDL §3.7.8): reading it
+// gives an object, and assigning to it assigns to that object's `forward`
+// instead — `el.style = "color: red"` is `el.style.cssText = "color: red"`.
+// Without the setter the assignment fails, and in strict code it throws.
+template<typename Read>
+void element_forwarding_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read, std::string_view forward)
+{
+    define_getter(
+        in, prototype, name,
+        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
+            if (!element)
+                return std::nullopt;
+            return read(internals_of(interpreter), **element);
+        },
+        [read, forward = std::string(forward), name = std::string(name)](
+            js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
+            if (!element)
+                return std::nullopt;
+            Native const target = read(internals_of(interpreter), **element);
+            if (!target)
+                return std::nullopt;
+            if (!target->is_object())
+                return interpreter.throw_type_error("Cannot forward an assignment to '" + name + "'");
+            js::Interpreter::Roots const roots(interpreter);
+            interpreter.root(*target);
+            if (!interpreter.set(*target->as_object(), interpreter.key(forward), js::argument(args, 0), false))
+                return std::nullopt;
+            return js::Value::undefined();
+        });
+}
+
 template<typename Body>
 void element_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {

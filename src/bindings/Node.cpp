@@ -1236,8 +1236,11 @@ void install_element(Realm::Internals& in, js::Object& element)
     reflect_string(in, element, "id", "id");
     reflect_string(in, element, "className", "class");
     reflect_string(in, element, "slot", "slot");
-    element_getter(in, element, "classList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "class"); });
-    element_getter(in, element, "part", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "part"); });
+    element_forwarding_getter(
+        in, element, "classList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "class"); },
+        "value");
+    element_forwarding_getter(
+        in, element, "part", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "part"); }, "value");
     element_getter(in, element, "attributes", [](Realm::Internals& internals, dom::Element& e) -> Native { return attribute_map(internals, e); });
     element_getter(in, element, "shadowRoot", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
     element_getter(in, element, "assignedSlot", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
@@ -1785,8 +1788,9 @@ void install_nodes(Realm::Internals& in)
     // one: both include ElementCSSInlineStyle (CSSOM §6.4). Pages that draw
     // their icons in SVG set it constantly, and without it every such line
     // is a failure they never see the cause of.
-    element_getter(in, *svg_element, "style",
-        [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); });
+    element_forwarding_getter(
+        in, *svg_element, "style",
+        [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
     install_svg_links(in, *svg_element);
     define_interface(in, "MathMLElement", element);
     install_html_elements(in, *html_element);

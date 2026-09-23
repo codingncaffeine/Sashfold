@@ -197,16 +197,19 @@ namespace {
 // navigate_frame); a src beside an srcdoc names nothing. The name attribute
 // is not read again: a navigable's target name is its container's name as
 // the navigable is created.
-void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name)
+void attribute_written(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name,
+    std::optional<std::string> const& old_value)
 {
     in.realm.note_mutation();
-    // An observer hears of every attribute, of any namespace.
-    mutation_attribute_changed(in, element, namespace_uri, local_name, std::nullopt);
+    // An observer hears of every attribute, of any namespace, with the value
+    // it had before (DOM §4.9.3 "handle attribute changes").
+    mutation_attribute_changed(in, element, namespace_uri, local_name, old_value);
     if (!namespace_uri.empty())
         return;
-    // A custom element watching this attribute hears of it next: what it
-    // does about it may change everything below.
-    custom_element_attribute_changed(in, element, local_name, std::nullopt);
+    // A custom element watching this attribute hears of it next, old value
+    // and new: a component that compares the two ignores a change that
+    // reports none, so a removal must say what was removed.
+    custom_element_attribute_changed(in, element, local_name, old_value);
     switch (container_kind(element)) {
     case ContainerKind::IFrame:
         if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
@@ -243,8 +246,9 @@ void erase_attribute(Realm::Internals& in, dom::Element& element, std::vector<do
 {
     std::string const namespace_uri = it->namespace_uri;
     std::string const local_name = it->local_name;
+    std::string old_value = std::move(it->value);
     element.attributes().erase(it);
-    attribute_written(in, element, namespace_uri, local_name);
+    attribute_written(in, element, namespace_uri, local_name, old_value);
 }
 
 } // namespace
@@ -253,14 +257,19 @@ void set_attribute(Realm::Internals& in, dom::Element& element, std::string_view
 {
     for (dom::Attr& attribute : element.attributes()) {
         if (attribute.has_qualified_name(name)) {
-            attribute.value = std::move(value);
+            std::string const old_value = std::exchange(attribute.value, std::move(value));
             attribute.from_cssom = false; // set by a script as text: inline style again
-            attribute_written(in, element, attribute.namespace_uri, attribute.local_name);
+            // The hooks may run script that changes the attributes, so the
+            // names are copied before the reference could move.
+            std::string const namespace_uri = attribute.namespace_uri;
+            std::string const local_name = attribute.local_name;
+            attribute_written(in, element, namespace_uri, local_name, old_value);
             return;
         }
     }
     element.attributes().push_back(dom::Attr { std::string(name), std::move(value), "", "" });
-    attribute_written(in, element, "", element.attributes().back().local_name);
+    std::string const local_name = element.attributes().back().local_name;
+    attribute_written(in, element, "", local_name, std::nullopt);
 }
 
 bool remove_attribute(Realm::Internals& in, dom::Element& element, std::string_view name)
@@ -279,15 +288,14 @@ void set_attribute_ns(Realm::Internals& in, dom::Element& element, std::string_v
 {
     for (dom::Attr& attribute : element.attributes()) {
         if (attribute.namespace_uri == namespace_uri && attribute.local_name == local_name) {
-            attribute.value = std::move(value);
+            std::string const old_value = std::exchange(attribute.value, std::move(value));
             attribute.from_cssom = false;
-            attribute_written(in, element, attribute.namespace_uri, attribute.local_name);
+            attribute_written(in, element, std::string(namespace_uri), std::string(local_name), old_value);
             return;
         }
     }
     element.attributes().push_back(dom::Attr { std::string(local_name), std::move(value), std::string(prefix), std::string(namespace_uri) });
-    dom::Attr const& added = element.attributes().back();
-    attribute_written(in, element, added.namespace_uri, added.local_name);
+    attribute_written(in, element, std::string(namespace_uri), std::string(local_name), std::nullopt);
 }
 
 bool remove_attribute_ns(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri, std::string_view local_name)

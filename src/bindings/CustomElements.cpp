@@ -143,6 +143,8 @@ void fire_attribute_changed(Realm::Internals& in, NodeWrapper& wrapper, CustomEl
     js::Value const after = new_value ? in.string(*new_value) : js::Value::null();
     interpreter.root(after);
     js::Value const arguments[] = { named, before, after, js::Value::null() };
+    if (tracing())
+        trace("attributeChanged <" + definition.name + "> " + std::string(name) + ": " + old_value.value_or("(none)") + " -> " + new_value.value_or("(none)"));
     call_callback(in, definition.attribute_changed, element, arguments, "attributeChangedCallback");
 }
 
@@ -151,6 +153,8 @@ void fire_connected(Realm::Internals& in, NodeWrapper& wrapper, CustomElementDef
     js::Interpreter::Roots const roots(in.interpreter);
     js::Value const element = js::Value::object(&wrapper);
     in.interpreter.root(element);
+    if (tracing())
+        trace("connected <" + definition.name + ">");
     call_callback(in, definition.connected, element, {}, "connectedCallback");
 }
 
@@ -159,6 +163,8 @@ void fire_disconnected(Realm::Internals& in, NodeWrapper& wrapper, CustomElement
     js::Interpreter::Roots const roots(in.interpreter);
     js::Value const element = js::Value::object(&wrapper);
     in.interpreter.root(element);
+    if (tracing())
+        trace("disconnected <" + definition.name + ">");
     call_callback(in, definition.disconnected, element, {}, "disconnectedCallback");
 }
 

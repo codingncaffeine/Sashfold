@@ -489,6 +489,17 @@ void test_attributes_classlist_style_dataset()
     page->eval("d.style.cssText = 'width: 10px'; d.style.cssFloat = 'left';");
     CHECK_EQ(page->string("d.getAttribute('style')"), "width: 10px; float: left;");
     CHECK(page->boolean("d.style instanceof CSSStyleDeclaration"));
+    // style, classList and relList are [PutForwards]: assigning to one
+    // assigns to its cssText or value, and in strict code that must not
+    // throw, since a read-only property would.
+    page->eval(R"JS("use strict";
+        d.style = 'height: 3px';
+        d.classList = 'x y';
+        var link = document.createElement('a'); link.relList = 'noopener';
+        var g = document.createElementNS('http://www.w3.org/2000/svg', 'g'); g.style = 'opacity: 0.5';
+    )JS");
+    CHECK_EQ(page->string("d.getAttribute('style') + '|' + d.className + '|' + link.rel + '|' + g.getAttribute('style')"),
+        "height: 3px;|x y|noopener|opacity: 0.5;");
     // Dataset.
     CHECK_EQ(page->string("d.dataset.userId"), "7");
     page->eval("d.dataset.fooBar = 'baz'; delete d.dataset.userId;");
@@ -3554,6 +3565,20 @@ void test_mutation_observer()
     CHECK_EQ(page->string("quiet.join(',')"), "attributes");
     CHECK_EQ(page->string("take()"), "attributes|data-x|+0-0|null|box attributes|data-y|+0-0|null|box childList|-|+1-0|null|box");
 
+    // Asked for, an attribute record carries the value before the change:
+    // null for one just added, the old text for a change and for a removal.
+    page->eval(R"JS(
+        var olds = [];
+        var withOld = new MutationObserver(function (r) { r.forEach(function (x) { olds.push(x.attributeName + '=' + x.oldValue); }); });
+        withOld.observe(box, { attributes: true, attributeOldValue: true, attributeFilter: ['data-w'] });
+        box.setAttribute('data-w', 'one');
+        box.setAttribute('data-w', 'two');
+        box.removeAttribute('data-w');
+    )JS");
+    pump();
+    CHECK_EQ(page->string("olds.join(',')"), "data-w=null,data-w=one,data-w=two");
+    page->eval("withOld.disconnect(); take();");
+
     // One that did not ask for the subtree hears only of its own node.
     page->eval(R"JS(
         var shallow = [];
@@ -3639,6 +3664,11 @@ void test_custom_elements()
     page->eval("made.setAttribute('title', 'second'); host.appendChild(made);");
     CHECK_EQ(page->string("take()"), "attr:title:null:second in:second");
     CHECK_EQ(page->string("made.textContent"), "CARD");
+    // A change says what the value was, and so does a removal: a component
+    // that compares the two ignores a change that reports none, which is how
+    // Polymer's disable-upgrade kept a whole application asleep.
+    page->eval("made.setAttribute('title', 'third'); made.removeAttribute('title');");
+    CHECK_EQ(page->string("take()"), "attr:title:second:third attr:title:third:null");
     // An attribute it does not watch says nothing; leaving the tree does.
     page->eval("made.setAttribute('hidden', ''); made.remove();");
     CHECK_EQ(page->string("take() + ' ' + made.isConnected"), "out false");

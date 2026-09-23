@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9458 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9456 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -5128,6 +5128,7 @@ css/CSS2/visudet/line-height-205.html
 css/CSS2/visudet/line-height-206.html
 css/CSS2/visufx/clip-001.xht
 css/CSS2/visufx/overflow-propagation-001a.html
+css/CSS2/visufx/overflow-propagation-001b.html
 css/CSS2/visufx/visibility-005.xht
 css/CSS2/visufx/visibility-block-001.xht
 css/CSS2/visufx/visibility-descendants-002.html
@@ -5245,6 +5246,7 @@ css/css-backgrounds/background-clip/clip-text-transform.html
 css/css-backgrounds/background-clip_padding-box.html
 css/css-backgrounds/background-color-body-propagation-001.html
 css/css-backgrounds/background-color-body-propagation-002.html
+css/css-backgrounds/background-color-body-propagation-003.html
 css/css-backgrounds/background-color-body-propagation-005.html
 css/css-backgrounds/background-color-body-propagation-006.html
 css/css-backgrounds/background-color-body-propagation-010.html
@@ -7999,10 +8001,6 @@ css/css-text/text-autospace/text-autospace-vs-001.html
 css/css-text/text-autospace/text-autospace-zh-001.html
 css/css-text/text-fit/grow-dynamic.html
 css/css-text/text-fit/shrink-dynamic.html
-css/css-text/text-group-align/text-group-align-left-vlr.html
-css/css-text/text-group-align/text-group-align-left.html
-css/css-text/text-group-align/text-group-align-start-vlr.html
-css/css-text/text-group-align/text-group-align-start.html
 css/css-text/text-indent/anonymous-flex-item-001.html
 css/css-text/text-indent/anonymous-grid-item-001.html
 css/css-text/text-indent/below-float.html

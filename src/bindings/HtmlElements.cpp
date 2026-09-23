@@ -375,7 +375,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             remove_node(internals, e);
             return js::Value::undefined();
         });
-    element_getter(in, html_element, "style", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); });
+    element_forwarding_getter(in, html_element, "style", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
     element_getter(in, html_element, "dataset", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_dataset(internals, e); });
     element_getter(in, html_element, "offsetParent", [](Realm::Internals& internals, dom::Element& e) -> Native {
         if (e.is_html("body") || e.is_html("html"))
@@ -432,7 +432,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     // Anchors and areas.
     for (std::string_view const name : { "HTMLAnchorElement", "HTMLAreaElement" }) {
         js::Object& proto = proto_of(name);
-        element_getter(in, proto, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); });
+        element_forwarding_getter(
+            in, proto, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); }, "value");
         install_url_parts(in, proto);
     }
     element_accessor(
@@ -923,8 +924,10 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         js::Object& style = proto_of("HTMLStyleElement");
         element_getter(in, style, "sheet", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         js::Object& link = proto_of("HTMLLinkElement");
-        element_getter(in, link, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); });
-        element_getter(in, link, "sizes", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sizes"); });
+        element_forwarding_getter(
+            in, link, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); }, "value");
+        element_forwarding_getter(
+            in, link, "sizes", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sizes"); }, "value");
         element_getter(in, link, "sheet", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
     }
 
