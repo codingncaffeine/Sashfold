@@ -526,7 +526,7 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
                 if (!it->second)
                     continue; // unreachable: the next source may do
                 fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second, rule.stretch,
-                    rule.unicode_ranges, rule.weight_max, rule.stretch_max });
+                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, text::font_bytes_hash(*it->second) });
                 break;
             }
         }

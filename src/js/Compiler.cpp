@@ -27,6 +27,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -385,12 +386,26 @@ private:
         pool.push_back(item);
         return static_cast<std::uint32_t>(pool.size() - 1);
     }
+    // The names and the functions are asked for by the thousand in a
+    // large body, and a pool searched from the front costs its length each
+    // time: an index beside each answers at once.
+    template<typename T>
+    static std::uint32_t pooled_indexed(std::vector<T>& pool, std::unordered_map<T, std::uint32_t>& index, T const& item)
+    {
+        auto const found = index.find(item);
+        if (found != index.end())
+            return found->second;
+        pool.push_back(item);
+        auto const at = static_cast<std::uint32_t>(pool.size() - 1);
+        index.emplace(item, at);
+        return at;
+    }
     std::uint32_t constant(Value const& value) { return pooled(m_code->constants, value); }
     std::uint32_t bigint(BigInteger const& value) { return pooled(m_code->bigints, value); }
-    std::uint32_t name(JsString* atom) { return pooled(m_code->names, atom); }
+    std::uint32_t name(JsString* atom) { return pooled_indexed(m_code->names, m_name_index, atom); }
     std::uint32_t name_of(std::u16string_view text) { return name(m_heap.atom(text)); }
     std::uint32_t constant_string(std::u16string_view text) { return constant(Value::string(m_heap.atom(text))); }
-    std::uint32_t function(FunctionNode const* node) { return pooled(m_code->functions, node); }
+    std::uint32_t function(FunctionNode const* node) { return pooled_indexed(m_code->functions, m_function_index, node); }
     std::uint32_t class_node(ClassNode const* node) { return pooled(m_code->classes, node); }
     std::uint32_t template_index(TemplateLiteral const* node) { return pooled(m_code->templates, node); }
     std::uint32_t regexp(RegExpLiteral const* node) { return pooled(m_code->regexps, node); }
@@ -2291,6 +2306,8 @@ private:
     FunctionNode const& m_node;
     Heap& m_heap;
     std::unique_ptr<CodeBlock> m_code;
+    std::unordered_map<JsString*, std::uint32_t> m_name_index; // the names pool, by name
+    std::unordered_map<FunctionNode const*, std::uint32_t> m_function_index; // the functions pool, by node
     std::vector<Scope> m_scopes;
     std::string m_error;
     int m_depth = 0;

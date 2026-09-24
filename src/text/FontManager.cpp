@@ -278,6 +278,11 @@ void FontManager::restore_page_faces(std::vector<PageFace> faces)
     retire_stacks();
 }
 
+std::uint64_t font_bytes_hash(std::vector<std::uint8_t> const& bytes)
+{
+    return fnv1a(bytes);
+}
+
 void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
 {
     std::vector<PageFace> faces;
@@ -295,7 +300,7 @@ void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
         key += '\n';
         key += std::to_string(font.bytes.size());
         key += '\n';
-        key += std::to_string(fnv1a(font.bytes));
+        key += std::to_string(font.bytes_hash != 0 ? font.bytes_hash : fnv1a(font.bytes));
         auto it = m_page_face_cache.find(key);
         if (it == m_page_face_cache.end()) {
             std::unique_ptr<Face> face;

@@ -47,7 +47,15 @@ struct PageFont {
     std::vector<std::pair<char32_t, char32_t>> unicode_ranges;
     int weight_max = 0; // the high ends; 0 means the low end alone
     int stretch_max = 0;
+    // A hash of `bytes` (font_bytes_hash), taken once where the font was
+    // collected, so that keying the face by its bytes does not read the
+    // file again each time a page's fonts are set; 0 for not taken, and
+    // the manager takes it then.
+    std::uint64_t bytes_hash = 0;
 };
+
+// The hash a PageFont's bytes_hash holds.
+std::uint64_t font_bytes_hash(std::vector<std::uint8_t> const& bytes);
 
 class FontManager;
 
