@@ -9,6 +9,7 @@
 #include "js/IntlData.h"
 #include "js/Object.h"
 #include "js/Strings.h"
+#include "js/TimeZone.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1386,14 +1387,14 @@ std::optional<Value> supported_values_of(Interpreter& in, Args args)
 
 } // namespace
 
-// The zones the engine formats in: UTC and the system's own, by name.
+// The zones the engine formats in: UTC, the fixed Etc/GMT zones, the
+// system's own, and the primary zones of the platform's zone database.
 std::string system_time_zone_name(); // RuntimeIntlDate.cpp
 
 namespace {
 
 std::vector<std::string> available_time_zones_list()
 {
-    // UTC, the fixed Etc/GMT zones, and the system's own.
     std::vector<std::string> zones = { "UTC" };
     for (int n = 1; n <= 14; ++n)
         zones.push_back("Etc/GMT-" + std::to_string(n));
@@ -1402,6 +1403,12 @@ std::vector<std::string> available_time_zones_list()
     std::string const system = system_time_zone_name();
     if (system != "UTC")
         zones.push_back(system);
+    // The database's own names for UTC are UTC's (ECMA-402 section 6.5.2).
+    for (std::string& name : time_zone_database_primary_names())
+        if (name != "Etc/UTC" && name != "Etc/GMT")
+            zones.push_back(std::move(name));
+    std::sort(zones.begin(), zones.end());
+    zones.erase(std::unique(zones.begin(), zones.end()), zones.end());
     return zones;
 }
 

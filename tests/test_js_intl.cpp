@@ -8,8 +8,20 @@
 
 #include "js/Interpreter.h"
 #include "js/Runtime.h"
+#include "js/TimeZone.h"
 
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <optional>
+#include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 using namespace sashfold;
 
@@ -129,6 +141,92 @@ void test_date_time_format()
     CHECK_JS_THROWS(in, "new Date(0).toLocaleDateString('en', { timeStyle: 'short' })", "TypeError");
 }
 
+// The POSIX TZ strings of zone file footers: both hemispheres, a quoted
+// numeric name, v3's hours past 24 and negative, and all-year daylight.
+void test_posix_time_zone_rules()
+{
+    constexpr std::int64_t jan = 1705320000; // 2024-01-15T12:00Z
+    constexpr std::int64_t jul = 1721044800; // 2024-07-15T12:00Z
+    auto local = [](std::string_view rule, std::int64_t t) {
+        std::optional<js::PosixTimeZone> const zone = js::PosixTimeZone::parse(rule);
+        CHECK(zone.has_value());
+        if (!zone)
+            return std::string("none");
+        js::TimeZoneLocal const l = zone->local_at(t);
+        return std::to_string(l.offset_seconds) + (l.dst ? " dst " : " std ") + l.abbreviation;
+    };
+    CHECK_EQ(local("EST5EDT,M3.2.0,M11.1.0", jan), std::string("-18000 std EST"));
+    CHECK_EQ(local("EST5EDT,M3.2.0,M11.1.0", jul), std::string("-14400 dst EDT"));
+    // 2024-03-10 02:00 EST is 07:00Z; the second before stays standard.
+    CHECK_EQ(local("EST5EDT,M3.2.0,M11.1.0", 1710054000 - 1), std::string("-18000 std EST"));
+    CHECK_EQ(local("EST5EDT,M3.2.0,M11.1.0", 1710054000), std::string("-14400 dst EDT"));
+    CHECK_EQ(local("<+0530>-5:30", jul), std::string("19800 std +0530"));
+    CHECK_EQ(local("AEST-10AEDT,M10.1.0,M4.1.0/3", jan), std::string("39600 dst AEDT"));
+    CHECK_EQ(local("AEST-10AEDT,M10.1.0,M4.1.0/3", jul), std::string("36000 std AEST"));
+    CHECK_EQ(local("<-02>2<-01>,M3.5.0/-1,M10.5.0/0", jul), std::string("-3600 dst -01"));
+    // Israel's M3.4.4/26: the Thursday before the last Friday of March,
+    // hour 26, is 2024-03-29 02:00 standard time, 00:00Z.
+    CHECK_EQ(local("IST-2IDT,M3.4.4/26,M10.5.0", 1711670400 - 1), std::string("7200 std IST"));
+    CHECK_EQ(local("IST-2IDT,M3.4.4/26,M10.5.0", 1711670400), std::string("10800 dst IDT"));
+    CHECK_EQ(local("EST5EDT4,0/0,J365/25", jan), std::string("-14400 dst EDT"));
+    CHECK_EQ(local("EST5EDT4,0/0,J365/25", jul), std::string("-14400 dst EDT"));
+    for (std::string_view bad : { "", "E5", "EST", "EST5EDT,M13.1.0,M11.1.0", "EST5EDT,M3.2.0", "<+05>", "EST25" })
+        CHECK(!js::PosixTimeZone::parse(bad).has_value());
+}
+
+// Named zones from the platform's database. Every expected string is
+// node's; the checks run where the database is installed (it is on the
+// Linux and macOS machines and runners this builds on; Windows has none).
+void test_named_time_zones()
+{
+    char const* tzdir = std::getenv("TZDIR");
+    std::filesystem::path const database = tzdir && *tzdir ? std::filesystem::path(tzdir) : std::filesystem::path("/usr/share/zoneinfo");
+    std::error_code error;
+    if (!std::filesystem::exists(database / "America/New_York", error)) {
+        std::printf("js_intl: no zone database at %s, named zones not checked\n", database.string().c_str());
+        return;
+    }
+    // The zone file itself: whole it parses, cut short it does not.
+    std::ifstream file(database / "America/New_York", std::ios::binary);
+    std::vector<unsigned char> const bytes { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+    std::optional<js::TimeZoneData> const whole = js::TimeZoneData::parse(bytes);
+    CHECK(whole.has_value());
+    if (whole)
+        CHECK_EQ(whole->local_at(1721044800).abbreviation, std::string("EDT"));
+    CHECK(!js::TimeZoneData::parse(std::span(bytes).first(bytes.size() / 2)).has_value());
+    // Every prefix is read without reading past it (the sanitizer build
+    // sees any overrun); only those cut inside the short footer parse.
+    std::size_t parsed_prefixes = 0;
+    for (std::size_t n = 0; n < bytes.size(); ++n)
+        parsed_prefixes += js::TimeZoneData::parse(std::span(bytes).first(n)).has_value() ? 1 : 0;
+    CHECK(parsed_prefixes < 64);
+
+    js::Interpreter& in = fresh();
+    sashfold::test::run_js(in, "function t(l, z, ms, o) { return new Intl.DateTimeFormat(l, Object.assign({ timeZone: z }, o || { timeStyle: 'long' })).format(ms); }");
+    // Standard and daylight time, and their abbreviations, from the file.
+    CHECK_JS_STRING(in, "t('en-US', 'America/New_York', Date.UTC(2024, 0, 15, 12)) + '|' + t('en-US', 'America/New_York', Date.UTC(2024, 6, 15, 12))", "7:00:00 AM EST|8:00:00 AM EDT");
+    CHECK_JS_STRING(in, "t('en-US', 'Asia/Kolkata', Date.UTC(2024, 0, 15, 12))", "5:30:00 PM GMT+5:30");
+    // Lord Howe Island's daylight time is half an hour.
+    CHECK_JS_STRING(in, "t('en-US', 'Australia/Lord_Howe', Date.UTC(2024, 0, 15, 12)) + '|' + t('en-US', 'Australia/Lord_Howe', Date.UTC(2024, 6, 15, 12))", "11:00:00 PM GMT+11|10:30:00 PM GMT+10:30");
+    // 2100 is past the file's last transition: the footer's rule decides.
+    CHECK_JS_STRING(in, "t('en-GB', 'Europe/London', Date.UTC(2100, 6, 1, 12)) + '|' + t('en-GB', 'Europe/London', Date.UTC(2100, 0, 1, 12)) + '|' + t('en-GB', 'Europe/London', Date.UTC(2100, 6, 1, 12), { timeZoneName: 'long' })",
+        "13:00:00 BST|12:00:00 GMT|01/07/2100, British Summer Time");
+    // A numeric abbreviation ("-03") is written as an offset.
+    CHECK_JS_STRING(in, "t('en-US', 'America/Sao_Paulo', Date.UTC(2024, 0, 15, 12))", "9:00:00 AM GMT-3");
+    // Before the first transition, local mean time, to the second.
+    CHECK_JS_STRING(in, "t('en-US', 'America/New_York', Date.UTC(1800, 0, 1))", "7:03:58 PM GMT-4:56:02");
+    CHECK_JS_STRING(in, "JSON.stringify(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', timeZoneName: 'short' }).formatToParts(Date.UTC(2024, 6, 15, 12)))",
+        "[{\"type\":\"hour\",\"value\":\"8\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"dayPeriod\",\"value\":\"AM\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"timeZoneName\",\"value\":\"EDT\"}]");
+    CHECK_JS_STRING(in, "var d = new Date(Date.UTC(2024, 6, 15, 12)); d.toLocaleString('en-US', { timeZone: 'America/New_York' }) + '|' + d.toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })",
+        "7/15/2024, 8:00:00 AM|15/07/2024, 17:30:00");
+    // The database's spelling whatever the case asked; an alias kept.
+    CHECK_JS_STRING(in, "new Intl.DateTimeFormat('en', { timeZone: 'america/NEW_york' }).resolvedOptions().timeZone + '|' + new Intl.DateTimeFormat('en', { timeZone: 'Asia/Calcutta' }).resolvedOptions().timeZone",
+        "America/New_York|Asia/Calcutta");
+    CHECK_JS_TRUE(in, "Intl.supportedValuesOf('timeZone').includes('Europe/London')");
+    for (char const* bad : { "Not/AZone", "../etc/passwd", "posixrules", "America//New_York", "America/New_York/" })
+        CHECK_JS_THROWS(in, "new Intl.DateTimeFormat('en', { timeZone: '" + std::string(bad) + "' })", "RangeError");
+}
+
 void test_date_time_ranges()
 {
     js::Interpreter& in = fresh();
@@ -212,6 +310,8 @@ int main()
     test_number_format();
     test_plural_rules();
     test_date_time_format();
+    test_posix_time_zone_rules();
+    test_named_time_zones();
     test_date_time_ranges();
     test_relative_time_and_lists();
     test_text_services();

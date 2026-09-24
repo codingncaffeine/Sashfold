@@ -1,4 +1,4 @@
-# test262 tests passing (41523 of 45148) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
+# test262 tests passing (41526 of 45148) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
 # One test per line; a listed test that fails is a regression.
 # Re-bless with: test262_runner <checkout> <directories> <this file> --update
 test/annexB/built-ins/Date/prototype/getYear/B.2.4.js
@@ -17305,6 +17305,7 @@ test/intl402/Date/prototype/toLocaleString/length.js
 test/intl402/Date/prototype/toLocaleTimeString/builtin.js
 test/intl402/Date/prototype/toLocaleTimeString/length.js
 test/intl402/DateTimeFormat/builtin.js
+test/intl402/DateTimeFormat/canonicalize-timezone.js
 test/intl402/DateTimeFormat/canonicalize-utc-timezone.js
 test/intl402/DateTimeFormat/casing-numbering-system-calendar-options.js
 test/intl402/DateTimeFormat/constructor-calendar-numberingSystem-order.js
@@ -17461,8 +17462,10 @@ test/intl402/DateTimeFormat/test-option-formatMatcher.js
 test/intl402/DateTimeFormat/test-option-hour12.js
 test/intl402/DateTimeFormat/test-option-localeMatcher.js
 test/intl402/DateTimeFormat/this-value-ignored.js
+test/intl402/DateTimeFormat/timezone-case-insensitive.js
 test/intl402/DateTimeFormat/timezone-invalid.js
 test/intl402/DateTimeFormat/timezone-legacy-non-iana.js
+test/intl402/DateTimeFormat/timezone-not-canonicalized.js
 test/intl402/DateTimeFormat/timezone-utc.js
 test/intl402/DisplayNames/ctor-custom-get-prototype-poison-throws.js
 test/intl402/DisplayNames/ctor-custom-prototype.js

@@ -217,6 +217,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimeString.cpp
   src/js/RuntimeTypedArray.cpp
   src/js/Strings.cpp
+  src/js/TimeZone.cpp
   src/js/Vm.cpp
 )
 if(WIN32)

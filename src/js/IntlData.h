@@ -51,6 +51,43 @@ inline constexpr DayPeriod day_periods[] = {
     { 21, "at night", "at night" },
 };
 
+// Zone names English writes with letters: the abbreviations a zone file
+// gives that English keeps (the North American ones in en-US, the
+// European ones in en-GB, GMT in both), with their long names. Any other
+// zone is written by its offset, "GMT+5:30". The exceptions by zone
+// are in the formatter.
+struct ZoneName {
+    std::string_view abbreviation;
+    std::string_view long_name;
+    bool american; // written short in en and en-US
+    bool british; // written short in en-GB
+};
+inline constexpr ZoneName zone_names[] = {
+    { "GMT", "Greenwich Mean Time", true, true },
+    { "EST", "Eastern Standard Time", true, false },
+    { "EDT", "Eastern Daylight Time", true, false },
+    { "CST", "Central Standard Time", true, false },
+    { "CDT", "Central Daylight Time", true, false },
+    { "MST", "Mountain Standard Time", true, false },
+    { "MDT", "Mountain Daylight Time", true, false },
+    { "PST", "Pacific Standard Time", true, false },
+    { "PDT", "Pacific Daylight Time", true, false },
+    { "AKST", "Alaska Standard Time", true, false },
+    { "AKDT", "Alaska Daylight Time", true, false },
+    { "HST", "Hawaii-Aleutian Standard Time", true, false },
+    { "HDT", "Hawaii-Aleutian Daylight Time", true, false },
+    { "AST", "Atlantic Standard Time", true, false },
+    { "ADT", "Atlantic Daylight Time", true, false },
+    { "BST", "British Summer Time", false, true },
+    { "CET", "Central European Standard Time", false, true },
+    { "CEST", "Central European Summer Time", false, true },
+    { "EET", "Eastern European Standard Time", false, true },
+    { "EEST", "Eastern European Summer Time", false, true },
+    { "WET", "Western European Standard Time", false, true },
+    { "WEST", "Western European Summer Time", false, true },
+    { "GST", "Gulf Standard Time", false, true },
+};
+
 // ------------------------------------------------------------- currencies
 
 struct Currency {

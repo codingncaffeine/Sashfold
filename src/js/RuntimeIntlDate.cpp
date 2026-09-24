@@ -4,11 +4,12 @@
 // Date (section 20.4): toLocaleString, toLocaleDateString, toLocaleTimeString.
 //
 // The Gregorian calendar and Latin digits only. Time zones: UTC and its
-// aliases, the offset zones (+05:30), Etc/GMT+/-N, and the system's own zone
-// by its IANA name (TZ, or the /etc/localtime link), whose offsets come
-// from the platform as Date's do. Where the platform cannot name its zone
-// (Windows), the system zone is reported, and formatted, as UTC. Any other
-// IANA name is the RangeError section 11.1.2 gives an unsupported zone.
+// aliases, the offset zones (+05:30), Etc/GMT+/-N, and every IANA zone the
+// platform's zone database holds (TimeZone.h), the system's own among
+// them (named by TZ, or the /etc/localtime link). Windows has no such
+// database: there the system zone is reported, and formatted, as UTC, and
+// any other IANA name is the RangeError section 11.1.2 gives an unknown
+// zone, as it is everywhere for a name the database lacks.
 //
 // A format is a list of fields and literals made once, at construction,
 // from the resolved components the English way (en-US month first and a
@@ -18,6 +19,7 @@
 #include "js/IntlData.h"
 #include "js/Object.h"
 #include "js/Strings.h"
+#include "js/TimeZone.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +27,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -94,12 +97,16 @@ constexpr double ms_per_day = 86400000.0;
 
 // ---------------------------------------------------------------- zones
 
-enum class ZoneKind : std::uint8_t { Utc, Offset, System };
+// Named zones come from the platform's zone database (TimeZone.h); System
+// is the system zone when the database cannot give it, with the offsets
+// the platform gives Date.
+enum class ZoneKind : std::uint8_t { Utc, Offset, Named, System };
 
 struct Zone {
     ZoneKind kind = ZoneKind::Utc;
-    std::string name; // the canonical identifier resolvedOptions reports
+    std::string name; // the identifier resolvedOptions reports
     int offset_minutes = 0; // for an offset zone
+    std::shared_ptr<TimeZoneData const> data; // for a named zone
 };
 
 std::string lower_ascii(std::string_view text)
@@ -196,6 +203,18 @@ std::optional<Zone> resolve_zone(std::string const& requested)
             return zone;
         }
     }
+    // Any other name is the database's, matched without regard to case
+    // and reported as the database spells it. A name the database lacks
+    // (and every name on Windows, which has no database) is the RangeError.
+    if (std::optional<std::string> const name = time_zone_database_name(requested)) {
+        if (std::shared_ptr<TimeZoneData const> data = time_zone_database_load(*name)) {
+            Zone zone;
+            zone.kind = ZoneKind::Named;
+            zone.name = *name;
+            zone.data = std::move(data);
+            return zone;
+        }
+    }
     std::string const system = system_time_zone_name();
     if (system != "UTC" && lower == lower_ascii(system)) {
         Zone zone;
@@ -209,24 +228,24 @@ std::optional<Zone> resolve_zone(std::string const& requested)
 Zone default_zone()
 {
     std::string const system = system_time_zone_name();
-    Zone zone;
     if (system != "UTC") {
-        zone.kind = ZoneKind::System;
-        zone.name = system;
-    } else {
-        zone.name = "UTC";
+        if (std::optional<Zone> zone = resolve_zone(system))
+            return *zone;
     }
+    Zone zone;
+    zone.name = "UTC";
     return zone;
 }
 
-int zone_offset_at(Zone const& zone, double utc_ms)
+TimeZoneLocal zone_local_at(Zone const& zone, double utc_ms)
 {
     switch (zone.kind) {
-    case ZoneKind::Utc: return 0;
-    case ZoneKind::Offset: return zone.offset_minutes;
-    case ZoneKind::System: return static_cast<int>(local_time_zone_offset_minutes(utc_ms));
+    case ZoneKind::Utc: return { 0, false, "UTC" };
+    case ZoneKind::Offset: return { zone.offset_minutes * 60, false, {} };
+    case ZoneKind::Named: return zone.data->local_at(static_cast<std::int64_t>(std::floor(utc_ms / 1000.0)));
+    case ZoneKind::System: return { static_cast<std::int32_t>(local_time_zone_offset_minutes(utc_ms) * 60), false, {} };
     }
-    return 0;
+    return {};
 }
 
 // ---------------------------------------------------------------- dates
@@ -240,14 +259,14 @@ struct Fields {
     int minute = 0;
     int second = 0;
     int millisecond = 0;
-    int offset_minutes = 0;
+    TimeZoneLocal local; // the zone's offset, daylight flag and abbreviation
 };
 
 Fields fields_of(double utc_ms, Zone const& zone)
 {
     Fields f;
-    f.offset_minutes = zone_offset_at(zone, utc_ms);
-    double const t = utc_ms + f.offset_minutes * 60000.0;
+    f.local = zone_local_at(zone, utc_ms);
+    double const t = utc_ms + f.local.offset_seconds * 1000.0;
     double const days = std::floor(t / ms_per_day);
     double ms_in_day = t - days * ms_per_day;
     f.weekday = static_cast<int>(std::fmod(std::fmod(days + 4, 7) + 7, 7));
@@ -484,20 +503,97 @@ std::string number_text(double value)
     return number_to_utf8(value);
 }
 
-std::string time_zone_display(Zone const& zone, std::string const& style, int offset_minutes)
+// The localized GMT format: "GMT-5", "GMT+5:30", "GMT-4:56:02" short;
+// "GMT-05:00", "GMT-04:56:02" long.
+std::string gmt_format(std::int32_t offset_seconds, bool long_form)
 {
-    if (zone.kind == ZoneKind::Utc && (style == "short" || style == "long"))
-        return style == "short" ? "UTC" : "Coordinated Universal Time";
-    bool const long_form = style == "long" || style == "longOffset" || style == "longGeneric";
-    if (long_form)
-        return "GMT" + format_offset(offset_minutes);
     std::string out = "GMT";
-    out += offset_minutes < 0 ? "-" : "+";
-    int const a = std::abs(offset_minutes);
-    out += std::to_string(a / 60);
-    if (a % 60 != 0)
-        out += ":" + two_digits(a % 60);
+    out += offset_seconds < 0 ? "-" : "+";
+    int const a = std::abs(offset_seconds);
+    int const hours = a / 3600;
+    int const minutes = a / 60 % 60;
+    int const seconds = a % 60;
+    out += long_form ? two_digits(hours) : std::to_string(hours);
+    if (long_form || minutes != 0 || seconds != 0)
+        out += ":" + two_digits(minutes);
+    if (seconds != 0)
+        out += ":" + two_digits(seconds);
     return out;
+}
+
+// A zone's English name at one instant, from the abbreviation its zone
+// file gives, when English writes that zone with letters (IntlData.h's
+// zone_names); null when it is written by its offset.
+intl_data::ZoneName const* english_zone_name(Zone const& zone, TimeZoneLocal const& local)
+{
+    std::string_view const name = zone.name;
+    std::string_view abbreviation = local.abbreviation;
+    // Guam's GST is not the Gulf's.
+    if (abbreviation == "GST")
+        return nullptr;
+    // Zones English names where the file gives only an offset.
+    if (name == "Asia/Dubai" || name == "Asia/Muscat")
+        abbreviation = "GST";
+    else if ((name == "Africa/Casablanca" || name == "Africa/El_Aaiun") && local.offset_seconds == 0)
+        abbreviation = "WET";
+    else if (name == "Antarctica/Troll" && local.offset_seconds == 0)
+        abbreviation = "GMT";
+    auto const found = std::find_if(std::begin(intl_data::zone_names), std::end(intl_data::zone_names),
+        [&](intl_data::ZoneName const& z) { return z.abbreviation == abbreviation; });
+    if (found == std::end(intl_data::zone_names))
+        return nullptr;
+    // The North American letters mean other zones elsewhere (China's and
+    // Cuba's CST, the Philippines' PST), and Mexico's Pacific coast and
+    // Yukon keep MST under names of their own.
+    if (found->american && found->abbreviation != "GMT") {
+        static constexpr std::string_view elsewhere[] = { "Cuba", "America/Havana", "America/Hermosillo", "America/Mazatlan",
+            "Mexico/BajaSur" };
+        static constexpr std::string_view yukon[] = { "America/Dawson", "America/Whitehorse", "Canada/Yukon" };
+        if (name.starts_with("Asia/") || name == "PRC" || name == "ROC" || std::find(std::begin(elsewhere), std::end(elsewhere), name) != std::end(elsewhere))
+            return nullptr;
+        if (found->abbreviation == "MST" && std::find(std::begin(yukon), std::end(yukon), name) != std::end(yukon))
+            return nullptr;
+    }
+    // British Summer Time is Britain's; the Crown Dependencies' is not.
+    if (found->abbreviation == "BST" && (name == "Europe/Guernsey" || name == "Europe/Isle_of_Man" || name == "Europe/Jersey"))
+        return nullptr;
+    return &*found;
+}
+
+// The names of UTC that CLDR files under Greenwich instead.
+bool greenwich_named(Zone const& zone)
+{
+    static constexpr std::string_view names[] = { "Etc/GMT+0", "Etc/GMT-0", "Etc/GMT0", "Etc/Greenwich", "Greenwich" };
+    return std::find(std::begin(names), std::end(names), zone.name) != std::end(names);
+}
+
+// timeZoneName. English names only the zones IntlData.h lists; the rest,
+// and every generic style of a named zone (which CLDR would write "Eastern
+// Time" or "New York Time" from tables the engine does not carry), use
+// the offset.
+std::string time_zone_display(Zone const& zone, std::string const& style, TimeZoneLocal const& local, bool british)
+{
+    bool const long_form = style == "long" || style == "longOffset" || style == "longGeneric";
+    bool const named_style = style == "short" || style == "long";
+    bool const greenwich = (zone.kind == ZoneKind::Utc && greenwich_named(zone)) || (zone.kind == ZoneKind::Offset && zone.offset_minutes == 0);
+    if (greenwich && style != "shortOffset" && style != "longOffset")
+        return long_form ? "Greenwich Mean Time" : "GMT";
+    if (zone.kind == ZoneKind::Utc && named_style)
+        return style == "short" ? "UTC" : "Coordinated Universal Time";
+    if (zone.kind == ZoneKind::Named && named_style) {
+        if (intl_data::ZoneName const* name = english_zone_name(zone, local)) {
+            if (long_form)
+                return std::string(name->long_name);
+            if (british ? name->british : name->american) {
+                // The Aleutians keep the older letters in American English.
+                bool const aleutian = zone.name == "America/Adak" || zone.name == "America/Atka" || zone.name == "US/Aleutian";
+                if (aleutian && !british && (name->abbreviation == "HST" || name->abbreviation == "HDT"))
+                    return name->abbreviation == "HST" ? "HAST" : "HADT";
+                return std::string(name->abbreviation);
+            }
+        }
+    }
+    return gmt_format(local.offset_seconds, long_form);
 }
 
 std::string_view flexible_day_period(Fields const& f, std::string const& width)
@@ -597,7 +693,7 @@ std::vector<IntlPart> format_tokens(DateTimeFormatData const& d, std::vector<Tok
             break;
         }
         case Field::TimeZoneName:
-            push("timeZoneName", time_zone_display(d.zone, token.text, f.offset_minutes));
+            push("timeZoneName", time_zone_display(d.zone, token.text, f.local, d.british));
             break;
         }
     }
@@ -844,7 +940,11 @@ std::optional<bool> create_date_time_format(Interpreter& in, DateTimeFormatData&
     }
     if (!d.hour.empty()) {
         d.hour_cycle = hc;
-        if (hc == "h23" || hc == "h24")
+        // en-GB's pattern for an hour, minute and second with a zone's
+        // name writes the hour in as few digits as it needs ("H:mm:ss z").
+        bool const bare_hour = d.british && d.hour == "numeric" && !d.minute.empty() && !d.second.empty()
+            && (d.time_zone_name == "short" || d.time_zone_name == "long");
+        if ((hc == "h23" || hc == "h24") && !bare_hour)
             d.hour = "2-digit";
         if (!d.minute.empty())
             d.minute = "2-digit";
