@@ -82,6 +82,9 @@ struct Fragment {
             float height = 0;
         };
         std::optional<Drawn> drawn;
+        // A video's frame: opaque, and scaled smoothly, as browsers draw
+        // video (a picture of an <img> keeps the painter's own filtering).
+        bool video = false;
     };
     std::optional<ImageBox> image;
 

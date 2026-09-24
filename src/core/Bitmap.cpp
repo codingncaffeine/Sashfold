@@ -491,4 +491,97 @@ void Bitmap::draw_scaled(Bitmap const& source, Rect dest)
     }
 }
 
+void Bitmap::draw_scaled_opaque(Bitmap const& source, Rect dest)
+{
+    if (dest.is_empty() || source.width() <= 0 || source.height() <= 0)
+        return;
+    int x0 = std::max(dest.x, 0);
+    int y0 = std::max(dest.y, 0);
+    int x1 = std::min(dest.right(), m_width);
+    int y1 = std::min(dest.bottom(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
+    if (x0 >= x1 || y0 >= y1)
+        return;
+    // For each destination column, and each row: the two source pixels its
+    // centre falls between, and the weight of the second in 256ths. The
+    // centre of pixel i lands at ((2i + 1) * source - dest) / (2 * dest) in
+    // the source, clamped to the picture.
+    struct Tap {
+        std::size_t first;
+        std::size_t second;
+        int weight;
+    };
+    auto const taps = [](int from, int to, int origin, int dest_size, int source_size) {
+        std::vector<Tap> out;
+        out.reserve(static_cast<std::size_t>(to - from));
+        for (int i = from; i < to; ++i) {
+            std::int64_t const numerator = ((2 * static_cast<std::int64_t>(i - origin) + 1) * source_size - dest_size) * 256;
+            std::int64_t const at = numerator <= 0 ? 0 : numerator / (2 * static_cast<std::int64_t>(dest_size));
+            int first = static_cast<int>(at >> 8);
+            int weight = static_cast<int>(at & 255);
+            if (first >= source_size - 1) {
+                first = source_size - 1;
+                weight = 0;
+            }
+            out.push_back({ static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(first + 1, source_size - 1)), weight });
+        }
+        return out;
+    };
+    std::vector<Tap> const columns = taps(x0, x1, dest.x, dest.width, source.width());
+    std::vector<Tap> const rows = taps(y0, y1, dest.y, dest.height, source.height());
+    std::size_t const source_stride = static_cast<std::size_t>(source.width()) * 4;
+    for (int y = y0; y < y1; ++y) {
+        Tap const& row = rows[static_cast<std::size_t>(y - y0)];
+        std::uint8_t const* const upper = source.pixels().data() + row.first * source_stride;
+        std::uint8_t const* const lower = source.pixels().data() + row.second * source_stride;
+        // The part of the row every rounded clip covers whole, at the top
+        // of the row and at its bottom: written straight. The pixels a
+        // curve crosses go through the blend, which fades them by coverage.
+        int inside_from = x0;
+        int inside_to = x1;
+        for (RoundedRect const& shape : m_round_clips) {
+            float top_left = 0;
+            float top_right = 0;
+            float bottom_left = 0;
+            float bottom_right = 0;
+            if (!shape.span_at(static_cast<float>(y), top_left, top_right)
+                || !shape.span_at(static_cast<float>(y + 1), bottom_left, bottom_right)) {
+                inside_to = inside_from;
+                break;
+            }
+            inside_from = std::max(inside_from, static_cast<int>(std::ceil(std::max(top_left, bottom_left))));
+            inside_to = std::min(inside_to, static_cast<int>(std::floor(std::min(top_right, bottom_right))));
+        }
+        int const down = row.weight;
+        std::uint8_t* out = m_pixels.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(m_width) + static_cast<std::size_t>(x0)) * 4;
+        for (int x = x0; x < x1; ++x, out += 4) {
+            Tap const& column = columns[static_cast<std::size_t>(x - x0)];
+            std::uint8_t const* const a = upper + column.first * 4;
+            std::uint8_t const* const b = upper + column.second * 4;
+            std::uint8_t const* const c = lower + column.first * 4;
+            std::uint8_t const* const d = lower + column.second * 4;
+            int const across = column.weight;
+            std::uint8_t mixed[3];
+            for (std::size_t k = 0; k < 3; ++k) {
+                int const top = a[k] * (256 - across) + b[k] * across;
+                int const bottom = c[k] * (256 - across) + d[k] * across;
+                mixed[k] = static_cast<std::uint8_t>((top * (256 - down) + bottom * down + (1 << 15)) >> 16);
+            }
+            if (x >= inside_from && x < inside_to) {
+                out[0] = mixed[0];
+                out[1] = mixed[1];
+                out[2] = mixed[2];
+                out[3] = 255;
+            } else {
+                blend_pixel(x, y, Color::rgba(mixed[0], mixed[1], mixed[2], 255));
+            }
+        }
+    }
+}
+
 }

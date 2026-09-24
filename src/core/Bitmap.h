@@ -171,6 +171,13 @@ public:
     // arithmetic, averaging premultiplied so transparent edges do not fringe.
     void draw_scaled(Bitmap const& source, Rect dest);
 
+    // Draws an opaque picture — a video's frame — scaled into `dest` with
+    // bilinear filtering, as browsers draw video: each pixel from the four
+    // source pixels around its centre. The source's alpha is not read. Whole
+    // rows are written straight into the store; only the pixels a rounded
+    // clip's curve crosses go through the blend.
+    void draw_scaled_opaque(Bitmap const& source, Rect dest);
+
     // A clip rectangle every write honors (pixels outside it stay as they
     // are); none by default. The painter narrows it for a box that clips
     // its overflow and restores it after.

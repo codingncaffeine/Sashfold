@@ -74,5 +74,48 @@ int main()
     CHECK_EQ(static_cast<int>(over_nothing.g), 100);
     CHECK_EQ(static_cast<int>(over_nothing.b), 50);
 
+    // A video's frame, scaled smoothly: at its own size it is copied as it is.
+    Bitmap frame(3, 2, Color::rgb(0, 0, 0));
+    frame.set_pixel(0, 0, Color::rgb(10, 20, 30));
+    frame.set_pixel(1, 0, Color::rgb(40, 50, 60));
+    frame.set_pixel(2, 1, Color::rgb(70, 80, 90));
+    Bitmap copy(3, 2, Color::rgb(255, 255, 255));
+    copy.draw_scaled_opaque(frame, Rect { 0, 0, 3, 2 });
+    CHECK(copy.pixels() == frame.pixels());
+
+    // At twice the size each pixel mixes the two its centre falls between:
+    // black and white become black, a quarter, three quarters, white.
+    Bitmap pair(2, 1, Color::rgb(0, 0, 0));
+    pair.set_pixel(1, 0, Color::rgb(255, 255, 255));
+    Bitmap wide(4, 1, Color::rgb(255, 0, 0));
+    wide.draw_scaled_opaque(pair, Rect { 0, 0, 4, 1 });
+    CHECK(wide.pixel(0, 0) == Color::rgb(0, 0, 0));
+    CHECK(wide.pixel(1, 0) == Color::rgb(64, 64, 64));
+    CHECK(wide.pixel(2, 0) == Color::rgb(191, 191, 191));
+    CHECK(wide.pixel(3, 0) == Color::rgb(255, 255, 255));
+
+    // Nothing outside the clip is written.
+    Bitmap through(4, 1, Color::rgb(255, 0, 0));
+    through.set_clip(Rect { 1, 0, 2, 1 });
+    through.draw_scaled_opaque(pair, Rect { 0, 0, 4, 1 });
+    CHECK(through.pixel(0, 0) == Color::rgb(255, 0, 0));
+    CHECK(through.pixel(1, 0) == Color::rgb(64, 64, 64));
+    CHECK(through.pixel(3, 0) == Color::rgb(255, 0, 0));
+
+    // Under a rounded clip the inside is written, the corner outside the
+    // curve is left, and a pixel the curve crosses is blended by how much
+    // of it the shape covers.
+    Bitmap rounded(10, 10, Color::rgb(255, 0, 0));
+    RoundedRect corners = RoundedRect::of(Rect { 0, 0, 10, 10 });
+    corners.top_left_x = corners.top_left_y = corners.top_right_x = corners.top_right_y = 5;
+    corners.bottom_right_x = corners.bottom_right_y = corners.bottom_left_x = corners.bottom_left_y = 5;
+    rounded.push_round_clip(corners);
+    rounded.draw_scaled_opaque(Bitmap(1, 1, Color::rgb(255, 255, 255)), Rect { 0, 0, 10, 10 });
+    CHECK(rounded.pixel(0, 0) == Color::rgb(255, 0, 0));
+    CHECK(rounded.pixel(5, 5) == Color::rgb(255, 255, 255));
+    CHECK(rounded.pixel(5, 0) == Color::rgb(255, 255, 255));
+    Color const edge = rounded.pixel(1, 1);
+    CHECK(edge.r == 255 && edge.g > 0 && edge.g < 255);
+
     return sashfold::test::report("bitmap");
 }

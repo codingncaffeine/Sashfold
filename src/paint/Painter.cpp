@@ -870,6 +870,17 @@ void note_picture(Context const& context, Bitmap const& picture, Rect drawn)
         context.pictures->push_back({ &picture, Rect { left, top, right - left, bottom - top } });
 }
 
+// A picture into its rectangle: a video's frame smoothly, as browsers draw
+// video, anything else with the painter's own filtering.
+void draw_picture(Context& context, Fragment::ImageBox const& box, Rect drawn)
+{
+    if (box.video)
+        context.target.draw_scaled_opaque(*box.bitmap, drawn);
+    else
+        context.target.draw_scaled(*box.bitmap, drawn);
+    note_picture(context, *box.bitmap, drawn);
+}
+
 // The box's replaced content: its picture or its control. Appendix E
 // paints a block-level replaced element's content after the floats, with
 // the inline content, and its background before them with the other block
@@ -905,13 +916,10 @@ void paint_box_replaced(Context& context, Fragment const& fragment)
             }
             context.target.set_clip(through);
             Rect const drawn = snap(box.drawn->x + context.dx, box.drawn->y + context.dy, box.drawn->width, box.drawn->height);
-            context.target.draw_scaled(*box.bitmap, drawn);
-            note_picture(context, *box.bitmap, drawn);
+            draw_picture(context, box, drawn);
             context.target.set_clip(before);
         } else {
-            Rect const drawn = snap(box.x + context.dx, box.y + context.dy, box.width, box.height);
-            context.target.draw_scaled(*box.bitmap, drawn);
-            note_picture(context, *box.bitmap, drawn);
+            draw_picture(context, box, snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
         }
         context.target.truncate_round_clips(rounds);
     }

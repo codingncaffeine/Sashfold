@@ -1665,6 +1665,7 @@ struct Layouter {
         std::shared_ptr<Bitmap const> bitmap, float density, float x, float y, float width, float height) const
     {
         Fragment::ImageBox box { std::move(bitmap), x, y, width, height, std::nullopt };
+        box.video = element.is_html("video");
         if (!box.bitmap || style.object_fit == css::ObjectFit::Fill || !(element.is_html("img") || element.is_html("video")) || width <= 0
             || height <= 0 || css::is_vertical(frame_mode))
             return box;
