@@ -3,14 +3,22 @@
 #include "js/Strings.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <typeinfo>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#if __has_include(<cxxabi.h>)
+#include <cxxabi.h>
+#endif
 
 namespace sashfold::js {
 
@@ -90,13 +98,62 @@ void Heap::adopt(std::unique_ptr<Cell> cell)
     ++m_adopted_since_measure;
 }
 
+namespace {
+
+double ms_since(std::chrono::steady_clock::time_point const started)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+}
+
+// A cell's class as a reader would name it, for a traced collection: the
+// runtime's mangled name made readable where the runtime can, with the
+// namespaces that every cell shares left off.
+std::string kind_name(char const* mangled)
+{
+    std::string name = mangled;
+#if __has_include(<cxxabi.h>)
+    int status = 0;
+    if (char* const readable = abi::__cxa_demangle(mangled, nullptr, nullptr, &status); readable != nullptr) {
+        if (status == 0)
+            name = readable;
+        std::free(readable);
+    }
+#endif
+    for (std::size_t at = name.find("sashfold::"); at != std::string::npos; at = name.find("sashfold::", at))
+        name.erase(at, 10);
+    return name;
+}
+
+// The tally of a traced collection by kind, the kinds with the most
+// bytes first, the eight biggest.
+struct KindTally {
+    std::size_t cells = 0;
+    std::size_t bytes = 0;
+};
+
+std::vector<Heap::Collection::Kind> biggest_kinds(std::unordered_map<char const*, KindTally> const& tally)
+{
+    std::vector<Heap::Collection::Kind> kinds;
+    for (auto const& [mangled, counts] : tally)
+        kinds.push_back(Heap::Collection::Kind { kind_name(mangled), counts.cells, counts.bytes });
+    std::sort(kinds.begin(), kinds.end(), [](Heap::Collection::Kind const& a, Heap::Collection::Kind const& b) { return a.bytes > b.bytes; });
+    if (kinds.size() > 8)
+        kinds.resize(8);
+    return kinds;
+}
+
+}
+
 void Heap::remeasure()
 {
+    auto const started = std::chrono::steady_clock::now();
     std::size_t bytes = 0;
     for (auto const& cell : m_cells)
         bytes += cell->size_in_bytes();
     m_bytes = bytes;
     m_adopted_since_measure = 0;
+    ++m_account.remeasures;
+    m_account.remeasure_ms += ms_since(started);
 }
 
 void Heap::poll_growth(std::uint64_t steps)
@@ -145,6 +202,9 @@ void Heap::collect()
     if (m_no_collect > 0 || m_collecting)
         return;
     m_collecting = true;
+    auto const started = std::chrono::steady_clock::now();
+    std::size_t const cells_before = m_cells.size();
+    std::size_t const bytes_before = m_bytes;
 
     for (auto const& cell : m_cells)
         cell->set_marked(false);
@@ -181,11 +241,27 @@ void Heap::collect()
         cell->trace(tracer);
     }
 
+    // A traced collection tallies what goes and what stays by kind; the
+    // swept are asked their size for that alone.
+    bool const tracing = static_cast<bool>(m_on_collect);
+    std::unordered_map<char const*, KindTally> swept_by_kind;
+    std::unordered_map<char const*, KindTally> live_by_kind;
     std::size_t live = 0;
-    std::erase_if(m_cells, [&live](std::unique_ptr<Cell> const& cell) {
+    std::erase_if(m_cells, [&](std::unique_ptr<Cell> const& cell) {
         if (cell->marked()) {
-            live += cell->size_in_bytes();
+            std::size_t const bytes = cell->size_in_bytes();
+            live += bytes;
+            if (tracing) {
+                KindTally& kind = live_by_kind[typeid(*cell).name()];
+                ++kind.cells;
+                kind.bytes += bytes;
+            }
             return false;
+        }
+        if (tracing) {
+            KindTally& kind = swept_by_kind[typeid(*cell).name()];
+            ++kind.cells;
+            kind.bytes += cell->size_in_bytes();
         }
         return true;
     });
@@ -204,8 +280,17 @@ void Heap::collect()
         m_threshold = std::min(m_threshold, std::max(m_limit, live + floor));
         m_over_limit = live > m_limit;
     }
-    ++m_collections;
+    double const ms = ms_since(started);
+    ++m_account.collections;
+    m_account.collect_ms += ms;
+    m_account.longest_collect_ms = std::max(m_account.longest_collect_ms, ms);
+    m_account.live_cells = m_cells.size();
+    m_account.live_bytes = live;
     m_collecting = false;
+    if (tracing) {
+        m_on_collect(Collection { m_account.collections, ms, m_cells.size(), live, cells_before - m_cells.size(),
+            bytes_before > live ? bytes_before - live : 0, m_threshold, biggest_kinds(swept_by_kind), biggest_kinds(live_by_kind) });
+    }
 }
 
 JsString* Heap::string(std::u16string data)

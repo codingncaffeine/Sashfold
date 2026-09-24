@@ -26,6 +26,7 @@
 #include "js/Vm.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -1619,8 +1620,10 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
             options.in_field_initializer = fn.is_field_initializer || fn.is_static_block;
         }
     }
+    auto const parse_started = std::chrono::steady_clock::now();
     Parser parser(heap(), std::u16string(source), options);
     std::unique_ptr<Program> program = parser.parse_program(std::move(program_name));
+    self.note_parsed(source.size(), parse_started);
     if (!program) {
         ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
         return self.throw_syntax_error(error.message);
@@ -2320,8 +2323,10 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
     Outcome outcome;
     if (m_call_depth == 0)
         m_stack_base = stack_position();
+    auto const parse_started = std::chrono::steady_clock::now();
     Parser parser(*m_heap, std::u16string(source), {});
     std::unique_ptr<Program> program = parser.parse_program(name);
+    note_parsed(source.size(), parse_started);
     if (!program) {
         ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
         std::string message = error.message;
@@ -2386,8 +2391,10 @@ ModuleRecord* Interpreter::parse_module(std::u16string_view source, std::string 
         return existing;
     ParseOptions options;
     options.module = true;
+    auto const parse_started = std::chrono::steady_clock::now();
     Parser parser(*m_heap, std::u16string(source), options);
     std::unique_ptr<Program> program = parser.parse_program(key);
+    note_parsed(source.size(), parse_started);
     if (!program) {
         ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
         std::string message = error.message;

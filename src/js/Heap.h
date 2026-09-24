@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -292,7 +293,50 @@ public:
 
     std::size_t cell_count() const { return m_cells.size(); }
     std::size_t bytes_allocated() const { return m_bytes; }
-    std::size_t collections() const { return m_collections; }
+    std::size_t collections() const { return m_account.collections; }
+
+    // What the collector has cost, for the host's account of a page: the
+    // collections run, what they took all together on the steady clock and
+    // the longest of them, what the last one found live, and the times the
+    // cells were all asked their size again and what that took. Measured,
+    // never acted on: when a collection is due stays a matter of counts.
+    struct Account {
+        std::size_t collections = 0;
+        double collect_ms = 0;
+        double longest_collect_ms = 0;
+        std::size_t live_cells = 0; // after the last collection
+        std::size_t live_bytes = 0;
+        std::size_t remeasures = 0;
+        double remeasure_ms = 0;
+    };
+    Account const& account() const { return m_account; }
+    // One collection as it ended, for a host that traces them: its number
+    // (the first is 1), what it took, what it kept, what it swept (its
+    // bytes by the estimate the cells had given), and the estimate the
+    // next one is due past.
+    struct Collection {
+        std::size_t number;
+        double ms;
+        std::size_t live_cells;
+        std::size_t live_bytes;
+        std::size_t swept_cells;
+        std::size_t swept_bytes;
+        std::size_t threshold;
+        // What it swept and what it kept by kind of cell, the kinds with
+        // the most bytes first, each with its cells and the bytes they
+        // said they were as they went: what a heap that collects without
+        // end is filling with. Tallied for a traced collection alone.
+        struct Kind {
+            std::string name;
+            std::size_t cells;
+            std::size_t bytes;
+        };
+        std::vector<Kind> swept_kinds;
+        std::vector<Kind> live_kinds;
+    };
+    // Told of every collection as it ends, once the heap is whole again.
+    // It must not allocate on this heap.
+    void set_on_collect(std::function<void(Collection const&)> hook) { m_on_collect = std::move(hook); }
 
     // A ceiling on what the heap may hold, in bytes; 0 is none. What is
     // LIVE after a collection is what counts — garbage is not the page's
@@ -363,7 +407,8 @@ private:
     WellKnownAtoms m_well_known;
     std::size_t m_bytes = 0; // estimated live + garbage since the last collection
     std::size_t m_threshold = 8u * 1024u * 1024u;
-    std::size_t m_collections = 0;
+    Account m_account;
+    std::function<void(Collection const&)> m_on_collect;
     std::size_t m_max_string_length = js::max_string_length;
     std::size_t m_limit = 0; // the ceiling; 0 is none
     bool m_over_limit = false; // what was live after a collection passed it

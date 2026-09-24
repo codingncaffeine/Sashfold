@@ -580,9 +580,29 @@ public:
     Bitmap const& frame(); // paints when something changed
     bool needs_paint() const;
     Profile const& profile() const; // what the shell has done so far, counted and timed
-    // Time the shown page's scripts have had inside the engine, all
-    // entries together, in milliseconds; 0 for a page with no realm.
-    double script_engine_ms() const;
+    // What the shown page's scripts have cost since the page was made, in
+    // milliseconds: the time inside the engine, every entry from the host
+    // with its microtasks, and of that what went to parsing, compiling and
+    // collecting garbage — what is left is the scripts running. With the
+    // collections counted, the longest of them, and what the last one
+    // found live. All zero for a page with no realm.
+    struct EngineAccount {
+        double engine_ms = 0;
+        double parse_ms = 0;
+        double compile_ms = 0;
+        double gc_ms = 0;
+        double gc_longest_ms = 0;
+        std::size_t collections = 0;
+        std::size_t live_cells = 0;
+        std::size_t live_bytes = 0;
+        std::size_t functions_compiled = 0;
+        double run_ms() const
+        {
+            double const rest = engine_ms - parse_ms - compile_ms - gc_ms;
+            return rest > 0 ? rest : 0;
+        }
+    };
+    EngineAccount engine_account() const;
     platform::Cursor cursor() const;
     std::string window_title() const;
 

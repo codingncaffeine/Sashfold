@@ -12,6 +12,7 @@
 #include "media/Vp9Accelerator.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -693,6 +694,36 @@ void test_event_dispatch_order_and_flags()
     CHECK_EQ(page->string("log.join(' ')"), "Enter/Enter/13/false/true");
     CHECK_EQ(page->realm->stats().uncaught_errors, 0);
     CHECK_EQ(page->console, "");
+}
+
+// The engine time a page is accounted is what the wall clock saw: an entry
+// nested in another — a listener the script dispatched to — is in the
+// outer entry's span and not counted again, and the microtasks that run
+// as the outermost entry ends are in it.
+void test_the_engine_time_account()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    page->realm->interpreter().heap().set_stress(false);
+    double const before = page->realm->stats().script_ms;
+    auto const started = std::chrono::steady_clock::now();
+    page->eval(R"JS(
+        var n = 0;
+        function spin() { for (var i = 0; i < 400000; i++) n += i & 3; }
+        document.body.addEventListener('spin', spin);
+        document.body.dispatchEvent(new Event('spin'));
+        document.body.dispatchEvent(new Event('spin'));
+        queueMicrotask(spin);
+        spin();
+    )JS");
+    double const wall = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    double const engine = page->realm->stats().script_ms - before;
+    CHECK(engine > 0.0);
+    // Never more than the clock saw: the two listener entries once...
+    CHECK(engine <= wall + 0.5);
+    // ...and nearly all of it, the microtask's spin in: the entry is the
+    // whole of the run but for a string copied in and a value out.
+    CHECK(engine >= 0.9 * wall);
+    CHECK_EQ(page->number("n"), 4.0 * 600000.0);
 }
 
 void test_timers_microtasks_and_the_clock()
@@ -4595,6 +4626,7 @@ int main()
     test_attribute_names_global_this_and_shadow_root();
     test_event_dispatch_order_and_flags();
     test_timers_microtasks_and_the_clock();
+    test_the_engine_time_account();
     test_document_ready_states_and_load_events();
     test_frame_load_events();
     test_named_access_on_the_window();

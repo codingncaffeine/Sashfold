@@ -1050,7 +1050,11 @@ int render_page(std::string const& path, std::string const& output, int viewport
                 << ", \"skipped\": " << scripts.scripts_skipped << ", \"external\": " << scripts.external_fetched
                 << ", \"external_failed\": " << scripts.external_failed << ", \"timers\": " << scripts.timers_fired
                 << ", \"events\": " << scripts.events_dispatched << ", \"errors\": " << scripts.uncaught_errors
-                << ", \"ms\": " << static_cast<long>(scripts.script_ms + 0.5) << " },\n";
+                << ", \"ms\": " << static_cast<long>(scripts.script_ms + 0.5)
+                << ", \"parse_ms\": " << static_cast<long>(realm->interpreter().account().parse_ms + 0.5)
+                << ", \"compile_ms\": " << static_cast<long>(realm->interpreter().account().compile_ms + 0.5)
+                << ", \"gc_ms\": " << static_cast<long>(realm->interpreter().heap().account().collect_ms + 0.5)
+                << ", \"collections\": " << realm->interpreter().heap().account().collections << " },\n";
             out << "  \"throws\": " << realm->interpreter().throws() << ",\n";
             out << "  \"custom_elements\": { \"defined\": " << scripts.custom_elements_defined
                 << ", \"upgraded\": " << scripts.custom_elements_upgraded
@@ -1216,6 +1220,31 @@ ui::Profile profile_since(ui::Profile const& now, ui::Profile const& base)
     d.frames_ms -= base.frames_ms;
     d.paint_ms -= base.paint_ms;
     return d;
+}
+
+// The engine's account from one moment on, the same way. What the last
+// collection found live is a state, not a sum, and stays as it is.
+ui::Browser::EngineAccount engine_since(ui::Browser::EngineAccount const& now, ui::Browser::EngineAccount const& base)
+{
+    ui::Browser::EngineAccount d = now;
+    d.engine_ms -= base.engine_ms;
+    d.parse_ms -= base.parse_ms;
+    d.compile_ms -= base.compile_ms;
+    d.gc_ms -= base.gc_ms;
+    d.collections -= base.collections;
+    d.functions_compiled -= base.functions_compiled;
+    return d;
+}
+
+// The engine's account as the reports write it.
+std::string engine_json(ui::Browser::EngineAccount const& e)
+{
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(1) << "{ \"ms\": " << e.engine_ms << ", \"parse\": " << e.parse_ms
+        << ", \"compile\": " << e.compile_ms << ", \"functions_compiled\": " << e.functions_compiled << ", \"gc\": " << e.gc_ms
+        << ", \"collections\": " << e.collections << ", \"gc_longest\": " << e.gc_longest_ms << ", \"run\": " << e.run_ms()
+        << ", \"live_cells\": " << e.live_cells << ", \"live_mb\": " << static_cast<double>(e.live_bytes) / (1024.0 * 1024.0) << " }";
+    return out.str();
 }
 
 // The shell's counters as the reports write them.
@@ -2017,7 +2046,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         // every turn that did anything under --trace-frames.
         auto const turn_started = clock::now();
         ui::Profile const turn_profile = browser.profile();
-        double const turn_engine_ms = browser.script_engine_ms();
+        ui::Browser::EngineAccount const turn_engine = browser.engine_account();
         std::size_t turn_events = 0;
         std::size_t turn_resizes = 0;
         // A window being dragged reports dozens of sizes a second; the last
@@ -2121,6 +2150,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             bool const worked = turn_events > 0 || loaded || present_ms.size() != presents_before;
             if (total >= 250.0 || (trace_frames && worked)) {
                 ui::Profile const spent = profile_since(browser.profile(), turn_profile);
+                ui::Browser::EngineAccount const engine = engine_since(browser.engine_account(), turn_engine);
                 double const presented = present_ms.size() != presents_before ? present_ms.back() : 0.0;
                 std::cerr << std::fixed << std::setprecision(1) << "sashfold: turn " << total << " ms \xe2\x80\x94 "
                           << turn_events << " events";
@@ -2130,7 +2160,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                           << (loaded ? ", a load " : ", no load ") << wall_ms(load_done - events_done).count() << " ms"
                           << " (commit " << spent.commit_ms << " ms)"
                           << ", scripts " << wall_ms(scripts_done - load_done).count() << " ms"
-                          << ", engine " << (browser.script_engine_ms() - turn_engine_ms) << " ms"
+                          << ", engine " << engine.engine_ms << " ms (parse " << engine.parse_ms << " ms, compile "
+                          << engine.compile_ms << " ms, gc " << engine.gc_ms << " ms in " << engine.collections
+                          << ", run " << engine.run_ms() << " ms)"
                           << ", frame " << wall_ms(frame_done - scripts_done).count() << " ms [styles " << spent.restyles
                           << " in " << spent.restyle_ms << " ms, layouts " << spent.relayouts << " in " << spent.relayout_ms
                           << " ms, frames' documents " << spent.frames_ms << " ms, sheets " << spent.sheets_ms
@@ -2226,6 +2258,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             << "  \"present_ms\": { \"median\": " << (sorted.empty() ? 0.0 : sorted[sorted.size() / 2])
             << ", \"max\": " << (sorted.empty() ? 0.0 : sorted.back()) << " },\n"
             << "  \"shell\": " << profile_json(profile_since(browser.profile(), base_profile)) << ",\n"
+            << "  \"engine\": " << engine_json(browser.engine_account()) << ",\n"
             << "  \"network\": " << census_json(loader.census()) << "\n}\n";
         if (!out) {
             std::cerr << "error: could not write " << timings_path << "\n";

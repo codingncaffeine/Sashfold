@@ -747,6 +747,9 @@ struct Agent {
     std::uint64_t next_sequence = 1;
     bool in_checkpoint = false;
     int script_depth = 0; // entries from the host in progress
+    // The same for the engine-time account: the outermost entry's whole
+    // span, its microtasks in, is what the stats are given, once.
+    int account_depth = 0;
     // Every entry of the host into any realm here, nested: a frame's realm
     // ends only when this is back at zero.
     int host_depth = 0;

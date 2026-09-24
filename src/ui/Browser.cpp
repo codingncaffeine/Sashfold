@@ -9282,10 +9282,25 @@ void Browser::settle_video(double timeout_ms)
 }
 Profile const& Browser::profile() const { return m_impl->profile; }
 
-double Browser::script_engine_ms() const
+Browser::EngineAccount Browser::engine_account() const
 {
+    EngineAccount account;
     Impl::Tab const* const tab = m_impl->active_tab();
-    return tab && tab->realm ? tab->realm->stats().script_ms : 0.0;
+    if (!tab || !tab->realm)
+        return account;
+    js::Interpreter& interpreter = tab->realm->interpreter();
+    js::Interpreter::Account const& code = interpreter.account();
+    js::Heap::Account const& heap = interpreter.heap().account();
+    account.engine_ms = tab->realm->stats().script_ms;
+    account.parse_ms = code.parse_ms;
+    account.compile_ms = code.compile_ms;
+    account.functions_compiled = code.functions_compiled;
+    account.gc_ms = heap.collect_ms + heap.remeasure_ms;
+    account.gc_longest_ms = heap.longest_collect_ms;
+    account.collections = heap.collections;
+    account.live_cells = heap.live_cells;
+    account.live_bytes = heap.live_bytes;
+    return account;
 }
 
 std::size_t Browser::pictures() const

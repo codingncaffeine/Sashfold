@@ -17,6 +17,7 @@
 #include "js/Runtime.h"
 #include "js/Strings.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -111,7 +112,9 @@ CodeBlock const* Interpreter::Impl::compiled_body(FunctionNode const& node)
     if (auto const found = code_blocks.find(&node); found != code_blocks.end())
         return found->second.get();
     std::string error;
+    auto const compile_started = std::chrono::steady_clock::now();
     std::unique_ptr<CodeBlock> code = compile_function_body(node, heap(), &error);
+    self.note_compiled(compile_started);
     if (!code) {
         self.throw_syntax_error(error);
         return nullptr;

@@ -17,6 +17,7 @@
 #include "js/Object.h"
 #include "js/Value.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -615,6 +616,31 @@ public:
     bool terminated() const { return m_terminated; }
     void clear_termination() { m_terminated = false; }
     std::uint64_t steps() const { return m_steps; }
+    // What turning source into code has cost, for the host's account of a
+    // page: the programs parsed (scripts, modules and evals) and the code
+    // units they came to, what parsing took on the steady clock, and the
+    // function bodies compiled — each at its first call, so this goes on
+    // for as long as the page runs — and what compiling took.
+    struct Account {
+        std::size_t programs_parsed = 0;
+        std::size_t source_code_units = 0;
+        double parse_ms = 0;
+        std::size_t functions_compiled = 0;
+        double compile_ms = 0;
+    };
+    Account const& account() const { return m_account; }
+    // A program was parsed from this many code units, from that moment on.
+    void note_parsed(std::size_t code_units, std::chrono::steady_clock::time_point started)
+    {
+        ++m_account.programs_parsed;
+        m_account.source_code_units += code_units;
+        m_account.parse_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    }
+    void note_compiled(std::chrono::steady_clock::time_point started)
+    {
+        ++m_account.functions_compiled;
+        m_account.compile_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    }
     // A heap over its ceiling (Heap::set_limit) ends the script at its next
     // step the same way, and every script after it at its first: the page
     // has what it has and gets no more.
@@ -705,6 +731,7 @@ private:
     std::uint32_t m_interrupt_interval = 10000;
     std::uint64_t m_steps = 0;
     bool m_terminated = false;
+    Account m_account;
 };
 
 }

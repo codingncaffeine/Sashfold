@@ -770,6 +770,30 @@ void test_strict_mode_shapes()
     CHECK_JS_NUMBER(in, "(function () { var o = Object.preventExtensions({}); o.n = 1; return o.n === undefined ? 1 : 0; })()", 1);
 }
 
+// The engine's account of what source cost: each program parsed once, its
+// code units counted, each function body compiled at its first call and
+// not again, and an eval a program of its own.
+void test_the_account()
+{
+    js::Interpreter& in = fresh();
+    in.heap().set_stress(false);
+    js::Interpreter::Account const before = in.account();
+    std::string const source = "function f(x) { return x + 1; } var g = function () { return f(1) + f(2); }; g() + g()";
+    CHECK_EQ(test::eval_number(in, source), 10);
+    js::Interpreter::Account const after = in.account();
+    CHECK_EQ(after.programs_parsed - before.programs_parsed, std::size_t { 1 });
+    CHECK_EQ(after.source_code_units - before.source_code_units, source.size());
+    CHECK(after.parse_ms >= before.parse_ms);
+    // The program's body, f and g: three, though f ran four times and g twice.
+    CHECK_EQ(after.functions_compiled - before.functions_compiled, std::size_t { 3 });
+    CHECK(after.compile_ms >= before.compile_ms);
+    CHECK_EQ(test::eval_number(in, "g()"), 5);
+    CHECK_EQ(in.account().programs_parsed - after.programs_parsed, std::size_t { 1 });
+    CHECK_EQ(in.account().functions_compiled - after.functions_compiled, std::size_t { 1 }); // the new program's body alone
+    CHECK_EQ(test::eval_number(in, "eval('f(4)')"), 5);
+    CHECK_EQ(in.account().programs_parsed - after.programs_parsed, std::size_t { 3 });
+}
+
 } // namespace
 
 int main()
@@ -795,5 +819,6 @@ int main()
     test_describe_and_errors();
     test_function_properties();
     test_strict_mode_shapes();
+    test_the_account();
     return sashfold::test::report("js_interpreter");
 }

@@ -153,6 +153,31 @@ int main()
         heap.collect();
         CHECK_EQ(heap.cell_count(), base);
         CHECK_EQ(heap.collections(), std::size_t { 1 });
+        // The account of it: one collection, everything live, timed.
+        CHECK_EQ(heap.account().collections, std::size_t { 1 });
+        CHECK_EQ(heap.account().live_cells, base);
+        CHECK(heap.account().live_bytes > 0);
+        CHECK(heap.account().collect_ms >= 0.0);
+        CHECK_EQ(heap.account().longest_collect_ms, heap.account().collect_ms);
+        // A host tracing collections is told of each as it ends: what it
+        // kept and what it swept — here a hundred strings nothing roots.
+        std::optional<js::Heap::Collection> told;
+        heap.set_on_collect([&told](js::Heap::Collection const& collection) { told = collection; });
+        for (int i = 0; i < 100; ++i)
+            heap.string(std::u16string(u"garbage"));
+        CHECK_EQ(heap.cell_count(), base + 100);
+        heap.collect();
+        CHECK(told.has_value());
+        CHECK_EQ(told ? told->number : std::size_t { 0 }, std::size_t { 2 });
+        CHECK_EQ(told ? told->swept_cells : std::size_t { 0 }, std::size_t { 100 });
+        CHECK_EQ(told ? told->live_cells : std::size_t { 0 }, base);
+        CHECK(told && told->swept_bytes > 0);
+        CHECK(told && told->live_bytes == heap.account().live_bytes);
+        CHECK(told && told->threshold >= told->live_bytes);
+        CHECK_EQ(heap.cell_count(), base);
+        CHECK_EQ(heap.account().collections, std::size_t { 2 });
+        CHECK(heap.account().collect_ms >= heap.account().longest_collect_ms);
+        heap.set_on_collect(nullptr);
         CHECK(a.length->equals(u"length"));
         CHECK(a.symbol_iterator->description()->equals(u"Symbol.iterator"));
         // The well-known atoms are the atom table's: asking again is a hit.

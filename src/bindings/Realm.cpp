@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -676,6 +677,7 @@ Realm::Internals::Entry::Entry(Internals& the_internals)
     , realm_scope(the_internals.interpreter, the_internals.realm_record)
 {
     ++internals.agent.script_depth;
+    ++internals.agent.account_depth;
     // Time is measured on the steady clock even when timers run on a
     // virtual one: this is a cost, not a schedule.
     using namespace std::chrono;
@@ -684,9 +686,22 @@ Realm::Internals::Entry::Entry(Internals& the_internals)
 
 Realm::Internals::Entry::~Entry()
 {
-    using namespace std::chrono;
-    double const finished = static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
-    internals.stats.script_ms += finished - started;
+    // The account is written at the end, by the outermost entry alone: an
+    // entry nested in it — a listener the script dispatched to, a custom
+    // element it made — is in its span already, and so are the microtasks
+    // that run on the way out. What the stats say the engine took is then
+    // never more than the wall clock saw.
+    struct Account {
+        Entry const& entry;
+        ~Account()
+        {
+            if (--entry.internals.agent.account_depth != 0)
+                return;
+            using namespace std::chrono;
+            double const finished = static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
+            entry.internals.stats.script_ms += finished - entry.started;
+        }
+    } const account { *this };
     if (--internals.agent.script_depth == 0) {
         internals.realm.perform_microtask_checkpoint();
         // What waits for the script and its microtasks to be over.
@@ -1233,6 +1248,26 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
     interpreter.heap().set_limit(in.hooks.js_heap_limit);
+    // SASHFOLD_TRACE_GC=1: every collection of this page's heap on stderr
+    // as it ends — what it took, what it kept, what it swept — so that a
+    // page that spends its time collecting shows where and how often.
+    if (char const* const trace = std::getenv("SASHFOLD_TRACE_GC"); trace != nullptr && trace[0] == '1') {
+        interpreter.heap().set_on_collect([](js::Heap::Collection const& collection) {
+            auto const mb = [](std::size_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
+            std::cerr << std::fixed << std::setprecision(1) << "sashfold: gc #" << collection.number << " " << collection.ms
+                      << " ms \xe2\x80\x94 live " << collection.live_cells << " cells " << mb(collection.live_bytes)
+                      << " MB, swept " << collection.swept_cells << " cells " << mb(collection.swept_bytes)
+                      << " MB, next past " << mb(collection.threshold) << " MB\n";
+            auto const by_kind = [&mb](char const* what, std::vector<js::Heap::Collection::Kind> const& kinds) {
+                std::cerr << "sashfold:   " << what;
+                for (js::Heap::Collection::Kind const& kind : kinds)
+                    std::cerr << " " << kind.name << " " << kind.cells << " = " << mb(kind.bytes) << " MB;";
+                std::cerr << "\n";
+            };
+            by_kind("swept:", collection.swept_kinds);
+            by_kind("live:", collection.live_kinds);
+        });
+    }
     // A script's recursion is measured against the stack of the thread the
     // realm is made on, which is the one it runs on.
     interpreter.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
