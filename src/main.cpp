@@ -1206,6 +1206,7 @@ ui::Profile profile_since(ui::Profile const& now, ui::Profile const& base)
     d.relayouts -= base.relayouts;
     d.paints -= base.paints;
     d.painted_pixels -= base.painted_pixels;
+    d.commit_ms -= base.commit_ms;
     d.sheets_ms -= base.sheets_ms;
     d.fonts_ms -= base.fonts_ms;
     d.style_compile_ms -= base.style_compile_ms;
@@ -1222,7 +1223,8 @@ std::string profile_json(ui::Profile const& p)
 {
     std::ostringstream out;
     out << std::fixed << std::setprecision(1) << "{ \"restyles\": " << p.restyles << ", \"relayouts\": " << p.relayouts
-        << ", \"paints\": " << p.paints << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"sheets\": " << p.sheets_ms
+        << ", \"paints\": " << p.paints << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"commit\": " << p.commit_ms
+        << ", \"sheets\": " << p.sheets_ms
         << ", \"fonts\": " << p.fonts_ms << ", \"compile\": " << p.style_compile_ms
         << ", \"images\": " << p.images_ms << ", \"restyle\": " << p.restyle_ms << ", \"relayout\": " << p.relayout_ms
         << ", \"frames\": " << p.frames_ms << ", \"paint\": " << p.paint_ms << " } }";
@@ -2015,6 +2017,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         // every turn that did anything under --trace-frames.
         auto const turn_started = clock::now();
         ui::Profile const turn_profile = browser.profile();
+        double const turn_engine_ms = browser.script_engine_ms();
         std::size_t turn_events = 0;
         std::size_t turn_resizes = 0;
         // A window being dragged reports dozens of sizes a second; the last
@@ -2125,7 +2128,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                     std::cerr << " (" << turn_resizes << " sizes, the last " << browser.width() << "x" << browser.height() << ")";
                 std::cerr << " " << wall_ms(events_done - turn_started).count() << " ms"
                           << (loaded ? ", a load " : ", no load ") << wall_ms(load_done - events_done).count() << " ms"
+                          << " (commit " << spent.commit_ms << " ms)"
                           << ", scripts " << wall_ms(scripts_done - load_done).count() << " ms"
+                          << ", engine " << (browser.script_engine_ms() - turn_engine_ms) << " ms"
                           << ", frame " << wall_ms(frame_done - scripts_done).count() << " ms [styles " << spent.restyles
                           << " in " << spent.restyle_ms << " ms, layouts " << spent.relayouts << " in " << spent.relayout_ms
                           << " ms, frames' documents " << spent.frames_ms << " ms, sheets " << spent.sheets_ms

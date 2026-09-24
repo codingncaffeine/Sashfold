@@ -288,6 +288,9 @@ struct Profile {
     // bytes coming back from the cache are not decoded again.
     std::uint64_t sheet_collections = 0;
     std::uint64_t sheet_decodes = 0;
+    // A page committed: its markup parsed, the scripts that run as it is
+    // parsed run, its stylesheets collected and its first styles resolved.
+    double commit_ms = 0;
     double sheets_ms = 0; // stylesheets and fonts collected, and the sheets compiled
     // Two parts of that: the sheets' @font-face fonts asked for and
     // collected, and the sheets compiled into the style set.
@@ -577,6 +580,9 @@ public:
     Bitmap const& frame(); // paints when something changed
     bool needs_paint() const;
     Profile const& profile() const; // what the shell has done so far, counted and timed
+    // Time the shown page's scripts have had inside the engine, all
+    // entries together, in milliseconds; 0 for a page with no realm.
+    double script_engine_ms() const;
     platform::Cursor cursor() const;
     std::string window_title() const;
 

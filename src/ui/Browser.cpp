@@ -3700,7 +3700,10 @@ struct Browser::Impl {
             if (entry.from_cache)
                 status += " (from cache)";
         }
-        commit(tab, std::move(entry), load.mode);
+        {
+            Stopwatch const committing(profile.commit_ms);
+            commit(tab, std::move(entry), load.mode);
+        }
         tab.status = status;
         if (&tab == active_tab())
             sync_address();
@@ -9278,6 +9281,12 @@ void Browser::settle_video(double timeout_ms)
     m_impl->take_video_frames(*tab);
 }
 Profile const& Browser::profile() const { return m_impl->profile; }
+
+double Browser::script_engine_ms() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab && tab->realm ? tab->realm->stats().script_ms : 0.0;
+}
 
 std::size_t Browser::pictures() const
 {
