@@ -950,4 +950,244 @@ Native structured_clone(js::Interpreter& interp, js::Value const&, Args args)
     return clone->value;
 }
 
+// --- The serialization as bytes ------------------------------------------------------------------
+
+namespace {
+
+class ByteWriter {
+public:
+    void u8(std::uint8_t value) { bytes.push_back(value); }
+    void u64(std::uint64_t value)
+    {
+        for (int shift = 0; shift < 64; shift += 8)
+            bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+    void f64(double value)
+    {
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &value, sizeof bits);
+        u64(bits);
+    }
+    void text(std::u16string const& value)
+    {
+        u64(value.size());
+        for (char16_t const unit : value) {
+            bytes.push_back(static_cast<std::uint8_t>(unit & 0xFF));
+            bytes.push_back(static_cast<std::uint8_t>(unit >> 8));
+        }
+    }
+    void utf8(std::string const& value)
+    {
+        u64(value.size());
+        bytes.insert(bytes.end(), value.begin(), value.end());
+    }
+    void blob(std::vector<std::uint8_t> const& value)
+    {
+        u64(value.size());
+        bytes.insert(bytes.end(), value.begin(), value.end());
+    }
+    void optional_size(std::optional<std::size_t> const& value)
+    {
+        u8(value ? 1 : 0);
+        u64(value.value_or(0));
+    }
+    std::vector<std::uint8_t> bytes;
+};
+
+class ByteReader {
+public:
+    explicit ByteReader(std::span<std::uint8_t const> bytes)
+        : m_bytes(bytes)
+    {
+    }
+    bool ok() const { return m_ok; }
+    bool at_end() const { return m_at == m_bytes.size(); }
+    bool has(std::uint64_t count)
+    {
+        if (m_bytes.size() - m_at < count)
+            m_ok = false;
+        return m_ok;
+    }
+    std::uint8_t u8() { return has(1) ? m_bytes[m_at++] : 0; }
+    std::uint64_t u64()
+    {
+        if (!has(8))
+            return 0;
+        std::uint64_t value = 0;
+        for (int shift = 0; shift < 64; shift += 8)
+            value |= static_cast<std::uint64_t>(m_bytes[m_at++]) << shift;
+        return value;
+    }
+    std::size_t size() { return static_cast<std::size_t>(u64()); }
+    double f64()
+    {
+        std::uint64_t const bits = u64();
+        double value = 0;
+        std::memcpy(&value, &bits, sizeof value);
+        return value;
+    }
+    std::u16string text()
+    {
+        std::uint64_t const length = u64();
+        if (length > m_bytes.size() || !has(length * 2))
+            return {};
+        std::u16string value;
+        value.reserve(static_cast<std::size_t>(length));
+        for (std::uint64_t i = 0; i < length; ++i) {
+            value.push_back(static_cast<char16_t>(m_bytes[m_at] | (m_bytes[m_at + 1] << 8)));
+            m_at += 2;
+        }
+        return value;
+    }
+    std::vector<std::uint8_t> blob()
+    {
+        std::uint64_t const length = u64();
+        if (!has(length))
+            return {};
+        std::vector<std::uint8_t> value(m_bytes.begin() + static_cast<std::ptrdiff_t>(m_at),
+            m_bytes.begin() + static_cast<std::ptrdiff_t>(m_at + length));
+        m_at += static_cast<std::size_t>(length);
+        return value;
+    }
+    std::string utf8()
+    {
+        std::vector<std::uint8_t> const value = blob();
+        return std::string(value.begin(), value.end());
+    }
+    std::optional<std::size_t> optional_size()
+    {
+        bool const present = u8() != 0;
+        std::size_t const value = size();
+        return present ? std::optional<std::size_t>(value) : std::nullopt;
+    }
+
+private:
+    std::span<std::uint8_t const> m_bytes;
+    std::size_t m_at = 0;
+    bool m_ok = true;
+};
+
+constexpr std::uint8_t serialized_format = 1;
+
+}
+
+std::vector<std::uint8_t> serialized_to_bytes(SerializedMessage const& message)
+{
+    ByteWriter out;
+    out.u8(serialized_format);
+    out.u64(message.root);
+    out.u64(message.records.size());
+    for (Record const& record : message.records) {
+        out.u8(static_cast<std::uint8_t>(record.kind));
+        out.u8(record.boolean ? 1 : 0);
+        out.f64(record.number);
+        out.utf8(record.bigint.to_string(16));
+        out.text(record.text);
+        out.text(record.name);
+        out.text(record.stack);
+        out.u8(record.has_message ? 1 : 0);
+        out.blob(record.bytes);
+        out.optional_size(record.max_byte_length);
+        out.u64(record.buffer);
+        out.u8(static_cast<std::uint8_t>(record.element_type));
+        out.u8(record.data_view ? 1 : 0);
+        out.u64(record.byte_offset);
+        out.optional_size(record.length);
+        out.utf8(record.type);
+        out.utf8(record.file_name);
+        out.u8(record.is_file ? 1 : 0);
+        out.u64(record.array_length);
+        out.u64(record.properties.size());
+        for (auto const& [name, index] : record.properties) {
+            out.text(name);
+            out.u64(index);
+        }
+        out.u64(record.entries.size());
+        for (std::size_t const entry : record.entries)
+            out.u64(entry);
+        out.optional_size(record.cause);
+    }
+    return std::move(out.bytes);
+}
+
+std::shared_ptr<SerializedMessage const> serialized_from_bytes(std::span<std::uint8_t const> bytes)
+{
+    ByteReader in(bytes);
+    if (in.u8() != serialized_format)
+        return nullptr;
+    auto message = std::make_shared<SerializedMessage>();
+    message->root = in.size();
+    std::size_t const count = in.size();
+    if (count > bytes.size())
+        return nullptr;
+    message->records.resize(count);
+    for (Record& record : message->records) {
+        std::uint8_t const kind = in.u8();
+        if (kind >= static_cast<std::uint8_t>(Kind::Transferred))
+            return nullptr;
+        record.kind = static_cast<Kind>(kind);
+        record.boolean = in.u8() != 0;
+        record.number = in.f64();
+        std::string const digits = in.utf8();
+        std::string_view magnitude = digits;
+        bool const negative = magnitude.starts_with('-');
+        if (negative)
+            magnitude.remove_prefix(1);
+        if (magnitude != "0") {
+            std::optional<js::BigInteger> const value = js::BigInteger::parse_digits(magnitude, 16);
+            if (!value)
+                return nullptr;
+            record.bigint = negative ? value->negated() : *value;
+        }
+        record.text = in.text();
+        record.name = in.text();
+        record.stack = in.text();
+        record.has_message = in.u8() != 0;
+        record.bytes = in.blob();
+        record.max_byte_length = in.optional_size();
+        record.buffer = in.size();
+        std::uint8_t const element_type = in.u8();
+        if (element_type >= js::element_type_count)
+            return nullptr;
+        record.element_type = static_cast<js::ElementType>(element_type);
+        record.data_view = in.u8() != 0;
+        record.byte_offset = in.size();
+        record.length = in.optional_size();
+        record.type = in.utf8();
+        record.file_name = in.utf8();
+        record.is_file = in.u8() != 0;
+        record.array_length = static_cast<std::uint32_t>(in.u64());
+        std::size_t const properties = in.size();
+        for (std::size_t i = 0; i < properties && in.ok(); ++i) {
+            std::u16string name = in.text();
+            std::size_t const index = in.size();
+            if (index >= count)
+                return nullptr;
+            record.properties.emplace_back(std::move(name), index);
+        }
+        std::size_t const entries = in.size();
+        for (std::size_t i = 0; i < entries && in.ok(); ++i) {
+            std::size_t const entry = in.size();
+            if (entry >= count)
+                return nullptr;
+            record.entries.push_back(entry);
+        }
+        record.cause = in.optional_size();
+        if (record.kind == Kind::ArrayBufferView && record.buffer >= count)
+            return nullptr;
+        if (record.cause && *record.cause >= count)
+            return nullptr;
+        if (!in.ok())
+            return nullptr;
+    }
+    if (!in.ok() || !in.at_end() || message->root >= count)
+        return nullptr;
+    // A view's buffer must be a buffer, as the deserializer takes it to be.
+    for (Record const& record : message->records) {
+        if (record.kind == Kind::ArrayBufferView && message->records[record.buffer].kind != Kind::ArrayBuffer)
+            return nullptr;
+    }
+    return message;
+}
+
 }

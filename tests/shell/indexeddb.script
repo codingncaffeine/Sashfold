@@ -1,0 +1,29 @@
+# IndexedDB: a page stores a record and reads the records back, and they
+# outlive the page (indexeddb.html counts its visits). The databases are
+# written under a storage folder, as the window writes them under the
+# profile; `storage-restart` lets go of what the shell holds in memory, so
+# the page after it can only find its earlier visits in the files, as a
+# second run on the same profile would. A container has databases of its
+# own.
+storage-folder
+resize 800 500
+open indexeddb.html
+advance 10 20
+assert-title count=1 last=visit 1 id=1 kept=true
+open indexeddb.html
+advance 10 20
+assert-title count=2 last=visit 2 id=2 kept=true
+
+storage-restart
+open indexeddb.html
+advance 10 20
+assert-title count=3 last=visit 3 id=3 kept=true
+
+new-tab Work
+open indexeddb.html
+advance 10 20
+assert-title count=1 last=visit 1 id=1 kept=true
+select-tab 0
+open indexeddb.html
+advance 10 20
+assert-title count=4 last=visit 4 id=4 kept=true

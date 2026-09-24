@@ -159,20 +159,23 @@ void invoke(Realm::Internals& in, js::Object* target, EventObject& event, EventO
 {
     event.current_target = js::Value::object(target);
     event.phase = phase;
+    // The list may change while listeners run: remember the ids and find
+    // each again, skipping any that has been removed since. The ids are
+    // taken before the handler runs, so a listener the handler adds waits
+    // for the next event, as one added by a listener does (DOM §2.9, the
+    // listeners are cloned before any is invoked).
+    std::vector<ListenerEntry>* list = in.listeners_of(target);
+    std::vector<std::uint64_t> ids;
+    if (list != nullptr) {
+        for (ListenerEntry const& entry : *list) {
+            if (entry.type == event.type && entry.listener.capture == capture)
+                ids.push_back(entry.listener.id);
+        }
+    }
     if (!capture)
         call_handler(in, target, event);
-    if (event.stop_immediate)
+    if (event.stop_immediate || list == nullptr)
         return;
-    std::vector<ListenerEntry>* list = in.listeners_of(target);
-    if (!list)
-        return;
-    // The list may change while listeners run: remember the ids and find
-    // each again, skipping any that has been removed since.
-    std::vector<std::uint64_t> ids;
-    for (ListenerEntry const& entry : *list) {
-        if (entry.type == event.type && entry.listener.capture == capture)
-            ids.push_back(entry.listener.id);
-    }
     js::Interpreter& interpreter = in.interpreter;
     for (std::uint64_t const id : ids) {
         if (event.stop_immediate)
@@ -198,6 +201,12 @@ void invoke(Realm::Internals& in, js::Object* target, EventObject& event, EventO
                 in.report_uncaught(thrown, event.type + " listener");
             } else if (js::Interpreter::is_callable(*handle_event)) {
                 in.call_reporting(*handle_event, callback, arguments, event.type + " listener");
+            } else {
+                // DOM §2.10 "inner invoke": a handleEvent that cannot be
+                // called is a TypeError, reported like any listener's.
+                (void)interpreter.throw_type_error("The listener's handleEvent is not callable.");
+                js::Value const thrown = interpreter.take_exception();
+                in.report_uncaught(thrown, event.type + " listener");
             }
         }
         event.in_passive_listener = false;
@@ -603,6 +612,14 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
         // The document's parent is the window, except for load (§2.9.1).
         if (&node->root() == document && event.type != "load")
             path.push_back(window_proxy());
+    } else if (auto* event_target = dynamic_cast<EventTargetObject*>(target)) {
+        // A target that is no node names its parent itself.
+        for (js::Object* parent = event_target->event_parent(); parent != nullptr && path.size() < 64;) {
+            interpreter.root(js::Value::object(parent));
+            path.push_back(parent);
+            auto* const next = dynamic_cast<EventTargetObject*>(parent);
+            parent = next != nullptr ? next->event_parent() : nullptr;
+        }
     }
     js::Value const previous_event = current_event;
     current_event = js::Value::object(&event);

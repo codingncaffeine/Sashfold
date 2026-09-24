@@ -1824,6 +1824,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // there, and a page that has not changed costs a conditional request.
     if (!profile_path.empty())
         loader.cache().set_directory((profile_path / "cache").string());
+    // And the pages' IndexedDB databases, each written as it commits.
+    if (!profile_path.empty())
+        browser.set_storage_directory((profile_path / "storage").string());
 
     // The profile: the containers offered, the cookie jars (the default's
     // and one per container), every page's localStorage, and the session

@@ -779,6 +779,63 @@ void test_a_worker_on_a_thread_of_its_own()
     CHECK_EQ(threads.running(), std::size_t(0));
 }
 
+// A database the page holds open, asked for at a higher version by a worker
+// on a thread of its own: the version change is handed to the page from the
+// worker's thread, and wakes the host although the page's side of IndexedDB
+// was made before the page had any worker to be woken for.
+void test_a_database_on_a_workers_thread_wakes_its_page()
+{
+    std::atomic<int> wakes { 0 };
+    bindings::WorkerThreads threads;
+    threads.set_wake([&wakes] { ++wakes; });
+    {
+        Page page("https://example.test/dir/page.html", {}, &threads);
+        page.open();
+        page.eval(listen);
+        page.eval(R"js(
+            var held;
+            var opening = indexedDB.open('shared', 1);
+            opening.onsuccess = function () {
+                held = opening.result;
+                held.onversionchange = function (e) { log.push('versionchange ' + e.oldVersion + '->' + e.newVersion); held.close(); };
+                log.push('page opened');
+            };
+        )js");
+        auto const opened = std::chrono::steady_clock::now();
+        while (page.string("String(log.length)") != "1" && elapsed_ms(opened) < 5000) {
+            page.realm->run_pending();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        CHECK_EQ(page.string("log.join()"), std::string("page opened"));
+
+        // The worker says nothing until it has the database, and it cannot
+        // have it before the page closes its connection: the page's loop is
+        // not run here, so only the version change can wake the host.
+        int const before = wakes.load();
+        page.eval(R"js(
+            var upgrader = listen(new Worker(blob("var r = indexedDB.open('shared', 2); r.onsuccess = function () { postMessage('worker opened ' + r.result.version); };")));
+        )js");
+        auto const asked = std::chrono::steady_clock::now();
+        while (wakes.load() == before && elapsed_ms(asked) < 5000)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::printf("    the page was woken %.0f ms after its worker asked for version 2 (band: under 5000)\n", elapsed_ms(asked));
+        CHECK(wakes.load() > before);
+        CHECK_EQ(page.string("log.join()"), std::string("page opened"));
+
+        auto const answered = std::chrono::steady_clock::now();
+        while (page.string("String(log.length)") != "3" && elapsed_ms(answered) < 5000) {
+            page.realm->run_pending();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        CHECK_EQ(page.string("log.join()"), std::string("page opened,versionchange 1->2,worker opened 2"));
+        page.eval("upgrader.terminate();");
+        auto const ending = std::chrono::steady_clock::now();
+        while (threads.running() > 0 && elapsed_ms(ending) < 5000)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        CHECK_EQ(threads.running(), std::size_t(0));
+    }
+}
+
 void test_the_threads_end_with_their_host()
 {
     auto const began = std::chrono::steady_clock::now();
@@ -816,6 +873,7 @@ int main()
     test_a_worker_fetches();
     test_a_page_that_ends_takes_its_workers();
     test_a_worker_on_a_thread_of_its_own();
+    test_a_database_on_a_workers_thread_wakes_its_page();
     test_the_threads_end_with_their_host();
     return test::report("test_workers");
 }

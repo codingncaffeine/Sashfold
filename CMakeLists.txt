@@ -58,6 +58,7 @@ add_library(sashfold_core STATIC
   src/bindings/Fetch.cpp
   src/bindings/Fullscreen.cpp
   src/bindings/HtmlElements.cpp
+  src/bindings/IndexedDb.cpp
   src/bindings/Intersection.cpp
   src/bindings/LayoutOracle.cpp
   src/bindings/Media.cpp
@@ -146,6 +147,7 @@ add_library(sashfold_core STATIC
   src/platform/Tls.cpp
   src/platform/Touch.cpp
   src/platform/Window.cpp
+  src/storage/IndexedDb.cpp
   src/svg/Raster.cpp
   src/svg/Svg.cpp
   src/text/Cff.cpp

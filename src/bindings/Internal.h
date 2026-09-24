@@ -74,6 +74,10 @@ public:
     {
         return Object::size_in_bytes() + listeners.size() * sizeof(ListenerEntry);
     }
+    // DOM's "get the parent" for a target that is no node: the next target
+    // on an event's path, or null. An IndexedDB request's is its
+    // transaction, and a transaction's its connection.
+    virtual js::Object* event_parent() const { return nullptr; }
 };
 
 // A node's one wrapper (ADR 0001 §1). It names its realm through the realm's
@@ -188,6 +192,9 @@ public:
     std::optional<Origin> sender_origin;
     // ErrorEvent (HTML §8.1.4.3): the error is detail_value.
     bool is_error_event = false;
+    // IDBVersionChangeEvent: the versions, the new one null for a deletion.
+    double old_version = 0;
+    std::optional<double> new_version;
     std::string message;
     std::string filename;
     std::uint32_t lineno = 0;
@@ -452,6 +459,9 @@ struct OriginSnapshot {
 
 struct ChildFrame;
 
+// A realm's IndexedDB state (IndexedDb.cpp).
+struct IdbRealm;
+
 // A dedicated worker as the document that started it holds it (Workers.cpp).
 struct WorkerHandle;
 struct WorkerHandleDeleter {
@@ -692,6 +702,7 @@ struct Agent {
     std::vector<MessagePortObject*> channel_ports;
     // Tells this agent's loop, from any thread, that one of those channels
     // has a message for it; nothing for an agent whose loop needs no telling.
+    // Set through set_wake_loop, which hands it to the remote tasks too.
     std::function<void()> wake_loop;
     js::Interpreter interpreter;
     std::vector<Timer> timers;
@@ -734,6 +745,35 @@ struct Agent {
     // The workers the agent's documents have started and not seen end, each
     // owned by its document's realm: what the loop gives a turn to.
     std::vector<WorkerHandle*> worker_handles;
+    // Work another thread hands this agent — an IndexedDB database telling a
+    // connection here of a version change, or a request here that its turn
+    // has come — taken into the tasks at the next pump. Each closure checks
+    // that what it names is still alive.
+    // The loop's wake is read under the lock each time a task is handed
+    // over, not copied once: whatever holds these tasks may have been made
+    // before the agent had a thread to be woken from.
+    struct RemoteTasks {
+        std::mutex mutex;
+        std::deque<std::function<void()>> tasks;
+        std::function<void()> wake; // called outside the lock
+    };
+    std::shared_ptr<RemoteTasks> remote_tasks = std::make_shared<RemoteTasks>();
+    void set_wake_loop(std::function<void()> wake)
+    {
+        {
+            std::lock_guard<std::mutex> const lock(remote_tasks->mutex);
+            remote_tasks->wake = wake;
+        }
+        wake_loop = std::move(wake);
+    }
+    // What runs once the outermost entry into script has ended and its
+    // microtask checkpoint is done: an IndexedDB transaction made in that
+    // script becomes inactive here (the "cleanup" of IndexedDB §2.7.1).
+    std::vector<std::function<void()>> after_script;
+    // IndexedDB's storage for each origin whose realm here has no host to
+    // give it one: in memory, shared by the page's frames of that origin and
+    // their workers, and ending with the page.
+    std::map<std::string, std::shared_ptr<idb::Storage>> indexed_db_storages;
 };
 
 struct Realm::Internals {
@@ -1021,6 +1061,11 @@ struct Realm::Internals {
     js::Value history_state;
     int history_length = 1;
     double time_origin = 0;
+    // The realm's side of IndexedDB (IndexedDb.cpp): its origin's storage,
+    // and the requests, transactions and connections with work outstanding.
+    // Made when a script first reaches indexedDB; ending it closes what the
+    // realm had open and undoes what it had not committed.
+    std::shared_ptr<IdbRealm> indexed_db;
 
     Internals(Realm& realm, dom::Document& document, net::Url url, HostHooks hooks);
     // A frame's: a realm of its own in its page's agent.
@@ -1180,6 +1225,12 @@ std::optional<std::vector<js::Value>> options_transfer(Realm::Internals&, js::Va
 std::optional<std::vector<js::Value>> transfer_or_options(Realm::Internals&, js::Value const& argument);
 // window.structuredClone(value, options).
 Native structured_clone(js::Interpreter&, js::Value const& this_value, Args);
+// A serialized value as bytes that hold nothing of any heap or process, and
+// read back: what IndexedDB keeps a record's value as, in memory and in its
+// files. Only a value serialized with no transfer list; null when the bytes
+// are not one.
+std::vector<std::uint8_t> serialized_to_bytes(SerializedMessage const&);
+std::shared_ptr<SerializedMessage const> serialized_from_bytes(std::span<std::uint8_t const>);
 
 // The node behind `this`, or a TypeError "Illegal invocation".
 std::optional<dom::Node*> this_node(js::Interpreter&, js::Value const& this_value);
@@ -1210,6 +1261,14 @@ void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, Stat
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
 void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRanges, MediaError, MediaSource, SourceBuffer
+// IndexedDb.cpp: indexedDB and the IDB* interfaces, for a window and a
+// worker's scope alike; and the objects with work outstanding, for the
+// collector.
+void install_indexeddb(Realm::Internals&);
+void trace_indexeddb(Realm::Internals const&, js::Tracer&);
+// The storage a realm's indexedDB uses — null at an opaque origin — which
+// the workers it starts are handed.
+std::shared_ptr<idb::Storage> indexeddb_storage(Realm::Internals&);
 // Custom elements (CustomElements.cpp, HTML §4.13): the registry, the
 // HTMLElement constructor a page's class calls through, and the callbacks
 // the tree owes a definition.

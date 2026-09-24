@@ -678,6 +678,13 @@ Realm::Internals::Entry::~Entry()
     internals.stats.script_ms += finished - started;
     if (--internals.agent.script_depth == 0) {
         internals.realm.perform_microtask_checkpoint();
+        // What waits for the script and its microtasks to be over.
+        while (!internals.agent.after_script.empty()) {
+            std::vector<std::function<void()>> due = std::move(internals.agent.after_script);
+            internals.agent.after_script.clear();
+            for (std::function<void()>& step : due)
+                step();
+        }
         // A run of script has ended: what its natives grew — an array
         // filled in one call — is there for the heap to see.
         internals.interpreter.heap().note_entry();
@@ -1152,6 +1159,7 @@ void install_interfaces(Realm::Internals& in)
         // A worker's scope is its own global object: no WindowProxy stands in
         // front of it, and no other origin ever reaches it.
         install_worker_scope(in, language_globals);
+        install_indexeddb(in);
         return;
     }
     install_workers(in);
@@ -1161,6 +1169,7 @@ void install_interfaces(Realm::Internals& in)
     install_custom_elements(in);
     install_mutation_observer(in);
     install_intersection_observer(in);
+    install_indexeddb(in);
     install_window_proxy(in, language_globals);
 }
 
@@ -2740,6 +2749,16 @@ bool Realm::dispatch_input_event(dom::Node& target, std::string_view type, Input
 
 // --- The event loop -------------------------------------------------------------------------
 
+namespace {
+
+bool remote_tasks_due(Agent const& agent)
+{
+    std::lock_guard<std::mutex> const lock(agent.remote_tasks->mutex);
+    return !agent.remote_tasks->tasks.empty();
+}
+
+}
+
 bool Realm::run_pending()
 {
     Internals& in = *m_internals;
@@ -2752,6 +2771,16 @@ bool Realm::run_pending()
     // And what other agents' ports have sent the ports here.
     if (!agent.channel_ports.empty() && pump_channel_ports(agent))
         workers_ran = true;
+    // And what other threads have handed this agent: queued as tasks.
+    {
+        std::deque<std::function<void()>> handed;
+        {
+            std::lock_guard<std::mutex> const lock(agent.remote_tasks->mutex);
+            handed.swap(agent.remote_tasks->tasks);
+        }
+        for (std::function<void()>& task : handed)
+            agent.tasks.push_back(Task { agent.next_sequence++, nullptr, std::move(task) });
+    }
     // Only the timers that exist now: one set while running waits for the
     // next pump, so a chain of zero-delay timers cannot hold the host.
     std::uint64_t const cutoff = agent.next_sequence;
@@ -2834,8 +2863,9 @@ bool Realm::run_pending()
 
 std::optional<double> Realm::next_timer_due() const
 {
-    // A queued task is due now, and so is a message another agent's port sent.
-    if (!m_internals->agent.tasks.empty() || channel_ports_due(m_internals->agent))
+    // A queued task is due now, and so is a message another agent's port
+    // sent, and work another thread handed over.
+    if (!m_internals->agent.tasks.empty() || channel_ports_due(m_internals->agent) || remote_tasks_due(m_internals->agent))
         return m_internals->now();
     std::optional<double> due;
     for (Timer const& timer : m_internals->agent.timers) {
@@ -2854,7 +2884,7 @@ std::optional<double> Realm::next_timer_due() const
 bool Realm::has_pending_timers() const
 {
     return !m_internals->agent.timers.empty() || !m_internals->agent.tasks.empty() || workers_pending(m_internals->agent)
-        || channel_ports_due(m_internals->agent);
+        || channel_ports_due(m_internals->agent) || remote_tasks_due(m_internals->agent);
 }
 
 void Realm::perform_microtask_checkpoint()
@@ -2923,6 +2953,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_intersection_observers(in, tracer);
     trace_presenting_media(in, tracer);
     trace_fullscreen(in, tracer);
+    trace_indexeddb(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)
             tracer.visit(*member.value);

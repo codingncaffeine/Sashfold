@@ -1,6 +1,1326 @@
 # Every testharness subtest that passes: one per line, the test's path, a tab, the subtest's
 # name (tabs and newlines escaped). A listed subtest that fails is a regression.
 # Re-bless with: wpt_testharness <checkout> <directories> <this file> --update
+IndexedDB/abort-in-initial-upgradeneeded.any.html	An abort() in the initial onupgradeneeded sets version back to 0
+IndexedDB/bindings-inject-keys-bypass.any.html	Returning keys to script should bypass prototype setters
+IndexedDB/bindings-inject-values-bypass.any.html	Returning values to script should bypass prototype chain
+IndexedDB/bindings-inject-values-bypass.any.html	Returning values to script should bypass prototype setters
+IndexedDB/blob-delete-objectstore-db.any.html	Deleting an object store and a database containing blobs doesn't crash.
+IndexedDB/blob-valid-after-abort.any.html	A blob can be read back after the transaction that added it was aborted.
+IndexedDB/blob-valid-after-deletion.any.html	Blobs stay alive after their records are deleted.
+IndexedDB/blob-valid-before-commit.any.html	Blobs can be read back before their records are committed.
+IndexedDB/clone-before-keypath-eval.any.html	Blob expando properties are stripped in the clone used for index key path evaluation
+IndexedDB/clone-before-keypath-eval.any.html	Cursor update checks and keypath evaluations operate on a clone
+IndexedDB/clone-before-keypath-eval.any.html	Failing key path validity check operates on a clone
+IndexedDB/clone-before-keypath-eval.any.html	Index key path evaluations operate on a clone
+IndexedDB/clone-before-keypath-eval.any.html	Key generator and key path validity check operates on a clone
+IndexedDB/clone-before-keypath-eval.any.html	Store and index key path evaluations operate on the same clone
+IndexedDB/close-in-upgradeneeded.any.html	When db.close() is called in onupgradeneeded, the db is cleaned up on refresh
+IndexedDB/cursor-overloads.any.html	Validate the overloads of IDBObjectStore.openCursor(), IDBIndex.openCursor() and IDBIndex.openKeyCursor()
+IndexedDB/database-names-by-origin.html	open database names don't leak to cross-origin iframe
+IndexedDB/delete-range.any.html	Delete range
+IndexedDB/delete-range.any.html	Delete range 1
+IndexedDB/delete-range.any.html	Delete range 2
+IndexedDB/delete-range.any.html	Delete range 3
+IndexedDB/delete-request-queue.any.html	Deletes are processed as a FIFO queue
+IndexedDB/error-attributes.any.html	IDBRequest and IDBTransaction error properties should be DOMExceptions
+IndexedDB/event-dispatch-active-flag.any.html	Active during error handlers
+IndexedDB/event-dispatch-active-flag.any.html	Active during error listeners
+IndexedDB/event-dispatch-active-flag.any.html	Active during success handlers
+IndexedDB/event-dispatch-active-flag.any.html	Active during success listeners
+IndexedDB/fire-error-event-exception.any.html	Exception in error event handler on connection
+IndexedDB/fire-error-event-exception.any.html	Exception in error event handler on connection, with preventDefault
+IndexedDB/fire-error-event-exception.any.html	Exception in error event handler on request
+IndexedDB/fire-error-event-exception.any.html	Exception in error event handler on request, with preventDefault
+IndexedDB/fire-error-event-exception.any.html	Exception in error event handler on transaction
+IndexedDB/fire-error-event-exception.any.html	Exception in error event handler on transaction, with preventDefault
+IndexedDB/fire-error-event-exception.any.html	Exception in error event listener ("handleEvent" lookup) on request
+IndexedDB/fire-error-event-exception.any.html	Exception in error event listener (non-callable "handleEvent") on request
+IndexedDB/fire-error-event-exception.any.html	Exception in error event listener on connection
+IndexedDB/fire-error-event-exception.any.html	Exception in error event listener on request
+IndexedDB/fire-error-event-exception.any.html	Exception in error event listener on transaction
+IndexedDB/fire-error-event-exception.any.html	Exception in first error event listener on connection, transaction active in second
+IndexedDB/fire-error-event-exception.any.html	Exception in first error event listener on request, transaction active in second
+IndexedDB/fire-error-event-exception.any.html	Exception in first error event listener on transaction, transaction active in second
+IndexedDB/fire-error-event-exception.any.html	Exception in second error event listener on connection
+IndexedDB/fire-error-event-exception.any.html	Exception in second error event listener on request
+IndexedDB/fire-error-event-exception.any.html	Exception in second error event listener on transaction
+IndexedDB/fire-success-event-exception.any.html	Exception in first success event listener, tx active in second
+IndexedDB/fire-success-event-exception.any.html	Exception in second success event listener on request
+IndexedDB/fire-success-event-exception.any.html	Exception in success event handler on request
+IndexedDB/fire-success-event-exception.any.html	Exception in success event listener ("handleEvent" lookup) on request
+IndexedDB/fire-success-event-exception.any.html	Exception in success event listener (non-callable "handleEvent") on request
+IndexedDB/fire-success-event-exception.any.html	Exception in success event listener on request
+IndexedDB/fire-upgradeneeded-event-exception.any.html	Exception in first upgradeneeded listener, tx active in second
+IndexedDB/fire-upgradeneeded-event-exception.any.html	Exception in second upgradeneeded listener
+IndexedDB/fire-upgradeneeded-event-exception.any.html	Exception in upgradeneeded "handleEvent" lookup
+IndexedDB/fire-upgradeneeded-event-exception.any.html	Exception in upgradeneeded due to non-callable "handleEvent"
+IndexedDB/fire-upgradeneeded-event-exception.any.html	Exception in upgradeneeded handler
+IndexedDB/fire-upgradeneeded-event-exception.any.html	Exception in upgradeneeded listener
+IndexedDB/get-databases.any.html	Ensure that databases() returns a promise.
+IndexedDB/get-databases.any.html	Enumerate multiple databases.
+IndexedDB/get-databases.any.html	Enumerate one database.
+IndexedDB/get-databases.any.html	Make sure an empty list is returned for the case of no databases.
+IndexedDB/globalscope-indexedDB-SameObject.any.html	indexedDB is [SameObject]
+IndexedDB/historical.any.html	"DONE" should not be supported on IDBRequest.
+IndexedDB/historical.any.html	"IDBFileHandle" should not be supported
+IndexedDB/historical.any.html	"IDBFileRequest" should not be supported
+IndexedDB/historical.any.html	"IDBMutableFile" should not be supported
+IndexedDB/historical.any.html	"LOADING" should not be supported on IDBRequest.
+IndexedDB/historical.any.html	"NEXT" should not be supported on IDBCursor.
+IndexedDB/historical.any.html	"NEXT_NO_DUPLICATE" should not be supported on IDBCursor.
+IndexedDB/historical.any.html	"PREV" should not be supported on IDBCursor.
+IndexedDB/historical.any.html	"PREV_NO_DUPLICATE" should not be supported on IDBCursor.
+IndexedDB/historical.any.html	"READ_ONLY" should not be supported on IDBTransaction.
+IndexedDB/historical.any.html	"READ_WRITE" should not be supported on IDBTransaction.
+IndexedDB/historical.any.html	"VERSION_CHANGE" should not be supported on IDBTransaction.
+IndexedDB/historical.any.html	"errorCode" should not be supported on IDBRequest.
+IndexedDB/historical.any.html	"setVersion" should not be supported on IDBDatabase.
+IndexedDB/historical.any.html	"version" should not be supported on IDBVersionChangeEvent.
+IndexedDB/idb-binary-key-detached.any.html	Detached ArrayBuffers must throw DataError when used as a key
+IndexedDB/idb-binary-key-detached.any.html	Detached TypedArrays must throw DataError when used as a key
+IndexedDB/idb-binary-key-roundtrip.any.html	ArrayBuffer can be used to supply a binary key
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Float16Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Float32Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Float64Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Int16Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Int32Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Int8Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Uint16Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Uint32Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Uint8Array
+IndexedDB/idb-binary-key-roundtrip.any.html	Binary keys can be supplied using the view type Uint8ClampedArray
+IndexedDB/idb-binary-key-roundtrip.any.html	DataView can be used to supply a binary key
+IndexedDB/idb-binary-key-roundtrip.any.html	DataView with explicit offset and length can be used to supply a binary key
+IndexedDB/idb-binary-key-roundtrip.any.html	DataView with explicit offset can be used to supply a binary key
+IndexedDB/idb-binary-key-roundtrip.any.html	Uint8Array with explicit offset and length can be used to supply a binary key
+IndexedDB/idb-binary-key-roundtrip.any.html	Uint8Array with explicit offset can be used to supply a binary key
+IndexedDB/idb-explicit-commit-throw.any.html	Any errors in callbacks that run after an explicit commit will not stop the commit from being processed.
+IndexedDB/idb-explicit-commit.any.html	A committed transaction becomes inactive immediately.
+IndexedDB/idb-explicit-commit.any.html	A committed transaction is inactive in future request callbacks.
+IndexedDB/idb-explicit-commit.any.html	Calling abort on a committed transaction throws and does not prevent persisting the data.
+IndexedDB/idb-explicit-commit.any.html	Calling commit on a committed transaction throws.
+IndexedDB/idb-explicit-commit.any.html	Calling commit on an aborted transaction throws.
+IndexedDB/idb-explicit-commit.any.html	Calling txn.commit() when txn is inactive should throw.
+IndexedDB/idb-explicit-commit.any.html	Explicitly committed data can be read back out.
+IndexedDB/idb-explicit-commit.any.html	Puts issued after commit are not fulfilled.
+IndexedDB/idb-explicit-commit.any.html	Transactions that explicitly commit and have errors should abort.
+IndexedDB/idb-explicit-commit.any.html	Transactions that handle all errors properly should behave as expected when an explicit commit is called in an onerror handler.
+IndexedDB/idb-explicit-commit.any.html	Transactions with same scope should stay in program order, even if one calls commit.
+IndexedDB/idb-explicit-commit.any.html	commit() on a version change transaction does not cause errors.
+IndexedDB/idb-partitioned-persistence.sub.html	Persistence test for partitioned IndexedDB
+IndexedDB/idb_binary_key_conversion.any.html	Array of TypedArray(Int8Array)
+IndexedDB/idb_binary_key_conversion.any.html	ArrayBuffer
+IndexedDB/idb_binary_key_conversion.any.html	DataView
+IndexedDB/idb_binary_key_conversion.any.html	Empty ArrayBuffer
+IndexedDB/idb_binary_key_conversion.any.html	TypedArray(Int8Array)
+IndexedDB/idb_webworkers.htm	IndexedDB inside of a WebWorker 
+IndexedDB/idbcursor-advance-continue-async.any.html	IDBCursor asyncness - advance
+IndexedDB/idbcursor-advance-continue-async.any.html	IDBCursor asyncness - continue
+IndexedDB/idbcursor-advance-continue-async.any.html	IDBCursor asyncness - fresh advance still async
+IndexedDB/idbcursor-advance-continue-async.any.html	IDBCursor asyncness - fresh continue still async
+IndexedDB/idbcursor-advance-exception-order.any.html	IDBCursor.advance exception order: TransactionInactiveError vs. InvalidStateError #1
+IndexedDB/idbcursor-advance-exception-order.any.html	IDBCursor.advance exception order: TransactionInactiveError vs. InvalidStateError #2
+IndexedDB/idbcursor-advance-exception-order.any.html	IDBCursor.advance exception order: TypeError vs. TransactionInactiveError
+IndexedDB/idbcursor-advance-invalid.any.html	IDBCursor.advance() - invalid - attempt to call advance twice
+IndexedDB/idbcursor-advance-invalid.any.html	IDBCursor.advance() - invalid - got value not set on exception
+IndexedDB/idbcursor-advance-invalid.any.html	IDBCursor.advance() - invalid - missing argument
+IndexedDB/idbcursor-advance-invalid.any.html	IDBCursor.advance() - invalid - pass negative numbers
+IndexedDB/idbcursor-advance-invalid.any.html	IDBCursor.advance() - invalid - pass null/undefined
+IndexedDB/idbcursor-advance-invalid.any.html	IDBCursor.advance() - invalid - pass something other than number
+IndexedDB/idbcursor-advance.any.html	IDBCursor.advance() - advances
+IndexedDB/idbcursor-advance.any.html	IDBCursor.advance() - advances backwards
+IndexedDB/idbcursor-advance.any.html	IDBCursor.advance() - skip far forward
+IndexedDB/idbcursor-advance.any.html	IDBCursor.advance() - within range
+IndexedDB/idbcursor-advance.any.html	IDBCursor.advance() - within single key range
+IndexedDB/idbcursor-advance.any.html	IDBCursor.advance() - within single key range, with several results
+IndexedDB/idbcursor-continue-exception-order.any.html	IDBCursor.continue exception order: InvalidStateError vs. DataError
+IndexedDB/idbcursor-continue-exception-order.any.html	IDBCursor.continue exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbcursor-continue-exception-order.any.html	IDBCursor.continue exception order: TransactionInactiveError vs. InvalidStateError
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - continues
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - continues in prev direction
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - skip far forward
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - with given key
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - with given key in prev direction
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - within range
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - within single key range
+IndexedDB/idbcursor-continue.any.html	IDBCursor.continue() - within single key range, with several results
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	DataError(keys are larger then current one) in 'prev' direction
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	DataError(keys are lower then current one) in 'next' direction
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	DataError(unset key)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	DataError(unset primary key)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidAccessError(incorrect direction) v.s. InvalidStateError(iteration complete)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidAccessError(incorrect direction) v.s. InvalidStateError(iteration ongoing)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidAccessError(incorrect source) v.s. InvalidStateError(iteration complete)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidAccessError(incorrect source) v.s. InvalidStateError(iteration ongoing)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidStateError(deleted source) v.s. InvalidAccessError(incorrect direction)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidStateError(deleted source) v.s. InvalidAccessError(incorrect source)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidStateError(iteration complete) v.s. DataError(unset key)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	InvalidStateError(iteration ongoing) v.s. DataError(unset key)
+IndexedDB/idbcursor-continuePrimaryKey-exception-order.any.html	TransactionInactiveError v.s. InvalidStateError(deleted index)
+IndexedDB/idbcursor-continuePrimaryKey-exceptions.any.html	IDBCursor continuePrimaryKey() on "nextunique" cursor
+IndexedDB/idbcursor-continuePrimaryKey-exceptions.any.html	IDBCursor continuePrimaryKey() on "prevunique" cursor
+IndexedDB/idbcursor-continuePrimaryKey-exceptions.any.html	IDBCursor continuePrimaryKey() on object store cursor
+IndexedDB/idbcursor-continuePrimaryKey.any.html	IDBCursor.continuePrimaryKey() with "prev" direction
+IndexedDB/idbcursor-continuePrimaryKey.any.html	IndexedDB: IDBCursor method continuePrimaryKey()
+IndexedDB/idbcursor-delete-exception-order.any.html	IDBCursor.delete exception order: ReadOnlyError vs. InvalidStateError #1
+IndexedDB/idbcursor-delete-exception-order.any.html	IDBCursor.delete exception order: ReadOnlyError vs. InvalidStateError #2
+IndexedDB/idbcursor-delete-exception-order.any.html	IDBCursor.delete exception order: TransactionInactiveError vs. ReadOnlyError
+IndexedDB/idbcursor-direction-index-keyrange.any.html	IDBCursor direction - index with keyrange - next
+IndexedDB/idbcursor-direction-index-keyrange.any.html	IDBCursor direction - index with keyrange - nextunique
+IndexedDB/idbcursor-direction-index-keyrange.any.html	IDBCursor direction - index with keyrange - prev
+IndexedDB/idbcursor-direction-index-keyrange.any.html	IDBCursor direction - index with keyrange - prevunique
+IndexedDB/idbcursor-direction-index.any.html	IDBCursor direction - index - next
+IndexedDB/idbcursor-direction-index.any.html	IDBCursor direction - index - nextunique
+IndexedDB/idbcursor-direction-index.any.html	IDBCursor direction - index - prev
+IndexedDB/idbcursor-direction-index.any.html	IDBCursor direction - index - prevunique
+IndexedDB/idbcursor-direction-objectstore-keyrange.any.html	IDBCursor direction - object store with keyrange - next
+IndexedDB/idbcursor-direction-objectstore-keyrange.any.html	IDBCursor direction - object store with keyrange - nextunique
+IndexedDB/idbcursor-direction-objectstore-keyrange.any.html	IDBCursor direction - object store with keyrange - prev
+IndexedDB/idbcursor-direction-objectstore-keyrange.any.html	IDBCursor direction - object store with keyrange - prevunique
+IndexedDB/idbcursor-direction-objectstore.any.html	IDBCursor direction - object store - next
+IndexedDB/idbcursor-direction-objectstore.any.html	IDBCursor direction - object store - nextunique
+IndexedDB/idbcursor-direction-objectstore.any.html	IDBCursor direction - object store - prev
+IndexedDB/idbcursor-direction-objectstore.any.html	IDBCursor direction - object store - prevunique
+IndexedDB/idbcursor-direction.any.html	IDBCursor.direction - next
+IndexedDB/idbcursor-direction.any.html	IDBCursor.direction - nextunique
+IndexedDB/idbcursor-direction.any.html	IDBCursor.direction - prev
+IndexedDB/idbcursor-direction.any.html	IDBCursor.direction - prevunique
+IndexedDB/idbcursor-direction.any.html	IDBCursor.direction - undefined
+IndexedDB/idbcursor-iterating-update.any.html	Calling (cursor) => cursor.delete() doesn't affect index iteration
+IndexedDB/idbcursor-iterating-update.any.html	Calling (cursor) => cursor.update({}) doesn't affect index iteration
+IndexedDB/idbcursor-key.any.html	IDBCursor.key
+IndexedDB/idbcursor-key.any.html	IDBCursor.key 1
+IndexedDB/idbcursor-key.any.html	IDBCursor.key 2
+IndexedDB/idbcursor-primarykey.any.html	IDBCursor.primaryKey
+IndexedDB/idbcursor-primarykey.any.html	IDBCursor.primaryKey 1
+IndexedDB/idbcursor-primarykey.any.html	IDBCursor.primaryKey 2
+IndexedDB/idbcursor-request-source.any.html	IDBIndex::openCursor's request source must be the IDBIndex instance that opened the cursor
+IndexedDB/idbcursor-request-source.any.html	IDBIndex::openKeyCursor's request source must be the IDBIndex instance that opened the cursor
+IndexedDB/idbcursor-request-source.any.html	IDBObjectStore::openCursor's request source must be the IDBObjectStore instance that opened the cursor
+IndexedDB/idbcursor-request-source.any.html	IDBObjectStore::openKeyCursor's request source must be the IDBObjectStore instance that opened the cursor
+IndexedDB/idbcursor-request-source.any.html	The source of the request from IDBIndex::delete() is the cursor itself
+IndexedDB/idbcursor-request-source.any.html	The source of the request from IDBIndex::update() is the cursor itself
+IndexedDB/idbcursor-request-source.any.html	The source of the request from IDBObjectStore::delete() is the cursor itself
+IndexedDB/idbcursor-request-source.any.html	The source of the request from IDBObjectStore::update() is the cursor itself
+IndexedDB/idbcursor-request.any.html	cursor.request from IDBIndex.openCursor
+IndexedDB/idbcursor-request.any.html	cursor.request from IDBIndex.openKeyCursor
+IndexedDB/idbcursor-request.any.html	cursor.request from IDBObjectStore.openCursor
+IndexedDB/idbcursor-request.any.html	cursor.request from IDBObjectStore.openKeyCursor
+IndexedDB/idbcursor-reused.any.html	IDBCursor is reused
+IndexedDB/idbcursor-source.any.html	IDBCursor.source - IDBIndex
+IndexedDB/idbcursor-source.any.html	IDBCursor.source - IDBObjectStore
+IndexedDB/idbcursor-update-exception-order.any.html	IDBCursor.update exception order: InvalidStateError vs. DataError
+IndexedDB/idbcursor-update-exception-order.any.html	IDBCursor.update exception order: ReadOnlyError vs. InvalidStateError #1
+IndexedDB/idbcursor-update-exception-order.any.html	IDBCursor.update exception order: ReadOnlyError vs. InvalidStateError #2
+IndexedDB/idbcursor-update-exception-order.any.html	IDBCursor.update exception order: TransactionInactiveError vs. ReadOnlyError
+IndexedDB/idbcursor_advance_index.any.html	Calling advance() should throw DOMException when the cursor is currently being iterated.
+IndexedDB/idbcursor_advance_index.any.html	Calling advance() should throws an exception TransactionInactiveError when the transaction is not active.
+IndexedDB/idbcursor_advance_index.any.html	Calling advance() with count argument 0 should throw TypeError.
+IndexedDB/idbcursor_advance_index.any.html	If the cursor's source or effective object store has been deleted, the implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_advance_index.any.html	attempt to pass a count parameter that is not a number
+IndexedDB/idbcursor_advance_index.any.html	index - attempt to advance backwards
+IndexedDB/idbcursor_advance_index.any.html	index - iterate cursor number of times specified by count
+IndexedDB/idbcursor_advance_index.any.html	index - iterate to the next record
+IndexedDB/idbcursor_advance_objectstore.any.html	Calling advance() should throw DOMException when the cursor is currently being iterated.
+IndexedDB/idbcursor_advance_objectstore.any.html	Calling advance() should throws an exception TransactionInactiveError when the transaction is not active
+IndexedDB/idbcursor_advance_objectstore.any.html	Calling advance() with count argument 0 should throw TypeError.
+IndexedDB/idbcursor_advance_objectstore.any.html	If the cursor's source or effective object store has been deleted, the implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_advance_objectstore.any.html	object store - iterate cursor number of times specified by count
+IndexedDB/idbcursor_continue_delete_objectstore.any.html	Object store - remove a record from the object store while iterating cursor
+IndexedDB/idbcursor_continue_index.any.html	Add next element, and iterate to it
+IndexedDB/idbcursor_continue_index.any.html	Attempt to iterate to the next record when the direction is set for the previous record
+IndexedDB/idbcursor_continue_index.any.html	Attempt to iterate to the previous record when the direction is set for the next record
+IndexedDB/idbcursor_continue_index.any.html	Attempt to pass a key parameter that is not a valid key
+IndexedDB/idbcursor_continue_index.any.html	Calling continue() should throw an exception TransactionInactiveError when the transaction is not active.
+IndexedDB/idbcursor_continue_index.any.html	Delete next element, and iterate to it
+IndexedDB/idbcursor_continue_index.any.html	If the cursor's source or effective object store has been deleted, the implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_continue_index.any.html	Iterate to the next record
+IndexedDB/idbcursor_continue_index.any.html	Iterate using 'prevunique'
+IndexedDB/idbcursor_continue_index.any.html	Iterate using nextunique
+IndexedDB/idbcursor_continue_invalid.any.html	Attempt to call continue two times
+IndexedDB/idbcursor_continue_objectstore.any.html	Add next element, and iterate to it
+IndexedDB/idbcursor_continue_objectstore.any.html	Attempt to iterate to the next record when the direction is set for the next record
+IndexedDB/idbcursor_continue_objectstore.any.html	Attempt to iterate to the previous record when the direction is set for the next record
+IndexedDB/idbcursor_continue_objectstore.any.html	Attempt to pass a key parameter is not a valid key
+IndexedDB/idbcursor_continue_objectstore.any.html	Calling continue() should throws an exception TransactionInactiveError when the transaction is not active.
+IndexedDB/idbcursor_continue_objectstore.any.html	Delete next element, and iterate to it
+IndexedDB/idbcursor_continue_objectstore.any.html	If the cursor's source or effective object store has been deleted, the implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_continue_objectstore.any.html	Iterate to the next record
+IndexedDB/idbcursor_delete_index.any.html	Attempt to remove a record in a read-only transaction
+IndexedDB/idbcursor_delete_index.any.html	Attempt to remove a record in an inactive transaction
+IndexedDB/idbcursor_delete_index.any.html	If the cursor's source or effective object store has been deleted, the implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_delete_index.any.html	Remove a record from the object store
+IndexedDB/idbcursor_delete_index.any.html	Throw InvalidStateError when the cursor is being iterated
+IndexedDB/idbcursor_delete_objectstore.any.html	Attempt to remove a record in a read-only transaction
+IndexedDB/idbcursor_delete_objectstore.any.html	If the cursor's source or effective object store has been deleted, the implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_delete_objectstore.any.html	Index - attempt to remove a record in an inactive transaction
+IndexedDB/idbcursor_delete_objectstore.any.html	Remove a record from the object store 
+IndexedDB/idbcursor_delete_objectstore.any.html	Throw InvalidStateError when the cursor is being iterated
+IndexedDB/idbcursor_iterating.any.html	Iterate and Delete elements
+IndexedDB/idbcursor_update_index.any.html	Attempt to modify a record after the cursor's source or effective object store has been deleted. The implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_update_index.any.html	Attempt to modify a record in a read-only transaction
+IndexedDB/idbcursor_update_index.any.html	Attempt to modify a record in an inactive transaction
+IndexedDB/idbcursor_update_index.any.html	Modify a record in the object store 
+IndexedDB/idbcursor_update_index.any.html	Modify records during cursor iteration and verify updated records
+IndexedDB/idbcursor_update_index.any.html	No argument
+IndexedDB/idbcursor_update_index.any.html	Throw DataCloneError
+IndexedDB/idbcursor_update_index.any.html	Throw DataError
+IndexedDB/idbcursor_update_index.any.html	Throw InvalidStateError when the cursor is being iterated
+IndexedDB/idbcursor_update_objectstore.any.html	Attempt to modify a record after the cursor's source or effective object store has been deleted. The implementation MUST throw a DOMException of type InvalidStateError
+IndexedDB/idbcursor_update_objectstore.any.html	Attempt to modify a record in a read-only transaction
+IndexedDB/idbcursor_update_objectstore.any.html	Index - modify a record in the object store 
+IndexedDB/idbcursor_update_objectstore.any.html	Modify a record in the object store 
+IndexedDB/idbcursor_update_objectstore.any.html	No argument
+IndexedDB/idbcursor_update_objectstore.any.html	Object store - attempt to modify a record in an inactive transaction
+IndexedDB/idbcursor_update_objectstore.any.html	Throw DataCloneError
+IndexedDB/idbcursor_update_objectstore.any.html	Throw DataError
+IndexedDB/idbcursor_update_objectstore.any.html	Throw InvalidStateError when the cursor is being iterated
+IndexedDB/idbdatabase-createObjectStore-exception-order.any.html	IDBDatabase.createObjectStore exception order: ConstraintError vs. InvalidAccessError
+IndexedDB/idbdatabase-createObjectStore-exception-order.any.html	IDBDatabase.createObjectStore exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbdatabase-createObjectStore-exception-order.any.html	IDBDatabase.createObjectStore exception order: SyntaxError vs. ConstraintError
+IndexedDB/idbdatabase-createObjectStore-exception-order.any.html	IDBDatabase.createObjectStore exception order: TransactionInactiveError vs. SyntaxError
+IndexedDB/idbdatabase-deleteObjectStore-exception-order.any.html	IDBDatabase.deleteObjectStore exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbdatabase-deleteObjectStore-exception-order.any.html	IDBDatabase.deleteObjectStore exception order: TransactionInactiveError vs. NotFoundError
+IndexedDB/idbdatabase-transaction-exception-order.any.html	IDBDatabase.transaction exception order: InvalidStateError vs. InvalidAccessError
+IndexedDB/idbdatabase-transaction-exception-order.any.html	IDBDatabase.transaction exception order: InvalidStateError vs. NotFoundError
+IndexedDB/idbdatabase-transaction-exception-order.any.html	IDBDatabase.transaction exception order: NotFoundError vs. TypeError
+IndexedDB/idbdatabase-transaction-exception-order.any.html	IDBDatabase.transaction throws exception on invalid mode
+IndexedDB/idbdatabase_close.any.html	Unblock the delete database request.
+IndexedDB/idbdatabase_close.any.html	Unblock the version change transaction created by an open database request
+IndexedDB/idbdatabase_createObjectStore.any.html	Attempt to create an object store outside of a version change transaction 
+IndexedDB/idbdatabase_createObjectStore.any.html	Attempt to create an object store that already exists 
+IndexedDB/idbdatabase_createObjectStore.any.html	Attempt to create an object store with an invalid key path 
+IndexedDB/idbdatabase_createObjectStore.any.html	Attempting to create an existing object store with a different keyPath throw ConstraintError 
+IndexedDB/idbdatabase_createObjectStore.any.html	Both with empty name
+IndexedDB/idbdatabase_createObjectStore.any.html	Create 1000 object stores, add one item and delete
+IndexedDB/idbdatabase_createObjectStore.any.html	Create an object store with an unknown optional parameter 
+IndexedDB/idbdatabase_createObjectStore.any.html	Empty name
+IndexedDB/idbdatabase_createObjectStore.any.html	Object store 'name' and 'keyPath' properties are correctly set 
+IndexedDB/idbdatabase_createObjectStore.any.html	Object store's name appears in database's list 
+IndexedDB/idbdatabase_createObjectStore.any.html	Returns an instance of IDBObjectStore
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc and empty keyPath
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc and keyPath array
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc and keyPath array 2
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc and keyPath object
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc false, keyPath array
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc false, keyPath empty
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc false, keyPath string
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc true
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc true, keyPath null
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc true, keyPath string
+IndexedDB/idbdatabase_createObjectStore.any.html	autoInc true, keyPath undefined
+IndexedDB/idbdatabase_createObjectStore.any.html	keyPath array
+IndexedDB/idbdatabase_createObjectStore.any.html	keyPath empty
+IndexedDB/idbdatabase_createObjectStore.any.html	keyPath null
+IndexedDB/idbdatabase_createObjectStore.any.html	keyPath string
+IndexedDB/idbdatabase_createObjectStore.any.html	keyPath undefined
+IndexedDB/idbdatabase_deleteObjectStore.any.html	Attempting to access an index that was deleted as part of object store deletion and then recreated using the same object store name should throw a NotFoundError
+IndexedDB/idbdatabase_deleteObjectStore.any.html	Attempting to remove an object store that does not exist should throw a NotFoundError
+IndexedDB/idbdatabase_deleteObjectStore.any.html	Deleted object store's name should be removed from database's list. Attempting to use a deleted IDBObjectStore should throw an InvalidStateError
+IndexedDB/idbdatabase_transaction.any.html	Attempt to open a transaction from closed database connection
+IndexedDB/idbdatabase_transaction.any.html	Attempt to open a transaction with invalid mode
+IndexedDB/idbdatabase_transaction.any.html	Attempt to open a transaction with invalid scope
+IndexedDB/idbdatabase_transaction.any.html	If storeNames is an empty list, the implementation must throw a DOMException of type InvalidAccessError
+IndexedDB/idbdatabase_transaction.any.html	Opening a transaction defaults to a read-only mode
+IndexedDB/idbfactory-databases-opaque-origin.html	IDBFactory.databases() in data URL dedicated worker should throw SecurityError
+IndexedDB/idbfactory-databases-opaque-origin.html	IDBFactory.databases() in non-sandboxed iframe should not reject
+IndexedDB/idbfactory-databases-opaque-origin.html	IDBFactory.databases() in sandboxed iframe should reject
+IndexedDB/idbfactory-deleteDatabase-opaque-origin.html	IDBFactory.deleteDatabase() in data URL dedicated worker should throw SecurityError
+IndexedDB/idbfactory-deleteDatabase-opaque-origin.html	IDBFactory.deleteDatabase() in non-sandboxed iframe should not throw
+IndexedDB/idbfactory-deleteDatabase-opaque-origin.html	IDBFactory.deleteDatabase() in sandboxed iframe should throw SecurityError
+IndexedDB/idbfactory-deleteDatabase-request-success.any.html	IDBFactory deleteDatabase() request properties on success
+IndexedDB/idbfactory-open-error-properties.any.html	Properties of error event from failed open()
+IndexedDB/idbfactory-open-opaque-origin.html	IDBFactory.open() in data URL dedicated workers should throw SecurityError
+IndexedDB/idbfactory-open-opaque-origin.html	IDBFactory.open() in non-sandboxed iframe should not throw
+IndexedDB/idbfactory-open-opaque-origin.html	IDBFactory.open() in sandboxed iframe should throw SecurityError
+IndexedDB/idbfactory-open-request-error.any.html	Properties of IDBOpenDBRequest during failed IDBFactory open()
+IndexedDB/idbfactory-open-request-success.any.html	Properties of IDBOpenDBRequest during successful IDBFactory open()
+IndexedDB/idbfactory_cmp.any.html	Array vs. Binary
+IndexedDB/idbfactory_cmp.any.html	Binary vs. String
+IndexedDB/idbfactory_cmp.any.html	Compare in unsigned octet values (in the range [0, 255])
+IndexedDB/idbfactory_cmp.any.html	Compare values of different lengths
+IndexedDB/idbfactory_cmp.any.html	Compare values of the same length
+IndexedDB/idbfactory_cmp.any.html	Compare when values in the range of their minimal length are the same
+IndexedDB/idbfactory_cmp.any.html	Date vs. Number
+IndexedDB/idbfactory_cmp.any.html	IDBFactory.cmp() - NaN
+IndexedDB/idbfactory_cmp.any.html	IDBFactory.cmp() - compared keys return correct value
+IndexedDB/idbfactory_cmp.any.html	IDBFactory.cmp() - no argument
+IndexedDB/idbfactory_cmp.any.html	IDBFactory.cmp() - null
+IndexedDB/idbfactory_cmp.any.html	String vs. Date
+IndexedDB/idbfactory_deleteDatabase.any.html	Delete an existing database - Test events opening a second database when one connection is open already
+IndexedDB/idbfactory_deleteDatabase.any.html	Result of the deleteDatabase() request is set to undefined.
+IndexedDB/idbfactory_deleteDatabase.any.html	The deleteDatabase() request's success event is an IDBVersionChangeEvent.
+IndexedDB/idbfactory_deleteDatabase.any.html	deleteDatabase() request should have no source, and deleting a non-existent database should succeed with oldVersion of 0.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument "foo" should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument -0.5 should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument -1 should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument -Infinity should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument 0 should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument 0.5 should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument 0.8 should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument 1.5 should not throw.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument 9007199254740991 should not throw.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument 9007199254740992 should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument Infinity should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument NaN should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument false should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument null should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument object (second) should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument object (third) should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument object should throw TypeError.
+IndexedDB/idbfactory_open.any.html	Calling open() with version argument undefined should not throw.
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - database 'name' and 'version' are correctly set
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - error in upgradeneeded resets db
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - error in version change transaction aborts open
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - new database has default version
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - new database is empty
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - no version opens current database
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - open database with a higher version than current
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - open database with a lower version than current
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - request has no source
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - second open's transaction is available to get objectStores
+IndexedDB/idbfactory_open.any.html	IDBFactory.open() - upgradeneeded gets VersionChangeEvent
+IndexedDB/idbindex-cross-realm-methods.html	Cross-realm IDBIndex::count() method from detached <iframe> works as expected
+IndexedDB/idbindex-cross-realm-methods.html	Cross-realm IDBIndex::get() method from detached <iframe> works as expected
+IndexedDB/idbindex-cross-realm-methods.html	Cross-realm IDBIndex::getAll() method from detached <iframe> works as expected
+IndexedDB/idbindex-cross-realm-methods.html	Cross-realm IDBIndex::getAllKeys() method from detached <iframe> works as expected
+IndexedDB/idbindex-cross-realm-methods.html	Cross-realm IDBIndex::getKey() method from detached <iframe> works as expected
+IndexedDB/idbindex-getAll-enforcerange.any.html	IDBIndex.getAll() should enforce valid range constraints.
+IndexedDB/idbindex-getAllKeys-enforcerange.any.html	IDBIndex.getAllKeys() should enforce valid range constraints.
+IndexedDB/idbindex-multientry.any.html	A 1000 entry multiEntry array
+IndexedDB/idbindex-multientry.any.html	Adding keys
+IndexedDB/idbindex-multientry.any.html	Array keyPath with multiEntry
+IndexedDB/idbindex-objectStore-SameObject.any.html	IDBIndex.objectStore should return same object each time.
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.count exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.count exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.get exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.get exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.getAll exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.getAll exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.getAllKeys exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.getAllKeys exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.openCursor exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.openCursor exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.openKeyCursor exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbindex-query-exception-order.any.html	IDBIndex.openKeyCursor exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbindex-rename-abort.any.html	IndexedDB index creation and rename in an aborted transaction
+IndexedDB/idbindex-rename-abort.any.html	IndexedDB index rename in aborted transaction
+IndexedDB/idbindex-rename-errors.any.html	IndexedDB deleted index rename throws
+IndexedDB/idbindex-rename-errors.any.html	IndexedDB index rename handles exceptions when stringifying names
+IndexedDB/idbindex-rename-errors.any.html	IndexedDB index rename throws in a readonly transaction
+IndexedDB/idbindex-rename-errors.any.html	IndexedDB index rename throws in a readwrite transaction
+IndexedDB/idbindex-rename-errors.any.html	IndexedDB index rename throws in an inactive transaction
+IndexedDB/idbindex-rename-errors.any.html	IndexedDB index rename to the name of another index throws
+IndexedDB/idbindex-rename.any.html	IndexedDB index can be renamed to ""
+IndexedDB/idbindex-rename.any.html	IndexedDB index can be renamed to "\\u0000"
+IndexedDB/idbindex-rename.any.html	IndexedDB index can be renamed to "\\uDC00\\uD800"
+IndexedDB/idbindex-rename.any.html	IndexedDB index rename in new transaction
+IndexedDB/idbindex-rename.any.html	IndexedDB index rename in the transaction where it is created
+IndexedDB/idbindex-rename.any.html	IndexedDB index rename stringifies non-string names
+IndexedDB/idbindex-rename.any.html	IndexedDB index rename to the name of a deleted index succeeds
+IndexedDB/idbindex-rename.any.html	IndexedDB index rename to the same name succeeds
+IndexedDB/idbindex-rename.any.html	IndexedDB index swapping via renames succeeds
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.count() is the index itself
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.get(0) is the index itself
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.getAll() is the index itself
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.getAllKeys() is the index itself
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.getKey(0) is the index itself
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.openCursor() is the index itself
+IndexedDB/idbindex-request-source.any.html	The source of the request from index => index.openKeyCursor() is the index itself
+IndexedDB/idbindex_count.any.html	count() returns the number of records in the index
+IndexedDB/idbindex_count.any.html	count() returns the number of records that have keys with the key
+IndexedDB/idbindex_count.any.html	count() returns the number of records that have keys within the range
+IndexedDB/idbindex_count.any.html	count() throws DataError when using invalid key
+IndexedDB/idbindex_get.any.html	get() attempts to retrieve a record that does not exist
+IndexedDB/idbindex_get.any.html	get() returns the record
+IndexedDB/idbindex_get.any.html	get() returns the record where the index contains duplicate values
+IndexedDB/idbindex_get.any.html	get() returns the record with the first key in the range
+IndexedDB/idbindex_get.any.html	get() throws DataError when using invalid key
+IndexedDB/idbindex_get.any.html	get() throws InvalidStateError on index deleted by aborted upgrade
+IndexedDB/idbindex_get.any.html	get() throws InvalidStateError when the index is deleted
+IndexedDB/idbindex_get.any.html	get() throws TransactionInactiveError on aborted transaction
+IndexedDB/idbindex_getAll-options.any.html	Direction and query
+IndexedDB/idbindex_getAll-options.any.html	Direction, query and count
+IndexedDB/idbindex_getAll-options.any.html	Direction: next
+IndexedDB/idbindex_getAll-options.any.html	Direction: nextunique
+IndexedDB/idbindex_getAll-options.any.html	Direction: nextunique with duplicate index keys
+IndexedDB/idbindex_getAll-options.any.html	Direction: nextunique with multi-entry index
+IndexedDB/idbindex_getAll-options.any.html	Direction: prev
+IndexedDB/idbindex_getAll-options.any.html	Direction: prevunique
+IndexedDB/idbindex_getAll-options.any.html	Direction: prevunique with duplicate index keys
+IndexedDB/idbindex_getAll-options.any.html	Direction: prevunique with multi-entry index
+IndexedDB/idbindex_getAll-options.any.html	Empty object store
+IndexedDB/idbindex_getAll-options.any.html	Get all
+IndexedDB/idbindex_getAll-options.any.html	Get all values with both options and count
+IndexedDB/idbindex_getAll-options.any.html	Get all values with invalid query keys
+IndexedDB/idbindex_getAll-options.any.html	Get all with generated keys
+IndexedDB/idbindex_getAll-options.any.html	Get all with large values
+IndexedDB/idbindex_getAll-options.any.html	Get bound range
+IndexedDB/idbindex_getAll-options.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbindex_getAll-options.any.html	Get bound range with maxCount
+IndexedDB/idbindex_getAll-options.any.html	Get lower excluded
+IndexedDB/idbindex_getAll-options.any.html	Get upper excluded
+IndexedDB/idbindex_getAll-options.any.html	Max value count
+IndexedDB/idbindex_getAll-options.any.html	Non existent key
+IndexedDB/idbindex_getAll-options.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbindex_getAll-options.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbindex_getAll-options.any.html	Retrieve multiEntry key
+IndexedDB/idbindex_getAll-options.any.html	Retrieve one key multiple values
+IndexedDB/idbindex_getAll-options.any.html	Single item get
+IndexedDB/idbindex_getAll-options.any.html	maxCount=0
+IndexedDB/idbindex_getAll-options.any.html	maxCount=10
+IndexedDB/idbindex_getAll.any.html	Empty object store
+IndexedDB/idbindex_getAll.any.html	Get all
+IndexedDB/idbindex_getAll.any.html	Get all values with invalid query keys
+IndexedDB/idbindex_getAll.any.html	Get all with generated keys
+IndexedDB/idbindex_getAll.any.html	Get all with large values
+IndexedDB/idbindex_getAll.any.html	Get bound range
+IndexedDB/idbindex_getAll.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbindex_getAll.any.html	Get bound range with maxCount
+IndexedDB/idbindex_getAll.any.html	Get lower excluded
+IndexedDB/idbindex_getAll.any.html	Get upper excluded
+IndexedDB/idbindex_getAll.any.html	Max value count
+IndexedDB/idbindex_getAll.any.html	Non existent key
+IndexedDB/idbindex_getAll.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbindex_getAll.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbindex_getAll.any.html	Retrieve multiEntry key
+IndexedDB/idbindex_getAll.any.html	Retrieve one key multiple values
+IndexedDB/idbindex_getAll.any.html	Single item get
+IndexedDB/idbindex_getAll.any.html	maxCount=0
+IndexedDB/idbindex_getAll.any.html	maxCount=10
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction and query
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction, query and count
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: next
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: nextunique
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: nextunique with duplicate index keys
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: nextunique with multi-entry index
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: prev
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: prevunique
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: prevunique with duplicate index keys
+IndexedDB/idbindex_getAllKeys-options.any.html	Direction: prevunique with multi-entry index
+IndexedDB/idbindex_getAllKeys-options.any.html	Empty object store
+IndexedDB/idbindex_getAllKeys-options.any.html	Get all generated keys
+IndexedDB/idbindex_getAllKeys-options.any.html	Get all keys
+IndexedDB/idbindex_getAllKeys-options.any.html	Get all keys with both options and count
+IndexedDB/idbindex_getAllKeys-options.any.html	Get all keys with invalid query keys
+IndexedDB/idbindex_getAllKeys-options.any.html	Get bound range
+IndexedDB/idbindex_getAllKeys-options.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbindex_getAllKeys-options.any.html	Get bound range with maxCount
+IndexedDB/idbindex_getAllKeys-options.any.html	Get lower excluded
+IndexedDB/idbindex_getAllKeys-options.any.html	Get upper excluded
+IndexedDB/idbindex_getAllKeys-options.any.html	Max value count
+IndexedDB/idbindex_getAllKeys-options.any.html	Non existent key
+IndexedDB/idbindex_getAllKeys-options.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbindex_getAllKeys-options.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbindex_getAllKeys-options.any.html	Retrieve multiEntry key
+IndexedDB/idbindex_getAllKeys-options.any.html	Retrieve one key multiple values
+IndexedDB/idbindex_getAllKeys-options.any.html	Single item get
+IndexedDB/idbindex_getAllKeys-options.any.html	maxCount=0
+IndexedDB/idbindex_getAllKeys-options.any.html	maxCount=10
+IndexedDB/idbindex_getAllKeys.any.html	Empty object store
+IndexedDB/idbindex_getAllKeys.any.html	Get all generated keys
+IndexedDB/idbindex_getAllKeys.any.html	Get all keys
+IndexedDB/idbindex_getAllKeys.any.html	Get all keys with invalid query keys
+IndexedDB/idbindex_getAllKeys.any.html	Get bound range
+IndexedDB/idbindex_getAllKeys.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbindex_getAllKeys.any.html	Get bound range with maxCount
+IndexedDB/idbindex_getAllKeys.any.html	Get lower excluded
+IndexedDB/idbindex_getAllKeys.any.html	Get upper excluded
+IndexedDB/idbindex_getAllKeys.any.html	Max value count
+IndexedDB/idbindex_getAllKeys.any.html	Non existent key
+IndexedDB/idbindex_getAllKeys.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbindex_getAllKeys.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbindex_getAllKeys.any.html	Retrieve multiEntry key
+IndexedDB/idbindex_getAllKeys.any.html	Retrieve one key multiple values
+IndexedDB/idbindex_getAllKeys.any.html	Single item get
+IndexedDB/idbindex_getAllKeys.any.html	maxCount=0
+IndexedDB/idbindex_getAllKeys.any.html	maxCount=10
+IndexedDB/idbindex_getAllRecords.any.html	Count
+IndexedDB/idbindex_getAllRecords.any.html	Direction and query
+IndexedDB/idbindex_getAllRecords.any.html	Direction, query and count
+IndexedDB/idbindex_getAllRecords.any.html	Direction: next
+IndexedDB/idbindex_getAllRecords.any.html	Direction: nextunique
+IndexedDB/idbindex_getAllRecords.any.html	Direction: nextunique with duplicate index keys
+IndexedDB/idbindex_getAllRecords.any.html	Direction: nextunique with multi-entry index
+IndexedDB/idbindex_getAllRecords.any.html	Direction: prev
+IndexedDB/idbindex_getAllRecords.any.html	Direction: prevunique
+IndexedDB/idbindex_getAllRecords.any.html	Direction: prevunique with duplicate index keys
+IndexedDB/idbindex_getAllRecords.any.html	Direction: prevunique with multi-entry index
+IndexedDB/idbindex_getAllRecords.any.html	Empty index
+IndexedDB/idbindex_getAllRecords.any.html	Get all records
+IndexedDB/idbindex_getAllRecords.any.html	Get all records with empty options
+IndexedDB/idbindex_getAllRecords.any.html	Get all records with invalid query keys
+IndexedDB/idbindex_getAllRecords.any.html	Get all records with large value
+IndexedDB/idbindex_getAllRecords.any.html	Max value count
+IndexedDB/idbindex_getAllRecords.any.html	Query index key that matches multiple records
+IndexedDB/idbindex_getAllRecords.any.html	Query with Nonexistent key
+IndexedDB/idbindex_getAllRecords.any.html	Query with bound range
+IndexedDB/idbindex_getAllRecords.any.html	Query with bound range and count
+IndexedDB/idbindex_getAllRecords.any.html	Query with bound range and count for generated keys
+IndexedDB/idbindex_getAllRecords.any.html	Query with empty range where first key < upperBound
+IndexedDB/idbindex_getAllRecords.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbindex_getAllRecords.any.html	Query with lower excluded bound range
+IndexedDB/idbindex_getAllRecords.any.html	Query with multiEntry index
+IndexedDB/idbindex_getAllRecords.any.html	Query with upper excluded bound range
+IndexedDB/idbindex_getAllRecords.any.html	Single item
+IndexedDB/idbindex_getAllRecords.any.html	Zero count
+IndexedDB/idbindex_getKey.any.html	getKey() attempt to retrieve the primary key of a record that doesn't exist
+IndexedDB/idbindex_getKey.any.html	getKey() returns the key of the first record within the range
+IndexedDB/idbindex_getKey.any.html	getKey() returns the record's primary key
+IndexedDB/idbindex_getKey.any.html	getKey() returns the record's primary key where the index contains duplicate values
+IndexedDB/idbindex_getKey.any.html	getKey() throws DataError when using invalid key
+IndexedDB/idbindex_getKey.any.html	getKey() throws InvalidStateError on index deleted by aborted upgrade
+IndexedDB/idbindex_getKey.any.html	getKey() throws InvalidStateError when the index is deleted
+IndexedDB/idbindex_getKey.any.html	getKey() throws TransactionInactiveError on aborted transaction
+IndexedDB/idbindex_indexNames.any.html	Verify IDBObjectStore.indexNames property
+IndexedDB/idbindex_keyPath.any.html	IDBIndex's keyPath array with a single value
+IndexedDB/idbindex_keyPath.any.html	IDBIndex's keyPath array with multiple values
+IndexedDB/idbindex_keyPath.any.html	IDBIndex's keyPath attribute returns the same object.
+IndexedDB/idbindex_openCursor.any.html	If the index is deleted by an aborted upgrade, throw InvalidStateError
+IndexedDB/idbindex_openCursor.any.html	If the index is deleted, throw InvalidStateError
+IndexedDB/idbindex_openCursor.any.html	If the transaction has been aborted, throw TransactionInactiveError
+IndexedDB/idbindex_openKeyCursor.any.html	Throw DataError when using a invalid key
+IndexedDB/idbindex_openKeyCursor.any.html	Throw InvalidStateError on index deleted by aborted upgrade
+IndexedDB/idbindex_openKeyCursor.any.html	Throw InvalidStateError when the index is deleted
+IndexedDB/idbindex_openKeyCursor.any.html	Throw TransactionInactiveError on aborted transaction
+IndexedDB/idbindex_reverse_cursor.any.html	Reverse cursor sees in-transaction update.
+IndexedDB/idbindex_reverse_cursor.any.html	Reverse cursor sees update from separate transactions.
+IndexedDB/idbindex_tombstones.any.html	Backward iteration over an index in a readonly transaction
+IndexedDB/idbindex_tombstones.any.html	Backward iteration over an index in a readwrite transaction
+IndexedDB/idbindex_tombstones.any.html	Forward iteration over an index in a readonly transaction
+IndexedDB/idbindex_tombstones.any.html	Forward iteration over an index in a readwrite transaction
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with a closed range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with a lower-closed upper-open range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with a lower-open upper-closed range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with an closed lower-bounded range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with an closed upper-bounded range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with an only range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with an open lower-bounded range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with an open range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with an open upper-bounded range
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with invalid input
+IndexedDB/idbkeyrange-includes.any.html	IDBKeyRange.includes() with non-numeric keys
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.bound() - 'lowerOpen' and 'upperOpen' parameters have correct defaults set
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.bound() - returns an IDBKeyRange and the properties are set correctly
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.lowerBound() - 'open' parameter has correct default set
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.lowerBound() - returns an IDBKeyRange and the properties are set correctly
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.lowerBound() - throws on invalid keys
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.only() - returns an IDBKeyRange and the properties are set correctly
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.only() - throws on invalid keys
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.upperBound() - 'open' parameter has correct default set
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.upperBound() - returns an IDBKeyRange and the properties are set correctly
+IndexedDB/idbkeyrange.any.html	IDBKeyRange.upperBound() - throws on invalid keys
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound() - bound requires more than 0 arguments.
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound(1, null / null, 1) - null parameter is incorrect.
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound(DOMString/Date/Array, 1) - A DOMString, Date and Array are greater than a float.
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound(lower, upper / lower > upper) - lower' is greater than 'upper'.
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound(noExistingVariable, 1 / goodVariable, noExistingVariable) -    noExistingVariable is not defined.
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound(null, null) - null parameters are incorrect.
+IndexedDB/idbkeyrange_incorrect.any.html	IDBKeyRange.bound(true, 1) - boolean is not a valid key type.
+IndexedDB/idbobjectstore-add-put-exception-order.any.html	IDBObjectStore.add exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-add-put-exception-order.any.html	IDBObjectStore.add exception order: ReadOnlyError vs. DataError
+IndexedDB/idbobjectstore-add-put-exception-order.any.html	IDBObjectStore.add exception order: TransactionInactiveError vs. ReadOnlyError
+IndexedDB/idbobjectstore-add-put-exception-order.any.html	IDBObjectStore.put exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-add-put-exception-order.any.html	IDBObjectStore.put exception order: ReadOnlyError vs. DataError
+IndexedDB/idbobjectstore-add-put-exception-order.any.html	IDBObjectStore.put exception order: TransactionInactiveError vs. ReadOnlyError
+IndexedDB/idbobjectstore-clear-exception-order.any.html	IDBObjectStore.clear exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-clear-exception-order.any.html	IDBObjectStore.clear exception order: TransactionInactiveError vs. ReadOnlyError
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::add() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::clear() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::count() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::delete() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::get() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::getAll() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::getAllKeys() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::getKey() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-cross-realm-methods.html	Cross-realm IDBObjectStore::put() method from detached <iframe> works as expected
+IndexedDB/idbobjectstore-delete-exception-order.any.html	IDBObjectStore.delete exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-delete-exception-order.any.html	IDBObjectStore.delete exception order: ReadOnlyError vs. DataError
+IndexedDB/idbobjectstore-delete-exception-order.any.html	IDBObjectStore.delete exception order: TransactionInactiveError vs. ReadOnlyError
+IndexedDB/idbobjectstore-deleteIndex-exception-order.any.html	IDBObjectStore.deleteIndex exception order: InvalidStateError #1 vs. TransactionInactiveError
+IndexedDB/idbobjectstore-deleteIndex-exception-order.any.html	IDBObjectStore.deleteIndex exception order: InvalidStateError #2 vs. TransactionInactiveError
+IndexedDB/idbobjectstore-deleteIndex-exception-order.any.html	IDBObjectStore.deleteIndex exception order: TransactionInactiveError vs. NotFoundError
+IndexedDB/idbobjectstore-getAll-enforcerange.any.html	IDBObjectStore.getAll() uses [EnforceRange]
+IndexedDB/idbobjectstore-getAllKeys-enforcerange.any.html	IDBObjectStore.getAllKeys() uses [EnforceRange]
+IndexedDB/idbobjectstore-index-finished.any.html	IDBObjectStore index() behavior when transaction is finished
+IndexedDB/idbobjectstore-put-unique-index-constraint-is-atomic.any.html	A put() that fails a unique index constraint must not delete the record it would have overwritten
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.count exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.count exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.get exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.get exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.getAll exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.getAll exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.getAllKeys exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.getAllKeys exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.openCursor exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.openCursor exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.openKeyCursor exception order: InvalidStateError vs. TransactionInactiveError
+IndexedDB/idbobjectstore-query-exception-order.any.html	IDBObjectStore.openKeyCursor exception order: TransactionInactiveError vs. DataError
+IndexedDB/idbobjectstore-rename-abort.any.html	IndexedDB object store creation and rename in an aborted transaction
+IndexedDB/idbobjectstore-rename-abort.any.html	IndexedDB object store rename in aborted transaction
+IndexedDB/idbobjectstore-rename-errors.any.html	IndexedDB deleted object store rename throws
+IndexedDB/idbobjectstore-rename-errors.any.html	IndexedDB object store rename handles exceptions when stringifying names
+IndexedDB/idbobjectstore-rename-errors.any.html	IndexedDB object store rename throws in a readonly transaction
+IndexedDB/idbobjectstore-rename-errors.any.html	IndexedDB object store rename throws in a readwrite transaction
+IndexedDB/idbobjectstore-rename-errors.any.html	IndexedDB object store rename throws in an inactive transaction
+IndexedDB/idbobjectstore-rename-errors.any.html	IndexedDB object store rename to the name of another store throws
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store can be renamed to ""
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store can be renamed to "\\u0000"
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store can be renamed to "\\uDC00\\uD800"
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename covers index
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename covers key generator
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename in new transaction
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename in the transaction where it is created
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename stringifies non-string names
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename to the name of a deleted store succeeds
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store rename to the same name succeeds
+IndexedDB/idbobjectstore-rename-store.any.html	IndexedDB object store swapping via renames succeeds
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.add(0) is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.clear() is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.count() is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.delete(0) is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.get(0) is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.getAll() is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.getAllKeys() is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.getKey(0) is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.openCursor() is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.openKeyCursor() is the object store itself
+IndexedDB/idbobjectstore-request-source.any.html	The source of the request from store => store.put(0) is the object store itself
+IndexedDB/idbobjectstore-transaction-SameObject.any.html	IDBObjectStore.transaction [SameObject]
+IndexedDB/idbobjectstore_add.any.html	Attempt to 'add()' a record that does not meet the constraints of an   object store's inline key requirements
+IndexedDB/idbobjectstore_add.any.html	Attempt to 'add()' a record where the out of line key provided does not meet the constraints of a valid key
+IndexedDB/idbobjectstore_add.any.html	Attempt to 'add()' a record where the record's in-line key is not  defined
+IndexedDB/idbobjectstore_add.any.html	Attempt to 'add()' a record where the record's key does not meet the constraints of a valid key
+IndexedDB/idbobjectstore_add.any.html	Attempt to call 'add()' without a key parameter when the object store uses out-of-line keys
+IndexedDB/idbobjectstore_add.any.html	If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError
+IndexedDB/idbobjectstore_add.any.html	If the transaction this IDBObjectStore belongs to has its mode set to readonly, throw ReadOnlyError
+IndexedDB/idbobjectstore_add.any.html	Object store has autoIncrement:true and the key path is an object attribute
+IndexedDB/idbobjectstore_add.any.html	add() a record where a value being indexed does not meet the constraints of a valid key
+IndexedDB/idbobjectstore_add.any.html	add() autoIncrement and inline keys
+IndexedDB/idbobjectstore_add.any.html	add() autoIncrement and out-of-line keys
+IndexedDB/idbobjectstore_add.any.html	add() object store's key path is an object attribute
+IndexedDB/idbobjectstore_add.any.html	add() record with same key already exists
+IndexedDB/idbobjectstore_add.any.html	add() where an index has unique:true specified
+IndexedDB/idbobjectstore_add.any.html	add() with an inline key
+IndexedDB/idbobjectstore_add.any.html	add() with an out-of-line key
+IndexedDB/idbobjectstore_clear.any.html	Clear removes all records from an index 
+IndexedDB/idbobjectstore_clear.any.html	If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError 
+IndexedDB/idbobjectstore_clear.any.html	If the transaction this IDBObjectStore belongs to has its mode set to readonly, throw ReadOnlyError 
+IndexedDB/idbobjectstore_clear.any.html	Verify clear removes all records 
+IndexedDB/idbobjectstore_count.any.html	If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError 
+IndexedDB/idbobjectstore_count.any.html	Returns the number of records in the object store 
+IndexedDB/idbobjectstore_count.any.html	Returns the number of records that have keys with the key
+IndexedDB/idbobjectstore_count.any.html	Returns the number of records that have keys within the range 
+IndexedDB/idbobjectstore_createIndex.any.html	Attempt to create an index that requires unique values on an object store already contains duplicates
+IndexedDB/idbobjectstore_createIndex.any.html	Auto-Increment Primary Key
+IndexedDB/idbobjectstore_createIndex.any.html	Auto-Increment Primary Key - invalid key values elsewhere
+IndexedDB/idbobjectstore_createIndex.any.html	ConstraintError vs. SyntaxError. Index name check should precede syntax check of the key path
+IndexedDB/idbobjectstore_createIndex.any.html	Empty keyPath
+IndexedDB/idbobjectstore_createIndex.any.html	Event order when unique constraint is triggered
+IndexedDB/idbobjectstore_createIndex.any.html	Event ordering for ConstraintError on request
+IndexedDB/idbobjectstore_createIndex.any.html	Event ordering for a later deleted index
+IndexedDB/idbobjectstore_createIndex.any.html	Explicit Primary Key
+IndexedDB/idbobjectstore_createIndex.any.html	IDBObjectStore.createIndex() - empty name
+IndexedDB/idbobjectstore_createIndex.any.html	If an index with the name name already exists in this object store, the implementation must throw a DOMException of type ConstraintError
+IndexedDB/idbobjectstore_createIndex.any.html	If keyPath is not a valid key path, the implementation must throw a DOMException of type SyntaxError
+IndexedDB/idbobjectstore_createIndex.any.html	If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError
+IndexedDB/idbobjectstore_createIndex.any.html	Index can be valid keys
+IndexedDB/idbobjectstore_createIndex.any.html	InvalidStateError(Deleted ObjectStore) vs. TransactionInactiveError. Deletion check should precede transaction-state check.
+IndexedDB/idbobjectstore_createIndex.any.html	InvalidStateError(Incorrect mode) vs. TransactionInactiveError. Mode check should precede state check of the transaction.
+IndexedDB/idbobjectstore_createIndex.any.html	Operate out versionchange throw InvalidStateError
+IndexedDB/idbobjectstore_createIndex.any.html	Returns an IDBIndex and the properties are set correctly
+IndexedDB/idbobjectstore_createIndex.any.html	SyntaxError vs. InvalidAccessError. Syntax check should precede multiEntry check of the key path.
+IndexedDB/idbobjectstore_createIndex.any.html	The index is usable right after being made
+IndexedDB/idbobjectstore_createIndex.any.html	TransactionInactiveError vs. ConstraintError. Transaction-state check should precede index name check.
+IndexedDB/idbobjectstore_delete.any.html	If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError
+IndexedDB/idbobjectstore_delete.any.html	If the transaction this IDBObjectStore belongs to has its mode set to readonly, throw ReadOnlyError
+IndexedDB/idbobjectstore_delete.any.html	Object store's key path is an object attribute
+IndexedDB/idbobjectstore_delete.any.html	delete() key doesn't match any records
+IndexedDB/idbobjectstore_delete.any.html	delete() removes all of the records in the range
+IndexedDB/idbobjectstore_delete.any.html	delete() removes record (inline keys)
+IndexedDB/idbobjectstore_delete.any.html	delete() removes record (out-of-line keys)
+IndexedDB/idbobjectstore_deleteIndex.any.html	IDBObjectStore.deleteIndex() removes the index
+IndexedDB/idbobjectstore_get.any.html	Attempts to retrieve a record that doesn't exist
+IndexedDB/idbobjectstore_get.any.html	Key is a date
+IndexedDB/idbobjectstore_get.any.html	Key is a number
+IndexedDB/idbobjectstore_get.any.html	Key is a string
+IndexedDB/idbobjectstore_get.any.html	Returns the record with the first key in the range
+IndexedDB/idbobjectstore_get.any.html	When a transaction is aborted, throw TransactionInactiveError
+IndexedDB/idbobjectstore_get.any.html	When an invalid key is used, throw DataError
+IndexedDB/idbobjectstore_getAll-options.any.html	Direction and query
+IndexedDB/idbobjectstore_getAll-options.any.html	Direction, query and count
+IndexedDB/idbobjectstore_getAll-options.any.html	Direction: next
+IndexedDB/idbobjectstore_getAll-options.any.html	Direction: nextunique
+IndexedDB/idbobjectstore_getAll-options.any.html	Direction: prev
+IndexedDB/idbobjectstore_getAll-options.any.html	Direction: prevunique
+IndexedDB/idbobjectstore_getAll-options.any.html	Get all values
+IndexedDB/idbobjectstore_getAll-options.any.html	Get all values with both options and count
+IndexedDB/idbobjectstore_getAll-options.any.html	Get all values with invalid query keys
+IndexedDB/idbobjectstore_getAll-options.any.html	Get all with large values
+IndexedDB/idbobjectstore_getAll-options.any.html	Get bound range
+IndexedDB/idbobjectstore_getAll-options.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbobjectstore_getAll-options.any.html	Get bound range with maxCount
+IndexedDB/idbobjectstore_getAll-options.any.html	Get lower excluded
+IndexedDB/idbobjectstore_getAll-options.any.html	Get upper excluded
+IndexedDB/idbobjectstore_getAll-options.any.html	Max value count
+IndexedDB/idbobjectstore_getAll-options.any.html	Non existent key
+IndexedDB/idbobjectstore_getAll-options.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbobjectstore_getAll-options.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbobjectstore_getAll-options.any.html	Single item get
+IndexedDB/idbobjectstore_getAll-options.any.html	Single item get (generated key)
+IndexedDB/idbobjectstore_getAll-options.any.html	Test maxCount
+IndexedDB/idbobjectstore_getAll-options.any.html	getAll on empty object store
+IndexedDB/idbobjectstore_getAll-options.any.html	zero maxCount
+IndexedDB/idbobjectstore_getAll.any.html	Get all values
+IndexedDB/idbobjectstore_getAll.any.html	Get all values with invalid query keys
+IndexedDB/idbobjectstore_getAll.any.html	Get all values with transaction.commit()
+IndexedDB/idbobjectstore_getAll.any.html	Get all with large values
+IndexedDB/idbobjectstore_getAll.any.html	Get bound range
+IndexedDB/idbobjectstore_getAll.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbobjectstore_getAll.any.html	Get bound range with maxCount
+IndexedDB/idbobjectstore_getAll.any.html	Get lower excluded
+IndexedDB/idbobjectstore_getAll.any.html	Get upper excluded
+IndexedDB/idbobjectstore_getAll.any.html	Max value count
+IndexedDB/idbobjectstore_getAll.any.html	Non existent key
+IndexedDB/idbobjectstore_getAll.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbobjectstore_getAll.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbobjectstore_getAll.any.html	Single item get
+IndexedDB/idbobjectstore_getAll.any.html	Single item get (generated key)
+IndexedDB/idbobjectstore_getAll.any.html	Test maxCount
+IndexedDB/idbobjectstore_getAll.any.html	getAll on empty object store
+IndexedDB/idbobjectstore_getAll.any.html	zero maxCount
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Direction and query
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Direction, query and count
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Direction: next
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Direction: nextunique
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Direction: prev
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Direction: prevunique
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get all keys
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get all keys with both options and count
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get all keys with invalid query keys
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get bound range
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get bound range with maxCount
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get lower excluded
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Get upper excluded
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Max value count
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Non existent key
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Single item get
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Single item get (generated key)
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	Test maxCount
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	getAllKeys on empty object store
+IndexedDB/idbobjectstore_getAllKeys-options.any.html	zero maxCount
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get all keys
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get all keys with invalid query keys
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get bound range
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get bound range (generated) with maxCount
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get bound range with maxCount
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get lower excluded
+IndexedDB/idbobjectstore_getAllKeys.any.html	Get upper excluded
+IndexedDB/idbobjectstore_getAllKeys.any.html	Max value count
+IndexedDB/idbobjectstore_getAllKeys.any.html	Non existent key
+IndexedDB/idbobjectstore_getAllKeys.any.html	Query with empty range where  first key < upperBound
+IndexedDB/idbobjectstore_getAllKeys.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbobjectstore_getAllKeys.any.html	Single item get
+IndexedDB/idbobjectstore_getAllKeys.any.html	Single item get (generated key)
+IndexedDB/idbobjectstore_getAllKeys.any.html	Test maxCount
+IndexedDB/idbobjectstore_getAllKeys.any.html	getAllKeys on empty object store
+IndexedDB/idbobjectstore_getAllKeys.any.html	zero maxCount
+IndexedDB/idbobjectstore_getAllRecords.any.html	Count
+IndexedDB/idbobjectstore_getAllRecords.any.html	Direction and query
+IndexedDB/idbobjectstore_getAllRecords.any.html	Direction, query and count
+IndexedDB/idbobjectstore_getAllRecords.any.html	Direction: next
+IndexedDB/idbobjectstore_getAllRecords.any.html	Direction: nextunique
+IndexedDB/idbobjectstore_getAllRecords.any.html	Direction: prev
+IndexedDB/idbobjectstore_getAllRecords.any.html	Direction: prevunique
+IndexedDB/idbobjectstore_getAllRecords.any.html	Empty object store
+IndexedDB/idbobjectstore_getAllRecords.any.html	Get all records
+IndexedDB/idbobjectstore_getAllRecords.any.html	Get all records with empty options
+IndexedDB/idbobjectstore_getAllRecords.any.html	Get all records with invalid query keys
+IndexedDB/idbobjectstore_getAllRecords.any.html	Get all records with large values
+IndexedDB/idbobjectstore_getAllRecords.any.html	Get all records with transaction.commit()
+IndexedDB/idbobjectstore_getAllRecords.any.html	Max value count
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with bound range
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with bound range and count
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with bound range and count for generated keys
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with empty range where first key < upperBound
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with empty range where lowerBound < last key
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with lower excluded bound range
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with nonexistent key
+IndexedDB/idbobjectstore_getAllRecords.any.html	Query with upper excluded bound range
+IndexedDB/idbobjectstore_getAllRecords.any.html	Single item
+IndexedDB/idbobjectstore_getAllRecords.any.html	Single item with generated key
+IndexedDB/idbobjectstore_getAllRecords.any.html	Zero count
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - basic - key
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - basic - key - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - basic - range
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - basic - range - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - invalid parameters
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator - key
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator - key - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator - range
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator - range - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator and key path - key
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator and key path - key - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator and key path - range
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key generator and key path - range - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key path - key
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key path - key - no match
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key path - range
+IndexedDB/idbobjectstore_getKey.any.html	IDBObjectStore.getKey() - key path - range - no match
+IndexedDB/idbobjectstore_index.any.html	IDBObjectStore.index() - returns an index
+IndexedDB/idbobjectstore_keyPath.any.html	IDBObjectStore's keyPath attribute returns the same object.
+IndexedDB/idbobjectstore_openCursor.any.html	IDBObjectStore.openCursor() - iterate through 100 objects
+IndexedDB/idbobjectstore_openCursor_invalid.any.html	IDBObjectStore.openCursor() - invalid - pass something other than number
+IndexedDB/idbobjectstore_openKeyCursor.any.html	IDBObjectStore.openKeyCursor() - forward iteration
+IndexedDB/idbobjectstore_openKeyCursor.any.html	IDBObjectStore.openKeyCursor() - forward iteration with range
+IndexedDB/idbobjectstore_openKeyCursor.any.html	IDBObjectStore.openKeyCursor() - invalid inputs
+IndexedDB/idbobjectstore_openKeyCursor.any.html	IDBObjectStore.openKeyCursor() - reverse iteration
+IndexedDB/idbobjectstore_openKeyCursor.any.html	IDBObjectStore.openKeyCursor() - reverse iteration with range
+IndexedDB/idbobjectstore_put.any.html	Attempt to call put() without an key parameter when the object store uses out-of-line keys
+IndexedDB/idbobjectstore_put.any.html	Attempt to put() a record that does not meet the constraints of an object store's inline key requirements
+IndexedDB/idbobjectstore_put.any.html	Attempt to put() a record where the out of line key provided does not meet the constraints of a valid key
+IndexedDB/idbobjectstore_put.any.html	Attempt to put() a record where the record's in-line key is not defined
+IndexedDB/idbobjectstore_put.any.html	Attempt to put() a record where the record's key does not meet the constraints of a valid key
+IndexedDB/idbobjectstore_put.any.html	If the object store has been deleted, the implementation must throw a DOMException of type InvalidStateError
+IndexedDB/idbobjectstore_put.any.html	If the transaction this IDBObjectStore belongs to has its mode set to readonly, throw ReadOnlyError
+IndexedDB/idbobjectstore_put.any.html	Object store has autoIncrement:true and the key path is an object attribute
+IndexedDB/idbobjectstore_put.any.html	Object store's key path is an object attribute
+IndexedDB/idbobjectstore_put.any.html	autoIncrement and inline keys
+IndexedDB/idbobjectstore_put.any.html	autoIncrement and out-of-line keys
+IndexedDB/idbobjectstore_put.any.html	put() a record where a value being indexed does not meet the constraints of a valid key
+IndexedDB/idbobjectstore_put.any.html	put() record with key already exists
+IndexedDB/idbobjectstore_put.any.html	put() where an index has unique:true specified
+IndexedDB/idbobjectstore_put.any.html	put() with an inline key
+IndexedDB/idbobjectstore_put.any.html	put() with an out-of-line key
+IndexedDB/idbrequest-onupgradeneeded.any.html	Abort transaction after deleting database in upgradeneeded event handler
+IndexedDB/idbrequest-onupgradeneeded.any.html	Abort transaction before deleting database in upgradeneeded handler
+IndexedDB/idbrequest-onupgradeneeded.any.html	indexedDB.delete called from upgradeneeded handler
+IndexedDB/idbrequest-onupgradeneeded.any.html	transaction oncomplete ordering relative to open request onsuccess
+IndexedDB/idbrequest_error.any.html	IDBRequest.error throws if ready state is pending
+IndexedDB/idbrequest_result.any.html	IDBRequest.result throws if ready state is pending
+IndexedDB/idbtransaction-db-SameObject.any.html	IDBTransaction.db [SameObject]
+IndexedDB/idbtransaction-objectStore-exception-order.any.html	IDBTransaction.objectStore exception order: InvalidStateError vs. NotFoundError
+IndexedDB/idbtransaction-objectStore-finished.any.html	IDBTransaction objectStore() behavior when transaction is finished
+IndexedDB/idbtransaction-oncomplete.any.html	IDBTransaction - complete event
+IndexedDB/idbtransaction.any.html	IDBTransaction - request gotten by the handler
+IndexedDB/idbtransaction.any.html	IDBTransaction - request returned by open()
+IndexedDB/idbtransaction_abort.any.html	Abort during auto-committing should throw InvalidStateError.
+IndexedDB/idbtransaction_abort.any.html	Abort event should fire during transaction
+IndexedDB/idbtransaction_abort.any.html	Abort on completed transaction should throw InvalidStateError.
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - during upgrade transaction
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - no duplicates
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - sorting
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - transaction scope
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - unusual names
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - value after abort
+IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - value after commit
+IndexedDB/idbversionchangeevent.any.html	IDBVersionChangeEvent fired in upgradeneeded, versionchange and deleteDatabase
+IndexedDB/index_sort_order.any.html	Verify IDBIndex key sort order is 'number < Date < DOMString'
+IndexedDB/key-conversion-exceptions.any.html	IDBCursor continue() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBCursor update() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBFactory cmp() static with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex count() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex get() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex getAll() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex getAllKeys() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex getAllRecords() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex getKey() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex openCursor() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBIndex openKeyCursor() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBKeyRange bound() static with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBKeyRange lowerBound() static with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBKeyRange only() static with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBKeyRange upperBound() static with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore add() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore count() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore delete() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore get() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore getAll() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore getAllKeys() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore getAllRecords() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore getKey() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore openCursor() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore openKeyCursor() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IDBObjectStore put() method with throwing/invalid keys
+IndexedDB/key-conversion-exceptions.any.html	IndexedDB: Exceptions thrown during key conversion
+IndexedDB/key_invalid.any.html	Invalid key - /foo/
+IndexedDB/key_invalid.any.html	Invalid key - Array (object)
+IndexedDB/key_invalid.any.html	Invalid key - Array clone’s instance
+IndexedDB/key_invalid.any.html	Invalid key - Math
+IndexedDB/key_invalid.any.html	Invalid key - NaN
+IndexedDB/key_invalid.any.html	Invalid key - String (object)
+IndexedDB/key_invalid.any.html	Invalid key - [,1]
+IndexedDB/key_invalid.any.html	Invalid key - [1,2,3,,]
+IndexedDB/key_invalid.any.html	Invalid key - [[1], [3], [7], [[ sparse array ]]]
+IndexedDB/key_invalid.any.html	Invalid key - [[], [], [], [[ Date ]]]
+IndexedDB/key_invalid.any.html	Invalid key - [undefined]
+IndexedDB/key_invalid.any.html	Invalid key - [{}]
+IndexedDB/key_invalid.any.html	Invalid key - array directly contains self
+IndexedDB/key_invalid.any.html	Invalid key - array indirectly contains self
+IndexedDB/key_invalid.any.html	Invalid key - array member contains self
+IndexedDB/key_invalid.any.html	Invalid key - document.getElementsByTagName("script")
+IndexedDB/key_invalid.any.html	Invalid key - false
+IndexedDB/key_invalid.any.html	Invalid key - function() {}
+IndexedDB/key_invalid.any.html	Invalid key - new Boolean()
+IndexedDB/key_invalid.any.html	Invalid key - new Date(Infinity)
+IndexedDB/key_invalid.any.html	Invalid key - new Date(NaN)
+IndexedDB/key_invalid.any.html	Invalid key - new Number()
+IndexedDB/key_invalid.any.html	Invalid key - new RegExp()
+IndexedDB/key_invalid.any.html	Invalid key - new String()
+IndexedDB/key_invalid.any.html	Invalid key - null
+IndexedDB/key_invalid.any.html	Invalid key - proxy of an array
+IndexedDB/key_invalid.any.html	Invalid key - self
+IndexedDB/key_invalid.any.html	Invalid key - sparse array
+IndexedDB/key_invalid.any.html	Invalid key - sparse array 2
+IndexedDB/key_invalid.any.html	Invalid key - true
+IndexedDB/key_invalid.any.html	Invalid key - undefined
+IndexedDB/key_invalid.any.html	Invalid key - undefined2
+IndexedDB/key_invalid.any.html	Invalid key - { obj: 1 }
+IndexedDB/key_invalid.any.html	Invalid key - {length:0,constructor:Array}
+IndexedDB/key_invalid.any.html	Invalid key - {}
+IndexedDB/key_valid.any.html	Valid key - ""
+IndexedDB/key_valid.any.html	Valid key - "NaN"
+IndexedDB/key_valid.any.html	Valid key - "\\""
+IndexedDB/key_valid.any.html	Valid key - "\\n"
+IndexedDB/key_valid.any.html	Valid key - "\\u0000"
+IndexedDB/key_valid.any.html	Valid key - "\\u1234"
+IndexedDB/key_valid.any.html	Valid key - "foo"
+IndexedDB/key_valid.any.html	Valid key - -Infinity
+IndexedDB/key_valid.any.html	Valid key - 0
+IndexedDB/key_valid.any.html	Valid key - 1.5
+IndexedDB/key_valid.any.html	Valid key - 3e-38
+IndexedDB/key_valid.any.html	Valid key - 3e38
+IndexedDB/key_valid.any.html	Valid key - Infinity
+IndexedDB/key_valid.any.html	Valid key - ["undefined"]
+IndexedDB/key_valid.any.html	Valid key - []
+IndexedDB/key_valid.any.html	Valid key - new Array()
+IndexedDB/key_valid.any.html	Valid key - new Date()
+IndexedDB/key_valid.any.html	Valid key - new Date(0)
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key 53 bits
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key 63 bits
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key 63 bits (negative)
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key 64 bits
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key 64 bits (negative)
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key equal to -Infinity
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key equal to Infinity
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key greater than 53 bits, less than 64 bits
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key greater than 53 bits, less than 64 bits (negative)
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key greater than 64 bits, but still finite
+IndexedDB/keygenerator.any.html	Key generator vs. explicit key greater than 64 bits, but still finite (negative)
+IndexedDB/keygenerator.any.html	Key is injected into value - multi-segment path
+IndexedDB/keygenerator.any.html	Key is injected into value - multi-segment path, partially populated
+IndexedDB/keygenerator.any.html	Key is injected into value - single segment path
+IndexedDB/keygenerator.any.html	Keygenerator - don't increment when new key is not bigger than current
+IndexedDB/keygenerator.any.html	Keygenerator - increments by one from last set key
+IndexedDB/keygenerator.any.html	Keygenerator - starts at one, and increments by one
+IndexedDB/keygenerator.any.html	Keygenerator ConstraintError when using same id as already generated
+IndexedDB/keygenerator.any.html	Keygenerator overflow
+IndexedDB/keygenerator.any.html	put() throws if key cannot be injected - multi-segment path
+IndexedDB/keygenerator.any.html	put() throws if key cannot be injected - single segment path
+IndexedDB/keyorder.any.html	Database readback sort - "" < "a" < "ab" < "b" < "ba"
+IndexedDB/keyorder.any.html	Database readback sort - -1.1 < 1 < 1.01337 < 1.013373 < 2
+IndexedDB/keyorder.any.html	Database readback sort - -Infinity < -0.01 < 0 < Infinity
+IndexedDB/keyorder.any.html	Database readback sort - Array.length: 10,000 < Array.length: 10,001
+IndexedDB/keyorder.any.html	Database readback sort - Arrays
+IndexedDB/keyorder.any.html	Database readback sort - Date(1 sec ago) < Date(now) < Date(1 minute in future)
+IndexedDB/keyorder.any.html	Database readback sort - Infinity inside arrays
+IndexedDB/keyorder.any.html	Database readback sort - String < Array
+IndexedDB/keyorder.any.html	Database readback sort - Test different stuff at once
+IndexedDB/keyorder.any.html	Database readback sort - float < Date
+IndexedDB/keyorder.any.html	Database readback sort - float < Date < String < Array
+IndexedDB/keyorder.any.html	Database readback sort - float < String
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - "" < "a" < "ab" < "b" < "ba"
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - -1.1 < 1 < 1.01337 < 1.013373 < 2
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - -Infinity < -0.01 < 0 < Infinity
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - Array.length: 10,000 < Array.length: 10,001
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - Arrays
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - Date(1 sec ago) < Date(now) < Date(1 minute in future)
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - Infinity inside arrays
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - String < Array
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - Test different stuff at once
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - float < Date
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - float < Date < String < Array
+IndexedDB/keyorder.any.html	IDBKey.cmp sort - float < String
+IndexedDB/keypath-exceptions.any.html	Array key conversion should not invoke prototype getters
+IndexedDB/keypath-exceptions.any.html	Key path evaluation: Exceptions from enumerable getters
+IndexedDB/keypath-exceptions.any.html	Key path evaluation: Exceptions from enumerable getters on prototype
+IndexedDB/keypath-exceptions.any.html	Key path evaluation: Exceptions from non-enumerable getters
+IndexedDB/keypath-exceptions.any.html	Key path evaluation: Exceptions from non-enumerable getters on prototype
+IndexedDB/keypath-exceptions.any.html	The last element of keypath is validated
+IndexedDB/keypath-special-identifiers.any.html	Type: Array, identifier: length
+IndexedDB/keypath-special-identifiers.any.html	Type: Blob, identifier: size
+IndexedDB/keypath-special-identifiers.any.html	Type: Blob, identifier: type
+IndexedDB/keypath-special-identifiers.any.html	Type: File, identifier: lastModified
+IndexedDB/keypath-special-identifiers.any.html	Type: File, identifier: name
+IndexedDB/keypath-special-identifiers.any.html	Type: String, identifier: length
+IndexedDB/keypath.any.html	undefined - '' uses value as key
+IndexedDB/keypath.any.html	undefined - [''] uses value as [key]
+IndexedDB/keypath.any.html	undefined - ['x', 'y']
+IndexedDB/keypath.any.html	undefined - ['x', {toString->'y'}] (stringifies)
+IndexedDB/keypath.any.html	undefined - [['x'], 'y'] (stringifies)
+IndexedDB/keypath.any.html	undefined - arr.length
+IndexedDB/keypath.any.html	undefined - delete.a7
+IndexedDB/keypath.any.html	undefined - length
+IndexedDB/keypath.any.html	undefined - list with 1 field
+IndexedDB/keypath.any.html	undefined - my._
+IndexedDB/keypath.any.html	undefined - my.key
+IndexedDB/keypath.any.html	undefined - my.key_ya
+IndexedDB/keypath.any.html	undefined - my.køi
+IndexedDB/keypath.any.html	undefined - name,type
+IndexedDB/keypath.any.html	undefined - name,type.name
+IndexedDB/keypath.any.html	undefined - p.p.p.p.p.p.p.p.p.p.p.p.p.p
+IndexedDB/keypath.any.html	undefined - public.key$ya
+IndexedDB/keypath.any.html	undefined - str.length
+IndexedDB/keypath.any.html	undefined - true.$
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "*"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "*.*"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "..yo"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - ".yo"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "/m/"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "3m"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "\\"m\\""
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "^m"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "j a"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "m!"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "m%"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "m&"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "m.*"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "m/"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "m/a"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "my.1337"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "y..o"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "y.o."
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "y.o.."
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - "yo,lo"
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - ["array with space"]
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - []
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - multidimensional array (invalid toString)
+IndexedDB/keypath_invalid.any.html	Invalid keyPath - {toString->3m}
+IndexedDB/keypath_maxsize.any.html	undefined - ~1050 chars
+IndexedDB/keypath_maxsize.any.html	undefined - ~260 chars
+IndexedDB/keypath_maxsize.any.html	undefined - ~530 chars
+IndexedDB/large-requests-abort.any.html	large value followed by small values
+IndexedDB/large-requests-abort.any.html	large values
+IndexedDB/large-requests-abort.any.html	large values mixed with small values
+IndexedDB/large-requests-abort.any.html	small values
+IndexedDB/list_ordering.any.html	Validate ObjectStoreNames and indexNames list order - lexigraphical string sort
+IndexedDB/list_ordering.any.html	Validate ObjectStoreNames and indexNames list order - numbers
+IndexedDB/list_ordering.any.html	Validate ObjectStoreNames and indexNames list order - numbers 'overflow'
+IndexedDB/name-scopes.any.html	Non-unique index keys
+IndexedDB/name-scopes.any.html	Unique index keys
+IndexedDB/nested-cloning-basic.any.html	small typed array
+IndexedDB/nested-cloning-large.any.html	large typed array
+IndexedDB/objectstore_keyorder.any.html	Verify key sort order in an object store is 'number < Date < DOMString' 
+IndexedDB/open-request-queue.any.html	IndexedDB: open and delete requests are processed as a FIFO queue
+IndexedDB/parallel-cursors-upgrade.any.html	2 cursors
+IndexedDB/parallel-cursors-upgrade.any.html	20 cursors
+IndexedDB/parallel-cursors-upgrade.any.html	200 cursors
+IndexedDB/parallel-cursors-upgrade.any.html	2000 cursors
+IndexedDB/reading-autoincrement-indexes-cursors.any.html	IDBIndex.openCursor() iterates over an index not covering the autoincrement key
+IndexedDB/reading-autoincrement-indexes-cursors.any.html	IDBIndex.openCursor() iterates over an index on the autoincrement key
+IndexedDB/reading-autoincrement-indexes-cursors.any.html	IDBIndex.openKeyCursor() iterates over an index not covering the autoincrement key
+IndexedDB/reading-autoincrement-indexes-cursors.any.html	IDBIndex.openKeyCursor() iterates over an index on the autoincrement key
+IndexedDB/reading-autoincrement-indexes.any.html	IDBIndex.get() for an index not covering the autoincrement key
+IndexedDB/reading-autoincrement-indexes.any.html	IDBIndex.get() for an index on the autoincrement key
+IndexedDB/reading-autoincrement-indexes.any.html	IDBIndex.getAll() for an index not covering the autoincrement key
+IndexedDB/reading-autoincrement-indexes.any.html	IDBIndex.getAll() for an index on the autoincrement key
+IndexedDB/reading-autoincrement-indexes.any.html	IDBIndex.getAllKeys() for an index on the autoincrement key
+IndexedDB/reading-autoincrement-indexes.any.html	IDBIndex.getAllKeys() returns correct result for an index not covering the autoincrement key
+IndexedDB/reading-autoincrement-store-cursors.any.html	IDBObjectStore.openCursor() iterates over an autoincrement store
+IndexedDB/reading-autoincrement-store-cursors.any.html	IDBObjectStore.openKeyCursor() iterates over an autoincrement store
+IndexedDB/reading-autoincrement-store.any.html	IDBObjectStore.get() for an autoincrement store
+IndexedDB/reading-autoincrement-store.any.html	IDBObjectStore.getAll() for an autoincrement store
+IndexedDB/reading-autoincrement-store.any.html	IDBObjectStore.getAllKeys() for an autoincrement store
+IndexedDB/ready-state-destroyed-execution-context.html	readyState accessor is valid after execution context is destroyed
+IndexedDB/request-abort-ordering.any.html	IndexedDB: request abort events are delivered in order
+IndexedDB/request-event-ordering-large-mixed-with-small-values.any.html	large values mixed with small values
+IndexedDB/request-event-ordering-large-then-small-values.any.html	large value followed by small values
+IndexedDB/request-event-ordering-large-values.any.html	large values
+IndexedDB/request-event-ordering-small-values.any.html	small values
+IndexedDB/request_bubble-and-capture.any.html	IndexedDB Request Event Propagation: Bubbling and Capturing
+IndexedDB/string-list-ordering.any.html	Test string list ordering in IndexedDB
+IndexedDB/structured-clone-transaction-state.any.html	Transaction inactive during structured clone in IDBCursor.update()
+IndexedDB/structured-clone-transaction-state.any.html	Transaction inactive during structured clone in IDBObjectStore.add()
+IndexedDB/structured-clone-transaction-state.any.html	Transaction inactive during structured clone in IDBObjectStore.put()
+IndexedDB/structured-clone.any.html	Array: 
+IndexedDB/structured-clone.any.html	Array: 1,2,3
+IndexedDB/structured-clone.any.html	Array: foo,bar
+IndexedDB/structured-clone.any.html	Array: foo,bar,,,,,,,,,true,false,,,,,,,,,123,456,,,,,,,,,
+IndexedDB/structured-clone.any.html	ArrayBuffer: [object ArrayBuffer]
+IndexedDB/structured-clone.any.html	BigInt: -1
+IndexedDB/structured-clone.any.html	BigInt: -12345678901234567890
+IndexedDB/structured-clone.any.html	BigInt: 0
+IndexedDB/structured-clone.any.html	BigInt: 1
+IndexedDB/structured-clone.any.html	BigInt: 12345678901234567890
+IndexedDB/structured-clone.any.html	Boolean: false
+IndexedDB/structured-clone.any.html	Boolean: true
+IndexedDB/structured-clone.any.html	Date: Mon Jan 12 1970 06:46:40 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Sat Dec 20 1969 03:13:20 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Sat Nov 20 2286 10:46:40 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Sat Sep 08 2001 18:46:40 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Sun Apr 24 1938 15:13:20 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Sun Feb 09 1653 23:13:20 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Wed Dec 31 1969 16:43:20 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Wed Dec 31 1969 16:59:59 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Wed Dec 31 1969 17:00:00 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Wed Dec 31 1969 17:00:01 GMT-0700
+IndexedDB/structured-clone.any.html	Date: Wed Dec 31 1969 17:16:40 GMT-0700
+IndexedDB/structured-clone.any.html	Error: Error
+IndexedDB/structured-clone.any.html	Error: Error: abc
+IndexedDB/structured-clone.any.html	EvalError: EvalError
+IndexedDB/structured-clone.any.html	EvalError: EvalError: ghi
+IndexedDB/structured-clone.any.html	Float16Array: -Infinity,-1.5,-1,-0.5,0,0.5,1,1.5,Infinity,NaN
+IndexedDB/structured-clone.any.html	Float32Array: -Infinity,-1.5,-1,-0.5,0,0.5,1,1.5,Infinity,NaN
+IndexedDB/structured-clone.any.html	Float64Array: -Infinity,-1.7976931348623157e+308,-5e-324,0,5e-324,1.7976931348623157e+308,Infinity,NaN
+IndexedDB/structured-clone.any.html	Int16Array: 0,1,-2,-1
+IndexedDB/structured-clone.any.html	Int32Array: 0,1,-2,-1
+IndexedDB/structured-clone.any.html	Int8Array: 0,1,-2,-1
+IndexedDB/structured-clone.any.html	Map: [object Map]
+IndexedDB/structured-clone.any.html	Number: -0
+IndexedDB/structured-clone.any.html	Number: -1
+IndexedDB/structured-clone.any.html	Number: -1.7976931348623157e+308
+IndexedDB/structured-clone.any.html	Number: -2147483647
+IndexedDB/structured-clone.any.html	Number: -2147483648
+IndexedDB/structured-clone.any.html	Number: -4294967295
+IndexedDB/structured-clone.any.html	Number: -5e-324
+IndexedDB/structured-clone.any.html	Number: -Infinity
+IndexedDB/structured-clone.any.html	Number: 0
+IndexedDB/structured-clone.any.html	Number: 1
+IndexedDB/structured-clone.any.html	Number: 1.7976931348623157e+308
+IndexedDB/structured-clone.any.html	Number: 2147483647
+IndexedDB/structured-clone.any.html	Number: 2147483648
+IndexedDB/structured-clone.any.html	Number: 4294967295
+IndexedDB/structured-clone.any.html	Number: 5e-324
+IndexedDB/structured-clone.any.html	Number: Infinity
+IndexedDB/structured-clone.any.html	Number: NaN
+IndexedDB/structured-clone.any.html	Object: [object Object]
+IndexedDB/structured-clone.any.html	RangeError: RangeError
+IndexedDB/structured-clone.any.html	RangeError: RangeError: ghi
+IndexedDB/structured-clone.any.html	ReferenceError: ReferenceError
+IndexedDB/structured-clone.any.html	ReferenceError: ReferenceError: ghi
+IndexedDB/structured-clone.any.html	RegExp: /(?:)/
+IndexedDB/structured-clone.any.html	RegExp: /abc/
+IndexedDB/structured-clone.any.html	RegExp: /abc/g
+IndexedDB/structured-clone.any.html	RegExp: /abc/gi
+IndexedDB/structured-clone.any.html	RegExp: /abc/gim
+IndexedDB/structured-clone.any.html	RegExp: /abc/gimsuy
+IndexedDB/structured-clone.any.html	RegExp: /abc/gm
+IndexedDB/structured-clone.any.html	RegExp: /abc/i
+IndexedDB/structured-clone.any.html	RegExp: /abc/im
+IndexedDB/structured-clone.any.html	RegExp: /abc/m
+IndexedDB/structured-clone.any.html	Set: [object Set]
+IndexedDB/structured-clone.any.html	String: 
+IndexedDB/structured-clone.any.html	String: null( )
+IndexedDB/structured-clone.any.html	String: this is a sample string
+IndexedDB/structured-clone.any.html	SyntaxError: SyntaxError
+IndexedDB/structured-clone.any.html	SyntaxError: SyntaxError: ghi
+IndexedDB/structured-clone.any.html	TypeError: TypeError
+IndexedDB/structured-clone.any.html	TypeError: TypeError: ghi
+IndexedDB/structured-clone.any.html	URIError: URIError
+IndexedDB/structured-clone.any.html	URIError: URIError: ghi
+IndexedDB/structured-clone.any.html	Uint16Array: 0,1,65534,65535
+IndexedDB/structured-clone.any.html	Uint32Array: 0,1,4294967294,4294967295
+IndexedDB/structured-clone.any.html	Uint8Array: 
+IndexedDB/structured-clone.any.html	Uint8Array: 0,1,254,255
+IndexedDB/structured-clone.any.html	Uint8ClampedArray: 0,1,254,255
+IndexedDB/structured-clone.any.html	bigint: -1
+IndexedDB/structured-clone.any.html	bigint: -12345678901234567890
+IndexedDB/structured-clone.any.html	bigint: 0
+IndexedDB/structured-clone.any.html	bigint: 1
+IndexedDB/structured-clone.any.html	bigint: 12345678901234567890
+IndexedDB/structured-clone.any.html	boolean: false
+IndexedDB/structured-clone.any.html	boolean: true
+IndexedDB/structured-clone.any.html	number: -0
+IndexedDB/structured-clone.any.html	number: -1
+IndexedDB/structured-clone.any.html	number: -1.7976931348623157e+308
+IndexedDB/structured-clone.any.html	number: -2147483647
+IndexedDB/structured-clone.any.html	number: -2147483648
+IndexedDB/structured-clone.any.html	number: -4294967295
+IndexedDB/structured-clone.any.html	number: -5e-324
+IndexedDB/structured-clone.any.html	number: -Infinity
+IndexedDB/structured-clone.any.html	number: 0
+IndexedDB/structured-clone.any.html	number: 1
+IndexedDB/structured-clone.any.html	number: 1.7976931348623157e+308
+IndexedDB/structured-clone.any.html	number: 2147483647
+IndexedDB/structured-clone.any.html	number: 2147483648
+IndexedDB/structured-clone.any.html	number: 4294967295
+IndexedDB/structured-clone.any.html	number: 5e-324
+IndexedDB/structured-clone.any.html	number: Infinity
+IndexedDB/structured-clone.any.html	number: NaN
+IndexedDB/structured-clone.any.html	object: null
+IndexedDB/structured-clone.any.html	string: 
+IndexedDB/structured-clone.any.html	string: null( )
+IndexedDB/structured-clone.any.html	string: this is a sample string
+IndexedDB/structured-clone.any.html	undefined: undefined
+IndexedDB/transaction-abort-generator-revert.any.html	The current number of a key generator is reverted when a readwrite transaction aborts
+IndexedDB/transaction-abort-generator-revert.any.html	The current number of a key generator is reverted when a versionchange transaction aborts
+IndexedDB/transaction-abort-index-metadata-revert.any.html	Created indexes get marked as deleted after their transaction aborts
+IndexedDB/transaction-abort-index-metadata-revert.any.html	Created stores get their indexes marked as deleted after the transaction that created them aborts
+IndexedDB/transaction-abort-index-metadata-revert.any.html	Created+deleted indexes are still marked as deleted after their transaction aborts
+IndexedDB/transaction-abort-index-metadata-revert.any.html	Created+deleted stores still have their indexes marked as deleted after the transaction aborts
+IndexedDB/transaction-abort-index-metadata-revert.any.html	Deleted indexes get marked as not-deleted after the transaction aborts
+IndexedDB/transaction-abort-index-metadata-revert.any.html	Deleted stores get their indexes marked as not-deleted after the transaction that deleted them aborts
+IndexedDB/transaction-abort-multiple-metadata-revert.any.html	Deleted indexes in created+deleted stores are still marked as deleted after their transaction aborts
+IndexedDB/transaction-abort-multiple-metadata-revert.any.html	Deleted indexes in deleted stores are still marked as not-deleted after the transaction aborts
+IndexedDB/transaction-abort-multiple-metadata-revert.any.html	Deleted indexes in newly created stores are still marked as deleted after the transaction aborts
+IndexedDB/transaction-abort-object-store-metadata-revert.any.html	Created stores get marked as deleted after their transaction aborts
+IndexedDB/transaction-abort-object-store-metadata-revert.any.html	Created+deleted stores are still marked as deleted after their transaction aborts
+IndexedDB/transaction-abort-object-store-metadata-revert.any.html	Deleted stores get marked as not-deleted after the transaction aborts
+IndexedDB/transaction-abort-object-store-metadata-revert.any.html	Un-instantiated deleted stores get marked as not-deleted after the transaction aborts
+IndexedDB/transaction-abort-request-error.any.html	Properties of error events fired at requests when aborting a transaction
+IndexedDB/transaction-create_in_versionchange.any.html	Attempt to create new transactions inside a versionchange transaction
+IndexedDB/transaction-deactivation-timing.any.html	Deactivation of new transactions happens at end of invocation
+IndexedDB/transaction-deactivation-timing.any.html	New transactions are deactivated before next task
+IndexedDB/transaction-deactivation-timing.any.html	New transactions are not deactivated until after the microtask checkpoint
+IndexedDB/transaction-deactivation-timing.any.html	New transactions from microtask are deactivated before next task
+IndexedDB/transaction-deactivation-timing.any.html	New transactions from microtask are still active through the microtask checkpoint
+IndexedDB/transaction-lifetime-empty.any.html	Multiple transactions without requests complete in the expected order
+IndexedDB/transaction-lifetime-empty.any.html	Transactions without requests complete in the expected order
+IndexedDB/transaction-lifetime.any.html	Blocked event
+IndexedDB/transaction-lifetime.any.html	No Blocked event
+IndexedDB/transaction-relaxed-durability.any.html	Committed data can be read back out: case 0
+IndexedDB/transaction-relaxed-durability.any.html	Committed data can be read back out: case 1
+IndexedDB/transaction-relaxed-durability.any.html	Committed data can be read back out: case 2
+IndexedDB/transaction-relaxed-durability.any.html	Committed data can be read back out: case 3
+IndexedDB/transaction-relaxed-durability.any.html	Committed data can be read back out: case 4
+IndexedDB/transaction-relaxed-durability.any.html	Invalid durability option throws a TypeError
+IndexedDB/transaction-requestqueue.any.html	Transactions have a request queue
+IndexedDB/transaction-scheduling-across-connections.any.html	Check that readwrite transactions with overlapping scopes do not run in parallel.
+IndexedDB/transaction-scheduling-across-databases.any.html	Check that transactions in different databases can run in parallel.
+IndexedDB/transaction-scheduling-mixed-scopes.any.html	Check that scope restrictions on mixed transactions are enforced.
+IndexedDB/transaction-scheduling-ordering.any.html	Verify Indexed DB transactions are ordered per spec
+IndexedDB/transaction-scheduling-ro-waits-for-rw.any.html	readonly transaction should see the result of a previous readwrite transaction
+IndexedDB/transaction-scheduling-rw-scopes.any.html	Check that scope restrictions on read-write transactions are enforced.
+IndexedDB/transaction-scheduling-within-database.any.html	Check that read-only transactions within a database can run in parallel.
+IndexedDB/transaction_bubble-and-capture.any.html	Capture and bubble
+IndexedDB/upgrade-transaction-deactivation-timing.any.html	Upgrade transactions are active in upgradeneeded callback
+IndexedDB/upgrade-transaction-deactivation-timing.any.html	Upgrade transactions are active in upgradeneeded callback and microtasks
+IndexedDB/upgrade-transaction-deactivation-timing.any.html	Upgrade transactions are deactivated before next task
+IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.html	in a setTimeout(0) callback after the abort event is fired for a transaction aborted due to an unhandled request failure
+IndexedDB/upgrade-transaction-lifecycle-backend-aborted.any.html	in the abort event handler for a transaction aborted due to an unhandled request error
+IndexedDB/upgrade-transaction-lifecycle-committed.any.html	in a setTimeout(0) callback after the complete event is fired for a committed transaction
+IndexedDB/upgrade-transaction-lifecycle-committed.any.html	in the complete event handler for a committed transaction
+IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.html	in a promise microtask after abort() is called, before the transaction abort event is fired
+IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.html	in a setTimeout(0) callback after the abort event is fired for a transaction aborted due to an abort() call
+IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.html	in the abort event handler for a transaction aborted due to an abort() call
+IndexedDB/upgrade-transaction-lifecycle-user-aborted.any.html	synchronously after abort() is called
+IndexedDB/value.any.html	BigInts as keys in IndexedDB - BigInt object
+IndexedDB/value.any.html	BigInts as keys in IndexedDB - primitive BigInt
+IndexedDB/value.any.html	BigInts as values in IndexedDB - BigInt object
+IndexedDB/value.any.html	BigInts as values in IndexedDB - BigInt object inside object
+IndexedDB/value.any.html	BigInts as values in IndexedDB - primitive BigInt
+IndexedDB/value.any.html	BigInts as values in IndexedDB - primitive BigInt inside object
+IndexedDB/value.any.html	Values - Array
+IndexedDB/value.any.html	Values - Date
+IndexedDB/value_recursive.any.html	Recursive value - array directly contains self
+IndexedDB/value_recursive.any.html	Recursive value - array indirectly contains self
+IndexedDB/value_recursive.any.html	Recursive value - array member contains self
+IndexedDB/worker-termination-aborts-upgrade.window.html	Worker Termination Aborts a Pending Upgrade
+IndexedDB/writer-starvation.any.html	IDB read requests should not starve write requests
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  anchor-position-follows-transforms  bar) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  foo   anchor-position-follows-transforms  ) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature( anchor-position-follows-transforms ) should be false
@@ -6220,6 +7540,8 @@ dom/events/EventListener-handleEvent.html	calls `handleEvent` method of `EventLi
 dom/events/EventListener-handleEvent.html	doesn't call `handleEvent` method on callable `EventListener`
 dom/events/EventListener-handleEvent.html	performs `Get` every time event is dispatched
 dom/events/EventListener-handleEvent.html	rethrows errors when getting `handleEvent`
+dom/events/EventListener-handleEvent.html	throws if `handleEvent` is falsy and not callable
+dom/events/EventListener-handleEvent.html	throws if `handleEvent` is thruthy and not callable
 dom/events/EventListenerOptions-capture.html	Capture boolean should be honored correctly
 dom/events/EventListenerOptions-capture.html	Capture option should be honored correctly
 dom/events/EventListenerOptions-capture.html	Equivalence of option values
@@ -121386,6 +122708,8 @@ html/dom/usvstring-reflection.https.html	frame : unpaired surrogate codepoint sh
 html/dom/usvstring-reflection.https.html	iframe : unpaired surrogate codepoint should be replaced with U+FFFD
 html/dom/usvstring-reflection.https.html	link : unpaired surrogate codepoint should be replaced with U+FFFD
 html/dom/usvstring-reflection.https.html	sendBeacon URL: unpaired surrogate codepoint should not make any exceptions.
+html/infrastructure/common-dom-interfaces/collections/domstringlist.html	DOMStringList: indexed getter
+html/infrastructure/common-dom-interfaces/collections/domstringlist.html	DOMStringList: length attribute
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLFormControlsCollection legacycaller should not be supported
 html/infrastructure/common-dom-interfaces/collections/historical.html	HTMLOptionsCollection legacycaller should not be supported
 html/infrastructure/common-dom-interfaces/collections/htmlallcollection.html	indexed property getter

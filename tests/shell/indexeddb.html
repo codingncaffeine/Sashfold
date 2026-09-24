@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<title>indexeddb</title>
+<p>Counts its visits in an IndexedDB database: each visit adds a record
+through an auto-incrementing store, then reads them all back through an
+index, and says in its title how many there are, the last one's text and
+key, and whether a Date and an array came back as they were stored.</p>
+<script>
+  var open = indexedDB.open('visits', 1);
+  open.onupgradeneeded = function () {
+    var store = open.result.createObjectStore('visits', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('by_text', 'text', { unique: true });
+  };
+  open.onerror = function () { document.title = 'error ' + open.error.name; };
+  open.onsuccess = function () {
+    var db = open.result;
+    var tx = db.transaction('visits', 'readwrite');
+    var store = tx.objectStore('visits');
+    store.count().onsuccess = function (event) {
+      store.add({ text: 'visit ' + (event.target.result + 1), when: new Date(86400000), tags: ['a', 'b'] });
+    };
+    tx.oncomplete = function () {
+      var read = db.transaction('visits').objectStore('visits').index('by_text').getAll();
+      read.onsuccess = function () {
+        var all = read.result;
+        var last = all[all.length - 1];
+        var kept = last.when instanceof Date && last.when.getTime() === 86400000 && last.tags.join() === 'a,b';
+        document.title = 'count=' + all.length + ' last=' + last.text + ' id=' + last.id + ' kept=' + kept;
+        db.close();
+      };
+    };
+  };
+</script>

@@ -520,6 +520,17 @@ public:
     std::string storage_json() const;
     bool restore_storage(std::string_view json);
     std::uint64_t storage_changes() const;
+    // Where every page's IndexedDB databases are written — the profile's
+    // storage folder, one folder per origin and container beneath it, each
+    // database a file in its indexeddb folder, written as each transaction
+    // that changed it commits and read back when a page opens it. Empty (the
+    // default) keeps them in memory for as long as the shell runs. Set
+    // before the first page asks for one.
+    void set_storage_directory(std::string directory);
+    // Lets go of the databases held in memory, so that the next page to open
+    // one reads it from its file, as the next run would. Pages open now keep
+    // what they hold.
+    void forget_indexed_db();
 
     // --- Sessions -----------------------------------------------------------
     // The open tabs — each history entry's URL, title and scroll position,

@@ -108,6 +108,7 @@ sashfold_test(test_js_bigint)
 sashfold_test(test_crypto)
 sashfold_test(test_bindings)
 sashfold_test(test_workers)
+sashfold_test(test_indexeddb)
 
 add_executable(test_theme test_theme.cpp)
 target_link_libraries(test_theme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
@@ -232,6 +233,9 @@ add_test(NAME shell_session
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_containers
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/containers.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_indexeddb
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/indexeddb.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_palette
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/palette.script

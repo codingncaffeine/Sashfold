@@ -38,6 +38,10 @@ namespace sashfold {
 class Bitmap; // core/Bitmap.h
 }
 
+namespace sashfold::idb {
+class Storage; // storage/IndexedDb.h
+}
+
 namespace sashfold::bindings {
 
 class WorkerThreads; // Workers.h
@@ -182,6 +186,12 @@ struct HostHooks {
     // change, so the host can write the area out when the count moves.
     // Without it a page's localStorage lives and dies with the document.
     std::function<StorageArea*(std::string const& origin)> local_storage;
+    // The IndexedDB storage for an origin (storage/IndexedDb.h), owned by
+    // the host and shared by every page and worker at that origin; it may
+    // keep its databases in files under the profile. Without it the pages
+    // of one agent share an in-memory storage per origin, which ends with
+    // the page.
+    std::function<std::shared_ptr<idb::Storage>(std::string const& origin)> indexed_db;
     // An iframe's document, for a realm of its own in this page's agent: what
     // its srcdoc or src names for the document at `base` under `policy` — or,
     // when `target` is given, what that URL names, the frame navigating there

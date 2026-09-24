@@ -331,7 +331,7 @@ void WorkerRuntime::start()
     // A worker on a thread of its own sleeps between turns: a message for
     // one of its ports, from another agent's, wakes it.
     if (m_link->wake_owner)
-        m_realm->internals().agent.wake_loop = [link = m_link] { link->poke(); };
+        m_realm->internals().agent.set_wake_loop([link = m_link] { link->poke(); });
     m_realm->run(source, url.serialize());
     look_for_the_end();
 }
@@ -759,15 +759,21 @@ void install_workers(Realm::Internals& in)
             WorkerThreads* const threads = internals.hooks.worker_fetch ? internals.hooks.worker_threads : nullptr;
             init.hooks.user_agent = internals.hooks.user_agent;
             init.hooks.js_heap_limit = internals.hooks.js_heap_limit;
+            // The worker's indexedDB is its owner's origin's storage, which
+            // is safe on any thread.
+            if (std::shared_ptr<idb::Storage> storage = indexeddb_storage(internals))
+                init.hooks.indexed_db = [storage](std::string const&) { return storage; };
             if (threads != nullptr) {
                 init.hooks.fetch_resource = internals.hooks.worker_fetch;
                 init.hooks.now = [] { return steady_now_ms(); };
                 init.hooks.should_stop = [link] { return link->stop.load(std::memory_order_relaxed); };
                 link->wake_owner = [threads] { threads->wake(); };
                 // A port of this document's entangled with one of a worker's
-                // is sent its messages from that worker's thread.
+                // is sent its messages from that worker's thread, and a
+                // database the worker holds open hands this document's
+                // connections their tasks from there too.
                 if (!internals.agent.wake_loop)
-                    internals.agent.wake_loop = [threads] { threads->wake(); };
+                    internals.agent.set_wake_loop([threads] { threads->wake(); });
             } else {
                 init.hooks.fetch_resource = internals.hooks.fetch_resource;
                 init.hooks.now = internals.hooks.now;

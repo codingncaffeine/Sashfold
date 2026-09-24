@@ -137,6 +137,9 @@ struct Runner {
     // The rest of the script needs what this machine has not (require-*):
     // it stops, passing, having said why.
     bool skipping = false;
+    // The folder `storage-folder` made, taken away again once the script
+    // has passed; kept after a failure for what it holds to be read.
+    std::filesystem::path storage_folder {};
 
     void fail(std::string const& what)
     {
@@ -419,6 +422,23 @@ struct Runner {
             std::filesystem::remove_all(folder, error);
             std::filesystem::create_directories(folder, error);
             browser.set_downloads_directory(folder.string());
+        } else if (command == "storage-folder") {
+            // `storage-folder`: the pages' IndexedDB databases are written
+            // under a folder of the system's temporary ones, named for this
+            // script and emptied first, as the window writes them under the
+            // profile's storage folder. A script that passes leaves nothing
+            // of it behind.
+            std::filesystem::path const folder = std::filesystem::temp_directory_path() / ("sashfold-script-" + stem + "-storage");
+            std::error_code error;
+            std::filesystem::remove_all(folder, error);
+            std::filesystem::create_directories(folder, error);
+            browser.set_storage_directory(folder.string());
+            storage_folder = folder;
+        } else if (command == "storage-restart") {
+            // `storage-restart`: the databases held in memory are let go, so
+            // that the next page to open one reads it back from its file, as
+            // a second run of the shell on the same profile would.
+            browser.forget_indexed_db();
         } else if (command == "bookmark-sources-home") {
             // `bookmark-sources-home <folder>`: the home folder other
             // browsers' bookmarks are looked for under, named relative to the
@@ -877,6 +897,10 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
     while (!runner.skipping && std::getline(file, line)) {
         ++runner.line_number;
         runner.run_line(line);
+    }
+    if (runner.result.failures == 0 && !runner.storage_folder.empty()) {
+        std::error_code error;
+        std::filesystem::remove_all(runner.storage_folder, error);
     }
     if (runner.result.failures == 0)
         out << "PASS " << std::filesystem::path(path).filename().string() << " (" << runner.result.commands

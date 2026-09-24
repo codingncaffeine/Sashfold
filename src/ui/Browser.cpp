@@ -17,6 +17,7 @@
 #include "layout/Layout.h"
 #include "paint/Painter.h"
 #include "platform/Clipboard.h"
+#include "storage/IndexedDb.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
@@ -722,6 +723,10 @@ struct Browser::Impl {
     // long as the shell runs and handed to each realm at that origin;
     // node-based, so a realm's pointer into it holds.
     std::map<std::string, bindings::StorageArea> storage;
+    // Every page's IndexedDB storage, one per container and origin (keyed
+    // as `storage` is), and the folder their files go under, if any.
+    std::map<std::string, std::shared_ptr<idb::Storage>> indexed_db;
+    std::string storage_directory;
 
     std::string address;
     bool address_focus = false;
@@ -994,6 +999,44 @@ struct Browser::Impl {
     bindings::StorageArea* storage_area(std::string_view container, std::string_view origin)
     {
         return &storage[storage_key(container, origin)];
+    }
+
+    // A name for a folder that says which origin and container it is for:
+    // the origin's letters, digits, '.' and '-' as they are, the rest
+    // percent-encoded, and a container's name after a '^'.
+    static std::string storage_folder_name(std::string_view container, std::string_view origin)
+    {
+        auto const encode = [](std::string_view text) {
+            static constexpr char hex[] = "0123456789ABCDEF";
+            std::string out;
+            for (char const c : text) {
+                auto const byte = static_cast<unsigned char>(c);
+                if (is_ascii_alphanumeric(byte) || byte == '.' || byte == '-') {
+                    out.push_back(c);
+                } else {
+                    out.push_back('%');
+                    out.push_back(hex[byte >> 4]);
+                    out.push_back(hex[byte & 0xF]);
+                }
+            }
+            return out;
+        };
+        std::string name = encode(origin);
+        if (!container.empty())
+            name += "^" + encode(container);
+        return name;
+    }
+
+    std::shared_ptr<idb::Storage> indexed_db_storage(std::string_view container, std::string_view origin)
+    {
+        std::shared_ptr<idb::Storage>& kept = indexed_db[storage_key(container, origin)];
+        if (!kept) {
+            std::filesystem::path directory;
+            if (!storage_directory.empty())
+                directory = std::filesystem::path(storage_directory) / storage_folder_name(container, origin) / "indexeddb";
+            kept = std::make_shared<idb::Storage>(directory);
+        }
+        return kept;
     }
 
     std::string storage_json() const
@@ -2580,6 +2623,7 @@ struct Browser::Impl {
             return loader->load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
         };
         hooks.local_storage = [this, container](std::string const& origin) { return storage_area(container, origin); };
+        hooks.indexed_db = [this, container](std::string const& origin) { return indexed_db_storage(container, origin); };
         hooks.now = [this] { return script_now(); };
         hooks.should_stop = [this] {
             return std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);
@@ -9029,6 +9073,8 @@ std::string const& Browser::active_container() const
 std::string Browser::storage_json() const { return m_impl->storage_json(); }
 bool Browser::restore_storage(std::string_view json) { return m_impl->restore_storage(json); }
 std::uint64_t Browser::storage_changes() const { return m_impl->storage_changes(); }
+void Browser::set_storage_directory(std::string directory) { m_impl->storage_directory = std::move(directory); }
+void Browser::forget_indexed_db() { m_impl->indexed_db.clear(); }
 
 bool Browser::run_scripts()
 {

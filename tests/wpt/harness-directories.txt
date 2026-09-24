@@ -51,3 +51,7 @@ css/css-fonts/parsing
 # (computed values, parsing, the boxes an element gives up). Its reftests
 # are the other runner's already.
 css/css-display
+
+# Added 2026-09-24 with the Indexed Database API: its pages and its .any.js
+# scripts, which the runner wraps in the window page the server would.
+IndexedDB
