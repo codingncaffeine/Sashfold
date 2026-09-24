@@ -940,11 +940,23 @@ std::vector<IntlPart> partition_number_pattern(NumberFormatData const& nf, Decim
         std::string_view const unit = nf.unit;
         std::size_t const per = unit.find("-per-");
         bool const british = nf.data_locale == "en-GB";
-        // English abbreviates miles per hour as a word of its own.
-        bool const mph = unit == "mile-per-hour" && nf.unit_display != "long";
-        if (per == std::string_view::npos || mph) {
-            std::string_view const pattern = mph ? (nf.unit_display == "narrow" ? "{0}mph" : "{0} mph")
-                                                 : unit_pattern(*find_unit(unit, british), nf.unit_display, one);
+        bool const narrow = nf.unit_display == "narrow";
+        // English abbreviates miles per hour and miles per gallon as words
+        // of their own ("mpg US" in Britain, where a gallon is not the US
+        // one), and in the short widths a percent per anything prints as
+        // the percent alone, as ICU's English data does.
+        std::string_view special;
+        if (nf.unit_display != "long") {
+            if (unit == "mile-per-hour")
+                special = narrow ? "{0}mph" : "{0} mph";
+            else if (unit == "mile-per-gallon")
+                special = british ? (narrow ? "{0}mpgUS" : "{0} mpg US") : (narrow ? "{0}mpg" : "{0} mpg");
+            else if (unit.starts_with("percent-per-"))
+                special = "{0}%";
+        }
+        if (per == std::string_view::npos || !special.empty()) {
+            std::string_view const pattern = !special.empty() ? special
+                                                              : unit_pattern(*find_unit(unit, british), nf.unit_display, one);
             auto const [before, after] = split_pattern(pattern);
             push_affix(parts, before, "unit");
             append_number();
@@ -967,9 +979,10 @@ std::vector<IntlPart> partition_number_pattern(NumberFormatData const& nf, Decim
                 if (!denominator_symbol.empty() && denominator_symbol[0] == '/')
                     denominator_symbol.remove_prefix(1);
                 // A few narrow denominators are their narrow symbol, not
-                // the short one: "B/gal" rather than "B/gal US".
+                // the short one: "B/gal" rather than "B/gal US", "kB/B"
+                // rather than "kB/byte".
                 std::string_view const name = denominator->name;
-                if (nf.unit_display == "narrow" && (name == "degree" || name == "fahrenheit" || name == "gallon")) {
+                if (narrow && (name == "degree" || name == "fahrenheit" || name == "gallon" || name == "byte")) {
                     denominator_symbol = denominator->narrow_other;
                     if (denominator_symbol.starts_with("{0}"))
                         denominator_symbol.remove_prefix(3);

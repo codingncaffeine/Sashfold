@@ -68,6 +68,12 @@ void test_number_format()
     CHECK_JS_STRING(in, "var gb = (u, d) => new Intl.NumberFormat('en-GB', { style: 'unit', unit: u, unitDisplay: d || 'long' }).format(2); gb('liter') + '|' + gb('kilometer-per-liter') + '|' + gb('milliliter', 'short') + '|' + gb('percent') + '|' + gb('gallon', 'short') + '|' + new Intl.NumberFormat('en-US', { style: 'unit', unit: 'liter', unitDisplay: 'long' }).format(2)",
         "2 litres|2 kilometres per litre|2 ml|2 per cent|2 US gal|2 liters");
     CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { style: 'unit', unit: 'mile-per-hour' }).format(3) + '|' + new Intl.NumberFormat('en', { style: 'unit', unit: 'byte-per-gallon', unitDisplay: 'narrow' }).format(2)", "3 mph|2B/gal");
+    // Miles per gallon is a word of its own, as miles per hour is; a byte
+    // denominator is spelled out in the short width and not in the narrow.
+    CHECK_JS_STRING(in, "var u = (l, n, d) => new Intl.NumberFormat(l, { style: 'unit', unit: n, unitDisplay: d }).format(30); [u('en', 'mile-per-gallon', 'short'), u('en', 'mile-per-gallon', 'narrow'), u('en-GB', 'mile-per-gallon', 'short'), u('en-GB', 'mile-per-gallon', 'long')].join('|')",
+        "30 mpg|30mpg|30 mpg US|30 miles per US gallon");
+    CHECK_JS_STRING(in, "[u('en', 'kilobyte-per-byte', 'short'), u('en', 'kilobyte-per-byte', 'narrow'), u('en-GB', 'acre-per-byte', 'short'), u('en', 'percent-per-hour', 'short'), u('en', 'percent-per-hour', 'long')].join('|')",
+        "30 kB/byte|30kB/B|30 ac/byte|30%|30 percent per hour");
     // A Number formats from its shortest digits, a string from its own, exactly.
     CHECK_JS_STRING(in, "var two = new Intl.NumberFormat('en', { maximumFractionDigits: 2 }); two.format(1.005) + '|' + two.format('1.00499999999999999999') + '|' + new Intl.NumberFormat('en', { minimumSignificantDigits: 5 }).format(123.456)", "1.01|1|123.456");
     CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { style: 'currency', currency: 'USD', currencySign: 'accounting' }).format(-1) + '|' + new Intl.NumberFormat().format(-0)", "($1.00)|-0");

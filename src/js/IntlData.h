@@ -106,7 +106,7 @@ struct Unit {
 inline constexpr Unit units[] = {
     { "acre", "{0} ac", "{0} ac", "{0}ac", "{0}ac", "{0} acre", "{0} acres", "{0}/ac", "{0} per acre" },
     { "bit", "{0} bit", "{0} bit", "{0}bit", "{0}bit", "{0} bit", "{0} bits", "{0}/bit", "{0} per bit" },
-    { "byte", "{0} byte", "{0} byte", "{0}B", "{0}B", "{0} byte", "{0} bytes", "{0}/B", "{0} per byte" },
+    { "byte", "{0} byte", "{0} byte", "{0}B", "{0}B", "{0} byte", "{0} bytes", "{0}/byte", "{0} per byte" },
     { "celsius", "{0}\xC2\xB0" "C", "{0}\xC2\xB0" "C", "{0}\xC2\xB0" "C", "{0}\xC2\xB0" "C", "{0} degree Celsius",
         "{0} degrees Celsius", "{0}/\xC2\xB0" "C", "{0} per degree Celsius" },
     { "centimeter", "{0} cm", "{0} cm", "{0}cm", "{0}cm", "{0} centimeter", "{0} centimeters", "{0}/cm",
