@@ -64,6 +64,10 @@ void test_number_format()
     CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { notation: 'compact' }).format(999999) + '|' + new Intl.NumberFormat('en', { notation: 'compact', compactDisplay: 'long' }).format(1234567)", "1M|1.2 million");
     CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { notation: 'scientific' }).format(-0.00123) + '|' + new Intl.NumberFormat('en', { notation: 'engineering' }).format(12345)", "-1.23E-3|12.345E3");
     CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { style: 'unit', unit: 'kilometer-per-hour', unitDisplay: 'long' }).format(2) + '|' + new Intl.NumberFormat('en', { style: 'percent' }).format(-0.25)", "2 kilometers per hour|-25%");
+    // British unit names spell -metre and -litre; the American table stays as it was.
+    CHECK_JS_STRING(in, "var gb = (u, d) => new Intl.NumberFormat('en-GB', { style: 'unit', unit: u, unitDisplay: d || 'long' }).format(2); gb('liter') + '|' + gb('kilometer-per-liter') + '|' + gb('milliliter', 'short') + '|' + gb('percent') + '|' + gb('gallon', 'short') + '|' + new Intl.NumberFormat('en-US', { style: 'unit', unit: 'liter', unitDisplay: 'long' }).format(2)",
+        "2 litres|2 kilometres per litre|2 ml|2 per cent|2 US gal|2 liters");
+    CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { style: 'unit', unit: 'mile-per-hour' }).format(3) + '|' + new Intl.NumberFormat('en', { style: 'unit', unit: 'byte-per-gallon', unitDisplay: 'narrow' }).format(2)", "3 mph|2B/gal");
     // A Number formats from its shortest digits, a string from its own, exactly.
     CHECK_JS_STRING(in, "var two = new Intl.NumberFormat('en', { maximumFractionDigits: 2 }); two.format(1.005) + '|' + two.format('1.00499999999999999999') + '|' + new Intl.NumberFormat('en', { minimumSignificantDigits: 5 }).format(123.456)", "1.01|1|123.456");
     CHECK_JS_STRING(in, "new Intl.NumberFormat('en', { style: 'currency', currency: 'USD', currencySign: 'accounting' }).format(-1) + '|' + new Intl.NumberFormat().format(-0)", "($1.00)|-0");

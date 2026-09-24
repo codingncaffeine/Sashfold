@@ -10,7 +10,8 @@
 //
 // en and en-US share every string; en-GB differs where British usage
 // does (day before month, a 24-hour clock, "am"/"pm", no serial comma),
-// and those differences are spelled in the formatters, not here.
+// and those differences are spelled in the formatters, not here; the one
+// exception is the unit names, whose British rows are units_gb below.
 
 #include <cstdint>
 #include <string_view>
@@ -119,7 +120,8 @@ inline constexpr Unit units[] = {
         "{0}/fl oz", "{0} per fluid ounce" },
     { "foot", "{0} ft", "{0} ft", "{0}\xE2\x80\xB2", "{0}\xE2\x80\xB2", "{0} foot", "{0} feet", "{0}/ft",
         "{0} per foot" },
-    { "gallon", "{0} gal", "{0} gal", "{0}gal", "{0}gal", "{0} gallon", "{0} gallons", "{0}/gal", "{0} per gallon" },
+    { "gallon", "{0} gal", "{0} gal", "{0}gal", "{0}gal", "{0} gallon", "{0} gallons", "{0}/gal US",
+        "{0} per gallon" },
     { "gigabit", "{0} Gb", "{0} Gb", "{0}Gb", "{0}Gb", "{0} gigabit", "{0} gigabits", "{0}/Gb", "{0} per gigabit" },
     { "gigabyte", "{0} GB", "{0} GB", "{0}GB", "{0}GB", "{0} gigabyte", "{0} gigabytes", "{0}/GB",
         "{0} per gigabyte" },
@@ -168,6 +170,36 @@ inline constexpr Unit units[] = {
     { "week", "{0} wk", "{0} wks", "{0}w", "{0}w", "{0} week", "{0} weeks", "{0}/w", "{0} per week" },
     { "yard", "{0} yd", "{0} yd", "{0}yd", "{0}yd", "{0} yard", "{0} yards", "{0}/yd", "{0} per yard" },
     { "year", "{0} yr", "{0} yrs", "{0}y", "{0}y", "{0} year", "{0} years", "{0}/y", "{0} per year" },
+};
+
+// en-GB's rows where British usage differs from the table above: the
+// -metre and -litre spellings, "per cent", lower-case litre symbols, US
+// qualifiers on the American volumes, plural abbreviations of time.
+inline constexpr Unit units_gb[] = {
+    { "centimeter", "{0} cm", "{0} cm", "{0}cm", "{0}cm", "{0} centimetre", "{0} centimetres", "{0}/cm",
+        "{0} per centimetre" },
+    { "fahrenheit", "{0}\xC2\xB0" "F", "{0}\xC2\xB0" "F", "{0}\xC2\xB0" "F", "{0}\xC2\xB0" "F",
+        "{0} degree Fahrenheit", "{0} degrees Fahrenheit", "{0}/\xC2\xB0" "F", "{0} per degree Fahrenheit" },
+    { "fluid-ounce", "{0} US fl oz", "{0} US fl oz", "{0}US fl oz", "{0}US fl oz", "{0} US fluid ounce",
+        "{0} US fluid ounces", "{0}/US fl oz", "{0} per US fluid ounce" },
+    { "gallon", "{0} US gal", "{0} US gal", "{0}USgal", "{0}USgal", "{0} US gallon", "{0} US gallons",
+        "{0}/US gal", "{0} per US gallon" },
+    { "hour", "{0} hr", "{0} hrs", "{0}h", "{0}h", "{0} hour", "{0} hours", "{0}/h", "{0} per hour" },
+    { "kilometer", "{0} km", "{0} km", "{0}km", "{0}km", "{0} kilometre", "{0} kilometres", "{0}/km",
+        "{0} per kilometre" },
+    { "liter", "{0} l", "{0} l", "{0}l", "{0}l", "{0} litre", "{0} litres", "{0}/l", "{0} per litre" },
+    { "meter", "{0} m", "{0} m", "{0}m", "{0}m", "{0} metre", "{0} metres", "{0}/m", "{0} per metre" },
+    { "mile-scandinavian", "{0} smi", "{0} smi", "{0}smi", "{0}smi", "{0} Scandinavian mile",
+        "{0} Scandinavian miles", "{0}/smi", "{0} per Scandinavian mile" },
+    { "milliliter", "{0} ml", "{0} ml", "{0}ml", "{0}ml", "{0} millilitre", "{0} millilitres", "{0}/ml",
+        "{0} per millilitre" },
+    { "millimeter", "{0} mm", "{0} mm", "{0}mm", "{0}mm", "{0} millimetre", "{0} millimetres", "{0}/mm",
+        "{0} per millimetre" },
+    { "minute", "{0} min", "{0} mins", "{0}m", "{0}m", "{0} minute", "{0} minutes", "{0}/min", "{0} per minute" },
+    { "percent", "{0}%", "{0}%", "{0}%", "{0}%", "{0} per cent", "{0} per cent", "{0}/%", "{0} per per cent" },
+    { "pound", "{0} lb", "{0} lb", "{0}lb", "{0}lb", "{0} pound", "{0} pounds", "{0}/lb", "{0} per pound" },
+    { "second", "{0} sec", "{0} secs", "{0}s", "{0}s", "{0} second", "{0} seconds", "{0}/s", "{0} per second" },
+    { "stone", "{0} st", "{0} st", "{0}st", "{0}st", "{0} stone", "{0} stone", "{0}/st", "{0} per stone" },
 };
 
 // ---------------------------------------------------------- relative time

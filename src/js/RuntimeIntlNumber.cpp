@@ -691,8 +691,12 @@ int currency_digits(std::string_view code)
     return 2;
 }
 
-intl_data::Unit const* find_unit(std::string_view name)
+intl_data::Unit const* find_unit(std::string_view name, bool british = false)
 {
+    if (british)
+        for (auto const& unit : intl_data::units_gb)
+            if (unit.name == name)
+                return &unit;
     for (auto const& unit : intl_data::units)
         if (unit.name == name)
             return &unit;
@@ -935,15 +939,19 @@ std::vector<IntlPart> partition_number_pattern(NumberFormatData const& nf, Decim
         push_sign();
         std::string_view const unit = nf.unit;
         std::size_t const per = unit.find("-per-");
-        if (per == std::string_view::npos) {
-            intl_data::Unit const* u = find_unit(unit);
-            auto const [before, after] = split_pattern(unit_pattern(*u, nf.unit_display, one));
+        bool const british = nf.data_locale == "en-GB";
+        // English abbreviates miles per hour as a word of its own.
+        bool const mph = unit == "mile-per-hour" && nf.unit_display != "long";
+        if (per == std::string_view::npos || mph) {
+            std::string_view const pattern = mph ? (nf.unit_display == "narrow" ? "{0}mph" : "{0} mph")
+                                                 : unit_pattern(*find_unit(unit, british), nf.unit_display, one);
+            auto const [before, after] = split_pattern(pattern);
             push_affix(parts, before, "unit");
             append_number();
             push_affix(parts, after, "unit");
         } else {
-            intl_data::Unit const* numerator = find_unit(unit.substr(0, per));
-            intl_data::Unit const* denominator = find_unit(unit.substr(per + 5));
+            intl_data::Unit const* numerator = find_unit(unit.substr(0, per), british);
+            intl_data::Unit const* denominator = find_unit(unit.substr(per + 5), british);
             // The numerator's pattern with the denominator's "per" form
             // around its unit: "{0} km/h", "{0} kilometers per hour".
             std::string_view const pattern = unit_pattern(*numerator, nf.unit_display, one);
@@ -958,6 +966,14 @@ std::vector<IntlPart> partition_number_pattern(NumberFormatData const& nf, Decim
                 std::string_view denominator_symbol = per_after;
                 if (!denominator_symbol.empty() && denominator_symbol[0] == '/')
                     denominator_symbol.remove_prefix(1);
+                // A few narrow denominators are their narrow symbol, not
+                // the short one: "B/gal" rather than "B/gal US".
+                std::string_view const name = denominator->name;
+                if (nf.unit_display == "narrow" && (name == "degree" || name == "fahrenheit" || name == "gallon")) {
+                    denominator_symbol = denominator->narrow_other;
+                    if (denominator_symbol.starts_with("{0}"))
+                        denominator_symbol.remove_prefix(3);
+                }
                 combined += "/" + std::string(denominator_symbol);
             }
             push_affix(parts, before, "unit");
