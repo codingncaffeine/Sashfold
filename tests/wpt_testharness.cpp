@@ -57,10 +57,27 @@ constexpr int viewport_height = 600;
 constexpr std::string_view origin = "http://web-platform.test:8000";
 constexpr std::string_view host_name = "web-platform.test";
 constexpr std::string_view alt_host_name = "not-web-platform.test";
-constexpr auto test_deadline = std::chrono::seconds(5);
+// A sanitized build runs several times slower, and under a full parallel run
+// a big file overran the deadline there that it meets alone in 1.7 s: its
+// deadlines stretch — and the hang limit with them, which a test stopped
+// late in native code otherwise reaches — as wptrunner's timeout multiplier
+// stretches every limit for such builds.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#    define SASHFOLD_SANITIZED_BUILD 1
+#elif defined(__has_feature)
+#    if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#        define SASHFOLD_SANITIZED_BUILD 1
+#    endif
+#endif
+#ifdef SASHFOLD_SANITIZED_BUILD
+constexpr int deadline_multiplier = 3;
+#else
+constexpr int deadline_multiplier = 1;
+#endif
+constexpr auto test_deadline = std::chrono::seconds(5 * deadline_multiplier);
 // A test that declares <meta name="timeout" content="long"> is given six times
 // the time, as wptrunner gives it.
-constexpr auto long_test_deadline = std::chrono::seconds(30);
+constexpr auto long_test_deadline = std::chrono::seconds(30 * deadline_multiplier);
 constexpr int max_pumps = 20000;
 
 // Layout runs on the process's one font manager, so the tests' layout
@@ -1078,7 +1095,7 @@ int main(int argc, char** argv)
     if (char const* env = std::getenv("SASHFOLD_PRINT_FAILURES"))
         max_printed = std::atoi(env);
     int jobs = static_cast<int>(std::max(1u, std::thread::hardware_concurrency() / 2));
-    long hang_seconds = 60;
+    long hang_seconds = 60L * deadline_multiplier;
     int messages = 0;
     int files_ranked = 0;
     bool accept_losses = false;
