@@ -3,11 +3,49 @@
 #include "core/Ascii.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <vector>
 
 namespace sashfold::ui {
+
+namespace {
+
+// A page's requests on stderr under SASHFOLD_NET_TRACE=1: the method, the
+// status or the error, the address and the size — what a stream that
+// starts failing looks like from here.
+bool net_tracing()
+{
+    static bool const wanted = [] {
+        char const* const value = std::getenv("SASHFOLD_NET_TRACE");
+        return value != nullptr && value[0] == '1';
+    }();
+    return wanted;
+}
+
+void trace_request(std::string const& method, net::Url const& url, net::FetchResult const& result)
+{
+    std::string const address = url.serialize();
+    std::string const shown = address.size() > 200 ? address.substr(0, 200) + "…" : address;
+    if (result.response) {
+        std::cerr << "net: " << method << " " << result.response->status << " " << shown << " (" << result.response->body.size() << " bytes)\n";
+        // A small answer from a media server is a message, not media: shown
+        // whole, so what the server said can be read.
+        if (address.find("videoplayback") != std::string::npos && result.response->body.size() <= 512) {
+            std::string hex;
+            for (std::uint8_t const byte : result.response->body) {
+                hex += "0123456789abcdef"[byte >> 4];
+                hex += "0123456789abcdef"[byte & 15];
+            }
+            std::cerr << "net: body " << hex << "\n";
+        }
+    } else
+        std::cerr << "net: " << method << " failed " << shown << ": " << result.error << "\n";
+}
+
+}
 
 namespace {
 
@@ -288,7 +326,10 @@ net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url co
     options.cache = &m_cache;
     options.pool = &m_pool;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
-    return noted(kind, net::fetch(url, options));
+    net::FetchResult result = noted(kind, net::fetch(url, options));
+    if (net_tracing())
+        trace_request(options.method.empty() ? "GET" : options.method, url, result);
+    return result;
 }
 
 std::string ShellLoader::ahead_key(net::Url const& url, net::ResourceKind kind, std::string_view container)
@@ -379,7 +420,10 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.body = request.body;
     options.follow_redirects = request.follow_redirects;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
-    return noted(kind, net::fetch(url, options));
+    net::FetchResult result = noted(kind, net::fetch(url, options));
+    if (net_tracing())
+        trace_request(options.method.empty() ? "GET" : options.method, url, result);
+    return result;
 }
 
 std::string ShellLoader::cookies_for(net::Url const& url, std::string_view container)

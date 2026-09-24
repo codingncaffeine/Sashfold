@@ -380,6 +380,10 @@ public:
         ResizeTopRight,
         ResizeBottomLeft,
         ResizeBottomRight,
+        // A page's element went full screen, or left it: the whole screen
+        // for the window, or its place back.
+        EnterFullscreen,
+        ExitFullscreen,
     };
     void set_window_controls(bool shown);
     bool window_controls() const;

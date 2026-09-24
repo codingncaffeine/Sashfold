@@ -1567,10 +1567,10 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_method(in, element, "getAnimations", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
-    // requestFullscreen() is a promise, refused while the shell has no full screen.
-    element_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
-        internals.interpreter.throw_type_error("Fullscreen request denied");
-        return rejected_promise(internals.interpreter, internals.interpreter.take_exception());
+    // requestFullscreen(): shown over the whole screen when the shell agrees
+    // (Fullscreen.cpp).
+    element_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        return request_fullscreen(internals, e);
     });
 }
 

@@ -195,6 +195,10 @@ struct HostHooks {
     // within the last seconds (HTML §6.4.2, transient activation): a new
     // window opens only then. Without it every ask counts as a gesture.
     std::function<bool()> user_activation;
+    // A page's element going full screen (true), or leaving it (false): the
+    // host puts its chrome away and asks for the whole screen, or brings
+    // them back. True when it did. Unset, no element goes full screen.
+    std::function<bool(bool enter)> request_fullscreen;
 
     // Dedicated workers (HTML §10.2, Workers.h). With `worker_threads`, each
     // worker a document here starts runs on a thread of its own, and all it
@@ -413,6 +417,9 @@ public:
     // made: waits, up to `timeout_ms` of real time, until every video shows
     // the frame due at its position. How many do.
     std::size_t settle_video(double timeout_ms);
+    // The reader left full screen (Esc): the page's element is let go and
+    // told, as by exitFullscreen().
+    void exit_fullscreen();
 
     ScriptStats const& stats() const;
 

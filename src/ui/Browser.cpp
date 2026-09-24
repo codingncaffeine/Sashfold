@@ -858,6 +858,9 @@ struct Browser::Impl {
     // Only video pictures changed since the frame was painted: painted
     // again where they are, and nothing else (paint_videos).
     bool video_dirty = false;
+    // The document whose element is shown full screen, while one is: its
+    // page has the whole window (layout_chrome).
+    dom::Document const* fullscreen_document = nullptr;
     Profile profile; // the counts and the milliseconds, since the start
 
     // Adds what a scope took to one of the profile's sums when the scope
@@ -1314,6 +1317,13 @@ struct Browser::Impl {
 
     ChromeLayout layout_chrome() const
     {
+        if (page_fullscreen()) {
+            // A page's element is shown full screen: the page has the whole
+            // window, and nothing of the shell's is drawn or hit.
+            ChromeLayout whole;
+            whole.content = Rect { 0, 0, width, height };
+            return whole;
+        }
         Theme const& t = theme;
         ChromeLayout c;
         c.tab_strip = Rect { 0, 0, width, t.tab_strip_height };
@@ -2195,6 +2205,29 @@ struct Browser::Impl {
         return nullptr;
     }
 
+    // The page in front has an element shown full screen.
+    bool page_fullscreen() const
+    {
+        Tab const* const tab = active_tab();
+        return fullscreen_document != nullptr && tab && tab->document.get() == fullscreen_document;
+    }
+
+    // The reader leaves the page's full screen (Esc, another tab): the
+    // page's element is let go and told, and its hook brings the chrome and
+    // the window back — here, if the page is gone or did not answer.
+    void leave_fullscreen()
+    {
+        if (fullscreen_document == nullptr)
+            return;
+        if (Tab* const owner = tab_of(fullscreen_document); owner && owner->realm)
+            owner->realm->exit_fullscreen();
+        if (fullscreen_document != nullptr) {
+            fullscreen_document = nullptr;
+            window_request = Browser::WindowRequest::ExitFullscreen;
+            dirty = true;
+        }
+    }
+
     std::size_t index_of(Tab const& tab) const { return static_cast<std::size_t>(&tab - tabs.data()); }
 
     // The pictures the page's video elements show now: a new bitmap (the
@@ -2543,6 +2576,24 @@ struct Browser::Impl {
                 pending_windows.push_back(PendingWindow { owner->container, target, index_of(*owner), true });
         };
         hooks.user_activation = [this] { return std::chrono::steady_clock::now() < activation_until; };
+        // A page's element going full screen: only the page in front, and
+        // only its own document (a frame is refused before it asks). The
+        // page gets the whole window — the chrome is put away — and the
+        // window asks for the whole screen; leaving brings both back.
+        hooks.request_fullscreen = [this, document](bool enter) {
+            Tab const* const owner = tab_of(document);
+            if (!owner || owner != active_tab())
+                return false;
+            if (enter) {
+                fullscreen_document = document;
+                window_request = Browser::WindowRequest::EnterFullscreen;
+            } else if (fullscreen_document == document) {
+                fullscreen_document = nullptr;
+                window_request = Browser::WindowRequest::ExitFullscreen;
+            }
+            dirty = true;
+            return true;
+        };
         hooks.scroll_to = [this, document](dom::Document const& from, int, int y) {
             Tab* const owner = tab_of(document);
             if (!owner)
@@ -3879,6 +3930,8 @@ struct Browser::Impl {
     {
         if (index >= tabs.size())
             return;
+        if (index != active)
+            leave_fullscreen(); // another tab comes forward with its chrome
         if (index != active)
             opened_beside = 0; // what another tab opens stands beside that tab
         active = index;
@@ -7526,6 +7579,12 @@ struct Browser::Impl {
             ensure_fresh(*front);
         clear_preedit();
         note_activation();
+        // Esc leaves a page's full screen before the page or the shell sees
+        // it: the way out the Fullscreen spec keeps for the reader.
+        if (page_fullscreen() && key.key == Key::Escape) {
+            leave_fullscreen();
+            return;
+        }
         // An open menu takes every key.
         if (!menus.empty()) {
             menu_key(key);
@@ -8888,6 +8947,13 @@ bool Browser::run_scripts()
         impl.script_started = std::chrono::steady_clock::now();
         if (tab.realm->run_pending())
             ran = true;
+    }
+    // Full screen whose page is gone — navigated away, or its tab closed —
+    // gives the window and the chrome back.
+    if (impl.fullscreen_document != nullptr && impl.tab_of(impl.fullscreen_document) == nullptr) {
+        impl.fullscreen_document = nullptr;
+        impl.window_request = WindowRequest::ExitFullscreen;
+        impl.dirty = true;
     }
     if (Impl::Tab* const tab = impl.active_tab()) {
         impl.take_video_frames(*tab);

@@ -199,7 +199,9 @@ namespace xdg_toplevel {
     constexpr std::uint16_t set_min_size = 8;
     constexpr std::uint16_t set_maximized = 9;
     constexpr std::uint16_t unset_maximized = 10;
-    constexpr std::uint16_t set_minimized = 12;
+    constexpr std::uint16_t set_fullscreen = 11;
+    constexpr std::uint16_t unset_fullscreen = 12;
+    constexpr std::uint16_t set_minimized = 13;
     constexpr std::uint16_t event_configure = 0;
     constexpr std::uint16_t event_close = 1;
     constexpr std::uint16_t event_configure_bounds = 2; // since 4
@@ -416,6 +418,7 @@ public:
     void begin_resize(WindowEdge edge) override;
     void minimize() override;
     void toggle_maximize() override;
+    void set_fullscreen(bool fullscreen) override;
     // The buffer's size: the logical size the compositor configured, at the
     // display's scale.
     int width() const override { return m_buffer_width; }
@@ -1279,6 +1282,18 @@ void WaylandWindow::toggle_maximize()
         return;
     debug("%s", m_maximized ? "unmaximize" : "maximize");
     Request request(m_toplevel, m_maximized ? xdg_toplevel::unset_maximized : xdg_toplevel::set_maximized);
+    send(request);
+    m_connection->flush();
+}
+
+void WaylandWindow::set_fullscreen(bool fullscreen)
+{
+    if (!m_toplevel)
+        return;
+    debug("%s", fullscreen ? "fullscreen" : "leave fullscreen");
+    Request request(m_toplevel, fullscreen ? xdg_toplevel::set_fullscreen : xdg_toplevel::unset_fullscreen);
+    if (fullscreen)
+        request.object(0); // no output named: the compositor picks the one the window is on
     send(request);
     m_connection->flush();
 }

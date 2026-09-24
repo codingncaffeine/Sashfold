@@ -128,6 +128,9 @@ public:
     virtual void begin_resize(WindowEdge edge) { static_cast<void>(edge); }
     virtual void minimize() { }
     virtual void toggle_maximize() { }
+    // The window over the whole screen, with nothing of the system's
+    // around it, at a page's asking (the Fullscreen API) — and back.
+    virtual void set_fullscreen(bool fullscreen) { static_cast<void>(fullscreen); }
 };
 
 }

@@ -1,0 +1,18 @@
+# A page's element goes full screen: refused with no click behind the ask,
+# granted at a click — the page gets the whole window, where the tab strip
+# was, and the window asks for the whole screen — and Esc gives both back.
+resize 640 400
+open fullscreen.html
+advance 10
+assert-title refused, error
+print-pixel 5 5
+click 320 300
+advance 10
+assert-title refused, error, change player, granted
+assert-window-request fullscreen
+assert-pixel 5 5 #0000aa
+key Escape
+advance 10
+assert-title refused, error, change player, granted, change none
+assert-window-request leave-fullscreen
+print-pixel 5 5

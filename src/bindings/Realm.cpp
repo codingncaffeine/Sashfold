@@ -1374,6 +1374,7 @@ std::uint64_t Realm::tree_mutation_count() const
 void Realm::note_mutation() { ++m_internals->mutations; }
 std::vector<VideoFrame> Realm::video_frames() { return media_video_frames(*m_internals); }
 std::size_t Realm::settle_video(double timeout_ms) { return media_settle_video(*m_internals, timeout_ms); }
+void Realm::exit_fullscreen() { bindings::exit_fullscreen(*m_internals, std::nullopt); }
 ScriptStats const& Realm::stats() const { return m_internals->stats; }
 
 js::Value Realm::wrap_or_null(dom::Node* node)
@@ -2736,6 +2737,9 @@ bool Realm::run_pending()
     // nothing when nothing has moved since the last time.
     if (!in.interpreter.terminated() && update_intersection_observations(in))
         ran = true;
+    // An element shown full screen that has left the document takes full
+    // screen with it (Fullscreen §4, the removing steps).
+    check_fullscreen_element(in);
     return ran;
 }
 
@@ -2829,6 +2833,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
     trace_presenting_media(in, tracer);
+    trace_fullscreen(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)
             tracer.visit(*member.value);

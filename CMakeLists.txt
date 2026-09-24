@@ -49,6 +49,7 @@ add_library(sashfold_core STATIC
   src/bindings/Document.cpp
   src/bindings/Events.cpp
   src/bindings/Fetch.cpp
+  src/bindings/Fullscreen.cpp
   src/bindings/HtmlElements.cpp
   src/bindings/Intersection.cpp
   src/bindings/LayoutOracle.cpp

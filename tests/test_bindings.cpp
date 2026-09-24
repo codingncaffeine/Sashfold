@@ -3528,7 +3528,7 @@ void test_interfaces_that_promise()
         document.fonts.load('12px serif').then(function (faces) { out.push('load ' + faces.length); });
         document.createElement('video').play().catch(function (e) { out.push('play ' + e.name); });
         new Image().decode().catch(function (e) { out.push('decode ' + e.name); });
-        document.exitFullscreen().then(function () { out.push('exit'); });
+        document.exitFullscreen().catch(function (e) { out.push('exit ' + e.name); }); // nothing is full screen
         document.body.requestFullscreen().catch(function (e) { out.push('full ' + e.name); });
         out.push('when ' + (customElements.whenDefined('x-y') instanceof Promise));
         crypto.subtle.digest('SHA-256', new TextEncoder().encode('abc')).then(function (b) { out.push(hex(b)); });
@@ -3539,7 +3539,7 @@ void test_interfaces_that_promise()
         crypto.subtle.sign().catch(function (e) { out.push('sign ' + e.name); });
     )JS");
     CHECK_EQ(page.string("out.join(' | ')"),
-        std::string("when true | has true | request undefined | fonts function | load 0 | play NotSupportedError | decode EncodingError | exit"
+        std::string("when true | has true | request undefined | fonts function | load 0 | play NotSupportedError | decode EncodingError | exit TypeError"
                     " | full TypeError | ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad | 512 64 true | 384 48"
                     " | sha1 NotSupportedError | bytes TypeError | sign NotSupportedError"));
     CHECK_EQ(page.console, std::string(""));

@@ -1787,7 +1787,7 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
 // and the loader's account, in --bench's terms so the two compare.
 int run_window(std::string const& start_url, std::string const& theme_path,
     std::string const& blocklists_path, std::string const& downloads, std::string const& profile,
-    char const* program, int exit_after_ms, std::string const& timings_path)
+    char const* program, int exit_after_ms, std::string const& timings_path, std::string const& frames_dir, double frame_every_ms)
 {
     std::optional<Bitmap> const icon = load_window_icon(program);
     std::unique_ptr<platform::Window> window
@@ -1921,10 +1921,29 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     double loaded_ms = 0;
     std::vector<double> present_ms;
     ui::Profile const base_profile = browser.profile();
+    // With --frames-to, what the reader would have seen, as it was shown:
+    // the frame presented as each --frame-every of real time passes, and
+    // the last one at the end — the real window, on the real clock.
+    double next_capture_ms = frame_every_ms;
+    Bitmap const* last_presented = nullptr;
+    auto const capture = [&](Bitmap const& frame, std::string const& name) {
+        std::ofstream out(std::filesystem::path(frames_dir) / name, std::ios::binary);
+        std::vector<std::uint8_t> const png = encode_png(frame);
+        out.write(reinterpret_cast<char const*>(png.data()), static_cast<std::streamsize>(png.size()));
+    };
     auto const present = [&](Bitmap const& frame) {
         auto const t = clock::now();
         window->present(frame);
         present_ms.push_back(wall_ms(clock::now() - t).count());
+        last_presented = &frame;
+        double const at = wall_ms(t - started).count();
+        if (!frames_dir.empty() && at >= next_capture_ms) {
+            char name[32];
+            std::snprintf(name, sizeof name, "frame-%06.0f.png", at);
+            capture(frame, name);
+            while (next_capture_ms <= at)
+                next_capture_ms += frame_every_ms;
+        }
     };
     auto last_profile_write = std::chrono::steady_clock::now();
     // Writes whatever of the profile changed; true when a write is still
@@ -1996,8 +2015,11 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 
     bool running = true;
     while (running) {
-        if (exit_after_ms > 0 && wall_ms(clock::now() - started).count() >= exit_after_ms)
+        if (exit_after_ms > 0 && wall_ms(clock::now() - started).count() >= exit_after_ms) {
+            if (!frames_dir.empty() && last_presented != nullptr)
+                capture(*last_presented, "frame-last.png");
             break;
+        }
         // One turn of the loop, clocked: what it took in, what it cost, and
         // where — said on stderr for a turn the reader could feel, and for
         // every turn that did anything under --trace-frames.
@@ -2075,6 +2097,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             case Request::ResizeTopRight: window->begin_resize(Edge::TopRight); break;
             case Request::ResizeBottomLeft: window->begin_resize(Edge::BottomLeft); break;
             case Request::ResizeBottomRight: window->begin_resize(Edge::BottomRight); break;
+            case Request::EnterFullscreen: window->set_fullscreen(true); break;
+            case Request::ExitFullscreen: window->set_fullscreen(false); break;
             }
             if (!running)
                 break;
@@ -2239,6 +2263,8 @@ int main(int argc, char** argv)
     int runs = 5;
     int exit_after_ms = 0; // the window ends itself after this many milliseconds; 0 never
     std::string timings_path; // where a headless window run writes what it measured
+    std::string frames_dir; // where it saves the frames it showed, one each --frame-every
+    double frame_every_ms = 5000;
     long js_heap_limit_mb = -1; // a page's script heap, MB; -1 takes it from the machine's memory, 0 is none
     long memory_ceiling_mb = -1; // the whole process, MB, for the window's memory watch; the same
     bool update_goldens = false;
@@ -2322,6 +2348,14 @@ int main(int argc, char** argv)
             if (!value_after(i, text))
                 return usage(argv[0]);
             exit_after_ms = std::max(0, std::atoi(text.c_str()));
+        } else if (arg == "--frames-to") {
+            if (!value_after(i, frames_dir))
+                return usage(argv[0]);
+        } else if (arg == "--frame-every") {
+            std::string text;
+            if (!value_after(i, text))
+                return usage(argv[0]);
+            frame_every_ms = std::max(100, std::atoi(text.c_str()));
         } else if (arg == "--timings") {
             if (!value_after(i, timings_path))
                 return usage(argv[0]);
@@ -2465,7 +2499,7 @@ int main(int argc, char** argv)
             : platform::memory_ceiling_for(platform::physical_memory_bytes()));
     int const result = run_window(start_url, theme_path, blocklists_path,
         downloads.value_or(default_downloads_directory()), profile.value_or(default_profile_directory()), argv[0],
-        exit_after_ms, timings_path);
+        exit_after_ms, timings_path, frames_dir, frame_every_ms);
     platform::MemoryWatch::stop();
     return result;
 }

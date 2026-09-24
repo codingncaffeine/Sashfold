@@ -523,6 +523,8 @@ struct Runner {
             case Request::ResizeTopRight: name = "resize-top-right"; break;
             case Request::ResizeBottomLeft: name = "resize-bottom-left"; break;
             case Request::ResizeBottomRight: name = "resize-bottom-right"; break;
+            case Request::EnterFullscreen: name = "fullscreen"; break;
+            case Request::ExitFullscreen: name = "leave-fullscreen"; break;
             }
             expect_equal("assert-window-request", name, argument);
         } else if (command == "assert-box-scroll") {

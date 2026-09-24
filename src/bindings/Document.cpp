@@ -445,9 +445,11 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_getter(in, *document, "currentScript", [](Realm::Internals& internals, dom::Document&) -> Native {
         return internals.realm.wrap_or_null(internals.current_script);
     });
-    document_getter(in, *document, "fullscreenElement", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::null(); });
+    document_getter(in, *document, "fullscreenElement", [](Realm::Internals& internals, dom::Document&) -> Native { return fullscreen_element(internals); });
     document_getter(in, *document, "pointerLockElement", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::null(); });
-    document_getter(in, *document, "fullscreenEnabled", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::boolean(false); });
+    document_getter(in, *document, "fullscreenEnabled", [](Realm::Internals& internals, dom::Document&) -> Native {
+        return js::Value::boolean(fullscreen_enabled(internals));
+    });
     document_getter(in, *document, "styleSheets", [](Realm::Internals& internals, dom::Document&) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
@@ -703,7 +705,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "queryCommandSupported", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
     document_method(in, *document, "queryCommandEnabled", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
     document_method(in, *document, "exitFullscreen", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return resolved_promise(internals.interpreter, js::Value::undefined());
+        return exit_fullscreen_promise(internals);
     });
     document_method(in, *document, "exitPointerLock", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
     document_method(in, *document, "getSelection", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {

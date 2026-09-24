@@ -1,0 +1,18 @@
+# Planted-fault controls for tests/shell/fullscreen.script: a page's element full screen, granted at a click and left at Esc.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/fullscreen.script
+
+control chrome-kept
+file src/ui/Browser.cpp
+fails 13
+plant s~        if \(page_fullscreen\(\)\) \{\n            // A page's element is shown full screen~        if (false && page_fullscreen()) {\n            // A page's element is shown full screen~
+
+control no-escape
+file src/ui/Browser.cpp
+fails 16 17
+plant s~        if \(page_fullscreen\(\) && key\.key == Key::Escape\) \{~        if (false && page_fullscreen() && key.key == Key::Escape) {~
+
+control any-ask
+file src/bindings/Fullscreen.cpp
+fails 7 11 16
+plant s~&& \(!in\.hooks\.user_activation \|\| in\.hooks\.user_activation\(\)\)~&& true~

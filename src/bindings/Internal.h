@@ -874,6 +874,8 @@ struct Realm::Internals {
     // The media elements' states that decode video, while their elements are
     // in the document: whose pictures the host draws (Media.cpp).
     std::vector<js::Object*> presenting_media;
+    // The wrapper of the element shown full screen, if one is (Fullscreen.cpp).
+    js::Object* fullscreen_wrapper = nullptr;
     // What scripts hold for this window, its WindowProxy; and whether an
     // object is this window, the proxy or the global object behind it.
     js::Object* window_proxy() const;
@@ -1259,6 +1261,17 @@ void media_src_changed(Realm::Internals&, dom::Element&);
 std::vector<VideoFrame> media_video_frames(Realm::Internals&);
 std::size_t media_settle_video(Realm::Internals&, double timeout_ms);
 void trace_presenting_media(Realm::Internals const&, js::Tracer&);
+// The Fullscreen API (Fullscreen.cpp): requestFullscreen(), exitFullscreen()
+// and the host's own exit (Esc), document.fullscreenElement and
+// fullscreenEnabled, and full screen ended when its element leaves the
+// document (checked once a turn).
+Native request_fullscreen(Realm::Internals&, dom::Element&);
+Native exit_fullscreen_promise(Realm::Internals&);
+void exit_fullscreen(Realm::Internals&, std::optional<js::PromiseCapability> const&);
+js::Value fullscreen_element(Realm::Internals&);
+bool fullscreen_enabled(Realm::Internals const&);
+void check_fullscreen_element(Realm::Internals&);
+void trace_fullscreen(Realm::Internals const&, js::Tracer&);
 // Names a MediaSource by this blob: URL; false for any other value.
 bool register_media_source_url(Realm::Internals&, js::Value const&, std::string const& url);
 // Arms a timer of the realm's that calls a native function (Tasks.cpp).

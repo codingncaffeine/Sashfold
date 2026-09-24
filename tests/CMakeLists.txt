@@ -169,6 +169,9 @@ add_test(NAME shell_video
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/video.script)
 set_tests_properties(shell_video PROPERTIES ENVIRONMENT
   "SASHFOLD_MEDIA=1;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
+# A page's element full screen: refused without a click, granted at one, left at Esc.
+add_test(NAME shell_fullscreen
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/fullscreen.script)
 add_test(NAME shell_selection
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/selection.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
