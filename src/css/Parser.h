@@ -8,6 +8,8 @@
 
 #include "css/Token.h"
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -86,6 +88,21 @@ struct Stylesheet {
 
 // §5.4.3. Parse a stylesheet.
 Stylesheet parse_stylesheet(std::string_view utf8);
+
+// The same, kept: a sheet's rules by its text, for the sixty-four texts
+// read last, shared by everything that reads a sheet's rules — the
+// resolver's rule sets, the @import scan, the @font-face gathering — so
+// a page's sheets are parsed once however often they are collected. The
+// shell collects a page's sheets again whenever a script adds one, and a
+// page carrying twenty-six megabytes of CSS in twenty-six sheets had them
+// parsed some three times per collection, sixteen collections over: four
+// seconds of its load. Shipping engines keep one parsed sheet per text
+// the same way. What comes back is immutable and may be kept.
+std::shared_ptr<Stylesheet const> parse_stylesheet_shared(std::string_view utf8);
+
+// How many times text has been parsed into a stylesheet since the
+// program started, the kept parses not counted: what a test holds still.
+std::size_t stylesheets_parsed();
 
 // §5.4.5. Parse a block's contents — the style="" attribute entry point.
 // Returns the mixed contents; use the helper below when only the

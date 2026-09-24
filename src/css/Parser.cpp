@@ -3,11 +3,16 @@
 #include "core/Ascii.h"
 #include "css/Tokenizer.h"
 
+#include <algorithm>
+#include <atomic>
+#include <mutex>
 #include <utility>
 
 namespace sashfold::css {
 
 namespace {
+
+std::atomic<std::size_t> g_stylesheets_parsed { 0 };
 
 // §5.3 token stream, over an eagerly tokenized vector (stylesheets are small;
 // marks and restores become index bookkeeping).
@@ -440,10 +445,46 @@ struct Parser {
 
 Stylesheet parse_stylesheet(std::string_view utf8)
 {
+    g_stylesheets_parsed.fetch_add(1, std::memory_order_relaxed);
     Parser parser(utf8);
     Stylesheet stylesheet;
     stylesheet.rules = parser.consume_stylesheet_contents();
     return stylesheet;
+}
+
+std::shared_ptr<Stylesheet const> parse_stylesheet_shared(std::string_view utf8)
+{
+    struct Kept {
+        std::string text;
+        std::shared_ptr<Stylesheet const> sheet;
+    };
+    // The most recently used first. Behind a lock: the harness parses
+    // on several threads at once, and the window's workers may one day.
+    static std::mutex mutex;
+    static std::vector<Kept> kept;
+    constexpr std::size_t most = 64;
+    {
+        std::lock_guard<std::mutex> const lock(mutex);
+        for (std::size_t i = 0; i < kept.size(); ++i) {
+            if (kept[i].text.size() == utf8.size() && kept[i].text == utf8) {
+                std::rotate(kept.begin(), kept.begin() + static_cast<std::ptrdiff_t>(i),
+                    kept.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+                return kept.front().sheet;
+            }
+        }
+    }
+    // Parsed outside the lock, so a long sheet holds nobody else up.
+    auto sheet = std::make_shared<Stylesheet const>(parse_stylesheet(utf8));
+    std::lock_guard<std::mutex> const lock(mutex);
+    kept.insert(kept.begin(), Kept { std::string(utf8), sheet });
+    if (kept.size() > most)
+        kept.pop_back();
+    return sheet;
+}
+
+std::size_t stylesheets_parsed()
+{
+    return g_stylesheets_parsed.load(std::memory_order_relaxed);
 }
 
 std::vector<Rule> parse_blocks_contents_rules(std::string_view utf8,

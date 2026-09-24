@@ -1,5 +1,6 @@
 #include "Test.h"
 
+#include "css/Parser.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
@@ -484,6 +485,36 @@ int main()
             });
         CHECK_EQ(loaded_sheets.size(), 1u);
         CHECK_EQ(red_of(css::resolve_styles(*loaded, loaded_sheets), *loaded, "q"), 6);
+    }
+
+    // --- Each sheet's text is parsed once ------------------------------------------
+    // The shell collects a page's sheets again whenever a script adds one,
+    // and then gathers their fonts and compiles their rules again. Every
+    // reader shares one parsed sheet per text, so the second round parses
+    // nothing, and the first parses each text once (plus the user-agent
+    // sheet, if nothing above has had it parsed yet).
+    {
+        FakeFetcher once;
+        once.sheets["https://example.test/once/a.css"]
+            = "@import \"b.css\";\n@font-face { font-family: OnceFace; src: url(once.ttf) }\np { color: rgb(11, 0, 0) }";
+        once.sheets["https://example.test/once/b.css"] = "p { color: rgb(12, 0, 0) }";
+        net::Url const once_base = *net::parse_url("https://example.test/once/page.html");
+        auto const once_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><link rel="stylesheet" href="a.css"><style>p { color: rgb(13, 0, 0) }</style></head>
+<body><p id="p">text</p></body></html>)"));
+        auto const fetch = [&](net::Url const& url, std::string_view nonce) { return once(url, nonce); };
+        auto const round = [&]() {
+            std::vector<css::SheetSource> const round_sheets = css::collect_stylesheets(*once_document, &once_base, fetch);
+            std::vector<text::PageFont> const round_fonts = css::collect_page_fonts(round_sheets, fetch);
+            css::StyleSet const round_set(round_sheets, {}, &once_base);
+            return round_sheets.size() + round_fonts.size();
+        };
+        std::size_t const before = css::stylesheets_parsed();
+        CHECK_EQ(round(), 3u);
+        std::size_t const first = css::stylesheets_parsed() - before;
+        CHECK(first >= 3 && first <= 4);
+        CHECK_EQ(round(), 3u);
+        CHECK_EQ(css::stylesheets_parsed() - before, first);
     }
 
     return test::report("stylesheets");

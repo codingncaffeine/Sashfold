@@ -228,7 +228,7 @@ enum class CascadeRank : int {
 // their breakpoints — so what was read is kept, by the sheet's text, for
 // the sixty-four sheets used last.
 struct PreparedSheet {
-    Stylesheet sheet;
+    std::shared_ptr<Stylesheet const> sheet; // the parser's kept parse, shared with every other reader
     std::unordered_map<QualifiedRule const*, std::optional<SelectorList>> selectors;
 };
 
@@ -258,8 +258,8 @@ std::shared_ptr<PreparedSheet const> prepared_sheet(std::string_view text)
         }
     }
     auto prepared = std::make_shared<PreparedSheet>();
-    prepared->sheet = parse_stylesheet(text);
-    prepare_rules(prepared->sheet.rules, *prepared);
+    prepared->sheet = parse_stylesheet_shared(text);
+    prepare_rules(prepared->sheet->rules, *prepared);
     kept.insert(kept.begin(), Kept { std::string(text), prepared });
     if (kept.size() > most)
         kept.pop_back();
@@ -2241,7 +2241,7 @@ struct RuleSet {
         std::shared_ptr<net::Url const> const& base)
     {
         std::shared_ptr<PreparedSheet const> prepared = prepared_sheet(text);
-        compile_rules(*prepared, prepared->sheet.rules, user_agent, order, base);
+        compile_rules(*prepared, prepared->sheet->rules, user_agent, order, base);
         sheets_kept.push_back(std::move(prepared));
     }
 

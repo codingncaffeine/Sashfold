@@ -206,8 +206,8 @@ std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::strin
 std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext const& media)
 {
     std::vector<std::string> urls;
-    Stylesheet const sheet = parse_stylesheet(sheet_text);
-    for (Rule const& rule : sheet.rules) {
+    std::shared_ptr<Stylesheet const> const sheet = parse_stylesheet_shared(sheet_text);
+    for (Rule const& rule : sheet->rules) {
         if (!rule.is_at_rule())
             break; // imports precede every other rule
         AtRule const& at = rule.at_rule();
@@ -491,8 +491,8 @@ bool readable_source(FontFaceSource const& source)
 std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaContext const& media)
 {
     std::vector<FontFaceRule> out;
-    Stylesheet const sheet = parse_stylesheet(sheet_text);
-    gather_font_faces(sheet.rules, media, out);
+    std::shared_ptr<Stylesheet const> const sheet = parse_stylesheet_shared(sheet_text);
+    gather_font_faces(sheet->rules, media, out);
     return out;
 }
 
