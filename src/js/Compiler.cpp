@@ -410,7 +410,7 @@ private:
     std::uint32_t template_index(TemplateLiteral const* node) { return pooled(m_code->templates, node); }
     std::uint32_t regexp(RegExpLiteral const* node) { return pooled(m_code->regexps, node); }
     std::uint32_t declarations(Declarations const* node) { return pooled(m_code->declarations, node); }
-    std::uint32_t node_index(Expression const* node) { return pooled(m_code->nodes, node); }
+    std::uint32_t node_index(Expression const* node) { return pooled_indexed(m_code->nodes, m_node_index, node); }
     std::uint32_t name_list(std::vector<JsString*> names)
     {
         m_code->name_lists.push_back(std::move(names));
@@ -2308,6 +2308,7 @@ private:
     std::unique_ptr<CodeBlock> m_code;
     std::unordered_map<JsString*, std::uint32_t> m_name_index; // the names pool, by name
     std::unordered_map<FunctionNode const*, std::uint32_t> m_function_index; // the functions pool, by node
+    std::unordered_map<Expression const*, std::uint32_t> m_node_index; // the nodes pool (a call site each), by node
     std::vector<Scope> m_scopes;
     std::string m_error;
     int m_depth = 0;

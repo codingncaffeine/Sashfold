@@ -272,6 +272,15 @@ void test_cosmetic()
     // A nefarious list contributes no hiding.
     lists.add(FilterList::parse("##.x\n", "n", true));
     CHECK_EQ(lists.hidden_selectors("").size(), std::size_t { 3 });
+    // Asked again for a host, the same answer, in the same order; a list
+    // added afterwards is in the next answer.
+    CHECK(lists.hidden_selectors("example.com") == on_example);
+    CHECK(lists.hidden_selectors("example.com") == on_example);
+    lists.add(FilterList::parse("example.com##.third\n", "c"));
+    std::vector<std::string> const with_third = lists.hidden_selectors("example.com");
+    CHECK_EQ(with_third.size(), std::size_t { 4 });
+    CHECK(with_third.back() == ".third");
+    CHECK_EQ(lists.hidden_selectors("").size(), std::size_t { 3 });
 }
 
 } // namespace

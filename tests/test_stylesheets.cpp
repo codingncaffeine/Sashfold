@@ -498,6 +498,7 @@ int main()
         once.sheets["https://example.test/once/a.css"]
             = "@import \"b.css\";\n@font-face { font-family: OnceFace; src: url(once.ttf) }\np { color: rgb(11, 0, 0) }";
         once.sheets["https://example.test/once/b.css"] = "p { color: rgb(12, 0, 0) }";
+        once.sheets["https://example.test/once/once.ttf"] = "FONT BYTES ONE";
         net::Url const once_base = *net::parse_url("https://example.test/once/page.html");
         auto const once_document = html::parse_document(std::string_view(R"(<!doctype html>
 <html><head><link rel="stylesheet" href="a.css"><style>p { color: rgb(13, 0, 0) }</style></head>
@@ -510,11 +511,19 @@ int main()
             return round_sheets.size() + round_fonts.size();
         };
         std::size_t const before = css::stylesheets_parsed();
-        CHECK_EQ(round(), 3u);
+        std::size_t const hashed_before = text::font_bytes_hashed();
+        CHECK_EQ(round(), 4u); // three sheets and the font
         std::size_t const first = css::stylesheets_parsed() - before;
         CHECK(first >= 3 && first <= 4);
-        CHECK_EQ(round(), 3u);
+        CHECK_EQ(text::font_bytes_hashed() - hashed_before, std::size_t { 1 });
+        CHECK_EQ(round(), 4u);
         CHECK_EQ(css::stylesheets_parsed() - before, first);
+        // The font's bytes are hashed once for the URL, not once a round...
+        CHECK_EQ(text::font_bytes_hashed() - hashed_before, std::size_t { 1 });
+        // ...unless the bytes at the URL change, even at the same length.
+        once.sheets["https://example.test/once/once.ttf"] = "FONT BYTES TWO";
+        CHECK_EQ(round(), 4u);
+        CHECK_EQ(text::font_bytes_hashed() - hashed_before, std::size_t { 2 });
     }
 
     return test::report("stylesheets");

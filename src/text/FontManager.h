@@ -56,6 +56,10 @@ struct PageFont {
 
 // The hash a PageFont's bytes_hash holds.
 std::uint64_t font_bytes_hash(std::vector<std::uint8_t> const& bytes);
+// How many times a font's bytes have been hashed whole since the program
+// started: what a test holds still while a page's fonts are collected
+// again.
+std::size_t font_bytes_hashed();
 
 class FontManager;
 

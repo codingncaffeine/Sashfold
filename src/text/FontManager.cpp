@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -278,9 +279,19 @@ void FontManager::restore_page_faces(std::vector<PageFace> faces)
     retire_stacks();
 }
 
+namespace {
+std::atomic<std::size_t> g_font_bytes_hashed { 0 };
+}
+
 std::uint64_t font_bytes_hash(std::vector<std::uint8_t> const& bytes)
 {
+    g_font_bytes_hashed.fetch_add(1, std::memory_order_relaxed);
     return fnv1a(bytes);
+}
+
+std::size_t font_bytes_hashed()
+{
+    return g_font_bytes_hashed.load(std::memory_order_relaxed);
 }
 
 void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)

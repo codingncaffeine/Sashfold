@@ -10,8 +10,13 @@
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <map>
+#include <mutex>
 #include <set>
+#include <string>
+#include <vector>
 
 namespace sashfold::css {
 
@@ -486,6 +491,51 @@ bool readable_source(FontFaceSource const& source)
     return true;
 }
 
+// The hash of a font's bytes, kept by the URL it was fetched from and its
+// size, with a fingerprint of its first and last four kilobytes beside
+// it: a page's sheets are collected several times as it loads, and its
+// megabytes of fonts are not hashed whole each time. A font that changes
+// at its URL with the same size differs in the fingerprint, and is
+// hashed again. Behind a lock, as the parsed sheets are.
+std::uint64_t page_font_hash(std::string const& key, std::vector<std::uint8_t> const& bytes)
+{
+    struct Kept {
+        std::string key;
+        std::size_t size;
+        std::uint64_t fingerprint;
+        std::uint64_t hash;
+    };
+    static std::mutex mutex;
+    static std::vector<Kept> kept; // the most recently used first
+    constexpr std::size_t most = 256;
+    constexpr std::size_t edge = 4096;
+    std::uint64_t fingerprint = 14695981039346656037ull;
+    auto const take = [&fingerprint](std::uint8_t const byte) {
+        fingerprint ^= byte;
+        fingerprint *= 1099511628211ull;
+    };
+    for (std::size_t i = 0; i < bytes.size() && i < edge; ++i)
+        take(bytes[i]);
+    for (std::size_t i = bytes.size() > edge ? bytes.size() - edge : 0; i < bytes.size(); ++i)
+        take(bytes[i]);
+    {
+        std::lock_guard<std::mutex> const lock(mutex);
+        for (std::size_t i = 0; i < kept.size(); ++i) {
+            if (kept[i].size == bytes.size() && kept[i].fingerprint == fingerprint && kept[i].key == key) {
+                std::rotate(kept.begin(), kept.begin() + static_cast<std::ptrdiff_t>(i),
+                    kept.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+                return kept.front().hash;
+            }
+        }
+    }
+    std::uint64_t const hash = text::font_bytes_hash(bytes);
+    std::lock_guard<std::mutex> const lock(mutex);
+    kept.insert(kept.begin(), Kept { key, bytes.size(), fingerprint, hash });
+    if (kept.size() > most)
+        kept.pop_back();
+    return hash;
+}
+
 } // namespace
 
 std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaContext const& media)
@@ -526,7 +576,7 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
                 if (!it->second)
                     continue; // unreachable: the next source may do
                 fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second, rule.stretch,
-                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, text::font_bytes_hash(*it->second) });
+                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, page_font_hash(key, *it->second) });
                 break;
             }
         }

@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -162,6 +163,14 @@ public:
 
 private:
     std::vector<FilterList> m_lists;
+    // The selectors by host, as asked: a page's sheets are collected
+    // several times as it loads, and the lists' tens of thousands of
+    // cosmetic rules are matched against its host once, not each time.
+    // Made on first use, replaced when a list is added, and shared by a
+    // copy of the lists (whose answers it holds still). Asked from any
+    // thread, behind its own lock.
+    struct HiddenCache;
+    mutable std::shared_ptr<HiddenCache> m_hidden;
 };
 
 }

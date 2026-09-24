@@ -5,7 +5,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <sstream>
+#include <unordered_set>
 
 namespace sashfold::net {
 
@@ -505,9 +508,15 @@ void Blocklists::load_directory(std::string const& directory, std::vector<std::s
     }
 }
 
+struct Blocklists::HiddenCache {
+    std::mutex mutex;
+    std::unordered_map<std::string, std::vector<std::string>> by_host;
+};
+
 void Blocklists::add(FilterList list)
 {
     m_lists.push_back(std::move(list));
+    m_hidden = std::make_shared<HiddenCache>();
 }
 
 std::optional<Blocklists::Block> Blocklists::blocks(FilterRequest const& request) const
@@ -633,20 +642,31 @@ void FilterList::cosmetic_for(std::string_view host, std::vector<std::string>& h
 
 std::vector<std::string> Blocklists::hidden_selectors(std::string_view host) const
 {
+    std::string const key(host);
+    if (!m_hidden)
+        m_hidden = std::make_shared<HiddenCache>();
+    std::shared_ptr<HiddenCache> const cache = m_hidden;
+    {
+        std::lock_guard<std::mutex> const lock(cache->mutex);
+        if (auto const found = cache->by_host.find(key); found != cache->by_host.end())
+            return found->second;
+    }
     std::vector<std::string> hide;
     std::vector<std::string> lift;
     for (FilterList const& list : m_lists) {
         if (!list.everything())
             list.cosmetic_for(host, hide, lift);
     }
+    std::unordered_set<std::string_view> const lifted(lift.begin(), lift.end());
+    std::unordered_set<std::string_view> seen;
     std::vector<std::string> out;
     for (std::string const& selector : hide) {
-        if (std::find(lift.begin(), lift.end(), selector) != lift.end())
-            continue;
-        if (std::find(out.begin(), out.end(), selector) != out.end())
+        if (lifted.contains(selector) || !seen.insert(selector).second)
             continue;
         out.push_back(selector);
     }
+    std::lock_guard<std::mutex> const lock(cache->mutex);
+    cache->by_host.emplace(key, out);
     return out;
 }
 
