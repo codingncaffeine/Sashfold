@@ -6,32 +6,24 @@
 
 [![CI](https://github.com/codingncaffeine/Sashfold/actions/workflows/ci.yml/badge.svg)](https://github.com/codingncaffeine/Sashfold/actions/workflows/ci.yml)
 
-**A web browser engine written from scratch — every byte — for Windows, Linux, and macOS.**
-
-Sashfold is an embeddable HTML/CSS engine and a browser built first for the readable web. It is early, it is public, and it measures itself on public yardsticks, never vibes.
-
-*(A sash is the frame that holds a window's panes of glass; the fold is where a page's content begins. That is roughly the whole job description.)*
+**A web browser engine written from scratch — every byte — for Windows, Linux, and macOS.** It is early, it is public, and it measures itself on public yardsticks, never vibes.
 
 ## The pledge
 
-**Every byte of code that ships in a Sashfold binary is written in this repository.** The operating system's interfaces, the language runtime, and the OS-shipped TLS on Windows and macOS are the only things it links — no GTK, no Qt, no libwayland, no codec or font library, no vendored anything. [`tools/pledge-check.sh`](tools/pledge-check.sh) reads every release binary's import table in CI and fails the build if anything else appears.
+Every byte of code that ships in a Sashfold binary is written in this repository. Only the operating system's interfaces, the language runtime and the OS-shipped TLS on Windows and macOS are linked, and [`tools/pledge-check.sh`](tools/pledge-check.sh) enforces that in CI.
 
-The boundary, drawn exactly, is on the wiki: [The Pledge](https://github.com/codingncaffeine/Sashfold/wiki/The-Pledge).
-
-## What Sashfold will never do
-
-No telemetry. No sponsored tiles. No default-search auction. No account requirement. No cloud AI. No feature-removal churn. Every setting lives in a human-readable file, and every feature can be turned off.
+No telemetry, no sponsored tiles, no default-search auction, no account, no cloud AI. The boundary, drawn exactly: [The Pledge](https://github.com/codingncaffeine/Sashfold/wiki/The-Pledge).
 
 ## What works today
 
-- **Browsing** the live web over HTTPS on Windows and Linux — URL parsing, HTTP/1.1 with persistent connections, TLS through SChannel on Windows and through a TLS 1.3 and 1.2 client written here on Linux (certificates validated and checked against their issuer's revocation list; the badssl.com matrix is refused; a second connection to a server resumes the first by its ticket), third-party cookies blocked, a cache that honours freshness, guesses it from a page's age when the server says nothing, revalidates a stale copy with a conditional request and keeps it all on disk between runs, downloads never opened, content blocking from your own lists — Adblock-syntax filter lists for what pages request, and local phishing and malware lists that keep you off a site with no lookup leaving the machine — and each page's own Content Security Policy enforced: its headers and `<meta>` policies judge every fetch and every redirect hop, every inline script and style by nonce or hash, and every string a script would compile, with each refusal on the page's console; a frame's document is fetched under the page's policy and shown only where its own `frame-ancestors` or `X-Frame-Options` allows, and can be scrolled, typed into and selected like the page itself; a frameset is laid out as the grid its rows and columns name, each cell showing its own frame; and `window.open` opens a new tab on the reader's own gesture.
-- **Parsing** — the complete WHATWG HTML parser and encoding sniffing, at 100% on both html5lib suites.
-- **Styling** — CSS syntax, selectors, the cascade with `inherit`/`initial`/`unset`, custom properties, `calc()`, media queries, external stylesheets, `@font-face` (TrueType and CFF, plain or as WOFF and WOFF2), generated content with counters, `::first-letter`, the flow-relative properties, every named color.
-- **Layout** — block and inline layout, margin collapsing, floats, flexbox, grid (tracks, `fr`, `repeat()`, areas, named lines, spans, alignment), tables (automatic and fixed widths, spans, captions, `vertical-align`, the presentational attributes, the collapsing border model), positioning with stacking contexts, inline-block, replaced boxes, iframes that show their documents, percentage heights, `box-sizing`.
-- **Text and pictures** in your installed fonts through a TrueType reader and rasterizer written here, kerned from the fonts' own tables and wrapped where the Unicode line breaking algorithm allows, colour emoji from a font's pictures or layers, with **Sashfold Mono** as the honest last fallback; PNG, GIF, JPEG, BMP and ICO decoders, `srcset` and `<picture>`; CSS background images and gradients (layers, position, size, repeat, clip), rounded corners.
-- **A shell** — tabs carrying each page's icon, a new-tab page of the theme's colors or the theme's own pictures with a clock and a greeting, history, a profile folder that keeps the cookies, every page's storage and the session between runs (every tab, its history and where it was scrolled come back on the next start, written as they change), containers that keep sites apart in one window with a cookie jar and a storage of their own each, a command palette (Ctrl+Shift+P) over every command, tab, container and theme, right-click menus for a link, a picture, a selection, a field, a tab and the address bar, which a page may replace with its own, and the window's main menu, forms, pages running their own scripts (the DOM, events, timers), selection and the clipboard, find in page, reader mode, keyboard link hints, devtools, boxes that scroll under the wheel, the keyboard and their own scrollbars, chrome drawn from a theme file — its colors, its sizes, and pictures of its own behind the tabs and the toolbar — with four more presets shipped beside it, Firefox and Chrome themes converted into such files when they are dropped into the profile (an `.xpi`, a `.crx` or a folder; nothing of theirs runs), and a `--script` mode that drives it for CI.
+- Browsing the live web over HTTPS — its own TLS on Linux, SChannel on Windows ([Networking](https://github.com/codingncaffeine/Sashfold/wiki/Networking)).
+- The complete WHATWG HTML parser ([Parsing](https://github.com/codingncaffeine/Sashfold/wiki/Parsing)).
+- CSS — the cascade, flexbox, grid, tables, `@font-face` ([Styling](https://github.com/codingncaffeine/Sashfold/wiki/Styling), [Layout](https://github.com/codingncaffeine/Sashfold/wiki/Layout)).
+- Its own text rasterizer and image decoders ([Painting and text](https://github.com/codingncaffeine/Sashfold/wiki/Painting-and-text)).
+- A JavaScript engine with the DOM, events, timers, modules and promises ([Scripting](https://github.com/codingncaffeine/Sashfold/wiki/Scripting)).
+- A shell — tabs, history, containers, themes, devtools, reader mode ([The shell](https://github.com/codingncaffeine/Sashfold/wiki/The-shell)).
 
-Not written yet: the newer half of JavaScript — a JavaScript engine of our own runs a page's scripts against the DOM, with events, timers and an event loop (ES5 plus `let`/`const`, arrows, template literals, `?.`, `??`, destructuring, default and rest parameters, for-of and spread, classes with private members, Map and Set, promises and the job queue, generators, async functions and async generators, typed arrays and ArrayBuffer, BigInt, ES modules on the page with `import()` and top-level `await`, Proxy and Reflect, the standard library from Object to Date, a precise garbage collector, scored on test262 below; `fetch` and `XMLHttpRequest` through the same network layer with CORS), but regular-expression lookbehind, property escapes and the `v` flag are not written, so a page built by a bundle that needs them still arrives as its markup alone; also subgrid, shadows, outlines, the macOS window and its TLS, and more — the honest list is [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). What Sashfold cannot do, it does not do.
+What Sashfold cannot do, it does not do: [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). The design is on the wiki too: [Architecture](https://github.com/codingncaffeine/Sashfold/wiki/Architecture), [Why C++](https://github.com/codingncaffeine/Sashfold/wiki/Why-C%2B%2B), [Security defaults](https://github.com/codingncaffeine/Sashfold/wiki/Security-defaults).
 
 ## Measured
 
@@ -39,12 +31,12 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 |---|---|
 | html5lib tokenizer / tree construction | **7032 / 7032** and **1784 / 1784** (100%) |
 | WPT URL parsing | **893 / 893** (100%) |
-| Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
-| Unicode line breaking conformance, `LineBreakTest` | **16,672 / 16,672** (100%) |
-| WPT CSS reference tests, 15,186 tests over CSS2 and eighteen `css-*` directories | **9872 / 15186 (65.0%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests, 159,161 subtests over 4476 test files under thirty-one `dom/`, `html/`, `css/cssom`, `css/css-conditional`, `css/css-fonts/parsing`, `url/`, custom-element and shadow-tree directories, each declared variant its own test | **135601 / 159161 (85.2%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
-| test262, the ECMAScript conformance suite, 45,148 tests over 87 directories | **41526 / 45148 (92.0%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
-| The Sashfold 100 — a hundred live pages, rendered every night by the Windows build and by the Linux build, and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
+| Unicode bidi | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
+| Unicode line breaking | **16,672 / 16,672** (100%) |
+| WPT CSS reference tests | **9872 / 15186 (65.0%)** — [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT testharness tests | **135601 / 159161 (85.2%)** — [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| test262 | **41526 / 45148 (92.0%)** — [sashfold.com/test262.html](https://sashfold.com/test262.html) |
+| The Sashfold 100 | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).
 
@@ -62,7 +54,7 @@ ctest --test-dir build --output-on-failure
 
 ## Running
 
-The downloads — a Windows x64 zip and a Linux x64 tarball, each holding the binary with `themes` beside it, and a Debian package for Debian, Ubuntu and their derivatives — are on the [releases page](https://github.com/codingncaffeine/Sashfold/releases); the Linux ones run on any 64-bit distribution with glibc 2.39 or newer and a Wayland compositor. On Arch, `sashfold-bin` on the AUR installs the same build.
+Downloads are on the [releases page](https://github.com/codingncaffeine/Sashfold/releases): a Windows x64 zip, a Linux x64 tarball and a Debian package, or `sashfold-bin` on the AUR.
 
 ```
 sashfold                                    # the browser window (Windows and Linux)
@@ -72,13 +64,7 @@ sashfold --bench page.html                  # time parse, style, layout, paint
 sashfold --script tests/shell/live.script   # drive the shell from a text file
 ```
 
-On Linux the window is a Wayland client of its own, spoken over the compositor's socket with no toolkit and no libwayland (the pledge), it draws at the display's scale, fractions included, takes a touchscreen's taps and drags, composes with an input method at the caret, and draws its own frame where the compositor draws none; `bash tools/install-desktop-linux.sh --desktop` puts it in the applications menu with its icon, and on the desktop. On Windows the window is per-monitor DPI aware. Every headless mode takes `--scale <factor>` to render for a scaled display.
-
-Every mode and flag is on [Running Sashfold](https://github.com/codingncaffeine/Sashfold/wiki/Running-Sashfold); the window's colors and sizes come from `themes/default.json` ([Themes](https://github.com/codingncaffeine/Sashfold/wiki/Themes)).
-
-## The wiki
-
-The details live on the [wiki](https://github.com/codingncaffeine/Sashfold/wiki): what works and how, the design decisions (the pledge, [why C++](https://github.com/codingncaffeine/Sashfold/wiki/Why-C%2B%2B), [the architecture](https://github.com/codingncaffeine/Sashfold/wiki/Architecture), the security defaults), the tests and the tools.
+Every mode and flag is on [Running Sashfold](https://github.com/codingncaffeine/Sashfold/wiki/Running-Sashfold); the window's look comes from a theme file ([Themes](https://github.com/codingncaffeine/Sashfold/wiki/Themes)).
 
 ## License
 
