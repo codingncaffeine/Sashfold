@@ -32,19 +32,30 @@ void fire(Realm::Internals& in, js::Object* target, std::string_view type)
     in.dispatch(*event, target);
 }
 
+// What a queued fullscreenchange keeps alive until its task runs: the
+// element's wrapper, and the resolve function of the page's promise when
+// there is one. One allocation, handed whole to the task.
+struct Settle {
+    Settle(js::Heap& heap, js::Object* wrapper)
+        : target(heap, js::Value::object(wrapper))
+    {
+    }
+    js::Persistent target;
+    std::optional<js::Persistent> resolve;
+};
+
 // In a task of its own: the event at the element (bubbling to the
 // document), then the promise the page was given settled.
 void queue_event(Realm::Internals& in, js::Object* target, std::string_view type, std::optional<js::PromiseCapability> const& capability)
 {
-    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(target));
-    std::shared_ptr<js::Persistent> resolve;
+    auto settle = std::make_shared<Settle>(in.interpreter.heap(), target);
     if (capability)
-        resolve = std::make_shared<js::Persistent>(in.interpreter.heap(), capability->resolve);
-    in.post_task([&in, held, resolve, name = std::string(type)] {
+        settle->resolve.emplace(in.interpreter.heap(), capability->resolve);
+    in.post_task([&in, settle = std::move(settle), name = std::string(type)] {
         Realm::Internals::Entry const entry(in);
-        fire(in, held->value().as_object(), name);
-        if (resolve)
-            static_cast<void>(in.interpreter.call(resolve->value(), js::Value::undefined(), {}));
+        fire(in, settle->target.value().as_object(), name);
+        if (settle->resolve)
+            static_cast<void>(in.interpreter.call(settle->resolve->value(), js::Value::undefined(), {}));
     });
 }
 
