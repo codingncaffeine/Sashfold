@@ -526,5 +526,49 @@ int main()
         CHECK_EQ(text::font_bytes_hashed() - hashed_before, std::size_t { 2 });
     }
 
+    // A font source still on its way holds its rule: the rule takes no
+    // later source meanwhile (a fallback it would be seen to swap away
+    // from), and the next collection, with the source come, has it. A rule
+    // whose first readable source cannot be had at all takes the next.
+    {
+        std::vector<css::SheetSource> const waiting_sheets {
+            css::SheetSource { "@font-face { font-family: Slow; src: url(slow.ttf), url(quick.ttf); }\n"
+                               "@font-face { font-family: Gone; src: url(missing.ttf), url(quick.ttf); }\n"
+                               "@font-face { font-family: Quick; src: url(quick.ttf); }\n",
+                *net::parse_url("https://example.test/w/page.css") },
+        };
+        bool slow_pending = true;
+        std::size_t asked_for_quick = 0;
+        auto const waiting_fetch = [&](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
+            std::string const key = url.serialize();
+            if (key == "https://example.test/w/slow.ttf") {
+                if (slow_pending) {
+                    css::FetchedSheet waiting { {}, "" };
+                    waiting.pending = true;
+                    return waiting;
+                }
+                return css::FetchedSheet { bytes_of("SLOW"), "" };
+            }
+            if (key == "https://example.test/w/quick.ttf") {
+                ++asked_for_quick;
+                return css::FetchedSheet { bytes_of("QUICK"), "" };
+            }
+            return std::nullopt;
+        };
+        std::vector<text::PageFont> const first = css::collect_page_fonts(waiting_sheets, waiting_fetch);
+        if (CHECK_EQ(first.size(), 2u)) {
+            CHECK_EQ(first[0].family, std::string("Gone"));
+            CHECK(first[0].bytes == bytes_of("QUICK"));
+            CHECK_EQ(first[1].family, std::string("Quick"));
+        }
+        CHECK_EQ(asked_for_quick, std::size_t { 1 }); // once for both rules
+        slow_pending = false;
+        std::vector<text::PageFont> const second = css::collect_page_fonts(waiting_sheets, waiting_fetch);
+        if (CHECK_EQ(second.size(), 3u)) {
+            CHECK_EQ(second[0].family, std::string("Slow"));
+            CHECK(second[0].bytes == bytes_of("SLOW"));
+        }
+    }
+
     return test::report("stylesheets");
 }

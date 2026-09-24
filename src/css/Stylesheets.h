@@ -40,6 +40,10 @@ struct FetchedSheet {
     // earlier collection of the same sheet: the collector then decodes
     // nothing and the bytes may be left empty.
     std::shared_ptr<std::string const> text;
+    // The resource was asked for and is still on its way: a font's
+    // collector then takes no other source for its rule and leaves the
+    // rule for a later collection, once it has come.
+    bool pending = false;
 
     FetchedSheet(std::vector<std::uint8_t> fetched_bytes, std::string fetched_content_type,
         std::shared_ptr<std::string const> decoded = nullptr)

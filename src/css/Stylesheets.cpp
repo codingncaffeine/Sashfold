@@ -552,7 +552,13 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
     std::vector<text::PageFont> fonts;
     if (!fetch)
         return fonts;
-    std::map<std::string, std::optional<std::vector<std::uint8_t>>> fetched; // by URL: once each
+    // By URL, once each: the bytes, none for a source that could not be
+    // had, and a source still on its way marked as such.
+    struct Source {
+        std::optional<std::vector<std::uint8_t>> bytes;
+        bool pending = false;
+    };
+    std::map<std::string, Source> fetched;
     for (SheetSource const& sheet : sheets) {
         for (FontFaceRule const& rule : font_face_rules(sheet.text, media)) {
             if (fonts.size() >= max_page_fonts)
@@ -567,16 +573,22 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
                 std::string const key = url->serialize(true);
                 auto it = fetched.find(key);
                 if (it == fetched.end()) {
-                    std::optional<std::vector<std::uint8_t>> bytes;
-                    if (std::optional<FetchedSheet> got = fetch(*url, {});
-                        got && !got->bytes.empty() && got->bytes.size() <= max_font_bytes)
-                        bytes = std::move(got->bytes);
-                    it = fetched.emplace(key, std::move(bytes)).first;
+                    Source got_source;
+                    if (std::optional<FetchedSheet> got = fetch(*url, {}); got && got->pending)
+                        got_source.pending = true;
+                    else if (got && !got->bytes.empty() && got->bytes.size() <= max_font_bytes)
+                        got_source.bytes = std::move(got->bytes);
+                    it = fetched.emplace(key, std::move(got_source)).first;
                 }
-                if (!it->second)
+                // A source on its way is the rule's first readable one: the
+                // rule waits for it rather than take a fallback it would
+                // then be seen to swap away from.
+                if (it->second.pending)
+                    break;
+                if (!it->second.bytes)
                     continue; // unreachable: the next source may do
-                fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second, rule.stretch,
-                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, page_font_hash(key, *it->second) });
+                fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second.bytes, rule.stretch,
+                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, page_font_hash(key, *it->second.bytes) });
                 break;
             }
         }

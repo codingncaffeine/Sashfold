@@ -584,6 +584,13 @@ struct Browser::Impl {
         std::vector<std::shared_ptr<net::FetchTicket>> pictures_coming;
         std::chrono::steady_clock::time_point pictures_taken_at {};
         bool pictures_asked_ahead = false; // this page's were: its passes wait for none
+        // The page's fonts likewise: those still on their way when its
+        // sheets were collected, and when the last pass over them was. The
+        // page is laid out in the fonts the machine has meanwhile, and
+        // again in its own as they come.
+        bool fonts_owed = false;
+        std::vector<std::shared_ptr<net::FetchTicket>> fonts_coming;
+        std::chrono::steady_clock::time_point fonts_taken_at {};
         int scroll_y = 0;
         // How far the reader has moved each box that scrolls, and how much
         // of that the fragment tree already carries: a fresh layout carries
@@ -2507,6 +2514,79 @@ struct Browser::Impl {
         }
     }
 
+    // Whether the fonts a page still owes are worth a pass now: all of
+    // those on their way have come, or some have and the last pass was a
+    // while ago — every pass lays the whole page out again, so they are
+    // taken together where they arrive together.
+    static bool fonts_ready(Tab const& tab)
+    {
+        if (!tab.fonts_owed)
+            return false;
+        bool const spaced = std::chrono::steady_clock::now() - tab.fonts_taken_at >= std::chrono::milliseconds(300);
+        if (tab.fonts_coming.empty())
+            return spaced;
+        bool const all = std::all_of(tab.fonts_coming.begin(), tab.fonts_coming.end(),
+            [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
+        bool const any = std::any_of(tab.fonts_coming.begin(), tab.fonts_coming.end(),
+            [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
+        return all || (any && spaced);
+    }
+
+    // A font's fetcher that waits for nothing: a font asked for ahead and
+    // still on its way is reported as such, and the tab is left owing it.
+    css::SheetFetcher font_fetcher_now(Tab& tab, css::SheetFetcher const& fetch_font, bool& owed)
+    {
+        net::ContentSecurityPolicy const* const policy = tab.policy.get();
+        bool const upgrades = policy && policy->upgrade_insecure_requests();
+        std::string const container = tab.container;
+        return [this, upgrades, container, &fetch_font, &owed](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+            if (loader.ahead_pending(upgrades ? net::upgraded_insecure(url) : url, net::ResourceKind::Font, container)) {
+                owed = true;
+                css::FetchedSheet waiting { {}, "" };
+                waiting.pending = true;
+                return waiting;
+            }
+            return fetch_font(url, nonce);
+        };
+    }
+
+    // The next pass over a page's fonts, for a page laid out before they
+    // were all in: collected again from what has come, and the page laid
+    // out in them.
+    void continue_fonts(Tab& tab)
+    {
+        tab.fonts_owed = false;
+        HistoryEntry const* const entry = tab.current();
+        if (!entry || !tab.document)
+            return;
+        std::erase_if(tab.fonts_coming, [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
+        tab.fonts_taken_at = std::chrono::steady_clock::now();
+        net::Url const page_url = entry->final_url;
+        net::ContentSecurityPolicy* const policy = tab.policy.get();
+        css::SheetFetcher const fetch_font = [&](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+            net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Font, std::string(nonce)) : net::RequestGuard {};
+            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url),
+                net::ResourceKind::Font, guard, tab.container);
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            std::string const* header = net::find_header(result.response->headers, "content-type");
+            return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+        };
+        bool owed = false;
+        std::size_t const had = tab.fonts.size();
+        {
+            Stopwatch const fonting(profile.fonts_ms);
+            tab.fonts = css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context());
+        }
+        tab.fonts_owed = owed;
+        // Laid out again only when a font came: a pass that found them all
+        // still on their way changes nothing.
+        if (tab.fonts.size() != had) {
+            relayout(tab);
+            dirty = true;
+        }
+    }
+
     // What the stylesheets are: the elements that carry them, so that a
     // script change elsewhere in the tree does not recompile every sheet.
     static std::string sheet_signature(dom::Node const& node)
@@ -2993,6 +3073,7 @@ struct Browser::Impl {
             // not asked for as well — and the collecting below then finds
             // them arriving together.
             Stopwatch const fonting(profile.fonts_ms);
+            tab.fonts_coming.clear();
             {
                 std::vector<net::Url> wanted;
                 css::collect_page_fonts(tab.sheets,
@@ -3001,10 +3082,30 @@ struct Browser::Impl {
                         return css::FetchedSheet { std::vector<std::uint8_t> { 0 }, "" };
                     },
                     media_context());
-                for (net::Url const& url : wanted)
-                    ask_ahead(tab, page_url, url, net::ResourceKind::Font, tab.policy.get());
+                for (net::Url const& url : wanted) {
+                    if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, url, net::ResourceKind::Font, tab.policy.get()))
+                        tab.fonts_coming.push_back(std::move(ticket));
+                }
             }
-            tab.fonts = css::collect_page_fonts(tab.sheets, fetch_font, media_context());
+            // The page is not held for its fonts: what has come is taken,
+            // the text is laid out in the fonts the machine has for the
+            // rest, and laid out again in the page's own as they arrive
+            // (the swap every engine shows). A moment is given first, so a
+            // font the cache holds is in from the start and nothing swaps.
+            {
+                auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+                for (std::shared_ptr<net::FetchTicket> const& ticket : tab.fonts_coming) {
+                    auto const left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+                    if (left <= 0)
+                        break;
+                    if (!ticket->done())
+                        ticket->wait_for(static_cast<int>(left));
+                }
+            }
+            bool owed = false;
+            tab.fonts = css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context());
+            tab.fonts_owed = owed;
+            tab.fonts_taken_at = std::chrono::steady_clock::now();
             tab.style_set.reset();
             tab.sheet_signature = signature;
         }
@@ -9087,10 +9188,10 @@ bool Browser::has_pending_load() const
 {
     if (load_ready() || m_impl->any_navigating())
         return true;
-    // Pictures on their way to the page in front: nothing to do now, and
-    // not done either.
+    // Pictures or fonts on their way to the page in front: nothing to do
+    // now, and not done either.
     Impl::Tab const* const tab = m_impl->active_tab();
-    return tab && tab->images_owed;
+    return tab && (tab->images_owed || tab->fonts_owed);
 }
 
 bool Browser::navigating() const
@@ -9106,7 +9207,7 @@ bool Browser::load_ready() const
     if (!m_impl->pending.empty() || !m_impl->pending_windows.empty() || m_impl->any_navigation_ready())
         return true;
     Impl::Tab const* const tab = m_impl->active_tab();
-    return tab && Impl::pictures_ready(*tab);
+    return tab && (Impl::pictures_ready(*tab) || Impl::fonts_ready(*tab));
 }
 
 bool Browser::tick()
@@ -9124,6 +9225,12 @@ bool Browser::tick()
     if (m_impl->advance_navigations())
         return true;
     if (m_impl->pending.empty()) {
+        // The page shown takes the fonts that have come, and is laid out
+        // in them.
+        if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->fonts_owed && Impl::fonts_ready(*tab)) {
+            m_impl->continue_fonts(*tab);
+            return true;
+        }
         // The page shown takes the next of its pictures: those that have come.
         if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->images_owed) {
             if (Impl::pictures_ready(*tab)) {
@@ -9134,6 +9241,21 @@ bool Browser::tick()
             // on one of them, or, when none is followed here, on the clock.
             bool waited = false;
             for (std::shared_ptr<net::FetchTicket> const& ticket : tab->pictures_coming) {
+                if (!ticket->done()) {
+                    ticket->wait_for(5);
+                    waited = true;
+                    break;
+                }
+            }
+            if (!waited)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            return true;
+        }
+        // Fonts still on their way, and nothing else to do: a moment on one
+        // of them, the same way.
+        if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->fonts_owed) {
+            bool waited = false;
+            for (std::shared_ptr<net::FetchTicket> const& ticket : tab->fonts_coming) {
                 if (!ticket->done()) {
                     ticket->wait_for(5);
                     waited = true;

@@ -2,6 +2,8 @@
 
 #include "net/Url.h"
 #include "platform/Net.h"
+#include "text/FontManager.h"
+#include "text/SashfoldMono.h"
 #include "ui/Browser.h"
 #include "ui/ShellLoader.h"
 #include "ui/Theme.h"
@@ -339,6 +341,40 @@ int main()
         browser.open(server.url("/nowhere"));
         load_fully(browser);
         CHECK(browser.status_text().find("404") != std::string::npos);
+    }
+
+    // A font on its way does not hold the page: the page is there in the
+    // fonts the machine has, still owed its own, and laid out again in it
+    // when it comes — fetched the once it was asked for ahead.
+    {
+        std::map<std::string, Served> fonted = site();
+        std::vector<std::uint8_t> const ttf = text::SashfoldMono::instance().to_truetype();
+        fonted["/fonted"] = { "text/html",
+            "<!doctype html><title>Fonted</title><style>@font-face { font-family: Late; src: url(/late.ttf) }"
+            " p { font-family: Late }</style><p>text",
+            0 };
+        fonted["/late.ttf"] = { "font/ttf", std::string(ttf.begin(), ttf.end()), 400 };
+        SiteServer server(fonted);
+        ui::ShellLoader loader;
+        ui::Browser browser(loader, ui::Theme {}, 800, 600);
+        auto const started = std::chrono::steady_clock::now();
+        browser.open(server.url("/fonted"));
+        while (browser.page_title() != "Fonted" && ms_since(started) < 5000)
+            browser.tick();
+        double const shown = ms_since(started);
+        CHECK_EQ(browser.page_title(), std::string("Fonted"));
+        if (shown >= 400)
+            std::cerr << "the page waited " << shown << " ms for its font\n";
+        CHECK(shown < 400); // not held for the font's 400
+        CHECK_EQ(text::FontManager::instance().page_font_count(), 0u); // laid out without it
+        CHECK(browser.has_pending_load()); // and owed it
+        load_fully(browser);
+        double const swapped = ms_since(started);
+        CHECK(swapped >= 400);
+        CHECK(swapped < 2000);
+        CHECK_EQ(text::FontManager::instance().page_font_count(), 1u);
+        CHECK(!browser.has_pending_load());
+        CHECK_EQ(server.asked("/late.ttf"), std::size_t { 1 });
     }
 
     return test::report("navigation");
