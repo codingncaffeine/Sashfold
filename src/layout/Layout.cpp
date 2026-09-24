@@ -700,6 +700,13 @@ bool keeps_ratio(dom::Element const& element)
     return element.is_html("img") || element.is_html("canvas");
 }
 
+// And a video once it has a picture: the video's own size and shape (HTML
+// §4.8.12's natural dimensions of the video's playback area).
+bool keeps_ratio(dom::Element const& element, Bitmap const* picture)
+{
+    return keeps_ratio(element) || (picture != nullptr && element.is_html("video"));
+}
+
 // An image box: the picture's pixels over the density its source was
 // chosen at give the intrinsic size. An embedded element with no picture
 // of its own has none, and CSS 2.1 §10.3.2 gives it 300 by 150. An <svg>
@@ -755,7 +762,7 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
     } else if (is_replaced(element)) {
         intrinsic = no_content ? ReplacedSize { 0, 0 } : ReplacedSize { 300 * scale, 150 * scale };
     }
-    return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element), containing_height);
+    return sized_box(element, style, intrinsic, containing_width, keeps_ratio(element, image), containing_height);
 }
 
 // The edges an inline-level replaced box carries on its line: margins
@@ -1651,14 +1658,15 @@ struct Layouter {
     // covering it, at its own size, or the smaller of the first and the
     // last — and then object-position says where in the box it stands, a
     // percentage lining that point of the picture up with the same point of
-    // the box. Only a picture of an <img> that reads across the page: an
-    // <svg> is drawn at its box's size, and a frame's box is its document's.
+    // the box. Only a picture of an <img> or a <video> that reads across the
+    // page: an <svg> is drawn at its box's size, and a frame's box is its
+    // document's.
     Fragment::ImageBox fitted_picture(dom::Element const& element, ComputedStyle const& style,
         std::shared_ptr<Bitmap const> bitmap, float density, float x, float y, float width, float height) const
     {
         Fragment::ImageBox box { std::move(bitmap), x, y, width, height, std::nullopt };
-        if (!box.bitmap || style.object_fit == css::ObjectFit::Fill || !element.is_html("img") || width <= 0 || height <= 0
-            || css::is_vertical(frame_mode))
+        if (!box.bitmap || style.object_fit == css::ObjectFit::Fill || !(element.is_html("img") || element.is_html("video")) || width <= 0
+            || height <= 0 || css::is_vertical(frame_mode))
             return box;
         float const per_pixel = density > 0 ? 1.0f / density : 1.0f;
         float const natural_width = static_cast<float>(box.bitmap->width()) * per_pixel;
@@ -4784,7 +4792,7 @@ struct Layouter {
                 image.density, style.width.is_auto() ? content_width : containing_width,
                 options.containing_height, device_scale, represents_nothing(element));
             if (size) {
-                bool const settled = !keeps_ratio(element);
+                bool const settled = !keeps_ratio(element, image.bitmap.get());
                 float width = settled ? options.content_width.value_or(size->width) : size->width;
                 float height = settled ? options.content_height.value_or(size->height) : size->height;
                 // A picture whose written width the caller already resolved

@@ -277,6 +277,10 @@ struct Profile {
     // The frames for which the header alone was drawn again — a theme's
     // picture moved and nothing else had changed — and the page was not.
     std::uint64_t header_paints = 0;
+    // The frames for which only a video's picture was painted again, where
+    // the page last put it.
+    std::uint64_t video_paints = 0;
+    double video_paint_ms = 0;
     std::uint64_t painted_pixels = 0;
     double sheets_ms = 0; // stylesheets and fonts collected
     double images_ms = 0; // pictures collected and decoded
@@ -568,6 +572,10 @@ public:
     std::string page_text() const; // the laid-out text, runs joined by spaces
     std::size_t blocked_requests() const; // refused by the loader's blocklists, this session
     std::size_t pictures() const; // the active page's pictures decoded so far
+    // For a host on a virtual clock, faster than video pictures are made:
+    // waits (real time, at most `timeout_ms`) until the active page's videos
+    // show the frames due now, and takes them up.
+    void settle_video(double timeout_ms);
     int scroll_y() const;
     // How far the innermost box that scrolls under a window point has had
     // its content moved, in CSS px; zero when the point is in no such box.

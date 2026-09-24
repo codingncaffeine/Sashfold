@@ -99,6 +99,9 @@ public:
     int width() const { return m_width; }
     int height() const { return m_height; }
     std::vector<std::uint8_t> const& pixels() const { return m_pixels; }
+    // For a writer that fills the whole picture at once (a video frame
+    // converted into it, or swapped in): the size must stay width * height * 4.
+    std::vector<std::uint8_t>& writable_pixels() { return m_pixels; }
 
     bool contains(int x, int y) const
     {

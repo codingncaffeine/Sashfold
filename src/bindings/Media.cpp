@@ -3,18 +3,22 @@
 
 #include "bindings/Fetching.h"
 
+#include "core/Bitmap.h"
 #include "media/Opus.h"
 #include "media/StreamBuffer.h"
+#include "media/VideoPipeline.h"
 #include "media/Wav.h"
 #include "platform/Audio.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Media: the media element's own state (HTML §4.8.11) — loading, the ready
@@ -35,6 +39,7 @@ using media::TimeRange;
 using media::TimeRanges;
 
 constexpr double tick_ms = 50;
+constexpr double video_tick_ms = 8; // half a 60 fps frame
 constexpr double time_update_ms = 250;
 constexpr double enough_ahead_seconds = 3.0;
 constexpr double future_ahead_seconds = 0.05;
@@ -49,14 +54,14 @@ enum NetworkState : int { NetworkEmpty = 0,
     NetworkLoading = 2,
     NetworkNoSource = 3 };
 
-// Whether this build answers that it plays anything. Until the decoders
-// and the presentation are in, a page is told the truth — that it cannot —
-// unless the environment asks for the pipeline as far as it goes.
+// Whether this build answers that it plays anything: it does, sound and
+// picture, unless SASHFOLD_MEDIA=0 asks for a page to be told it cannot —
+// to compare a page without it, or to step around a fault in it.
 bool playback_enabled()
 {
     static bool const enabled = [] {
         char const* const value = std::getenv("SASHFOLD_MEDIA");
-        return value != nullptr && value[0] == '1';
+        return value == nullptr || value[0] != '0';
     }();
     return enabled;
 }
@@ -151,6 +156,26 @@ public:
     std::uint64_t packets_decoded = 0;
     std::uint64_t packets_failed = 0;
     double last_stream_trace = 0;
+
+    // Pictures from a MediaSource's video, made off the page's thread by the
+    // machine's video hardware (media/VideoPipeline.h): the coded frames
+    // handed over up to `next_video_ns`, the last of them by time and size
+    // (a frame the page replaced since is noticed by those), and the picture
+    // shown — a bitmap the page's layout holds, written again in place as
+    // each frame comes due. `picture_shape` counts new bitmaps, and
+    // `picture_frames` the frames put in them.
+    std::unique_ptr<media::VideoPipeline> video;
+    bool video_tried = false;
+    bool video_started = false;
+    bool video_awaiting = false; // a seek's picture not shown yet
+    bool presenting = false; // listed in the realm's presenting_media
+    std::int64_t next_video_ns = 0;
+    std::int64_t handed_ns = -1;
+    std::size_t handed_bytes = 0;
+    std::shared_ptr<Bitmap> picture;
+    std::uint64_t picture_shape = 0;
+    std::uint64_t picture_frames = 0;
+    double last_video_trace = 0;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -435,6 +460,7 @@ TimeRanges sound_buffered(MediaStateObject const& state);
 void stream_media(Realm::Internals& in, MediaStateObject& state);
 std::optional<double> heard_position(MediaStateObject const& state);
 bool stream_played_out(MediaStateObject const& state);
+void present_video(Realm::Internals& in, MediaStateObject& state);
 
 bool is_media_element(dom::Element const& element)
 {
@@ -672,6 +698,9 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     // The sound follows at once: it starts the moment playback does, and it
     // holds the moment playback stops.
     stream_media(in, state);
+    // And the picture: the frame due at the position, playing, paused or
+    // just seeked.
+    present_video(in, state);
     if (state.advancing && now - state.last_time_update >= time_update_ms) {
         state.last_time_update = now;
         queue_element_event(in, state, "timeupdate");
@@ -681,9 +710,11 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
 
 void arm_timer(Realm::Internals& in, MediaStateObject& state)
 {
-    // The clock is only watched while it can change something: playing, or
-    // a seek waiting for its data.
-    if (state.timer_armed || (state.source == nullptr && !state.sound) || (state.paused && !state.seeking))
+    // The clock is only watched while it can change something: playing, a
+    // seek waiting for its data, or a picture not shown yet. With a picture
+    // to show it is watched often enough to meet each frame near its time.
+    bool const picture_owed = state.video && state.video_awaiting;
+    if (state.timer_armed || (state.source == nullptr && !state.sound) || (state.paused && !state.seeking && !picture_owed))
         return;
     state.timer_armed = true;
     js::Interpreter::Roots const roots(in.interpreter);
@@ -697,7 +728,7 @@ void arm_timer(Realm::Internals& in, MediaStateObject& state)
             return js::Value::undefined();
         });
     in.interpreter.root(js::Value::object(tick));
-    schedule_native(in, tick_ms, js::Value::object(tick));
+    schedule_native(in, state.video && (state.advancing || picture_owed) ? video_tick_ms : tick_ms, js::Value::object(tick));
 }
 
 void seek(Realm::Internals& in, MediaStateObject& state, double time)
@@ -717,8 +748,11 @@ void seek(Realm::Internals& in, MediaStateObject& state, double time)
     state.position = time;
     state.position_at = in.now();
     // What the speakers still hold is of the old position: it goes, and the
-    // sound is fed again from where the seek landed.
+    // sound is fed again from where the seek landed; the pictures begin
+    // again from the key frame before it.
     restart_device(state);
+    state.video_started = false;
+    state.video_awaiting = state.video != nullptr;
     queue_element_event(in, state, "seeking");
     auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
     in.post_task([&in, held] {
@@ -947,6 +981,102 @@ bool stream_played_out(MediaStateObject const& state)
     return clock.valid && clock.written_seconds - clock.played_seconds < 0.01;
 }
 
+// --- A MediaSource's pictures, made as they come due -------------------------------------------
+
+// The VP9 track among the element's buffers, if it has one.
+StreamBuffer::Track const* vp9_track(MediaStateObject const& state)
+{
+    if (state.source == nullptr || state.source->buffers == nullptr)
+        return nullptr;
+    for (SourceBufferObject const* buffer : state.source->buffers->items) {
+        for (StreamBuffer::Track const& track : buffer->buffer.tracks()) {
+            if (track.description.kind == media::WebmTrack::Kind::Video && track.description.codec_id == "V_VP9")
+                return &track;
+        }
+    }
+    return nullptr;
+}
+
+// Coded frames are handed to the pipeline this far ahead of the position,
+// and pictures made this far ahead: a frame's picture is ready before its
+// time comes, and a page that stops appending still has a second of it.
+constexpr std::int64_t handover_ahead_ns = 1'000'000'000;
+constexpr std::int64_t pictures_ahead_ns = 250'000'000;
+
+// Shows the frame due at the position: the coded frames go to the pipeline
+// from the key frame at or before it, and the newest picture it has made
+// whose time has come is written into the element's bitmap.
+void present_video(Realm::Internals& in, MediaStateObject& state)
+{
+    StreamBuffer::Track const* const track = vp9_track(state);
+    if (track == nullptr)
+        return;
+    if (!state.video && !state.video_tried) {
+        state.video_tried = true;
+        std::string error;
+        state.video = media::VideoPipeline::open(error);
+        trace(state.video ? "video decodes on " + state.video->device() : "no video decoder: " + error);
+        state.video_awaiting = state.video != nullptr;
+    }
+    if (!state.video)
+        return;
+    if (!state.presenting) {
+        in.presenting_media.push_back(&state);
+        state.presenting = true;
+    }
+    auto const position_ns = static_cast<std::int64_t>(state.position * static_cast<double>(nanoseconds));
+    // A frame already handed over that the page has since replaced — a
+    // change of quality appends another stream over what was buffered —
+    // and the pictures start again from a key frame.
+    if (state.video_started && state.handed_ns >= 0) {
+        auto const handed = track->frames.find(state.handed_ns);
+        if (handed == track->frames.end() || handed->second.data.size() != state.handed_bytes)
+            state.video_started = false;
+    }
+    if (!state.video_started) {
+        auto it = track->frames.upper_bound(position_ns);
+        if (it != track->frames.begin())
+            --it;
+        while (it != track->frames.begin() && !it->second.key)
+            --it;
+        if (it == track->frames.end() || !it->second.key)
+            return; // nothing buffered to begin from yet
+        state.video->flush();
+        state.next_video_ns = it->first;
+        state.handed_ns = -1;
+        state.handed_bytes = 0;
+        state.video_started = true;
+        trace("pictures start at " + std::to_string(state.position) + " from the key frame at "
+            + std::to_string(static_cast<double>(it->first) / 1e9));
+    }
+    int handed = 0;
+    for (auto it = track->frames.lower_bound(state.next_video_ns);
+        it != track->frames.end() && it->first < position_ns + handover_ahead_ns && handed < 240; ++it, ++handed) {
+        state.video->push(it->first, it->second.data);
+        state.next_video_ns = it->first + 1;
+        state.handed_ns = it->first;
+        state.handed_bytes = it->second.data.size();
+    }
+    state.video->set_clock(position_ns, position_ns + pictures_ahead_ns);
+    if (std::optional<media::VideoPicture> frame = state.video->take(position_ns)) {
+        if (!state.picture || state.picture->width() != frame->width || state.picture->height() != frame->height) {
+            state.picture = std::make_shared<Bitmap>(frame->width, frame->height);
+            state.picture_shape++;
+        }
+        std::swap(state.picture->writable_pixels(), frame->rgba);
+        state.video->recycle(std::move(frame->rgba));
+        state.picture_frames++;
+        state.video_awaiting = false;
+    }
+    if (tracing() && std::abs(state.position - state.last_video_trace) >= 1.0) {
+        state.last_video_trace = state.position;
+        media::VideoPipeline::Counts const counts = state.video->counts();
+        trace("pictures: at " + std::to_string(state.position) + " s, " + std::to_string(state.picture_frames) + " shown, "
+            + std::to_string(counts.decoded) + " decoded, " + std::to_string(counts.made) + " made, " + std::to_string(counts.skipped)
+            + " late, " + std::to_string(counts.failed) + " failed, " + std::to_string(state.video->queued()) + " queued");
+    }
+}
+
 // What a file the element holds whole does as time passes: everything is
 // buffered, so what moves is the position — by what has been HEARD where
 // there are speakers, and by the clock where there are none.
@@ -1139,6 +1269,19 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     state.pending_skip = 0;
     state.next_audio_ns = 0;
     state.stream_started = false;
+    // The decoder is kept for the next stream; what it held and the
+    // picture shown are not.
+    if (state.video)
+        state.video->flush();
+    state.video_started = false;
+    state.video_awaiting = false;
+    state.next_video_ns = 0;
+    state.handed_ns = -1;
+    state.handed_bytes = 0;
+    if (state.picture) {
+        state.picture.reset();
+        state.picture_shape++;
+    }
     state.error = js::Value::null();
     state.playback_rate = state.default_playback_rate;
 
@@ -1944,6 +2087,58 @@ bool register_media_source_url(Realm::Internals& in, js::Value const& value, std
         return false;
     in.media_source_urls[url] = value.as_object();
     return true;
+}
+
+// The elements that show pictures, as they are now; an element out of the
+// document leaves the list (and is listed again when it plays in it).
+std::vector<VideoFrame> media_video_frames(Realm::Internals& in)
+{
+    std::vector<VideoFrame> frames;
+    std::erase_if(in.presenting_media, [&frames](js::Object* object) {
+        auto& state = *static_cast<MediaStateObject*>(object);
+        if (state.wrapper->detached() || !state.video) {
+            state.presenting = false;
+            return true;
+        }
+        dom::Node& node = state.wrapper->node();
+        if (state.picture && node.is_element())
+            frames.push_back({ &static_cast<dom::Element&>(node), state.picture, state.picture_shape, state.picture_frames });
+        return false;
+    });
+    return frames;
+}
+
+std::size_t media_settle_video(Realm::Internals& in, double timeout_ms)
+{
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::duration<double, std::milli>(timeout_ms);
+    std::size_t settled = 0;
+    for (js::Object* const object : std::vector<js::Object*>(in.presenting_media)) {
+        auto& state = *static_cast<MediaStateObject*>(object);
+        if (!state.video || state.wrapper->detached())
+            continue;
+        for (;;) {
+            // Asked before the picture is taken, so that the one made last
+            // is taken on the way out.
+            auto const position_ns = static_cast<std::int64_t>(state.position * static_cast<double>(nanoseconds));
+            bool const done = state.video_started && state.video->caught_up(position_ns);
+            present_video(in, state);
+            if (done) {
+                settled++;
+                break;
+            }
+            // Nothing buffered to begin from, or out of time.
+            if (!state.video_started || std::chrono::steady_clock::now() >= deadline)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+    return settled;
+}
+
+void trace_presenting_media(Realm::Internals const& in, js::Tracer& tracer)
+{
+    for (js::Object* const state : in.presenting_media)
+        tracer.visit(state);
 }
 
 }

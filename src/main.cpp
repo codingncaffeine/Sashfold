@@ -953,6 +953,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
             turn_started = clock::now();
             realm->run_pending();
         }
+        // The virtual clock outruns the video decoder: the pictures due at
+        // the moment drawn are waited for.
+        realm->settle_video(3000);
     }
     auto const t1 = clock::now();
     bindings::adopt_meta_policies(*loaded.policy, *document);
@@ -974,8 +977,13 @@ int render_page(std::string const& path, std::string const& output, int viewport
     // The objects and embeds as the page's realm decided them; without scripts
     // nothing is decided, and each is the replaced box it always was.
     layout::EmbeddedStates const embedded = realm ? bindings::embedded_states(*realm) : layout::EmbeddedStates {};
-    layout::ImageMap const images = ui::collect_images(*document, &loaded.url,
+    layout::ImageMap images = ui::collect_images(*document, &loaded.url,
         image_fetcher(loaded, &image_failures), media, realm ? &embedded : nullptr);
+    // What the page's videos show at the moment it is drawn.
+    if (realm) {
+        for (bindings::VideoFrame const& frame : realm->video_frames())
+            images[frame.element] = layout::PageImage { frame.bitmap, 1 };
+    }
     layout::BackgroundImages const backgrounds
         = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures));
     auto const t4 = clock::now();

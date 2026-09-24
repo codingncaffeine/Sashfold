@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<title>Video</title>
+<body style="margin: 0; background: #224">
+<video id="v" width="512" height="288" style="display: block"></video>
+<script>
+var v = document.getElementById('v'), ms = new MediaSource();
+v.src = URL.createObjectURL(ms);
+ms.addEventListener('sourceopen', function () {
+    var sb = ms.addSourceBuffer('video/webm; codecs="vp9"');
+    fetch('../fixtures/media/vp9-144p.webm').then(function (response) { return response.arrayBuffer(); }).then(function (bytes) {
+        sb.addEventListener('updateend', function () { ms.endOfStream(); v.play(); document.title = 'Video playing'; }, { once: true });
+        sb.appendBuffer(bytes);
+    });
+}, { once: true });
+</script>

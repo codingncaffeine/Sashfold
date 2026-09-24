@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Png.h"
 #include "core/Unicode.h"
+#include "media/Vp9Accelerator.h"
 #include "platform/Clipboard.h"
 #include "ui/Theme.h"
 #include "ui/ThemeImport.h"
@@ -133,6 +134,9 @@ struct Runner {
     std::string held_session; // the last session-save without a path
     Profile marked; // the shell's counters when the script last marked them
     std::string stem; // the script's own name: what a folder made for it is named by
+    // The rest of the script needs what this machine has not (require-*):
+    // it stops, passing, having said why.
+    bool skipping = false;
 
     void fail(std::string const& what)
     {
@@ -150,6 +154,9 @@ struct Runner {
             if (!browser.has_pending_load())
                 break;
         }
+        // The clock is the script's, faster than a video's pictures are
+        // made: those due are waited for, as a --render does.
+        browser.settle_video(3000);
     }
 
     std::filesystem::path resolve(std::string const& text) const
@@ -711,6 +718,16 @@ struct Runner {
             expect_equal("assert-paints", std::to_string(browser.profile().paints - marked.paints), argument);
         } else if (command == "assert-header-paints") {
             expect_equal("assert-header-paints", std::to_string(browser.profile().header_paints - marked.header_paints), argument);
+        } else if (command == "assert-video-paints") {
+            expect_equal("assert-video-paints", std::to_string(browser.profile().video_paints - marked.video_paints), argument);
+        } else if (command == "require-video-hardware") {
+            // What follows plays video on the machine's decoder; a machine
+            // without one (a CI runner) stops here and says so.
+            std::string why;
+            if (!media::Vp9Accelerator::open(why)) {
+                out << "skipping the rest of " << stem << ": no video hardware (" << why << ")\n";
+                skipping = true;
+            }
         } else if (command == "assert-pictures") {
             expect_equal("assert-pictures", std::to_string(browser.pictures()), argument);
         } else if (command == "assert-pixel") {
@@ -855,7 +872,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
     // The new-tab page's time: a Monday morning, the same on every machine.
     browser.set_wall_clock([] { return WallTime { 2026, 1, 5, 1, 9, 41, 20 }; });
     std::string line;
-    while (std::getline(file, line)) {
+    while (!runner.skipping && std::getline(file, line)) {
         ++runner.line_number;
         runner.run_line(line);
     }

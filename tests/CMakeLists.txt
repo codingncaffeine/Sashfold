@@ -126,8 +126,10 @@ add_executable(test_opus test_opus.cpp)
 target_link_libraries(test_opus PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_opus COMMAND test_opus ${CMAKE_SOURCE_DIR}/opus-vectors)
 sashfold_test(test_vp9)
-# It loads the GPU drivers, whose own leaks lsan-suppressions.txt names.
-set_tests_properties(test_vp9 PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
+sashfold_test(test_video)
+# They load the GPU drivers, whose own leaks lsan-suppressions.txt names
+# (test_bindings plays a video).
+set_tests_properties(test_vp9 test_video test_bindings PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
 add_executable(test_theme_import test_theme_import.cpp)
 target_link_libraries(test_theme_import PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_theme_import COMMAND test_theme_import ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes
@@ -162,6 +164,11 @@ add_test(NAME shell_smoke
 add_test(NAME shell_forms
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/forms.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# A video's frames painted alone; it stops, passing, without a video decoder.
+add_test(NAME shell_video
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/video.script)
+set_tests_properties(shell_video PROPERTIES ENVIRONMENT
+  "SASHFOLD_MEDIA=1;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
 add_test(NAME shell_selection
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/selection.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

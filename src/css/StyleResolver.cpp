@@ -189,6 +189,7 @@ textarea { white-space: pre-wrap }
 bdo, bdo[dir] { unicode-bidi: isolate-override }
 pre[dir=auto i], textarea[dir=auto i] { unicode-bidi: plaintext }
 iframe { border: 2px inset }
+video { object-fit: contain }
 frameset, frame { display: block }
 noframes { display: none }
 )CSS";

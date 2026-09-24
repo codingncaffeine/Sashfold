@@ -871,6 +871,9 @@ struct Realm::Internals {
     // The MediaSources URL.createObjectURL has named, by the URL, until it is
     // revoked: what a media element's src is looked up in (Media.cpp).
     std::unordered_map<std::string, js::Object*> media_source_urls;
+    // The media elements' states that decode video, while their elements are
+    // in the document: whose pictures the host draws (Media.cpp).
+    std::vector<js::Object*> presenting_media;
     // What scripts hold for this window, its WindowProxy; and whether an
     // object is this window, the proxy or the global object behind it.
     js::Object* window_proxy() const;
@@ -1251,6 +1254,11 @@ void custom_element_attribute_changed(Realm::Internals&, dom::Element&, std::str
     std::optional<std::string> const& old_value);
 // A media element's src attribute was set, changed or removed: it loads again.
 void media_src_changed(Realm::Internals&, dom::Element&);
+// The video elements' pictures now (Realm::video_frames), and the states
+// behind them kept for the garbage collector.
+std::vector<VideoFrame> media_video_frames(Realm::Internals&);
+std::size_t media_settle_video(Realm::Internals&, double timeout_ms);
+void trace_presenting_media(Realm::Internals const&, js::Tracer&);
 // Names a MediaSource by this blob: URL; false for any other value.
 bool register_media_source_url(Realm::Internals&, js::Value const&, std::string const& url);
 // Arms a timer of the realm's that calls a native function (Tasks.cpp).

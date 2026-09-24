@@ -1,0 +1,13 @@
+# Planted-fault controls for tests/shell/video.script: a frame of video painted alone, where the page put it.
+# Run by tools/shell-controls.sh, which says what each line means. On a machine without a video decoder the script stops at its first line and no control can go red.
+script tests/shell/video.script
+
+control whole-window
+file src/ui/Browser.cpp
+fails 20 21
+plant s~            \} else if \(before->second.second != video.frames\) \{\n                video_dirty = true;~            } else if (before->second.second != video.frames) {\n                dirty = true;~
+
+control unblitted
+file src/ui/Browser.cpp
+fails 15 17 19
+plant s~            frame.blit\(part, c.content.x \+ picture.rect.x, c.content.y \+ picture.rect.y\);\n~~

@@ -514,6 +514,11 @@ struct Browser::Impl {
         css::MediaContext style_media;
         css::StyleMap styles;
         layout::ImageMap images; // the page's pictures, decoded
+        // The video elements whose pictures are in `images`, with the bitmap
+        // and the frame last seen of each (bindings::VideoFrame), and where
+        // the last whole paint put each picture in the content area.
+        std::unordered_map<dom::Element const*, std::pair<std::uint64_t, std::uint64_t>> videos_seen;
+        std::vector<paint::PaintedPicture> painted_pictures;
         layout::BackgroundImages backgrounds; // the pictures its styles name as backgrounds
         DrawnFrames frames; // its frames' pictures as last drawn, by element
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
@@ -850,6 +855,9 @@ struct Browser::Impl {
 
     Bitmap frame;
     bool dirty = true;
+    // Only video pictures changed since the frame was painted: painted
+    // again where they are, and nothing else (paint_videos).
+    bool video_dirty = false;
     Profile profile; // the counts and the milliseconds, since the start
 
     // Adds what a scope took to one of the profile's sums when the scope
@@ -2188,6 +2196,41 @@ struct Browser::Impl {
     }
 
     std::size_t index_of(Tab const& tab) const { return static_cast<std::size_t>(&tab - tabs.data()); }
+
+    // The pictures the page's video elements show now: a new bitmap (the
+    // first, or a new size) is laid out; a new frame written into the same
+    // one is painted. A video that no longer shows one leaves the layout.
+    void take_video_frames(Tab& tab)
+    {
+        if (!tab.realm || !tab.document)
+            return;
+        std::vector<bindings::VideoFrame> const pictures = tab.realm->video_frames();
+        if (pictures.empty() && tab.videos_seen.empty())
+            return;
+        bool lay_out = false;
+        std::unordered_map<dom::Element const*, std::pair<std::uint64_t, std::uint64_t>> seen;
+        for (bindings::VideoFrame const& video : pictures) {
+            auto const before = tab.videos_seen.find(video.element);
+            if (before == tab.videos_seen.end() || before->second.first != video.shape || !tab.images.contains(video.element)) {
+                tab.images[video.element] = layout::PageImage { video.bitmap, 1 };
+                lay_out = true;
+            } else if (before->second.second != video.frames) {
+                video_dirty = true;
+            }
+            seen[video.element] = { video.shape, video.frames };
+        }
+        for (auto const& [element, last] : tab.videos_seen) {
+            if (!seen.contains(element)) {
+                tab.images.erase(element);
+                lay_out = true;
+            }
+        }
+        tab.videos_seen = std::move(seen);
+        if (lay_out) {
+            relayout(tab);
+            dirty = true;
+        }
+    }
 
     // Styles and layout are brought up to date with what scripts changed
     // since they were last computed. Called before anything reads them.
@@ -7892,6 +7935,34 @@ struct Browser::Impl {
         draw_icon(frame, icon, rect, icon_size(), enabled ? theme.toolbar_icon : theme.button_disabled_text);
     }
 
+    // Only video pictures changed since the frame was painted: each is
+    // painted again where that paint put it — the page's own layers over it
+    // included, painted from the same layout at the same place — and the
+    // rest of the window is left as it is. A frame of video costs the
+    // player's rectangle, not the window.
+    void paint_videos()
+    {
+        video_dirty = false;
+        Tab const* const tab = active_tab();
+        if (!tab || !tab->document)
+            return;
+        Stopwatch const painting(profile.video_paint_ms, &profile.last_paint_ms);
+        ++profile.video_paints;
+        ChromeLayout const c = layout_chrome();
+        for (paint::PaintedPicture const& picture : tab->painted_pictures) {
+            bool const video = std::any_of(tab->videos_seen.begin(), tab->videos_seen.end(), [&](auto const& seen) {
+                auto const image = tab->images.find(seen.first);
+                return image != tab->images.end() && image->second.bitmap.get() == picture.bitmap;
+            });
+            if (!video)
+                continue;
+            Bitmap part(picture.rect.width, picture.rect.height, theme.content_background);
+            paint::paint_page(part, tab->layout, -static_cast<float>(picture.rect.x),
+                -static_cast<float>(tab->scroll_y + picture.rect.y), &tab->backgrounds, &tab->scrolls);
+            frame.blit(part, c.content.x + picture.rect.x, c.content.y + picture.rect.y);
+        }
+    }
+
     void paint()
     {
         Stopwatch const painting(profile.paint_ms, &profile.last_paint_ms);
@@ -7911,6 +7982,10 @@ struct Browser::Impl {
         } else {
             ++profile.paints;
             profile.painted_pixels += static_cast<std::uint64_t>(frame.width()) * static_cast<std::uint64_t>(frame.height());
+            // The page is painted whole, its videos' pictures as they are now.
+            video_dirty = false;
+            if (Tab* const shown = active_tab())
+                shown->painted_pictures.clear();
         }
         drop_stale_preedit();
         Theme const& t = theme;
@@ -8209,7 +8284,7 @@ struct Browser::Impl {
         if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
             paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y),
-                &tab->backgrounds, &tab->scrolls);
+                &tab->backgrounds, &tab->scrolls, &active_tab()->painted_pictures);
             // The find bar's matches, the current one stronger; then the
             // selection over them, all as translucent bands.
             if (find_open) {
@@ -8814,8 +8889,10 @@ bool Browser::run_scripts()
         if (tab.realm->run_pending())
             ran = true;
     }
-    if (Impl::Tab* const tab = impl.active_tab())
+    if (Impl::Tab* const tab = impl.active_tab()) {
+        impl.take_video_frames(*tab);
         impl.ensure_fresh(*tab);
+    }
     // The shell's own clockwork rides the same wake: a theme's pictures
     // that move.
     if (impl.advance_theme_pictures())
@@ -8872,10 +8949,21 @@ Bitmap const& Browser::frame()
         m_impl->ensure_fresh(*tab);
     if (m_impl->dirty || m_impl->header_dirty)
         m_impl->paint();
+    if (m_impl->video_dirty)
+        m_impl->paint_videos();
     return m_impl->frame;
 }
 
-bool Browser::needs_paint() const { return m_impl->dirty || m_impl->header_dirty; }
+bool Browser::needs_paint() const { return m_impl->dirty || m_impl->header_dirty || m_impl->video_dirty; }
+
+void Browser::settle_video(double timeout_ms)
+{
+    Impl::Tab* const tab = m_impl->active_tab();
+    if (!tab || !tab->realm)
+        return;
+    tab->realm->settle_video(timeout_ms);
+    m_impl->take_video_frames(*tab);
+}
 Profile const& Browser::profile() const { return m_impl->profile; }
 
 std::size_t Browser::pictures() const

@@ -21,9 +21,16 @@ namespace sashfold::paint {
 // finds it. Without the map no scrollbar is drawn at all, which is what a
 // single render of a page is: nothing has been scrolled, and nothing can
 // be.
+// `pictures`, when given, gets where each replaced element's picture went in
+// the target, clipped as it was drawn: what a host that paints one picture
+// again alone — a video's next frame — paints again.
+struct PaintedPicture {
+    Bitmap const* bitmap = nullptr;
+    Rect rect;
+};
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x = 0,
     float offset_y = 0, layout::BackgroundImages const* backgrounds = nullptr,
-    layout::ScrollOffsets const* scrolls = nullptr);
+    layout::ScrollOffsets const* scrolls = nullptr, std::vector<PaintedPicture>* pictures = nullptr);
 
 // The room a scrollbar takes inside a scrollport, in CSS px — one number
 // for both axes, as a desktop engine's default is.

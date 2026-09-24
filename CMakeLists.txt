@@ -110,9 +110,11 @@ add_library(sashfold_core STATIC
   src/media/Opus.cpp
   src/media/RangeDecoder.cpp
   src/media/StreamBuffer.cpp
+  src/media/VideoPipeline.cpp
   src/media/Vp9.cpp
   src/media/Wav.cpp
   src/media/WebM.cpp
+  src/media/Yuv.cpp
   src/net/Cache.cpp
   src/net/Connections.cpp
   src/net/Cookies.cpp

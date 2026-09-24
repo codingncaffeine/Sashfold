@@ -3,14 +3,17 @@
 
 #include "bindings/Realm.h"
 #include "core/Base64.h"
+#include "core/Bitmap.h"
 #include "css/ComputedStyle.h"
 #include "dom/Dom.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
+#include "media/Vp9Accelerator.h"
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <span>
 #include <cstdlib>
@@ -3968,6 +3971,86 @@ void test_media_source_plays_its_sound()
     CHECK_EQ(page->realm->stats().uncaught_errors, 0);
 }
 
+// A MediaSource's video, shown as it plays: the element's picture is the
+// frame due at its position, one bitmap written again as the frames come
+// (on the machine's video hardware; without it there is no picture, and
+// the test says so). The page's clock here is virtual, faster than
+// pictures are made, so each step waits for them as a --render does.
+void test_media_source_shows_its_video()
+{
+    std::filesystem::path const fixture = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "media" / "vp9-144p.webm";
+    std::ifstream in(fixture, std::ios::binary);
+    std::vector<std::uint8_t> const video_stream { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+    CHECK(video_stream.size() > 1000);
+    std::string why;
+    bool const hardware = media::Vp9Accelerator::open(why) != nullptr;
+
+    auto page = std::make_unique<Page>("<!DOCTYPE html><body><video id=v></video></body>", "https://example.test/dir/page.html");
+    page->load();
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval("var VI = '" + base64_encode(video_stream) + "';");
+    page->eval(R"JS(
+        var log = [];
+        var v = document.getElementById('v'), ms = new MediaSource();
+        ['resize', 'playing', 'seeked'].forEach(function (t) { v.addEventListener(t, function () { log.push(t); }); });
+        ms.addEventListener('sourceopen', function () {
+            var sb = ms.addSourceBuffer('video/webm; codecs="vp9"');
+            sb.addEventListener('updateend', function () { ms.endOfStream(); log.push('appended'); }, { once: true });
+            sb.appendBuffer(Uint8Array.from(atob(VI), function (c) { return c.charCodeAt(0); }));
+        }, { once: true });
+        v.src = URL.createObjectURL(ms);
+    )JS");
+    pump();
+    CHECK_EQ(page->string("log.join(' ') + ' ' + v.readyState + ' ' + v.videoWidth + 'x' + v.videoHeight"), "appended resize 4 256x144");
+    page->eval("v.play();");
+    pump();
+    page->realm->settle_video(3000);
+    std::vector<bindings::VideoFrame> const first = page->realm->video_frames();
+    if (!hardware) {
+        std::cerr << "test_bindings: no VP9 hardware here (" << why << "); the video's pictures are not tested\n";
+        CHECK(first.empty());
+        return;
+    }
+    CHECK_EQ(first.size(), 1u);
+    if (first.size() != 1)
+        return;
+    dom::Attr const* const id = first[0].element ? first[0].element->find_attribute("id") : nullptr;
+    CHECK(first[0].element && first[0].element->is_html("video") && id && id->value == "v");
+    CHECK(first[0].bitmap && first[0].bitmap->width() == 256 && first[0].bitmap->height() == 144);
+    // testsrc2's top left corner is its dark counter panel, not the white a
+    // bitmap starts as.
+    CHECK(first[0].bitmap && first[0].bitmap->pixels()[0] < 128);
+    CHECK(first[0].frames >= 1u);
+
+    // Half a second on, newer frames have been written into the same bitmap.
+    page->clock += 500;
+    pump();
+    page->realm->settle_video(3000);
+    std::vector<bindings::VideoFrame> const later = page->realm->video_frames();
+    CHECK_EQ(later.size(), 1u);
+    if (later.size() == 1) {
+        CHECK(later[0].bitmap == first[0].bitmap);
+        CHECK_EQ(later[0].shape, first[0].shape);
+        CHECK(later[0].frames > first[0].frames);
+    }
+    // Paused and sought back, the picture is the one at the new position.
+    page->eval("log = []; v.pause(); v.currentTime = 0.1;");
+    pump();
+    page->clock += 20;
+    pump();
+    page->realm->settle_video(3000);
+    std::vector<bindings::VideoFrame> const sought = page->realm->video_frames();
+    CHECK(sought.size() == 1 && later.size() == 1 && sought[0].frames > later[0].frames);
+    CHECK_EQ(page->string("log.join(' ') + ' ' + v.currentTime"), "seeked 0.1");
+    // A new load forgets the picture.
+    page->eval("v.removeAttribute('src'); v.load();");
+    pump();
+    CHECK(page->realm->video_frames().empty());
+    CHECK_EQ(page->realm->stats().uncaught_errors, 0);
+}
+
 // A sound file played by the element itself: fetched, read, and moved
 // through by the clock. No machine running this has a sound server it may
 // open, so what is measured here is the element's own account of playing —
@@ -4410,6 +4493,7 @@ int main()
     test_reflected_attributes();
     test_media_source_and_the_media_element();
     test_media_source_plays_its_sound();
+    test_media_source_shows_its_video();
     test_a_sound_file_plays();
     return test::report("test_bindings");
 }

@@ -34,6 +34,10 @@
 #include <utility>
 #include <vector>
 
+namespace sashfold {
+class Bitmap; // core/Bitmap.h
+}
+
 namespace sashfold::bindings {
 
 class WorkerThreads; // Workers.h
@@ -45,6 +49,18 @@ struct LayoutBox {
     float y = 0;
     float width = 0;
     float height = 0;
+};
+
+// The picture a <video> element shows now — the frame due at its playback
+// position — for the painter. The bitmap stays the same object from frame
+// to frame while the video's size holds and is written again in place:
+// `shape` moves with a new bitmap (a new size, so lay out again), `frames`
+// with every frame written (paint again).
+struct VideoFrame {
+    dom::Element const* element = nullptr;
+    std::shared_ptr<Bitmap const> bitmap;
+    std::uint64_t shape = 0;
+    std::uint64_t frames = 0;
 };
 
 // A web storage area: the items in insertion order (key(n) counts on
@@ -389,6 +405,14 @@ public:
     // at any depth: what a host that draws the frames watches.
     std::uint64_t tree_mutation_count() const;
     void note_mutation();
+
+    // The pictures this document's video elements show now (not its
+    // frames'): what a host draws them with, and watches to repaint.
+    std::vector<VideoFrame> video_frames();
+    // For a host on a virtual clock, which moves faster than pictures are
+    // made: waits, up to `timeout_ms` of real time, until every video shows
+    // the frame due at its position. How many do.
+    std::size_t settle_video(double timeout_ms);
 
     ScriptStats const& stats() const;
 

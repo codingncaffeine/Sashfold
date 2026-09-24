@@ -37,6 +37,8 @@ struct Context {
     // The clip the page as a whole is painted through: all that clips a
     // fixed box, wherever in the tree it stands.
     std::optional<Rect> page_clip = std::nullopt;
+    // Where the pictures went, for a host that asked (paint_page).
+    std::vector<PaintedPicture>* pictures = nullptr;
 };
 
 int round_px(float value)
@@ -848,6 +850,26 @@ void paint_box_background(Context& context, Fragment const& fragment, bool skip_
     paint_background_and_borders(context, fragment, skip_background);
 }
 
+// Where a picture went, for a host that asked: its rectangle as far as the
+// clip and the target let it show.
+void note_picture(Context const& context, Bitmap const& picture, Rect drawn)
+{
+    if (context.pictures == nullptr)
+        return;
+    int left = std::max(drawn.x, 0);
+    int top = std::max(drawn.y, 0);
+    int right = std::min(drawn.right(), context.target.width());
+    int bottom = std::min(drawn.bottom(), context.target.height());
+    if (std::optional<Rect> const& clip = context.target.clip()) {
+        left = std::max(left, clip->x);
+        top = std::max(top, clip->y);
+        right = std::min(right, clip->right());
+        bottom = std::min(bottom, clip->bottom());
+    }
+    if (right > left && bottom > top)
+        context.pictures->push_back({ &picture, Rect { left, top, right - left, bottom - top } });
+}
+
 // The box's replaced content: its picture or its control. Appendix E
 // paints a block-level replaced element's content after the floats, with
 // the inline content, and its background before them with the other block
@@ -882,12 +904,14 @@ void paint_box_replaced(Context& context, Fragment const& fragment)
                 through = Rect { left, top, std::max(0, right - left), std::max(0, bottom - top) };
             }
             context.target.set_clip(through);
-            context.target.draw_scaled(*box.bitmap,
-                snap(box.drawn->x + context.dx, box.drawn->y + context.dy, box.drawn->width, box.drawn->height));
+            Rect const drawn = snap(box.drawn->x + context.dx, box.drawn->y + context.dy, box.drawn->width, box.drawn->height);
+            context.target.draw_scaled(*box.bitmap, drawn);
+            note_picture(context, *box.bitmap, drawn);
             context.target.set_clip(before);
         } else {
-            context.target.draw_scaled(*box.bitmap,
-                snap(box.x + context.dx, box.y + context.dy, box.width, box.height));
+            Rect const drawn = snap(box.x + context.dx, box.y + context.dy, box.width, box.height);
+            context.target.draw_scaled(*box.bitmap, drawn);
+            note_picture(context, *box.bitmap, drawn);
         }
         context.target.truncate_round_clips(rounds);
     }
@@ -1695,7 +1719,7 @@ std::optional<ScrollbarGeometry> horizontal_scrollbar(
 }
 
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x, float offset_y,
-    layout::BackgroundImages const* backgrounds, layout::ScrollOffsets const* scrolls)
+    layout::BackgroundImages const* backgrounds, layout::ScrollOffsets const* scrolls, std::vector<PaintedPicture>* pictures)
 {
     target.fill_rect(Rect { 0, 0, target.width(), target.height() }, page.canvas_background);
     if (!page.root.style)
@@ -1705,7 +1729,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
     Fragment const* const owner = canvas_background_owner(page);
-    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale, target.clip() };
+    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale, target.clip(), pictures };
     // The canvas takes the whole background of the box that owns it, its
     // pictures included: they cover the surface, sized and placed against
     // the root element's box whichever box they came from.

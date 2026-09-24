@@ -1372,6 +1372,8 @@ std::uint64_t Realm::tree_mutation_count() const
     return count;
 }
 void Realm::note_mutation() { ++m_internals->mutations; }
+std::vector<VideoFrame> Realm::video_frames() { return media_video_frames(*m_internals); }
+std::size_t Realm::settle_video(double timeout_ms) { return media_settle_video(*m_internals, timeout_ms); }
 ScriptStats const& Realm::stats() const { return m_internals->stats; }
 
 js::Value Realm::wrap_or_null(dom::Node* node)
@@ -2826,6 +2828,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_custom_elements(in, tracer);
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
+    trace_presenting_media(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)
             tracer.visit(*member.value);

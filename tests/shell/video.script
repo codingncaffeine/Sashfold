@@ -1,0 +1,22 @@
+# A video in a page: its first picture is laid out with the page, and each
+# frame after it is painted alone, where the page put it — a frame of video
+# costs the player's rectangle, not the window. Needs the machine's video
+# decoder. The frame is painted when a pixel is read, as the window paints
+# when it draws; the colours are exact, as VP9's decoding is.
+require-video-hardware
+resize 640 400
+open video.html
+advance 10 5
+assert-title Video playing
+advance 100
+assert-pixel 60 120 #3f2b02
+mark
+advance 100
+assert-pixel 60 120 #462407
+advance 100
+assert-pixel 60 120 #3f0000
+advance 100
+assert-pixel 60 120 #24013f
+assert-video-paints 3
+assert-paints 0
+assert-pixel 600 120 #222244
