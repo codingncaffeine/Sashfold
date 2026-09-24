@@ -172,6 +172,11 @@ set_tests_properties(shell_video PROPERTIES ENVIRONMENT
 # A page's element full screen: refused without a click, granted at one, left at Esc.
 add_test(NAME shell_fullscreen
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/fullscreen.script)
+# An <img>'s load and error events in tasks of their own, a new src heard
+# of again, and `complete` false while a picture is on its way.
+add_test(NAME shell_image_events
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/image-events.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_selection
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/selection.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

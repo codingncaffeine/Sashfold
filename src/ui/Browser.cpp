@@ -514,6 +514,9 @@ struct Browser::Impl {
         css::MediaContext style_media;
         css::StyleMap styles;
         layout::ImageMap images; // the page's pictures, decoded
+        // The source each <img> in `images` was had for, so that a source a
+        // script changes afterwards is fetched again (and heard of again).
+        std::unordered_map<dom::Element const*, std::string> image_sources;
         // The video elements whose pictures are in `images`, with the bitmap
         // and the frame last seen of each (bindings::VideoFrame), and where
         // the last whole paint put each picture in the content area.
@@ -2413,8 +2416,7 @@ struct Browser::Impl {
             layout::ImageMap fresh = collect_images(*tab.document, &entry->final_url, image_fetcher(tab), media_context(),
                 tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab) });
             took_some = !fresh.empty();
-            for (auto& [element, image] : fresh)
-                tab.images[element] = std::move(image);
+            take_pictures(tab, fresh);
         }
         tab.images_owed = more;
         // Laid out again only when a picture came: a pass that found them
@@ -2452,6 +2454,88 @@ struct Browser::Impl {
         for (dom::Node const* child : node.children())
             signature += sheet_signature(*child);
         return signature;
+    }
+
+    // What an <img> names now, as the image passes choose it for this
+    // viewport: the key its picture is kept under, empty when it names none.
+    std::string image_source_key(dom::Element const& image, net::Url const& base)
+    {
+        std::optional<ImageSource> const source = select_image_source(image, &base, media_context());
+        return source ? source->url.serialize(true) : std::string();
+    }
+
+    std::optional<net::Url> image_base(Tab const& tab)
+    {
+        HistoryEntry const* const entry = tab.current();
+        if (!entry || !tab.document)
+            return std::nullopt;
+        return html::document_base_url(*tab.document, entry->final_url);
+    }
+
+    // The pictures a pass took: kept for layout, and for each <img> its
+    // source noted and its document told — the element's load or error
+    // event, in a task of the page's loop.
+    void take_pictures(Tab& tab, layout::ImageMap& fresh)
+    {
+        std::optional<net::Url> const base = image_base(tab);
+        for (auto& [element, image] : fresh) {
+            bool const available = image.bitmap != nullptr;
+            tab.images[element] = std::move(image);
+            if (!base || !element->is_html("img"))
+                continue;
+            tab.image_sources[element] = image_source_key(*element, *base);
+            if (tab.realm)
+                tab.realm->image_settled(*element, available);
+        }
+    }
+
+    // An <img> in the tree whose source changed since its picture was had
+    // (a script set a new src): its entry goes, and the next pass fetches
+    // what it names now. Only elements in the tree are asked, so no entry
+    // of an element that has gone is ever read through.
+    void forget_changed_pictures(Tab& tab)
+    {
+        if (tab.image_sources.empty() || !tab.document)
+            return;
+        std::optional<net::Url> const base = image_base(tab);
+        if (!base)
+            return;
+        auto const visit = [&](auto const& self, dom::Node const& node) -> void {
+            if (node.is_element()) {
+                auto const& element = static_cast<dom::Element const&>(node);
+                if (element.is_html("img")) {
+                    if (auto const it = tab.image_sources.find(&element);
+                        it != tab.image_sources.end() && it->second != image_source_key(element, *base)) {
+                        tab.images.erase(&element);
+                        tab.image_sources.erase(it);
+                    }
+                }
+            }
+            for (dom::Node const* child : node.children())
+                self(self, *child);
+        };
+        visit(visit, *tab.document);
+    }
+
+    // Where an <img>'s picture stands, for `complete`: had or broken once
+    // its source's pass took it, on its way while it names a source not
+    // taken yet. An element out of the tree is not fetched here, and counts
+    // as naming none.
+    bindings::ImageState image_state(Tab const& tab, dom::Element const& image)
+    {
+        if (!tab.document || &image.root() != tab.document.get())
+            return bindings::ImageState::None;
+        std::optional<net::Url> const base = image_base(tab);
+        if (!base)
+            return bindings::ImageState::None;
+        std::string const source = image_source_key(image, *base);
+        if (source.empty())
+            return bindings::ImageState::None;
+        auto const had = tab.images.find(&image);
+        auto const noted = tab.image_sources.find(&image);
+        if (had != tab.images.end() && noted != tab.image_sources.end() && noted->second == source)
+            return had->second.bitmap ? bindings::ImageState::Available : bindings::ImageState::Broken;
+        return bindings::ImageState::Pending;
     }
 
     static bool has_unfetched_image(dom::Node const& node, layout::ImageMap const& images)
@@ -2667,6 +2751,10 @@ struct Browser::Impl {
             return std::pair<int, int> { static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->width()) / density)),
                 static_cast<int>(std::lround(static_cast<float>(it->second.bitmap->height()) / density)) };
         };
+        hooks.image_state = [this, document](dom::Element const& element) -> bindings::ImageState {
+            Tab* const owner = tab_of(document);
+            return owner ? image_state(*owner, element) : bindings::ImageState::None;
+        };
         hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return decode_image_bytes(bytes).has_value(); };
         hooks.submit_form = [this, document](dom::Element const& form, dom::Element const* submitter) {
             Tab* const owner = tab_of(document);
@@ -2793,6 +2881,7 @@ struct Browser::Impl {
         });
         {
             Stopwatch const collecting(profile.images_ms);
+            forget_changed_pictures(tab);
             if (tab.images.empty() || has_unfetched_image(*tab.document, tab.images) || unfetched_embedded) {
                 // Every picture the page will want is asked for first, all
                 // at once — the same walk with nothing fetched, so the
@@ -2821,8 +2910,7 @@ struct Browser::Impl {
                 bool more = false;
                 layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
                     tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab) });
-                for (auto& [element, image] : fresh)
-                    tab.images[element] = std::move(image);
+                take_pictures(tab, fresh);
                 tab.images_owed = more;
             }
             // The backgrounds the styles name now that were not had before.
@@ -2912,6 +3000,7 @@ struct Browser::Impl {
         tab.inspected = nullptr;
         tab.tree_scroll = 0;
         tab.images.clear();
+        tab.image_sources.clear();
         tab.pictures_coming.clear(); // the pictures of the page that is going
         tab.pictures_asked_ahead = false;
         tab.backgrounds.clear();

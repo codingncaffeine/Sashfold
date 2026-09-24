@@ -1438,6 +1438,25 @@ std::uint64_t Realm::tree_mutation_count() const
 }
 void Realm::note_mutation() { ++m_internals->mutations; }
 std::vector<VideoFrame> Realm::video_frames() { return media_video_frames(*m_internals); }
+
+void Realm::image_settled(dom::Element const& image, bool available)
+{
+    Internals& in = *m_internals;
+    if (in.ended || in.document == nullptr || &image.root() != in.document)
+        return;
+    // The element's wrapper is held until the task runs, so an image a
+    // script let go of still hears how its picture went.
+    js::Heap::NoCollect const guard(in.interpreter.heap());
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(in.wrap(const_cast<dom::Element&>(image))));
+    in.post_task([&in, held, type = std::string(available ? "load" : "error")] {
+        Internals::Entry const entry(in);
+        js::Interpreter::Roots const roots(in.interpreter);
+        EventObject* event = in.new_event("Event", type, false, false);
+        in.interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        in.dispatch(*event, held->value().as_object());
+    });
+}
 std::size_t Realm::settle_video(double timeout_ms) { return media_settle_video(*m_internals, timeout_ms); }
 void Realm::exit_fullscreen() { bindings::exit_fullscreen(*m_internals, std::nullopt); }
 ScriptStats const& Realm::stats() const { return m_internals->stats; }

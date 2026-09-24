@@ -1,0 +1,14 @@
+# An <img>'s load and error events, and `complete` (HTML §4.8.4).
+# image-events.html writes what it heard into its title half a second in:
+# each line is `name:event WxH complete`, sorted.
+#   parsed  a picture in the markup, 2 by 2, its listener an attribute
+#   made    made by script, inserted, src set and then the listener added in
+#           the same task: the event still comes, in a task of its own; its
+#           load handler then sets a new src, 1 by 1, and a second load comes
+#   broken  bytes that are no picture: error, and complete all the same
+# `at once` is `complete` read in the same task that set the src (false:
+# the picture is on its way); `empty` is an img that names nothing (true).
+resize 800 600
+open image-events.html
+advance 600
+assert-title at once false | empty true | broken:error 0x0 true | made:load 1x1 true | made:load 3x1 true | parsed:load 2x2 true

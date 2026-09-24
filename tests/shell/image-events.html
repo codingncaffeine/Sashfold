@@ -1,0 +1,39 @@
+<!doctype html>
+<title>waiting</title>
+<body>
+<!-- A picture in the markup, its listener in an attribute: load, 2 by 2. -->
+<img id="parsed" onload="note('parsed', this, 'load')" onerror="note('parsed', this, 'error')"
+  src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12P8z8DAwMDAxMDAwMDAAAANHQEDK+mmyAAAAABJRU5ErkJggg==">
+<!-- A picture that names nothing: complete, and no event. -->
+<img id="empty">
+<script>
+var seen = [];
+function note(name, img, type) {
+  seen.push(name + ':' + type + ' ' + img.naturalWidth + 'x' + img.naturalHeight + ' ' + img.complete);
+}
+// A picture made by script, its listener added after its src in the same
+// task: the event still comes, in a task of its own.
+var made = document.createElement('img');
+document.body.appendChild(made);
+made.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAABCAIAAACUgoPjAAAADElEQVQI12P8zwAFAAkLAQHMzIegAAAAAElFTkSuQmCC';
+var madeCompleteAtOnce = made.complete;
+made.addEventListener('load', function (e) {
+  note('made', made, e.type);
+  // A new source for a picture already shown: a second load, 1 by 1.
+  if (made.naturalWidth === 3) {
+    made.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12P4z8AAAAMBAQAY3Y2wAAAAAElFTkSuQmCC';
+  }
+});
+// Bytes that are no picture: error, and complete all the same.
+var broken = document.createElement('img');
+broken.addEventListener('error', function (e) { note('broken', broken, e.type); });
+broken.addEventListener('load', function (e) { note('broken', broken, e.type); });
+document.body.appendChild(broken);
+broken.src = 'data:image/png;base64,AAAAAAAA';
+var emptyComplete = document.getElementById('empty').complete;
+function report() {
+  document.title = 'at once ' + madeCompleteAtOnce + ' | empty ' + emptyComplete + ' | ' + seen.slice().sort().join(' | ');
+}
+setTimeout(report, 500);
+</script>
+</body>

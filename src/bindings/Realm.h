@@ -93,6 +93,11 @@ struct FrameDocument {
     int status = 200;
 };
 
+// Where an <img>'s picture stands, as the host that fetches it knows: it
+// names none, it is on its way, it was had, or it could not be had or
+// read (HTML §4.8.4's image request states, as `complete` asks for them).
+enum class ImageState : std::uint8_t { None, Pending, Available, Broken };
+
 // What the page's host provides to its scripts. Every hook is optional;
 // a missing one answers with the least surprising nothing (no box, the
 // attribute's value, no navigation).
@@ -161,6 +166,9 @@ struct HostHooks {
     std::function<dom::Element const*()> focused;
     // An image's decoded size in CSS px, for naturalWidth and naturalHeight.
     std::function<std::optional<std::pair<int, int>>(dom::Element const&)> image_size;
+    // Where an image element's picture stands, for `complete`: false while
+    // it is Pending. Without the hook every image counts as complete.
+    std::function<ImageState(dom::Element const&)> image_state;
     // Whether a picture's bytes decode: an object whose resource is a picture
     // that does not shows its fallback instead (HTML §4.8.7). Without it every
     // picture counts as one that decodes.
@@ -419,6 +427,12 @@ public:
     // The pictures this document's video elements show now (not its
     // frames'): what a host draws them with, and watches to repaint.
     std::vector<VideoFrame> video_frames();
+    // The host has the picture an <img> of this document names now, or knows
+    // it cannot be had or read: the element's load or error event, fired in
+    // a task of the event loop as HTML §4.8.4.3.4 queues it — never while the
+    // script that set the source is still running. The host tells each
+    // source it takes once.
+    void image_settled(dom::Element const& image, bool available);
     // For a host on a virtual clock, which moves faster than pictures are
     // made: waits, up to `timeout_ms` of real time, until every video shows
     // the frame due at its position. How many do.

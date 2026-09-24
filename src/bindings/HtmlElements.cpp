@@ -494,7 +494,13 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         };
         element_getter(in, proto, "naturalWidth", natural(true));
         element_getter(in, proto, "naturalHeight", natural(false));
-        element_getter(in, proto, "complete", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::boolean(true); });
+        // HTML §4.8.4: complete when the element names no picture, and once
+        // its picture was had or is known broken; not while it is on its way.
+        element_getter(in, proto, "complete", [](Realm::Internals& internals, dom::Element& e) -> Native {
+            if (!internals.hooks.image_state)
+                return js::Value::boolean(true);
+            return js::Value::boolean(internals.hooks.image_state(e) != ImageState::Pending);
+        });
         element_getter(in, proto, "currentSrc", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* src = e.find_attribute("src");
             if (!src)
