@@ -1807,11 +1807,10 @@ std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& l
                 self.throw_error(ErrorType::RangeError, "Invalid string length");
                 return std::nullopt;
             }
-            std::u16string joined;
-            joined.reserve((*lstr)->length() + (*rstr)->length());
-            joined += (*lstr)->view();
-            joined += (*rstr)->view();
-            return Value::string(heap().string(std::move(joined)));
+            // The rope keeps both halves: the right one is rooted across
+            // the allocation too.
+            self.root(Value::string(*rstr));
+            return Value::string(heap().concat(*lstr, *rstr));
         }
         std::optional<Value> const lnum = self.to_numeric(*lprim);
         if (!lnum)

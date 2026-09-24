@@ -209,6 +209,70 @@ int main()
         CHECK(heap.bytes_allocated() < bytes + sizeof(js::JsString));
     }
 
+    // A concatenation is a rope until it is read: its length known, its
+    // halves kept alive by it, one flat copy taken when its code units are
+    // asked for, after which the halves are its own no more. A short one
+    // is copied flat at once, and an empty half gives the other back.
+    {
+        js::Heap heap;
+        std::size_t const base = heap.cell_count();
+        TestRoots roots;
+        heap.add_root_provider(&roots);
+        js::JsString* const left = heap.string(u"the quick brown fox jumps over "sv);
+        roots.cell = left;
+        js::JsString* const right = heap.string(u"the lazy dog, twice or thrice"sv);
+        roots.value = js::Value::string(right);
+        js::JsString* const rope = heap.concat(left, right);
+        CHECK(rope != left && rope != right);
+        CHECK(rope->is_rope());
+        CHECK_EQ(rope->length(), std::size_t { 60 });
+        CHECK(!rope->is_empty());
+        roots.cell = nullptr;
+        roots.value = js::Value::string(rope);
+        heap.collect();
+        CHECK_EQ(heap.cell_count(), base + 3); // the rope holds its halves
+        CHECK(rope->is_rope());
+        CHECK(rope->equals(u"the quick brown fox jumps over the lazy dog, twice or thrice"));
+        CHECK(!rope->is_rope());
+        CHECK_EQ(rope->view().size(), std::size_t { 60 });
+        heap.collect();
+        CHECK_EQ(heap.cell_count(), base + 1); // flat now, the halves let go
+        CHECK(rope->equals(u"the quick brown fox jumps over the lazy dog, twice or thrice"));
+        // Nested, and deep down one side: a string appended to a hundred
+        // thousand times reads back whole, on a stack of its own.
+        js::JsString* deep = heap.string(u"0123456789abcdefghijklmnopqrstuvwxyz"sv);
+        roots.value = js::Value::string(deep);
+        js::JsString* const piece = heap.string(u"xy"sv);
+        roots.cell = piece;
+        for (int i = 0; i < 100000; ++i) {
+            deep = heap.concat(deep, piece);
+            roots.value = js::Value::string(deep);
+        }
+        CHECK(deep->is_rope());
+        CHECK_EQ(deep->length(), std::size_t { 36 + 200000 });
+        CHECK_EQ(deep->view().size(), std::size_t { 36 + 200000 });
+        CHECK(deep->view().substr(0, 36) == u"0123456789abcdefghijklmnopqrstuvwxyz"sv);
+        CHECK(deep->view().substr(36, 4) == u"xyxy"sv);
+        CHECK(deep->view().substr(200032) == u"xyxy"sv);
+        heap.collect();
+        // Flat, deep holds no more than itself: the first string and the
+        // hundred thousand ropes over it are gone. Deep and piece remain.
+        CHECK_EQ(heap.cell_count(), base + 2);
+        // Short, and empty.
+        js::JsString* const ab = heap.string(u"ab"sv);
+        roots.value = js::Value::string(ab);
+        js::JsString* const cd = heap.string(u"cd"sv);
+        roots.cell = cd;
+        js::JsString* const abcd = heap.concat(ab, cd);
+        CHECK(!abcd->is_rope());
+        CHECK(abcd->equals(u"abcd"));
+        CHECK_EQ(abcd->length(), std::size_t { 4 });
+        js::JsString* const empty = heap.string(u""sv);
+        CHECK(heap.concat(empty, ab) == ab);
+        CHECK(heap.concat(ab, empty) == ab);
+        heap.remove_root_provider(&roots);
+    }
+
     // A RootProvider keeps what it traces; removing it stops that.
     {
         js::Heap heap;

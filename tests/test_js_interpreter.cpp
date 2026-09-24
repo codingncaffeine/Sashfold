@@ -794,6 +794,48 @@ void test_the_account()
     CHECK_EQ(in.account().programs_parsed - after.programs_parsed, std::size_t { 3 });
 }
 
+// A string built by appending is a rope until it is read: the heap holds
+// the pieces and a small cell an append, never a copy of the whole at
+// every step, and the whole reads back as it should — compared, keyed and
+// hashed by its contents, with its halves kept alive under collection.
+void test_ropes()
+{
+    {
+        js::Interpreter& in = fresh();
+        in.heap().set_stress(false);
+        in.heap().collect();
+        std::size_t const collections = in.heap().collections();
+        // Twenty thousand appends of eight code units: copied flat that is
+        // 1.6 GB of strings made and dropped and hundreds of collections;
+        // as ropes it is twenty thousand small cells and none.
+        CHECK_EQ(test::eval_number(in, "var s = ''; for (var i = 0; i < 20000; i++) s += 'abcdefgh'; s.length"), 160000);
+        CHECK_EQ(in.heap().collections() - collections, std::size_t { 0 });
+        CHECK(in.heap().bytes_allocated() < 8u * 1024u * 1024u);
+        CHECK_EQ(test::eval_number(in, "s.charCodeAt(159999)"), 104);
+        CHECK_EQ(test::eval_string(in, "s.slice(0, 8) + s.slice(-8)"), "abcdefghabcdefgh");
+        CHECK_EQ(test::eval_number(in, "s.indexOf('habc')"), 7);
+        CHECK_EQ(test::eval_number(in, "JSON.stringify({ k: s }).length"), 160000 + 8);
+        // Two hundred thousand single appends: a tree that deep, read whole.
+        CHECK_EQ(test::eval_number(in, "var d = ''; for (var i = 0; i < 200000; i++) d += 'x'; d.length"), 200000);
+        CHECK_EQ(test::eval_string(in, "d[199999] + d[0] + d.length"), "xx200000");
+        // Ropes and flat strings are the same values: equal, one key.
+        CHECK(test::eval_bool(in, "var a = 'abcdefghijklmnopqrstuvwxyz0123456789'; var b = a.slice(0, 20) + a.slice(20); a === b"));
+        CHECK(test::eval_bool(in, "b === a && b == a && !(b !== a)"));
+        CHECK_EQ(test::eval_string(in, "var o = {}; o[a.slice(0, 20) + a.slice(20)] = 'keyed'; o[a] + '|' + Object.keys(o).length"), "keyed|1");
+        CHECK(test::eval_bool(in, "new Map([[a, 1]]).get(a.slice(0, 20) + a.slice(20)) === 1"));
+        CHECK_EQ(test::eval_string(in, "((a.slice(0, 10) + a.slice(10, 20)) + (a.slice(20, 30) + a.slice(30))).toUpperCase()"), "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+        CHECK(test::eval_bool(in, "var r = a + a; r.length === 72 && r.lastIndexOf('9a') === 35 && r.split('9').length === 3"));
+        CHECK(test::eval_bool(in, "/xyz0123456789abc/.test(a + a) && (a + a).replace(/[0-9]+/g, '#') === 'abcdefghijklmnopqrstuvwxyz#abcdefghijklmnopqrstuvwxyz#'"));
+    }
+    // Under stress — a collection at every allocation — a rope keeps its
+    // halves alive until it is flat.
+    {
+        js::Interpreter& stress = fresh();
+        CHECK_EQ(test::eval_string(stress, "var s = 'abcdefghijklmnopqrstuvwxyz'; for (var i = 0; i < 60; i++) s += String.fromCharCode(65 + (i % 26)) + 'bcdefghijklmnopqrstuvwxyz'; s.length + ':' + s.slice(-26) + ':' + s.slice(26, 52)"),
+            "1586:Hbcdefghijklmnopqrstuvwxyz:Abcdefghijklmnopqrstuvwxyz");
+    }
+}
+
 } // namespace
 
 int main()
@@ -820,5 +862,6 @@ int main()
     test_function_properties();
     test_strict_mode_shapes();
     test_the_account();
+    test_ropes();
     return sashfold::test::report("js_interpreter");
 }

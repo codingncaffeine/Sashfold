@@ -84,18 +84,32 @@ class JsString : public Cell {
 public:
     explicit JsString(std::u16string data)
         : m_data(std::move(data))
+        , m_length(m_data.size())
+    {
+    }
+    // A rope: the concatenation of two strings, kept as the two until its
+    // code units are asked for, and made flat once then. What every engine
+    // makes of `+`, so that a string built by appending in a loop costs its
+    // length and not the square of it: each append is a small cell over the
+    // two, and the one copy is taken when the whole is read. Its length is
+    // known throughout, and it keeps its halves alive until it is flat.
+    JsString(JsString* left, JsString* right)
+        : m_left(left)
+        , m_right(right)
+        , m_length(left->m_length + right->m_length)
     {
     }
 
-    std::u16string const& data() const { return m_data; }
-    std::u16string_view view() const { return m_data; }
-    std::size_t length() const { return m_data.size(); }
-    bool is_empty() const { return m_data.empty(); }
+    std::u16string const& data() const { return flat(); }
+    std::u16string_view view() const { return flat(); }
+    std::size_t length() const { return m_length; }
+    bool is_empty() const { return m_length == 0; }
     bool is_atom() const { return m_atom; }
-    bool equals(std::u16string_view other) const { return m_data == other; }
+    bool is_rope() const { return m_left != nullptr; } // not yet read
+    bool equals(std::u16string_view other) const { return m_length == other.size() && flat() == other; }
     bool equals(JsString const& other) const
     {
-        return this == &other || (!(m_atom && other.m_atom) && m_data == other.m_data);
+        return this == &other || (!(m_atom && other.m_atom) && m_length == other.m_length && flat() == other.flat());
     }
     // WTF-8: a lone surrogate comes out as its three-byte form, for
     // internal use only (the DOM stores WTF-8 too).
@@ -105,11 +119,22 @@ public:
     std::optional<std::uint32_t> as_array_index() const;
     std::size_t hash() const; // computed once
 
+    void trace(Tracer&) override;
     std::size_t size_in_bytes() const override { return sizeof(*this) + m_data.size() * 2; }
 
 private:
     friend class Heap;
-    std::u16string m_data;
+    std::u16string const& flat() const
+    {
+        if (m_left != nullptr)
+            flatten();
+        return m_data;
+    }
+    void flatten() const;
+    mutable std::u16string m_data;
+    mutable JsString* m_left = nullptr; // a rope's halves; null once it is flat
+    mutable JsString* m_right = nullptr;
+    std::size_t m_length = 0;
     bool m_atom = false;
     mutable bool m_index_known = false;
     mutable bool m_is_index = false;
@@ -261,6 +286,11 @@ public:
     JsString* string(std::u16string_view data) { return string(std::u16string(data)); }
     JsString* string(std::string_view utf8); // WTF-8 in, so lone surrogates survive
     JsString* string(char16_t code_unit);
+    // The concatenation of two strings: an empty one's other half as it
+    // is, a short result copied flat, a long one a rope over the two (see
+    // JsString). The caller has checked the length against the ceiling.
+    // May collect first: both must be rooted.
+    JsString* concat(JsString* left, JsString* right);
 
     // Interning. The atom with these contents, made if absent; permanent.
     JsString* atom(std::u16string_view);

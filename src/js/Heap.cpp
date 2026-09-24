@@ -37,15 +37,47 @@ void Tracer::visit(Cell* cell)
 
 // -------------------------------------------------------------- JsString
 
+void JsString::trace(Tracer& tracer)
+{
+    tracer.visit(static_cast<Cell*>(m_left));
+    tracer.visit(static_cast<Cell*>(m_right));
+}
+
+void JsString::flatten() const
+{
+    // The halves in order, each a flat run of code units or a rope of its
+    // own. A string appended to a hundred thousand times is a tree that
+    // deep down its left side, so the walk keeps its own stack: recursion
+    // would cost the machine's for what a vector holds. A half already
+    // read is flat by then and copied as one run.
+    std::u16string whole;
+    whole.reserve(m_length);
+    std::vector<JsString const*> pending;
+    pending.push_back(this);
+    while (!pending.empty()) {
+        JsString const* const node = pending.back();
+        pending.pop_back();
+        if (node->m_left == nullptr) {
+            whole += node->m_data;
+            continue;
+        }
+        pending.push_back(node->m_right);
+        pending.push_back(node->m_left);
+    }
+    m_data = std::move(whole);
+    m_left = nullptr;
+    m_right = nullptr;
+}
+
 std::string JsString::to_utf8() const
 {
-    return utf8_from_utf16(m_data);
+    return utf8_from_utf16(flat());
 }
 
 std::optional<std::uint32_t> JsString::as_array_index() const
 {
     if (!m_index_known) {
-        auto const index = array_index_of(m_data);
+        auto const index = array_index_of(flat());
         m_is_index = index.has_value();
         m_index = index.value_or(0);
         m_index_known = true;
@@ -61,7 +93,7 @@ std::size_t JsString::hash() const
         // FNV-1a over the code units: it needs no table, and a property
         // map's buckets do not care about cryptographic strength.
         std::uint64_t h = 14695981039346656037ull;
-        for (char16_t const unit : m_data) {
+        for (char16_t const unit : flat()) {
             h ^= static_cast<std::uint64_t>(unit);
             h *= 1099511628211ull;
         }
@@ -247,21 +279,22 @@ void Heap::collect()
     std::unordered_map<char const*, KindTally> swept_by_kind;
     std::unordered_map<char const*, KindTally> live_by_kind;
     std::size_t live = 0;
-    std::erase_if(m_cells, [&](std::unique_ptr<Cell> const& cell) {
-        if (cell->marked()) {
-            std::size_t const bytes = cell->size_in_bytes();
+    std::erase_if(m_cells, [&](std::unique_ptr<Cell> const& owned) {
+        Cell const& cell = *owned;
+        if (cell.marked()) {
+            std::size_t const bytes = cell.size_in_bytes();
             live += bytes;
             if (tracing) {
-                KindTally& kind = live_by_kind[typeid(*cell).name()];
+                KindTally& kind = live_by_kind[typeid(cell).name()];
                 ++kind.cells;
                 kind.bytes += bytes;
             }
             return false;
         }
         if (tracing) {
-            KindTally& kind = swept_by_kind[typeid(*cell).name()];
+            KindTally& kind = swept_by_kind[typeid(cell).name()];
             ++kind.cells;
-            kind.bytes += cell->size_in_bytes();
+            kind.bytes += cell.size_in_bytes();
         }
         return true;
     });
@@ -306,6 +339,26 @@ JsString* Heap::string(std::string_view utf8)
 JsString* Heap::string(char16_t code_unit)
 {
     return string(std::u16string(1, code_unit));
+}
+
+JsString* Heap::concat(JsString* left, JsString* right)
+{
+    if (left->is_empty())
+        return right;
+    if (right->is_empty())
+        return left;
+    // Below this a copy is cheaper than a cell over the two; the engines
+    // draw the line near here (V8 at 13).
+    constexpr std::size_t rope_min_length = 32;
+    std::size_t const length = left->length() + right->length();
+    if (length < rope_min_length) {
+        std::u16string joined;
+        joined.reserve(length);
+        joined += left->view();
+        joined += right->view();
+        return allocate<JsString>(std::move(joined));
+    }
+    return allocate<JsString>(left, right);
 }
 
 JsString* Heap::atom(std::u16string_view contents)

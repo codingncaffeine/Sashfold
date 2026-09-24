@@ -784,7 +784,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 ok = false;
                 break;
             }
-            JsString* joined = h.string(frame.peek(1).as_string()->data() + frame.peek(0).as_string()->data());
+            // Both halves are on the stack, rooted, through the allocation.
+            JsString* joined = h.concat(frame.peek(1).as_string(), frame.peek(0).as_string());
             frame.stack.pop_back();
             frame.top() = Value::string(joined);
             break;
