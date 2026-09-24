@@ -1723,7 +1723,7 @@ struct Layouter {
             request.families = *style.font_family;
         request.weight = style.font_weight;
         request.stretch = style.font_stretch;
-        request.italic = style.font_style == css::FontStyle::Italic;
+        request.italic = style.slanted();
         text::FontStack const& stack = text::FontManager::instance().resolve(request);
         fonts.emplace(&style, &stack);
         return stack;
@@ -2235,6 +2235,8 @@ struct Layouter {
         take(&ComputedStyle::font_size);
         take(&ComputedStyle::font_weight);
         take(&ComputedStyle::font_style);
+        take(&ComputedStyle::font_synthesis_weight);
+        take(&ComputedStyle::font_synthesis_style);
         take(&ComputedStyle::font_family);
         take(&ComputedStyle::line_height);
         take(&ComputedStyle::white_space);

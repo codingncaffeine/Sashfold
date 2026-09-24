@@ -14,7 +14,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
@@ -34,8 +36,21 @@ GapSink& gap_sink()
     return sink;
 }
 
+// declaration_is_supported's own probe of whether apply() recognized a
+// property name: its business alone, never the real page's, and never
+// shared across threads the way the sink above is — a page's stylesheets
+// compile on whatever thread loaded them (the WPT harness runs many at
+// once), and swapping the one global sink around a probe would race with
+// another thread's real gap reporting. A thread-local override note_gap
+// checks first keeps every thread's probe to itself.
+thread_local bool* t_unknown_property_probe = nullptr;
+
 void note_gap(std::string_view kind, std::string_view item)
 {
+    if (t_unknown_property_probe && kind == "css property") {
+        *t_unknown_property_probe = true;
+        return;
+    }
     if (GapSink const& sink = gap_sink())
         sink(kind, item);
 }
@@ -2159,15 +2174,23 @@ struct RuleSet {
     {
         for (Rule const& rule : source) {
             if (rule.is_at_rule()) {
-                // @media blocks whose query the context satisfies contribute
-                // their rules in place; other at-rules (@supports,
-                // @font-face, @keyframes, @layer) are not supported yet.
+                // @media and @supports blocks whose condition the engine
+                // meets contribute their rules in place — the two nest
+                // inside each other freely, since this recurses either way;
+                // other at-rules (@font-face, @keyframes, @layer) are not
+                // supported yet.
                 auto const& at = std::get<AtRule>(rule.value);
                 if (ascii_ci_equals(at.name, "media")) {
                     bool const matches = media_prelude_matches(at.prelude, media);
                     if (at.has_block)
                         media_conditions.emplace_back(at.prelude, matches);
                     if (at.has_block && matches)
+                        compile_rules(prepared, at.child_rules, user_agent, order, base);
+                } else if (ascii_ci_equals(at.name, "supports")) {
+                    // Never a --gaps entry, matched or not: an unmet
+                    // condition is exactly as unremarkable as an unmet
+                    // @media one, not a construct the engine failed to read.
+                    if (at.has_block && supports_condition_matches(at.prelude))
                         compile_rules(prepared, at.child_rules, user_agent, order, base);
                 } else if (gap_sink() && !ascii_ci_equals(at.name, "font-face") && !ascii_ci_equals(at.name, "import")
                     && !ascii_ci_equals(at.name, "charset")) {
@@ -2343,7 +2366,7 @@ struct Resolver {
             request.families = *style.font_family;
         request.weight = style.font_weight;
         request.stretch = style.font_stretch;
-        request.italic = style.font_style == FontStyle::Italic;
+        request.italic = style.slanted();
         text::Face const& face = text::FontManager::instance().resolve(request).primary();
         // Measured at a size large enough that the division keeps its digits.
         constexpr float probe = 1024;
@@ -2735,6 +2758,10 @@ struct Resolver {
         style.line_break = parent.line_break;
         style.overflow_wrap = parent.overflow_wrap;
         style.font_kerning = parent.font_kerning;
+        style.font_synthesis_weight = parent.font_synthesis_weight;
+        style.font_synthesis_style = parent.font_synthesis_style;
+        style.font_synthesis_small_caps = parent.font_synthesis_small_caps;
+        style.font_synthesis_position = parent.font_synthesis_position;
         style.text_transform = parent.text_transform;
         style.list_style_type = parent.list_style_type;
         style.list_style_position = parent.list_style_position;
@@ -3141,6 +3168,22 @@ struct Resolver {
             { "line-break", true, [](S& to, S const& from) { to.line_break = from.line_break; }, 0 },
             { "overflow-wrap", true, [](S& to, S const& from) { to.overflow_wrap = from.overflow_wrap; }, 0 },
             { "font-kerning", true, [](S& to, S const& from) { to.font_kerning = from.font_kerning; }, 0 },
+            { "font-synthesis-weight", true,
+                [](S& to, S const& from) { to.font_synthesis_weight = from.font_synthesis_weight; }, 0 },
+            { "font-synthesis-style", true,
+                [](S& to, S const& from) { to.font_synthesis_style = from.font_synthesis_style; }, 0 },
+            { "font-synthesis-small-caps", true,
+                [](S& to, S const& from) { to.font_synthesis_small_caps = from.font_synthesis_small_caps; }, 0 },
+            { "font-synthesis-position", true,
+                [](S& to, S const& from) { to.font_synthesis_position = from.font_synthesis_position; }, 0 },
+            { "font-synthesis", true,
+                [](S& to, S const& from) {
+                    to.font_synthesis_weight = from.font_synthesis_weight;
+                    to.font_synthesis_style = from.font_synthesis_style;
+                    to.font_synthesis_small_caps = from.font_synthesis_small_caps;
+                    to.font_synthesis_position = from.font_synthesis_position;
+                },
+                0 },
             { "text-transform", true,
                 [](S& to, S const& from) { to.text_transform = from.text_transform; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
@@ -5447,8 +5490,10 @@ struct Resolver {
             FontStyle font_style = FontStyle::Normal;
             int weight = 400;
             for (ComponentValue const* value : parts->before) {
-                if (is_ident(value, "italic") || is_ident(value, "oblique"))
+                if (is_ident(value, "italic"))
                     font_style = FontStyle::Italic;
+                else if (is_ident(value, "oblique"))
+                    font_style = FontStyle::Oblique;
                 else if (is_ident(value, "bold"))
                     weight = 700;
                 else if (is_ident(value, "bolder"))
@@ -5510,8 +5555,10 @@ struct Resolver {
                 return;
             if (is_ident(values[0], "normal"))
                 style.font_style = FontStyle::Normal;
-            else if (is_ident(values[0], "italic") || is_ident(values[0], "oblique"))
+            else if (is_ident(values[0], "italic"))
                 style.font_style = FontStyle::Italic;
+            else if (is_ident(values[0], "oblique"))
+                style.font_style = FontStyle::Oblique;
             return;
         }
         if (name == "line-height") {
@@ -5758,6 +5805,65 @@ struct Resolver {
                 style.font_kerning = FontKerning::Normal;
             else if (is_ident(values[0], "none"))
                 style.font_kerning = FontKerning::None;
+            return;
+        }
+        if (name == "font-synthesis-weight" || name == "font-synthesis-small-caps"
+            || name == "font-synthesis-position") {
+            // auto | none
+            if (values.size() != 1)
+                return;
+            bool* const allowed = name == "font-synthesis-weight" ? &style.font_synthesis_weight
+                : name == "font-synthesis-small-caps"             ? &style.font_synthesis_small_caps
+                                                                  : &style.font_synthesis_position;
+            if (is_ident(values[0], "auto"))
+                *allowed = true;
+            else if (is_ident(values[0], "none"))
+                *allowed = false;
+            return;
+        }
+        if (name == "font-synthesis-style") {
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "auto"))
+                style.font_synthesis_style = FontSynthesisStyle::Auto;
+            else if (is_ident(values[0], "none"))
+                style.font_synthesis_style = FontSynthesisStyle::None;
+            else if (is_ident(values[0], "oblique-only"))
+                style.font_synthesis_style = FontSynthesisStyle::ObliqueOnly;
+            return;
+        }
+        if (name == "font-synthesis") {
+            // none | [ weight || [ style | oblique-only ] || small-caps || position ]:
+            // what is named may be faked, what is not may not.
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                style.font_synthesis_weight = false;
+                style.font_synthesis_style = FontSynthesisStyle::None;
+                style.font_synthesis_small_caps = false;
+                style.font_synthesis_position = false;
+                return;
+            }
+            if (values.empty())
+                return;
+            bool weight = false, small_caps = false, position = false;
+            std::optional<FontSynthesisStyle> slant;
+            for (ComponentValue const* value : values) {
+                if (is_ident(value, "weight") && !weight)
+                    weight = true;
+                else if (is_ident(value, "style") && !slant)
+                    slant = FontSynthesisStyle::Auto;
+                else if (is_ident(value, "oblique-only") && !slant)
+                    slant = FontSynthesisStyle::ObliqueOnly;
+                else if (is_ident(value, "small-caps") && !small_caps)
+                    small_caps = true;
+                else if (is_ident(value, "position") && !position)
+                    position = true;
+                else
+                    return;
+            }
+            style.font_synthesis_weight = weight;
+            style.font_synthesis_style = slant.value_or(FontSynthesisStyle::None);
+            style.font_synthesis_small_caps = small_caps;
+            style.font_synthesis_position = position;
             return;
         }
         if (name == "overflow-wrap" || name == "word-wrap") {
@@ -6135,6 +6241,322 @@ std::optional<Color> parse_color_text(std::string_view text)
     if (!only || (only->is_token(Token::Type::Ident) && ascii_ci_equals(only->token().value, "currentcolor")))
         return std::nullopt;
     return parse_color_component(*only, Color { 0, 0, 0, 255 });
+}
+
+// --- @supports (css-conditional-3 §6) and CSS.supports() (§8) --------------
+
+namespace {
+
+// A ComputedStyle nudged off every default value it easily can be, by
+// running a pile of ordinary declarations through the real cascade: a
+// second baseline for declaration_is_supported's diff below, so a tested
+// value that happens to equal ONE baseline's existing field is never
+// mistaken for one the resolver silently dropped.
+ComputedStyle const& perturbed_style_baseline()
+{
+    static ComputedStyle const baseline = [] {
+        RuleSet const scratch;
+        Resolver resolver(scratch);
+        ComputedStyle style;
+        bool a = false, b = false, c = false, d = false;
+        for (Declaration const& declaration : parse_declaration_list(
+                 "color: rgb(12, 34, 56); background-color: rgb(65, 43, 21); "
+                 "display: flex; position: absolute; float: right; clear: both; "
+                 "top: 13px; left: 17px; right: 19px; bottom: 23px; "
+                 "width: 123px; height: 456px; "
+                 "margin: 11px 12px 13px 14px; padding: 21px 22px 23px 24px; "
+                 "border-width: 3px; border-style: dashed; text-align: right; "
+                 "font-size: 37px; line-height: 2.5; opacity: 0.42; visibility: hidden; "
+                 "overflow: scroll; z-index: 99; letter-spacing: 3px; word-spacing: 4px; "
+                 "text-indent: 5px; white-space: pre; direction: rtl; "
+                 "vertical-align: top; list-style-type: square; content: 'x'; "
+                 "font-weight: 700; font-style: italic; font-stretch: 150%; font-kerning: none; "
+                 "font-synthesis: none; text-transform: uppercase; text-decoration: underline; "
+                 "box-sizing: border-box; pointer-events: none; word-break: break-all; "
+                 "overflow-wrap: anywhere; flex-direction: column; justify-content: center; "
+                 "align-items: center;"))
+            resolver.apply(style, declaration, nullptr, a, b, c, d);
+        return style;
+    }();
+    return baseline;
+}
+
+// Whether applying `declaration` to a private copy of `style` (it is taken
+// by value: only this call's own copy is ever touched) leaves any byte of
+// it different from what it started as — the only sign apply() gives that
+// it recognized the declaration and accepted its value, since a rejected
+// one is always a silent no-op. Snapshotted from the very same object in
+// place, before and after, so a copy constructor's own choice of padding
+// bytes is never mistaken for a change.
+bool applying_changes_style(Resolver& resolver, ComputedStyle style, Declaration const& declaration)
+{
+    std::vector<std::byte> before(sizeof(ComputedStyle));
+    std::memcpy(before.data(), &style, sizeof(ComputedStyle));
+    bool a = false, b = false, c = false, d = false;
+    resolver.apply(style, declaration, nullptr, a, b, c, d);
+    return std::memcmp(before.data(), &style, sizeof(ComputedStyle)) != 0;
+}
+
+// var( <custom-property-name> , <declaration-value>? ): a custom property's
+// name first, then nothing or a comma and the fallback — at every depth,
+// fallbacks included.
+bool var_references_are_well_formed(std::vector<ComponentValue> const& values)
+{
+    for (ComponentValue const& value : values) {
+        if (value.is_block() && !var_references_are_well_formed(value.block().values))
+            return false;
+        if (!value.is_function())
+            continue;
+        std::vector<ComponentValue> const& arguments = value.function().values;
+        if (Resolver::is_var(value)) {
+            std::vector<ComponentValue const*> const parts = significant(arguments);
+            if (parts.empty() || !parts[0]->is_token(Token::Type::Ident)
+                || !parts[0]->token().value.starts_with("--") || parts[0]->token().value.size() < 3)
+                return false;
+            if (parts.size() > 1 && !parts[1]->is_token(Token::Type::Comma))
+                return false;
+        }
+        if (!var_references_are_well_formed(arguments))
+            return false;
+    }
+    return true;
+}
+
+// at-rule( <at-keyword-token> ) (css-conditional-5 §5.1): whether the
+// engine does anything with rules of that name.
+bool at_rule_is_supported(std::vector<ComponentValue> const& arguments)
+{
+    std::vector<ComponentValue const*> const parts = significant(arguments);
+    if (parts.size() != 1 || !parts[0]->is_token(Token::Type::AtKeyword))
+        return false;
+    std::string_view const name = parts[0]->token().value;
+    return ascii_ci_equals(name, "media") || ascii_ci_equals(name, "supports") || ascii_ci_equals(name, "import")
+        || ascii_ci_equals(name, "font-face");
+}
+
+} // namespace
+
+// A declaration is supported when the resolver actually understands
+// `property` and accepts `value` for it — decided by literally trying the
+// resolver's own cascade logic on a scratch style, so this can never drift
+// from what apply() and compile_rules actually do, the way a hand-kept
+// list of properties and value shapes would.
+bool declaration_is_supported(std::string_view property, std::vector<ComponentValue> const& value)
+{
+    // Custom properties take any token soup: there is no value grammar to
+    // fail (css-conditional-3 §6). "--" alone names none (css-variables-1's
+    // <custom-property-name> needs something after the two dashes), so it
+    // falls through to the ordinary check below, where no property named
+    // just "--" is known either.
+    if (property.starts_with("--") && property.size() > 2)
+        return true;
+    if (property.empty() || value.empty())
+        return false;
+
+    Declaration declaration;
+    declaration.name = std::string(property);
+    declaration.value = value;
+
+    RuleSet const scratch;
+    Resolver resolver(scratch);
+
+    // Whether the cascade's dispatch recognizes the name at all: probe the
+    // same signal apply() gives an unknown property with — see
+    // t_unknown_property_probe — so this never drifts from what a real
+    // declaration would do.
+    bool unknown = false;
+    t_unknown_property_probe = &unknown;
+    bool const changed_default = applying_changes_style(resolver, ComputedStyle {}, declaration);
+    t_unknown_property_probe = nullptr;
+    if (unknown)
+        return false;
+    // A value holding var() is valid at parse time whatever else it holds
+    // (css-variables-1 §3): it is judged only once substituted, at
+    // computed-value time. Each var() must still be well formed.
+    if (Resolver::contains_var(value))
+        return var_references_are_well_formed(value);
+    if (changed_default)
+        return true;
+    // Every real property accepts the CSS-wide keywords, whatever the
+    // property's own branch just made of the literal word as a color or a
+    // length — apply() only expands these earlier, in the cascade proper
+    // (see wide_keyword's callers), not inside the per-property dispatch
+    // this probes directly.
+    if (Resolver::wide_keyword(significant(value)))
+        return true;
+    return applying_changes_style(resolver, perturbed_style_baseline(), declaration);
+}
+
+namespace {
+
+// <supports-condition> = not <supports-in-parens>
+//                       | <supports-in-parens> [ and <supports-in-parens> ]*
+//                       | <supports-in-parens> [ or <supports-in-parens> ]*
+// <supports-in-parens>  = ( <supports-condition> ) | <supports-feature> | <general-enclosed>
+// <supports-feature>    = ( <declaration> ) | selector( <complex-selector> )
+// css-conditional-3 §6, over a prelude's already-parsed component values —
+// nested parentheses are already a tree here (SimpleBlock), so unlike
+// @media's own evaluator this never has to re-flatten to tokens to find a
+// matching close paren. A parenthesized group is a nested condition or a
+// declaration purely by which one its own contents actually parse as, with
+// backtracking: <general-enclosed> is the fallback when neither does, and
+// is always unsupported (false), never a hard failure.
+class SupportsParser {
+public:
+    explicit SupportsParser(std::vector<ComponentValue> const& values)
+        : m_values(values)
+    {
+    }
+
+    // nullopt: the input is not a well-formed <supports-condition> at all
+    // (a bare token where an <in-parens> belongs, or "A and B or C" with no
+    // parentheses to say which combinator binds first) — a failure that
+    // invalidates whatever contains it, unlike an in-parens the grammar
+    // accepts but that simply turns out unsupported.
+    std::optional<bool> parse_condition()
+    {
+        skip_whitespace();
+        if (peek_ident("not")) {
+            ++m_pos;
+            skip_whitespace();
+            std::optional<bool> const operand = parse_in_parens();
+            return operand ? std::optional<bool>(!*operand) : std::nullopt;
+        }
+        std::optional<bool> result = parse_in_parens();
+        if (!result)
+            return std::nullopt;
+        std::optional<bool> want_and; // unset until the first and/or is seen
+        while (true) {
+            skip_whitespace();
+            bool const is_and = peek_ident("and");
+            bool const is_or = !is_and && peek_ident("or");
+            if (!is_and && !is_or)
+                break;
+            if (want_and && *want_and != is_and)
+                return std::nullopt; // "A and B or C": which binds first?
+            want_and = is_and;
+            ++m_pos;
+            skip_whitespace();
+            std::optional<bool> const operand = parse_in_parens();
+            if (!operand)
+                return std::nullopt;
+            result = is_and ? (*result && *operand) : (*result || *operand);
+        }
+        return result;
+    }
+
+    void skip_whitespace()
+    {
+        while (!at_end() && m_values[m_pos].is_token(Token::Type::Whitespace))
+            ++m_pos;
+    }
+
+    bool at_end() const { return m_pos >= m_values.size(); }
+
+private:
+    bool peek_ident(std::string_view name) const
+    {
+        return !at_end() && m_values[m_pos].is_token(Token::Type::Ident)
+            && ascii_ci_equals(m_values[m_pos].token().value, name);
+    }
+
+    // One <supports-in-parens> is always exactly one component value here:
+    // a parenthesized block, or a function. nullopt means the current
+    // position is shaped like neither — no alternative of the grammar
+    // matches at all, which (see parse_condition) is a hard failure.
+    std::optional<bool> parse_in_parens()
+    {
+        skip_whitespace();
+        if (at_end())
+            return std::nullopt;
+        ComponentValue const& value = m_values[m_pos];
+        if (value.is_block() && value.block().open == Token::Type::OpenParen) {
+            ++m_pos;
+            return evaluate_parenthesized(value.block().values);
+        }
+        if (value.is_function() && ascii_ci_equals(value.function().name, "selector")) {
+            ++m_pos;
+            return selector_list_is_strictly_valid(value.function().values);
+        }
+        if (value.is_function() && ascii_ci_equals(value.function().name, "at-rule")) {
+            ++m_pos;
+            return at_rule_is_supported(value.function().values);
+        }
+        if (value.is_function()) {
+            ++m_pos;
+            return false; // <general-enclosed>: some other function
+        }
+        return std::nullopt; // a bare token matches no <in-parens> alternative
+    }
+
+    // Inside an already-balanced "(...)": try it as a nested condition
+    // first (it must consume everything inside to count), then as a
+    // declaration; anything else is <general-enclosed>.
+    static bool evaluate_parenthesized(std::vector<ComponentValue> const& inner)
+    {
+        {
+            SupportsParser nested(inner);
+            std::optional<bool> const result = nested.parse_condition();
+            nested.skip_whitespace();
+            if (result && nested.at_end())
+                return *result;
+        }
+        if (std::optional<bool> const declared = evaluate_declaration(inner))
+            return *declared;
+        return false; // <general-enclosed>
+    }
+
+    // ( <declaration> ): <ident> <colon> <value>, exactly as any style
+    // rule's own declaration parses, with a trailing "!important" (which
+    // bears on nothing here) stripped the same way. nullopt when `inner`
+    // is not even that shape.
+    static std::optional<bool> evaluate_declaration(std::vector<ComponentValue> const& inner)
+    {
+        std::vector<ComponentValue const*> const parts = significant(inner);
+        if (parts.size() < 3 || !parts[0]->is_token(Token::Type::Ident) || !parts[1]->is_token(Token::Type::Colon))
+            return std::nullopt;
+        std::size_t value_end = parts.size();
+        if (value_end >= 4 && parts[value_end - 1]->is_token(Token::Type::Ident)
+            && ascii_ci_equals(parts[value_end - 1]->token().value, "important")
+            && parts[value_end - 2]->is_token(Token::Type::Delim) && parts[value_end - 2]->token().delim == U'!')
+            value_end -= 2;
+        if (value_end <= 2)
+            return std::nullopt;
+        std::vector<ComponentValue> value;
+        value.reserve(value_end - 2);
+        for (std::size_t i = 2; i < value_end; ++i)
+            value.push_back(*parts[i]);
+        return declaration_is_supported(parts[0]->token().value, value);
+    }
+
+    std::vector<ComponentValue> const& m_values;
+    std::size_t m_pos = 0;
+};
+
+} // namespace
+
+bool supports_condition_matches(std::vector<ComponentValue> const& prelude)
+{
+    SupportsParser parser(prelude);
+    std::optional<bool> const result = parser.parse_condition();
+    parser.skip_whitespace();
+    return result.has_value() && *result && parser.at_end();
+}
+
+bool supports_condition_text_matches(std::string_view text)
+{
+    std::vector<ComponentValue> const tokens = parse_component_value_list(text);
+    if (supports_condition_matches(tokens))
+        return true;
+    // §8's fallback: the same text again, as if it had been written with
+    // parentheses around it — what makes a bare declaration ("display:
+    // grid", never itself a <supports-condition>) work as CSS.supports's
+    // one argument.
+    SimpleBlock wrapper;
+    wrapper.open = Token::Type::OpenParen;
+    wrapper.values = tokens;
+    std::vector<ComponentValue> const wrapped { ComponentValue { std::move(wrapper) } };
+    return supports_condition_matches(wrapped);
 }
 
 StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& media, net::Url const* document_url)

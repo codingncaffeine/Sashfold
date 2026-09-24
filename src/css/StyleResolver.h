@@ -96,6 +96,25 @@ ComputedStyle inherited_style(ComputedStyle const& parent);
 // stylesheet: a browser theme's manifest writes its colors this way.
 std::optional<Color> parse_color_text(std::string_view text);
 
+// css-conditional-3 §6: whether a @supports prelude's <supports-condition>
+// holds, over its already-parsed component values — `not`/`and`/`or` of
+// `( <supports-condition> )`, `( <declaration> )`, `selector( <complex-
+// selector> )` and `at-rule( <at-keyword> )`, with anything else
+// (<general-enclosed>) false. A declaration is supported when this engine's
+// own cascade actually accepts it: not a separate list, but the resolver's
+// real dispatch, tried on a scratch style (a value with var() in it, once
+// the property is known).
+// Used by compile_rules for the @supports at-rule, and — doubled with the
+// implicit-parentheses retry §8 asks for — by CSS.supports() in
+// bindings/Style.cpp.
+bool supports_condition_matches(std::vector<ComponentValue> const& prelude);
+
+// CSS.supports(conditionText): `text` as a <supports-condition>, or else
+// (§8) the same wrapped in parentheses — which is what makes a bare
+// declaration like "display: grid" work, and what the two-argument form of
+// CSS.supports reduces to once its caller has joined "property: value".
+bool supports_condition_text_matches(std::string_view text);
+
 // What a page wrote that the style system drops, told to the sink a host
 // sets: a property it does not know ("css property", the name), an at-rule
 // whose rules it skips ("css at-rule", "@name"), a rule whose selector does

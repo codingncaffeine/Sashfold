@@ -8,6 +8,7 @@
 
 #include "core/Unicode.h"
 #include "css/Parser.h"
+#include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
 #include "css/Token.h"
 
@@ -389,8 +390,13 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return px(style.font_size);
     if (name == "font-weight")
         return std::to_string(style.font_weight);
-    if (name == "font-style")
-        return style.font_style == FontStyle::Italic ? "italic" : "normal";
+    if (name == "font-style") {
+        switch (style.font_style) {
+        case FontStyle::Normal: return "normal";
+        case FontStyle::Italic: return "italic";
+        case FontStyle::Oblique: return "oblique";
+        }
+    }
     if (name == "font-family") {
         if (!style.font_family)
             return "serif";
@@ -483,6 +489,39 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case FontKerning::Normal: return "normal";
         case FontKerning::None: return "none";
         }
+    }
+    if (name == "font-synthesis-weight")
+        return style.font_synthesis_weight ? "auto" : "none";
+    if (name == "font-synthesis-small-caps")
+        return style.font_synthesis_small_caps ? "auto" : "none";
+    if (name == "font-synthesis-position")
+        return style.font_synthesis_position ? "auto" : "none";
+    if (name == "font-synthesis-style") {
+        switch (style.font_synthesis_style) {
+        case FontSynthesisStyle::Auto: return "auto";
+        case FontSynthesisStyle::None: return "none";
+        case FontSynthesisStyle::ObliqueOnly: return "oblique-only";
+        }
+    }
+    if (name == "font-synthesis") {
+        // What may be faked, named in the grammar's order; none when nothing may.
+        std::string out;
+        auto const add = [&](char const* word) {
+            if (!out.empty())
+                out += ' ';
+            out += word;
+        };
+        if (style.font_synthesis_weight)
+            add("weight");
+        if (style.font_synthesis_style == FontSynthesisStyle::Auto)
+            add("style");
+        else if (style.font_synthesis_style == FontSynthesisStyle::ObliqueOnly)
+            add("oblique-only");
+        if (style.font_synthesis_small_caps)
+            add("small-caps");
+        if (style.font_synthesis_position)
+            add("position");
+        return out.empty() ? "none" : out;
     }
     if (name == "overflow-wrap" || name == "word-wrap") {
         switch (style.overflow_wrap) {
@@ -1075,7 +1114,10 @@ void install_style(Realm::Internals& in)
         return make_style_declaration(internals, static_cast<dom::Element*>(node), true);
     });
 
-    // The CSS namespace: supports() answers from what the engine parses.
+    // The CSS namespace: supports() answers from the same <supports-condition>
+    // evaluator @supports itself uses (css-conditional-3 §8) — not just
+    // whether the text parses as some declaration, but whether the style
+    // resolver actually knows the property and accepts the value.
     js::Object* css = interpreter.new_object();
     interpreter.global()->put(interpreter.key("CSS"), js::Value::object(css), js::builtin_attributes);
     js::define_method(interpreter, *css, "supports", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
@@ -1083,17 +1125,18 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const first = internals.to_utf8(js::argument(args, 0));
         if (!first)
             return std::nullopt;
-        std::string declaration = *first;
+        std::string condition_text = *first;
         if (args.size() > 1) {
             std::optional<std::string> const second = internals.to_utf8(args[1]);
             if (!second)
                 return std::nullopt;
-            declaration = *first + ": " + *second;
+            // The two-argument form is the one-argument form given
+            // "property: value" — itself supported only via §8's implicit
+            // parentheses, since a bare declaration is not a
+            // <supports-condition> on its own.
+            condition_text = *first + ": " + *second;
         }
-        // A condition in parentheses is stripped to its declaration.
-        while (!declaration.empty() && declaration.front() == '(' && declaration.back() == ')')
-            declaration = declaration.substr(1, declaration.size() - 2);
-        return js::Value::boolean(!css::parse_declaration_list(declaration).empty());
+        return js::Value::boolean(css::supports_condition_text_matches(condition_text));
     });
     js::define_method(interpreter, *css, "escape", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);

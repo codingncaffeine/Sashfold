@@ -136,6 +136,7 @@ public:
     std::string const& family() const override { return m_inner.family(); }
     bool is_bold() const override { return m_inner.is_bold(); }
     bool is_italic() const override { return m_inner.is_italic(); }
+    bool designs_every_style() const override { return m_inner.designs_every_style(); }
     bool is_monospace() const override { return m_inner.is_monospace(); }
     bool covers(char32_t code_point) const override
     {

@@ -12,6 +12,20 @@ namespace {
 
 // --- Parsing ------------------------------------------------------------------
 
+// selector_list_is_strictly_valid's own request that :is()/:where() (:has()
+// and the of-S list of :nth-child already parse this way unconditionally)
+// treat an invalid piece as invalidating the whole selector instead of
+// forgiving it — set only for the duration of that one call, and never
+// shared across threads, matching a page's ordinary selector matching
+// (::is(), :where() stay forgiving there, per selectors-4).
+thread_local bool t_selectors_unforgiving = false;
+
+// selectors-4 §4.2: ":has() is not valid within :has()", to keep its
+// evaluation from having to consider its own effects. Tracked here (rather
+// than threaded through every parse function) because it must hold across
+// :is()/:where() too — :has(:is(:has(a))) is exactly as invalid.
+thread_local bool t_inside_has = false;
+
 struct Cursor {
     std::vector<ComponentValue> const& values;
     std::size_t index = 0;
@@ -284,6 +298,28 @@ std::optional<SelectorList> parse_selector_list_internal(
 
 std::optional<SelectorList> parse_relative_list(std::vector<ComponentValue> const& values);
 
+// Whether any selector in the list carries a pseudo-element: not valid
+// inside :is()/:where()/:not() or :has()'s relative list, all of which take
+// selectors matched against an element, never a pseudo-element (selectors-4
+// §4). Checked both ways: settle_pseudo_elements only lifts ::before,
+// ::after and ::first-letter into .pseudo_element (the ones this engine
+// matches); one it does not lift, such as ::first-line or ::marker, is
+// still sitting among a compound's simples, unrecognized there without this.
+bool has_pseudo_element(SelectorList const& list)
+{
+    for (ComplexSelector const& selector : list.selectors) {
+        if (selector.pseudo_element != ComplexSelector::PseudoElement::None)
+            return true;
+        for (CompoundSelector const& compound : selector.compounds) {
+            for (SimpleSelector const& simple : compound.simples) {
+                if (simple.kind == SimpleSelector::Kind::PseudoElement)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 // One compound selector; cursor sits at its first simple selector.
 bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& specificity)
 {
@@ -460,9 +496,12 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                 simple.kind = SimpleSelector::Kind::PseudoClass;
                 simple.name = name;
                 if (name == "not" || name == "is" || name == "where") {
-                    bool const forgiving = name != "not";
+                    bool const forgiving = name != "not" && !t_selectors_unforgiving;
                     auto argument = parse_selector_list_internal(function.values, forgiving);
-                    if (!argument)
+                    // A pseudo-element cannot be argued about: :is()/:where()
+                    // /:not() take complex selectors, none of which may end
+                    // in one (selectors-4 §4).
+                    if (!argument || has_pseudo_element(*argument))
                         return false;
                     simple.pseudo = name == "not" ? SimpleSelector::PseudoKind::Not
                         : name == "is"           ? SimpleSelector::PseudoKind::Is
@@ -477,6 +516,12 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     continue;
                 }
                 if (name == "has") {
+                    // :has() may not occur inside :has() — directly, or
+                    // through :is()/:where() in between — so having its own
+                    // effects be part of what it considers is never a
+                    // question (selectors-4 §4.2).
+                    if (t_inside_has)
+                        return false;
                     // A relative selector list: each selector may open with
                     // a combinator, and what it is relative to is the
                     // element being tested. Written here as an ordinary
@@ -484,8 +529,10 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     // right-to-left walk ends on that element and nowhere
                     // else — and the leading combinator says where to look
                     // for candidates.
+                    t_inside_has = true;
                     std::optional<SelectorList> relative = parse_relative_list(function.values);
-                    if (!relative)
+                    t_inside_has = false;
+                    if (!relative || has_pseudo_element(*relative))
                         return false;
                     simple.pseudo = SimpleSelector::PseudoKind::Has;
                     Specificity best;
@@ -1071,6 +1118,18 @@ bool matches_from(ComplexSelector const& selector, std::size_t compound_index,
 std::optional<SelectorList> parse_selector_list(std::vector<ComponentValue> const& prelude)
 {
     return parse_selector_list_internal(prelude, false);
+}
+
+// @supports selector( <complex-selector> ) (css-conditional-3 §6): a single
+// complex selector, not a list, and with :is()/:where() held to their
+// simple-selector grammar rather than allowed to forgive an invalid piece
+// the way they would in a real selector — see t_selectors_unforgiving.
+bool selector_list_is_strictly_valid(std::vector<ComponentValue> const& prelude)
+{
+    t_selectors_unforgiving = true;
+    std::optional<SelectorList> const parsed = parse_selector_list_internal(prelude, false);
+    t_selectors_unforgiving = false;
+    return parsed.has_value() && parsed->selectors.size() == 1;
 }
 
 bool matches(ComplexSelector const& selector, dom::Element const& element)

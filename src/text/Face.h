@@ -31,6 +31,11 @@ public:
     virtual std::string const& family() const = 0;
     virtual bool is_bold() const = 0;
     virtual bool is_italic() const = 0;
+    // Whether every weight and slant the face draws is its own design, not
+    // faked from regular outlines — so font-synthesis: none takes none of
+    // them away. The built-in face strokes each glyph at the weight and
+    // slant it is asked for; an outline font has only the faces it ships.
+    virtual bool designs_every_style() const { return false; }
     virtual bool is_monospace() const = 0;
 
     // 0 when the face has no glyph for the code point.

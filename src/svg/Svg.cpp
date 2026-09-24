@@ -1333,11 +1333,11 @@ void render_text_element(Context& context, State const& state, dom::Element cons
                 float const a = static_cast<float>(color.a) * state.opacity * std::clamp(style.fill_opacity, 0.0f, 1.0f);
                 color.a = static_cast<std::uint8_t>(std::clamp(std::lround(a), 0L, 255L));
                 float x = origin.x;
-                bool const bold = style.bold();
-                bool const italic = request.italic;
                 for (char32_t const code : text) {
                     text::FontStack::Glyph const glyph = fonts.glyph_for(code);
-                    glyph.face->draw_glyph(context.target, glyph.glyph, x, origin.y, size, color, bold, italic);
+                    bool const designed = glyph.face->designs_every_style();
+                    glyph.face->draw_glyph(context.target, glyph.glyph, x, origin.y, size, color,
+                        style.drawn_bold(designed), style.drawn_slant(designed));
                     x += glyph.face->advance(glyph.glyph, size);
                 }
             }

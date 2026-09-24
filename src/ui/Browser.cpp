@@ -6385,7 +6385,8 @@ struct Browser::Impl {
         std::string const family
             = s.font_family && !s.font_family->empty() ? s.font_family->front() : "(default)";
         lines.push_back("font " + family + " " + number_text(s.font_size) + "px" + (s.bold() ? " bold" : "")
-            + (s.font_style == css::FontStyle::Italic ? " italic" : "") + "  line-height "
+            + (s.font_style == css::FontStyle::Italic ? " italic" : "")
+            + (s.font_style == css::FontStyle::Oblique ? " oblique" : "") + "  line-height "
             + number_text(s.line_height_px()));
         lines.push_back("color " + color_text(s.color) + "  background " + color_text(s.background_color));
         if (s.display == css::Display::Flex || s.display == css::Display::InlineFlex) {

@@ -23,6 +23,7 @@ public:
     }
     bool is_bold() const override { return false; }
     bool is_italic() const override { return false; }
+    bool designs_every_style() const override { return true; }
     bool is_monospace() const override { return true; }
 
     std::uint32_t glyph_index(char32_t code_point) const override

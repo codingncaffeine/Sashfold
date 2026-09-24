@@ -652,15 +652,15 @@ void paint_vertical_run(Context& context, TextRun const& run)
         || baseline_x - style.font_size > static_cast<float>(context.target.width()))
         return;
     bool const clockwise = !css::inline_runs_up(run.mode);
-    bool const italic = style.font_style == css::FontStyle::Italic;
     float const start = run.x + context.dy + (clockwise ? 0.0f : run.width);
     float y = start;
     for (char32_t const c : run.text) {
         text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
         float const advance = glyph.face->advance(glyph.glyph, style.font_size);
         float const pen = clockwise ? y : y - advance;
+        bool const designed = glyph.face->designs_every_style();
         glyph.face->draw_glyph_turned(context.target, glyph.glyph, baseline_x, pen, style.font_size,
-            style.color, style.bold(), italic, clockwise);
+            style.color, style.drawn_bold(designed), style.drawn_slant(designed), clockwise);
         float step = advance + style.letter_spacing;
         if (c == U' ')
             step += style.word_spacing;
@@ -697,7 +697,6 @@ void paint_run(Context& context, TextRun const& run)
 
     if (!run.fonts)
         return;
-    bool const italic = style.font_style == css::FontStyle::Italic;
     bool const kern = style.font_kerning != css::FontKerning::None;
     float const start_x = run.x + context.dx;
     float x = start_x;
@@ -714,8 +713,9 @@ void paint_run(Context& context, TextRun const& run)
         // word's worth after a word separator.
         if (kern && previous.face == glyph.face)
             x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
+        bool const designed = glyph.face->designs_every_style();
         glyph.face->draw_glyph(context.target, glyph.glyph, x, baseline, style.font_size,
-            color, style.bold(), italic);
+            color, style.drawn_bold(designed), style.drawn_slant(designed));
         x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
         if (c == U' ')
             x += style.word_spacing;

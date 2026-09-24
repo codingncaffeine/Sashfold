@@ -145,6 +145,11 @@ struct ComplexSelector {
 // list is invalid (the caller drops the rule).
 std::optional<SelectorList> parse_selector_list(std::vector<ComponentValue> const& prelude);
 
+// @supports selector(...) (css-conditional-3 §6): true when `prelude` is
+// exactly one complex selector, valid down to every :is()/:where() argument
+// with none of their usual forgiveness for a piece that fails to parse.
+bool selector_list_is_strictly_valid(std::vector<ComponentValue> const& prelude);
+
 // True when the element matches any selector of the list; `matched` (when
 // given) receives the specificity of the best matching selector.
 bool matches(SelectorList const& list, dom::Element const& element, Specificity* matched = nullptr);

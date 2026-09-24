@@ -398,9 +398,21 @@ enum class Visibility : std::uint8_t {
     Hidden, // the box keeps its room and paints nothing (collapse counts as hidden)
 };
 
+// font-style: an oblique asks for the same slanted faces an italic does,
+// and is told apart only where font-synthesis-style: oblique-only cares.
 enum class FontStyle : std::uint8_t {
     Normal,
     Italic,
+    Oblique,
+};
+
+// font-synthesis-style (css-fonts-4 §7.14): whether a slant the family has
+// no face for may be faked — for italic and oblique alike, never, or for
+// oblique alone.
+enum class FontSynthesisStyle : std::uint8_t {
+    Auto,
+    None,
+    ObliqueOnly,
 };
 
 // The inline base direction of a box's content (css-writing-modes-4 §2.1):
@@ -1042,6 +1054,14 @@ struct ComputedStyle {
     LineBreakMode line_break = LineBreakMode::Auto;
     OverflowWrap overflow_wrap = OverflowWrap::Normal;
     FontKerning font_kerning = FontKerning::Auto;
+    // font-synthesis-* (css-fonts-4 §7.13–7.16): whether a face the family
+    // lacks may be faked. Only bold and slant are ever synthesized here;
+    // small caps and super- and subscript forms never are, so those two
+    // are carried for the cascade and the computed value alone.
+    bool font_synthesis_weight = true;
+    FontSynthesisStyle font_synthesis_style = FontSynthesisStyle::Auto;
+    bool font_synthesis_small_caps = true;
+    bool font_synthesis_position = true;
     TextTransform text_transform = TextTransform::None;
     ListStyleType list_style_type = ListStyleType::Disc;
     ListStylePosition list_style_position = ListStylePosition::Outside;
@@ -1098,6 +1118,22 @@ struct ComputedStyle {
     float stop_opacity = 1; // not inherited
 
     bool bold() const { return font_weight >= 600; }
+    bool slanted() const { return font_style != FontStyle::Normal; }
+    // The weight and slant glyphs are drawn with: what the text asks for,
+    // less what font-synthesis forbids faking in a face that lacks it. A
+    // face that designs every style itself has nothing to fake.
+    bool drawn_bold(bool designed) const { return bold() && (designed || font_synthesis_weight); }
+    bool drawn_slant(bool designed) const
+    {
+        if (designed)
+            return slanted();
+        switch (font_synthesis_style) {
+        case FontSynthesisStyle::Auto: return slanted();
+        case FontSynthesisStyle::None: return false;
+        case FontSynthesisStyle::ObliqueOnly: return font_style == FontStyle::Oblique;
+        }
+        return false;
+    }
     float line_height_px() const
     {
         switch (line_height.kind) {

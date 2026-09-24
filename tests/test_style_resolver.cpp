@@ -798,5 +798,85 @@ int main()
         CHECK(close(style_of("s").right.value, 15));
     }
 
+    // --- @supports -----------------------------------------------------------
+    {
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  @supports (display: block) { #known { color: red } }
+  @supports (totally-not-a-real-property: 42) { #unknown-prop { color: red } }
+  @supports (display: not-a-real-keyword-xyz) { #bad-value { color: red } }
+  @supports (display: block) and (color: red) { #and-true { color: red } }
+  @supports (display: block) and (totally-not-a-real-property: 1) { #and-false { color: red } }
+  @supports (display: block) or (totally-not-a-real-property: 1) { #or-true { color: red } }
+  @supports not (totally-not-a-real-property: 1) { #not-true { color: red } }
+  @media (min-width: 1px) { @supports (display: block) { #nested-in-media { color: red } } }
+  @supports (display: block) { @media (min-width: 1px) { #media-in-supports { color: red } } }
+  @supports selector(div > span) { #selector-ok { color: red } }
+  @supports selector(:not-a-real-pseudo-xyz) { #selector-bad { color: red } }
+  @supports (--any-custom-prop: this is not even a real value !!) { #custom-prop { color: red } }
+</style></head><body>
+  <div id="known"></div><div id="unknown-prop"></div><div id="bad-value"></div>
+  <div id="and-true"></div><div id="and-false"></div><div id="or-true"></div>
+  <div id="not-true"></div><div id="nested-in-media"></div><div id="media-in-supports"></div>
+  <div><span></span></div><div id="selector-ok"></div><div id="selector-bad"></div>
+  <div id="custom-prop"></div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        auto const is_red = [](std::string_view id) { return style_of(id).color == Color::rgb(255, 0, 0); };
+        CHECK(is_red("known"));
+        CHECK(!is_red("unknown-prop"));
+        CHECK(!is_red("bad-value"));
+        CHECK(is_red("and-true"));
+        CHECK(!is_red("and-false"));
+        CHECK(is_red("or-true"));
+        CHECK(is_red("not-true"));
+        CHECK(is_red("nested-in-media"));
+        CHECK(is_red("media-in-supports"));
+        CHECK(is_red("selector-ok"));
+        CHECK(!is_red("selector-bad"));
+        CHECK(is_red("custom-prop"));
+    }
+
+    // --- font-synthesis: what may be faked, inherited; oblique apart --------
+    {
+        g_document = html::parse_document(std::string_view(R"(
+<!doctype html>
+<html><head><style>
+  #plain { font-weight: bold; font-style: italic }
+  #none { font-synthesis: none; font-weight: bold; font-style: italic }
+  #none > span { font-synthesis-weight: auto }
+  #some { font-synthesis: style weight; font-style: oblique }
+  #oblique-only { font-synthesis-style: oblique-only; font-style: italic }
+  #oblique-only > span { font-style: oblique }
+  #bad { font-synthesis: none weight; font-synthesis-weight: normal; font-synthesis-style: none oblique-only }
+  @supports (font-synthesis-weight: auto) and (font-synthesis: weight oblique-only position) {
+    #supported { color: red }
+  }
+</style></head><body>
+  <div id="plain"></div><div id="none"><span id="none-child"></span></div><div id="some"></div>
+  <div id="oblique-only"><span id="oblique-child"></span></div><div id="bad"></div><div id="supported"></div>
+</body></html>)"));
+        g_styles = css::resolve_styles(*g_document);
+        ComputedStyle const& plain = style_of("plain");
+        CHECK(plain.drawn_bold(false) && plain.drawn_slant(false));
+        ComputedStyle const& none = style_of("none");
+        CHECK(!none.font_synthesis_weight && none.font_synthesis_style == css::FontSynthesisStyle::None);
+        CHECK(!none.font_synthesis_small_caps && !none.font_synthesis_position);
+        CHECK(none.bold() && none.slanted() && !none.drawn_bold(false) && !none.drawn_slant(false));
+        CHECK(none.drawn_bold(true) && none.drawn_slant(true)); // a face with the style designed in keeps it
+        ComputedStyle const& none_child = style_of("none-child"); // inherits, then allows bold again
+        CHECK(none_child.drawn_bold(false) && !none_child.drawn_slant(false));
+        ComputedStyle const& some = style_of("some");
+        CHECK(some.font_style == css::FontStyle::Oblique && some.drawn_slant(false));
+        CHECK(some.font_synthesis_weight && !some.font_synthesis_small_caps && !some.font_synthesis_position);
+        CHECK(!style_of("oblique-only").drawn_slant(false)); // italic may not be faked
+        CHECK(style_of("oblique-child").drawn_slant(false)); // oblique may
+        ComputedStyle const& bad = style_of("bad"); // every one invalid: the initial values stand
+        CHECK(bad.font_synthesis_weight && bad.font_synthesis_style == css::FontSynthesisStyle::Auto);
+        CHECK(bad.font_synthesis_small_caps && bad.font_synthesis_position);
+        CHECK(style_of("supported").color == Color::rgb(255, 0, 0));
+    }
+
     return sashfold::test::report("style-resolver");
 }

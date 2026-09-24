@@ -528,6 +528,50 @@ void test_attributes_classlist_style_dataset()
     CHECK_EQ(page->console, "");
 }
 
+void test_css_supports()
+{
+    // Both CSS.supports forms go through the same <supports-condition>
+    // evaluator @supports itself uses: they ask whether the style resolver
+    // actually knows the property and accepts the value, not just whether
+    // the text parses as some declaration.
+    auto page = loaded(R"HTML(<!DOCTYPE html><div id=d></div>)HTML");
+    CHECK(page->boolean("CSS.supports('display', 'block')"));
+    CHECK(!page->boolean("CSS.supports('totally-not-a-real-property', '42')"));
+    CHECK(!page->boolean("CSS.supports('display', 'not-a-real-keyword-xyz')"));
+    CHECK(page->boolean("CSS.supports('(display: block)')"));
+    CHECK(page->boolean("CSS.supports('display: block')")); // a bare declaration is wrapped in parens
+    CHECK(!page->boolean("CSS.supports('totally-not-a-real-property: 42')"));
+    CHECK(page->boolean("CSS.supports('not (totally-not-a-real-property: 42)')"));
+    CHECK(page->boolean("CSS.supports('(display: block) and (color: red)')"));
+    CHECK(!page->boolean("CSS.supports('(display: block) and (totally-not-a-real-property: 1)')"));
+    CHECK(page->boolean("CSS.supports('(display: block) or (totally-not-a-real-property: 1)')"));
+    CHECK(page->boolean("CSS.supports('selector(div > span)')"));
+    CHECK(!page->boolean("CSS.supports('selector(:not-a-real-pseudo-xyz)')"));
+    CHECK(page->boolean("CSS.supports('(--any-custom-prop: this is not even a real value !!)')"));
+    // A pseudo-element inside :is()/:where()/:has() is invalid even when it
+    // is one settle_pseudo_elements does not lift onto ComplexSelector
+    // (::first-line, ::marker, ...): still a pseudo-element among the
+    // compound's simples, not a bare compound selector.
+    CHECK(!page->boolean("CSS.supports('selector(:is(::first-line))')"));
+    // A value equal to the initial one is supported too.
+    CHECK(page->boolean("CSS.supports('font-synthesis-weight', 'auto')"));
+    CHECK(page->boolean("CSS.supports('font-weight', 'normal')"));
+    CHECK(page->boolean("CSS.supports('font-synthesis', 'weight style small-caps position')"));
+    CHECK(!page->boolean("CSS.supports('font-synthesis', 'none weight')"));
+    // Not laid out yet, so not claimed: pages take their fallback.
+    CHECK(!page->boolean("CSS.supports('display', 'contents')"));
+    // var() makes any value of a known property valid until substitution.
+    CHECK(page->boolean("CSS.supports('color: something-pointless var(--foo)')"));
+    CHECK(page->boolean("CSS.supports('color', 'fn(var(--foo, 1px))')"));
+    CHECK(!page->boolean("CSS.supports('color', 'var(foo)')"));
+    CHECK(!page->boolean("CSS.supports('not-a-property', 'var(--foo)')"));
+    // at-rule() names the rules the engine reads.
+    CHECK(page->boolean("CSS.supports('at-rule(@media) and (color: red)')"));
+    CHECK(!page->boolean("CSS.supports('not at-rule( @supports )')"));
+    CHECK(!page->boolean("CSS.supports('at-rule(@counter-style)')"));
+    CHECK_EQ(page->console, "");
+}
+
 void test_attribute_names_global_this_and_shadow_root()
 {
     auto page = loaded(R"HTML(<!DOCTYPE html><div id=d onfocusin=t data-x=1 item=i></div>)HTML");
@@ -4440,6 +4484,7 @@ int main()
     test_a_range_outlives_its_frames_document();
     test_selectors_and_collections();
     test_attributes_classlist_style_dataset();
+    test_css_supports();
     test_attribute_names_global_this_and_shadow_root();
     test_event_dispatch_order_and_flags();
     test_timers_microtasks_and_the_clock();

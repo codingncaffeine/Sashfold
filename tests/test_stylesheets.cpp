@@ -373,10 +373,12 @@ int main()
   @media not all and (monochrome) { p { color: rgb(8, 0, 0) } }
   @media screen and (max-width: 500px) { p { color: rgb(7, 0, 0) } }
   @media (min-width: 600px) { p { color: rgb(5, 0, 0) } }
-  @supports (display: grid) { p { color: rgb(4, 0, 0) } }
+  @supports (display: no-such-display) { p { color: rgb(4, 0, 0) } }
 </style></head><body><p id="p">x</p></body></html>)"));
     std::vector<css::SheetSource> const responsive_sheets
         = css::collect_stylesheets(*responsive, nullptr, {});
+    // The @supports condition is unmet, so its rule, written last, adds
+    // nothing; the @media blocks decide.
     CHECK_EQ(red_of(css::resolve_styles(*responsive, responsive_sheets, wide), *responsive, "p"), 5);
     CHECK_EQ(red_of(css::resolve_styles(*responsive, responsive_sheets, narrow), *responsive, "p"), 7);
     // A compiled set resolves the same, as often as asked, and counts the
