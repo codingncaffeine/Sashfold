@@ -9754,8 +9754,6 @@ html/canvas/element/2d.putImageData.html
 html/canvas/element/compositing/2d.composite.full.mode.alpha.html
 html/canvas/element/compositing/2d.composite.grid.no_filter.no_shadow.fillRect.html
 html/canvas/element/compositing/2d.composite.grid.no_filter.shadow.fillRect.html
-html/canvas/element/fill-and-stroke-styles/2d.gradient.colorInterpolationMethod.html
-html/canvas/element/fill-and-stroke-styles/2d.gradient.hueInterpolationMethod.html
 html/canvas/element/layers/2d.layer.blur-from-outside-canvas.no-clipping.ctx-filter.html
 html/canvas/element/layers/2d.layer.blur-from-outside-canvas.no-clipping.layer-filter.tentative.html
 html/canvas/element/layers/2d.layer.blur-from-outside-canvas.with-clipping.ctx-filter.html

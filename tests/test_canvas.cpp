@@ -639,37 +639,85 @@ void test_turns_use_the_engines_own_sine()
         double const unit = std::nextafter(std::abs(b), std::numeric_limits<double>::infinity()) - std::abs(b);
         return std::abs(a - b) / unit;
     };
-    // Against the machine's own sine and cosine, for angles small enough
-    // that every libm reduces them exactly: the machine's is the oracle
-    // only where it is beyond doubt.
-    double worst = 0;
-    auto compare = [&](double angle) {
-        canvas::SineCosine const turned = canvas::sine_cosine(angle);
-        worst = std::max(worst, ulps(turned.sine, std::sin(angle)));
-        worst = std::max(worst, ulps(turned.cosine, std::cos(angle)));
-    };
-    for (int i = -400; i <= 400; ++i)
-        compare(static_cast<double>(i) * 0.0371);
-    for (int i = 1; i <= 2000; ++i) {
-        if (i % 1024 <= 20)
-            compare(std::ldexp(1.0 + static_cast<double>(i) / 2001.0, i % 1024));
-    }
-    // Each multiple of pi / 2 as a double, a hair from the true multiple.
-    for (int i = 1; i <= 64; ++i)
-        compare(static_cast<double>(i) * (3.14159265358979323846 / 2));
-    CHECK(worst <= 1);
-    // Large angles, where an angle reduced by a rounded 2 pi drifts: the
-    // error grows with the number of turns taken off, and a libm that
-    // reduces by the x87 instruction returns the angle itself past 2^63.
-    // So these are held to values two independent implementations agree
-    // on to the last bit, or within one unit of each other: glibc 2.42 and
-    // V8's fdlibm (Node 26), 2026-09-24. The last is the double nearest a
-    // multiple of pi / 2 of them all (Kahan and McDonald).
+    // Never against the machine's own sine and cosine: the C library of
+    // one lane is not within a unit of the true value even for small
+    // angles, and one that reduces by the x87 instruction returns the
+    // angle itself past 2^63. Every angle is held instead to values two
+    // independent implementations agree on to the last bit, or within one
+    // unit of each other: glibc 2.42 and V8's fdlibm (Node 26), 2026-09-24.
     struct Known {
         double angle;
         double sine;
         double cosine;
     };
+    // Across the small sweep, each multiple of pi / 2 as a double (a hair
+    // from the true multiple), and a few angles scaled up to 2^20.
+    Known const known_small[] = {
+        { -14.84, -0.76301401371370148, -0.64638194194803078 },
+        { -13.9125, -0.97486836054898596, 0.22278168596303513 },
+        { -12.985000000000001, -0.40650857763260145, 0.91364696481251406 },
+        { -12.057500000000001, 0.48719127063948175, 0.87329529130339834 },
+        { -11.130000000000001, 0.99097846133948275, 0.13402122653233414 },
+        { -10.202500000000001, 0.70165816275628545, -0.71251373505180515 },
+        { -9.2750000000000004, -0.14921858282224229, -0.98880423468982048 },
+        { -8.3475000000000001, -0.88067156674143032, -0.47372733880703405 },
+        { -7.4199999999999999, -0.90729872201718398, 0.42048665736974894 },
+        { -6.4925000000000006, -0.20778959933967578, 0.97817354411487589 },
+        { -5.5650000000000004, 0.65801929054841013, 0.75300107122511262 },
+        { -4.6375000000000002, 0.99719713063411397, -0.074818999292223576 },
+        { -3.71, 0.53829050829001768, -0.8427593539586935 },
+        { -2.7825000000000002, -0.35142490575860402, -0.93621607314367139 },
+        { -1.855, -0.95988524156762967, -0.28039315794193914 },
+        { -0.92749999999999999, -0.80012285242390724, 0.59983616182173483 },
+        { 0, 0, 1 },
+        { 0.92749999999999999, 0.80012285242390724, 0.59983616182173483 },
+        { 1.855, 0.95988524156762967, -0.28039315794193914 },
+        { 2.7825000000000002, 0.35142490575860402, -0.93621607314367139 },
+        { 3.71, -0.53829050829001768, -0.8427593539586935 },
+        { 4.6375000000000002, -0.99719713063411397, -0.074818999292223576 },
+        { 5.5650000000000004, -0.65801929054841013, 0.75300107122511262 },
+        { 6.4925000000000006, 0.20778959933967578, 0.97817354411487589 },
+        { 7.4199999999999999, 0.90729872201718398, 0.42048665736974894 },
+        { 8.3475000000000001, 0.88067156674143032, -0.47372733880703405 },
+        { 9.2750000000000004, 0.14921858282224229, -0.98880423468982048 },
+        { 10.202500000000001, -0.70165816275628545, -0.71251373505180515 },
+        { 11.130000000000001, -0.99097846133948275, 0.13402122653233414 },
+        { 12.057500000000001, -0.48719127063948175, 0.87329529130339834 },
+        { 12.985000000000001, 0.40650857763260145, 0.91364696481251406 },
+        { 13.9125, 0.97486836054898596, 0.22278168596303513 },
+        { 14.84, 0.76301401371370148, -0.64638194194803078 },
+        { 1.5707963267948966, 1, 6.123233995736766e-17 },
+        { 3.1415926535897931, 1.2246467991473532e-16, -1 },
+        { 4.7123889803846897, -1, -1.8369701987210297e-16 },
+        { 6.2831853071795862, -2.4492935982947064e-16, 1 },
+        { 7.8539816339744828, 1, 3.0616169978683831e-16 },
+        { 9.4247779607693793, 3.6739403974420594e-16, -1 },
+        { 10.995574287564276, -1, -4.2862637970157361e-16 },
+        { 12.566370614359172, -4.8985871965894128e-16, 1 },
+        { 14.137166941154069, 1, 5.5109105961630896e-16 },
+        { 15.707963267948966, 6.1232339957367663e-16, -1 },
+        { 17.27875959474386, -1, -2.4499125789312946e-15 },
+        { 18.849555921538759, -7.3478807948841188e-16, 1 },
+        { 20.420352248333657, 1, -9.8033641995447082e-16 },
+        { 21.991148575128552, 8.5725275940314722e-16, -1 },
+        { 23.561944901923447, -1, -2.6948419387607653e-15 },
+        { 25.132741228718345, -9.7971743931788257e-16, 1 },
+        { 21.920000000000002, 0.07108856321879993, -0.99747000765912086 },
+        { 350.72000000000003, -0.90795462848051112, 0.41906848201793584 },
+        { 5611.5200000000004, 0.59359662560518034, 0.8047627265661248 },
+        { 89784.320000000007, -0.67690747104167892, -0.73606811889115176 },
+        { 1436549.1200000001, -0.62061101212684566, 0.78411859538394579 },
+    };
+    double worst = 0;
+    for (Known const& k : known_small) {
+        canvas::SineCosine const turned = canvas::sine_cosine(k.angle);
+        worst = std::max(worst, ulps(turned.sine, k.sine));
+        worst = std::max(worst, ulps(turned.cosine, k.cosine));
+    }
+    CHECK(worst <= 1);
+    // Large angles, where an angle reduced by a rounded 2 pi drifts: the
+    // error grows with the number of turns taken off. The last is the
+    // double nearest a multiple of pi / 2 of them all (Kahan and McDonald).
     Known const known[] = {
         { 100.0, -0.50636564110975879, 0.86231887228768389 },
         { 1e6, -0.34999350217129294, 0.93675212753314474 },
