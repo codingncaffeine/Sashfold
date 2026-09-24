@@ -288,7 +288,11 @@ struct Profile {
     // bytes coming back from the cache are not decoded again.
     std::uint64_t sheet_collections = 0;
     std::uint64_t sheet_decodes = 0;
-    double sheets_ms = 0; // stylesheets and fonts collected
+    double sheets_ms = 0; // stylesheets and fonts collected, and the sheets compiled
+    // Two parts of that: the sheets' @font-face fonts asked for and
+    // collected, and the sheets compiled into the style set.
+    double fonts_ms = 0;
+    double style_compile_ms = 0;
     double images_ms = 0; // pictures collected and decoded
     double restyle_ms = 0;
     double relayout_ms = 0; // the page's own layout

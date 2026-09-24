@@ -1866,6 +1866,7 @@ struct Browser::Impl {
         bool compiled = false;
         if (!tab.style_set || (!same_viewport && !tab.style_set->same_rules_for(media))) {
             Stopwatch const compiling(profile.sheets_ms);
+            Stopwatch const compile_part(profile.style_compile_ms);
             std::optional<net::Url> const base = tab.index < tab.history.size()
                 ? std::optional<net::Url>(base_of(tab, tab.history[tab.index]))
                 : std::nullopt;
@@ -2991,6 +2992,7 @@ struct Browser::Impl {
             // first readable source arrived, so that a face's fallbacks are
             // not asked for as well — and the collecting below then finds
             // them arriving together.
+            Stopwatch const fonting(profile.fonts_ms);
             {
                 std::vector<net::Url> wanted;
                 css::collect_page_fonts(tab.sheets,

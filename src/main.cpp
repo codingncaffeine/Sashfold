@@ -1207,6 +1207,8 @@ ui::Profile profile_since(ui::Profile const& now, ui::Profile const& base)
     d.paints -= base.paints;
     d.painted_pixels -= base.painted_pixels;
     d.sheets_ms -= base.sheets_ms;
+    d.fonts_ms -= base.fonts_ms;
+    d.style_compile_ms -= base.style_compile_ms;
     d.images_ms -= base.images_ms;
     d.restyle_ms -= base.restyle_ms;
     d.relayout_ms -= base.relayout_ms;
@@ -1221,6 +1223,7 @@ std::string profile_json(ui::Profile const& p)
     std::ostringstream out;
     out << std::fixed << std::setprecision(1) << "{ \"restyles\": " << p.restyles << ", \"relayouts\": " << p.relayouts
         << ", \"paints\": " << p.paints << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"sheets\": " << p.sheets_ms
+        << ", \"fonts\": " << p.fonts_ms << ", \"compile\": " << p.style_compile_ms
         << ", \"images\": " << p.images_ms << ", \"restyle\": " << p.restyle_ms << ", \"relayout\": " << p.relayout_ms
         << ", \"frames\": " << p.frames_ms << ", \"paint\": " << p.paint_ms << " } }";
     return out.str();
@@ -2126,7 +2129,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                           << ", frame " << wall_ms(frame_done - scripts_done).count() << " ms [styles " << spent.restyles
                           << " in " << spent.restyle_ms << " ms, layouts " << spent.relayouts << " in " << spent.relayout_ms
                           << " ms, frames' documents " << spent.frames_ms << " ms, sheets " << spent.sheets_ms
-                          << " ms, pictures " << spent.images_ms << " ms, paint " << spent.paint_ms << " ms, present "
+                          << " ms (fonts " << spent.fonts_ms << " ms, compile " << spent.style_compile_ms
+                          << " ms), pictures " << spent.images_ms << " ms, paint " << spent.paint_ms << " ms, present "
                           << presented << " ms]\n";
             }
         }
