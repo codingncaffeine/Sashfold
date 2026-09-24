@@ -2774,6 +2774,20 @@ struct Resolver {
         style.border_spacing_vertical = parent.border_spacing_vertical;
         style.caption_side = parent.caption_side;
         style.empty_cells = parent.empty_cells;
+        // SVG's painting properties, all inherited but the two stop ones
+        // (SVG 2 §13): a fill set on an <svg> or on an HTML box around it
+        // reaches the shapes inside, as an icon's `fill: currentcolor` does.
+        style.fill = parent.fill;
+        style.stroke = parent.stroke;
+        style.fill_opacity = parent.fill_opacity;
+        style.stroke_opacity = parent.stroke_opacity;
+        style.stroke_width = parent.stroke_width;
+        style.fill_rule = parent.fill_rule;
+        style.stroke_linecap = parent.stroke_linecap;
+        style.stroke_linejoin = parent.stroke_linejoin;
+        style.stroke_miterlimit = parent.stroke_miterlimit;
+        style.stroke_dasharray = parent.stroke_dasharray;
+        style.stroke_dashoffset = parent.stroke_dashoffset;
         return style;
     }
 

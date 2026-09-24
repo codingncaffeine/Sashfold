@@ -1,0 +1,26 @@
+<!doctype html>
+<title>SVG paint inherited from the svg and the boxes around it</title>
+<style>
+body { margin: 8px; background: white; }
+.row { display: flex; gap: 8px; margin-bottom: 8px; }
+.box { width: 48px; height: 48px; color: #cc0000; }
+/* Each square is a path with no paint of its own: what it shows comes
+   down from the svg or from the HTML box around it. */
+.from-var svg { fill: var(--icon-fill, currentcolor); }
+.from-box { fill: currentcolor; }
+.from-custom { --icon: #00aa00; }
+.from-custom svg { fill: var(--icon); }
+.none svg { fill: none; stroke: #0000cc; stroke-width: 4px; }
+.opacity svg { fill: #0000cc; fill-opacity: 0.5; }
+.dashed svg { fill: none; stroke: #cc0000; stroke-width: 4px; stroke-dasharray: 6 6; }
+</style>
+<div class="row">
+  <div class="box from-var"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M3 3h18v18H3z"></path></svg></div>
+  <div class="box from-box"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M3 3h18v18H3z"></path></svg></div>
+  <div class="box from-custom"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M3 3h18v18H3z"></path></svg></div>
+</div>
+<div class="row">
+  <div class="box none"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M3 3h18v18H3z"></path></svg></div>
+  <div class="box opacity"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M3 3h18v18H3z"></path></svg></div>
+  <div class="box dashed"><svg viewBox="0 0 24 24" width="48" height="48"><g><path d="M3 3h18v18H3z"></path></g></svg></div>
+</div>
