@@ -894,21 +894,23 @@ std::optional<IntlObjectOf<DateTimeFormatData>*> unwrap_date_time_format(Interpr
     return intl_this<DateTimeFormatData>(in, this_value, method);
 }
 
-// The time value a format method is given: now, or ToNumber, clipped.
-std::optional<double> date_value(Interpreter& in, Value const& date)
+// TimeClip, throwing where the result would be NaN.
+std::optional<double> clipped_time(Interpreter& in, double x)
 {
-    double x = 0;
-    if (date.is_undefined()) {
-        x = current_time_ms();
-    } else {
-        std::optional<double> const number = in.to_number(date);
-        if (!number)
-            return std::nullopt;
-        x = *number;
-    }
     if (!std::isfinite(x) || std::fabs(x) > 8.64e15)
         return in.throw_range_error("Invalid time value");
     return std::trunc(x) + 0.0;
+}
+
+// The time value a format method is given: now, or ToNumber, clipped.
+std::optional<double> date_value(Interpreter& in, Value const& date)
+{
+    if (date.is_undefined())
+        return clipped_time(in, current_time_ms());
+    std::optional<double> const number = in.to_number(date);
+    if (!number)
+        return std::nullopt;
+    return clipped_time(in, *number);
 }
 
 std::optional<std::vector<IntlPart>> format_parts(Interpreter& in, DateTimeFormatData const& d, Value const& date)
@@ -1229,15 +1231,23 @@ std::vector<IntlPart> range_pattern_parts(DateTimeFormatData const& d, RangeLeve
 
 std::optional<std::vector<IntlPart>> format_range_parts(Interpreter& in, DateTimeFormatData const& d, Value const& start, Value const& end)
 {
-    // PartitionDateTimeRangePattern (section 11.5.9).
+    // formatRange converts both arguments to numbers first; only then does
+    // PartitionDateTimeRangePattern (section 11.5.9) TimeClip each, so an
+    // invalid start never hides an exception thrown by the end's valueOf.
     if (start.is_undefined() || end.is_undefined())
         return in.throw_type_error("startDate or endDate is undefined");
     Interpreter::Roots const roots(in);
     in.root(end);
-    std::optional<double> const x = date_value(in, start);
+    std::optional<double> const start_number = in.to_number(start);
+    if (!start_number)
+        return std::nullopt;
+    std::optional<double> const end_number = in.to_number(end);
+    if (!end_number)
+        return std::nullopt;
+    std::optional<double> const x = clipped_time(in, *start_number);
     if (!x)
         return std::nullopt;
-    std::optional<double> const y = date_value(in, end);
+    std::optional<double> const y = clipped_time(in, *end_number);
     if (!y)
         return std::nullopt;
     Fields const a = fields_of(*x, d.zone);

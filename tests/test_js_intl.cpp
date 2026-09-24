@@ -110,6 +110,12 @@ void test_date_time_format()
     CHECK_JS_THROWS(in, "new Intl.DateTimeFormat('en', { timeZone: '+24:00' })", "RangeError");
     CHECK_JS_THROWS(in, "new Intl.DateTimeFormat('en', { dateStyle: 'short', hour: 'numeric' })", "TypeError");
     CHECK_JS_THROWS(in, "new Intl.DateTimeFormat().format(NaN)", "RangeError");
+    // formatRange converts both ends before it clips either: the end's
+    // valueOf throws first, and an invalid start is the RangeError after.
+    CHECK_JS_STRING(in, "var seen = []; var f = new Intl.DateTimeFormat(); [f.formatRange, f.formatRangeToParts].map(m => { try { m.call(f, NaN, { valueOf() { seen.push('end'); throw 'custom'; } }); return 'none'; } catch (e) { return String(e); } }).join('|') + '|' + seen.join()",
+        "custom|custom|end,end");
+    CHECK_JS_STRING(in, "var f = new Intl.DateTimeFormat(); var calls = 0; try { f.formatRange(NaN, { valueOf() { calls++; return 0; } }); } catch (e) { calls += ':' + e.name; } calls",
+        "1:RangeError");
     CHECK_JS_THROWS(in, "new Date(0).toLocaleDateString('en', { timeStyle: 'short' })", "TypeError");
 }
 
