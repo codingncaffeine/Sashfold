@@ -175,6 +175,10 @@ enum class Display : std::uint8_t {
     TableCaption,
     TableColumnGroup,
     TableColumn,
+    // CSS Display 3 §2.5: the element generates no box of its own; its
+    // ::before, children and ::after generate theirs in its place, as if
+    // they were its parent's. Its style is still what they inherit.
+    Contents,
     None,
 };
 

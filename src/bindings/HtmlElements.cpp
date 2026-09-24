@@ -380,6 +380,18 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     element_getter(in, html_element, "offsetParent", [](Realm::Internals& internals, dom::Element& e) -> Native {
         if (e.is_html("body") || e.is_html("html"))
             return js::Value::null();
+        // CSSOM View §7: an element with no box has no offset parent — one
+        // that is display: contents, or display: none or inside one.
+        if (internals.hooks.computed_style) {
+            for (dom::Node const* at = &e; at && at->is_element(); at = at->parent()) {
+                css::ComputedStyle const* const style
+                    = internals.hooks.computed_style(static_cast<dom::Element const&>(*at));
+                if (style
+                    && (style->display == css::Display::None
+                        || (at == &e && style->display == css::Display::Contents)))
+                    return js::Value::null();
+            }
+        }
         return internals.realm.wrap_or_null(body_element(*internals.document));
     });
     auto const offset = [](int which) {

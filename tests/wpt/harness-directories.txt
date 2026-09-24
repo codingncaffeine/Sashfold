@@ -46,3 +46,8 @@ html/webappapis/dynamic-markup-insertion
 # the two runners take different tests from the same files.
 css/css-conditional
 css/css-fonts/parsing
+
+# Added 2026-09-24 with display: contents: css-display's scripted tests
+# (computed values, parsing, the boxes an element gives up). Its reftests
+# are the other runner's already.
+css/css-display

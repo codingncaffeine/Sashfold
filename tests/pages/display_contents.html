@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>display: contents</title>
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; width: 600px }
+  .pair { display: flex; gap: 20px; margin-bottom: 10px }
+  .pair > div { width: 280px }
+  .gone { display: contents; background: #ff0000; border: 10px solid #ff0000; padding: 20px; margin: 30px }
+  .block { background: #c8e6ff; border: 1px solid #3366aa; padding: 4px; margin: 4px 0 }
+  .flex { display: flex; justify-content: space-between; background: #eeeeee; padding: 4px }
+  .grid { display: grid; grid-template-columns: 60px 60px 60px; gap: 6px; background: #fff4c2; padding: 4px }
+  .item { background: #d8f5d0; border: 1px solid #338833; padding: 4px }
+  .green { color: #008000 }
+  .blue { display: contents; color: #0000ff; background: #ff0000 }
+</style>
+</head>
+<body>
+<!-- Block flow: the wrapper paints nothing and takes no room; its
+     children stack as the parent's own. The right side has no wrapper. -->
+<div class="pair">
+  <div><div class="gone"><div class="block">first</div><div class="block">second</div></div></div>
+  <div><div class="block">first</div><div class="block">second</div></div>
+</div>
+<!-- Flex: the wrapper's children are the container's items. -->
+<div class="pair">
+  <div class="flex"><div class="gone"><div class="item">a</div><div class="item">b</div></div><div class="item">c</div></div>
+  <div class="flex"><div class="item">a</div><div class="item">b</div><div class="item">c</div></div>
+</div>
+<!-- Grid: the wrapper's children each take a cell. -->
+<div class="pair">
+  <div class="grid"><div class="item">1</div><div class="gone"><div class="item">2</div><div class="item">3</div><div class="item">4</div></div></div>
+  <div class="grid"><div class="item">1</div><div class="item">2</div><div class="item">3</div><div class="item">4</div></div>
+</div>
+<!-- Inheritance: the text inside the wrapper is blue, the rest green,
+     and the wrapper's red background is nowhere. -->
+<div class="green">green then <span class="blue">blue inside the wrapper</span> then green</div>
+<div class="green">before <div class="blue"><div>a blue block inside the wrapper</div></div> after</div>
+<!-- A button's box goes and its label stays; an img computes to none. -->
+<div>[<button class="gone">label of a button</button>] [<img class="gone" alt="ALT" width="40" height="40">]</div>
+</body>
+</html>

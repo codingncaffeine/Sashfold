@@ -73,8 +73,13 @@ void union_runs(layout::Fragment const& fragment, dom::Element const& element, L
 
 } // namespace
 
-std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element)
+std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element,
+    css::StyleMap const& styles)
 {
+    // Its generated boxes and text are drawn as its parent's, but carry it
+    // as their element: they are not its box.
+    if (auto const it = styles.find(&element); it != styles.end() && it->second.display == css::Display::Contents)
+        return std::nullopt;
     if (layout::Fragment const* fragment = find_fragment(root, element))
         return LayoutBox { fragment->x, fragment->y, fragment->width, fragment->height };
     LayoutBox box;
@@ -215,7 +220,7 @@ void LayoutOracle::ensure()
 std::optional<LayoutBox> LayoutOracle::box(dom::Element const& element)
 {
     ensure();
-    return find_element_box(m_layout.root, element);
+    return find_element_box(m_layout.root, element, m_styles);
 }
 
 css::ComputedStyle const* LayoutOracle::style(dom::Element const& element)

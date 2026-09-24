@@ -20,8 +20,10 @@ namespace sashfold::bindings {
 
 // The border box of an element in a laid-out tree: its own fragment, else
 // the union of the boxes of its text runs (an inline element); nullopt
-// when it has neither (display: none, or not laid out).
-std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element);
+// when it has neither (display: none, or not laid out) and for a
+// display: contents element, which has no box whatever its runs say.
+std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element,
+    css::StyleMap const& styles);
 
 // What each object and embed of the realm's document represents, as the realm
 // has decided it so far, for layout and for the pictures an object or an embed

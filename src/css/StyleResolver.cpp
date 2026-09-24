@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -1689,6 +1690,44 @@ std::optional<LogicalMap> logical_mapping(std::string_view name, bool rtl, Writi
     if (name == "max-block-size")
         return LogicalMap { { "max-" + along } };
     return std::nullopt;
+}
+
+// Whether display: contents on `element` does what it says, taking away
+// the element's own box and keeping its children's (CSS Display 3,
+// Appendix B). The HTML elements drawn as something other than their
+// children, an svg laid out as a CSS box, the SVG elements whose children
+// mean something else outside them, and every MathML element compute to
+// none instead.
+bool unboxes(dom::Element const& element)
+{
+    std::string const& ns = element.namespace_uri();
+    if (ns == dom::ns::html) {
+        static constexpr std::string_view replaced[] = { "br", "wbr", "meter", "progress", "canvas", "embed",
+            "object", "audio", "iframe", "img", "video", "frame", "frameset", "input", "textarea", "select" };
+        for (std::string_view const name : replaced) {
+            if (element.local_name() == name)
+                return false;
+        }
+        return true;
+    }
+    if (ns == dom::ns::svg) {
+        // The renderable containers, the text content children and use
+        // hoist their content; an svg does only inside SVG.
+        dom::Node const* const parent = element.parent();
+        bool const in_svg = parent && parent->is_element()
+            && static_cast<dom::Element const*>(parent)->namespace_uri() == dom::ns::svg;
+        if (element.local_name() == "svg")
+            return in_svg;
+        static constexpr std::string_view hoisting[] = { "a", "g", "switch", "tspan", "textPath", "use" };
+        for (std::string_view const name : hoisting) {
+            if (element.local_name() == name)
+                return true;
+        }
+        return false;
+    }
+    if (ns == dom::ns::mathml)
+        return false;
+    return true;
 }
 
 // --- The resolver -------------------------------------------------------------
@@ -3773,6 +3812,16 @@ struct Resolver {
                 break;
             }
         }
+        // display: contents (CSS Display 3 §2.5, §2.8, Appendix B) computes
+        // to block on the root, and to none on an element whose rendering
+        // is not all CSS boxes: taking away its box and keeping its
+        // children would be no rendering at all.
+        if (target == 0 && style.display == Display::Contents) {
+            if (root)
+                style.display = Display::Block;
+            else if (!unboxes(element))
+                style.display = Display::None;
+        }
         // CSS 2.1 §9.7: an absolutely positioned box does not float, and
         // an inline-level one becomes the block-level kind of itself; its
         // static position stays where the inline box would have begun.
@@ -4104,6 +4153,8 @@ struct Resolver {
             }
             if (ascii_ci_equals(keyword, "none"))
                 style.display = Display::None;
+            else if (values.size() == 1 && ascii_ci_equals(keyword, "contents"))
+                style.display = Display::Contents;
             else if (ascii_ci_equals(keyword, "inline"))
                 style.display = Display::Inline;
             else if (ascii_ci_equals(keyword, "list-item"))

@@ -2627,8 +2627,8 @@ struct Browser::Impl {
                 return std::nullopt;
             ensure_fresh(*owner);
             FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, element.document()));
-            std::optional<bindings::LayoutBox> box
-                = bindings::find_element_box(view ? view->layout.root : owner->layout.root, element);
+            std::optional<bindings::LayoutBox> box = bindings::find_element_box(
+                view ? view->layout.root : owner->layout.root, element, view ? view->styles : owner->styles);
             if (box && scale != 1) {
                 box->x = static_cast<float>(to_css_px(box->x));
                 box->y = static_cast<float>(to_css_px(box->y));
@@ -6433,6 +6433,7 @@ struct Browser::Impl {
         case css::Display::TableCaption: return "table-caption";
         case css::Display::TableColumnGroup: return "table-column-group";
         case css::Display::TableColumn: return "table-column";
+        case css::Display::Contents: return "contents";
         case css::Display::None: return "none";
         }
         return "?";

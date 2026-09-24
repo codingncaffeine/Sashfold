@@ -2240,5 +2240,77 @@ int main(int argc, char** argv)
         }
     }
 
+    // display: contents (CSS Display 3 §2.5): the element has no box, and
+    // its children are laid out as its parent's — in block flow at the
+    // parent's corner, not inside the element's border and padding, and in
+    // a flex container as items beside the container's own children. The
+    // fragment check names a box made in such an element's style, and the
+    // painter's hit test answers with the child, never the element.
+    {
+        Page page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .gone { display: contents; border: 10px solid red; padding: 20px; margin: 30px; width: 500px }
+  .flex { display: flex }
+  .item { width: 50px; height: 10px }
+</style></head><body><div id="wrap" style="width: 300px"><div class="gone" id="c"><div id="a" style="height: 10px"></div><div id="b" style="height: 10px"></div></div></div><div class="flex" id="f"><div class="gone" id="fc"><div class="item" id="i1"></div><div class="item" id="i2"></div></div><div class="item" id="i3"></div></div></body></html>)HTML", 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_box
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find_box(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        CHECK(find_box(page.result.root, "c") == nullptr);
+        CHECK(find_box(page.result.root, "fc") == nullptr);
+        layout::Fragment const* const a = find_box(page.result.root, "a");
+        layout::Fragment const* const b = find_box(page.result.root, "b");
+        if (CHECK(a && b)) {
+            CHECK_EQ(a->x, 0.0f);
+            CHECK_EQ(a->y, 0.0f);
+            CHECK_EQ(a->width, 300.0f);
+            CHECK_EQ(b->y, 10.0f);
+        }
+        layout::Fragment const* const i1 = find_box(page.result.root, "i1");
+        layout::Fragment const* const i2 = find_box(page.result.root, "i2");
+        layout::Fragment const* const i3 = find_box(page.result.root, "i3");
+        if (CHECK(i1 && i2 && i3)) {
+            CHECK_EQ(i1->x, 0.0f);
+            CHECK_EQ(i2->x, 50.0f);
+            CHECK_EQ(i3->x, 100.0f);
+            CHECK_EQ(i1->y, 20.0f);
+            CHECK_EQ(i2->y, 20.0f);
+            CHECK_EQ(i3->y, 20.0f);
+        }
+        if (std::optional<paint::PointHit> const hit = paint::hit_test(page.result.root, 5, 5); CHECK(hit)) {
+            dom::Attr const* const id = hit->element ? hit->element->find_attribute("id") : nullptr;
+            CHECK(id && id->value == "a");
+        }
+        CHECK(layout::check_fragments(page.result).empty());
+
+        // The check's positive control: a box in the contents element's own
+        // style is exactly what must never be made, and it is named.
+        dom::Element const* contents = nullptr;
+        for (auto const& [element, style] : page.styles) {
+            dom::Attr const* const id = element->find_attribute("id");
+            if (id && id->value == "c")
+                contents = element;
+        }
+        if (CHECK(contents)) {
+            CHECK(page.styles.at(contents).display == css::Display::Contents);
+            layout::LayoutResult planted = layout::layout_document(*page.document, page.styles, 400);
+            layout::Fragment wrong;
+            wrong.element = contents;
+            wrong.style = &page.styles.at(contents);
+            planted.root.children.push_back(wrong);
+            CHECK_EQ(layout::check_fragments(planted).size(), std::size_t { 1 });
+        }
+    }
+
     return test::report("layout");
 }

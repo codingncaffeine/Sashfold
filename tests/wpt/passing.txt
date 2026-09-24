@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (9523 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (9582 of 14616) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -1338,6 +1338,7 @@ css/CSS2/floats/float-in-nested-multicol-001.html
 css/CSS2/floats/float-no-content-beside-001.html
 css/CSS2/floats/float-nowrap-1.html
 css/CSS2/floats/float-nowrap-2.html
+css/CSS2/floats/float-nowrap-3.html
 css/CSS2/floats/float-nowrap-4.html
 css/CSS2/floats/float-nowrap-5.html
 css/CSS2/floats/float-nowrap-6.html
@@ -1693,6 +1694,7 @@ css/CSS2/generated-content/content-counter-015.xht
 css/CSS2/generated-content/content-counter-016.xht
 css/CSS2/generated-content/content-inherit-002.xht
 css/CSS2/generated-content/content-white-space-001.xht
+css/CSS2/generated-content/content-white-space-003.xht
 css/CSS2/generated-content/content-white-space-004.xht
 css/CSS2/generated-content/counters-hidden-000.xht
 css/CSS2/generated-content/counters-hidden-001.xht
@@ -1728,6 +1730,7 @@ css/CSS2/linebox/inline-formatting-context-001.xht
 css/CSS2/linebox/inline-formatting-context-008.xht
 css/CSS2/linebox/inline-formatting-context-009.xht
 css/CSS2/linebox/inline-formatting-context-011.xht
+css/CSS2/linebox/inline-formatting-context-012.xht
 css/CSS2/linebox/inline-formatting-context-013.xht
 css/CSS2/linebox/inline-formatting-context-022.xht
 css/CSS2/linebox/inline-formatting-context-023.xht
@@ -2766,6 +2769,8 @@ css/CSS2/normal-flow/blocks-014.xht
 css/CSS2/normal-flow/blocks-015.xht
 css/CSS2/normal-flow/blocks-016.xht
 css/CSS2/normal-flow/blocks-017.xht
+css/CSS2/normal-flow/blocks-018.xht
+css/CSS2/normal-flow/blocks-019.xht
 css/CSS2/normal-flow/blocks-020.xht
 css/CSS2/normal-flow/blocks-021.xht
 css/CSS2/normal-flow/blocks-022.xht
@@ -5733,14 +5738,65 @@ css/css-display/display-change-iframe.html
 css/css-display/display-change-object-iframe.html
 css/css-display/display-contents-alignment-001.html
 css/css-display/display-contents-alignment-002.html
+css/css-display/display-contents-before-after-001.html
+css/css-display/display-contents-before-after-002.html
+css/css-display/display-contents-before-after-003.html
+css/css-display/display-contents-block-001.html
+css/css-display/display-contents-block-002.html
+css/css-display/display-contents-button.html
 css/css-display/display-contents-details-001.html
+css/css-display/display-contents-details.html
+css/css-display/display-contents-dynamic-before-after-001.html
+css/css-display/display-contents-dynamic-before-after-first-letter-001.html
+css/css-display/display-contents-dynamic-flex-001-inline.html
+css/css-display/display-contents-dynamic-flex-001-none.html
+css/css-display/display-contents-dynamic-flex-002-inline.html
+css/css-display/display-contents-dynamic-flex-002-none.html
+css/css-display/display-contents-dynamic-flex-003-inline.html
+css/css-display/display-contents-dynamic-flex-003-none.html
 css/css-display/display-contents-dynamic-generated-content-fieldset-001.html
+css/css-display/display-contents-dynamic-inline-flex-001-inline.html
+css/css-display/display-contents-dynamic-inline-flex-001-none.html
+css/css-display/display-contents-dynamic-list-001-inline.html
+css/css-display/display-contents-dynamic-list-001-none.html
+css/css-display/display-contents-dynamic-multicol-001-inline.html
+css/css-display/display-contents-dynamic-multicol-001-none.html
+css/css-display/display-contents-dynamic-pseudo-insertion-001.html
+css/css-display/display-contents-dynamic-table-001-inline.html
+css/css-display/display-contents-dynamic-table-001-none.html
+css/css-display/display-contents-dynamic-table-002-inline.html
+css/css-display/display-contents-dynamic-table-002-none.html
+css/css-display/display-contents-fieldset-002.html
+css/css-display/display-contents-fieldset-nested-legend.html
+css/css-display/display-contents-fieldset.html
+css/css-display/display-contents-first-letter-001.html
+css/css-display/display-contents-first-letter-002.html
 css/css-display/display-contents-first-line-002.html
+css/css-display/display-contents-flex-001.html
+css/css-display/display-contents-flex-002.html
+css/css-display/display-contents-flex-003.html
+css/css-display/display-contents-float-001.html
+css/css-display/display-contents-inline-001.html
+css/css-display/display-contents-inline-002.html
+css/css-display/display-contents-inline-flex-001.html
 css/css-display/display-contents-line-height.html
+css/css-display/display-contents-list-001.html
+css/css-display/display-contents-multicol-001.html
+css/css-display/display-contents-oof-001.html
+css/css-display/display-contents-oof-002.html
+css/css-display/display-contents-sharing-001.html
 css/css-display/display-contents-slot-attach-whitespace.html
+css/css-display/display-contents-suppression-dynamic-001.html
+css/css-display/display-contents-table-001.html
+css/css-display/display-contents-table-002.html
 css/css-display/display-contents-table-003.html
+css/css-display/display-contents-td-001.html
 css/css-display/display-contents-text-inherit-002.html
 css/css-display/display-contents-text-inherit.html
+css/css-display/display-contents-text-only-001.html
+css/css-display/display-contents-tr-001.html
+css/css-display/display-contents-unusual-html-elements-none.html
+css/css-display/display-contents-whitespace-inside-inline.html
 css/css-display/display-flow-root-001.html
 css/css-display/display-flow-root-002.html
 css/css-display/display-flow-root-dynamic.html
@@ -8004,8 +8060,11 @@ css/css-text/text-autospace/text-autospace-dynamic-text-002.html
 css/css-text/text-autospace/text-autospace-dynamic-text-003.html
 css/css-text/text-autospace/text-autospace-dynamic-text-004.html
 css/css-text/text-autospace/text-autospace-edit-001.html
+css/css-text/text-autospace/text-autospace-elements-004.html
 css/css-text/text-autospace/text-autospace-elements-005.html
 css/css-text/text-autospace/text-autospace-elements-005b.html
+css/css-text/text-autospace/text-autospace-elements-006.html
+css/css-text/text-autospace/text-autospace-elements-007.html
 css/css-text/text-autospace/text-autospace-mixed-001.html
 css/css-text/text-autospace/text-autospace-preformatted-001.html
 css/css-text/text-autospace/text-autospace-vertical-combine-001.html

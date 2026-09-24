@@ -23,11 +23,6 @@ bool is_blank_text(dom::Node const& node)
     return true;
 }
 
-std::vector<dom::Node const*> children_of(dom::Element const& element)
-{
-    return std::vector<dom::Node const*>(element.children().begin(), element.children().end());
-}
-
 // A child element that takes part: its style and display. Nothing for
 // display: none.
 struct Part {
@@ -45,6 +40,38 @@ struct Builder {
         : style_of(the_style_of)
         , table_style(the_table_style)
     {
+    }
+
+    // Nodes as the table's box tree sees them: a display: contents element
+    // among them is replaced by its children, in turn (CSS Display 3, 2.5).
+    void append_flattened(dom::Node const& node, std::vector<dom::Node const*>& into) const
+    {
+        if (node.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(node);
+            ComputedStyle const* const style = style_of(element);
+            if (style && style->display == Display::Contents) {
+                for (dom::Node const* child : element.children())
+                    append_flattened(*child, into);
+                return;
+            }
+        }
+        into.push_back(&node);
+    }
+
+    std::vector<dom::Node const*> flattened(std::vector<dom::Node const*> const& nodes) const
+    {
+        std::vector<dom::Node const*> result;
+        for (dom::Node const* node : nodes)
+            append_flattened(*node, result);
+        return result;
+    }
+
+    std::vector<dom::Node const*> children_of(dom::Element const& element) const
+    {
+        std::vector<dom::Node const*> result;
+        for (dom::Node const* child : element.children())
+            append_flattened(*child, result);
+        return result;
     }
 
     std::optional<Part> part_of(dom::Node const& node) const
@@ -175,7 +202,7 @@ struct Builder {
         group.style = part.style;
         group.first = static_cast<int>(out.columns.size());
         bool any = false;
-        for (dom::Node const* child : part.element->children()) {
+        for (dom::Node const* child : children_of(*part.element)) {
             std::optional<Part> const column = part_of(*child);
             if (!column || column->display != Display::TableColumn)
                 continue;
@@ -188,8 +215,9 @@ struct Builder {
         out.column_groups.push_back(group);
     }
 
-    void build(std::vector<dom::Node const*> const& children)
+    void build(std::vector<dom::Node const*> const& nodes)
     {
+        std::vector<dom::Node const*> const children = flattened(nodes);
         std::optional<std::size_t> open_group; // the anonymous group holding loose rows
         std::vector<dom::Node const*> run;
         bool content = false;

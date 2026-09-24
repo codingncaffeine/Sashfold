@@ -1,10 +1,10 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-24",
-  "passed": 131725,
-  "total": 153930,
-  "files": 2931,
-  "completed": 2929,
+  "passed": 131838,
+  "total": 154378,
+  "files": 2964,
+  "completed": 2962,
   "directories": [
     { "path": "dom/nodes", "passed": 10435, "total": 13066, "files": 316, "completed": 316 },
     { "path": "dom/events", "passed": 329, "total": 734, "files": 192, "completed": 191 },
@@ -29,10 +29,11 @@
     { "path": "dom/abort", "passed": 23, "total": 37, "files": 6, "completed": 6 },
     { "path": "dom/collections", "passed": 9, "total": 53, "files": 10, "completed": 10 },
     { "path": "dom/lists", "passed": 179, "total": 189, "files": 5, "completed": 5 },
-    { "path": "css/cssom", "passed": 2064, "total": 3335, "files": 192, "completed": 191 },
-    { "path": "html/dom", "passed": 57680, "total": 60556, "files": 245, "completed": 245 },
+    { "path": "css/cssom", "passed": 2065, "total": 3335, "files": 192, "completed": 191 },
+    { "path": "html/dom", "passed": 57683, "total": 60561, "files": 245, "completed": 245 },
     { "path": "html/webappapis/dynamic-markup-insertion", "passed": 95, "total": 350, "files": 163, "completed": 163 },
     { "path": "css/css-conditional", "passed": 1186, "total": 1803, "files": 226, "completed": 226 },
-    { "path": "css/css-fonts/parsing", "passed": 267, "total": 1547, "files": 84, "completed": 84 }
+    { "path": "css/css-fonts/parsing", "passed": 267, "total": 1547, "files": 84, "completed": 84 },
+    { "path": "css/css-display", "passed": 109, "total": 443, "files": 33, "completed": 33 }
   ]
 }

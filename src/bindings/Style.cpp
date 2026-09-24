@@ -242,17 +242,14 @@ std::string display_text(css::Display display)
     case D::TableHeaderGroup: return "table-header-group";
     case D::TableFooterGroup: return "table-footer-group";
     case D::TableRow: return "table-row";
-    default: break;
+    case D::TableCell: return "table-cell";
+    case D::TableCaption: return "table-caption";
+    case D::TableColumnGroup: return "table-column-group";
+    case D::TableColumn: return "table-column";
+    case D::Contents: return "contents";
+    case D::None: return "none";
     }
-    // The remaining table-internal kinds and none: read the enumerator
-    // order past TableRow.
-    switch (static_cast<int>(display) - static_cast<int>(D::TableRow)) {
-    case 1: return "table-column-group";
-    case 2: return "table-column";
-    case 3: return "table-cell";
-    case 4: return "table-caption";
-    default: return "none";
-    }
+    return "none";
 }
 
 std::string border_style_text(css::BorderStyle style)

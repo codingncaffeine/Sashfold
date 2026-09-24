@@ -1,6 +1,7 @@
 #include "JsTest.h"
 #include "WebmBuilder.h"
 
+#include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/Base64.h"
 #include "core/Bitmap.h"
@@ -558,8 +559,8 @@ void test_css_supports()
     CHECK(page->boolean("CSS.supports('font-weight', 'normal')"));
     CHECK(page->boolean("CSS.supports('font-synthesis', 'weight style small-caps position')"));
     CHECK(!page->boolean("CSS.supports('font-synthesis', 'none weight')"));
-    // Not laid out yet, so not claimed: pages take their fallback.
-    CHECK(!page->boolean("CSS.supports('display', 'contents')"));
+    // Laid out as CSS Display 3 has it, so claimed.
+    CHECK(page->boolean("CSS.supports('display', 'contents')"));
     // var() makes any value of a known property valid until substitution.
     CHECK(page->boolean("CSS.supports('color: something-pointless var(--foo)')"));
     CHECK(page->boolean("CSS.supports('color', 'fn(var(--foo, 1px))')"));
@@ -1136,6 +1137,59 @@ void test_layout_and_style_hooks()
     CHECK(scaled.boolean("matchMedia('(max-width: 512px)').matches && !matchMedia('(min-width: 513px)').matches && matchMedia('(min-resolution: 2dppx)').matches"));
     CHECK_EQ(scaled.string("(function () { var r = document.getElementById('p').getBoundingClientRect(); return [r.x, r.y, r.width, r.height].join(); })()"), "4,20,150,10");
     CHECK_EQ(scaled.console, "");
+}
+
+// A page answered by a real style resolver and layout, as the renderer and
+// the test runners answer it: the oracle is made once the page has its
+// document, and the hooks reach it through the slot.
+struct LaidOutPage {
+    std::shared_ptr<std::unique_ptr<bindings::LayoutOracle>> slot = std::make_shared<std::unique_ptr<bindings::LayoutOracle>>();
+    std::unique_ptr<Page> page;
+
+    explicit LaidOutPage(std::string_view html)
+    {
+        bindings::HostHooks hooks;
+        auto const oracle = slot;
+        hooks.layout_box = [oracle](dom::Element const& element) { return (*oracle)->box(element); };
+        hooks.computed_style = [oracle](dom::Element const& element) { return (*oracle)->style(element); };
+        std::string const url = "https://example.test/";
+        page = std::make_unique<Page>(html, url, std::move(hooks));
+        *slot = std::make_unique<bindings::LayoutOracle>(*page->document, *net::parse_url(url), css::SheetFetcher {},
+            css::MediaContext { 800, 600, 1 });
+        (*slot)->set_realm(page->realm.get());
+        page->load();
+    }
+};
+
+void test_display_contents_geometry()
+{
+    // CSS Display 3 §2.5: the element has no box, so no rects, no offset
+    // size and no offset parent; its child is laid out as its parent's,
+    // 200 wide at the parent's corner (not 500 wide inside a border and
+    // padding), and still inherits from it. An <img> computes to none
+    // (Appendix B), a <button> does not. The DOM is as written.
+    LaidOutPage laid(R"HTML(<!DOCTYPE html><body style="margin:0"><div id=outer style="width:200px">
+<div id=c style="display:contents; border:10px solid red; padding:20px; width:500px; color:rgb(0, 128, 0)"><p id=p style="margin:0; height:30px">text</p></div>
+<span id=s style="display:contents; border:5px solid red">inline text</span>
+<img id=i style="display:contents" width=10 height=10><button id=b style="display:contents">label</button>
+</div></body>)HTML");
+    Page& page = *laid.page;
+    CHECK(page.boolean("CSS.supports('display', 'contents') && CSS.supports('display: contents') && CSS.supports('(display: contents)')"));
+    CHECK_EQ(page.string("getComputedStyle(document.getElementById('c')).display"), "contents");
+    CHECK_EQ(page.string("getComputedStyle(document.getElementById('p')).color"), "rgb(0, 128, 0)");
+    CHECK_EQ(page.string("(function () { var r = document.getElementById('c').getBoundingClientRect(); return [r.x, r.y, r.width, r.height].join(); })()"), "0,0,0,0");
+    CHECK_EQ(page.string("(function () { var c = document.getElementById('c'); return [c.getClientRects().length, c.offsetWidth, c.offsetHeight, c.offsetParent === null, c.checkVisibility()].join(); })()"), "0,0,0,true,false");
+    CHECK_EQ(page.string("(function () { var r = document.getElementById('p').getBoundingClientRect(); return [r.x, r.y, r.width, r.height].join(); })()"), "0,0,200,30");
+    CHECK(page.boolean("document.getElementById('p').offsetParent === document.body"));
+    CHECK_EQ(page.string("(function () { var s = document.getElementById('s'); return [s.getClientRects().length, s.offsetWidth, s.offsetParent === null].join(); })()"), "0,0,true");
+    CHECK_EQ(page.string("getComputedStyle(document.getElementById('i')).display"), "none");
+    CHECK_EQ(page.string("getComputedStyle(document.getElementById('b')).display"), "contents");
+    CHECK(page.boolean("document.getElementById('p').parentNode === document.getElementById('c') && document.getElementById('c').parentNode.id === 'outer'"));
+    CHECK_EQ(page.console, "");
+
+    // On the root it computes to block (§2.8).
+    LaidOutPage root(R"HTML(<!DOCTYPE html><html style="display:contents"><body></body></html>)HTML");
+    CHECK_EQ(root.page->string("getComputedStyle(document.documentElement).display"), "block");
 }
 
 void test_form_controls_without_a_host()
@@ -4335,7 +4389,7 @@ void test_media_source_and_the_media_element()
     auto const cluster = [](int track, std::initializer_list<int> times) {
         Bytes body = element(0xE7, uint_body(0));
         for (int const time : times)
-            sashfold::test::webm::append(body, element(0xA3, block(track, std::abs(time), time >= 0 ? 0x80 : 0x00, text("frame"))));
+            sashfold::test::webm::append(body, element(0xA3, block(track, std::abs(time), time >= 0 ? 0x80 : 0x00, sashfold::test::webm::text("frame"))));
         return element(0x1F43B675, body);
     };
     auto page = loaded("<!DOCTYPE html><body><video id=v></video></body>");
@@ -4499,6 +4553,7 @@ int main()
     test_window_location_url_storage_navigator();
     test_uncaught_errors_are_reported_and_counted();
     test_layout_and_style_hooks();
+    test_display_contents_geometry();
     test_form_controls_without_a_host();
     test_dom_parser_and_foreign_documents();
     test_binary_data();

@@ -1187,6 +1187,115 @@ css/css-conditional/js/supports-at-rule.html	@supports at-rule 3
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 5
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 6
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 9
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [flex] to [none] at (1) should be [none]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (-0.3) should be [flex]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (0) should be [flex]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (0.3) should be [flex]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (0.5) should be [flex]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (0.6) should be [flex]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (1) should be [flex]
+css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (1.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-behavior:allow-discrete: property <display> from [grid] to [flex] at (0.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-behavior:allow-discrete: property <display> from [grid] to [flex] at (0.6) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-behavior:allow-discrete: property <display> from [grid] to [flex] at (1) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-behavior:allow-discrete: property <display> from [grid] to [flex] at (1.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <display> from [grid] to [flex] at (0.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <display> from [grid] to [flex] at (0.6) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <display> from [grid] to [flex] at (1) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition-property:all and transition-behavor:allow-discrete: property <display> from [grid] to [flex] at (1.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (-0.3) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (0) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (0.3) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (0.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (0.6) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (1) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions with transition: all: property <display> from [grid] to [flex] at (1.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (-0.3) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (0) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (0.3) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (0.5) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (0.6) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (1) should be [flex]
+css/css-display/animations/display-interpolation.html	CSS Transitions: property <display> from [grid] to [flex] at (1.5) should be [flex]
+css/css-display/display-contents-computed-style.html	Resolved value should be computed value, not used value, for display:contents
+css/css-display/display-contents-computed-style.html	Serialization of computed style value for display:contents
+css/css-display/display-contents-computed-style.html	display:contents element as inherit parent - explicit inheritance
+css/css-display/display-contents-computed-style.html	display:contents element as inherit parent - implicit inheritance
+css/css-display/display-contents-computed-style.html	display:contents is blockified for root elements
+css/css-display/display-contents-parsing-001.html	Tests that the 'contents' value for the 'display' property is correctly parsed
+css/css-display/display-contents-svg-anchor-child.html	Loading this page should not cause a crash.
+css/css-display/display-contents-svg-switch-child.html	Loading this page should not cause a crash.
+css/css-display/display-list-item-height-after-dom-change.html	List item height after DOM change.
+css/css-display/display-math-on-non-mathml-elements.html	computed display on <div style="display: block math;">
+css/css-display/display-math-on-non-mathml-elements.html	computed display on <div style="display: math block;">
+css/css-display/display-math-on-non-mathml-elements.html	computed display on <svg style="display: inline math;">
+css/css-display/display-math-on-non-mathml-elements.html	computed display on <svg style="display: math inline;">
+css/css-display/display-math-on-non-mathml-elements.html	computed display on <svg style="display: math;">
+css/css-display/display-math-on-pseudo-elements-001.html	computed display on ::before and ::after for <div class="block">
+css/css-display/display-math-on-pseudo-elements-001.html	computed display on ::before and ::after for <math class="inline">
+css/css-display/display-math-on-pseudo-elements-001.html	computed display on ::before and ::after for <mrow class="inline">
+css/css-display/display-with-float-dynamic.html	computed style for float
+css/css-display/display-with-float.html	computed style for float
+css/css-display/empty-text-baseline-001.html	Empty second line in #inner does not generate baseline for #span
+css/css-display/empty-text-baseline-001.html	Empty second line in #inner does not generate baseline for #span with white-space: pre
+css/css-display/empty-text-baseline-001.html	Empty second line in #inner does not generate baseline for #span with white-space: pre-line
+css/css-display/focus/display-contents-focus.html	button with display: contents is focusable
+css/css-display/focus/display-contents-focus.html	div with role button, tabindex=-1 and display: contents is focusable
+css/css-display/focus/display-contents-focus.html	div with role button, tabindex=0 and display: contents is focusable
+css/css-display/focus/display-contents-focus.html	link with display: contents is focusable
+css/css-display/focus/display-contents-focus.html	span with role link, tabindex=0 and display: contents is focusable
+css/css-display/parsing/display-computed.html	position absolute affects computed display
+css/css-display/parsing/display-computed.html	position fixed affects computed display
+css/css-display/parsing/display-valid.html	e.style['display'] = "block ruby" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "block" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "contents" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "flex" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "flow-root list-item" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "flow-root" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "grid" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline flow-root list-item" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline list-item" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline-block" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline-flex" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline-grid" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "inline-table" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "list-item" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "none" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "ruby" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "ruby-base" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "ruby-text" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in flex" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in flow-root list-item" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in flow-root" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in grid" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in list-item" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in ruby" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in table" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "run-in" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-caption" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-cell" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-column" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-column-group" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-footer-group" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-header-group" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-row" should set the property value
+css/css-display/parsing/display-valid.html	e.style['display'] = "table-row-group" should set the property value
+css/css-display/parsing/tentative/display-valid.html	e.style['display'] = "grid-lanes" should set the property value
+css/css-display/parsing/tentative/display-valid.html	e.style['display'] = "inline grid-lanes" should set the property value
+css/css-display/parsing/tentative/display-valid.html	e.style['display'] = "inline-grid-lanes" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "flex-flow" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "flex-visual" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "grid-columns" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "grid-order" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "grid-rows" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "normal" should set the property value
+css/css-display/reading-flow/tentative/reading-flow-valid.html	e.style['reading-flow'] = "source-order" should set the property value
+css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "-45" should set the property value
+css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "0" should set the property value
+css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "123" should set the property value
+css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "calc(34.1)" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "'21st Century', fantasy" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "Helvetica, Verdana, sans-serif" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "\\"Serif\\"" should set the property value
@@ -2756,6 +2865,7 @@ css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-l
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-right-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-top-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'color' is the used value
+css/cssom/getComputedStyle-resolved-min-max-clamping.html	Resolved value of width / height when there's no used value isn't clamped by min/max properties
 css/cssom/getComputedStyle-resolved-min-size-auto.html	Resolved value of min-width & min-height 'auto' keyword behaves as expected on element with id="block-with-degenerate-aspect-ratio"
 css/cssom/getComputedStyle-resolved-min-size-auto.html	Resolved value of min-width & min-height 'auto' keyword behaves as expected on element with id="block-with-two-part-degenerate-aspect-ratio"
 css/cssom/getComputedStyle-resolved-min-size-auto.html	Resolved value of min-width & min-height 'auto' keyword behaves as expected on element with id="block-with-two-part-valid-aspect-ratio"
@@ -64290,6 +64400,9 @@ html/dom/elements/the-innertext-and-outertext-properties/getter.html	comment ign
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:block <script> is rendered ("<div><script style='display:block'>abc")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:block <style> is rendered ("<div><style style='display:block'>abc")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:block <template> contents are not rendered (the contents are in a different document) ("<div><template style='display:block'>abc")
+html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:contents container ("<div style='display:contents'>abc")
+html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:contents container ("<div><div style='display:contents'>abc")
+html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:contents rendered ("<div>123<span style='display:contents'>abc")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:none child of svg ("<div style='display:none' id='target'>abc")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:none container ("<div style='display:none'>abc")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	display:none container with non-display-none p target child ("<div style='display:none'><p id='target'>abc")
