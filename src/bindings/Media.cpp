@@ -1530,9 +1530,9 @@ void install_source_buffer(Realm::Internals& in)
 {
     js::Interpreter& interpreter = in.interpreter;
     js::Object* proto = define_interface(in, "SourceBuffer", in.prototype("EventTarget"));
-    js::define_method(interpreter, *proto, "appendBuffer", 1, append_buffer);
-    js::define_method(interpreter, *proto, "remove", 2, remove_range);
-    js::define_method(interpreter, *proto, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *proto, "appendBuffer", 1, append_buffer);
+    define_operation(interpreter, *proto, "remove", 2, remove_range);
+    define_operation(interpreter, *proto, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<SourceBufferObject*> const found = this_as<SourceBufferObject>(interp, this_value);
         if (!found)
@@ -1551,7 +1551,7 @@ void install_source_buffer(Realm::Internals& in)
         buffer.buffer.append_window_end = std::numeric_limits<double>::infinity();
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "changeType", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "changeType", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<SourceBufferObject*> const found = this_as<SourceBufferObject>(interp, this_value);
         if (!found)
@@ -1692,7 +1692,7 @@ void install_media_source(Realm::Internals& in)
         },
         0);
     js::Value const constructor = *interpreter.get(*interpreter.global(), interpreter.key("MediaSource"));
-    js::define_method(interpreter, *constructor.as_object(), "isTypeSupported", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *constructor.as_object(), "isTypeSupported", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         std::optional<std::string> const type = internals_of(interp).to_utf8(js::argument(args, 0));
         if (!type)
             return std::nullopt;
@@ -1757,7 +1757,7 @@ void install_media_source(Realm::Internals& in)
             return js::Value::undefined();
         });
 
-    js::define_method(interpreter, *proto, "addSourceBuffer", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "addSourceBuffer", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MediaSourceObject*> const found = this_as<MediaSourceObject>(interp, this_value);
         if (!found)
@@ -1783,7 +1783,7 @@ void install_media_source(Realm::Internals& in)
         queue_fire(internals, source.buffers, "addsourcebuffer");
         return js::Value::object(made);
     });
-    js::define_method(interpreter, *proto, "removeSourceBuffer", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "removeSourceBuffer", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MediaSourceObject*> const found = this_as<MediaSourceObject>(interp, this_value);
         if (!found)
@@ -1816,7 +1816,7 @@ void install_media_source(Realm::Internals& in)
             update_media(internals, *source.attached);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "endOfStream", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "endOfStream", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MediaSourceObject*> const found = this_as<MediaSourceObject>(interp, this_value);
         if (!found)
@@ -1841,7 +1841,7 @@ void install_media_source(Realm::Internals& in)
         return js::Value::undefined();
     });
     for (std::string_view const name : { "setLiveSeekableRange", "clearLiveSeekableRange" }) {
-        js::define_method(interpreter, *proto, name, 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        define_operation(interpreter, *proto, name, 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<MediaSourceObject*> const found = this_as<MediaSourceObject>(interp, this_value);
             if (!found)
                 return std::nullopt;
@@ -1867,7 +1867,7 @@ void install_media_element(Realm::Internals& in)
         return js::Value::number(static_cast<double>((*found)->ranges.size()));
     });
     for (bool const start : { true, false }) {
-        js::define_method(interpreter, *ranges, start ? "start" : "end", 1, [start](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        define_operation(interpreter, *ranges, start ? "start" : "end", 1, [start](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
             std::optional<TimeRangesObject*> const found = this_as<TimeRangesObject>(interp, this_value);
             if (!found)
                 return std::nullopt;

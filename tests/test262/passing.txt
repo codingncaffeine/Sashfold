@@ -1,4 +1,4 @@
-# test262 tests passing (40358 of 41791) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
+# test262 tests passing (40355 of 41791) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
 # One test per line; a listed test that fails is a regression.
 # Re-bless with: test262_runner <checkout> <directories> <this file> --update
 test/annexB/built-ins/Date/prototype/getYear/B.2.4.js
@@ -5954,7 +5954,6 @@ test/built-ins/Function/prototype/apply/not-a-constructor.js
 test/built-ins/Function/prototype/apply/resizable-buffer.js
 test/built-ins/Function/prototype/apply/this-not-callable-realm.js
 test/built-ins/Function/prototype/apply/this-not-callable.js
-test/built-ins/Function/prototype/arguments/prop-desc.js
 test/built-ins/Function/prototype/bind/15.3.4.5-0-1.js
 test/built-ins/Function/prototype/bind/15.3.4.5-10-1.js
 test/built-ins/Function/prototype/bind/15.3.4.5-11-1.js
@@ -6104,8 +6103,6 @@ test/built-ins/Function/prototype/call/S15.3.4.4_A7_T6.js
 test/built-ins/Function/prototype/call/S15.3.4.4_A9.js
 test/built-ins/Function/prototype/call/name.js
 test/built-ins/Function/prototype/call/not-a-constructor.js
-test/built-ins/Function/prototype/caller-arguments/accessor-properties.js
-test/built-ins/Function/prototype/caller/prop-desc.js
 test/built-ins/Function/prototype/constructor/S15.3.4.1_A1_T1.js
 test/built-ins/Function/prototype/length.js
 test/built-ins/Function/prototype/name.js

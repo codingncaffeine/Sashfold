@@ -51,12 +51,19 @@ Value perform_then(Interpreter&, PromiseObject& promise, Value const& on_fulfill
 
 // Helpers shared by the installers and the bindings.
 
-// Defines `name` on `target` as a non-enumerable native method.
+// Defines `name` on `target` as a non-enumerable native method, or with
+// the attributes given (the bindings' operations are enumerable, as
+// WebIDL has them).
 NativeFunction* define_method(Interpreter&, Object& target, std::string_view name, int length,
     NativeFunction::Callback);
-// A getter (and optional setter) pair, non-enumerable, configurable.
+NativeFunction* define_method(Interpreter&, Object& target, std::string_view name, int length,
+    NativeFunction::Callback, std::uint8_t attributes);
+// A getter (and optional setter) pair, non-enumerable, configurable; or
+// with the attributes given.
 void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
     NativeFunction::Callback setter = {});
+void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
+    NativeFunction::Callback setter, std::uint8_t attributes);
 // A data property with the given attributes (a constant like Math.PI).
 void define_value(Interpreter&, Object& target, std::string_view name, Value, std::uint8_t attributes = builtin_attributes);
 // The argument at `index`, or undefined.

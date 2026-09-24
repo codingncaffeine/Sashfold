@@ -467,8 +467,8 @@ void install_custom_elements(Realm::Internals& in)
     }
 
     js::Object* const registry = define_interface(in, "CustomElementRegistry", nullptr);
-    js::define_method(interpreter, *registry, "define", 2, define);
-    js::define_method(interpreter, *registry, "get", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *registry, "define", 2, define);
+    define_operation(interpreter, *registry, "get", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
@@ -476,14 +476,14 @@ void install_custom_elements(Realm::Internals& in)
         CustomElementDefinition* const definition = custom_element_definition(internals, *name);
         return definition != nullptr ? definition->constructor : js::Value::undefined();
     });
-    js::define_method(interpreter, *registry, "getName", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *registry, "getName", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Value const given = js::argument(args, 0);
         CustomElementDefinition* const definition
             = given.is_object() ? definition_for_constructor(internals, given.as_object()) : nullptr;
         return definition != nullptr ? internals.string(definition->name) : js::Value::null();
     });
-    js::define_method(interpreter, *registry, "upgrade", 1, [](js::Interpreter& interp, js::Value const& , Args args) -> Native {
+    define_operation(interpreter, *registry, "upgrade", 1, [](js::Interpreter& interp, js::Value const& , Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<dom::Node*> const root = this_node(interp, js::argument(args, 0));
         if (!root)
@@ -496,7 +496,7 @@ void install_custom_elements(Realm::Internals& in)
     });
     // whenDefined(): settled as the definition arrives, and at once for one
     // already made.
-    js::define_method(interpreter, *registry, "whenDefined", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *registry, "whenDefined", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)

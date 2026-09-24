@@ -254,10 +254,10 @@ void install_origin(Realm::Internals& in)
             return std::nullopt;
         return js::Value::boolean((*self)->origin.opaque());
     });
-    js::define_method(interpreter, *origin, "isSameOrigin", 1, comparison(same_origin, "isSameOrigin"));
-    js::define_method(interpreter, *origin, "isSameSite", 1, comparison(same_site, "isSameSite"));
+    define_operation(interpreter, *origin, "isSameOrigin", 1, comparison(same_origin, "isSameOrigin"));
+    define_operation(interpreter, *origin, "isSameSite", 1, comparison(same_site, "isSameSite"));
     js::Value const constructor = *interpreter.get(*interpreter.global(), interpreter.key("Origin"));
-    js::define_method(interpreter, *constructor.as_object(), "from", 1, origin_from);
+    define_operation(interpreter, *constructor.as_object(), "from", 1, origin_from);
 }
 
 }

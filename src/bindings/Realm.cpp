@@ -13,6 +13,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -460,7 +463,19 @@ js::Object* define_interface(Realm::Internals& in, std::string_view name, js::Ob
 void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter,
     js::NativeFunction::Callback setter)
 {
-    js::define_accessor(in.interpreter, prototype, name, std::move(getter), std::move(setter));
+    define_attribute(in.interpreter, prototype, name, std::move(getter), std::move(setter));
+}
+
+void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
+    js::NativeFunction::Callback setter)
+{
+    sashfold::js::define_accessor(interpreter, target, name, std::move(getter), std::move(setter), js::Enumerable | js::Configurable);
+}
+
+js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Callback callback)
+{
+    return sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
 }
 
 // The reflected-attribute helpers themselves are in Reflect.cpp.
@@ -1354,6 +1369,56 @@ Realm::~Realm()
 }
 
 js::Interpreter& Realm::interpreter() { return m_internals->interpreter; }
+
+void Realm::trace_if_asked()
+{
+    js::Interpreter& interpreter = m_internals->interpreter;
+    if (char const* const watch = std::getenv("SASHFOLD_THROW_TRACE"); watch != nullptr && watch[0] == '1') {
+        interpreter.watch_throws([&interpreter](js::Value const& thrown) {
+            // Whatever was thrown, error or not, and the functions that
+            // were running when it was. Neither runs script nor touches
+            // the exception being thrown, so the watcher cannot change
+            // what it watches.
+            std::string line = "threw: " + interpreter.stack_text(thrown);
+            for (std::size_t at = line.find("\n    at "); at != std::string::npos; at = line.find("\n    at ", at))
+                line.replace(at, 8, "  <- ");
+            std::cerr << line << "\n";
+        });
+    }
+    // SASHFOLD_EVAL_TRACE=1: every string a script turns into code, whole,
+    // one record per line; SASHFOLD_EVAL_TRACE_DIR=<dir> keeps each as
+    // <n>.js there, as it was. A program that writes its probes at run
+    // time shows them nowhere else.
+    char const* const watch_evals = std::getenv("SASHFOLD_EVAL_TRACE");
+    char const* const keep_evals = std::getenv("SASHFOLD_EVAL_TRACE_DIR");
+    if ((watch_evals != nullptr && watch_evals[0] == '1') || (keep_evals != nullptr && keep_evals[0] != '\0')) {
+        std::string const directory = keep_evals != nullptr ? keep_evals : "";
+        interpreter.on_compiled_string = [directory, &interpreter](std::uint64_t number, std::u16string_view kind, std::u16string_view parameters,
+                                             std::u16string_view body) {
+            std::string line = "compiled #" + std::to_string(number) + " " + js::utf8_from_utf16(kind) + "(" + js::utf8_from_utf16(parameters) + "): " + js::utf8_from_utf16(body);
+            for (char& c : line) {
+                if (c == '\n' || c == '\r')
+                    c = ' ';
+            }
+            std::cerr << line << "\n";
+            // And the functions that were running when it was compiled, as
+            // the throw trace prints them: which site asked for the code.
+            std::string where = interpreter.stack_text(js::Value::undefined());
+            if (std::size_t const first_line_end = where.find('\n'); first_line_end != std::string::npos) {
+                where = where.substr(first_line_end);
+                for (std::size_t here = where.find("\n    at "); here != std::string::npos; here = where.find("\n    at ", here))
+                    where.replace(here, 8, "  <- ");
+                std::cerr << "compiled #" << number << " from" << where << "\n";
+            }
+            if (!directory.empty()) {
+                std::error_code ignored;
+                std::filesystem::create_directories(directory, ignored);
+                std::ofstream(directory + "/" + std::to_string(number) + ".js", std::ios::binary) << js::utf8_from_utf16(body);
+            }
+        };
+    }
+}
+
 dom::Document& Realm::document() { return *m_internals->document; }
 net::Url const& Realm::url() const { return m_internals->url; }
 net::Url const& Realm::base_url() const { return m_internals->base_url(); }

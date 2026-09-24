@@ -228,7 +228,7 @@ void install_mutation_observer(Realm::Internals& in)
         },
         1);
 
-    js::define_method(interpreter, *proto, "observe", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "observe", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MutationObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
@@ -320,7 +320,7 @@ void install_mutation_observer(Realm::Internals& in)
         return js::Value::undefined();
     });
 
-    js::define_method(interpreter, *proto, "disconnect", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *proto, "disconnect", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MutationObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
@@ -331,7 +331,7 @@ void install_mutation_observer(Realm::Internals& in)
         return js::Value::undefined();
     });
 
-    js::define_method(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MutationObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)

@@ -5929,6 +5929,18 @@ dom/events/AddEventListenerOptions-signal.any.html	Aborting from a nested listen
 dom/events/AddEventListenerOptions-signal.any.html	Adding then aborting a listener in another listener does not call it
 dom/events/AddEventListenerOptions-signal.any.html	Passing an AbortSignal to addEventListener does not prevent removeEventListener
 dom/events/AddEventListenerOptions-signal.any.html	Removing a once listener works with a passed signal
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLBodyElement.onblur
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLBodyElement.onerror
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLBodyElement.onfocus
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLBodyElement.onload
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLBodyElement.onresize
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLBodyElement.onscroll
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLFrameSetElement.onblur
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLFrameSetElement.onerror
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLFrameSetElement.onfocus
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLFrameSetElement.onload
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLFrameSetElement.onresize
+dom/events/Body-FrameSet-Event-Handlers.html	Enumerate HTMLFrameSetElement.onscroll
 dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onblur
 dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onerror
 dom/events/Body-FrameSet-Event-Handlers.html	Reflect HTMLBodyElement.onfocus
@@ -63352,6 +63364,9 @@ html/browsers/the-window-object/window-properties.https.html	Constructor Propert
 html/browsers/the-window-object/window-properties.https.html	Constructor Property: TypeError
 html/browsers/the-window-object/window-properties.https.html	Constructor Property: URIError
 html/browsers/the-window-object/window-properties.https.html	EventTarget interface
+html/browsers/the-window-object/window-properties.https.html	EventTarget method: addEventListener
+html/browsers/the-window-object/window-properties.https.html	EventTarget method: dispatchEvent
+html/browsers/the-window-object/window-properties.https.html	EventTarget method: removeEventListener
 html/browsers/the-window-object/window-properties.https.html	Function Properties of the Global Object
 html/browsers/the-window-object/window-properties.https.html	Function Property: eval
 html/browsers/the-window-object/window-properties.https.html	Function Property: isFinite

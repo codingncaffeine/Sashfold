@@ -391,7 +391,7 @@ T* this_traversal(js::Interpreter& interpreter, js::Value const& this_value)
 template<typename T, typename Body>
 void traversal_method(Realm::Internals& in, js::Object& prototype, std::string_view name, Body body)
 {
-    js::define_method(in.interpreter, prototype, name, 0,
+    define_operation(in.interpreter, prototype, name, 0,
         [body](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
             T* const object = this_traversal<T>(interpreter, this_value);
             if (!object)

@@ -501,9 +501,9 @@ void install_xhr(Realm::Internals& in)
         xhr->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
     }
 
-    js::define_method(interpreter, *xhr, "open", 2, open);
-    js::define_method(interpreter, *xhr, "send", 0, send);
-    js::define_method(interpreter, *xhr, "setRequestHeader", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *xhr, "open", 2, open);
+    define_operation(interpreter, *xhr, "send", 0, send);
+    define_operation(interpreter, *xhr, "setRequestHeader", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         // §4.5.2: only between open and send; a forbidden name is quietly
         // dropped, a second value joins the first.
         std::optional<XhrObject*> const found = this_xhr(interp, this_value);
@@ -530,7 +530,7 @@ void install_xhr(Realm::Internals& in)
             existing->second += ", " + value;
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *xhr, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *xhr, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         // §4.5.7: a request in flight ends with abort and loadend; a
         // finished one goes quietly back to UNSENT.
         std::optional<XhrObject*> const found = this_xhr(interp, this_value);
@@ -551,7 +551,7 @@ void install_xhr(Realm::Internals& in)
         }
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *xhr, "getResponseHeader", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *xhr, "getResponseHeader", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<XhrObject*> const found = this_xhr(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -573,7 +573,7 @@ void install_xhr(Realm::Internals& in)
         }
         return combined ? internals.string(*combined) : js::Value::null();
     });
-    js::define_method(interpreter, *xhr, "getAllResponseHeaders", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *xhr, "getAllResponseHeaders", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<XhrObject*> const found = this_xhr(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -597,7 +597,7 @@ void install_xhr(Realm::Internals& in)
             out += name + ": " + value + "\r\n";
         return internals.string(out);
     });
-    js::define_method(interpreter, *xhr, "overrideMimeType", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *xhr, "overrideMimeType", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<XhrObject*> const found = this_xhr(interp, this_value);
         if (!found)
             return std::nullopt;

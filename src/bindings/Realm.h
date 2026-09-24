@@ -328,6 +328,12 @@ public:
     Realm& operator=(Realm const&) = delete;
 
     js::Interpreter& interpreter();
+    // SASHFOLD_THROW_TRACE=1: every exception raised in this realm's
+    // interpreter, caught or not, on stderr with the functions that were
+    // running. A page that tries what the engine cannot do and catches the
+    // failure leaves no other trace, so this is what says which thing it
+    // tried. SASHFOLD_EVAL_TRACE=1: every string the page turns into code.
+    void trace_if_asked();
     dom::Document& document();
     // The document's URL as scripts see it: history.pushState moves it.
     net::Url const& url() const;

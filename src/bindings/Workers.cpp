@@ -845,7 +845,7 @@ void install_workers(Realm::Internals& in)
         },
         1);
 
-    js::define_method(interpreter, *worker, "postMessage", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *worker, "postMessage", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<WorkerObject*> const found = this_worker(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -872,7 +872,7 @@ void install_workers(Realm::Internals& in)
         handle->link->for_worker.notify_all();
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *worker, "terminate", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *worker, "terminate", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<WorkerObject*> const found = this_worker(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -965,7 +965,7 @@ void install_worker_scope(Realm::Internals& in, std::vector<js::PropertyKey> con
         for (std::string_view const part : { "href", "origin", "protocol", "host", "hostname", "port", "pathname", "search", "hash" })
             share_getter(interpreter, *url_proto, *location_proto, part);
     }
-    js::define_method(interpreter, *location_proto, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *location_proto, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         auto* const location = this_value.is_object() ? dynamic_cast<UrlObject*>(this_value.as_object()) : nullptr;
         if (location == nullptr)
             return interp.throw_type_error("Illegal invocation");
@@ -990,7 +990,7 @@ void install_worker_scope(Realm::Internals& in, std::vector<js::PropertyKey> con
 
     // postMessage(message, transfer) and (message, options): to the Worker
     // in the document that started this worker.
-    js::define_method(interpreter, *global, "postMessage", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "postMessage", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
         std::optional<std::vector<js::Value>> const transfer = transfer_or_options(internals, js::argument(args, 1));
@@ -1004,7 +1004,7 @@ void install_worker_scope(Realm::Internals& in, std::vector<js::PropertyKey> con
             internals.worker->post(message);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *global, "close", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_operation(interpreter, *global, "close", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         if (internals.worker != nullptr)
             internals.worker->close();
@@ -1015,7 +1015,7 @@ void install_worker_scope(Realm::Internals& in, std::vector<js::PropertyKey> con
     // fetched; then each fetched, judged and run in turn, here and now. One
     // that cannot be had is a NetworkError; what a script throws is thrown
     // on to the caller.
-    js::define_method(interpreter, *global, "importScripts", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "importScripts", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::vector<net::Url> urls;
         for (js::Value const& argument : args) {

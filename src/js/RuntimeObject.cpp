@@ -29,18 +29,30 @@ using Args = std::span<Value const>;
 
 NativeFunction* define_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Callback callback)
 {
+    return define_method(in, target, name, length, std::move(callback), builtin_attributes);
+}
+
+NativeFunction* define_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Callback callback,
+    std::uint8_t attributes)
+{
     Heap::NoCollect const guard(in.heap());
     NativeFunction* function = in.new_native(name, length, std::move(callback));
-    target.put(in.key(name), Value::object(function), builtin_attributes);
+    target.put(in.key(name), Value::object(function), attributes);
     return function;
 }
 
 void define_accessor(Interpreter& in, Object& target, std::string_view name, NativeFunction::Callback getter, NativeFunction::Callback setter)
 {
+    define_accessor(in, target, name, std::move(getter), std::move(setter), Configurable);
+}
+
+void define_accessor(Interpreter& in, Object& target, std::string_view name, NativeFunction::Callback getter, NativeFunction::Callback setter,
+    std::uint8_t attributes)
+{
     Heap::NoCollect const guard(in.heap());
     NativeFunction* get = in.new_native("get " + std::string(name), 0, std::move(getter));
     NativeFunction* set = setter ? in.new_native("set " + std::string(name), 1, std::move(setter)) : nullptr;
-    target.put_accessor(in.key(name), get, set, Configurable);
+    target.put_accessor(in.key(name), get, set, attributes);
 }
 
 void define_value(Interpreter& in, Object& target, std::string_view name, Value value, std::uint8_t attributes)
@@ -892,6 +904,28 @@ void install_object_prototype(Interpreter& in, Object& prototype)
 
 // ------------------------------------------------------------- Function
 
+namespace {
+
+// Whether `caller` and `arguments` answer for a function rather than
+// throw: a plain function of sloppy code — not strict, not an arrow, a
+// method, an accessor, a class, a generator or an async function (none of
+// those constructs), not bound, not built in.
+bool has_legacy_reflection(Value const& value)
+{
+    if (!value.is_object() || value.as_object()->class_id() != Object::Class::Function)
+        return false;
+    auto const* function = dynamic_cast<ScriptFunction const*>(value.as_object());
+    if (function == nullptr)
+        return false;
+    FunctionNode const& node = function->node();
+    return !node.is_strict && !node.is_arrow && node.is_constructable;
+}
+
+constexpr std::string_view legacy_reflection_refusal
+    = "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them";
+
+}
+
 std::optional<Value> function_to_string(Interpreter& interp, Value const& this_value)
 {
     // §20.2.3.5: a script function's own source text; a native's shape.
@@ -1353,10 +1387,27 @@ void install_function(Interpreter& in)
             return Value::boolean(*result);
         },
         frozen_attributes);
-    // AddRestrictedFunctionProperties (§10.2.4): caller and arguments
-    // throw through %ThrowTypeError%.
-    prototype.put_accessor(PropertyKey::atom(in.atoms().caller), i.throw_type_error, i.throw_type_error, Configurable);
-    prototype.put_accessor(PropertyKey::atom(in.atoms().arguments), i.throw_type_error, i.throw_type_error, Configurable);
+    // `arguments` and `caller`: §10.2.4 puts %ThrowTypeError% here, and
+    // leaves a sloppy function's own pair to the implementation (§17.1).
+    // V8 (Chrome, Node) gives a function neither of its own and answers
+    // both here instead, with a getter and a setter of their own: a plain
+    // function of sloppy code reads null, anything else throws. The same
+    // shape, the same answers, in the order V8 lists them. (Three test262
+    // tests ask for %ThrowTypeError% itself here; V8 fails them too.)
+    for (std::string_view const name : { std::string_view("arguments"), std::string_view("caller") }) {
+        define_accessor(
+            in, prototype, name,
+            [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
+                if (!has_legacy_reflection(this_value))
+                    return interp.throw_type_error(legacy_reflection_refusal);
+                return Value::null();
+            },
+            [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
+                if (!has_legacy_reflection(this_value))
+                    return interp.throw_type_error(legacy_reflection_refusal);
+                return Value::undefined();
+            });
+    }
 }
 
 // --------------------------------------------------------------- Error

@@ -1,7 +1,7 @@
 {
   "revision": "419d3e0a2273ba01a3bfcbec423f2801425b8e93",
-  "date": "2026-09-13",
-  "passed": 40358,
+  "date": "2026-09-24",
+  "passed": 40355,
   "total": 41791,
   "directories": [
     { "path": "test/language/arguments-object", "passed": 261, "total": 263 },
@@ -47,7 +47,7 @@
     { "path": "test/built-ins/Date", "passed": 586, "total": 594 },
     { "path": "test/built-ins/Error", "passed": 78, "total": 93 },
     { "path": "test/built-ins/NativeErrors", "passed": 94, "total": 94 },
-    { "path": "test/built-ins/Function", "passed": 496, "total": 509 },
+    { "path": "test/built-ins/Function", "passed": 493, "total": 509 },
     { "path": "test/built-ins/GeneratorFunction", "passed": 23, "total": 23 },
     { "path": "test/built-ins/GeneratorPrototype", "passed": 61, "total": 61 },
     { "path": "test/built-ins/global", "passed": 29, "total": 29 },

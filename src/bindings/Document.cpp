@@ -204,13 +204,13 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     for (std::string_view const name : { "children", "childElementCount", "firstElementChild", "lastElementChild" }) {
         std::optional<js::PropertyDescriptor> const descriptor = in.prototype("Element")->get_own_property(interpreter.key(name));
         if (descriptor && descriptor->get)
-            document->put_accessor(interpreter.key(name), *descriptor->get, descriptor->set.value_or(nullptr), js::Configurable);
+            document->put_accessor(interpreter.key(name), *descriptor->get, descriptor->set.value_or(nullptr), js::Enumerable | js::Configurable);
     }
     for (std::string_view const name : { "append", "prepend", "replaceChildren", "querySelector", "querySelectorAll", "getElementsByTagName",
              "getElementsByTagNameNS", "getElementsByClassName" }) {
         std::optional<js::PropertyDescriptor> const descriptor = in.prototype("Element")->get_own_property(interpreter.key(name));
         if (descriptor && descriptor->value)
-            document->put(interpreter.key(name), *descriptor->value, js::builtin_attributes);
+            document->put(interpreter.key(name), *descriptor->value, js::Writable | js::Enumerable | js::Configurable);
     }
 
     document_getter(in, *document, "documentElement", [](Realm::Internals& internals, dom::Document& d) -> Native { return internals.realm.wrap_or_null(document_element(d)); });
@@ -458,17 +458,17 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         js::Object* fonts = internals.interpreter.new_object();
         fonts->put(internals.interpreter.key("status"), internals.string("loaded"));
         fonts->put(internals.interpreter.key("size"), js::Value::number(0));
-        js::define_method(internals.interpreter, *fonts, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
+        define_operation(internals.interpreter, *fonts, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
         // The page's fonts are loaded by the layout, not through here: load()
         // answers at once with no faces, and ready is already so.
-        js::define_method(internals.interpreter, *fonts, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        define_operation(internals.interpreter, *fonts, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
             return resolved_promise(interp, js::Value::object(interp.new_array()));
         });
-        js::define_accessor(internals.interpreter, *fonts, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        define_attribute(internals.interpreter, *fonts, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             return resolved_promise(interp, this_value);
         });
-        js::define_method(internals.interpreter, *fonts, "addEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-        js::define_method(internals.interpreter, *fonts, "removeEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(internals.interpreter, *fonts, "addEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(internals.interpreter, *fonts, "removeEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
         return js::Value::object(fonts);
     });
     document_getter(in, *document, "implementation", [](Realm::Internals& internals, dom::Document&) -> Native {
@@ -748,7 +748,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
 
     // DOMImplementation.
     js::Object* implementation = define_interface(in, "DOMImplementation", nullptr);
-    js::define_method(interpreter, *implementation, "createHTMLDocument", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *implementation, "createHTMLDocument", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> title;
         if (!args.empty() && !args[0].is_undefined()) {
@@ -779,7 +779,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     });
     // An XML document holding the doctype given, then the element named
     // (DOM §4.5.1).
-    js::define_method(interpreter, *implementation, "createDocument", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *implementation, "createDocument", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Value const namespace_value = js::argument(args, 0);
         std::optional<std::string> const namespace_uri = namespace_value.is_nullish() ? std::optional<std::string>("") : internals.to_utf8(namespace_value);
@@ -814,7 +814,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             d.append_child(*d.create<dom::Element>(name->namespace_uri, name->local_name));
         return js::Value::object(internals.wrap(d));
     });
-    js::define_method(interpreter, *implementation, "createDocumentType", 3, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *implementation, "createDocumentType", 3, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> name = internals.to_utf8(js::argument(args, 0));
         std::optional<std::string> public_id = internals.to_utf8(js::argument(args, 1));
@@ -827,7 +827,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         doctype->system_identifier = std::move(*system_id);
         return js::Value::object(internals.wrap(*doctype));
     });
-    js::define_method(interpreter, *implementation, "hasFeature", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
+    define_operation(interpreter, *implementation, "hasFeature", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
 
     // DOMParser: parseFromString makes a document of its own, with
     // scripting off, as the specification says.
@@ -836,7 +836,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             Realm::Internals& internals = internals_of(interp);
             return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals.prototype("DOMParser")));
         });
-    js::define_method(interpreter, *dom_parser, "parseFromString", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *dom_parser, "parseFromString", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
         std::optional<std::string> const type = internals.to_utf8(js::argument(args, 1));

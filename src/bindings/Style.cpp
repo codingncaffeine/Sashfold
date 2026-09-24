@@ -853,14 +853,14 @@ void install_style(Realm::Internals& in)
                 set_attribute((*list)->internals(), *element, (*list)->attribute, std::move(*text));
             return js::Value::undefined();
         });
-    js::define_method(interpreter, *token_list, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *token_list, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
         dom::Element const* const element = (*list)->element();
         return internals_of(interp).string(element ? attribute_or_empty(*element, (*list)->attribute) : "");
     });
-    js::define_method(interpreter, *token_list, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -872,7 +872,7 @@ void install_style(Realm::Internals& in)
             return js::Value::null();
         return internals_of(interp).string(tokens[static_cast<std::size_t>(*index)]);
     });
-    js::define_method(interpreter, *token_list, "contains", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "contains", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -882,7 +882,7 @@ void install_style(Realm::Internals& in)
         std::vector<std::string> const tokens = tokens_of(**list);
         return js::Value::boolean(std::find(tokens.begin(), tokens.end(), *token) != tokens.end());
     });
-    js::define_method(interpreter, *token_list, "add", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "add", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -897,7 +897,7 @@ void install_style(Realm::Internals& in)
         write_tokens(**list, tokens);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *token_list, "remove", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "remove", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -911,7 +911,7 @@ void install_style(Realm::Internals& in)
         write_tokens(**list, tokens);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *token_list, "toggle", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "toggle", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -930,7 +930,7 @@ void install_style(Realm::Internals& in)
             write_tokens(**list, tokens);
         return js::Value::boolean(want);
     });
-    js::define_method(interpreter, *token_list, "replace", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "replace", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -949,8 +949,8 @@ void install_style(Realm::Internals& in)
         write_tokens(**list, tokens);
         return js::Value::boolean(true);
     });
-    js::define_method(interpreter, *token_list, "supports", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
-    js::define_method(interpreter, *token_list, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "supports", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
+    define_operation(interpreter, *token_list, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -970,7 +970,7 @@ void install_style(Realm::Internals& in)
     for (std::string_view const name : { "keys", "values", "entries" }) {
         bool const pairs = name == "entries";
         bool const keys = name == "keys";
-        js::define_method(interpreter, *token_list, name, 0, [pairs, keys](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        define_operation(interpreter, *token_list, name, 0, [pairs, keys](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
             if (!list)
                 return std::nullopt;
@@ -1026,7 +1026,7 @@ void install_style(Realm::Internals& in)
         return js::Value::number(static_cast<double>(declarations_of(*(*s)->element()).size()));
     });
     define_getter(in, *style, "parentRule", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
-    js::define_method(interpreter, *style, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *style, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
@@ -1040,7 +1040,7 @@ void install_style(Realm::Internals& in)
             return internals_of(interp).string("");
         return internals_of(interp).string(declarations[static_cast<std::size_t>(*index)].name);
     });
-    js::define_method(interpreter, *style, "getPropertyValue", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *style, "getPropertyValue", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
@@ -1056,7 +1056,7 @@ void install_style(Realm::Internals& in)
         }
         return internals.string(declaration_value(*(*s)->element(), *name));
     });
-    js::define_method(interpreter, *style, "getPropertyPriority", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *style, "getPropertyPriority", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
@@ -1072,7 +1072,7 @@ void install_style(Realm::Internals& in)
         }
         return internals.string("");
     });
-    js::define_method(interpreter, *style, "setProperty", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *style, "setProperty", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
@@ -1088,7 +1088,7 @@ void install_style(Realm::Internals& in)
         set_declaration(internals, *(*s)->element(), *name, *value, ascii_lower(*priority) == "important");
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *style, "removeProperty", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *style, "removeProperty", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
@@ -1106,7 +1106,7 @@ void install_style(Realm::Internals& in)
     define_interface(in, "DOMStringMap", nullptr);
 
     // getComputedStyle on the window.
-    js::define_method(interpreter, *interpreter.global(), "getComputedStyle", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *interpreter.global(), "getComputedStyle", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         dom::Node* node = internals.realm.node_of(js::argument(args, 0));
         if (!node || !node->is_element())
@@ -1120,7 +1120,7 @@ void install_style(Realm::Internals& in)
     // resolver actually knows the property and accepts the value.
     js::Object* css = interpreter.new_object();
     interpreter.global()->put(interpreter.key("CSS"), js::Value::object(css), js::builtin_attributes);
-    js::define_method(interpreter, *css, "supports", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *css, "supports", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const first = internals.to_utf8(js::argument(args, 0));
         if (!first)
@@ -1138,7 +1138,7 @@ void install_style(Realm::Internals& in)
         }
         return js::Value::boolean(css::supports_condition_text_matches(condition_text));
     });
-    js::define_method(interpreter, *css, "escape", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *css, "escape", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
         if (!text)
@@ -1165,7 +1165,7 @@ void install_style(Realm::Internals& in)
     });
     for (std::string_view const name : { "px", "em", "rem", "percent", "vw", "vh", "number" }) {
         std::string const unit(name == "percent" ? "percent" : name);
-        js::define_method(interpreter, *css, name, 1, [unit](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        define_operation(interpreter, *css, name, 1, [unit](js::Interpreter& interp, js::Value const&, Args args) -> Native {
             std::optional<double> const number = interp.to_number(js::argument(args, 0));
             if (!number)
                 return std::nullopt;

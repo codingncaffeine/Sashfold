@@ -41,9 +41,9 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | Unicode line breaking conformance, `LineBreakTest` | **16,672 / 16,672** (100%) |
-| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **9458 / 14616 (64.7%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests, 150,586 subtests over 2621 test files under twenty-six `dom/`, `html/`, `css/cssom`, `url/`, custom-element and shadow-tree directories, each declared variant its own test | **130117 / 150586 (86.4%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
-| test262, the ECMAScript conformance suite, 41,791 tests over 86 directories | **40358 / 41791 (96.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
+| WPT CSS reference tests, 14,616 tests over CSS2 and sixteen `css-*` directories | **9526 / 14616 (65.2%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT testharness tests, 153,930 subtests over 2931 test files under twenty-eight `dom/`, `html/`, `css/cssom`, `css/css-conditional`, `css/css-fonts/parsing`, `url/`, custom-element and shadow-tree directories, each declared variant its own test | **131725 / 153930 (85.6%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| test262, the ECMAScript conformance suite, 41,791 tests over 86 directories | **40355 / 41791 (96.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night by the Windows build and by the Linux build, and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 
 Every score is enforced in CI: a test that stops passing fails the build. How each is scored is on [Measurements](https://github.com/codingncaffeine/Sashfold/wiki/Measurements).

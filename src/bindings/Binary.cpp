@@ -350,7 +350,7 @@ void install_text_coding(Realm::Internals& in)
     define_getter(in, *encoder, "encoding", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).string("utf-8");
     });
-    js::define_method(interpreter, *encoder, "encode", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *encoder, "encode", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         // encode(input = ""): the UTF-8 bytes of the string.
         js::Value const input = js::argument(args, 0);
         if (input.is_undefined())
@@ -361,7 +361,7 @@ void install_text_coding(Realm::Internals& in)
         std::string const bytes = encode_utf8((*text)->view());
         return uint8_array_of(interp, std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(bytes.data()), bytes.size()));
     });
-    js::define_method(interpreter, *encoder, "encodeInto", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *encoder, "encodeInto", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         // encodeInto(source, destination): as many whole code points as
         // fit, and how many code units and bytes that was.
         std::optional<js::JsString*> const text = interp.to_string(js::argument(args, 0));
@@ -453,7 +453,7 @@ void install_text_coding(Realm::Internals& in)
             return std::nullopt;
         return js::Value::boolean((*object)->ignore_bom);
     });
-    js::define_method(interpreter, *decoder, "decode", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *decoder, "decode", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         // decode(input, options): a fresh decoder unless the last call
         // streamed; the bytes are read after the options, whose getters
         // may run script.
@@ -592,7 +592,7 @@ void install_blob(Realm::Internals& in)
             return std::nullopt;
         return internals_of(interp).string((*object)->type);
     });
-    js::define_method(interpreter, *blob, "slice", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *blob, "slice", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         // slice(start, end, contentType): relative positions, both ends
         // clamped, into a fresh blob.
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
@@ -634,7 +634,7 @@ void install_blob(Realm::Internals& in)
         piece->type = type;
         return js::Value::object(piece);
     });
-    js::define_method(interpreter, *blob, "text", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *blob, "text", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         // text(): the bytes as UTF-8, errors replaced, through a promise.
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
@@ -645,7 +645,7 @@ void install_blob(Realm::Internals& in)
             js::append_code_point(text, code_point);
         return resolved_promise(interp,js::Value::string(interp.string(text)));
     });
-    js::define_method(interpreter, *blob, "arrayBuffer", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *blob, "arrayBuffer", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -656,7 +656,7 @@ void install_blob(Realm::Internals& in)
             std::memcpy((*buffer)->data(), (*found)->bytes.data(), (*found)->bytes.size());
         return resolved_promise(interp,js::Value::object(*buffer));
     });
-    js::define_method(interpreter, *blob, "bytes", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *blob, "bytes", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;

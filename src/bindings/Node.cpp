@@ -1873,10 +1873,10 @@ void install_nodes(Realm::Internals& in)
         js::Value const element_value = array->element(position);
         return element_value.is_empty() ? js::Value::null() : element_value;
     };
-    js::define_method(interpreter, *node_list_proto, "item", 1, item);
-    js::define_method(interpreter, *collection_proto, "item", 1, item);
-    js::define_method(interpreter, *named_node_map, "item", 1, item);
-    js::define_method(interpreter, *collection_proto, "namedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *node_list_proto, "item", 1, item);
+    define_operation(interpreter, *collection_proto, "item", 1, item);
+    define_operation(interpreter, *named_node_map, "item", 1, item);
+    define_operation(interpreter, *collection_proto, "namedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         if (!js::Interpreter::is_array(this_value))
             return interp.throw_type_error("Illegal invocation");
         Realm::Internals& internals = internals_of(interp);
@@ -1894,7 +1894,7 @@ void install_nodes(Realm::Internals& in)
         }
         return js::Value::null();
     });
-    js::define_method(interpreter, *named_node_map, "getNamedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *named_node_map, "getNamedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         if (!js::Interpreter::is_array(this_value))
             return interp.throw_type_error("Illegal invocation");
         Realm::Internals& internals = internals_of(interp);
@@ -1948,7 +1948,7 @@ void install_nodes(Realm::Internals& in)
     define_getter(in, *rect, "left", rect_side("x", "width", false, true));
     define_getter(in, *rect, "bottom", rect_side("y", "height", true, false));
     define_getter(in, *rect, "right", rect_side("x", "width", true, false));
-    js::define_method(interpreter, *rect, "toJSON", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *rect, "toJSON", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
         js::Object* json = interp.new_object();

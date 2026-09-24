@@ -525,7 +525,7 @@ void range_getter(Realm::Internals& in, js::Object& prototype, std::string_view 
 template<typename Body>
 void range_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, bool needs_boundaries, Body body)
 {
-    js::define_method(in.interpreter, prototype, name, length,
+    define_operation(in.interpreter, prototype, name, length,
         [body, needs_boundaries](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
             std::optional<RangeObject*> const range = this_range(interpreter, this_value, false);
             if (!range)

@@ -1588,6 +1588,12 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
         if (std::optional<std::string> const refused = self.on_compile_strings())
             return self.throw_error(ErrorType::EvalError, *refused);
     }
+    std::string program_name = "eval";
+    if (self.on_compiled_string) {
+        std::uint64_t const number = ++self.m_compiled_strings;
+        program_name += "#" + std::to_string(number);
+        self.on_compiled_string(number, direct ? u"eval" : u"eval (indirect)", u"", source);
+    }
     ParseOptions options;
     options.strict = direct && strict_caller;
     if (direct) {
@@ -1614,7 +1620,7 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
         }
     }
     Parser parser(heap(), std::u16string(source), options);
-    std::unique_ptr<Program> program = parser.parse_program("eval");
+    std::unique_ptr<Program> program = parser.parse_program(std::move(program_name));
     if (!program) {
         ParseError const error = parser.error().value_or(ParseError { {}, "parse failed" });
         return self.throw_syntax_error(error.message);
@@ -2799,6 +2805,8 @@ std::optional<Value> Interpreter::create_dynamic_function(std::u16string_view pa
         if (std::optional<std::string> const refused = on_compile_strings())
             return throw_error(ErrorType::EvalError, *refused);
     }
+    if (on_compiled_string)
+        on_compiled_string(++m_compiled_strings, u"Function", parameters, body);
     Roots const roots(*this);
     if (new_target != nullptr)
         root(Value::object(new_target));
@@ -2870,14 +2878,11 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     function->set_private_environment(private_environment);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
-    if (!node.is_strict && !node.is_arrow && node.is_constructable) {
-        // A sloppy plain function carries its own null `caller` and
-        // `arguments` (§17.1 leaves them implementation-defined; every
-        // engine has them), so a read does not reach the poison pill on
-        // Function.prototype.
-        function->put(PropertyKey::atom(atoms().caller), Value::null(), frozen_attributes);
-        function->put(PropertyKey::atom(atoms().arguments), Value::null(), frozen_attributes);
-    }
+    // No own `caller` or `arguments`, sloppy or not: §17.1 leaves them to
+    // the implementation, and V8 (Chrome, Node) gives a function only
+    // `length`, `name` and `prototype` of its own, so a script that lists
+    // a function's own properties sees what it sees there. Reads of
+    // `caller` and `arguments` reach Function.prototype's accessors.
     if (node.is_constructable) {
         Object* prototype = new_object();
         prototype->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);

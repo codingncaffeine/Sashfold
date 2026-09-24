@@ -528,7 +528,7 @@ void install_intersection_observer(Realm::Internals& in)
         },
         1);
 
-    js::define_method(interpreter, *proto, "observe", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "observe", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<IntersectionObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;
@@ -548,7 +548,7 @@ void install_intersection_observer(Realm::Internals& in)
         internals.intersection.dirty = true;
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "unobserve", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "unobserve", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<IntersectionObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;
@@ -560,7 +560,7 @@ void install_intersection_observer(Realm::Internals& in)
         forget_idle_observers(internals);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "disconnect", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *proto, "disconnect", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<IntersectionObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;
@@ -569,7 +569,7 @@ void install_intersection_observer(Realm::Internals& in)
         forget_idle_observers(internals_of(interp));
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<IntersectionObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;

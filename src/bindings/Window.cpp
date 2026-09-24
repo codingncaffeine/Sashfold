@@ -604,7 +604,7 @@ void install_observer(Realm::Internals& in, std::string_view name, bool intersec
             return js::Value::object(interp.heap().allocate<ObserverObject>(internals.prototype(interface), callback));
         },
         1);
-    js::define_method(interpreter, *proto, "observe", 1, [intersection, fires](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "observe", 1, [intersection, fires](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<ObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;
@@ -624,7 +624,7 @@ void install_observer(Realm::Internals& in, std::string_view name, bool intersec
         }
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "unobserve", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "unobserve", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<ObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;
@@ -633,14 +633,14 @@ void install_observer(Realm::Internals& in, std::string_view name, bool intersec
         targets.erase(std::remove(targets.begin(), targets.end(), target), targets.end());
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "disconnect", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *proto, "disconnect", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<ObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)
             return std::nullopt;
         (*observer)->targets.clear();
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_operation(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return js::Value::object(interp.new_array());
     });
     if (intersection) {
@@ -947,18 +947,18 @@ void install_window(Realm::Internals& in)
     });
 
     // Timers.
-    js::define_method(interpreter, *global, "setTimeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_timer(interp, args, false); });
-    js::define_method(interpreter, *global, "setInterval", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_timer(interp, args, true); });
-    js::define_method(interpreter, *global, "clearTimeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
-    js::define_method(interpreter, *global, "clearInterval", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
-    js::define_method(interpreter, *global, "requestAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "setTimeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_timer(interp, args, false); });
+    define_operation(interpreter, *global, "setInterval", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_timer(interp, args, true); });
+    define_operation(interpreter, *global, "clearTimeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "clearInterval", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "requestAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))
             return interp.throw_type_error("Failed to execute 'requestAnimationFrame' on 'Window': parameter 1 is not of type 'Function'.");
         return js::Value::number(schedule_timer(internals_of(interp), callback, 16, {}, -1, true));
     });
-    js::define_method(interpreter, *global, "cancelAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
-    js::define_method(interpreter, *global, "requestIdleCallback", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "cancelAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "requestIdleCallback", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))
             return interp.throw_type_error("Failed to execute 'requestIdleCallback' on 'Window': parameter 1 is not of type 'Function'.");
@@ -966,12 +966,12 @@ void install_window(Realm::Internals& in)
         js::Interpreter::Roots const roots(interp);
         js::Object* deadline = object_with(internals, { { "didTimeout", js::Value::boolean(false) } });
         interp.root(js::Value::object(deadline));
-        js::define_method(interp, *deadline, "timeRemaining", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(50); });
+        define_operation(interp, *deadline, "timeRemaining", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(50); });
         std::vector<js::Value> const arguments = { js::Value::object(deadline) };
         return js::Value::number(schedule_timer(internals, callback, 1, arguments, -1, false));
     });
-    js::define_method(interpreter, *global, "cancelIdleCallback", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
-    js::define_method(interpreter, *global, "queueMicrotask", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "cancelIdleCallback", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "queueMicrotask", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))
             return interp.throw_type_error("Failed to execute 'queueMicrotask' on 'Window': parameter 1 is not of type 'Function'.");
@@ -982,7 +982,7 @@ void install_window(Realm::Internals& in)
     });
 
     // Dialogs and the rest of the window's methods.
-    js::define_method(interpreter, *global, "alert", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "alert", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const message = args.empty() ? std::optional<std::string>("") : internals.to_utf8(args[0]);
         if (!message)
@@ -990,7 +990,7 @@ void install_window(Realm::Internals& in)
         internals.console("info", "alert: " + *message);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *global, "confirm", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "confirm", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const message = args.empty() ? std::optional<std::string>("") : internals.to_utf8(args[0]);
         if (!message)
@@ -998,7 +998,7 @@ void install_window(Realm::Internals& in)
         internals.console("info", "confirm: " + *message + " (answered no)");
         return js::Value::boolean(false);
     });
-    js::define_method(interpreter, *global, "prompt", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "prompt", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const message = args.empty() ? std::optional<std::string>("") : internals.to_utf8(args[0]);
         if (!message)
@@ -1008,7 +1008,7 @@ void install_window(Realm::Internals& in)
     });
     for (std::string_view const name : { "print", "close", "stop", "focus", "blur", "captureEvents", "releaseEvents", "moveTo",
              "moveBy", "resizeTo", "resizeBy" })
-        js::define_method(interpreter, *global, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(interpreter, *global, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     // window.open (HTML §7.2.2.1, the window open steps, as far as this host
     // goes): the URL against the document's, about:blank for none, and the
     // target — _self, _parent and _top name a window here, and so does the
@@ -1018,7 +1018,7 @@ void install_window(Realm::Internals& in)
     // empty name, _blank and a name found nowhere ask the host for a new
     // window, which opens only from the reader's gesture, and which no
     // script here reaches: null comes back, as it does with noopener.
-    js::define_method(interpreter, *global, "open", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "open", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         auto const text = [&](std::size_t index) -> std::optional<std::string> {
             js::Value const value = js::argument(args, index);
@@ -1073,7 +1073,7 @@ void install_window(Realm::Internals& in)
         internals.hooks.open_window(*url, noreferrer);
         return js::Value::null();
     });
-    js::define_method(interpreter, *global, "reportError", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "reportError", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         internals_of(interp).report_uncaught(js::argument(args, 0), "reportError");
         return js::Value::undefined();
     });
@@ -1113,10 +1113,10 @@ void install_window(Realm::Internals& in)
             return js::Value::undefined();
         };
     };
-    js::define_method(interpreter, *global, "scrollTo", 2, scroll(false));
-    js::define_method(interpreter, *global, "scroll", 2, scroll(false));
-    js::define_method(interpreter, *global, "scrollBy", 2, scroll(true));
-    js::define_method(interpreter, *global, "atob", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "scrollTo", 2, scroll(false));
+    define_operation(interpreter, *global, "scroll", 2, scroll(false));
+    define_operation(interpreter, *global, "scrollBy", 2, scroll(true));
+    define_operation(interpreter, *global, "atob", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> text = internals.to_utf8(js::argument(args, 0));
         if (!text)
@@ -1139,7 +1139,7 @@ void install_window(Realm::Internals& in)
             units += static_cast<char16_t>(byte);
         return js::Value::string(interp.string(std::u16string_view(units)));
     });
-    js::define_method(interpreter, *global, "btoa", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "btoa", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<js::JsString*> const text = interp.to_string(js::argument(args, 0));
         if (!text)
@@ -1166,8 +1166,8 @@ void install_window(Realm::Internals& in)
         }
         return internals.string(out);
     });
-    js::define_method(interpreter, *global, "structuredClone", 1, structured_clone);
-    js::define_method(interpreter, *global, "matchMedia", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *global, "structuredClone", 1, structured_clone);
+    define_operation(interpreter, *global, "matchMedia", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const query = internals.to_utf8(js::argument(args, 0));
         if (!query)
@@ -1181,19 +1181,19 @@ void install_window(Realm::Internals& in)
     });
     js::Object* media_query_list = define_interface(in, "MediaQueryList", in.prototype("EventTarget"));
     for (std::string_view const name : { "addListener", "removeListener" })
-        js::define_method(interpreter, *media_query_list, name, 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    js::define_method(interpreter, *global, "getSelection", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        define_operation(interpreter, *media_query_list, name, 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    define_operation(interpreter, *global, "getSelection", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Heap::NoCollect const no_collect(interp.heap());
         js::Object* selection = object_with(internals, { { "anchorNode", js::Value::null() }, { "anchorOffset", js::Value::number(0) },
             { "focusNode", js::Value::null() }, { "focusOffset", js::Value::number(0) }, { "isCollapsed", js::Value::boolean(true) },
             { "rangeCount", js::Value::number(0) }, { "type", internals.string("None") } });
-        js::define_method(interp, *selection, "toString", 0, [](js::Interpreter& i, js::Value const&, Args) -> Native { return internals_of(i).string(""); });
+        define_operation(interp, *selection, "toString", 0, [](js::Interpreter& i, js::Value const&, Args) -> Native { return internals_of(i).string(""); });
         for (std::string_view const name : { "removeAllRanges", "empty", "addRange", "collapse", "collapseToStart", "collapseToEnd", "selectAllChildren",
                  "deleteFromDocument", "extend", "setBaseAndExtent", "modify" })
-            js::define_method(interp, *selection, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-        js::define_method(interp, *selection, "containsNode", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-        js::define_method(interp, *selection, "getRangeAt", 1, [](js::Interpreter& i, js::Value const&, Args) -> Native {
+            define_operation(interp, *selection, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(interp, *selection, "containsNode", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+        define_operation(interp, *selection, "getRangeAt", 1, [](js::Interpreter& i, js::Value const&, Args) -> Native {
             return internals_of(i).throw_dom_exception("IndexSizeError", "0 is not a valid index.");
         });
         return js::Value::object(selection);
@@ -1263,7 +1263,7 @@ void install_window(Realm::Internals& in)
         [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     for (std::string_view const name : { "pushState", "replaceState" }) {
         bool const push = name == "pushState";
-        js::define_method(interpreter, *history_proto, name, 2, [push](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        define_operation(interpreter, *history_proto, name, 2, [push](js::Interpreter& interp, js::Value const&, Args args) -> Native {
             Realm::Internals& internals = internals_of(interp);
             // The state is serialized before anything else (HTML's shared
             // history push/replace state steps), so a state that cannot be
@@ -1299,7 +1299,7 @@ void install_window(Realm::Internals& in)
         });
     }
     for (std::string_view const name : { "back", "forward", "go" })
-        js::define_method(interpreter, *history_proto, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(interpreter, *history_proto, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     global->put(interpreter.key("history"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(history_proto)), js::builtin_attributes);
 
     // Navigator.
@@ -1339,14 +1339,14 @@ void install_window(Realm::Internals& in)
     for (std::string_view const name : { "plugins", "mimeTypes" }) {
         define_getter(in, *navigator_proto, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
             js::ArrayObject* empty = interp.new_array();
-            js::define_method(interp, *empty, "refresh", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+            define_operation(interp, *empty, "refresh", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
             return js::Value::object(empty);
         });
     }
-    js::define_method(interpreter, *navigator_proto, "javaEnabled", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-    js::define_method(interpreter, *navigator_proto, "sendBeacon", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-    js::define_method(interpreter, *navigator_proto, "vibrate", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-    js::define_method(interpreter, *navigator_proto, "registerProtocolHandler", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    define_operation(interpreter, *navigator_proto, "javaEnabled", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+    define_operation(interpreter, *navigator_proto, "sendBeacon", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+    define_operation(interpreter, *navigator_proto, "vibrate", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+    define_operation(interpreter, *navigator_proto, "registerProtocolHandler", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     global->put(interpreter.key("navigator"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(navigator_proto)), js::builtin_attributes);
     global->put(interpreter.key("clientInformation"), *global->get(interpreter, interpreter.key("navigator"), js::Value::object(global)), js::builtin_attributes);
 
@@ -1382,7 +1382,7 @@ void install_window(Realm::Internals& in)
             return std::nullopt;
         return js::Value::number(static_cast<double>((*storage)->area().items.size()));
     });
-    js::define_method(interpreter, *storage_proto, "key", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *storage_proto, "key", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
@@ -1393,7 +1393,7 @@ void install_window(Realm::Internals& in)
             return js::Value::null();
         return internals_of(interp).string((*storage)->area().items[static_cast<std::size_t>(*index)].first);
     });
-    js::define_method(interpreter, *storage_proto, "getItem", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *storage_proto, "getItem", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
@@ -1403,7 +1403,7 @@ void install_window(Realm::Internals& in)
         std::string const* value = (*storage)->find(*key);
         return value ? internals_of(interp).string(*value) : js::Value::null();
     });
-    js::define_method(interpreter, *storage_proto, "setItem", 2, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *storage_proto, "setItem", 2, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
@@ -1414,7 +1414,7 @@ void install_window(Realm::Internals& in)
         (*storage)->put_item(std::move(*key), std::move(*value));
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *storage_proto, "removeItem", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *storage_proto, "removeItem", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
@@ -1424,7 +1424,7 @@ void install_window(Realm::Internals& in)
         (*storage)->remove_item(*key);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *storage_proto, "clear", 0, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *storage_proto, "clear", 0, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
@@ -1461,16 +1461,16 @@ void install_window(Realm::Internals& in)
     // Performance.
     js::Object* performance = interpreter.new_object();
     global->put(interpreter.key("performance"), js::Value::object(performance), js::builtin_attributes);
-    js::define_method(interpreter, *performance, "now", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_operation(interpreter, *performance, "now", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         return js::Value::number(internals.now() - internals.time_origin);
     });
     performance->put(interpreter.key("timeOrigin"), js::Value::number(in.time_origin), js::builtin_attributes);
     for (std::string_view const name : { "mark", "measure", "clearMarks", "clearMeasures", "clearResourceTimings", "setResourceTimingBufferSize" })
-        js::define_method(interpreter, *performance, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(interpreter, *performance, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     for (std::string_view const name : { "getEntries", "getEntriesByType", "getEntriesByName" })
-        js::define_method(interpreter, *performance, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
-    js::define_method(interpreter, *performance, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
+        define_operation(interpreter, *performance, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
+    define_operation(interpreter, *performance, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
     performance->put(interpreter.key("timing"), js::Value::object(object_with(in, { { "navigationStart", js::Value::number(in.time_origin) },
         { "fetchStart", js::Value::number(in.time_origin) }, { "domLoading", js::Value::number(in.time_origin) },
         { "responseEnd", js::Value::number(in.time_origin) }, { "domInteractive", js::Value::number(0) }, { "domContentLoadedEventStart", js::Value::number(0) },
@@ -1493,8 +1493,8 @@ void install_window(Realm::Internals& in)
         },
         1);
     for (std::string_view const name : { "observe", "disconnect" })
-        js::define_method(interpreter, *performance_observer, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    js::define_method(interpreter, *performance_observer, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
+        define_operation(interpreter, *performance_observer, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    define_operation(interpreter, *performance_observer, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
     {
         std::optional<js::Value> const constructor = performance_observer->get(interpreter, interpreter.key("constructor"), js::Value::object(performance_observer));
         if (constructor && constructor->is_object())
@@ -1513,7 +1513,7 @@ void install_window(Realm::Internals& in)
     // is a promise refused, NotSupportedError, until keys are written.
     js::Object* subtle = interpreter.new_object();
     crypto->put(interpreter.key("subtle"), js::Value::object(subtle), js::builtin_attributes);
-    js::define_method(interpreter, *subtle, "digest", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *subtle, "digest", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         // The algorithm: its name, or an object with one; matched without case.
         js::Value algorithm = js::argument(args, 0);
@@ -1550,15 +1550,15 @@ void install_window(Realm::Internals& in)
     for (std::string_view const unwritten : { "encrypt", "decrypt", "sign", "verify", "generateKey", "deriveKey", "deriveBits",
              "importKey", "exportKey", "wrapKey", "unwrapKey" }) {
         std::string const operation(unwritten);
-        js::define_method(interpreter, *subtle, unwritten, 0, [operation](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        define_operation(interpreter, *subtle, unwritten, 0, [operation](js::Interpreter& interp, js::Value const&, Args) -> Native {
             Realm::Internals& internals = internals_of(interp);
             return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "crypto.subtle." + operation + " is not written yet"));
         });
     }
-    js::define_method(interpreter, *crypto, "randomUUID", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_operation(interpreter, *crypto, "randomUUID", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).string(random_uuid());
     });
-    js::define_method(interpreter, *crypto, "getRandomValues", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *crypto, "getRandomValues", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         // Web Crypto §10.1.1: an integer typed array of at most 65536
         // bytes, filled in place; a float view or a DataView is a
         // TypeMismatchError.
@@ -1719,13 +1719,13 @@ void install_window(Realm::Internals& in)
                 return js::Value::undefined();
             });
     }
-    js::define_method(interpreter, *url_proto, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *url_proto, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<UrlObject*> const url = this_url(interp, this_value);
         if (!url)
             return std::nullopt;
         return internals_of(interp).string((*url)->url.serialize());
     });
-    js::define_method(interpreter, *url_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *url_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<UrlObject*> const url = this_url(interp, this_value);
         if (!url)
             return std::nullopt;
@@ -1747,7 +1747,7 @@ void install_window(Realm::Internals& in)
         std::optional<js::Value> const constructor = url_proto->get(interpreter, interpreter.key("constructor"), js::Value::object(url_proto));
         if (constructor && constructor->is_object()) {
             js::Object& url_constructor = *constructor->as_object();
-            js::define_method(interpreter, url_constructor, "canParse", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            define_operation(interpreter, url_constructor, "canParse", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
                 Realm::Internals& internals = internals_of(interp);
                 std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
                 if (!text)
@@ -1766,7 +1766,7 @@ void install_window(Realm::Internals& in)
             // URL.createObjectURL (File API §8.3): a new blob: URL, the
             // serialized origin of the document asking and a random UUID, put
             // in the blob URL store for the Blob given.
-            js::define_method(interpreter, url_constructor, "createObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            define_operation(interpreter, url_constructor, "createObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
                 Realm::Internals& internals = internals_of(interp);
                 js::Value const given = js::argument(args, 0);
                 // A MediaSource is named the same way (MSE §3.4), kept by the realm
@@ -1783,7 +1783,7 @@ void install_window(Realm::Internals& in)
             });
             // URL.revokeObjectURL (File API §8.3): the URL's entry leaves the
             // store, when a document of the origin that made it asks.
-            js::define_method(interpreter, url_constructor, "revokeObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            define_operation(interpreter, url_constructor, "revokeObjectURL", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
                 Realm::Internals& internals = internals_of(interp);
                 std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
                 if (!text)
@@ -1855,7 +1855,7 @@ void install_window(Realm::Internals& in)
             return js::Value::object(params);
         },
         0);
-    js::define_method(interpreter, *params_proto, "append", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "append", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1867,7 +1867,7 @@ void install_window(Realm::Internals& in)
         update_owner(**params);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *params_proto, "delete", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "delete", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1879,7 +1879,7 @@ void install_window(Realm::Internals& in)
         update_owner(**params);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *params_proto, "get", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "get", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1892,7 +1892,7 @@ void install_window(Realm::Internals& in)
         }
         return js::Value::null();
     });
-    js::define_method(interpreter, *params_proto, "getAll", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "getAll", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1908,7 +1908,7 @@ void install_window(Realm::Internals& in)
         }
         return js::Value::object(values);
     });
-    js::define_method(interpreter, *params_proto, "has", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "has", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1921,7 +1921,7 @@ void install_window(Realm::Internals& in)
         }
         return js::Value::boolean(false);
     });
-    js::define_method(interpreter, *params_proto, "set", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "set", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1947,7 +1947,7 @@ void install_window(Realm::Internals& in)
         update_owner(**params);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *params_proto, "sort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *params_proto, "sort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1957,7 +1957,7 @@ void install_window(Realm::Internals& in)
         update_owner(**params);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *params_proto, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *params_proto, "toString", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1969,7 +1969,7 @@ void install_window(Realm::Internals& in)
             return std::nullopt;
         return js::Value::number(static_cast<double>((*params)->pairs.size()));
     });
-    js::define_method(interpreter, *params_proto, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *params_proto, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
         if (!params)
             return std::nullopt;
@@ -1990,7 +1990,7 @@ void install_window(Realm::Internals& in)
     for (std::string_view const name : { "keys", "values", "entries" }) {
         bool const pairs_out = name == "entries";
         bool const keys = name == "keys";
-        js::define_method(interpreter, *params_proto, name, 0, [pairs_out, keys](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        define_operation(interpreter, *params_proto, name, 0, [pairs_out, keys](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<SearchParamsObject*> const params = this_params(interp, this_value);
             if (!params)
                 return std::nullopt;
@@ -2037,7 +2037,7 @@ void install_window(Realm::Internals& in)
         global->put(interpreter.key(bar), js::Value::object(interpreter.new_object(bar_proto)), js::builtin_attributes);
     js::Object* const external_proto = define_interface(in, "External", nullptr);
     for (std::string_view const method : { "AddSearchProvider", "IsSearchProviderInstalled" })
-        js::define_method(interpreter, *external_proto, method, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(interpreter, *external_proto, method, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     global->put(interpreter.key("external"), js::Value::object(interpreter.new_object(external_proto)), js::builtin_attributes);
 }
 

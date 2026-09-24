@@ -2,8 +2,10 @@
 
 #include "core/Ascii.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -25,12 +27,48 @@ bool net_tracing()
     return wanted;
 }
 
-void trace_request(std::string const& method, net::Url const& url, net::FetchResult const& result)
+// SASHFOLD_NET_TRACE_DIR=<dir>: what each traced exchange sent and got
+// back, kept as <n>.req and <n>.res beside its whole address in <n>.url,
+// the trace line naming <n>. A protocol that fails inside its bodies
+// (a token refused, a message the page answered wrongly) shows nothing
+// in the line itself.
+std::string const& trace_directory()
+{
+    static std::string const directory = [] {
+        char const* const value = std::getenv("SASHFOLD_NET_TRACE_DIR");
+        return std::string(value != nullptr ? value : "");
+    }();
+    return directory;
+}
+
+void keep_bytes(std::string const& path, std::vector<std::uint8_t> const& bytes)
+{
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+void trace_request(std::string const& method, net::Url const& url, std::vector<std::uint8_t> const& sent,
+    net::FetchResult const& result)
 {
     std::string const address = url.serialize();
     std::string const shown = address.size() > 200 ? address.substr(0, 200) + "…" : address;
+    std::string label;
+    if (!trace_directory().empty()) {
+        static std::atomic<unsigned> count { 0 };
+        unsigned const number = ++count;
+        label = "#" + std::to_string(number) + " ";
+        std::error_code ignored;
+        std::filesystem::create_directories(trace_directory(), ignored);
+        std::string const stem = trace_directory() + "/" + std::to_string(number);
+        std::ofstream(stem + ".url", std::ios::binary) << method << ' ' << address << '\n';
+        if (!sent.empty())
+            keep_bytes(stem + ".req", sent);
+        if (result.response)
+            keep_bytes(stem + ".res", result.response->body);
+    }
     if (result.response) {
-        std::cerr << "net: " << method << " " << result.response->status << " " << shown << " (" << result.response->body.size() << " bytes)\n";
+        std::cerr << "net: " << label << method << " " << result.response->status << " " << shown << " ("
+                  << result.response->body.size() << " bytes" << (result.response->from_cache ? ", cached" : "") << ")\n";
         // A small answer from a media server is a message, not media: shown
         // whole, so what the server said can be read.
         if (address.find("videoplayback") != std::string::npos && result.response->body.size() <= 512) {
@@ -42,7 +80,7 @@ void trace_request(std::string const& method, net::Url const& url, net::FetchRes
             std::cerr << "net: body " << hex << "\n";
         }
     } else
-        std::cerr << "net: " << method << " failed " << shown << ": " << result.error << "\n";
+        std::cerr << "net: " << label << method << " failed " << shown << ": " << result.error << "\n";
 }
 
 }
@@ -328,7 +366,7 @@ net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url co
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
     net::FetchResult result = noted(kind, net::fetch(url, options));
     if (net_tracing())
-        trace_request(options.method.empty() ? "GET" : options.method, url, result);
+        trace_request(options.method.empty() ? "GET" : options.method, url, options.body, result);
     return result;
 }
 
@@ -422,7 +460,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
     net::FetchResult result = noted(kind, net::fetch(url, options));
     if (net_tracing())
-        trace_request(options.method.empty() ? "GET" : options.method, url, result);
+        trace_request(options.method.empty() ? "GET" : options.method, url, options.body, result);
     return result;
 }
 

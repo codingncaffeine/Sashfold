@@ -356,7 +356,7 @@ void install_message_channel(Realm::Internals& in)
     js::Interpreter& interpreter = in.interpreter;
 
     js::Object* port = define_interface(in, "MessagePort", in.prototype("EventTarget"));
-    js::define_method(interpreter, *port, "postMessage", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *port, "postMessage", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         // The port's post message steps (HTML §9.5.3): the transfer list may
         // not hold this port, and a list holding the entangled port dooms the
         // message; the value is serialized now, in this realm, whether or not
@@ -412,14 +412,14 @@ void install_message_channel(Realm::Internals& in)
         enqueue_port_message(*target, message);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *port, "start", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *port, "start", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<MessagePortObject*> const found = this_port(interp, this_value);
         if (!found)
             return std::nullopt;
         start_port(**found);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *port, "close", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *port, "close", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<MessagePortObject*> const found = this_port(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -489,7 +489,7 @@ void install_message_channel(Realm::Internals& in)
     // at the call, so what cannot be cloned throws here and a transferred
     // buffer is detached at once, and it is deserialized into the receiving
     // realm when the task runs.
-    js::define_method(interpreter, *interpreter.global(), "postMessage", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *interpreter.global(), "postMessage", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& target = internals_of(interp);
         js::RealmRecord* const incumbent = interp.incumbent_realm();
         Realm::Internals& sender = incumbent != nullptr && incumbent->host_defined != nullptr
@@ -590,7 +590,7 @@ void install_abort(Realm::Internals& in)
             return std::nullopt;
         return (*found)->reason;
     });
-    js::define_method(interpreter, *signal, "throwIfAborted", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *signal, "throwIfAborted", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<AbortSignalObject*> const found = this_signal(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -602,7 +602,7 @@ void install_abort(Realm::Internals& in)
     define_event_handlers(in, *signal, signal_events);
     // The statics: an already-aborted signal, and one that aborts after a delay.
     js::Value const signal_constructor = *interpreter.get(*interpreter.global(), interpreter.key("AbortSignal"));
-    js::define_method(interpreter, *signal_constructor.as_object(), "abort", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *signal_constructor.as_object(), "abort", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
         js::Value const reason = js::argument(args, 0);
@@ -613,7 +613,7 @@ void install_abort(Realm::Internals& in)
         made->reason = reason.is_undefined() ? abort_error(internals, "signal is aborted without reason") : reason;
         return js::Value::object(made);
     });
-    js::define_method(interpreter, *signal_constructor.as_object(), "timeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *signal_constructor.as_object(), "timeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<double> const delay = interp.to_number(js::argument(args, 0));
         if (!delay)
@@ -646,7 +646,7 @@ void install_abort(Realm::Internals& in)
             return js::Value::object(object);
         },
         0);
-    js::define_method(interpreter, *controller, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *controller, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         if (!this_value.is_object())
             return interp.throw_type_error("Illegal invocation");
         std::optional<js::Value> const signal_value = interp.get(*this_value.as_object(), interp.key("signal"));

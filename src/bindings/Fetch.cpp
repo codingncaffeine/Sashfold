@@ -933,7 +933,7 @@ void install_body_mixin(Realm::Internals& in, js::Object& prototype)
              std::pair { "bytes", Consume::Bytes }, std::pair { "formData", Consume::FormData }, std::pair { "json", Consume::Json },
              std::pair { "text", Consume::Text } }) {
         Consume const which = kind;
-        js::define_method(interpreter, prototype, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) {
+        define_operation(interpreter, prototype, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) {
             return consume_body(interp, this_value, which);
         });
     }
@@ -1460,7 +1460,7 @@ void install_headers(Realm::Internals& in)
             return interp.throw_type_error("Failed to execute on 'Headers': Invalid name");
         return lowercase(*text);
     };
-    js::define_method(interpreter, *headers, "append", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *headers, "append", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1473,7 +1473,7 @@ void install_headers(Realm::Internals& in)
             return std::nullopt;
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *headers, "set", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *headers, "set", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1489,7 +1489,7 @@ void install_headers(Realm::Internals& in)
             (*found)->replace(std::move(*name), std::move(*value));
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *headers, "delete", 1, [name_of](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *headers, "delete", 1, [name_of](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1506,7 +1506,7 @@ void install_headers(Realm::Internals& in)
         object.remove(*name);
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *headers, "get", 1, [name_of](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *headers, "get", 1, [name_of](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1516,7 +1516,7 @@ void install_headers(Realm::Internals& in)
         std::optional<std::string> const value = (*found)->combined(*name);
         return value ? internals_of(interp).string(*value) : js::Value::null();
     });
-    js::define_method(interpreter, *headers, "getSetCookie", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *headers, "getSetCookie", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1529,7 +1529,7 @@ void install_headers(Realm::Internals& in)
         }
         return js::Value::object(interp.new_array(values));
     });
-    js::define_method(interpreter, *headers, "has", 1, [name_of](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *headers, "has", 1, [name_of](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1538,7 +1538,7 @@ void install_headers(Realm::Internals& in)
             return std::nullopt;
         return js::Value::boolean((*found)->has(*name));
     });
-    js::define_method(interpreter, *headers, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *headers, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<HeadersObject*> const found = this_headers(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1561,7 +1561,7 @@ void install_headers(Realm::Internals& in)
     });
     for (auto const& [name, kind] : { std::pair { "entries", 0 }, std::pair { "keys", 1 }, std::pair { "values", 2 } }) {
         int const which = kind;
-        js::NativeFunction* method = js::define_method(interpreter, *headers, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        js::NativeFunction* method = define_operation(interpreter, *headers, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<HeadersObject*> const found = this_headers(interp, this_value);
             if (!found)
                 return std::nullopt;
@@ -1605,7 +1605,7 @@ void install_form_data(Realm::Internals& in)
             return js::Value::object(data);
         },
         0);
-    js::define_method(interpreter, *form_data, "append", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "append", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1622,7 +1622,7 @@ void install_form_data(Realm::Internals& in)
         (*found)->entries.push_back(std::move(*entry));
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *form_data, "set", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "set", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1646,7 +1646,7 @@ void install_form_data(Realm::Internals& in)
         }
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *form_data, "delete", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "delete", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1656,7 +1656,7 @@ void install_form_data(Realm::Internals& in)
         std::erase_if((*found)->entries, [&](auto const& e) { return e.name == *name; });
         return js::Value::undefined();
     });
-    js::define_method(interpreter, *form_data, "get", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "get", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1669,7 +1669,7 @@ void install_form_data(Realm::Internals& in)
         }
         return js::Value::null();
     });
-    js::define_method(interpreter, *form_data, "getAll", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "getAll", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1684,7 +1684,7 @@ void install_form_data(Realm::Internals& in)
         }
         return js::Value::object(interp.new_array(values));
     });
-    js::define_method(interpreter, *form_data, "has", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "has", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1693,7 +1693,7 @@ void install_form_data(Realm::Internals& in)
             return std::nullopt;
         return js::Value::boolean(std::any_of((*found)->entries.begin(), (*found)->entries.end(), [&](auto const& e) { return e.name == *name; }));
     });
-    js::define_method(interpreter, *form_data, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *form_data, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1717,7 +1717,7 @@ void install_form_data(Realm::Internals& in)
     });
     for (auto const& [name, kind] : { std::pair { "entries", 0 }, std::pair { "keys", 1 }, std::pair { "values", 2 } }) {
         int const which = kind;
-        js::NativeFunction* method = js::define_method(interpreter, *form_data, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        js::NativeFunction* method = define_operation(interpreter, *form_data, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<FormDataObject*> const found = this_form_data(interp, this_value);
             if (!found)
                 return std::nullopt;
@@ -1804,7 +1804,7 @@ void install_request(Realm::Internals& in)
             return std::nullopt;
         return (*found)->signal ? js::Value::object((*found)->signal) : js::Value::null();
     });
-    js::define_method(interpreter, *request, "clone", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *request, "clone", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<RequestObject*> const found = this_request(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -1892,7 +1892,7 @@ void install_response(Realm::Internals& in)
         },
         0);
     js::Value const constructor = *interpreter.get(*interpreter.global(), interpreter.key("Response"));
-    js::define_method(interpreter, *constructor.as_object(), "error", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_operation(interpreter, *constructor.as_object(), "error", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Heap::NoCollect const no_collect(interp.heap());
         auto* object = interp.heap().allocate<ResponseObject>(internals.prototype("Response"));
@@ -1901,7 +1901,7 @@ void install_response(Realm::Internals& in)
         object->headers = new_headers(internals, HeadersObject::Guard::Immutable);
         return js::Value::object(object);
     });
-    js::define_method(interpreter, *constructor.as_object(), "redirect", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *constructor.as_object(), "redirect", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
         if (!text)
@@ -1925,7 +1925,7 @@ void install_response(Realm::Internals& in)
         object->headers->append("location", parsed->serialize());
         return js::Value::object(object);
     });
-    js::define_method(interpreter, *constructor.as_object(), "json", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_operation(interpreter, *constructor.as_object(), "json", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         js::Interpreter::Roots const roots(interp);
         js::Value const init = js::argument(args, 1);
         interp.root(init);
@@ -1976,7 +1976,7 @@ void install_response(Realm::Internals& in)
         std::optional<ResponseObject*> const found = this_response(interp, this_value);
         return found ? Native(js::Value::object((*found)->headers)) : std::nullopt;
     });
-    js::define_method(interpreter, *response, "clone", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_operation(interpreter, *response, "clone", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<ResponseObject*> const found = this_response(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -2010,7 +2010,7 @@ void install_fetch(Realm::Internals& in)
     install_form_data(in);
     install_request(in);
     install_response(in);
-    js::define_method(in.interpreter, *in.interpreter.global(), "fetch", 1, fetch_function);
+    define_operation(in.interpreter, *in.interpreter.global(), "fetch", 1, fetch_function);
 }
 
 }

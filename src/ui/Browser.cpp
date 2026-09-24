@@ -2703,7 +2703,9 @@ struct Browser::Impl {
                 return std::nullopt;
             return frame_document_for(iframe, base, policy, ancestors, target, frame_fetcher(*owner));
         };
-        return std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
+        auto realm = std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
+        realm->trace_if_asked();
+        return realm;
     }
 
     // Styles, pictures and layout from the document as it stands: after

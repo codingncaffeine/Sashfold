@@ -1337,9 +1337,18 @@ dom::Element const* focused_element(Realm::Internals&);
 // inherits `parent`'s; registered under `name`.
 js::Object* define_interface(Realm::Internals&, std::string_view name, js::Object* parent_prototype,
     js::NativeFunction::ConstructCallback construct = {}, int length = 0);
-// An accessor pair on a prototype.
+// An accessor pair on a prototype: an IDL attribute, enumerable and
+// configurable as WebIDL §3.7.6 has it, so that `for (k in element)`
+// lists it the way it does in a browser.
 void define_getter(Realm::Internals&, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter,
     js::NativeFunction::Callback setter = {});
+// The same pair from an interpreter alone.
+void define_attribute(js::Interpreter&, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
+    js::NativeFunction::Callback setter = {});
+// An IDL operation: a native method that is writable, enumerable and
+// configurable (WebIDL §3.7.7), unlike the language's own built-ins.
+js::NativeFunction* define_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Callback);
 // The IDL attributes reflected from content attributes (HTML §2.6.1), in
 // Reflect.cpp. Each of these defines one accessor pair on a prototype:
 // `property` is the IDL attribute's name, `attribute` the content

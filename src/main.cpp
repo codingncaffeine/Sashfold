@@ -917,23 +917,7 @@ int render_page(std::string const& path, std::string const& output, int viewport
         }
         realm = std::make_unique<bindings::Realm>(*document, loaded.url, std::move(hooks));
         oracle.set_realm(realm.get());
-        // SASHFOLD_THROW_TRACE=1: every exception the engine raises, caught
-        // or not. A page that tries what the engine cannot do and catches
-        // the failure leaves no other trace, so this is what says which
-        // thing it tried.
-        if (char const* const watch = std::getenv("SASHFOLD_THROW_TRACE"); watch != nullptr && watch[0] == '1') {
-            js::Interpreter& interpreter = realm->interpreter();
-            interpreter.watch_throws([&interpreter](js::Value const& thrown) {
-                // Whatever was thrown, error or not, and the functions that
-                // were running when it was. Neither runs script nor touches
-                // the exception being thrown, so the watcher cannot change
-                // what it watches.
-                std::string line = "threw: " + interpreter.stack_text(thrown);
-                for (std::size_t at = line.find("\n    at "); at != std::string::npos; at = line.find("\n    at ", at))
-                    line.replace(at, 8, "  <- ");
-                std::cerr << line << "\n";
-            });
-        }
+        realm->trace_if_asked();
     }
     // A document sandboxed without allow-scripts parses with scripting off.
     turn_started = clock::now();

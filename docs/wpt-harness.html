@@ -42,16 +42,16 @@
 <p><a href="./">← sashfold.com</a></p>
 <h1>Web Platform Tests, scripted</h1>
 <p>Sashfold's pass rate on the <em>testharness.js</em> tests of the <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a> — the tests written as scripts, each file holding many subtests that assert what the DOM, the window and the event loop do. Every test is loaded by Sashfold itself, headless, from the suite's own files, its scripts run and its event loop pumped until the harness reports; the verdicts are the harness's own. The unit counted is the subtest, as the suite's dashboards count them.</p>
-<div class="stat"><span class="big">130117 / 150586</span><span class="what">subtests passing — 86.4%</span></div>
-<div class="stat"><span class="big">2619 / 2621</span><span class="what">test files the harness reported on</span></div>
+<div class="stat"><span class="big">131725 / 153930</span><span class="what">subtests passing — 85.6%</span></div>
+<div class="stat"><span class="big">2929 / 2931</span><span class="what">test files the harness reported on</span></div>
 <table>
 <thead><tr><th>Directory</th><th></th><th>Subtests</th><th>Rate</th><th>Files</th></tr></thead>
 <tbody>
-<tr><td><code>dom/nodes</code></td><td><div class="bar"><span style="width: 79%"></span></div></td><td class="num">10403 / 13066</td><td class="num">79.6%</td><td class="num">316 / 316</td></tr>
-<tr><td><code>dom/events</code></td><td><div class="bar"><span style="width: 43%"></span></div></td><td class="num">317 / 734</td><td class="num">43.2%</td><td class="num">191 / 192</td></tr>
+<tr><td><code>dom/nodes</code></td><td><div class="bar"><span style="width: 79%"></span></div></td><td class="num">10435 / 13066</td><td class="num">79.9%</td><td class="num">316 / 316</td></tr>
+<tr><td><code>dom/events</code></td><td><div class="bar"><span style="width: 44%"></span></div></td><td class="num">329 / 734</td><td class="num">44.8%</td><td class="num">191 / 192</td></tr>
 <tr><td><code>dom/ranges</code></td><td><div class="bar"><span style="width: 99%"></span></div></td><td class="num">44354 / 44622</td><td class="num">99.4%</td><td class="num">68 / 68</td></tr>
 <tr><td><code>dom/traversal</code></td><td><div class="bar"><span style="width: 99%"></span></div></td><td class="num">1600 / 1608</td><td class="num">99.5%</td><td class="num">18 / 18</td></tr>
-<tr><td><code>html/browsers/the-window-object</code></td><td><div class="bar"><span style="width: 57%"></span></div></td><td class="num">447 / 781</td><td class="num">57.2%</td><td class="num">96 / 96</td></tr>
+<tr><td><code>html/browsers/the-window-object</code></td><td><div class="bar"><span style="width: 57%"></span></div></td><td class="num">450 / 781</td><td class="num">57.6%</td><td class="num">96 / 96</td></tr>
 <tr><td><code>html/browsers/windows</code></td><td><div class="bar"><span style="width: 50%"></span></div></td><td class="num">61 / 122</td><td class="num">50.0%</td><td class="num">53 / 53</td></tr>
 <tr><td><code>html/browsers/origin</code></td><td><div class="bar"><span style="width: 39%"></span></div></td><td class="num">268 / 671</td><td class="num">39.9%</td><td class="num">98 / 98</td></tr>
 <tr><td><code>html/semantics/embedded-content/the-iframe-element</code></td><td><div class="bar"><span style="width: 51%"></span></div></td><td class="num">116 / 224</td><td class="num">51.8%</td><td class="num">150 / 150</td></tr>
@@ -62,20 +62,22 @@
 <tr><td><code>html/webappapis/structured-clone</code></td><td><div class="bar"><span style="width: 87%"></span></div></td><td class="num">137 / 156</td><td class="num">87.8%</td><td class="num">2 / 2</td></tr>
 <tr><td><code>html/webappapis/timers</code></td><td><div class="bar"><span style="width: 76%"></span></div></td><td class="num">13 / 17</td><td class="num">76.5%</td><td class="num">13 / 13</td></tr>
 <tr><td><code>html/webappapis/microtask-queuing</code></td><td><div class="bar"><span style="width: 88%"></span></div></td><td class="num">8 / 9</td><td class="num">88.9%</td><td class="num">4 / 4</td></tr>
-<tr><td><code>html/infrastructure</code></td><td><div class="bar"><span style="width: 56%"></span></div></td><td class="num">568 / 1007</td><td class="num">56.4%</td><td class="num">115 / 115</td></tr>
+<tr><td><code>html/infrastructure</code></td><td><div class="bar"><span style="width: 57%"></span></div></td><td class="num">579 / 1007</td><td class="num">57.5%</td><td class="num">115 / 115</td></tr>
 <tr><td><code>html/syntax/parsing</code></td><td><div class="bar"><span style="width: 32%"></span></div></td><td class="num">2560 / 7785</td><td class="num">32.9%</td><td class="num">231 / 231</td></tr>
 <tr><td><code>url</code></td><td><div class="bar"><span style="width: 67%"></span></div></td><td class="num">6684 / 9930</td><td class="num">67.3%</td><td class="num">40 / 40</td></tr>
-<tr><td><code>custom-elements</code></td><td><div class="bar"><span style="width: 55%"></span></div></td><td class="num">2277 / 4072</td><td class="num">55.9%</td><td class="num">185 / 185</td></tr>
+<tr><td><code>custom-elements</code></td><td><div class="bar"><span style="width: 58%"></span></div></td><td class="num">2367 / 4072</td><td class="num">58.1%</td><td class="num">185 / 185</td></tr>
 <tr><td><code>shadow-dom</code></td><td><div class="bar"><span style="width: 4%"></span></div></td><td class="num">39 / 850</td><td class="num">4.6%</td><td class="num">277 / 277</td></tr>
 <tr><td><code>dom/abort</code></td><td><div class="bar"><span style="width: 62%"></span></div></td><td class="num">23 / 37</td><td class="num">62.2%</td><td class="num">6 / 6</td></tr>
 <tr><td><code>dom/collections</code></td><td><div class="bar"><span style="width: 16%"></span></div></td><td class="num">9 / 53</td><td class="num">17.0%</td><td class="num">10 / 10</td></tr>
 <tr><td><code>dom/lists</code></td><td><div class="bar"><span style="width: 94%"></span></div></td><td class="num">179 / 189</td><td class="num">94.7%</td><td class="num">5 / 5</td></tr>
-<tr><td><code>css/cssom</code></td><td><div class="bar"><span style="width: 61%"></span></div></td><td class="num">2055 / 3336</td><td class="num">61.6%</td><td class="num">191 / 192</td></tr>
-<tr><td><code>html/dom</code></td><td><div class="bar"><span style="width: 95%"></span></div></td><td class="num">57682 / 60561</td><td class="num">95.2%</td><td class="num">245 / 245</td></tr>
+<tr><td><code>css/cssom</code></td><td><div class="bar"><span style="width: 61%"></span></div></td><td class="num">2064 / 3335</td><td class="num">61.9%</td><td class="num">191 / 192</td></tr>
+<tr><td><code>html/dom</code></td><td><div class="bar"><span style="width: 95%"></span></div></td><td class="num">57680 / 60556</td><td class="num">95.3%</td><td class="num">245 / 245</td></tr>
 <tr><td><code>html/webappapis/dynamic-markup-insertion</code></td><td><div class="bar"><span style="width: 27%"></span></div></td><td class="num">95 / 350</td><td class="num">27.1%</td><td class="num">163 / 163</td></tr>
+<tr><td><code>css/css-conditional</code></td><td><div class="bar"><span style="width: 65%"></span></div></td><td class="num">1186 / 1803</td><td class="num">65.8%</td><td class="num">226 / 226</td></tr>
+<tr><td><code>css/css-fonts/parsing</code></td><td><div class="bar"><span style="width: 17%"></span></div></td><td class="num">267 / 1547</td><td class="num">17.3%</td><td class="num">84 / 84</td></tr>
 </tbody>
 </table>
-<p class="muted">Scored 2026-09-20 against WPT revision <code>b1a7025f8bc1</code>. The subtests counted are those the harness reported: a test file whose harness never reports — a script the engine cannot run, a wait on a server the runner does not have — contributes none, and the files column says how many did. Every host of the suite is served from the same checkout, nothing touches the network, and no server-side handler runs. The number is enforced in CI: a baseline names every passing subtest, and one that stops passing fails the build.</p>
+<p class="muted">Scored 2026-09-24 against WPT revision <code>b1a7025f8bc1</code>. The subtests counted are those the harness reported: a test file whose harness never reports — a script the engine cannot run, a wait on a server the runner does not have — contributes none, and the files column says how many did. Every host of the suite is served from the same checkout, nothing touches the network, and no server-side handler runs. The number is enforced in CI: a baseline names every passing subtest, and one that stops passing fails the build.</p>
 </main>
 </body>
 </html>

@@ -568,6 +568,14 @@ public:
     // message back is the EvalError thrown instead. Unset, every string
     // compiles. The page's Content Security Policy answers it.
     std::function<std::optional<std::string>()> on_compile_strings;
+    // Every string that becomes code — eval's, direct or indirect, and the
+    // parameters and body a Function constructor is given — handed to a
+    // watcher as it is compiled, numbered from 1. While a watcher is set, an
+    // eval's program is named `eval#<number>` instead of `eval`, so a stack
+    // says which of them a frame is in. What a program builds at run time
+    // shows nowhere else.
+    std::function<void(std::uint64_t number, std::u16string_view kind, std::u16string_view parameters, std::u16string_view body)>
+        on_compiled_string;
 
     // Limits and instrumentation.
     void set_call_depth_limit(int depth) { m_call_depth_limit = depth; }
@@ -671,6 +679,7 @@ private:
     // trace of having tried.
     std::uint64_t m_throws = 0;
     std::function<void(Value const&)> m_throw_watcher;
+    std::uint64_t m_compiled_strings = 0; // numbers what on_compiled_string is handed
     int m_call_depth = 0;
     int m_call_depth_limit = 1000;
     char const* m_stack_base = nullptr; // recorded whenever script is entered from outside

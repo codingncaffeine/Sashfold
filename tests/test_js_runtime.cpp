@@ -142,7 +142,20 @@ void test_function_library()
     CHECK_JS_STRING(in, "(function () { function f() {} return typeof Function.prototype.toString.call(f); })()", "string");
     CHECK_JS_THROWS(in, "Function.prototype.toString.call({})", "TypeError");
     CHECK_JS_STRING(in, "Function.prototype.toString.call(Function.prototype)", "function () { [native code] }");
-    CHECK_JS_STRING(in, "(function () { var d = Object.getOwnPropertyDescriptor(Function.prototype, 'caller'); return typeof d.get + (d.get === d.set) + d.configurable + d.enumerable; })()", "functiontruetruefalse");
+    // caller and arguments, as V8 has them: accessors of their own on
+    // Function.prototype, nothing on a function itself; a sloppy plain
+    // function reads null, anything else throws.
+    CHECK_JS_STRING(in, "(function () { var d = Object.getOwnPropertyDescriptor(Function.prototype, 'caller'); return typeof d.get + (d.get === d.set) + d.configurable + d.enumerable + d.get.name + '|' + d.set.name; })()", "functionfalsetruefalseget caller|set caller");
+    CHECK_JS_STRING(in, "Object.getOwnPropertyNames(function () {}).join()", "length,name,prototype");
+    CHECK_JS_STRING(in, "Object.getOwnPropertyNames(Function.prototype).filter(function (n) { return n === 'caller' || n === 'arguments'; }).join()", "arguments,caller");
+    CHECK_JS_TRUE(in, "(function () { function f() {} return f.caller === null && f.arguments === null; })()");
+    CHECK_JS_TRUE(in, "(function () { function f() {} f.caller = 1; return f.caller === null && !f.hasOwnProperty('caller'); })()");
+    CHECK_JS_THROWS(in, "(function () { 'use strict'; return function () {}; })().caller", "TypeError");
+    CHECK_JS_THROWS(in, "(() => 1).arguments", "TypeError");
+    CHECK_JS_THROWS(in, "({ m() {} }).m.caller", "TypeError");
+    CHECK_JS_THROWS(in, "(class {}).caller", "TypeError");
+    CHECK_JS_THROWS(in, "Math.max.caller", "TypeError");
+    CHECK_JS_THROWS(in, "(function () {}).bind().caller", "TypeError");
     CHECK_JS_TRUE(in, "(function () { var d = Object.getOwnPropertyDescriptor(Function.prototype, Symbol.hasInstance); return !d.writable && !d.enumerable && !d.configurable; })()");
     CHECK_JS_TRUE(in, "(function () { var f = Function('a', 'b', 'return a * b'); return f(3, 4) === 12 && f.length === 2; })()");
     CHECK_JS_TRUE(in, "(function () { var f = new Function(); return f() === undefined && f.length === 0; })()");
