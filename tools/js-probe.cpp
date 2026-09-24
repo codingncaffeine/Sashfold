@@ -19,6 +19,7 @@
 #include "js/Object.h"
 #include "js/Parser.h"
 #include "js/Strings.h"
+#include "platform/Memory.h"
 
 #include <cstdio>
 #include <cstring>
@@ -63,7 +64,10 @@ int main(int argc, char** argv)
     if (source == nullptr)
         return usage();
 
+    // The room a page's script has in the window, so a depth measured here
+    // is the depth a page gets.
     js::Interpreter in;
+    in.set_stack_budget(platform::js_stack_budget_for(platform::widen_main_thread_stack(platform::script_stack_bytes)));
     in.heap().set_stress(true);
     if (want_ast || want_module) {
         js::ParseOptions options;

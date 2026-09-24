@@ -8,6 +8,7 @@
 #include "html/Serializer.h"
 #include "js/Module.h"
 #include "js/Strings.h"
+#include "platform/Memory.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1210,6 +1211,9 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
     interpreter.heap().set_limit(in.hooks.js_heap_limit);
+    // A script's recursion is measured against the stack of the thread the
+    // realm is made on, which is the one it runs on.
+    interpreter.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
     in.time_origin = in.now();
     install_interfaces(in);
 }
@@ -1248,6 +1252,7 @@ Realm::Realm(WorkerScope scope, dom::Document& document, net::Url url, HostHooks
     // A worker's heap is its own, under a ceiling of the same height as its page's.
     js::Heap& worker_heap = interpreter.heap();
     worker_heap.set_limit(in.hooks.js_heap_limit);
+    interpreter.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
     in.time_origin = in.now();
     // A worker has no document to show: nothing of it is ever loading.
     in.ready_state = "complete";

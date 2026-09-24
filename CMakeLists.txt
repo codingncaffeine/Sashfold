@@ -21,11 +21,18 @@ else()
     -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wdouble-promotion)
 endif()
 
-# MinGW reserves 2 MB of stack by default, against 8 MB on Linux and
-# macOS; the script engine's tree-walker budgets 1 MB of it for a script,
-# so the Windows binaries are given the same room as the others.
+# The first thread's stack: a page's recursion is measured against the
+# stack it runs on (platform::js_stack_budget_for), and V8 lets a page
+# twelve thousand calls deep; at the engine's ~2.8 KB a call that is more
+# than the 8 MB a Linux process starts with, so Linux raises its own limit
+# at start (platform::widen_main_thread_stack) and the two whose first
+# thread is sized at link time are given the same 256 MB here — a reserve,
+# never touched past what a script uses. On Windows the figure is also the
+# reserve every later thread gets (platform/ScriptThread.h).
 if(MINGW)
-  add_link_options(-Wl,--stack,8388608)
+  add_link_options(-Wl,--stack,268435456)
+elseif(APPLE)
+  add_link_options(-Wl,-stack_size,0x10000000)
 endif()
 
 # The fuzzing lane (see fuzz/README.md): only on request, and only clang

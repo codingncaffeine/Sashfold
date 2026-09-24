@@ -582,8 +582,12 @@ public:
     int call_depth() const { return m_call_depth; }
     // How much of the C++ stack a script may use before a RangeError. A
     // depth count alone cannot know a frame's size; the evaluator also
-    // measures the stack against where it was entered.
+    // measures the stack against where it was entered. The default assumes
+    // an 8 MB stack; a host on a bigger one says so here
+    // (platform::js_stack_budget_for), and gets the depth a page written
+    // against V8 expects.
     void set_stack_budget(std::size_t bytes) { m_stack_budget = bytes; }
+    std::size_t stack_budget() const { return m_stack_budget; }
     // The stack so far against that budget: false with a RangeError
     // pending. Every script call is held to it; a native that recurses
     // once per level of a structure the script built — a chain of proxies
@@ -681,9 +685,14 @@ private:
     std::function<void(Value const&)> m_throw_watcher;
     std::uint64_t m_compiled_strings = 0; // numbers what on_compiled_string is handed
     int m_call_depth = 0;
-    int m_call_depth_limit = 1000;
+    // The stack budget is the guard; this is the ceiling over it, above
+    // what V8 reaches on the megabyte of frames it gives a page (12,517
+    // calls of a function with nothing in it, measured on Node 26,
+    // 2026-09-24), so a page written against Chrome never meets a
+    // RangeError here that it does not meet there.
+    int m_call_depth_limit = 20000;
     char const* m_stack_base = nullptr; // recorded whenever script is entered from outside
-    std::size_t m_stack_budget = 4u * 1024u * 1024u; // about 1,400 script calls; 8 MB stacks on every lane
+    std::size_t m_stack_budget = 4u * 1024u * 1024u; // about 1,400 script calls on an 8 MB stack; hosts set theirs
     std::function<bool()> m_should_stop;
     std::uint32_t m_interrupt_interval = 10000;
     std::uint64_t m_steps = 0;

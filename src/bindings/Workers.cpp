@@ -33,66 +33,13 @@
 #include <deque>
 #include <mutex>
 
-#include <pthread.h>
+#include "platform/ScriptThread.h"
 
 namespace sashfold::bindings {
 
-namespace {
-
-// A thread with a stack a script engine can run on. A thread the standard
-// library starts has the platform's default — half a megabyte on macOS, one on
-// Windows — and the engine measures its recursion against a budget of four: a
-// worker's script a few hundred calls deep would run off the real stack before
-// the engine said RangeError. POSIX threads, which every lane has, take a size.
-class ScriptThread {
-public:
-    static constexpr std::size_t stack_bytes = 16u * 1024u * 1024u;
-
-    explicit ScriptThread(std::function<void()> body)
-        : m_body(std::make_unique<std::function<void()>>(std::move(body)))
-    {
-        pthread_attr_t attributes;
-        pthread_attr_init(&attributes);
-        pthread_attr_setstacksize(&attributes, stack_bytes);
-        m_started = pthread_create(&m_thread, &attributes, &ScriptThread::run, m_body.get()) == 0;
-        pthread_attr_destroy(&attributes);
-        // Without a thread the body never runs: run it here, late but whole,
-        // rather than leave a worker that never starts and never ends.
-        if (!m_started)
-            (*m_body)();
-    }
-    ScriptThread(ScriptThread&& other) noexcept
-        : m_body(std::move(other.m_body))
-        , m_thread(other.m_thread)
-        , m_started(std::exchange(other.m_started, false))
-    {
-    }
-    ScriptThread& operator=(ScriptThread&& other) noexcept
-    {
-        m_body = std::move(other.m_body);
-        m_thread = other.m_thread;
-        m_started = std::exchange(other.m_started, false);
-        return *this;
-    }
-    void join()
-    {
-        if (m_started)
-            pthread_join(m_thread, nullptr);
-        m_started = false;
-    }
-
-private:
-    static void* run(void* body)
-    {
-        (*static_cast<std::function<void()>*>(body))();
-        return nullptr;
-    }
-    std::unique_ptr<std::function<void()>> m_body; // stays put while the thread runs it
-    pthread_t m_thread {};
-    bool m_started = false;
-};
-
-}
+// A worker's thread: platform::ScriptThread, with the stack every thread
+// that runs script gets.
+using platform::ScriptThread;
 
 // --- The link --------------------------------------------------------------------------------
 

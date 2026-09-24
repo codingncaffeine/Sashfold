@@ -2,6 +2,8 @@
 
 #include "js/Interpreter.h"
 #include "js/Object.h"
+#include "platform/Memory.h"
+#include "platform/ScriptThread.h"
 
 #include <cmath>
 #include <string>
@@ -549,6 +551,39 @@ void test_limits_and_termination()
     js::Interpreter& in = fresh();
     CHECK_JS_THROWS(in, "(function f() { return f(); })()", "RangeError");
     CHECK_JS_NUMBER(in, "(function f(n) { return n === 0 ? 0 : 1 + f(n - 1); })(300)", 300);
+    // The depth a page gets. On the thread every script runs on
+    // (platform::ScriptThread) with the budget a realm takes from its stack,
+    // a recursion goes at least as deep as V8 lets a page on the megabyte
+    // of frames it gives one — 12,517 calls of an empty function, measured
+    // on Node 26 on 2026-09-24 — and no deeper than the engine's ceiling;
+    // the runaway is a RangeError the script catches, and the interpreter
+    // is whole afterwards. On the same thread with the budget of an 8 MB
+    // stack the recursion ends far short of that: the budget sets the
+    // depth, not the thread.
+    {
+        int deep_reach = 0;
+        int small_reach = 0;
+        bool after_ok = false;
+        platform::ScriptThread thread([&] {
+            js::Interpreter deep;
+            deep.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
+            char const* const runaway = "var n = 0; function f() { ++n; f(); } try { f(); } catch (e) { e instanceof RangeError ? n : -1 }";
+            test::JsRun const run = test::run_js(deep, runaway);
+            deep_reach = run.ok && run.value.is_number() ? static_cast<int>(run.value.as_number()) : -1;
+            test::JsRun const after = test::run_js(deep, "(function () { return 1 + 1; })()");
+            after_ok = after.ok && after.value.is_number() && after.value.as_number() == 2;
+            js::Interpreter small;
+            small.set_stack_budget(platform::js_stack_budget_for(8u * 1024u * 1024u));
+            test::JsRun const short_run = test::run_js(small, runaway);
+            small_reach = short_run.ok && short_run.value.is_number() ? static_cast<int>(short_run.value.as_number()) : -1;
+        });
+        thread.join();
+        CHECK(deep_reach >= 12517);
+        CHECK(deep_reach <= 20000);
+        CHECK(after_ok);
+        CHECK(small_reach > 100);
+        CHECK(small_reach < 12517);
+    }
     // A runaway loop is stopped by the interrupt; the finally inside it
     // does not get to run, and the stop is reported as a RangeError.
     {

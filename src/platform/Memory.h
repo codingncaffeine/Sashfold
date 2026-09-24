@@ -43,4 +43,36 @@ inline std::size_t memory_ceiling_for(std::uint64_t physical_bytes)
     return static_cast<std::size_t>(std::clamp(physical_bytes / 2, 2 * gigabyte, 16 * gigabyte));
 }
 
+// The stack of the calling thread in bytes — the whole of it, as the OS
+// reserved it — or 0 where it cannot be read.
+std::size_t current_thread_stack_bytes();
+
+// How much stack the process's first thread may grow to. On Linux that is
+// a soft limit the kernel reads as the stack grows, so a process may raise
+// it for itself before its first deep call; the stack it was started with
+// (8 MB by the usual limit) holds fewer than three thousand script calls
+// of the engine's, where V8 on a megabyte of its own frames reaches twelve
+// thousand. Windows and macOS set the first thread's reserve at link time
+// (CMakeLists.txt), and this only reports it. Returns the stack's size
+// afterwards, as current_thread_stack_bytes would from that thread.
+std::size_t widen_main_thread_stack(std::size_t bytes);
+
+// The stack every thread that runs script gets: enough for a recursion as
+// deep as V8 allows a page, and then some, so the engine's own guard ends
+// it first. A reservation only — a thread touches the pages it uses.
+inline constexpr std::size_t script_stack_bytes = 256u * 1024u * 1024u;
+
+// The engine's budget for a script's recursion on a stack of that size:
+// what the C++ stack may hold of script frames before RangeError, leaving
+// four megabytes for the natives that run under the deepest frame — a
+// throw and its unwinding, the collector tracing a deep structure — and
+// never less than two. An unknown stack gets what an 8 MB one would.
+inline std::size_t js_stack_budget_for(std::size_t stack_bytes)
+{
+    std::size_t const megabyte = 1024u * 1024u;
+    if (stack_bytes == 0)
+        stack_bytes = 8 * megabyte;
+    return std::max(stack_bytes - std::min(stack_bytes, 4 * megabyte), 2 * megabyte);
+}
+
 }

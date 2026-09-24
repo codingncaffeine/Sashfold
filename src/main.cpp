@@ -2227,6 +2227,10 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 
 int main(int argc, char** argv)
 {
+    // Before anything runs script on this thread: the room a page's
+    // recursion has is the room V8 gives it, and every realm made here
+    // reads the stack it is on for its budget.
+    platform::widen_main_thread_stack(platform::script_stack_bytes);
     std::vector<std::string> const args(argv + 1, argv + argc);
     std::string mode;
     std::string input;

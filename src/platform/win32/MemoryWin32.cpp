@@ -37,4 +37,19 @@ std::uint64_t physical_memory_bytes()
     return static_cast<std::uint64_t>(status.ullTotalPhys);
 }
 
+// The thread's reserve, from kernel32 (Windows 8 and later).
+std::size_t current_thread_stack_bytes()
+{
+    ULONG_PTR low = 0;
+    ULONG_PTR high = 0;
+    GetCurrentThreadStackLimits(&low, &high);
+    return high > low ? static_cast<std::size_t>(high - low) : 0;
+}
+
+// The first thread's reserve is the executable's (-Wl,--stack): report it.
+std::size_t widen_main_thread_stack(std::size_t)
+{
+    return current_thread_stack_bytes();
+}
+
 }
