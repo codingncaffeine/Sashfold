@@ -1,0 +1,24 @@
+# The frame the shell draws has a band along the window's edges that
+# resizes it, and the pointer says so before it is pressed: the two-headed
+# arrow for the axis an edge pulls, the diagonal ones at the corners. Off
+# the band the pointer is the page's. Where the compositor draws the frame
+# there is no band, and no arrow.
+resize 800 600
+window-controls on
+move 2 2
+assert-cursor nwse-resize
+move 797 2
+assert-cursor nesw-resize
+move 400 2
+assert-cursor ns-resize
+move 797 300
+assert-cursor ew-resize
+move 2 597
+assert-cursor nesw-resize
+move 797 597
+assert-cursor nwse-resize
+move 400 300
+assert-cursor default
+window-controls off
+move 2 2
+assert-cursor default

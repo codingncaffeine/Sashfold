@@ -33,6 +33,10 @@ LPCWSTR resource_id(unsigned id)
 constexpr unsigned idc_arrow = 32512;
 constexpr unsigned idc_ibeam = 32513;
 constexpr unsigned idc_hand = 32649;
+constexpr unsigned idc_sizenwse = 32642;
+constexpr unsigned idc_sizenesw = 32643;
+constexpr unsigned idc_sizewe = 32644;
+constexpr unsigned idc_sizens = 32645;
 constexpr DWORD rop_source_copy = 0x00CC0020;
 constexpr UINT wm_dpi_changed = 0x02E0; // WM_DPICHANGED: the high word of wparam is the new DPI
 
@@ -188,6 +192,10 @@ private:
         switch (m_cursor) {
         case Cursor::Hand: return LoadCursorW(nullptr, resource_id(idc_hand));
         case Cursor::Text: return LoadCursorW(nullptr, resource_id(idc_ibeam));
+        case Cursor::ResizeVertical: return LoadCursorW(nullptr, resource_id(idc_sizens));
+        case Cursor::ResizeHorizontal: return LoadCursorW(nullptr, resource_id(idc_sizewe));
+        case Cursor::ResizeDiagonalDown: return LoadCursorW(nullptr, resource_id(idc_sizenwse));
+        case Cursor::ResizeDiagonalUp: return LoadCursorW(nullptr, resource_id(idc_sizenesw));
         case Cursor::Arrow: break;
         }
         return LoadCursorW(nullptr, resource_id(idc_arrow));

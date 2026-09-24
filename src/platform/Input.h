@@ -48,6 +48,12 @@ enum class Cursor {
     Arrow,
     Hand,
     Text,
+    // Over the band along a window's edges that resizes it, when the
+    // shell draws the frame: the two-headed arrows, by the axis they pull.
+    ResizeVertical, // the top or bottom edge
+    ResizeHorizontal, // the left or right edge
+    ResizeDiagonalDown, // the top-left or bottom-right corner
+    ResizeDiagonalUp, // the top-right or bottom-left corner
 };
 
 }

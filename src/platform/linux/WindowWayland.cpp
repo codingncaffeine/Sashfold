@@ -230,6 +230,10 @@ namespace wp_cursor_shape_device_v1 {
     constexpr std::uint32_t shape_default = 1;
     constexpr std::uint32_t shape_pointer = 4;
     constexpr std::uint32_t shape_text = 9;
+    constexpr std::uint32_t shape_ew_resize = 26;
+    constexpr std::uint32_t shape_ns_resize = 27;
+    constexpr std::uint32_t shape_nesw_resize = 28;
+    constexpr std::uint32_t shape_nwse_resize = 29;
 }
 namespace xdg_toplevel_icon_manager_v1 {
     constexpr std::uint16_t create_icon = 1;
@@ -1970,6 +1974,10 @@ void WaylandWindow::apply_cursor()
     switch (m_cursor) {
     case Cursor::Hand: shape = wp_cursor_shape_device_v1::shape_pointer; break;
     case Cursor::Text: shape = wp_cursor_shape_device_v1::shape_text; break;
+    case Cursor::ResizeVertical: shape = wp_cursor_shape_device_v1::shape_ns_resize; break;
+    case Cursor::ResizeHorizontal: shape = wp_cursor_shape_device_v1::shape_ew_resize; break;
+    case Cursor::ResizeDiagonalDown: shape = wp_cursor_shape_device_v1::shape_nwse_resize; break;
+    case Cursor::ResizeDiagonalUp: shape = wp_cursor_shape_device_v1::shape_nesw_resize; break;
     case Cursor::Arrow: break;
     }
     Request set_shape(m_cursor_device, wp_cursor_shape_device_v1::set_shape);
