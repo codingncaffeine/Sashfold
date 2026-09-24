@@ -113,6 +113,32 @@ void test_date_time_format()
     CHECK_JS_THROWS(in, "new Date(0).toLocaleDateString('en', { timeStyle: 'short' })", "TypeError");
 }
 
+void test_date_time_ranges()
+{
+    js::Interpreter& in = fresh();
+    // r() writes the thin spaces as _ and the en dash as -, so the
+    // expectations below show exactly which spaces a range carries.
+    sashfold::test::run_js(in, "function r(l, o, a, b) { return new Intl.DateTimeFormat(l, Object.assign({ timeZone: 'UTC' }, o)).formatRange(a, b).replace(/\\u2009/g, '_').replace(/\\u2013/g, '-'); }");
+    // Dates that differ in a field larger than the pattern shows are
+    // written whole, the date added; below its smallest field they are one.
+    CHECK_JS_STRING(in, "r('en-US', { hour: 'numeric', minute: 'numeric' }, Date.UTC(2024, 0, 3, 15, 4), Date.UTC(2024, 0, 4, 15, 4))", "1/3/2024, 3:04 PM_-_1/4/2024, 3:04 PM");
+    CHECK_JS_STRING(in, "r('en-US', { timeStyle: 'short' }, Date.UTC(2024, 0, 3, 5), Date.UTC(2024, 0, 4, 9))", "1/3/2024, 5:00 AM_-_1/4/2024, 9:00 AM");
+    CHECK_JS_STRING(in, "r('en-US', { hour: 'numeric', minute: 'numeric' }, Date.UTC(2024, 0, 3, 15, 4), Date.UTC(2024, 0, 3, 15, 4, 30))", "3:04 PM");
+    CHECK_JS_STRING(in, "r('en-GB', { hour: 'numeric', minute: 'numeric' }, Date.UTC(2024, 0, 3, 15, 4), Date.UTC(2024, 0, 3, 17, 0))", "15:04-17:00");
+    CHECK_JS_STRING(in, "r('en-US', { dateStyle: 'medium', timeStyle: 'short' }, Date.UTC(2024, 0, 3, 5), Date.UTC(2024, 0, 3, 9))", "Jan 3, 2024, 5:00_-_9:00 AM");
+    // A month in words is written once when only the day differs.
+    CHECK_JS_STRING(in, "r('en-US', { month: 'short', day: 'numeric' }, Date.UTC(2024, 0, 3), Date.UTC(2024, 0, 9))", "Jan 3_-_9");
+    CHECK_JS_STRING(in, "r('en-GB', { month: 'short', day: 'numeric' }, Date.UTC(2024, 0, 3), Date.UTC(2024, 0, 9))", "3_-_9 Jan");
+    CHECK_JS_STRING(in, "r('en-US', { month: 'long', day: 'numeric' }, Date.UTC(2024, 0, 3), Date.UTC(2024, 0, 9))", "January 3_-_9");
+    CHECK_JS_STRING(in, "r('en-US', { month: 'short', day: 'numeric' }, Date.UTC(2024, 0, 3), Date.UTC(2024, 1, 9))", "Jan 3_-_Feb 9");
+    CHECK_JS_STRING(in, "r('en-US', { month: 'short', day: 'numeric' }, Date.UTC(2024, 0, 3), Date.UTC(2025, 0, 3))", "Jan 3, 2024_-_Jan 3, 2025");
+    CHECK_JS_STRING(in, "r('en-US', { dateStyle: 'long' }, Date.UTC(2024, 0, 3), Date.UTC(2024, 0, 5))", "January 3_-_5, 2024");
+    CHECK_JS_STRING(in, "r('en-GB', { dateStyle: 'medium' }, Date.UTC(2024, 0, 3), Date.UTC(2024, 2, 5))", "3 Jan_-_5 Mar 2024");
+    CHECK_JS_STRING(in, "r('en-US', { era: 'short', year: 'numeric' }, Date.UTC(2024, 0, 3), Date.UTC(2025, 0, 4))", "2024_-_2025 AD");
+    CHECK_JS_STRING(in, "new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).formatRangeToParts(Date.UTC(2024, 0, 3), Date.UTC(2024, 0, 9)).map(p => p.type + ':' + p.source + ':' + p.value.replace(/\\u2009/g, '_').replace(/\\u2013/g, '-')).join('|')",
+        "month:shared:Jan|literal:shared: |day:startRange:3|literal:shared:_-_|day:endRange:9");
+}
+
 void test_relative_time_and_lists()
 {
     js::Interpreter& in = fresh();
@@ -135,6 +161,19 @@ void test_text_services()
     CHECK_JS_STRING(in, "['10', '2', 'a', 'A'].sort(new Intl.Collator('en', { numeric: true, caseFirst: 'upper' }).compare).join('|')", "2|10|A|a");
     CHECK_JS_TRUE(in, "new Intl.Collator('en', { sensitivity: 'base' }).compare('a', '\\u00c1') === 0 && new Intl.Collator('en', { sensitivity: 'accent' }).compare('a', '\\u00e1') === -1 && 'a'.localeCompare('B') === -1 && '\\u00e4\\u0323'.localeCompare('a\\u0323\\u0308') === 0");
     CHECK_JS_STRING(in, "var o = new Intl.Collator('en-u-kn').resolvedOptions(); [o.locale, o.usage, o.sensitivity, o.numeric, o.caseFirst].join()", "en-u-kn,sort,variant,true,false");
+    CHECK_JS_STRING(in, "['a10', 'a9', 'A9', 'a09', 'a 9', 'a-9'].sort(new Intl.Collator('en', { numeric: true }).compare).join('|')", "a 9|a-9|a9|a09|A9|a10");
+    // ASCII text takes a shorter road through the collator. A soft hyphen
+    // is ignorable, so appending one sends a string down the general road
+    // with the same elements: both roads must order every pair alike.
+    sashfold::test::run_js(in, "var words = ['', 'a', 'A', 'ab', 'aB', 'a b', 'a-b', 'a10', 'a9', 'a09', 'A9', 'b', 'B', '_', '007', '7', 'z1', 'Z01', 'x\\t', 'x!y'];"
+                               "var options = [{}, { numeric: true }, { sensitivity: 'base' }, { sensitivity: 'accent' }, { sensitivity: 'case', numeric: true }, { caseFirst: 'upper' }, { ignorePunctuation: true }];"
+                               "var disagreements = 0, orders = 0;"
+                               "for (var o of options) { var c = new Intl.Collator('en', o).compare;"
+                               "  for (var x of words) for (var y of words) { var fast = c(x, y); orders += fast !== 0; if (fast !== c(x + '\\u00ad', y) || fast !== c(x, y + '\\u00ad')) disagreements++; } }");
+    CHECK_JS_NUMBER(in, "disagreements", 0);
+    CHECK_JS_TRUE(in, "orders > 2000");
+    // localeCompare with no locales or options is the default Collator.
+    CHECK_JS_TRUE(in, "var c = new Intl.Collator().compare; words.every(x => words.every(y => x.localeCompare(y) === c(x, y)))");
     CHECK_JS_STRING(in, "var n = new Intl.DisplayNames('en', { type: 'language' }); [n.of('en-US'), n.of('zh-Hant'), new Intl.DisplayNames('en', { type: 'region' }).of('gb'), new Intl.DisplayNames('en', { type: 'currency' }).of('jpy')].join('|')",
         "American English|Traditional Chinese|United Kingdom|Japanese Yen");
     CHECK_JS_TRUE(in, "new Intl.DisplayNames('en', { type: 'region', fallback: 'none' }).of('QQ') === undefined && new Intl.DisplayNames('en', { type: 'region' }).of('QQ') === 'QQ'");
@@ -157,6 +196,7 @@ int main()
     test_number_format();
     test_plural_rules();
     test_date_time_format();
+    test_date_time_ranges();
     test_relative_time_and_lists();
     test_text_services();
     return sashfold::test::report("js_intl");

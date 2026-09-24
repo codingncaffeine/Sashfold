@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <string>
@@ -292,6 +293,7 @@ struct DateTimeFormatData {
     int fractional_second_digits = 0;
     std::string date_style, time_style;
     std::vector<Token> pattern;
+    bool range_form = false; // the en-GB range patterns write no comma after a long weekday
 };
 
 void literal(std::vector<Token>& out, std::string_view text)
@@ -323,7 +325,7 @@ std::vector<Token> date_pattern(DateTimeFormatData const& d)
         if (d.british) {
             if (w) {
                 field(out, Field::Weekday, d.weekday);
-                literal(out, y ? ", " : " ");
+                literal(out, y && !(d.range_form && d.weekday == "long") ? ", " : " ");
             }
             if (dd) {
                 field(out, Field::Day, d.day);
@@ -352,7 +354,7 @@ std::vector<Token> date_pattern(DateTimeFormatData const& d)
     } else if (m) {
         if (w) {
             field(out, Field::Weekday, d.weekday);
-            literal(out, ", ");
+            literal(out, d.british && !y ? " " : ", ");
         }
         if (d.british) {
             if (dd) {
@@ -511,7 +513,7 @@ std::string_view flexible_day_period(Fields const& f, std::string const& width)
     return "at night";
 }
 
-std::vector<IntlPart> format_fields(DateTimeFormatData const& d, Fields const& f)
+std::vector<IntlPart> format_tokens(DateTimeFormatData const& d, std::vector<Token> const& tokens, Fields const& f)
 {
     std::vector<IntlPart> parts;
     auto push = [&](char const* type, std::string_view value) {
@@ -523,7 +525,7 @@ std::vector<IntlPart> format_fields(DateTimeFormatData const& d, Fields const& f
             text = transliterate_digits(d.numbering_system, text);
         parts.push_back({ type, std::move(text), {}, {} });
     };
-    for (Token const& token : d.pattern) {
+    for (Token const& token : tokens) {
         switch (token.field) {
         case Field::Literal:
             push("literal", token.text);
@@ -600,6 +602,34 @@ std::vector<IntlPart> format_fields(DateTimeFormatData const& d, Fields const& f
         }
     }
     return parts;
+}
+
+std::vector<IntlPart> format_fields(DateTimeFormatData const& d, Fields const& f)
+{
+    return format_tokens(d, d.pattern, f);
+}
+
+// The words between the date and the time of a format made of components.
+std::string_view component_join(DateTimeFormatData const& d)
+{
+    if (d.month == "long" && (!d.hour.empty() || !d.minute.empty() || !d.second.empty()))
+        return " at ";
+    // A weekday alone goes before the time with a space, except before an
+    // en-GB hour alone ("Wed 9 AM", "Wed 09:04", "Wed, 09").
+    if (d.month.empty() && d.day.empty() && d.year.empty() && !d.weekday.empty() && (!d.british || !d.minute.empty()))
+        return " ";
+    return ", ";
+}
+
+// en-GB writes a numeric month beside a day or a year, and that day, in
+// two digits; a month alone keeps its one.
+void british_numeric_date(DateTimeFormatData& d)
+{
+    if (d.british && !d.month.empty() && !is_text_month(d.month) && (!d.day.empty() || !d.year.empty())) {
+        d.month = "2-digit";
+        if (!d.day.empty())
+            d.day = "2-digit";
+    }
 }
 
 // ---------------------------------------------------- construction
@@ -826,16 +856,8 @@ std::optional<bool> create_date_time_format(Interpreter& in, DateTimeFormatData&
         d.minute = "2-digit";
         d.second = "2-digit";
     }
-    if (d.british && !d.month.empty() && !is_text_month(d.month)) {
-        d.month = "2-digit";
-        if (!d.day.empty())
-            d.day = "2-digit";
-    }
-    if (d.month == "long" && (!d.hour.empty() || !d.minute.empty() || !d.second.empty()))
-        join = " at ";
-    else if (d.month.empty() && d.day.empty() && d.year.empty() && !d.weekday.empty() && !d.british)
-        join = " ";
-    d.pattern = make_pattern(d, join);
+    british_numeric_date(d);
+    d.pattern = make_pattern(d, component_join(d));
     return true;
 }
 
@@ -897,9 +919,312 @@ std::optional<std::vector<IntlPart>> format_parts(Interpreter& in, DateTimeForma
     return format_fields(d, fields_of(*x, d.zone));
 }
 
-bool is_date_type(std::string const& type)
+// ---------------------------------------------------------------- ranges
+//
+// PartitionDateTimeRangePattern (section 11.5.9) walks the range pattern
+// fields of Table 16 from the era down. A difference below the smallest
+// field the pattern shows is one no reader could see, and the two dates
+// are then written once. Otherwise the largest differing field picks the
+// range pattern. The patterns are those of CLDR's English interval
+// formats as ICU applies them: a time alone, or a date and time whose
+// dates differ, is written out whole twice with as much of the date as
+// the difference reaches; a date with a month in words shares all but
+// the differing fields ("Jan 3 - 9, 2024", "3 - 9 Jan 2024"); a time
+// shares its day period and zone ("3:04 - 5:00 PM").
+
+enum class RangeLevel : std::uint8_t { Era, Year, Month, Day, AmPm, Hour, Minute, Second, Fraction, None };
+
+RangeLevel range_level(Field field)
 {
-    return type == "weekday" || type == "era" || type == "year" || type == "month" || type == "day";
+    switch (field) {
+    case Field::Era:
+        return RangeLevel::Era;
+    case Field::Year:
+        return RangeLevel::Year;
+    case Field::Month:
+        return RangeLevel::Month;
+    case Field::Weekday:
+    case Field::Day:
+        return RangeLevel::Day;
+    case Field::AmPm:
+    case Field::DayPeriod:
+        return RangeLevel::AmPm;
+    case Field::Hour:
+        return RangeLevel::Hour;
+    case Field::Minute:
+        return RangeLevel::Minute;
+    case Field::Second:
+        return RangeLevel::Second;
+    case Field::FractionalSecond:
+        return RangeLevel::Fraction;
+    case Field::Literal:
+    case Field::TimeZoneName:
+        return RangeLevel::None;
+    }
+    return RangeLevel::None;
+}
+
+// The largest field in which the dates differ, among the fields the
+// pattern shows and every field larger than those; None when they agree.
+RangeLevel first_difference(DateTimeFormatData const& d, Fields const& a, Fields const& b)
+{
+    int finest = -1;
+    std::string period_width;
+    int fraction_unit = 1;
+    for (Token const& token : d.pattern) {
+        RangeLevel const level = range_level(token.field);
+        if (level != RangeLevel::None)
+            finest = std::max(finest, static_cast<int>(level));
+        if (token.field == Field::DayPeriod)
+            period_width = token.text;
+        if (token.field == Field::FractionalSecond)
+            fraction_unit = token.text == "1" ? 100 : token.text == "2" ? 10 : 1;
+    }
+    auto differs = [&](RangeLevel level) {
+        switch (level) {
+        case RangeLevel::Era:
+            return (a.year > 0) != (b.year > 0);
+        case RangeLevel::Year:
+            return a.year != b.year;
+        case RangeLevel::Month:
+            return a.month != b.month;
+        case RangeLevel::Day:
+            return a.day != b.day;
+        case RangeLevel::AmPm:
+            if (!period_width.empty())
+                return flexible_day_period(a, period_width) != flexible_day_period(b, period_width);
+            return (a.hour >= 12) != (b.hour >= 12);
+        case RangeLevel::Hour:
+            return a.hour != b.hour;
+        case RangeLevel::Minute:
+            return a.minute != b.minute;
+        case RangeLevel::Second:
+            return a.second != b.second;
+        case RangeLevel::Fraction:
+            return a.millisecond / fraction_unit != b.millisecond / fraction_unit;
+        case RangeLevel::None:
+            return false;
+        }
+        return false;
+    };
+    for (int level = 0; level <= finest; ++level) {
+        if (differs(static_cast<RangeLevel>(level)))
+            return static_cast<RangeLevel>(level);
+    }
+    return RangeLevel::None;
+}
+
+// The components a pattern shows, read back from its fields, so that a
+// range can remake the pattern with fields added or in its range form.
+DateTimeFormatData components_of(DateTimeFormatData const& d)
+{
+    DateTimeFormatData s = d;
+    for (std::string* component : { &s.weekday, &s.era, &s.year, &s.month, &s.day, &s.day_period, &s.hour, &s.minute, &s.second, &s.time_zone_name })
+        component->clear();
+    s.fractional_second_digits = 0;
+    s.pattern.clear();
+    for (Token const& token : d.pattern) {
+        switch (token.field) {
+        case Field::Literal:
+        case Field::AmPm:
+            break;
+        case Field::Weekday:
+            s.weekday = token.text;
+            break;
+        case Field::Era:
+            s.era = token.text;
+            break;
+        case Field::Year:
+            s.year = token.text;
+            break;
+        case Field::Month:
+            s.month = token.text;
+            break;
+        case Field::Day:
+            s.day = token.text;
+            break;
+        case Field::DayPeriod:
+            s.day_period = token.text;
+            break;
+        case Field::Hour:
+            s.hour = token.text;
+            break;
+        case Field::Minute:
+            s.minute = token.text;
+            break;
+        case Field::Second:
+            s.second = token.text;
+            break;
+        case Field::FractionalSecond:
+            s.fractional_second_digits = token.text[0] - '0';
+            break;
+        case Field::TimeZoneName:
+            s.time_zone_name = token.text;
+            break;
+        }
+    }
+    return s;
+}
+
+// The tokens [begin, end) written for each date with the dash between;
+// the tokens around them are written once, from the date they share.
+std::vector<IntlPart> range_parts(DateTimeFormatData const& d, std::vector<Token> const& tokens, std::size_t begin, std::size_t end,
+    Fields const& a, Fields const& b, std::u16string_view dash)
+{
+    std::vector<IntlPart> const x = format_tokens(d, tokens, a);
+    std::vector<IntlPart> const y = format_tokens(d, tokens, b);
+    std::vector<IntlPart> result;
+    auto add = [&](IntlPart part, char const* source) {
+        part.extra_name = "source";
+        part.extra_value = source;
+        // Adjacent literals of one source read as one.
+        if (!result.empty() && part.type == "literal" && result.back().type == "literal" && result.back().extra_value == part.extra_value)
+            result.back().value += part.value;
+        else
+            result.push_back(std::move(part));
+    };
+    for (std::size_t i = 0; i < begin; ++i)
+        add(x[i], "shared");
+    for (std::size_t i = begin; i < end; ++i)
+        add(x[i], "startRange");
+    add({ "literal", std::u16string(dash), {}, {} }, "shared");
+    for (std::size_t i = begin; i < end; ++i)
+        add(y[i], "endRange");
+    for (std::size_t i = end; i < tokens.size(); ++i)
+        add(y[i], "shared");
+    return result;
+}
+
+// The span of the tokens that carry any of the fields; empty when none do.
+std::pair<std::size_t, std::size_t> field_span(std::vector<Token> const& tokens, std::size_t from, std::initializer_list<Field> fields)
+{
+    std::size_t begin = tokens.size();
+    std::size_t end = 0;
+    for (std::size_t i = from; i < tokens.size(); ++i) {
+        if (std::find(fields.begin(), fields.end(), tokens[i].field) == fields.end())
+            continue;
+        begin = std::min(begin, i);
+        end = i + 1;
+    }
+    if (end == 0)
+        return { 0, 0 };
+    return { begin, end };
+}
+
+std::vector<IntlPart> range_pattern_parts(DateTimeFormatData const& d, RangeLevel level, Fields const& a, Fields const& b)
+{
+    // An en dash between thin spaces (U+2009 U+2013 U+2009).
+    std::u16string const spaced_dash { 0x2009, 0x2013, 0x2009 };
+    DateTimeFormatData s = components_of(d);
+    bool const has_date = !s.weekday.empty() || !s.era.empty() || !s.year.empty() || !s.month.empty() || !s.day.empty();
+    bool const has_time = !s.hour.empty() || !s.minute.empty() || !s.second.empty() || s.fractional_second_digits > 0 || !s.day_period.empty();
+    // CLDR has interval patterns for an hour, or an hour and minute; a
+    // time with seconds has none and is written whole.
+    bool const collapsible_time = !s.hour.empty() && s.second.empty() && s.fractional_second_digits == 0;
+    auto whole = [&](DateTimeFormatData const& shape) {
+        return range_parts(shape, shape.pattern, 0, shape.pattern.size(), a, b, spaced_dash);
+    };
+
+    if (level <= RangeLevel::Day && has_time) {
+        // The dates differ: the date and time twice, the date grown to
+        // reach the difference (a time alone gains the short date).
+        if (has_date && !collapsible_time)
+            return whole(d);
+        if (!d.date_style.empty() && !d.time_style.empty()) {
+            // A style's date is complete; only an era that differs is added.
+            if (level != RangeLevel::Era || !s.era.empty())
+                return whole(d);
+            s.era = "short";
+            s.pattern = make_pattern(s, d.date_style == "full" || d.date_style == "long" ? " at " : ", ");
+            return whole(s);
+        }
+        // A date shown with the time grows only when the field that
+        // differs is one it lacks (or a month without a day or year),
+        // and then by every field it lacks from the day up to that one,
+        // numeric beside the widths it has.
+        bool const lacks = (level == RangeLevel::Day && s.day.empty())
+            || (level == RangeLevel::Month && (s.month.empty() || (s.day.empty() && s.year.empty())))
+            || (level == RangeLevel::Year && s.year.empty()) || (level == RangeLevel::Era && s.era.empty());
+        if (has_date && !lacks)
+            return whole(d);
+        bool const had_month = !s.month.empty();
+        if (s.day.empty())
+            s.day = "numeric";
+        if (s.month.empty() && (!has_date || level <= RangeLevel::Month))
+            s.month = "numeric";
+        if (s.year.empty() && (!has_date || level <= RangeLevel::Year))
+            s.year = "numeric";
+        if (level == RangeLevel::Era && s.era.empty())
+            s.era = "short";
+        // A month the range adds is written the locale's way.
+        if (!had_month)
+            british_numeric_date(s);
+        s.pattern = make_pattern(s, component_join(s));
+        return whole(s);
+    }
+
+    if (level <= RangeLevel::Day) {
+        // A date alone. A day without the month or year that differ
+        // gains them, and a year the era that differs.
+        if (s.time_zone_name.empty()) {
+            bool const day_alone = !s.day.empty() && s.month.empty() && s.year.empty() && s.weekday.empty();
+            if (level == RangeLevel::Era && day_alone) {
+                s.month = "numeric";
+                s.year = "numeric";
+            }
+            if (level == RangeLevel::Era && !s.year.empty() && s.era.empty())
+                s.era = "short";
+            if (level == RangeLevel::Year && !s.day.empty() && s.year.empty() && s.era.empty() && (!s.month.empty() || s.weekday.empty())) {
+                s.year = "numeric";
+                if (s.month.empty())
+                    s.month = "numeric";
+            }
+            if (level == RangeLevel::Month && !s.day.empty() && s.month.empty() && s.weekday.empty())
+                s.month = "numeric";
+        }
+        british_numeric_date(s);
+        s.range_form = true;
+        s.pattern = make_pattern(s, ", ");
+        // An era is shared after the year; without a year it is not.
+        if (!s.time_zone_name.empty() || (!s.era.empty() && s.year.empty()))
+            return whole(s);
+        std::pair<std::size_t, std::size_t> span { 0, 0 };
+        if (!s.era.empty() && level != RangeLevel::Era && (level == RangeLevel::Year || !is_text_month(s.month)))
+            span = field_span(s.pattern, 0, { Field::Weekday, Field::Month, Field::Day, Field::Year });
+        else if (!is_text_month(s.month))
+            return whole(s);
+        else if (level == RangeLevel::Day && s.weekday.empty())
+            span = field_span(s.pattern, 0, { Field::Day });
+        else if (level == RangeLevel::Day || level == RangeLevel::Month)
+            span = field_span(s.pattern, 0, { Field::Weekday, Field::Month, Field::Day });
+        if (span.second == 0)
+            return whole(s);
+        return range_parts(s, s.pattern, span.first, span.second, a, b, spaced_dash);
+    }
+
+    // The times differ within one day: the date once, then the time
+    // range, sharing the day period and the zone where CLDR does.
+    std::vector<Token> tokens = date_pattern(s);
+    if (!tokens.empty())
+        literal(tokens, ", ");
+    std::size_t const time_begin = tokens.size();
+    if (d.time_style == "full" && has_date)
+        s.time_zone_name = "short";
+    for (Token const& token : time_pattern(s))
+        tokens.push_back(token);
+    if (!s.time_zone_name.empty()) {
+        literal(tokens, " ");
+        field(tokens, Field::TimeZoneName, s.time_zone_name);
+    }
+    if (!collapsible_time)
+        return range_parts(s, tokens, time_begin, tokens.size(), a, b, spaced_dash);
+    bool const twelve = s.hour_cycle == "h11" || s.hour_cycle == "h12";
+    std::pair<std::size_t, std::size_t> const span = twelve && level == RangeLevel::AmPm
+        ? field_span(tokens, time_begin, { Field::Hour, Field::Minute, Field::AmPm, Field::DayPeriod })
+        : field_span(tokens, time_begin, { Field::Hour, Field::Minute });
+    // en-GB sets its 24-hour ranges close ("09:04-17:00").
+    std::u16string const dash = !twelve && s.british ? std::u16string(1, 0x2013) : spaced_dash;
+    return range_parts(s, tokens, span.first, span.second, a, b, dash);
 }
 
 std::optional<std::vector<IntlPart>> format_range_parts(Interpreter& in, DateTimeFormatData const& d, Value const& start, Value const& end)
@@ -915,104 +1240,19 @@ std::optional<std::vector<IntlPart>> format_range_parts(Interpreter& in, DateTim
     std::optional<double> const y = date_value(in, end);
     if (!y)
         return std::nullopt;
-    std::vector<IntlPart> a = format_fields(d, fields_of(*x, d.zone));
-    std::vector<IntlPart> b = format_fields(d, fields_of(*y, d.zone));
-    auto tag = [](std::vector<IntlPart>& parts, char const* source) {
+    Fields const a = fields_of(*x, d.zone);
+    Fields const b = fields_of(*y, d.zone);
+    RangeLevel const level = first_difference(d, a, b);
+    if (level == RangeLevel::None) {
+        // The dates are practically equal: one date, all of it shared.
+        std::vector<IntlPart> parts = format_fields(d, a);
         for (IntlPart& part : parts) {
             part.extra_name = "source";
-            part.extra_value = source;
+            part.extra_value = "shared";
         }
-    };
-    bool same = a.size() == b.size();
-    bool date_differs = false;
-    for (std::size_t i = 0; same && i < a.size(); ++i) {
-        if (a[i].value != b[i].value) {
-            same = false;
-        }
+        return parts;
     }
-    if (same) {
-        tag(a, "shared");
-        return a;
-    }
-    for (std::size_t i = 0; i < std::min(a.size(), b.size()); ++i)
-        if (is_date_type(a[i].type) && a[i].value != b[i].value)
-            date_differs = true;
-    // The collapsed forms: parts both ends share at the front or the back
-    // are written once ("January 5 - 9, 2024", "3:04 - 5:00 PM").
-    std::size_t prefix = 0;
-    std::size_t suffix = 0;
-    bool const text_month = std::any_of(d.pattern.begin(), d.pattern.end(), [](Token const& token) {
-        return token.field == Field::Month && is_text_month(token.text);
-    });
-    bool const has_time = std::any_of(a.begin(), a.end(), [](IntlPart const& p) {
-        return p.type == "hour" || p.type == "minute" || p.type == "second";
-    });
-    auto shareable_suffix = [&](std::string const& type) {
-        if (type == "literal")
-            return true;
-        if (!date_differs)
-            return type == "dayPeriod" || type == "timeZoneName";
-        return text_month && !has_time && (type == "year" || type == "era");
-    };
-    while (suffix < a.size() && suffix < b.size()) {
-        IntlPart const& p = a[a.size() - 1 - suffix];
-        IntlPart const& q = b[b.size() - 1 - suffix];
-        if (p.type != q.type || p.value != q.value || !shareable_suffix(p.type))
-            break;
-        ++suffix;
-    }
-    while (suffix > 0 && a[a.size() - suffix].type != "literal")
-        --suffix;
-    if (!date_differs) {
-        while (prefix < a.size() && prefix < b.size() && a[prefix].type == b[prefix].type && a[prefix].value == b[prefix].value
-            && (is_date_type(a[prefix].type) || a[prefix].type == "literal"))
-            ++prefix;
-    } else if (text_month && suffix > 0) {
-        bool const year_shared = std::any_of(a.end() - static_cast<std::ptrdiff_t>(suffix), a.end(), [](IntlPart const& p) { return p.type == "year"; });
-        if (year_shared) {
-            while (prefix < a.size() && prefix < b.size() && a[prefix].type == b[prefix].type && a[prefix].value == b[prefix].value
-                && (a[prefix].type == "month" || a[prefix].type == "literal" || a[prefix].type == "weekday"))
-                ++prefix;
-        }
-    }
-    while (prefix > 0 && a[prefix - 1].type != "literal")
-        --prefix;
-    if (prefix + suffix >= a.size() || prefix + suffix >= b.size()) {
-        prefix = 0;
-        suffix = 0;
-    }
-    std::vector<IntlPart> result;
-    for (std::size_t i = 0; i < prefix; ++i) {
-        result.push_back(a[i]);
-        result.back().extra_name = "source";
-        result.back().extra_value = "shared";
-    }
-    for (std::size_t i = prefix; i < a.size() - suffix; ++i) {
-        result.push_back(a[i]);
-        result.back().extra_name = "source";
-        result.back().extra_value = "startRange";
-    }
-    // An en dash between thin spaces (U+2009 U+2013 U+2009).
-    result.push_back({ "literal", std::u16string { 0x2009, 0x2013, 0x2009 }, "source", "shared" });
-    for (std::size_t i = prefix; i < b.size() - suffix; ++i) {
-        result.push_back(b[i]);
-        result.back().extra_name = "source";
-        result.back().extra_value = "endRange";
-    }
-    for (std::size_t i = b.size() - suffix; i < b.size(); ++i) {
-        result.push_back(b[i]);
-        result.back().extra_name = "source";
-        result.back().extra_value = "shared";
-    }
-    // Adjacent literals read as one.
-    std::vector<IntlPart> merged;
-    for (IntlPart const& part : result) {
-        if (!merged.empty() && merged.back().type == "literal" && part.type == "literal" && merged.back().extra_value == part.extra_value)
-            merged.back().value += part.value;
-        else
-            merged.push_back(part);
-    }
-    return merged;
+    return range_pattern_parts(d, level, a, b);
 }
 
 std::optional<Value> locale_date_string(Interpreter& in, Value const& this_value, Args args, Required required, Defaults defaults, std::string_view method)

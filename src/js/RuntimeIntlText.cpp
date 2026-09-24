@@ -234,8 +234,127 @@ std::vector<CollationElement> collation_elements(std::u16string_view text, Colla
     return out;
 }
 
+// ASCII text needs no decomposition and carries no marks, so its elements
+// can be read one character at a time. The table is filled by
+// collation_elements itself, one character at a time, so the fast path
+// cannot order a character differently from the general one.
+struct AsciiCollation {
+    std::uint8_t group[128] {}; // 0 when the character is ignorable
+    char16_t primary[128] {};
+    std::uint8_t tertiary[128] {};
+};
+
+AsciiCollation const& ascii_collation()
+{
+    static AsciiCollation const table = [] {
+        AsciiCollation t;
+        CollatorData const plain;
+        for (char16_t c = 0; c < 128; ++c) {
+            std::u16string_view const one(&c, 1);
+            std::vector<CollationElement> const elements = collation_elements(one, plain);
+            if (elements.empty())
+                continue;
+            t.group[c] = static_cast<std::uint8_t>(elements[0].group);
+            t.primary[c] = static_cast<char16_t>(elements[0].primary[0]);
+            t.tertiary[c] = static_cast<std::uint8_t>(elements[0].tertiary);
+        }
+        return t;
+    }();
+    return table;
+}
+
+struct AsciiElement {
+    std::uint8_t group = 0;
+    char16_t primary = 0;
+    std::uint8_t tertiary = 0;
+    bool run = false; // a digit run read by value: [begin, end) without leading zeros
+    std::size_t begin = 0;
+    std::size_t end = 0;
+};
+
+bool next_ascii_element(CollatorData const& collator, AsciiCollation const& table, std::u16string_view s, std::size_t& i, AsciiElement& e)
+{
+    while (i < s.size()) {
+        char16_t const c = s[i];
+        std::uint8_t const group = table.group[c];
+        if (group == 0 || (group == 1 && collator.ignore_punctuation)) {
+            ++i;
+            continue;
+        }
+        e.group = group;
+        e.primary = table.primary[c];
+        e.tertiary = table.tertiary[c];
+        e.run = group == 2 && collator.numeric;
+        if (e.run) {
+            std::size_t j = i;
+            while (j < s.size() && is_ascii_digit(s[j]))
+                ++j;
+            while (i + 1 < j && s[i] == u'0')
+                ++i;
+            e.begin = i;
+            e.end = j;
+            i = j;
+        } else {
+            ++i;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool is_ascii(std::u16string_view s)
+{
+    return std::all_of(s.begin(), s.end(), [](char16_t c) { return c < 0x80; });
+}
+
+// The same three levels as compare_strings below, in one pass with no
+// allocation: the first difference in case is remembered while the
+// letters are compared, and only counts when the letters all agree.
+int compare_ascii(CollatorData const& collator, std::u16string_view x, std::u16string_view y)
+{
+    AsciiCollation const& table = ascii_collation();
+    std::size_t i = 0;
+    std::size_t j = 0;
+    int by_case = 0;
+    bool const upper_first = collator.case_first == "upper";
+    for (;;) {
+        AsciiElement a;
+        AsciiElement b;
+        bool const has_a = next_ascii_element(collator, table, x, i, a);
+        bool const has_b = next_ascii_element(collator, table, y, j, b);
+        if (!has_a || !has_b) {
+            if (has_a != has_b)
+                return has_a ? 1 : -1;
+            break;
+        }
+        if (a.group != b.group)
+            return a.group < b.group ? -1 : 1;
+        if (a.run) {
+            std::size_t const length_a = a.end - a.begin;
+            std::size_t const length_b = b.end - b.begin;
+            if (length_a != length_b)
+                return length_a < length_b ? -1 : 1;
+            int const order = x.substr(a.begin, length_a).compare(y.substr(b.begin, length_b));
+            if (order != 0)
+                return order < 0 ? -1 : 1;
+        } else if (a.primary != b.primary) {
+            return a.primary < b.primary ? -1 : 1;
+        }
+        if (by_case == 0 && a.tertiary != b.tertiary) {
+            bool const a_first = upper_first ? a.tertiary > b.tertiary : a.tertiary < b.tertiary;
+            by_case = a_first ? -1 : 1;
+        }
+    }
+    std::string const& s = collator.sensitivity;
+    return s == "case" || s == "variant" ? by_case : 0;
+}
+
 int compare_strings(CollatorData const& collator, std::u16string_view x, std::u16string_view y)
 {
+    if (x == y)
+        return 0;
+    if (is_ascii(x) && is_ascii(y))
+        return compare_ascii(collator, x, y);
     std::vector<CollationElement> const a = collation_elements(x, collator);
     std::vector<CollationElement> const b = collation_elements(y, collator);
     // Primary.
@@ -1393,6 +1512,16 @@ void install_intl_string_methods(Interpreter& in)
         if (!that)
             return std::nullopt;
         interp.root(Value::string(*that));
+        // With no locales and no options the Collator is the default one,
+        // and making it has no effect a script can see: it is made once.
+        if (argument(args, 1).is_undefined() && argument(args, 2).is_undefined()) {
+            static CollatorData const default_collator = [] {
+                CollatorData data;
+                data.locale = default_locale();
+                return data;
+            }();
+            return Value::number(compare_strings(default_collator, (*string)->view(), (*that)->view()));
+        }
         Value const collator_args[] = { argument(args, 1), argument(args, 2) };
         std::optional<Value> const collator = collator_construct(interp, collator_args,
             interp.intrinsics().intl_constructors[static_cast<std::size_t>(IntlKind::Collator)]);
