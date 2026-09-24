@@ -37,13 +37,20 @@ std::uint64_t physical_memory_bytes()
     return static_cast<std::uint64_t>(status.ullTotalPhys);
 }
 
-// The thread's reserve, from kernel32 (Windows 8 and later).
+// The thread's whole reserve: its top is the stack base the thread block
+// records, its bottom the base of the reservation a query of any stack
+// address returns — the same figures GetCurrentThreadStackLimits gives on
+// Windows 8 and later, read from what every Windows has.
 std::size_t current_thread_stack_bytes()
 {
-    ULONG_PTR low = 0;
-    ULONG_PTR high = 0;
-    GetCurrentThreadStackLimits(&low, &high);
-    return high > low ? static_cast<std::size_t>(high - low) : 0;
+    NT_TIB const* const tib = reinterpret_cast<NT_TIB const*>(NtCurrentTeb());
+    MEMORY_BASIC_INFORMATION info {};
+    char here = 0;
+    if (!tib || VirtualQuery(&here, &info, sizeof info) == 0)
+        return 0;
+    auto const top = reinterpret_cast<std::uintptr_t>(tib->StackBase);
+    auto const bottom = reinterpret_cast<std::uintptr_t>(info.AllocationBase);
+    return top > bottom ? static_cast<std::size_t>(top - bottom) : 0;
 }
 
 // The first thread's reserve is the executable's (-Wl,--stack): report it.
