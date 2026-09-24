@@ -124,6 +124,7 @@ void LayoutOracle::install(HostHooks& hooks)
 {
     hooks.layout_box = [this](dom::Element const& element) { return box(element); };
     hooks.computed_style = [this](dom::Element const& element) { return style(element); };
+    hooks.with_fonts = [this](std::function<void()> const& use) { with_fonts(use); };
 }
 
 namespace {
@@ -165,31 +166,7 @@ void LayoutOracle::ensure()
     std::uint64_t const mutations = m_realm ? m_realm->mutation_count() : 0;
     if (m_computed && mutations == m_mutations)
         return;
-    // The sheets are parsed and compiled again only when the elements
-    // carrying them changed; every mutation still cascades and lays out.
-    std::string signature = sheet_signature(*m_document);
-    if (!m_style_set || signature != m_sheet_signature) {
-        css::InlineSheetCheck check;
-        if (m_policy) {
-            check = [this](dom::Element const& style, std::string_view text) {
-                dom::Attr const* const nonce = style.find_attribute("nonce");
-                return !m_policy->inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
-            };
-        }
-        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*m_document, &m_base, m_fetch, m_media, check);
-        // The page's own fonts answer its measurements, as they do the
-        // render: a test that measures text in Ahem and then sets a width
-        // from it must measure in Ahem.
-        m_fonts = css::collect_page_fonts(sheets, m_fetch, m_media);
-        net::Url const named_against = html::document_base_url(*m_document, m_base);
-        m_style_set.emplace(sheets, m_media, &named_against);
-        if (m_policy) {
-            m_style_set->set_style_attribute_check([this](dom::Element const&, std::string_view text) {
-                return !m_policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);
-            });
-        }
-        m_sheet_signature = std::move(signature);
-    }
+    sheets_up_to_date();
     // A frame's document is laid out in its own fonts, and the page's are put
     // back: the process has one set at a time, and it is the page's between
     // layouts.
@@ -215,6 +192,54 @@ void LayoutOracle::ensure()
         m_realm ? &embedded : nullptr);
     m_computed = true;
     m_mutations = mutations;
+}
+
+void LayoutOracle::with_fonts(std::function<void()> const& use)
+{
+    sheets_up_to_date();
+    std::vector<text::FontManager::PageFace> page_faces;
+    if (m_keep_page_fonts)
+        page_faces = text::FontManager::instance().page_faces();
+    text::FontManager::instance().set_page_fonts(m_fonts);
+    struct FontsBack {
+        bool wanted;
+        std::vector<text::FontManager::PageFace>& faces;
+        ~FontsBack()
+        {
+            if (wanted)
+                text::FontManager::instance().restore_page_faces(std::move(faces));
+        }
+    } const fonts_back { m_keep_page_fonts, page_faces };
+    use();
+}
+
+void LayoutOracle::sheets_up_to_date()
+{
+    // The sheets are parsed and compiled again only when the elements
+    // carrying them changed; every mutation still cascades and lays out.
+    std::string signature = sheet_signature(*m_document);
+    if (!m_style_set || signature != m_sheet_signature) {
+        css::InlineSheetCheck check;
+        if (m_policy) {
+            check = [this](dom::Element const& style, std::string_view text) {
+                dom::Attr const* const nonce = style.find_attribute("nonce");
+                return !m_policy->inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
+            };
+        }
+        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*m_document, &m_base, m_fetch, m_media, check);
+        // The page's own fonts answer its measurements, as they do the
+        // render: a test that measures text in Ahem and then sets a width
+        // from it must measure in Ahem.
+        m_fonts = css::collect_page_fonts(sheets, m_fetch, m_media);
+        net::Url const named_against = html::document_base_url(*m_document, m_base);
+        m_style_set.emplace(sheets, m_media, &named_against);
+        if (m_policy) {
+            m_style_set->set_style_attribute_check([this](dom::Element const&, std::string_view text) {
+                return !m_policy->inline_refusal(net::InlineKind::StyleAttribute, {}, text);
+            });
+        }
+        m_sheet_signature = std::move(signature);
+    }
 }
 
 std::optional<LayoutBox> LayoutOracle::box(dom::Element const& element)

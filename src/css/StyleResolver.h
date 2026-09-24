@@ -96,6 +96,21 @@ ComputedStyle inherited_style(ComputedStyle const& parent);
 // stylesheet: a browser theme's manifest writes its colors this way.
 std::optional<Color> parse_color_text(std::string_view text);
 
+// The font shorthand as text alone — what a canvas context's font attribute
+// takes: the size (relative sizes against `parent_font_size`), the weight,
+// the slant, small-caps and the family list, by the cascade's own rules;
+// nullopt for a value the cascade would drop, and for the CSS-wide keywords.
+struct FontShorthandValue {
+    float size = 16;
+    int weight = 400;
+    bool italic = false;
+    bool oblique = false;
+    bool small_caps = false;
+    int stretch = 100;
+    std::vector<std::string> families;
+};
+std::optional<FontShorthandValue> parse_font_shorthand_text(std::string_view text, float parent_font_size);
+
 // css-conditional-3 §6: whether a @supports prelude's <supports-condition>
 // holds, over its already-parsed component values — `not`/`and`/`or` of
 // `( <supports-condition> )`, `( <declaration> )`, `selector( <complex-

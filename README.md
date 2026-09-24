@@ -41,8 +41,8 @@ Not written yet: the newer half of JavaScript — a JavaScript engine of our own
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi conformance, `BidiCharacterTest` and `BidiTest` | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | Unicode line breaking conformance, `LineBreakTest` | **16,672 / 16,672** (100%) |
-| WPT CSS reference tests, 14,917 tests over CSS2 and sixteen `css-*` directories | **9740 / 14917 (65.3%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests, 155,743 subtests over 3190 test files under twenty-eight `dom/`, `html/`, `css/cssom`, `css/css-conditional`, `css/css-fonts/parsing`, `url/`, custom-element and shadow-tree directories, each declared variant its own test | **133671 / 155743 (85.8%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| WPT CSS reference tests, 15,186 tests over CSS2 and sixteen `css-*` directories | **9872 / 15186 (65.0%)** — the table is at [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT testharness tests, 159,161 subtests over 4476 test files under twenty-eight `dom/`, `html/`, `css/cssom`, `css/css-conditional`, `css/css-fonts/parsing`, `url/`, custom-element and shadow-tree directories, each declared variant its own test | **135601 / 159161 (85.2%)** — the table is at [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
 | test262, the ECMAScript conformance suite, 41,791 tests over 86 directories | **40355 / 41791 (96.6%)** — the table is at [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 — a hundred live pages, rendered every night by the Windows build and by the Linux build, and published | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 

@@ -52,11 +52,13 @@ endif()
 
 add_library(sashfold_core STATIC
   src/bindings/Binary.cpp
+  src/bindings/Canvas.cpp
   src/bindings/CustomElements.cpp
   src/bindings/Document.cpp
   src/bindings/Events.cpp
   src/bindings/Fetch.cpp
   src/bindings/Fullscreen.cpp
+  src/bindings/Geometry.cpp
   src/bindings/HtmlElements.cpp
   src/bindings/IndexedDb.cpp
   src/bindings/Intersection.cpp
@@ -139,6 +141,7 @@ add_library(sashfold_core STATIC
   src/net/tls/TrustStore.cpp
   src/net/tls/Validate.cpp
   src/net/tls/X509.cpp
+  src/paint/Canvas2D.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
   src/platform/AudioVirtual.cpp

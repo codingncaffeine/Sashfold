@@ -102,6 +102,18 @@ struct FrameDocument {
 // read (HTML §4.8.4's image request states, as `complete` asks for them).
 enum class ImageState : std::uint8_t { None, Pending, Available, Broken };
 
+// An <img>'s decoded picture as the host holds it, with where its bytes
+// came from: the URL its redirects ended at, and the response's
+// Access-Control-Allow-Origin and Access-Control-Allow-Credentials values.
+// A canvas that draws it judges from these whether the picture is
+// CORS-same-origin; with `from` unknown it counts as another origin's.
+struct HostPicture {
+    std::shared_ptr<Bitmap const> bitmap;
+    std::optional<net::Url> from;
+    std::string allow_origin;
+    bool allow_credentials = false;
+};
+
 // What the page's host provides to its scripts. Every hook is optional;
 // a missing one answers with the least surprising nothing (no box, the
 // attribute's value, no navigation).
@@ -148,6 +160,11 @@ struct HostHooks {
     std::function<std::optional<LayoutBox>(dom::Element const&)> layout_box;
     // The element's computed style, for getComputedStyle; null when unknown.
     std::function<css::ComputedStyle const*(dom::Element const&)> computed_style;
+    // Runs the callback with the page's own fonts (its @font-face rules) in
+    // the process's font manager, and nothing else laying out meanwhile: what
+    // a canvas measures and draws text through. Without it the text is
+    // shaped with whatever fonts the process holds at the moment.
+    std::function<void(std::function<void()> const&)> with_fonts;
     // location.href = …, location.assign, a form the script submits.
     std::function<void(net::Url const&)> navigate;
     // window.scrollTo and friends, and where the document stands — the
@@ -173,6 +190,10 @@ struct HostHooks {
     // Where an image element's picture stands, for `complete`: false while
     // it is Pending. Without the hook every image counts as complete.
     std::function<ImageState(dom::Element const&)> image_state;
+    // An <img>'s decoded picture as the host holds it, for a canvas that
+    // draws it; a null bitmap while it has none. Without it the realm
+    // fetches and decodes the picture itself when a canvas asks for it.
+    std::function<HostPicture(dom::Element const&)> image_picture;
     // Whether a picture's bytes decode: an object whose resource is a picture
     // that does not shows its fallback instead (HTML §4.8.7). Without it every
     // picture counts as one that decodes.

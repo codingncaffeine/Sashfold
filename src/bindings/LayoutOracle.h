@@ -13,6 +13,7 @@
 #include "text/FontManager.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -38,7 +39,8 @@ public:
     // The document's Content Security Policy, whose say on inline styles
     // the answers here honour as the render does.
     void set_policy(net::ContentSecurityPolicy* policy) { m_policy = policy; }
-    // Puts layout_box and computed_style on the hooks, answering from here.
+    // Puts layout_box, computed_style and with_fonts on the hooks, answering
+    // from here.
     void install(HostHooks& hooks);
     // A frame's answers (Realm.cpp). Its window goes on to another document;
     // its viewport is its container's box, which the page may resize; and the
@@ -53,8 +55,14 @@ public:
     css::ComputedStyle const* style(dom::Element const& element);
     // Brings styles and layout up to date with the tree.
     void ensure();
+    // Runs `use` with the document's own fonts in the process's font
+    // manager, put back afterwards as a layout here does.
+    void with_fonts(std::function<void()> const& use);
 
 private:
+    // The sheets, and the fonts they bring, parsed again when the elements
+    // carrying them have changed.
+    void sheets_up_to_date();
     dom::Document* m_document;
     net::Url m_base;
     bool m_keep_page_fonts = false;

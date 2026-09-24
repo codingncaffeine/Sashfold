@@ -20,3 +20,7 @@ css/selectors
 css/css-variables
 css/css-writing-modes
 html/rendering
+
+# The canvas element's reference tests: pictures a script draws, matched
+# against pages that draw the same thing another way.
+html/canvas/element

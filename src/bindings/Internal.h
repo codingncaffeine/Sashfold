@@ -948,6 +948,15 @@ struct Realm::Internals {
     // The media elements' states that decode video, while their elements are
     // in the document: whose pictures the host draws (Media.cpp).
     std::vector<js::Object*> presenting_media;
+    // The states of the canvases in the document that have been drawn on,
+    // whose pictures the host draws (Canvas.cpp), found again from the tree
+    // whenever it has changed since `canvases_found_at`.
+    std::vector<js::Object*> canvases;
+    std::uint64_t canvases_found_at = ~std::uint64_t { 0 };
+    // How many times document.open() has aborted the document (HTML
+    // §8.4.1.2's abort steps): the picture loads queued before it are
+    // cancelled with the document's other tasks.
+    std::uint64_t document_aborts = 0;
     // The wrapper of the element shown full screen, if one is (Fullscreen.cpp).
     js::Object* fullscreen_wrapper = nullptr;
     // What scripts hold for this window, its WindowProxy; and whether an
@@ -1303,6 +1312,49 @@ void trace_indexeddb(Realm::Internals const&, js::Tracer&);
 // The storage a realm's indexedDB uses — null at an opaque origin — which
 // the workers it starts are handed.
 std::shared_ptr<idb::Storage> indexeddb_storage(Realm::Internals&);
+
+void install_geometry(Realm::Internals&); // Geometry.cpp: DOMPointReadOnly, DOMPoint, DOMMatrixReadOnly, DOMMatrix
+// Canvas.cpp: HTMLCanvasElement's contexts, CanvasRenderingContext2D,
+// CanvasGradient, CanvasPattern, Path2D, TextMetrics, ImageData, ImageBitmap
+// and createImageBitmap.
+void install_canvas(Realm::Internals&);
+// A canvas's width or height attribute was set, changed or removed: its
+// bitmap is made again at the new size, transparent black, and its context
+// reset (HTML §4.12.5).
+void canvas_size_changed(Realm::Internals&, dom::Element&);
+// The pictures the document's canvases show now, for the host (with the
+// video frames: Realm::video_frames), and the states kept for them.
+std::vector<VideoFrame> canvas_frames(Realm::Internals&);
+void trace_canvases(Realm::Internals const&, js::Tracer&);
+// An <img>'s src was set, changed or removed: one the host does not fetch
+// (one out of the document, or any when the host fetches no pictures) is
+// fetched and decoded by the realm in a task, which fires its load or error
+// event (Canvas.cpp, whose drawImage draws the same picture).
+void image_source_changed(Realm::Internals&, dom::Element&);
+// An ImageData as the structured clone carries it (it is serializable): its
+// size and a copy of its bytes; nullopt for an object that is not one. And a
+// new ImageData in a realm from one (a RangeError pending on nullopt).
+struct ImageDataCopy {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> bytes;
+};
+std::optional<ImageDataCopy> image_data_copy(js::Object const&);
+std::optional<js::Value> image_data_from_copy(Realm::Internals&, ImageDataCopy const&);
+// A video element's picture now, and whether it shows one (Media.cpp).
+std::shared_ptr<Bitmap const> media_current_picture(Realm::Internals&, dom::Element&);
+// A 2D matrix as DOMMatrix2DInit gives it, validated and fixed up (a
+// TypeError pending on nullopt); and a new DOMMatrix of one (Geometry.cpp).
+struct Matrix2D {
+    double a = 1;
+    double b = 0;
+    double c = 0;
+    double d = 1;
+    double e = 0;
+    double f = 0;
+};
+std::optional<Matrix2D> matrix_2d_from_init(Realm::Internals&, js::Value const& init);
+js::Value new_dom_matrix_2d(Realm::Internals&, Matrix2D const&);
 // Custom elements (CustomElements.cpp, HTML §4.13): the registry, the
 // HTMLElement constructor a page's class calls through, and the callbacks
 // the tree owes a definition.

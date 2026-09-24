@@ -483,7 +483,12 @@ private:
         // The objects and embeds as the page's realm decided them; a page with no
         // script has no realm, and each is the replaced box it always was.
         layout::EmbeddedStates const embedded = realm ? bindings::embedded_states(*realm) : layout::EmbeddedStates {};
-        layout::ImageMap const images = ui::collect_images(*document, &*url, fetch_image, media, realm ? &embedded : nullptr);
+        layout::ImageMap images = ui::collect_images(*document, &*url, fetch_image, media, realm ? &embedded : nullptr);
+        // What the page's videos and canvases show once its scripts are done.
+        if (realm) {
+            for (bindings::VideoFrame const& frame : realm->video_frames())
+                images[frame.element] = layout::PageImage { frame.bitmap, 1 };
+        }
         // The pictures the stylesheets ask for. The painter draws them from a
         // map of its own, and without it every background-image in the suite
         // is a blank box.

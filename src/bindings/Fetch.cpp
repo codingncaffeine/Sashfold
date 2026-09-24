@@ -1309,9 +1309,14 @@ FetchOutcome perform_fetch(Realm::Internals& in, PageRequest const& page_request
     outcome.url = response.final_url;
     outcome.redirected = response.redirected;
     if (tainted && page_request.mode == FetchMode::NoCors) {
+        // The filtered response hides all of it from a script; the internal
+        // one's status and body are kept for the element that asked (a
+        // picture a canvas draws, taint and all), and fetch() drops them.
         outcome.type = "opaque";
         outcome.url = net::Url();
         outcome.redirected = false;
+        outcome.status = response.status;
+        outcome.body = std::move(response.body);
         return outcome;
     }
     if (tainted) {
@@ -1364,8 +1369,9 @@ ResponseObject* response_from(Realm::Internals& in, FetchOutcome const& outcome)
     response->url = outcome.url;
     response->has_url = !outcome.url.scheme.empty();
     response->redirected = outcome.redirected;
-    response->status = outcome.status;
-    response->status_text = outcome.status_text;
+    bool const opaque = outcome.type == "opaque" || outcome.type == "opaqueredirect";
+    response->status = opaque ? 0 : outcome.status;
+    response->status_text = opaque ? std::string() : outcome.status_text;
     response->headers = new_headers(in, HeadersObject::Guard::Immutable);
     for (net::Header const& header : outcome.headers)
         response->headers->append(lowercase(header.name), normalize_header_value(header.value));

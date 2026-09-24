@@ -1,6 +1,8 @@
+#include "bindings/Realm.h"
 #include "core/Bitmap.h"
 #include "core/Png.h"
 #include "css/StyleResolver.h"
+#include "dom/Dom.h"
 #include "html/TreeBuilder.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
@@ -43,10 +45,40 @@ std::vector<std::uint8_t> render_page_bytes(std::filesystem::path const& path, i
     std::ifstream file(path, std::ios::binary);
     std::ostringstream stream;
     stream << file.rdbuf();
-    auto document = html::parse_document_bytes(std::move(stream).str());
+    std::string const source = std::move(stream).str();
+    // A page with a script runs it on a clock that stands still until its
+    // timers are due, and shows what its canvases were drawn with; a page
+    // without one is parsed alone, as it always was.
+    auto document = std::make_unique<dom::Document>();
+    std::unique_ptr<bindings::Realm> realm;
+    double clock = 0;
+    if (source.find("<script") != std::string::npos) {
+        bindings::HostHooks hooks;
+        hooks.now = [&clock] { return clock; };
+        hooks.console = [&path](std::string_view level, std::string_view message) {
+            std::cerr << path.filename().string() << " console." << level << ": " << message << "\n";
+        };
+        realm = std::make_unique<bindings::Realm>(*document, *net::parse_url("https://pages.test/" + path.filename().string()),
+            std::move(hooks));
+    }
+    html::parse_document_bytes_into(*document, source, realm.get());
+    layout::ImageMap images;
+    if (realm) {
+        realm->document_parsed();
+        for (int i = 0; i < 1000; ++i) {
+            if (realm->run_pending())
+                continue;
+            std::optional<double> const due = realm->next_timer_due();
+            if (!due || *due > 60000)
+                break;
+            clock = std::max(clock, *due);
+        }
+        for (bindings::VideoFrame const& frame : realm->video_frames())
+            images[frame.element] = layout::PageImage { frame.bitmap, 1 };
+    }
     css::StyleMap const styles = css::resolve_styles(*document);
     layout::LayoutResult const page = layout::layout_document(*document, styles,
-        static_cast<float>(width));
+        static_cast<float>(width), realm ? &images : nullptr);
     // What the picture cannot show: a box placed twice at one spot, a
     // coordinate that is not a number, a size below zero.
     faults = layout::check_fragments(page);

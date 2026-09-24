@@ -920,6 +920,12 @@ TestResult run_test(Server const& server, std::string const& id)
             return inner(element);
         };
     }
+    if (hooks.with_fonts) {
+        hooks.with_fonts = [inner = std::move(hooks.with_fonts)](std::function<void()> const& use) {
+            std::lock_guard<std::mutex> const lock(layout_mutex);
+            inner(use);
+        };
+    }
     hooks.console = [&](std::string_view level, std::string_view message) {
         if (level == "log" && message.starts_with(results_marker)) {
             report = std::string(message.substr(results_marker.size()));

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font-family: sans-serif; }
+  canvas { border: 1px solid #333; }
+  .scaled { width: 200px; height: 75px; }
+</style>
+</head>
+<body>
+<p>A canvas drawn by script: shapes, a gradient, text, a dashed stroke and a picture.</p>
+<canvas id="main" width="400" height="240"></canvas>
+<canvas id="small" class="scaled" width="80" height="30"></canvas>
+<script>
+  var c = document.getElementById('main');
+  var x = c.getContext('2d');
+
+  // Shapes: a filled square, a stroked circle with a thick edge, a rounded
+  // rectangle, and a triangle filled and outlined with round joins.
+  x.fillStyle = '#c03030';
+  x.fillRect(10, 10, 60, 60);
+  x.strokeStyle = '#2050c0';
+  x.lineWidth = 6;
+  x.beginPath();
+  x.arc(120, 40, 26, 0, Math.PI * 2);
+  x.stroke();
+  x.fillStyle = '#30a050';
+  x.beginPath();
+  x.roundRect(170, 12, 70, 56, [16, 4, 16, 4]);
+  x.fill();
+  x.beginPath();
+  x.moveTo(270, 68);
+  x.lineTo(300, 12);
+  x.lineTo(330, 68);
+  x.closePath();
+  x.fillStyle = '#f0c040';
+  x.fill();
+  x.lineJoin = 'round';
+  x.lineWidth = 4;
+  x.strokeStyle = '#805000';
+  x.stroke();
+
+  // A horizontal gradient from orange to purple, and a radial one.
+  var g = x.createLinearGradient(10, 0, 250, 0);
+  g.addColorStop(0, '#ff8000');
+  g.addColorStop(1, '#8000c0');
+  x.fillStyle = g;
+  x.fillRect(10, 80, 240, 30);
+  var r = x.createRadialGradient(300, 95, 2, 300, 95, 30);
+  r.addColorStop(0, '#ffffff');
+  r.addColorStop(1, '#008080');
+  x.fillStyle = r;
+  x.fillRect(270, 80, 60, 30);
+
+  // Text, filled and stroked, in the built-in face.
+  x.fillStyle = '#000000';
+  x.font = '20px sans-serif';
+  x.fillText('Canvas text', 10, 140);
+  x.strokeStyle = '#c00000';
+  x.lineWidth = 1;
+  x.strokeText('outlined', 170, 140);
+
+  // A dashed stroke with butt caps, then one with round caps and an offset.
+  x.lineWidth = 4;
+  x.strokeStyle = '#404040';
+  x.setLineDash([12, 6]);
+  x.beginPath();
+  x.moveTo(10, 160);
+  x.lineTo(390, 160);
+  x.stroke();
+  x.lineCap = 'round';
+  x.lineDashOffset = 6;
+  x.setLineDash([2, 10]);
+  x.beginPath();
+  x.moveTo(10, 175);
+  x.lineTo(390, 175);
+  x.stroke();
+  x.setLineDash([]);
+
+  // A four-pixel picture from a data: URL, drawn at its own size and
+  // scaled up eightfold without smoothing, then a rotated copy.
+  var img = new Image();
+  img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAHklEQVR4nGP4z8DwH4QZFkAxhgCU////CQYwxhAAABP6IYU4HuTnAAAAAElFTkSuQmCC';
+  function drawPicture() {
+    x.imageSmoothingEnabled = false;
+    x.drawImage(img, 10, 195);
+    x.drawImage(img, 30, 190, 32, 32);
+    x.save();
+    x.translate(110, 206);
+    x.rotate(Math.PI / 4);
+    x.drawImage(img, -16, -16, 32, 32);
+    x.restore();
+  }
+  if (img.complete)
+    drawPicture();
+  else
+    img.onload = drawPicture;
+
+  // A second, smaller canvas that the page shows at a larger CSS size.
+  var s = document.getElementById('small').getContext('2d');
+  s.fillStyle = '#e0e0ff';
+  s.fillRect(0, 0, 80, 30);
+  s.fillStyle = '#2020a0';
+  s.fillRect(5, 5, 30, 20);
+  s.globalCompositeOperation = 'xor';
+  s.fillRect(25, 10, 30, 15);
+</script>
+</body>
+</html>

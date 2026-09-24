@@ -763,7 +763,9 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
     // device px.
     float const scale = device_scale > 0 ? device_scale : 1.0f;
     std::optional<ReplacedSize> intrinsic;
-    if (image) {
+    // A canvas's picture is its bitmap, which its attributes size: those,
+    // in CSS px, are its size whatever picture it shows.
+    if (image && !element.is_html("canvas")) {
         float const px_per_pixel = density > 0 ? 1.0f / density : 1.0f;
         intrinsic = ReplacedSize { static_cast<float>(image->width()) * px_per_pixel,
             static_cast<float>(image->height()) * px_per_pixel };
@@ -784,10 +786,27 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
     } else if (element.is_html("canvas")) {
         // A canvas's bitmap is as large as its attributes say, 300 by 150
         // where they say nothing (HTML §4.12.5): that is its size, and the
-        // ratio it keeps when a style gives it one side.
+        // ratio it keeps when a style gives it one side. The attributes are
+        // read by the rules for parsing non-negative integers: leading
+        // whitespace and a plus sign, then the digits, whatever follows.
         auto const pixels = [&](char const* name, float otherwise) {
-            std::optional<LengthPercent> const written = attribute_length(element, name);
-            return written && written->kind == LengthPercent::Kind::Px ? written->value : otherwise;
+            dom::Attr const* const attribute = element.find_attribute(name);
+            if (!attribute)
+                return otherwise;
+            std::string_view text = attribute->value;
+            while (!text.empty() && (text[0] == ' ' || text[0] == '\t' || text[0] == '\n' || text[0] == '\f' || text[0] == '\r'))
+                text.remove_prefix(1);
+            if (!text.empty() && text[0] == '+')
+                text.remove_prefix(1);
+            if (text.empty() || text[0] < '0' || text[0] > '9')
+                return otherwise;
+            double value = 0;
+            for (char const c : text) {
+                if (c < '0' || c > '9')
+                    break;
+                value = value * 10 + (c - '0');
+            }
+            return value > 2147483647.0 ? otherwise : static_cast<float>(value);
         };
         intrinsic = no_content ? ReplacedSize { 0, 0 } : ReplacedSize { pixels("width", 300) * scale, pixels("height", 150) * scale };
     } else if (element.is_html("img")) {
@@ -4954,6 +4973,17 @@ struct Layouter {
             float const available = containing_width - margin_left - margin_right - horizontal_edges;
             border_box_width
                 = clamp_width(style, available, containing_width, horizontal_edges) + horizontal_edges;
+            // A block-level replaced box's auto width is its own (CSS 2
+            // §10.3.4), not the room it is given: what is left over goes to
+            // the margins, so auto margins centre it.
+            if (shows_replaced(element)) {
+                PageImage const image = image_for(element);
+                std::optional<ReplacedSize> const size = replaced_size(element, style, image.bitmap.get(), image.density,
+                    std::max(0.0f, border_box_width - horizontal_edges), options.containing_height, device_scale,
+                    represents_nothing(element));
+                if (size)
+                    border_box_width = size->width + horizontal_edges;
+            }
             // A bound written as a content keyword needs the content
             // measured, which is why it is only measured when one is.
             if (has_content_bound(style)) {

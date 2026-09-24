@@ -2089,6 +2089,18 @@ bool register_media_source_url(Realm::Internals& in, js::Value const& value, std
     return true;
 }
 
+// What a canvas draws of a video (HTML §4.12.5.1.15): the frame at its
+// playback position once it has one, nothing before.
+std::shared_ptr<Bitmap const> media_current_picture(Realm::Internals& in, dom::Element& element)
+{
+    if (!element.is_html("video"))
+        return nullptr;
+    MediaStateObject& state = live_state_of(in, element);
+    if (state.ready_state < HaveCurrentData || !state.picture)
+        return nullptr;
+    return state.picture;
+}
+
 // The elements that show pictures, as they are now; an element out of the
 // document leaves the list (and is listed again when it plays in it).
 std::vector<VideoFrame> media_video_frames(Realm::Internals& in)

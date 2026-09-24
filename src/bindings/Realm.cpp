@@ -253,8 +253,12 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
             in.schedule_embedder_update(element);
         return;
     case ContainerKind::None:
-        if (local_name == "src")
+        if (local_name == "src" && element.is_html("img"))
+            image_source_changed(in, element);
+        else if (local_name == "src")
             media_src_changed(in, element);
+        else if ((local_name == "width" || local_name == "height") && element.is_html("canvas"))
+            canvas_size_changed(in, element);
         return;
     }
 }
@@ -1171,6 +1175,8 @@ void install_interfaces(Realm::Internals& in)
     }
     install_workers(in);
     install_media(in);
+    install_geometry(in);
+    install_canvas(in);
     // Last of the element machinery: it makes HTMLElement constructible,
     // which every interface above it must already exist for.
     install_custom_elements(in);
@@ -1458,7 +1464,13 @@ std::uint64_t Realm::tree_mutation_count() const
     return count;
 }
 void Realm::note_mutation() { ++m_internals->mutations; }
-std::vector<VideoFrame> Realm::video_frames() { return media_video_frames(*m_internals); }
+std::vector<VideoFrame> Realm::video_frames()
+{
+    std::vector<VideoFrame> frames = media_video_frames(*m_internals);
+    std::vector<VideoFrame> canvases = canvas_frames(*m_internals);
+    frames.insert(frames.end(), canvases.begin(), canvases.end());
+    return frames;
+}
 
 void Realm::image_settled(dom::Element const& image, bool available)
 {
@@ -1795,6 +1807,15 @@ std::shared_ptr<FrameGeometry> frame_geometry(Realm::Internals& parent, dom::Ele
         refresh_frame_viewport(*geometry);
         return geometry->oracle->style(element);
     };
+    // A frame's canvas text is shaped in the frame's fonts, inside whatever
+    // turn-taking the page's own text keeps.
+    frame_hooks.with_fonts = [geometry, outer = parent.hooks.with_fonts](std::function<void()> const& use) {
+        std::function<void()> const inner = [&geometry, &use] { geometry->oracle->with_fonts(use); };
+        if (outer)
+            outer(inner);
+        else
+            inner();
+    };
     frame_hooks.refresh_viewport = [geometry] { refresh_frame_viewport(*geometry); };
     return geometry;
 }
@@ -1859,6 +1880,7 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     frame_hooks.local_storage = hooks.local_storage;
     frame_hooks.frame_document = hooks.frame_document;
     frame_hooks.image_decodes = hooks.image_decodes;
+    frame_hooks.image_picture = hooks.image_picture;
     frame_hooks.trace = hooks.trace;
     frame_hooks.device_scale = hooks.device_scale;
     frame_hooks.user_agent = hooks.user_agent;
@@ -2959,6 +2981,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
     trace_presenting_media(in, tracer);
+    trace_canvases(in, tracer);
     trace_fullscreen(in, tracer);
     trace_indexeddb(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {

@@ -477,6 +477,26 @@ struct Browser::Impl {
         std::chrono::steady_clock::time_point waiting_since;
     };
 
+    // Where a picture's bytes came from: the URL its redirects ended at and
+    // what its response said of reading it from another origin.
+    struct PictureOrigin {
+        net::Url from;
+        std::string allow_origin;
+        bool allow_credentials = false;
+    };
+    using PictureOrigins = std::unordered_map<std::string, PictureOrigin>;
+
+    static void note_picture_origin(PictureOrigins& origins, net::Url const& requested, net::FetchResponse const& response)
+    {
+        PictureOrigin origin;
+        origin.from = response.final_url;
+        if (std::string const* const allow = net::find_header(response.headers, "access-control-allow-origin"))
+            origin.allow_origin = *allow;
+        if (std::string const* const credentials = net::find_header(response.headers, "access-control-allow-credentials"))
+            origin.allow_credentials = *credentials == "true";
+        origins[requested.serialize(true)] = std::move(origin);
+    }
+
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
@@ -518,6 +538,10 @@ struct Browser::Impl {
         // The source each <img> in `images` was had for, so that a source a
         // script changes afterwards is fetched again (and heard of again).
         std::unordered_map<dom::Element const*, std::string> image_sources;
+        // Where each picture fetched for the page came from, by the source
+        // asked for, for a canvas that draws one and must know whether it
+        // is the page's own. Shared with the fetchers, as the policy is.
+        std::shared_ptr<PictureOrigins> picture_origins = std::make_shared<PictureOrigins>();
         // The video elements whose pictures are in `images`, with the bitmap
         // and the frame last seen of each (bindings::VideoFrame), and where
         // the last whole paint put each picture in the content area.
@@ -2388,19 +2412,21 @@ struct Browser::Impl {
     static constexpr std::size_t images_per_pass = 64;
 
     // A page's pictures fetched through the loader with the page as first
-    // party, under its policy's guard.
+    // party, under its policy's guard, each noted with where it came from.
     ImageFetcher image_fetcher(Tab& tab)
     {
         HistoryEntry const* const entry = tab.current();
         net::Url const page_url = entry ? entry->final_url : net::Url {};
         net::ContentSecurityPolicy* const policy = tab.policy.get();
         std::string const container = tab.container;
-        return [this, page_url, policy, container](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+        std::shared_ptr<PictureOrigins> const origins = tab.picture_origins;
+        return [this, page_url, policy, container, origins](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
             net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Image) : net::RequestGuard {};
             net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url),
                 net::ResourceKind::Image, guard, container);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
+            note_picture_origin(*origins, url, *result.response);
             return std::move(result.response->body);
         };
     }
@@ -2799,6 +2825,45 @@ struct Browser::Impl {
             Tab* const owner = tab_of(document);
             return owner ? image_state(*owner, element) : bindings::ImageState::None;
         };
+        // A canvas's text is shaped in the page's own fonts, whichever tab
+        // the process laid out last.
+        hooks.with_fonts = [this, document](std::function<void()> const& use) {
+            Tab* const owner = tab_of(document);
+            if (!owner) {
+                use();
+                return;
+            }
+            std::vector<text::FontManager::PageFace> const before = text::FontManager::instance().page_faces();
+            text::FontManager::instance().set_page_fonts(owner->fonts);
+            use();
+            text::FontManager::instance().restore_page_faces(before);
+        };
+        // The decoded picture the page shows, for a canvas that draws it:
+        // the one the tab fetched, not a second fetch, with where its bytes
+        // came from after its redirects. A source the network did not give
+        // (a data: URL) is its own origin; one fetched but not noted is
+        // left unknown, which the canvas counts as another origin's.
+        hooks.image_picture = [this, document](dom::Element const& element) -> bindings::HostPicture {
+            bindings::HostPicture picture;
+            Tab* const owner = tab_of(document);
+            if (!owner || image_state(*owner, element) != bindings::ImageState::Available)
+                return picture;
+            auto const it = owner->images.find(&element);
+            if (it == owner->images.end())
+                return picture;
+            picture.bitmap = it->second.bitmap;
+            std::optional<net::Url> const base = image_base(*owner);
+            std::string const source = base ? image_source_key(element, *base) : std::string();
+            if (auto const noted = owner->picture_origins->find(source); noted != owner->picture_origins->end()) {
+                picture.from = noted->second.from;
+                picture.allow_origin = noted->second.allow_origin;
+                picture.allow_credentials = noted->second.allow_credentials;
+            } else if (std::optional<net::Url> const named = net::parse_url(source);
+                       named && named->scheme != "http" && named->scheme != "https") {
+                picture.from = *named;
+            }
+            return picture;
+        };
         hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return decode_image_bytes(bytes).has_value(); };
         hooks.submit_form = [this, document](dom::Element const& form, dom::Element const* submitter) {
             Tab* const owner = tab_of(document);
@@ -2912,6 +2977,7 @@ struct Browser::Impl {
                 net::ResourceKind::Image, guard, tab.container);
             if (!result.response || result.response->status != 200)
                 return std::nullopt;
+            note_picture_origin(*tab.picture_origins, url, *result.response);
             return std::move(result.response->body);
         };
         // Pictures are decoded once: only a page with an <img> not seen yet
@@ -3045,6 +3111,7 @@ struct Browser::Impl {
         tab.tree_scroll = 0;
         tab.images.clear();
         tab.image_sources.clear();
+        tab.picture_origins->clear();
         tab.pictures_coming.clear(); // the pictures of the page that is going
         tab.pictures_asked_ahead = false;
         tab.backgrounds.clear();

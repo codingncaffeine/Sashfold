@@ -740,7 +740,12 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     };
     document_method(in, *document, "write", 1, write(false));
     document_method(in, *document, "writeln", 1, write(true));
-    document_method(in, *document, "open", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native { return js::Value::object(internals.wrap(d)); });
+    document_method(in, *document, "open", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
+        // The document is aborted: what it had queued is cancelled.
+        if (&d == internals.document)
+            ++internals.document_aborts;
+        return js::Value::object(internals.wrap(d));
+    });
     document_method(in, *document, "close", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
     document_method(in, *document, "clear", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
     document_method(in, *document, "captureEvents", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });

@@ -996,10 +996,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         js::Object& embed = proto_of("HTMLEmbedElement");
         element_getter(in, embed, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         element_getter(in, embed, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        // getContext, toDataURL and toBlob are the 2D context's (Canvas.cpp).
         js::Object& canvas = proto_of("HTMLCanvasElement");
-        element_method(in, canvas, "getContext", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
-        element_method(in, canvas, "toDataURL", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native { return internals.string("data:,"); });
-        element_method(in, canvas, "toBlob", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
         element_method(in, canvas, "captureStream", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
     }
 

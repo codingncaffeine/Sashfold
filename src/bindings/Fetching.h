@@ -42,6 +42,8 @@ struct FetchOutcome {
     bool ok = false; // false = a network error; `error` says why
     std::string error;
     std::string type = "basic"; // basic, cors, opaque, opaqueredirect
+    // An opaque response's status and body are its internal response's:
+    // an element may use them, a script's Response is never given them.
     int status = 0;
     std::string status_text;
     std::vector<net::Header> headers; // what the page may see

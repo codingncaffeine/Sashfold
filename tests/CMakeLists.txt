@@ -107,6 +107,7 @@ sashfold_test(test_js_proxy)
 sashfold_test(test_js_bigint)
 sashfold_test(test_crypto)
 sashfold_test(test_bindings)
+sashfold_test(test_canvas)
 sashfold_test(test_workers)
 sashfold_test(test_indexeddb)
 

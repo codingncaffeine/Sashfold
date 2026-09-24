@@ -51,6 +51,7 @@ struct SerializedMessage {
         Array,
         Object,
         Blob,
+        ImageData, // its size in `byte_offset` and `buffer`, its pixels in `bytes`
         Transferred, // an entry of the transfer list: made from its data holder
     };
     struct Record {
@@ -380,8 +381,18 @@ std::optional<std::size_t> Serializer::serialize_object(js::Object& object, js::
     }
     case Class::Host: {
         // The serializable platform objects: Blob and File, their bytes
-        // copied. Every other one — a Response, a node, a port outside the
-        // transfer list — cannot be cloned.
+        // copied, and ImageData, its pixels copied. Every other one — a
+        // Response, a node, a port outside the transfer list — cannot be
+        // cloned.
+        if (std::optional<ImageDataCopy> image = image_data_copy(object)) {
+            std::size_t const index = add(Kind::ImageData);
+            Record& record = at(index);
+            record.byte_offset = static_cast<std::size_t>(image->width);
+            record.buffer = static_cast<std::size_t>(image->height);
+            record.bytes = std::move(image->bytes);
+            memory[&object] = index;
+            return index;
+        }
         auto const* blob = dynamic_cast<BlobObject const*>(&object);
         if (blob == nullptr)
             return refuse(value);
@@ -796,6 +807,17 @@ std::optional<Deserialized> structured_deserialize(Realm::Internals& target, Ser
                 blob->name = record.file_name;
                 blob->last_modified = record.number;
                 made = js::Value::object(blob);
+                break;
+            }
+            case Kind::ImageData: {
+                ImageDataCopy copy;
+                copy.width = static_cast<int>(record.byte_offset);
+                copy.height = static_cast<int>(record.buffer);
+                copy.bytes = record.bytes;
+                std::optional<js::Value> const image = image_data_from_copy(target, copy);
+                if (!image)
+                    return std::nullopt;
+                made = *image;
                 break;
             }
             case Kind::Transferred:

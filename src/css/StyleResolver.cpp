@@ -502,9 +502,11 @@ std::string presentational_hints(dom::Element const& element)
     bool const table = tag == "table";
     bool const heading = tag.size() == 2 && tag[0] == 'h' && tag[1] >= '1' && tag[1] <= '6';
     // The elements whose width and height attributes map to the dimension
-    // properties (HTML §15.4.3): the embedded kinds, and an image button.
+    // properties (HTML §15.4.3): the embedded kinds, and an image button. A
+    // canvas's are not among them: they size its bitmap, which is the size
+    // the box takes as its own.
     bool const image_button = tag == "input" && attribute("type") && ascii_ci_equals(*attribute("type"), "image");
-    bool const embedded = tag == "img" || tag == "iframe" || tag == "video" || tag == "canvas"
+    bool const embedded = tag == "img" || tag == "iframe" || tag == "video"
         || tag == "embed" || tag == "object" || image_button;
 
     // dir=auto: the direction is the one its own content reads as. The
@@ -1158,58 +1160,108 @@ std::optional<Color> parse_color_component(ComponentValue const& value, Color cu
     }
     if (value.is_function()) {
         FunctionValue const& function = value.function();
-        if (ascii_ci_equals(function.name, "hsl") || ascii_ci_equals(function.name, "hsla")) {
-            // hsl(H S L / A) or the legacy hsl(H, S%, L%, A): the hue an
-            // angle (a bare number is degrees), saturation and lightness
-            // percentages (bare numbers read as such), then CSS Color 4's
-            // conversion.
-            double parts[4] = { 0, 0, 0, 1 };
-            int part = 0;
-            bool alpha_seen = false;
-            for (ComponentValue const& argument : function.values) {
-                if (argument.is_token(Token::Type::Whitespace) || argument.is_token(Token::Type::Comma))
-                    continue;
-                if (argument.is_token(Token::Type::Delim) && argument.token().delim == U'/')
-                    continue;
-                if (part >= 4 || !argument.is_token())
+        bool const is_hsl = ascii_ci_equals(function.name, "hsl") || ascii_ci_equals(function.name, "hsla");
+        bool const is_rgb = ascii_ci_equals(function.name, "rgb") || ascii_ci_equals(function.name, "rgba");
+        if (!is_hsl && !is_rgb)
+            return std::nullopt;
+        // CSS Color 4 §5.1 and §7.1: the legacy form, three or four values
+        // separated by commas with no `none` and no slash (rgb's channels all
+        // numbers or all percentages, hsl's saturation and lightness
+        // percentages); or the modern one, three values separated by
+        // whitespace, each a number, a percentage or `none`, then optionally a
+        // slash and the alpha. Anything else is not a color.
+        std::vector<ComponentValue const*> items;
+        bool legacy = false;
+        for (ComponentValue const& argument : function.values) {
+            if (argument.is_token(Token::Type::Whitespace))
+                continue;
+            if (argument.is_token(Token::Type::Comma))
+                legacy = true;
+            items.push_back(&argument);
+        }
+        std::vector<ComponentValue const*> operands;
+        if (legacy) {
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                bool const want_comma = i % 2 == 1;
+                if (items[i]->is_token(Token::Type::Comma) != want_comma)
                     return std::nullopt;
-                Token const& token = argument.token();
-                double parsed = 0;
-                if (part == 0) {
-                    if (token.type == Token::Type::Number) {
-                        parsed = token.numeric_value;
-                    } else if (token.type == Token::Type::Dimension) {
-                        if (ascii_ci_equals(token.unit, "deg"))
-                            parsed = token.numeric_value;
-                        else if (ascii_ci_equals(token.unit, "grad"))
-                            parsed = token.numeric_value * 360.0 / 400.0;
-                        else if (ascii_ci_equals(token.unit, "rad"))
-                            parsed = token.numeric_value * 180.0 / 3.14159265358979323846;
-                        else if (ascii_ci_equals(token.unit, "turn"))
-                            parsed = token.numeric_value * 360.0;
-                        else
-                            return std::nullopt;
-                    } else {
-                        return std::nullopt;
-                    }
-                } else if (part == 3) {
-                    alpha_seen = true;
-                    if (token.type == Token::Type::Number)
-                        parsed = token.numeric_value;
-                    else if (token.type == Token::Type::Percentage)
-                        parsed = token.numeric_value / 100.0;
-                    else
-                        return std::nullopt;
-                } else {
-                    if (token.type == Token::Type::Percentage || token.type == Token::Type::Number)
-                        parsed = token.numeric_value;
-                    else
-                        return std::nullopt;
-                }
-                parts[part++] = parsed;
+                if (!want_comma)
+                    operands.push_back(items[i]);
             }
-            if (part < 3)
+            if (items.size() % 2 == 0 || (operands.size() != 3 && operands.size() != 4))
                 return std::nullopt;
+        } else {
+            std::size_t slash = items.size();
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (items[i]->is_token(Token::Type::Delim) && items[i]->token().delim == U'/') {
+                    slash = i;
+                    break;
+                }
+            }
+            bool const plain = slash == items.size() && items.size() == 3;
+            bool const with_alpha = slash == 3 && items.size() == 5;
+            if (!plain && !with_alpha)
+                return std::nullopt;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (i != slash)
+                    operands.push_back(items[i]);
+            }
+        }
+        for (ComponentValue const* operand : operands) {
+            if (!operand->is_token())
+                return std::nullopt;
+            Token const& token = operand->token();
+            if (token.type == Token::Type::Ident && (legacy || !ascii_ci_equals(token.value, "none")))
+                return std::nullopt;
+        }
+        auto const is_none = [](ComponentValue const* operand) { return operand->token().type == Token::Type::Ident; };
+        // The alpha: a number 0..1 or a percentage, as a fraction.
+        std::optional<double> alpha;
+        if (operands.size() == 4) {
+            Token const& token = operands[3]->token();
+            if (is_none(operands[3]))
+                alpha = 0.0;
+            else if (token.type == Token::Type::Number)
+                alpha = token.numeric_value;
+            else if (token.type == Token::Type::Percentage)
+                alpha = token.numeric_value / 100.0;
+            else
+                return std::nullopt;
+        }
+        if (is_hsl) {
+            // The hue an angle (a bare number is degrees), then saturation
+            // and lightness, then CSS Color 4's conversion.
+            double parts[4] = { 0, 0, 0, 1 };
+            Token const& hue_token = operands[0]->token();
+            if (is_none(operands[0])) {
+                parts[0] = 0;
+            } else if (hue_token.type == Token::Type::Number) {
+                parts[0] = hue_token.numeric_value;
+            } else if (hue_token.type == Token::Type::Dimension) {
+                if (ascii_ci_equals(hue_token.unit, "deg"))
+                    parts[0] = hue_token.numeric_value;
+                else if (ascii_ci_equals(hue_token.unit, "grad"))
+                    parts[0] = hue_token.numeric_value * 360.0 / 400.0;
+                else if (ascii_ci_equals(hue_token.unit, "rad"))
+                    parts[0] = hue_token.numeric_value * 180.0 / 3.14159265358979323846;
+                else if (ascii_ci_equals(hue_token.unit, "turn"))
+                    parts[0] = hue_token.numeric_value * 360.0;
+                else
+                    return std::nullopt;
+            } else {
+                return std::nullopt;
+            }
+            for (std::size_t i = 1; i < 3; ++i) {
+                Token const& token = operands[i]->token();
+                if (is_none(operands[i]))
+                    parts[i] = 0;
+                else if (token.type == Token::Type::Percentage || (!legacy && token.type == Token::Type::Number))
+                    parts[i] = token.numeric_value;
+                else
+                    return std::nullopt;
+            }
+            bool const alpha_seen = alpha.has_value();
+            parts[3] = alpha.value_or(1.0);
             double hue = parts[0];
             hue = hue - 360.0 * static_cast<double>(static_cast<long long>(hue / 360.0));
             if (hue < 0)
@@ -1226,40 +1278,27 @@ std::optional<Color> parse_color_component(ComponentValue const& value, Color cu
             return Color { clamp_channel(channel(0)), clamp_channel(channel(8)), clamp_channel(channel(4)),
                 alpha_seen ? clamp_channel(parts[3] * 255.0) : std::uint8_t { 255 } };
         }
-        if (!ascii_ci_equals(function.name, "rgb") && !ascii_ci_equals(function.name, "rgba"))
-            return std::nullopt;
-        double channels[4] = { 0, 0, 0, 255 };
-        int channel = 0;
-        bool alpha_seen = false;
-        for (ComponentValue const& argument : function.values) {
-            if (argument.is_token(Token::Type::Whitespace) || argument.is_token(Token::Type::Comma))
-                continue;
-            if (argument.is_token(Token::Type::Delim) && argument.token().delim == U'/')
-                continue;
-            if (channel >= 4)
+        double channels[3] = { 0, 0, 0 };
+        bool any_percentage = false;
+        bool any_number = false;
+        for (std::size_t i = 0; i < 3; ++i) {
+            Token const& token = operands[i]->token();
+            if (is_none(operands[i])) {
+                channels[i] = 0;
+            } else if (token.type == Token::Type::Number) {
+                channels[i] = token.numeric_value;
+                any_number = true;
+            } else if (token.type == Token::Type::Percentage) {
+                channels[i] = token.numeric_value * 255.0 / 100.0;
+                any_percentage = true;
+            } else {
                 return std::nullopt;
-            if (!argument.is_token())
-                return std::nullopt;
-            Token const& token = argument.token();
-            double parsed = 0;
-            if (token.type == Token::Type::Number)
-                parsed = token.numeric_value;
-            else if (token.type == Token::Type::Percentage)
-                parsed = token.numeric_value * 255.0 / 100.0;
-            else
-                return std::nullopt;
-            if (channel == 3) {
-                // Alpha: number 0..1 or percentage.
-                alpha_seen = true;
-                parsed = token.type == Token::Type::Percentage ? token.numeric_value * 255.0 / 100.0
-                                                               : token.numeric_value * 255.0;
             }
-            channels[channel++] = parsed;
         }
-        if (channel < 3)
+        if (legacy && any_number && any_percentage)
             return std::nullopt;
-        return Color { clamp_channel(channels[0]), clamp_channel(channels[1]),
-            clamp_channel(channels[2]), alpha_seen ? clamp_channel(channels[3]) : std::uint8_t { 255 } };
+        return Color { clamp_channel(channels[0]), clamp_channel(channels[1]), clamp_channel(channels[2]),
+            alpha ? clamp_channel(*alpha * 255.0) : std::uint8_t { 255 } };
     }
     return std::nullopt;
 }
@@ -6341,6 +6380,51 @@ std::optional<Color> parse_color_text(std::string_view text)
     if (!only || (only->is_token(Token::Type::Ident) && ascii_ci_equals(only->token().value, "currentcolor")))
         return std::nullopt;
     return parse_color_component(*only, Color { 0, 0, 0, 255 });
+}
+
+std::optional<FontShorthandValue> parse_font_shorthand_text(std::string_view text, float parent_font_size)
+{
+    std::vector<ComponentValue> const values = parse_component_value_list(text);
+    std::vector<ComponentValue const*> const parts_list = significant(values);
+    if (parts_list.empty() || Resolver::wide_keyword(parts_list) || Resolver::contains_var(values))
+        return std::nullopt;
+    std::optional<FontShorthand> const parts = split_font_shorthand(parts_list);
+    if (!parts)
+        return std::nullopt;
+    RuleSet const scratch;
+    Resolver resolver(scratch);
+    ComputedStyle parent;
+    parent.font_size = parent_font_size;
+    ComputedStyle style = inherited_style(parent);
+    // The size first, as the cascade takes it; a size it refuses leaves the
+    // sentinel, and the whole value is refused.
+    style.font_size = -1;
+    Declaration size_only;
+    size_only.name = "font-size";
+    size_only.value.push_back(*parts->size);
+    resolver.apply_font_size(style, parent, size_only);
+    if (!(style.font_size >= 0))
+        return std::nullopt;
+    style.font_family = nullptr;
+    Declaration font;
+    font.name = "font";
+    font.value = values;
+    bool a = false, b = false, c = false, d = false;
+    resolver.apply(style, font, nullptr, a, b, c, d);
+    if (!style.font_family)
+        return std::nullopt;
+    FontShorthandValue out;
+    out.size = style.font_size;
+    out.weight = style.font_weight;
+    out.italic = style.font_style != FontStyle::Normal;
+    out.oblique = style.font_style == FontStyle::Oblique;
+    out.stretch = style.font_stretch;
+    out.families = *style.font_family;
+    for (ComponentValue const* value : parts->before) {
+        if (is_ident(value, "small-caps"))
+            out.small_caps = true;
+    }
+    return out;
 }
 
 // --- @supports (css-conditional-3 §6) and CSS.supports() (§8) --------------

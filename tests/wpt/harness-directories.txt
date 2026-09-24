@@ -55,3 +55,7 @@ css/css-display
 # Added 2026-09-24 with the Indexed Database API: its pages and its .any.js
 # scripts, which the runner wraps in the window page the server would.
 IndexedDB
+
+# Added 2026-09-24 with the canvas element and its 2D context: the
+# 2d.* tests read pixels back through getImageData.
+html/canvas/element
