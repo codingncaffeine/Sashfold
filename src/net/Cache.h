@@ -59,8 +59,12 @@ public:
         std::string last_modified;
     };
     // The stored response for the URL (fragment ignored) and whether it
-    // may be served as it is.
-    Lookup lookup(Url const& url, std::int64_t now);
+    // may be served as it is. A response that varies on request headers
+    // (RFC 9111 §4.1) answers only a request whose values for them are
+    // the stored request's — `request` is the request's headers as they
+    // are sent; none means none of those headers is set — and otherwise
+    // there is nothing stored for the request.
+    Lookup lookup(Url const& url, std::int64_t now, std::vector<Header> const* request = nullptr);
 
     // A 304's headers renew the stored response (RFC 9111 §3.2, §4.3.4):
     // its headers are replaced by the 304's and its freshness recomputed
@@ -70,8 +74,10 @@ public:
 
     // Stores a cacheable 200 response under the URL (fragment ignored) —
     // fresh, or stale with a validator to revalidate it by — and returns
-    // true; anything not storable is ignored.
-    bool store(Url const& url, FetchResponse const& response, std::int64_t now);
+    // true; anything not storable is ignored. With the request's headers
+    // as sent, the values of the ones the response varies on are kept
+    // with it, for later requests to be matched against.
+    bool store(Url const& url, FetchResponse const& response, std::int64_t now, std::vector<Header> const* request = nullptr);
 
     std::size_t size() const
     {
@@ -99,6 +105,11 @@ private:
         std::int64_t stored_at = 0;
         std::string etag;
         std::string last_modified;
+        // The request's values of the headers the response varies on (its
+        // Vary members, less the ones every request carries alike), names
+        // lowercased; a later request answers to this entry only with the
+        // same values.
+        std::vector<Header> selecting;
         bool body_loaded = true;
         std::size_t body_bytes = 0; // the body's size, loaded or not
         bool on_disk = false;

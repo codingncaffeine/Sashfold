@@ -447,8 +447,19 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
         // answer 304 and spare the body.
         std::string revalidate_etag;
         std::string revalidate_modified;
+        // The request's headers as they will be sent, for the cache to
+        // match a varying response against: the caller's, the referrer and
+        // the cookies (the rest the exchange sends alike every time).
+        std::string cookies;
+        if (options.cookie_jar)
+            cookies = options.cookie_jar->cookie_header(current, options.first_party, unix_now());
+        std::vector<Header> sent_headers = headers;
+        if (!options.referrer.empty())
+            sent_headers.push_back({ "Referer", options.referrer });
+        if (!cookies.empty())
+            sent_headers.push_back({ "Cookie", cookies });
         if (options.cache && method == "GET") {
-            HttpCache::Lookup const hit = options.cache->lookup(current, unix_now());
+            HttpCache::Lookup const hit = options.cache->lookup(current, unix_now(), &sent_headers);
             if (hit.response && hit.fresh) {
                 FetchResponse copy = *hit.response;
                 copy.redirected = redirected;
@@ -522,12 +533,8 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
             request += "If-Modified-Since: " + revalidate_modified + "\r\n";
         if (!options.referrer.empty())
             request += "Referer: " + options.referrer + "\r\n";
-        if (options.cookie_jar) {
-            std::string const cookies
-                = options.cookie_jar->cookie_header(current, options.first_party, unix_now());
-            if (!cookies.empty())
-                request += "Cookie: " + cookies + "\r\n";
-        }
+        if (!cookies.empty())
+            request += "Cookie: " + cookies + "\r\n";
         if (!body.empty() || method == "POST" || method == "PUT" || method == "PATCH")
             request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
         request += options.pool ? "Connection: keep-alive\r\n\r\n" : "Connection: close\r\n\r\n";
@@ -648,7 +655,7 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
         response.body = std::move(*decoded);
         response.redirected = redirected;
         if (options.cache && method == "GET" && response.status == 200)
-            options.cache->store(current, response, unix_now());
+            options.cache->store(current, response, unix_now(), &sent_headers);
         return { std::move(response), "" };
     }
     return { std::nullopt, "too many redirects" };

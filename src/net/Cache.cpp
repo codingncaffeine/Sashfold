@@ -124,23 +124,60 @@ CacheControl parse_cache_control(std::vector<Header> const& headers)
     return control;
 }
 
-// fetch() sends these with the same value on every request, so a response
-// that varies only on them is the same response for us.
-bool vary_is_honored(std::vector<Header> const& headers)
+// Vary: * — the response depends on something no header names, so no
+// stored copy can be known to answer a request (RFC 9111 §4.1).
+bool vary_star(std::vector<Header> const& headers)
 {
-    bool honored = true;
+    bool star = false;
     for (Header const& header : headers) {
         if (!ascii_ci_equals(header.name, "vary"))
             continue;
         for_each_list_member(header.value, [&](std::string_view member) {
-            if (member.empty())
-                return;
-            if (!ascii_ci_equals(member, "accept") && !ascii_ci_equals(member, "accept-encoding")
-                && !ascii_ci_equals(member, "user-agent"))
-                honored = false; // "*" lands here too
+            if (member == "*")
+                star = true;
         });
     }
-    return honored;
+    return star;
+}
+
+// The request's values of the headers the response varies on, each name
+// once and lowercased — the selecting header fields of RFC 9111 §4.1.
+// fetch() sends Accept, Accept-Encoding and User-Agent alike on every
+// request, so those select nothing and are left out; a header the request
+// did not carry selects on the empty value.
+std::vector<Header> selecting_headers(std::vector<Header> const& response, std::vector<Header> const* request)
+{
+    std::vector<Header> selecting;
+    for (Header const& header : response) {
+        if (!ascii_ci_equals(header.name, "vary"))
+            continue;
+        for_each_list_member(header.value, [&](std::string_view member) {
+            if (member.empty() || member == "*" || ascii_ci_equals(member, "accept")
+                || ascii_ci_equals(member, "accept-encoding") || ascii_ci_equals(member, "user-agent"))
+                return;
+            std::string name(member);
+            for (char& c : name)
+                c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+            for (Header const& kept : selecting) {
+                if (kept.name == name)
+                    return;
+            }
+            std::string const* const value = request ? find_header(*request, name) : nullptr;
+            selecting.push_back({ std::move(name), value ? *value : std::string() });
+        });
+    }
+    return selecting;
+}
+
+// Whether a request's headers carry the values an entry selects on.
+bool selects(std::vector<Header> const& selecting, std::vector<Header> const* request)
+{
+    for (Header const& wanted : selecting) {
+        std::string const* const value = request ? find_header(*request, wanted.name) : nullptr;
+        if ((value ? *value : std::string()) != wanted.value)
+            return false;
+    }
+    return true;
 }
 
 bool has_validator(std::vector<Header> const& headers)
@@ -173,7 +210,7 @@ bool clean_line(std::string_view text)
 std::optional<std::int64_t> fresh_until(std::vector<Header> const& headers, std::int64_t now, int status)
 {
     CacheControl const control = parse_cache_control(headers);
-    if (control.no_store || !vary_is_honored(headers))
+    if (control.no_store || vary_star(headers))
         return std::nullopt;
 
     std::int64_t age = 0;
@@ -221,7 +258,7 @@ std::optional<std::int64_t> fresh_until(std::vector<Header> const& headers, std:
 
 // --- Lookup, refresh, store ------------------------------------------------------------
 
-HttpCache::Lookup HttpCache::lookup(Url const& url, std::int64_t now)
+HttpCache::Lookup HttpCache::lookup(Url const& url, std::int64_t now, std::vector<Header> const* request)
 {
     std::lock_guard<std::mutex> const lock(m_mutex);
     Lookup result;
@@ -230,6 +267,10 @@ HttpCache::Lookup HttpCache::lookup(Url const& url, std::int64_t now)
     if (it == m_entries.end())
         return result;
     Entry& entry = it->second;
+    // Another request's variant is nothing for this one — not even a copy
+    // to revalidate, since a 304 would renew the wrong variant.
+    if (!selects(entry.selecting, request))
+        return result;
     if (!entry.body_loaded && !load_body(key, entry, now)) {
         drop(it, true);
         return result;
@@ -285,7 +326,7 @@ std::shared_ptr<FetchResponse const> HttpCache::refresh(Url const& url, std::vec
     return std::make_shared<FetchResponse const>(entry.response);
 }
 
-bool HttpCache::store(Url const& url, FetchResponse const& response, std::int64_t now)
+bool HttpCache::store(Url const& url, FetchResponse const& response, std::int64_t now, std::vector<Header> const* request)
 {
     std::lock_guard<std::mutex> const lock(m_mutex);
     if (response.status != 200)
@@ -313,6 +354,7 @@ bool HttpCache::store(Url const& url, FetchResponse const& response, std::int64_
     entry.stored_at = now;
     entry.etag = header_or_empty(entry.response.headers, "etag");
     entry.last_modified = header_or_empty(entry.response.headers, "last-modified");
+    entry.selecting = selecting_headers(entry.response.headers, request);
     if (entry.cost > m_max_entry_bytes)
         return false;
 
@@ -457,8 +499,12 @@ void HttpCache::write_entry(std::string const& key, Entry& entry, bool body_too)
          << "status " << entry.response.status << ' ' << entry.response.status_text << '\n'
          << "stored " << entry.stored_at << '\n'
          << "fresh " << entry.fresh_until << '\n'
-         << "body " << entry.body_bytes << '\n'
-         << "--\n";
+         << "body " << entry.body_bytes << '\n';
+    for (Header const& selecting : entry.selecting) {
+        if (clean_line(selecting.name) && clean_line(selecting.value))
+            text << "select " << selecting.name << ": " << selecting.value << '\n';
+    }
+    text << "--\n";
     for (Header const& header : entry.response.headers) {
         if (clean_line(header.name) && clean_line(header.value))
             text << header.name << ": " << header.value << '\n';
@@ -567,6 +613,10 @@ void HttpCache::read_directory()
                 entry.fresh_until = std::atoll(value.c_str());
             } else if (field == "body") {
                 entry.body_bytes = static_cast<std::size_t>(std::atoll(value.c_str()));
+            } else if (field == "select") {
+                std::size_t const colon = value.find(": ");
+                if (colon != std::string::npos)
+                    entry.selecting.push_back({ value.substr(0, colon), value.substr(colon + 2) });
             }
         }
         meta.close();

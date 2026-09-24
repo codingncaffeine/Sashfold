@@ -141,10 +141,45 @@ int main()
     CHECK(fresh_until(Headers { { "Cache-Control", "max-age=60" }, { "Vary", "Accept-Encoding, accept" } },
         now)
               .has_value());
-    CHECK(!fresh_until(Headers { { "Cache-Control", "max-age=60" }, { "Vary", "Cookie" } }, now)
-               .has_value());
+    // A response that varies on a header the request may carry is stored
+    // with the request's value of it (below); only Vary: * is unstorable.
+    CHECK(fresh_until(Headers { { "Cache-Control", "max-age=60" }, { "Vary", "Cookie" } }, now)
+              .has_value());
     CHECK(!fresh_until(Headers { { "Cache-Control", "max-age=60" }, { "Vary", "*" } }, now)
                .has_value());
+
+    // --- Vary: the selecting headers (RFC 9111 §4.1) ------------------------------
+    // A stylesheet served with Vary: Accept-Encoding, Origin, fetched with
+    // no Origin (a same-origin request), answers every later request with
+    // no Origin; a request with one is another variant and finds nothing,
+    // not even a copy to revalidate. A response varying on Origin stored
+    // from a request with one answers that origin alone.
+    {
+        HttpCache cache;
+        Url const sheet = url_of("https://example.test/vary/sheet.css");
+        Headers const none;
+        Headers const from_a { { "Origin", "https://a.test" } };
+        Headers const from_b { { "Origin", "https://b.test" } };
+        CHECK(cache.store(sheet,
+            ok({ { "Cache-Control", "max-age=60" }, { "Vary", "Accept-Encoding, Origin" } }, "css"), now, &none));
+        CHECK(cache.lookup(sheet, now, &none).fresh);
+        CHECK(cache.lookup(sheet, now, nullptr).fresh);
+        CHECK(!cache.lookup(sheet, now, &from_a).response);
+        CHECK(cache.store(sheet,
+            ok({ { "Cache-Control", "max-age=60" }, { "Vary", "origin" }, { "ETag", "\"a\"" } }, "for a"), now, &from_a));
+        CHECK(cache.lookup(sheet, now, &from_a).fresh);
+        CHECK(!cache.lookup(sheet, now, &from_b).response);
+        CHECK(!cache.lookup(sheet, now, &none).response);
+        CHECK(cache.lookup(sheet, now, &from_a).etag == "\"a\"");
+        // Cookies select too, as sent: the same cookie answers, another does not.
+        Url const page = url_of("https://example.test/vary/page");
+        Headers const with_cookie { { "Cookie", "id=1" } };
+        Headers const other_cookie { { "Cookie", "id=2" } };
+        CHECK(cache.store(page, ok({ { "Cache-Control", "max-age=60" }, { "Vary", "Cookie" } }, "one"), now, &with_cookie));
+        CHECK(cache.lookup(page, now, &with_cookie).fresh);
+        CHECK(!cache.lookup(page, now, &other_cookie).response);
+        CHECK(!cache.lookup(page, now, &none).response);
+    }
 
     // --- Storage policy -------------------------------------------------------
     {
@@ -448,14 +483,23 @@ int main()
             CHECK_EQ(cache.directory(), dir.string());
             CHECK(cache.store(page, ok({ { "Cache-Control", "max-age=60" }, { "Content-Type", "text/plain" } }, "disk body"), now));
             CHECK(cache.store(other, ok({ { "ETag", "\"o1\"" }, { "Cache-Control", "max-age=0" } }, "stale but tagged"), now));
-            CHECK_EQ(cache.disk_bytes(), std::size_t { 9 + 16 });
-            CHECK_EQ(files_in(), std::size_t { 4 });
+            // The values a varying response selects on go to disk with it.
+            Headers const from_a { { "Origin", "https://a.test" } };
+            CHECK(cache.store(url_of("http://example.com/varied"),
+                ok({ { "Cache-Control", "max-age=60" }, { "Vary", "Origin" } }, "vary"), now, &from_a));
+            CHECK_EQ(cache.disk_bytes(), std::size_t { 9 + 16 + 4 });
+            CHECK_EQ(files_in(), std::size_t { 6 });
         }
         {
             HttpCache again;
             again.set_directory(dir.string());
-            CHECK_EQ(again.size(), std::size_t { 2 });
-            CHECK_EQ(again.disk_bytes(), std::size_t { 25 });
+            CHECK_EQ(again.size(), std::size_t { 3 });
+            CHECK_EQ(again.disk_bytes(), std::size_t { 29 });
+            Headers const from_a { { "Origin", "https://a.test" } };
+            Headers const from_b { { "Origin", "https://b.test" } };
+            CHECK(again.lookup(url_of("http://example.com/varied"), now + 30, &from_a).fresh);
+            CHECK(!again.lookup(url_of("http://example.com/varied"), now + 30, &from_b).response);
+            CHECK(!again.lookup(url_of("http://example.com/varied"), now + 30, nullptr).response);
             std::size_t const before = again.bytes(); // the headers; no body loaded yet
             std::shared_ptr<FetchResponse const> const hit = fresh_hit(again, page, now + 30);
             CHECK(hit != nullptr);
