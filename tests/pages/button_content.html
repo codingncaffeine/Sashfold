@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Buttons lay out what they hold</title>
+<!-- A <button> is a box that lays out its children: an inline SVG icon
+     painted in the button's colour beside its words, a picture, a span of
+     another colour, and contents centred in a button taller than they are.
+     A button with no background or border of the page's own keeps the
+     built-in face behind its contents; one with a background and a border
+     of its own is drawn from its CSS alone, as is one with appearance none.
+     This runner decodes no pictures, so the picture button shows here as
+     its face sized around the 12 by 12 box the picture holds; the picture
+     itself drawn inside a button is tests/shell/forms.script's. -->
+<style>
+  body { margin: 8px; font-family: "Sashfold Mono"; font-size: 14px; line-height: 18px; background: #fff; width: 600px }
+  p { margin: 0 0 10px }
+  button { font-family: "Sashfold Mono"; font-size: 14px }
+  .red { color: #c00000 }
+  .blue { color: #1040c0 }
+  .tall { height: 48px }
+  .own { background: #d0e8ff; border: 2px solid #205080; padding: 4px 10px; color: #203040 }
+  .bare { appearance: none }
+</style>
+</head>
+<body>
+<p><button class="blue"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 1h12v12h-12z M4 4v6h6v-6z" fill="currentcolor"/></svg> Icon</button>
+<button><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAHElEQVR42mNQaFBAQw8WoCOGIasIUwhT25BVBACKaKsB/6NrVAAAAABJRU5ErkJggg==" width="12" height="12" alt=""></button>
+<button>Say <span class="red">red</span></button></p>
+<p>line <button class="tall">Tall</button> after</p>
+<p><button>Plain</button> <button class="own">Own look</button> <button class="bare">Bare</button> <button disabled>Off</button></p>
+</body>
+</html>

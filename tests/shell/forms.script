@@ -66,3 +66,17 @@ key Backspace
 assert-value q
 click-text Go
 assert-url data:text/html,Landed?q=
+
+# A button holding a picture draws it inside its face: a 12 by 12 PNG of
+# four squares, green and amber, at the button's border (2) and padding
+# (6 across, 1 down), the face around it; a click on the picture presses
+# the button and submits its form.
+open data:text/html,<title>Picture button</title><body style="margin:0"><form action="data:text/html,Pictured"><input type="hidden" name="p" value="1"><button><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAHElEQVR42mNQaFBAQw8WoCOGIasIUwhT25BVBACKaKsB/6NrVAAAAABJRU5ErkJggg==" width="12" height="12" alt=""></button></form>
+advance 100
+assert-pixel 8 79 #208020
+assert-pixel 14 79 #e0a020
+assert-pixel 8 85 #e0a020
+assert-pixel 19 90 #208020
+assert-pixel 4 85 #efefef
+click 10 81
+assert-url data:text/html,Pictured?p=1

@@ -544,6 +544,17 @@ void test_css_supports()
     CHECK(!page->boolean("CSS.supports('totally-not-a-real-property: 42')"));
     CHECK(page->boolean("CSS.supports('not (totally-not-a-real-property: 42)')"));
     CHECK(page->boolean("CSS.supports('(display: block) and (color: red)')"));
+    // appearance's initial value is none, so none is found supported only
+    // against a baseline that is not none as well.
+    CHECK(page->boolean("CSS.supports('appearance', 'none')"));
+    CHECK(page->boolean("CSS.supports('-webkit-appearance', 'none')"));
+    CHECK(page->boolean("CSS.supports('appearance', 'auto')"));
+    CHECK(!page->boolean("CSS.supports('appearance', 'no-such-look')"));
+    // The compat keywords are the specification's list; the older
+    // push-button and its kind are not on it.
+    CHECK(page->boolean("CSS.supports('appearance', 'menulist-button')"));
+    CHECK(!page->boolean("CSS.supports('appearance', 'push-button')"));
+    CHECK(!page->boolean("CSS.supports('-webkit-appearance', 'square-button')"));
     CHECK(!page->boolean("CSS.supports('(display: block) and (totally-not-a-real-property: 1)')"));
     CHECK(page->boolean("CSS.supports('(display: block) or (totally-not-a-real-property: 1)')"));
     CHECK(page->boolean("CSS.supports('selector(div > span)')"));
@@ -3563,6 +3574,48 @@ window.facts = [innerWidth, innerHeight, root.clientWidth, root.clientHeight, w.
         std::string("152"));
 }
 
+// appearance computes to the keyword as written, the built-in sheet's `auto`
+// on a button and the initial `none` elsewhere, under both spellings; and a
+// style object finds the attribute of every property it supports on its
+// prototype, never as its own.
+void test_the_computed_appearance()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy*,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        return answer;
+    };
+    Page page(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<!DOCTYPE html><div id=d></div><button id=b>Go</button><button id=c style='appearance: Textfield'>x</button><button id=n style='-webkit-appearance: none'>y</button>
+<script>function cs(id) { return getComputedStyle(document.getElementById(id)); } var s = cs('b');
+window.facts = [s.appearance, s.webkitAppearance, s.getPropertyValue('-webkit-appearance'), cs('d').appearance, cs('c').appearance, cs('n').appearance].join();
+window.names = ['color' in s, 'webkitAppearance' in s, 'WebkitAppearance' in s, 'Color' in s, 'fooBar' in s, s.hasOwnProperty('setProperty'), typeof s.setProperty].join();
+var made = 0; for (var i = 0; i < 5000; ++i) if (('madeUp' + i) in s) ++made;
+window.after = [made, 'color' in s, 'webkitAppearance' in s, 'madeUp1' in s].join();
+var P = CSSStyleDeclaration.prototype, t = document.getElementById('d').style;
+window.owner = [s.hasOwnProperty('color'), Object.getOwnPropertyDescriptor(s, 'color') === undefined, t.hasOwnProperty('backgroundColor'), P.hasOwnProperty('backgroundColor'), typeof Object.getOwnPropertyDescriptor(P, 'color').get, t.color = 'red', document.getElementById('d').getAttribute('style'), delete P.color, 'color' in t, 'color' in s].join();</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page.load();
+    CHECK_EQ(page.string("document.getElementById('f').contentWindow.facts"), std::string("auto,auto,auto,none,textfield,none"));
+    CHECK_EQ(page.string("document.getElementById('f').contentWindow.names"), std::string("true,true,true,false,false,false,function"));
+    // More made-up names than the store of answers keeps: it starts again,
+    // and the answers stay right.
+    CHECK_EQ(page.string("document.getElementById('f').contentWindow.after"), std::string("0,true,true,false"));
+    // The attributes are the prototype's accessors, as a browser has them,
+    // never a style object's own; writing one sets the declaration, and a
+    // deleted one is gone from every style object.
+    CHECK_EQ(page.string("document.getElementById('f').contentWindow.owner"), std::string("false,true,false,true,function,red,color: red;,true,false,false"));
+}
+
 // A script runs once, and only in a document that has a window: a copy of one
 // that has started has started too, and one put into a document made by
 // `new Document()`, createHTMLDocument or a clone never runs — a page that
@@ -4584,6 +4637,7 @@ int main()
     test_a_message_keeps_what_it_transfers();
     test_platform_objects_and_message_arrivals();
     test_a_frame_measures_itself();
+    test_the_computed_appearance();
     test_the_audio_constructor();
     test_interfaces_that_promise();
     test_scripts_that_must_not_run_again();

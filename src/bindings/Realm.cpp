@@ -439,9 +439,16 @@ js::Value node_list(Realm::Internals& in, std::vector<dom::Node*> const& nodes)
 js::Object* define_interface(Realm::Internals& in, std::string_view name, js::Object* parent_prototype,
     js::NativeFunction::ConstructCallback construct, int length)
 {
+    js::Heap::NoCollect const guard(in.interpreter.heap());
+    return define_interface_with(in, name, *in.interpreter.new_object(parent_prototype), std::move(construct), length);
+}
+
+js::Object* define_interface_with(Realm::Internals& in, std::string_view name, js::Object& the_prototype,
+    js::NativeFunction::ConstructCallback construct, int length)
+{
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
-    js::Object* prototype = interpreter.new_object(parent_prototype);
+    js::Object* prototype = &the_prototype;
     std::string const interface_name(name);
     if (!construct) {
         construct = [interface_name](js::Interpreter& interp, Args, js::Object*) -> Native {

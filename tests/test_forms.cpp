@@ -114,7 +114,8 @@ there</textarea>
         CHECK_EQ(layout::control_caption(*by_id(*document, "sub"), nullptr), "Submit");
         CHECK_EQ(layout::control_caption(*by_id(*document, "sub2"), nullptr), "Send");
         CHECK_EQ(layout::control_caption(*by_id(*document, "rst"), nullptr), "Reset");
-        CHECK_EQ(layout::control_caption(*by_id(*document, "bt"), nullptr), "Go now");
+        // A <button> has no caption: its children are laid out instead.
+        CHECK_EQ(layout::control_caption(*by_id(*document, "bt"), nullptr), "");
         CHECK(!layout::control_checked(*by_id(*document, "c"), nullptr));
         layout::SelectOptions const options = layout::select_options(*by_id(*document, "s"), nullptr);
         CHECK_EQ(options.labels.size(), std::size_t { 3 });
@@ -293,7 +294,9 @@ b</textarea></body></html>)HTML";
             CHECK_EQ(c->height, 13.0f);
             CHECK(c->x > q->x + q->width); // after the field, with its margins
             CHECK(go->control && go->control->kind == ControlKind::Submit);
-            CHECK(near(go->width, 2 * glyph + 18));
+            // "Go", then the built-in sheet's 6px of padding and 2px border
+            // each side, the text laid out as the button's own line.
+            CHECK(near(go->width, 2 * glyph + 16));
             CHECK(go->runs.size() == 1 && go->runs[0].text == U"Go");
             CHECK(near(s->width, 3 * glyph + 26)); // the widest option, the arrow, the edges
             CHECK(s->runs.size() == 1 && s->runs[0].text == U"one"); // the first option shows
@@ -345,7 +348,65 @@ b</textarea></body></html>)HTML";
             CHECK(near(q->height, line + 12));
             CHECK(near(c->width, 26));
             CHECK(near(c->height, 26));
-            CHECK(near(go->width, 2 * glyph + 36)); // "Go", then 8px of padding and the border each side, doubled
+            CHECK(near(go->width, 2 * glyph + 32)); // "Go", then 6px of padding and a 2px border each side, doubled
+        }
+    }
+
+    // --- A <button> lays out what it holds ----------------------------------------
+    // Its children are boxes inside its own: an inline SVG icon is laid out
+    // in the button's line, the line centred across by the built-in sheet's
+    // text-align and down by button layout (HTML §15.5.2). With no strut
+    // (font-size 0) the line is the icon alone, so the icon's centre is the
+    // button's. The button is still the control it acts as, and its face is
+    // drawn only when the page gave it no background or border of its own.
+    {
+        constexpr std::string_view html = R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  #icon { width: 100px; height: 60px; font-size: 0 }
+  #own { background: #eef; border: 1px solid #334 }
+  #bare { appearance: none }
+  #inked { color: #c00 }
+</style></head><body><p><button id="icon"><svg id="glyph" width="20" height="20"><rect width="20" height="20" fill="currentcolor"/></svg></button>
+<button id="plain">Go</button> <button id="own">Own</button> <button id="bare">Bare</button> <button id="inked">Ink</button>
+<span id="inline-wrap">a<button id="inline" style="display: inline">x<br>y</button>b</span></p></body></html>)HTML";
+        auto const document = parse(html);
+        std::vector<css::SheetSource> const sheets = css::collect_stylesheets(*document, nullptr, {});
+        css::StyleMap const styles = css::resolve_styles(*document, sheets, css::MediaContext { 800, 600, 1 });
+        layout::LayoutResult const page = layout::layout_document(*document, styles, 800);
+        layout::Fragment const* icon = find_box(page.root, "icon");
+        layout::Fragment const* glyph = find_box(page.root, "glyph");
+        if (CHECK(icon != nullptr) && CHECK(glyph != nullptr)) {
+            CHECK(icon->control && icon->control->contents && icon->control->kind == ControlKind::Submit);
+            CHECK(near(icon->width, 100));
+            CHECK(near(icon->height, 60));
+            // The icon is the button's own child box, not a picture of it.
+            bool const child = find_box(*icon, "glyph") == glyph;
+            CHECK(child);
+            CHECK(glyph->x >= icon->x && glyph->x + glyph->width <= icon->x + icon->width);
+            CHECK(glyph->y >= icon->y && glyph->y + glyph->height <= icon->y + icon->height);
+            CHECK(near(glyph->width, 20));
+            CHECK(near(glyph->x + glyph->width / 2, icon->x + icon->width / 2));
+            CHECK(near(glyph->y + glyph->height / 2, icon->y + icon->height / 2));
+        }
+        // A button of text alone lays its text out as a line of its own; the
+        // built-in face stays unless the page decorated the button itself.
+        layout::Fragment const* plain = find_box(page.root, "plain");
+        layout::Fragment const* own = find_box(page.root, "own");
+        layout::Fragment const* bare = find_box(page.root, "bare");
+        layout::Fragment const* inked = find_box(page.root, "inked");
+        if (CHECK(plain && own && bare && inked)) {
+            CHECK(plain->runs.size() == 1 && plain->runs[0].text == U"Go");
+            CHECK(plain->control && plain->control->themed);
+            CHECK(inked->control && inked->control->themed);
+            CHECK(own->control && !own->control->themed);
+            CHECK(bare->control && !bare->control->themed);
+        }
+        // An inline button is an atomic box all the same: its two lines stay
+        // inside it rather than breaking the line around it.
+        layout::Fragment const* inline_button = find_box(page.root, "inline");
+        if (CHECK(inline_button != nullptr)) {
+            CHECK(inline_button->control && inline_button->control->contents);
+            CHECK_EQ(inline_button->runs.size(), std::size_t { 2 });
         }
     }
 

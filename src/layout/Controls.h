@@ -35,8 +35,14 @@ enum class ControlKind : std::uint8_t {
 
 ControlKind control_kind(dom::Element const& element);
 
-// input (but hidden), button, select, textarea: the elements drawn as controls.
+// input (but hidden), button, select, textarea: the elements that act as
+// controls.
 bool is_control(dom::Element const& element);
+
+// A <button>: a control to activate, focus and submit, whose box is an
+// ordinary inline-block that lays out and paints its children, as every
+// engine's does. The other controls are drawn whole, from what they hold.
+bool lays_out_contents(dom::Element const& element);
 
 // Kinds that take typed text.
 bool is_text_kind(ControlKind kind);
@@ -70,9 +76,9 @@ struct ControlStates {
 std::string control_value(dom::Element const& element, ControlStates const* states);
 bool control_checked(dom::Element const& element, ControlStates const* states);
 
-// What is drawn: the value for text kinds, the caption for buttons (the
-// value attribute, a <button>'s text, or Submit/Reset), the selected
-// option's label for a select.
+// What is drawn: the value for text kinds, the caption for an input button
+// (the value attribute, or Submit/Reset), the selected option's label for a
+// select. A <button> has none: its children are what it shows.
 std::string control_caption(dom::Element const& element, ControlStates const* states);
 
 // A select's options in order, and which one is selected.

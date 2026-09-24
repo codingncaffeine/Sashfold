@@ -252,6 +252,40 @@ public:
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
     std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
     void trace(js::Tracer&) override;
+
+    // What reading the property `name` gives (dashed, lower case).
+    std::string value_of(std::string const& name) const;
+    // Writing it: the declaration set, or the throw of a computed style.
+    std::optional<bool> write(std::string const& name, js::Value const& value);
+
+private:
+    // A property of the object or its chain proper (a method, an expando,
+    // one of the prototype's attributes).
+    bool ordinary_property(js::PropertyKey const&) const;
+};
+
+// CSSStyleDeclaration.prototype. The attribute of each property the engine
+// supports (CSSOM §6.7.1: camel-cased, webkit-cased for -webkit-, dashed) is
+// an accessor pair here, as it is on a browser's prototype, so `in` finds it
+// on every style object and none of them has it as its own. There are
+// hundreds of names in three spellings, so each pair is made the first time
+// its name is looked up rather than all of them with every realm; once made,
+// or defined or deleted by a script, the name is an ordinary property.
+class StyleDeclarationPrototype final : public js::Object {
+public:
+    StyleDeclarationPrototype(js::Object* prototype, js::Interpreter& the_interpreter)
+        : Object(prototype)
+        , interpreter(&the_interpreter)
+    {
+    }
+    std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
+    bool define_own_property(js::PropertyKey const&, js::PropertyDescriptor const&) override;
+    bool delete_property(js::PropertyKey const&) override;
+
+private:
+    js::Interpreter* interpreter;
+    // The names whose pair has been made: not made again.
+    mutable std::unordered_set<std::string> settled;
 };
 
 // element.dataset: the data-* attributes as properties.
@@ -1395,6 +1429,10 @@ dom::Element const* focused_element(Realm::Internals&);
 // constructor" when called unless `construct` is given) whose prototype
 // inherits `parent`'s; registered under `name`.
 js::Object* define_interface(Realm::Internals&, std::string_view name, js::Object* parent_prototype,
+    js::NativeFunction::ConstructCallback construct = {}, int length = 0);
+// The same around a prototype already made, for an interface whose
+// prototype is an exotic object.
+js::Object* define_interface_with(Realm::Internals&, std::string_view name, js::Object& prototype,
     js::NativeFunction::ConstructCallback construct = {}, int length = 0);
 // An accessor pair on a prototype: an IDL attribute, enumerable and
 // configurable as WebIDL §3.7.6 has it, so that `for (k in element)`

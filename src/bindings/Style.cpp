@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -362,6 +364,8 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return style.z_index ? std::to_string(*style.z_index) : "auto";
     if (name == "box-sizing")
         return style.box_sizing == BoxSizing::BorderBox ? "border-box" : "content-box";
+    if (name == "appearance" || name == "-webkit-appearance")
+        return appearance_keywords[static_cast<std::size_t>(style.appearance)];
     if (name == "aspect-ratio") {
         if (style.aspect_ratio.ratio <= 0)
             return "auto";
@@ -688,30 +692,61 @@ std::optional<js::Value> TokenListObject::get(js::Interpreter& interpreter, js::
 
 // --- StyleDeclarationObject -----------------------------------------------------------------
 
-std::optional<js::Value> StyleDeclarationObject::get(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& receiver)
+// Whether a name is one of a CSSStyleDeclaration's attributes (CSSOM
+// §6.7.1): the camel-cased attribute of each property the engine supports,
+// the webkit-cased one of each -webkit- property, and the dashed one of each
+// property whose name has a dash. Supported means what CSS.supports says, so
+// the two never disagree.
+static bool names_style_attribute(std::string_view key)
 {
-    if (!key.is_atom() || has_property(key))
-        return Object::get(interpreter, key, receiver);
-    std::string const name = css_property_name(key.as_atom()->to_utf8());
-    if (name.empty() || name.starts_with("_") || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
-        return js::Value::undefined();
-    Realm::Internals& in = internals();
-    if (!element())
-        return in.string("");
-    if (computed) {
-        css::ComputedStyle const* style = in.hooks.computed_style ? in.hooks.computed_style(*element()) : nullptr;
-        return in.string(style ? computed_property(in, *element(), *style, name) : "");
-    }
-    return in.string(declaration_value(*element(), name));
+    if (key.empty() || key.starts_with("--"))
+        return false;
+    bool const dashed = key.find('-') != std::string_view::npos;
+    std::string const property = dashed ? std::string(key) : css_property_name(key);
+    if (property.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
+        return false;
+    // A capital first letter is the webkit-cased spelling, which only the
+    // -webkit- properties have.
+    if (key[0] >= 'A' && key[0] <= 'Z' && !property.starts_with("-webkit-"))
+        return false;
+    // The engine's properties do not change while it runs, so each name is
+    // parsed once; the answer is kept per thread, as the parser's own probe is.
+    // A script can ask after any number of names that are none, so the store
+    // is emptied when it outgrows every name the engine has several times
+    // over, and a page probing made-up names cannot grow it without end.
+    thread_local std::unordered_map<std::string, bool> known;
+    auto const found = known.find(property);
+    if (found != known.end())
+        return found->second;
+    bool const supported = css::supports_condition_text_matches(property + ": inherit");
+    constexpr std::size_t most_names = 4096;
+    if (known.size() >= most_names)
+        known.clear();
+    known.emplace(property, supported);
+    return supported;
 }
 
-std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& value, js::Value const& receiver)
+bool StyleDeclarationObject::ordinary_property(js::PropertyKey const& key) const
 {
-    if (!key.is_atom() || has_property(key))
-        return Object::set(interpreter, key, value, receiver);
-    std::string const name = css_property_name(key.as_atom()->to_utf8());
-    if (name.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
-        return Object::set(interpreter, key, value, receiver);
+    if (ElementBackedObject::get_own_property(key))
+        return true;
+    return prototype() && prototype()->has_property(key);
+}
+
+std::string StyleDeclarationObject::value_of(std::string const& name) const
+{
+    if (!element())
+        return {};
+    Realm::Internals& in = internals();
+    if (computed) {
+        css::ComputedStyle const* style = in.hooks.computed_style ? in.hooks.computed_style(*element()) : nullptr;
+        return style ? computed_property(in, *element(), *style, name) : std::string();
+    }
+    return declaration_value(*element(), name);
+}
+
+std::optional<bool> StyleDeclarationObject::write(std::string const& name, js::Value const& value)
+{
     Realm::Internals& in = internals();
     if (computed || !element()) {
         in.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore the '" + name + "' property is read-only.");
@@ -722,6 +757,76 @@ std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js
         return std::nullopt;
     set_declaration(in, *element(), name, *text, false);
     return true;
+}
+
+// --- StyleDeclarationPrototype --------------------------------------------------------------
+
+std::optional<js::PropertyDescriptor> StyleDeclarationPrototype::get_own_property(js::PropertyKey const& key) const
+{
+    if (std::optional<js::PropertyDescriptor> own = Object::get_own_property(key))
+        return own;
+    if (!key.is_atom())
+        return std::nullopt;
+    std::string const spelled = key.as_atom()->to_utf8();
+    if (settled.contains(spelled) || !names_style_attribute(spelled))
+        return std::nullopt;
+    // Settled first: the pair's own definition must not come back here.
+    settled.insert(spelled);
+    std::string const name = css_property_name(spelled);
+    // An attribute of the prototype: enumerable and configurable (WebIDL
+    // §3.7.6). The pair is made on a lookup the caller has not rooted
+    // around, so nothing is collected while it is.
+    js::Heap::NoCollect const guard(interpreter->heap());
+    define_attribute(
+        *interpreter, *const_cast<StyleDeclarationPrototype*>(this), spelled,
+        [name](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
+            if (!s)
+                return std::nullopt;
+            return (*s)->internals().string((*s)->value_of(name));
+        },
+        [name](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
+            if (!s || !(*s)->write(name, js::argument(args, 0)))
+                return std::nullopt;
+            return js::Value::undefined();
+        });
+    return Object::get_own_property(key);
+}
+
+// A script redefining or deleting an attribute finds it there first, as it
+// would on a browser's prototype; once made it is not made again, so a
+// deleted one stays deleted.
+bool StyleDeclarationPrototype::define_own_property(js::PropertyKey const& key, js::PropertyDescriptor const& descriptor)
+{
+    static_cast<void>(get_own_property(key));
+    return Object::define_own_property(key, descriptor);
+}
+
+bool StyleDeclarationPrototype::delete_property(js::PropertyKey const& key)
+{
+    static_cast<void>(get_own_property(key));
+    return Object::delete_property(key);
+}
+
+std::optional<js::Value> StyleDeclarationObject::get(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& receiver)
+{
+    if (!key.is_atom() || ordinary_property(key))
+        return Object::get(interpreter, key, receiver);
+    std::string const name = css_property_name(key.as_atom()->to_utf8());
+    if (name.empty() || name.starts_with("_") || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
+        return js::Value::undefined();
+    return internals().string(value_of(name));
+}
+
+std::optional<bool> StyleDeclarationObject::set(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& value, js::Value const& receiver)
+{
+    if (!key.is_atom() || ordinary_property(key))
+        return Object::set(interpreter, key, value, receiver);
+    std::string const name = css_property_name(key.as_atom()->to_utf8());
+    if (name.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != std::string::npos)
+        return Object::set(interpreter, key, value, receiver);
+    return write(name, value);
 }
 
 // --- DatasetObject -------------------------------------------------------------------------
@@ -990,7 +1095,8 @@ void install_style(Realm::Internals& in)
     }
 
     // CSSStyleDeclaration.
-    js::Object* style = define_interface(in, "CSSStyleDeclaration", nullptr);
+    js::Object* style = define_interface_with(in, "CSSStyleDeclaration",
+        *interpreter.heap().allocate<StyleDeclarationPrototype>(interpreter.current_realm()->intrinsics.object_prototype, interpreter));
     define_getter(
         in, *style, "cssText",
         [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {

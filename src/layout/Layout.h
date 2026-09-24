@@ -99,6 +99,12 @@ struct Fragment {
         bool checked = false;
         bool focused = false;
         bool disabled = false;
+        // A <button>: its children are laid out and painted as boxes, and
+        // the face is only what goes behind them — drawn when the page left
+        // the button its built-in look (appearance auto, and no background
+        // or border of the page's own), else the box's CSS is all there is.
+        bool contents = false;
+        bool themed = false;
         std::optional<float> caret_x; // the caret's page x, when focused and editable
         // The author's padding above and below a single line's text: what
         // the caret stands clear of.

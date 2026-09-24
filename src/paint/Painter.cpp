@@ -755,8 +755,12 @@ void paint_control(Context& context, Fragment const& fragment)
     // button that is an icon — `border: 0; background: url(…)` — has no face
     // of ours behind it.
     bool const pictured = style.background_images && !style.background_images->empty();
-    bool const author_look = style.background_color.a != 0 || pictured || solid(style.border_top)
-        || solid(style.border_bottom) || solid(style.border_left) || solid(style.border_right);
+    // A <button> says which it is by its declarations instead: its own
+    // sheet gives it a background and a border, which the face stands for.
+    bool const author_look = control.contents
+        ? !control.themed
+        : style.background_color.a != 0 || pictured || solid(style.border_top) || solid(style.border_bottom)
+            || solid(style.border_left) || solid(style.border_right);
     Color const border = control.disabled ? Color::rgb(0xc0, 0xc0, 0xc0) : Color::rgb(0x76, 0x76, 0x76);
     Color const white = Color::rgb(0xff, 0xff, 0xff);
     Color const gray = Color::rgb(0xef, 0xef, 0xef);
@@ -848,6 +852,10 @@ void paint_box_background(Context& context, Fragment const& fragment, bool skip_
     if (!fragment.style || fragment.style->hidden())
         return;
     paint_background_and_borders(context, fragment, skip_background);
+    // A <button>'s face is its background: under everything inside it,
+    // the backgrounds of the blocks it holds among them.
+    if (fragment.control && fragment.control->contents)
+        paint_control(context, fragment);
 }
 
 // Where a picture went, for a host that asked: its rectangle as far as the
@@ -889,7 +897,7 @@ void paint_box_replaced(Context& context, Fragment const& fragment)
 {
     if (!fragment.style || fragment.style->hidden())
         return;
-    if (fragment.control)
+    if (fragment.control && !fragment.control->contents)
         paint_control(context, fragment);
     if (fragment.image && fragment.image->bitmap) {
         Fragment::ImageBox const& box = *fragment.image;

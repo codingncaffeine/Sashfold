@@ -6,7 +6,9 @@
 
 #include "core/Bitmap.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -343,6 +345,33 @@ enum class BoxSizing : std::uint8_t {
     ContentBox,
     BorderBox,
 };
+
+// appearance (css-ui-4 §6.2): whether a control is drawn with the platform's
+// own look. `none` is the initial value; the built-in sheet gives a button
+// `auto`, and every value but `none` is that look. The computed value is the
+// keyword as written, so each compat keyword is kept apart; the enumerators
+// run in the order of appearance_keywords, which spells them. The compat
+// keywords are the specification's <compat-special> and <compat-auto>; the
+// older push-button, slider-horizontal and square-button are no longer among
+// them and are not parsed.
+enum class Appearance : std::uint8_t {
+    None,
+    Auto,
+    MenulistButton,
+    Textfield,
+    Searchfield,
+    Textarea,
+    Checkbox,
+    Radio,
+    Menulist,
+    Listbox,
+    Meter,
+    ProgressBar,
+    Button,
+};
+inline constexpr char const* appearance_keywords[] = { "none", "auto", "menulist-button", "textfield",
+    "searchfield", "textarea", "checkbox", "radio", "menulist", "listbox", "meter", "progress-bar", "button" };
+static_assert(std::size(appearance_keywords) == static_cast<std::size_t>(Appearance::Button) + 1);
 
 // aspect-ratio (css-sizing-4 §5): the box's preferred ratio, its width over
 // its height — none while `ratio` is zero. With `auto` written as well (or
@@ -939,6 +968,12 @@ struct ComputedStyle {
     // it a block: its static position is where the inline box would have
     // begun.
     bool blockified = false;
+
+    // A control's look: its appearance, and whether the page itself (not
+    // the built-in sheet) gave it a background or a border — either of
+    // which takes the built-in face away, as it does in every engine.
+    Appearance appearance = Appearance::None;
+    bool author_decorated = false;
 
     // Hiding: visibility is inherited and keeps the box's room; opacity is
     // not, and at zero hides the box and everything in it (between zero and

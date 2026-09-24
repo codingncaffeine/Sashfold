@@ -198,6 +198,7 @@ input, textarea, select, button { font-size: 13.333px; line-height: normal; font
 input[type=hidden] { display: none }
 input[type=checkbox], input[type=radio] { margin: 3px 3px 3px 4px }
 button, select, input[type=button i], input[type=submit i], input[type=reset i], input[type=file i], input[type=checkbox i], input[type=radio i], input[type=search i] { box-sizing: border-box }
+button { display: inline-block; text-align: center; padding: 1px 6px; border: 2px outset #767676; background-color: #efefef; appearance: auto; letter-spacing: normal; word-spacing: normal; text-transform: none; text-indent: 0 }
 textarea { white-space: pre-wrap }
 [dir=ltr i] { direction: ltr }
 [dir=rtl i] { direction: rtl }
@@ -2970,6 +2971,8 @@ struct Resolver {
             { "float", false, [](S& to, S const& from) { to.floating = from.floating; }, 0 },
             { "clear", false, [](S& to, S const& from) { to.clear = from.clear; }, 0 },
             { "box-sizing", false, [](S& to, S const& from) { to.box_sizing = from.box_sizing; }, 0 },
+            { "appearance", false, [](S& to, S const& from) { to.appearance = from.appearance; }, 0 },
+            { "-webkit-appearance", false, [](S& to, S const& from) { to.appearance = from.appearance; }, 0 },
             { "aspect-ratio", false, [](S& to, S const& from) { to.aspect_ratio = from.aspect_ratio; }, 0 },
             { "object-fit", false, [](S& to, S const& from) { to.object_fit = from.object_fit; }, 0 },
             { "object-position", false,
@@ -3581,6 +3584,23 @@ struct Resolver {
         }
 
         std::stable_sort(matched.begin(), matched.end(), cascades_before);
+
+        // A button the page gives a background or a border of its own is
+        // drawn from its CSS alone, without the built-in face: what the
+        // page said, not the built-in sheet (Chromium's hasAuthorBackground
+        // and hasAuthorBorder, WebKit's the same).
+        if (target == 0 && element.is_html("button")) {
+            for (MatchedDeclaration const& entry : matched) {
+                if (entry.rank == static_cast<int>(CascadeRank::UserAgentNormal)
+                    || entry.rank == static_cast<int>(CascadeRank::UserAgentImportant))
+                    continue;
+                std::string const name = lowercase_name(entry.declaration->name);
+                bool const border = name.starts_with("border") && name != "border-collapse"
+                    && name != "border-spacing";
+                if (border || name.starts_with("background") || name == "all")
+                    style.author_decorated = true;
+            }
+        }
 
         // Custom properties first: they cascade like any property and the
         // var() references in everything else read the settled set.
@@ -4646,6 +4666,21 @@ struct Resolver {
                 style.box_sizing = BoxSizing::BorderBox;
             else if (ascii_ci_equals(keyword, "content-box"))
                 style.box_sizing = BoxSizing::ContentBox;
+            return;
+        }
+        if (name == "appearance" || name == "-webkit-appearance") {
+            // css-ui-4 §6.2: `none`, `auto`, and the compat keywords, each
+            // of which is the platform's look for the element and computes
+            // to itself.
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            for (std::size_t i = 0; i < std::size(appearance_keywords); ++i) {
+                if (ascii_ci_equals(keyword, appearance_keywords[i])) {
+                    style.appearance = static_cast<Appearance>(i);
+                    return;
+                }
+            }
             return;
         }
         if (name == "clear") {
@@ -6339,7 +6374,7 @@ ComputedStyle const& perturbed_style_baseline()
                  "font-synthesis: none; text-transform: uppercase; text-decoration: underline; "
                  "box-sizing: border-box; pointer-events: none; word-break: break-all; "
                  "overflow-wrap: anywhere; flex-direction: column; justify-content: center; "
-                 "align-items: center;"))
+                 "align-items: center; appearance: auto;"))
             resolver.apply(style, declaration, nullptr, a, b, c, d);
         return style;
     }();

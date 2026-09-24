@@ -89,6 +89,11 @@ bool is_control(dom::Element const& element)
     return element.is_html("input") && control_kind(element) != ControlKind::Hidden;
 }
 
+bool lays_out_contents(dom::Element const& element)
+{
+    return element.is_html("button");
+}
+
 bool is_text_kind(ControlKind kind)
 {
     return kind == ControlKind::Text || kind == ControlKind::Password
@@ -176,8 +181,9 @@ std::string control_caption(dom::Element const& element, ControlStates const* st
     switch (kind) {
     case ControlKind::Submit:
     case ControlKind::Button: {
+        // A <button> shows its children, laid out as any box's are.
         if (element.is_html("button"))
-            return element_text(element);
+            return {};
         if (dom::Attr const* value = element.find_attribute("value"))
             return value->value;
         if (lowercase(attribute_or(element, "type", "")) == "reset")

@@ -95,6 +95,21 @@ bool establishes_bfc(ComputedStyle const& style)
         || style.overflow != css::Overflow::Visible;
 }
 
+// A control drawn whole, from what it holds, with nothing inside it laid
+// out: every control but a <button>, which is a box like any other.
+bool drawn_whole(dom::Element const& element)
+{
+    return is_control(element) && !lays_out_contents(element);
+}
+
+// An inline-level box that is one atomic box on its line. A <button> is one
+// whatever its display says: an inline button is laid out as an
+// inline-block (HTML §15.5.2), keeping the computed value it was given.
+bool atomic_inline_box(dom::Element const& element, ComputedStyle const& style)
+{
+    return is_atomic_inline(style) || (lays_out_contents(element) && style.display == Display::Inline);
+}
+
 // CSS 2.1 §8.3.1: two adjoining vertical margins collapse into one — the
 // larger of two positive margins, the more negative of two negative ones,
 // the sum of a positive and a negative.
@@ -2550,7 +2565,7 @@ struct Layouter {
                 continue;
             }
             std::size_t const first = items.size();
-            if (is_control(element)) {
+            if (drawn_whole(element)) {
                 items.push_back(InlineItem { InlineItem::Kind::Control, {}, style, &element });
             } else if (is_block_level(*style)) {
                 // A block inside inline content takes lines of its own; a
@@ -2570,7 +2585,7 @@ struct Layouter {
                 items.push_back(std::move(item));
             } else if (shows_replaced(element)) {
                 append_image(element, style, items);
-            } else if (is_atomic_inline(*style)) {
+            } else if (atomic_inline_box(element, *style)) {
                 // One box on the line, laid out as a block inside.
                 items.push_back(InlineItem { InlineItem::Kind::Block, {}, style, &element });
             } else {
@@ -2751,6 +2766,43 @@ struct Layouter {
             spec.preedit_length = spec.composing.size();
             spec.caret += spec.composing.size();
         }
+    }
+
+    // A <button>'s box once its contents are laid out (HTML §15.5.2, button
+    // layout): what it holds stands in the middle of its content box when
+    // there is room over (a flow of its own — a flex or grid button aligns
+    // its items itself), its baseline is its first line's or else the foot
+    // of its content box, and it is the control it acts as, which is what
+    // the painter draws its face from and what hit testing reaches.
+    void finish_button(Fragment& fragment, dom::Element const& element, ComputedStyle const& style,
+        float content_y, float used_height, float natural_height, bool centre) const
+    {
+        if (centre && used_height > natural_height) {
+            float const dy = (used_height - natural_height) / 2.0f;
+            for (Fragment& child : fragment.children)
+                shift_fragment(child, 0, dy);
+            for (TextRun& run : fragment.runs)
+                run.baseline_y += dy;
+            if (fragment.first_baseline)
+                *fragment.first_baseline += dy;
+            if (fragment.last_baseline)
+                *fragment.last_baseline += dy;
+        }
+        if (!fragment.first_baseline)
+            fragment.first_baseline = content_y + used_height;
+        if (!fragment.last_baseline)
+            fragment.last_baseline = content_y + used_height;
+        Fragment::ControlBox control;
+        control.kind = control_kind(element);
+        control.x = fragment.x;
+        control.y = fragment.y;
+        control.width = fragment.width;
+        control.height = fragment.height;
+        control.disabled = element.has_attribute("disabled");
+        control.focused = controls && controls->focused == &element;
+        control.contents = true;
+        control.themed = style.appearance != css::Appearance::None && !style.author_decorated;
+        fragment.control = control;
     }
 
     // Gives a placed fragment a control's box and the runs of its text.
@@ -4807,7 +4859,9 @@ struct Layouter {
         if (css::GeneratedBox const* const box = generated_box_of(element, style))
             return layout_generated_block(*box, element, x, y, containing_width, floats,
                 options.content_width, options.content_height);
-        if (is_table_display(style.display)) {
+        // A <button> is no table whatever its display says (HTML §15.5.2):
+        // an inline-table one lays out as an inline-block, a table as a block.
+        if (is_table_display(style.display) && !lays_out_contents(element)) {
             std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
             return layout_table(&element, &element, children, style, x, y, containing_width, list_depth, floats,
                 options);
@@ -4884,6 +4938,17 @@ struct Layouter {
         } else if (orthogonal_width) {
             border_box_width
                 = clamp_width(style, *orthogonal_width, containing_width, horizontal_edges)
+                + horizontal_edges;
+        } else if (style.width.is_auto() && lays_out_contents(element)) {
+            // A button's auto width is the fit-content width even when it
+            // is block-level (HTML §15.5.2), so auto margins can centre it.
+            Intrinsic const intrinsic = intrinsic_widths(element, style);
+            float const available = std::max(0.0f,
+                containing_width - margin_left - margin_right - horizontal_edges);
+            border_box_width = clamp_content_bounds(style,
+                                   clamp_width(style, std::min(std::max(intrinsic.min, available), intrinsic.max),
+                                       containing_width, horizontal_edges),
+                                   intrinsic, available)
                 + horizontal_edges;
         } else if (style.width.is_auto()) {
             float const available = containing_width - margin_left - margin_right - horizontal_edges;
@@ -4984,7 +5049,7 @@ struct Layouter {
                 return fragment;
             }
         }
-        if (is_control(element)) {
+        if (drawn_whole(element)) {
             // A block-level control: its own box is the whole of it — unless
             // a formatting context settled its size (a control stretched
             // between left and right, or a flex line's item).
@@ -5005,7 +5070,10 @@ struct Layouter {
         // A box that forms its own block formatting context keeps its floats
         // to itself, and its height reaches around them.
         FloatContext own_floats;
-        bool const own_context = options.own_context || establishes_bfc(style);
+        // A <button> is a formatting context root whatever its display says:
+        // its contents stand in a box of their own.
+        bool const button = lays_out_contents(element);
+        bool const own_context = options.own_context || establishes_bfc(style) || button;
         bool const flex = is_flex_container(style);
         bool const grid = is_grid_container(style);
         // This box's definite content height, when it has one — settled by
@@ -5090,6 +5158,7 @@ struct Layouter {
             if (std::optional<float> const bottom = own_floats.lowest_bottom())
                 used_height = std::max(used_height, *bottom - content_y);
         }
+        float const natural_height = used_height;
         if (options.content_height) {
             used_height = *options.content_height;
         } else if (options.height_is_minimum) {
@@ -5115,6 +5184,9 @@ struct Layouter {
             used_height = clamp_height(style, used_height, options.containing_height, vertical_edges);
         }
         fragment.height = used_height + border_top + border_bottom + padding_top + padding_bottom;
+        if (button)
+            finish_button(fragment, element, style, content_y, used_height, natural_height,
+                !flex && !grid && physical(&style)->writing_mode == frame_mode);
         if (containing_block && !absolute_stack.empty() && !absolute_stack.back().empty()) {
             // The padding box is settled: place what collected inside.
             std::vector<OutOfFlow> const boxes = std::move(absolute_stack.back());
@@ -5620,7 +5692,7 @@ struct Layouter {
             return;
         }
         std::size_t const first = items.size();
-        if (is_control(element)) {
+        if (drawn_whole(element)) {
             items.push_back(InlineItem { InlineItem::Kind::Control, {}, &style, &element });
         } else if (element.is_html("br")) {
             InlineItem item(InlineItem::Kind::HardBreak, {}, &style, &element);
@@ -5628,7 +5700,7 @@ struct Layouter {
             items.push_back(std::move(item));
         } else if (shows_replaced(element)) {
             append_image(element, &style, items);
-        } else if (is_atomic_inline(style)) {
+        } else if (atomic_inline_box(element, style)) {
             items.push_back(InlineItem { InlineItem::Kind::Block, {}, &style, &element });
         } else {
             items.push_back(InlineItem { InlineItem::Kind::BoxStart, {}, &style, &element });
@@ -5872,7 +5944,7 @@ struct Layouter {
             float const width = size ? size->width : 0;
             return { width, width };
         }
-        if (is_control(element)) {
+        if (drawn_whole(element)) {
             // A control's size is its whole box, its padding and border in
             // it; what is asked for here is the content's, and whoever asked
             // puts the edges on again.
@@ -5883,7 +5955,7 @@ struct Layouter {
             return flex_intrinsic_widths(element, style);
         if (is_grid_container(style))
             return grid_intrinsic_widths(element, style);
-        if (is_table_display(style.display)) {
+        if (is_table_display(style.display) && !lays_out_contents(element)) {
             // The table's border box, less the edges block_intrinsic adds.
             std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
             Intrinsic const box = table_intrinsic_widths(children, style, &element);
@@ -7375,7 +7447,8 @@ struct Layouter {
     }
 
     // Whether an item keeps its own size under a normal alignment: a
-    // picture, an embedded box or a control does; a block stretches.
+    // picture, an embedded box or a control does (a <button> too: HTML
+    // §15.5.2 has it align as a replaced element would); a block stretches.
     bool keeps_own_size(GridItem const& item) const
     {
         return item.element && !item.generated && (shows_replaced(*item.element) || is_control(*item.element));
