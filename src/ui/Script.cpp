@@ -734,6 +734,27 @@ struct Runner {
             marked = browser.profile();
         } else if (command == "assert-restyles") {
             expect_equal("assert-restyles", std::to_string(browser.profile().restyles - marked.restyles), argument);
+        } else if (command == "assert-sheet-collections") {
+            expect_equal("assert-sheet-collections",
+                std::to_string(browser.profile().sheet_collections - marked.sheet_collections), argument);
+        } else if (command == "assert-sheet-decodes") {
+            expect_equal("assert-sheet-decodes", std::to_string(browser.profile().sheet_decodes - marked.sheet_decodes), argument);
+        } else if (command == "assert-cursor") {
+            // The pointer the window would show where the mouse is, by the
+            // CSS cursor keyword nearest it.
+            auto const name = [](platform::Cursor cursor) -> std::string {
+                switch (cursor) {
+                case platform::Cursor::Arrow: return "default";
+                case platform::Cursor::Hand: return "pointer";
+                case platform::Cursor::Text: return "text";
+                case platform::Cursor::ResizeVertical: return "ns-resize";
+                case platform::Cursor::ResizeHorizontal: return "ew-resize";
+                case platform::Cursor::ResizeDiagonalDown: return "nwse-resize";
+                case platform::Cursor::ResizeDiagonalUp: return "nesw-resize";
+                }
+                return "?";
+            };
+            expect_equal("assert-cursor", name(browser.cursor()), argument);
         } else if (command == "assert-relayouts") {
             expect_equal("assert-relayouts", std::to_string(browser.profile().relayouts - marked.relayouts), argument);
         } else if (command == "assert-paints") {

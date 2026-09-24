@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <utility>
 #include <optional>
 #include <string>
@@ -35,6 +36,18 @@ struct SheetSource {
 struct FetchedSheet {
     std::vector<std::uint8_t> bytes;
     std::string content_type; // the Content-Type header, for its charset; may be empty
+    // The bytes already decoded, when the fetcher kept the text from an
+    // earlier collection of the same sheet: the collector then decodes
+    // nothing and the bytes may be left empty.
+    std::shared_ptr<std::string const> text;
+
+    FetchedSheet(std::vector<std::uint8_t> fetched_bytes, std::string fetched_content_type,
+        std::shared_ptr<std::string const> decoded = nullptr)
+        : bytes(std::move(fetched_bytes))
+        , content_type(std::move(fetched_content_type))
+        , text(std::move(decoded))
+    {
+    }
 };
 
 // Fetches one stylesheet on the document's behalf; nullopt when it cannot

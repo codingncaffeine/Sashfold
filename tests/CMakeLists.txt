@@ -180,6 +180,15 @@ add_test(NAME shell_fullscreen
 add_test(NAME shell_image_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/image-events.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# A fetched stylesheet's bytes are decoded once for the page, however
+# often a script's added sheets have its stylesheets collected again.
+add_test(NAME shell_sheet_cache
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/sheet-cache.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# The resize band along a shell-drawn frame's edges shows the arrows.
+add_test(NAME shell_resize_band
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/resize-band.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_selection
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/selection.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

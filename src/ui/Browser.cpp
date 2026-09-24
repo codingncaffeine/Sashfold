@@ -39,6 +39,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -529,6 +530,15 @@ struct Browser::Impl {
         std::uint64_t page_mutations = 0;
         std::vector<std::string> console; // the page's console output, oldest first
         std::vector<css::SheetSource> sheets; // the page's stylesheets, kept so a resize can restyle
+        // The text of each fetched sheet as it was decoded, by the sheet's
+        // URL, with the size and a hash of the bytes it came from: the same
+        // bytes on the next collection are the same text, undecoded.
+        struct KeptSheetText {
+            std::size_t size = 0;
+            std::uint64_t hash = 0;
+            std::shared_ptr<std::string const> text;
+        };
+        std::map<std::string, KeptSheetText> sheet_texts;
         std::string sheet_signature; // which elements carried them, so a script change elsewhere keeps them
         std::vector<text::PageFont> fonts; // the fonts its @font-face rules brought along
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
@@ -2925,7 +2935,32 @@ struct Browser::Impl {
                 if (!result.response || result.response->status != 200)
                     return std::nullopt;
                 std::string const* header = net::find_header(result.response->headers, "content-type");
-                return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+                if (kind != net::ResourceKind::Stylesheet)
+                    return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+                // A sheet's bytes are decoded into text once: a page's
+                // sheets are collected again whenever a script adds one,
+                // and the bytes come back from the cache as they were. The
+                // bytes are hashed eight at a time, which is cheap beside
+                // decoding them, and the size guards the hash.
+                std::vector<std::uint8_t> const& bytes = result.response->body;
+                std::uint64_t hash = 1469598103934665603u;
+                std::size_t i = 0;
+                for (; i + 8 <= bytes.size(); i += 8) {
+                    std::uint64_t word = 0;
+                    std::memcpy(&word, bytes.data() + i, 8);
+                    hash = (hash ^ word) * 1099511628211u;
+                }
+                for (; i < bytes.size(); ++i)
+                    hash = (hash ^ bytes[i]) * 1099511628211u;
+                std::string const key = url.serialize();
+                std::string const type = header ? *header : "";
+                auto const kept = tab.sheet_texts.find(key);
+                if (kept != tab.sheet_texts.end() && kept->second.size == bytes.size() && kept->second.hash == hash)
+                    return css::FetchedSheet { {}, type, kept->second.text };
+                ++profile.sheet_decodes;
+                auto text = std::make_shared<std::string const>(css::decode_stylesheet(bytes, type));
+                tab.sheet_texts[key] = Tab::KeptSheetText { bytes.size(), hash, text };
+                return css::FetchedSheet { {}, type, std::move(text) };
             };
         };
         auto const fetch_sheet = fetch_kind(net::ResourceKind::Stylesheet);
@@ -2933,6 +2968,7 @@ struct Browser::Impl {
         std::string const signature = sheet_signature(*tab.document);
         if (signature != tab.sheet_signature || !tab.style_set) {
             Stopwatch const collecting(profile.sheets_ms);
+            ++profile.sheet_collections;
             // The head's <meta> policies, for a page parsed without scripts.
             if (policy)
                 bindings::adopt_meta_policies(*policy, *tab.document);
@@ -3117,6 +3153,7 @@ struct Browser::Impl {
         tab.backgrounds.clear();
         tab.frames.clear();
         tab.sheets.clear();
+        tab.sheet_texts.clear();
         tab.fonts.clear();
         tab.style_set.reset();
         tab.sheet_signature.clear();
@@ -8058,7 +8095,9 @@ struct Browser::Impl {
     Browser::WindowRequest resize_edge_at(int x, int y) const
     {
         using Request = Browser::WindowRequest;
-        int const band = std::max(4, static_cast<int>(std::lround(6 * scale)));
+        // Eight CSS pixels, as the frames of the desktops' own windows give:
+        // narrower and the band is missed, wider and the page's edge is lost.
+        int const band = std::max(6, static_cast<int>(std::lround(8 * scale)));
         bool const left = x < band;
         bool const right = x >= width - band;
         bool const top = y < band;
@@ -9253,6 +9292,23 @@ std::size_t Browser::pictures() const
 
 platform::Cursor Browser::cursor() const
 {
+    // The band along the edges of a frame the shell draws resizes the
+    // window: the pointer says so before it is pressed, as every desktop's
+    // frame does, or nobody would find it.
+    if (m_impl->window_controls && m_impl->mouse_x >= 0 && m_impl->mouse_y >= 0) {
+        using Request = Browser::WindowRequest;
+        switch (m_impl->resize_edge_at(m_impl->mouse_x, m_impl->mouse_y)) {
+        case Request::ResizeTop:
+        case Request::ResizeBottom: return Cursor::ResizeVertical;
+        case Request::ResizeLeft:
+        case Request::ResizeRight: return Cursor::ResizeHorizontal;
+        case Request::ResizeTopLeft:
+        case Request::ResizeBottomRight: return Cursor::ResizeDiagonalDown;
+        case Request::ResizeTopRight:
+        case Request::ResizeBottomLeft: return Cursor::ResizeDiagonalUp;
+        default: break;
+        }
+    }
     if (m_impl->hover == Impl::Hover::Content) {
         if (dom::Element const* const control = m_impl->control_at(m_impl->mouse_x, m_impl->mouse_y))
             return layout::is_text_kind(layout::control_kind(*control)) ? Cursor::Text

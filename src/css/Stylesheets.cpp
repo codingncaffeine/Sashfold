@@ -89,7 +89,7 @@ struct Collector {
         std::optional<FetchedSheet> const fetched = fetch(url, nonce);
         if (!fetched)
             return;
-        add_text(decode_stylesheet(fetched->bytes, fetched->content_type), url, depth);
+        add_text(fetched->text ? *fetched->text : decode_stylesheet(fetched->bytes, fetched->content_type), url, depth);
     }
 
     void add_text(std::string text, std::optional<net::Url> const& url, int depth)

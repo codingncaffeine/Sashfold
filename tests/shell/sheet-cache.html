@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sheet cache</title>
+<link rel="stylesheet" href="sheet-cache.css">
+</head>
+<body>
+<p id="p">text</p>
+<script>
+  // Three sheets added by script, a task apart: each makes the shell
+  // collect the page's sheets again, and the linked sheet comes back from
+  // the cache each time, its bytes the same.
+  var added = 0;
+  function add() {
+    var sheet = document.createElement('style');
+    sheet.textContent = 'p { margin-top: ' + (++added) + 'px }';
+    document.head.appendChild(sheet);
+    if (added < 3)
+      setTimeout(add, 20);
+    else
+      document.title = 'added ' + added + ' ' + getComputedStyle(document.getElementById('p')).color;
+  }
+  setTimeout(add, 20);
+</script>
+</body>
+</html>

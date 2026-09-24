@@ -1,0 +1,16 @@
+# A fetched stylesheet's bytes are decoded into text once for the page.
+# sheet-cache.html links one sheet and then adds three <style> elements by
+# script, a task apart, so the shell collects the page's sheets again for
+# each (five collections in all here, the page's first frame and its
+# parse counted); the linked sheet's bytes come back from the cache each
+# time and are decoded on the first collection alone, and its rule still
+# applies at the end. The wait is stepped: each step runs the timers due.
+resize 800 600
+open sheet-cache.html
+advance 100
+advance 100
+advance 100
+advance 100
+assert-title added 3 rgb(1, 2, 3)
+assert-sheet-collections 5
+assert-sheet-decodes 1

@@ -282,6 +282,12 @@ struct Profile {
     std::uint64_t video_paints = 0;
     double video_paint_ms = 0;
     std::uint64_t painted_pixels = 0;
+    // The times a page's stylesheets were collected — once as it is
+    // parsed, and again whenever a script adds a sheet — and the times a
+    // fetched sheet's bytes were decoded into text on the way: the same
+    // bytes coming back from the cache are not decoded again.
+    std::uint64_t sheet_collections = 0;
+    std::uint64_t sheet_decodes = 0;
     double sheets_ms = 0; // stylesheets and fonts collected
     double images_ms = 0; // pictures collected and decoded
     double restyle_ms = 0;
