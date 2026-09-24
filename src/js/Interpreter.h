@@ -126,6 +126,14 @@ struct Intrinsics {
     // whatever its [[GetPrototypeOf]] answers, so there is nothing for a
     // %Proxy.prototype% to be.
     Function* proxy_constructor = nullptr;
+    // ECMA-402: the Intl object, each constructor's prototype and the
+    // constructor by IntlKind (js/Intl.h; the segments and segment iterator
+    // kinds have a prototype and no constructor), and the symbol a legacy
+    // NumberFormat or DateTimeFormat call hides its object behind.
+    Object* intl = nullptr;
+    Object* intl_prototypes[12] = {};
+    Function* intl_constructors[12] = {};
+    Symbol* intl_fallback_symbol = nullptr;
 };
 
 // A Realm Record (§9.3): the intrinsics a realm is born with, the

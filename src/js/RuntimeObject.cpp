@@ -1701,6 +1701,7 @@ void install_intrinsics(Interpreter& in)
     install_generators(in);
     install_reflect(in);
     install_proxy(in);
+    install_intl(in);
     install_console(in);
 }
 

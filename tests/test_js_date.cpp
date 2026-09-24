@@ -88,7 +88,9 @@ void test_formatting()
     CHECK_JS_STRING(in, "new Date(NaN).toString()", "Invalid Date");
     CHECK_JS_STRING(in, "new Date(NaN).toUTCString()", "Invalid Date");
     CHECK_JS_STRING(in, "String(new Date(NaN))", "Invalid Date");
-    CHECK_JS_TRUE(in, "Date.prototype.toGMTString === Date.prototype.toUTCString && new Date(0).toLocaleString() === new Date(0).toString() && new Date(0).toLocaleDateString() === 'Thu Jan 01 1970' && new Date(0).toLocaleTimeString() === '01:00:00 GMT+0100'");
+    // The locale forms are ECMA-402's: a DateTimeFormat of the arguments.
+    CHECK_JS_TRUE(in, "Date.prototype.toGMTString === Date.prototype.toUTCString && new Date(0).toLocaleString('en-US', { timeZone: '+01:00' }) === '1/1/1970, 1:00:00 AM' && new Date(0).toLocaleDateString('en-US', { timeZone: '+01:00' }) === '1/1/1970' && new Date(0).toLocaleTimeString('en-US', { timeZone: '+01:00' }) === '1:00:00 AM'");
+    CHECK_JS_TRUE(in, "new Date(0).toLocaleString() === new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).format(0)");
     CHECK_JS_TRUE(in, "new Date(5).toJSON() === '1970-01-01T00:00:00.005Z' && new Date(NaN).toJSON() === null && Date.prototype.toJSON.call({ toISOString() { return 'custom'; }, valueOf() { return 1; } }) === 'custom'");
     CHECK_JS_TRUE(in, "new Date(0) + '' === 'Thu Jan 01 1970 01:00:00 GMT+0100' && new Date(0) - 0 === 0 && new Date(0) < new Date(1) && Number(new Date(7)) === 7 && `${new Date(0)}`.startsWith('Thu')");
     CHECK_JS_TRUE(in, "new Date(0)[Symbol.toPrimitive]('number') === 0 && typeof new Date(0)[Symbol.toPrimitive]('default') === 'string' && Date.prototype[Symbol.toPrimitive].length === 1");

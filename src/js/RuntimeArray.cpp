@@ -467,9 +467,12 @@ std::optional<Value> reduce_elements(Interpreter& in, Value const& this_value, A
     return accumulator;
 }
 
-std::optional<Value> join_elements(Interpreter& in, Object& object, double length, std::u16string_view separator, bool locale)
+std::optional<Value> join_elements(Interpreter& in, Object& object, double length, std::u16string_view separator, bool locale,
+    std::span<Value const> locale_arguments = {})
 {
-    // §23.1.3.18 join, and the element loop of toLocaleString (§23.1.3.32).
+    // §23.1.3.18 join, and the element loop of toLocaleString (§23.1.3.32)
+    // as ECMA-402 §19.5.1 has it: each element's toLocaleString is handed
+    // the locales and the options.
     std::u16string out;
     for (double k = 0; k < length; ++k) {
         if (k > 0) {
@@ -487,7 +490,7 @@ std::optional<Value> join_elements(Interpreter& in, Object& object, double lengt
         in.root(*element);
         std::optional<Value> value = *element;
         if (locale) {
-            value = in.invoke(*element, in.key("toLocaleString"), {});
+            value = in.invoke(*element, in.key("toLocaleString"), locale_arguments);
             if (!value)
                 return std::nullopt;
             in.root(*value);
@@ -1099,12 +1102,13 @@ void install_prototype(Interpreter& in, Object& prototype)
             return std::nullopt;
         return *created;
     });
-    define_method(in, prototype, "toLocaleString", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
+    define_method(in, prototype, "toLocaleString", 0, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
         Interpreter::Roots const roots(interp);
         std::optional<Subject> const subject = subject_of(interp, this_value);
         if (!subject)
             return std::nullopt;
-        return join_elements(interp, *subject->object, subject->length, u",", true);
+        Value const locale_arguments[] = { argument(args, 0), argument(args, 1) };
+        return join_elements(interp, *subject->object, subject->length, u",", true, locale_arguments);
     });
     define_method(in, prototype, "toReversed", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
         // §23.1.3.33.

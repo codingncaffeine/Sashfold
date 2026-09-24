@@ -125,6 +125,7 @@ public:
         DataView, // §25.3
         ModuleNamespace, // a module namespace exotic object (§10.4.6): a module's exports as live properties
         Proxy, // a proxy exotic object (§10.5): every internal method is a call to a handler's trap
+        Intl, // an object an ECMA-402 constructor made (js/Intl.h: IntlObject, its kind says which)
     };
 
     explicit Object(Object* prototype, Class class_id = Class::Object)

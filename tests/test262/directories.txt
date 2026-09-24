@@ -92,6 +92,10 @@ test/annexB/built-ins/escape
 test/annexB/built-ins/unescape
 test/annexB/built-ins/Object
 test/annexB/built-ins/Function
+# ECMA-402, the Internationalization API. The engine carries English only,
+# so the tests of other locales' data fail honestly; Temporal is counted
+# too and is not written.
+test/intl402
 # Excluded on size, not on standard: the generated Unicode property-escape
 # tests are hundreds of files each building strings of every code point.
 -test/built-ins/RegExp/property-escapes

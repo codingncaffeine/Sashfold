@@ -38,6 +38,7 @@ void install_array_buffer(Interpreter&); // ArrayBuffer — RuntimeArrayBuffer.c
 void install_typed_arrays(Interpreter&); // %TypedArray% and its nine kinds — RuntimeTypedArray.cpp
 void install_data_view(Interpreter&); // DataView — RuntimeArrayBuffer.cpp
 void install_proxy(Interpreter&); // Proxy and Proxy.revocable — RuntimeProxy.cpp
+void install_intl(Interpreter&); // Intl and its constructors, and the locale-sensitive methods of String, Number, BigInt, Date and Array — RuntimeIntl*.cpp
 
 // The promise operations the engine itself needs (an await, an async
 // function's result): NewPromiseCapability (§27.2.1.5), PromiseResolve

@@ -203,6 +203,11 @@ add_library(sashfold_core STATIC
   src/js/RuntimeCollections.cpp
   src/js/RuntimeDate.cpp
   src/js/RuntimeGenerator.cpp
+  src/js/RuntimeIntl.cpp
+  src/js/RuntimeIntlDate.cpp
+  src/js/RuntimeIntlDuration.cpp
+  src/js/RuntimeIntlNumber.cpp
+  src/js/RuntimeIntlText.cpp
   src/js/RuntimeIterator.cpp
   src/js/RuntimeJson.cpp
   src/js/RuntimeNumber.cpp

@@ -1262,8 +1262,10 @@ void install_prototype(Interpreter& in, Object& prototype)
             return std::nullopt;
         return Value::object(*made);
     });
-    define_method(in, prototype, "toLocaleString", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
-        // §23.2.3.31: each element's own toLocaleString, joined by commas.
+    define_method(in, prototype, "toLocaleString", 0, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
+        // §23.2.3.31: each element's own toLocaleString, handed the locales
+        // and the options (ECMA-402 §19.5.1), joined by commas.
+        Value const locale_arguments[] = { argument(args, 0), argument(args, 1) };
         std::optional<TypedArrayObject*> const found = validated(interp, this_value, "toLocaleString");
         if (!found)
             return std::nullopt;
@@ -1279,7 +1281,7 @@ void install_prototype(Interpreter& in, Object& prototype)
             if (element.is_undefined())
                 continue;
             Interpreter::Roots const element_roots(interp);
-            std::optional<Value> const text = interp.invoke(element, interp.key("toLocaleString"), {});
+            std::optional<Value> const text = interp.invoke(element, interp.key("toLocaleString"), locale_arguments);
             if (!text)
                 return std::nullopt;
             interp.root(*text);

@@ -5,6 +5,7 @@
 // Everything that can run script returns std::optional; the pieces that
 // cannot are static. The evaluator itself lives in Interpreter.cpp.
 
+#include "js/Intl.h"
 #include "js/Module.h"
 #include "js/Object.h"
 #include "js/Runtime.h"
@@ -89,6 +90,7 @@ std::string class_name(Object const& object)
     // this text is made without running script (it is what `describe`
     // reports in a message).
     case Object::Class::Proxy: return "Object";
+    case Object::Class::Intl: return std::string(intl_kind_name(static_cast<IntlObject const&>(object).kind()));
     }
     return "Object";
 }

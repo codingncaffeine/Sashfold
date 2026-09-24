@@ -2261,6 +2261,12 @@ void RealmRecord::trace(Tracer& tracer)
     tracer.visit(i.data_view_prototype);
     tracer.visit(i.data_view_constructor);
     tracer.visit(i.proxy_constructor);
+    tracer.visit(i.intl);
+    for (Object* prototype : i.intl_prototypes)
+        tracer.visit(prototype);
+    for (Function* constructor : i.intl_constructors)
+        tracer.visit(constructor);
+    tracer.visit(i.intl_fallback_symbol);
     tracer.visit(i.math);
     tracer.visit(i.json);
     tracer.visit(global_lexical);
