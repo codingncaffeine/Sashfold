@@ -784,7 +784,9 @@ std::optional<Deserialized> structured_deserialize(Realm::Internals& target, Ser
             }
             case Kind::DomException:
                 target.throw_dom_exception(encode_utf8(record.name), encode_utf8(record.text));
-                made = interp.take_exception();
+                // Taken, the exception is held by nothing: rooted here,
+                // since the stack's string is an allocation and may collect.
+                made = interp.root(interp.take_exception());
                 if (!record.stack.empty() && made.is_object() && made.as_object()->is_error())
                     static_cast<js::ErrorObject*>(made.as_object())->set_stack(interp.string(std::u16string_view(record.stack)));
                 break;

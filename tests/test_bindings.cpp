@@ -3373,6 +3373,12 @@ void test_structured_clone_values()
     CHECK(page->boolean("(function () { var e = new RangeError('bad', { cause: 'why' }); e.extra = 1; var c = structuredClone(e);"
                         " return c instanceof RangeError && c.message === 'bad' && c.cause === 'why' && !('extra' in c)"
                         " && !Object.prototype.hasOwnProperty.call(structuredClone(new TypeError()), 'message'); })()"));
+    // A DOMException clones with its name, message and stack. The copy is
+    // made here under a collection at every allocation, and its stack is
+    // an allocation made after it: the copy has to be rooted by then.
+    CHECK(page->boolean("(function () { var e = new DOMException('gone', 'NotFoundError'); var c = structuredClone(e);"
+                        " return c instanceof DOMException && c !== e && c.name === 'NotFoundError' && c.message === 'gone'"
+                        " && c.code === 8 && typeof c.stack === 'string' && c.stack === e.stack; })()"));
     CHECK(page->boolean("(function () { var shared = {}; var a = [1, , 3]; a.extra = 'x'; var o = { z: 1, a: a, s1: shared, s2: shared }; o.self = o;"
                         " var c = structuredClone(o);"
                         " return Object.keys(c).join() === 'z,a,s1,s2,self' && Array.isArray(c.a) && !(1 in c.a) && c.a.length === 3"
