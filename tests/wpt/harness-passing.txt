@@ -5,6 +5,7 @@ IndexedDB/abort-in-initial-upgradeneeded.any.html	An abort() in the initial onup
 IndexedDB/bindings-inject-keys-bypass.any.html	Returning keys to script should bypass prototype setters
 IndexedDB/bindings-inject-values-bypass.any.html	Returning values to script should bypass prototype chain
 IndexedDB/bindings-inject-values-bypass.any.html	Returning values to script should bypass prototype setters
+IndexedDB/blob-composite-blob-reads.any.html	Composite Blob Handling: Many blobs: direct
 IndexedDB/blob-delete-objectstore-db.any.html	Deleting an object store and a database containing blobs doesn't crash.
 IndexedDB/blob-valid-after-abort.any.html	A blob can be read back after the transaction that added it was aborted.
 IndexedDB/blob-valid-after-deletion.any.html	Blobs stay alive after their records are deleted.
@@ -108,6 +109,37 @@ IndexedDB/idb-explicit-commit.any.html	Transactions that explicitly commit and h
 IndexedDB/idb-explicit-commit.any.html	Transactions that handle all errors properly should behave as expected when an explicit commit is called in an onerror handler.
 IndexedDB/idb-explicit-commit.any.html	Transactions with same scope should stay in program order, even if one calls commit.
 IndexedDB/idb-explicit-commit.any.html	commit() on a version change transaction does not cause errors.
+IndexedDB/idb-partitioned-coverage.sub.html	 - advance
+IndexedDB/idb-partitioned-coverage.sub.html	 - continue
+IndexedDB/idb-partitioned-coverage.sub.html	 - fresh advance still async
+IndexedDB/idb-partitioned-coverage.sub.html	 - fresh continue still async
+IndexedDB/idb-partitioned-coverage.sub.html	 - request gotten by the handler
+IndexedDB/idb-partitioned-coverage.sub.html	 - request returned by open()
+IndexedDB/idb-partitioned-coverage.sub.html	Deletes are processed in order
+IndexedDB/idb-partitioned-coverage.sub.html	Empty object store
+IndexedDB/idb-partitioned-coverage.sub.html	Get all
+IndexedDB/idb-partitioned-coverage.sub.html	Get all values with invalid query keys
+IndexedDB/idb-partitioned-coverage.sub.html	Get all with generated keys
+IndexedDB/idb-partitioned-coverage.sub.html	Get all with large values
+IndexedDB/idb-partitioned-coverage.sub.html	Get bound range
+IndexedDB/idb-partitioned-coverage.sub.html	Get bound range (generated) with maxCount
+IndexedDB/idb-partitioned-coverage.sub.html	Get bound range with maxCount
+IndexedDB/idb-partitioned-coverage.sub.html	Get lower excluded
+IndexedDB/idb-partitioned-coverage.sub.html	Get upper excluded
+IndexedDB/idb-partitioned-coverage.sub.html	IDBObjectStore.openKeyCursor() - forward iteration
+IndexedDB/idb-partitioned-coverage.sub.html	IDBObjectStore.openKeyCursor() - forward iteration with range
+IndexedDB/idb-partitioned-coverage.sub.html	IDBObjectStore.openKeyCursor() - invalid inputs
+IndexedDB/idb-partitioned-coverage.sub.html	IDBObjectStore.openKeyCursor() - reverse iteration
+IndexedDB/idb-partitioned-coverage.sub.html	IDBObjectStore.openKeyCursor() - reverse iteration with range
+IndexedDB/idb-partitioned-coverage.sub.html	Max value count
+IndexedDB/idb-partitioned-coverage.sub.html	Non existent key
+IndexedDB/idb-partitioned-coverage.sub.html	Query with empty range where  first key < upperBound
+IndexedDB/idb-partitioned-coverage.sub.html	Query with empty range where lowerBound < last key
+IndexedDB/idb-partitioned-coverage.sub.html	Retrieve multiEntry key
+IndexedDB/idb-partitioned-coverage.sub.html	Retrieve one key multiple values
+IndexedDB/idb-partitioned-coverage.sub.html	Single item get
+IndexedDB/idb-partitioned-coverage.sub.html	maxCount=0
+IndexedDB/idb-partitioned-coverage.sub.html	maxCount=10
 IndexedDB/idb-partitioned-persistence.sub.html	Persistence test for partitioned IndexedDB
 IndexedDB/idb_binary_key_conversion.any.html	Array of TypedArray(Int8Array)
 IndexedDB/idb_binary_key_conversion.any.html	ArrayBuffer
@@ -920,6 +952,10 @@ IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNam
 IndexedDB/idbtransaction_objectStoreNames.any.html	IDBTransaction.objectStoreNames - value after commit
 IndexedDB/idbversionchangeevent.any.html	IDBVersionChangeEvent fired in upgradeneeded, versionchange and deleteDatabase
 IndexedDB/index_sort_order.any.html	Verify IDBIndex key sort order is 'number < Date < DOMString'
+IndexedDB/interleaved-cursors-large.any.html	250 cursors
+IndexedDB/interleaved-cursors-small.any.html	1 cursors
+IndexedDB/interleaved-cursors-small.any.html	10 cursors
+IndexedDB/interleaved-cursors-small.any.html	100 cursors
 IndexedDB/key-conversion-exceptions.any.html	IDBCursor continue() method with throwing/invalid keys
 IndexedDB/key-conversion-exceptions.any.html	IDBCursor update() method with throwing/invalid keys
 IndexedDB/key-conversion-exceptions.any.html	IDBFactory cmp() static with throwing/invalid keys
@@ -1926,6 +1962,12 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-webkit-transition:
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-webkit-user-select: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-webkit-user-select: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-webkit-user-select: _webkit_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-content: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-content: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-items: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-items: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-self: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-self: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	alignment-baseline: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	alignment-baseline: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	all: _camel_cased_attribute v. CSS.supports
@@ -1956,16 +1998,77 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-attachme
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-attachment: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-blend-mode: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-blend-mode: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-clip: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-clip: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-image: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-image: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-origin: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-origin: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position-x: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position-x: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position-y: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position-y: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat-x: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat-x: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat-y: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat-y: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	baseline-shift: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	baseline-shift: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	block-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	block-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-left-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-left-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-right-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-right-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-collapse: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-collapse: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-end-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-end-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-start-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-start-radius: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image-outset: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image-outset: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image-repeat: _camel_cased_attribute v. CSS.supports
@@ -1978,10 +2081,78 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image-width:
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image-width: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-image: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-spacing: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-spacing: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-end-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-end-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-start-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-start-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-left-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-left-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-right-radius: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-right-radius: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	bottom: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-decoration-break: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-decoration-break: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-shadow: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-shadow: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-sizing: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-sizing: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	break-after: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	break-after: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	break-before: _camel_cased_attribute v. CSS.supports
@@ -1990,8 +2161,11 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	break-inside: _came
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	break-inside: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	buffered-rendering: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	buffered-rendering: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	caption-side: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	caption-side: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	caret-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	caret-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	clear: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	clip-path: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	clip-path: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	clip-rule: _camel_cased_attribute v. CSS.supports
@@ -2009,10 +2183,13 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	color-rendering: _c
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	color-rendering: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	color-scheme: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	color-scheme: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-count: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-count: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-fill: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-fill: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-gap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-gap: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-progression: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-progression: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-rule-color: _camel_cased_attribute v. CSS.supports
@@ -2033,29 +2210,71 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	contain-intrinsic-s
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	contain: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	content-visibility: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	content-visibility: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	content: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-increment: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-increment: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-reset: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-reset: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-set: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-set: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	cursor: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	cx: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	cy: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	d: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	direction: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	display: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	dominant-baseline: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	dominant-baseline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	empty-cells: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	empty-cells: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	enable-background: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	enable-background: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-opacity: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-opacity: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-rule: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-rule: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	filter: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-basis: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-basis: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-direction: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-direction: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-flow: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-flow: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-grow: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-grow: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-shrink: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-shrink: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-wrap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-wrap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	float: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flood-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flood-color: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flood-opacity: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flood-opacity: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-display: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-display: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-family: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-family: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-feature-settings: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-feature-settings: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-kerning: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-kerning: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-language-override: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-language-override: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-optical-sizing: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-optical-sizing: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-size-adjust: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-size-adjust: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-stretch: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-stretch: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-synthesis: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-synthesis: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variant-alternates: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variant-alternates: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variant-caps: _camel_cased_attribute v. CSS.supports
@@ -2072,12 +2291,53 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variant: _came
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variant: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variation-settings: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-variation-settings: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-weight: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-weight: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	gap: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	glyph-orientation-horizontal: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	glyph-orientation-horizontal: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	glyph-orientation-vertical: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	glyph-orientation-vertical: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-area: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-area: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-columns: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-columns: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-flow: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-flow: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-rows: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-rows: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-gap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-gap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-gap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-gap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-gap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-gap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-areas: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-areas: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-columns: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-columns: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-rows: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-rows: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	hanging-punctuation: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	hanging-punctuation: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	height: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	hyphens: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	image-orientation: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	image-orientation: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	image-rendering: _camel_cased_attribute v. CSS.supports
@@ -2087,9 +2347,30 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	ime-mode: _dashed_a
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inherits: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	initial-value: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	initial-value: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inline-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inline-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	internal-text-autosizing-status: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	internal-text-autosizing-status: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	isolation: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-content: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-content: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-items: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-items: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-self: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-self: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	kerning: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	layout-grid-char: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	layout-grid-char: _dashed_attribute v. CSS.supports
@@ -2101,10 +2382,44 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	layout-grid-type: _
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	layout-grid-type: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	layout-grid: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	layout-grid: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	left: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	letter-spacing: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	letter-spacing: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	lighting-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	lighting-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-break: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-break: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-height: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-height: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-image: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-image: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-position: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-position: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-type: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-type: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-bottom: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-bottom: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-left: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-left: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-right: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-right: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-top: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-top: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	marker-end: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	marker-end: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	marker-mid: _camel_cased_attribute v. CSS.supports
@@ -2137,8 +2452,24 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	mask-size: _dashed_
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	mask-type: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	mask-type: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	mask: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-block-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-block-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-height: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-height: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-inline-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-inline-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-width: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-zoom: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-zoom: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-block-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-block-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-height: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-height: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-inline-size: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-inline-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-width: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-zoom: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-zoom: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	mix-blend-mode: _camel_cased_attribute v. CSS.supports
@@ -2150,6 +2481,10 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	motion-path: _dashe
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	motion-rotation: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	motion-rotation: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	motion: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-fit: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-fit: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-position: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-position: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset-anchor: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset-anchor: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset-block-end: _camel_cased_attribute v. CSS.supports
@@ -2169,6 +2504,8 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset-rotate: _das
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset-rotation: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset-rotation: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	offset: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	opacity: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	order: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	orientation: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	orphans: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	outline-color: _camel_cased_attribute v. CSS.supports
@@ -2186,6 +2523,13 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-block: _ca
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-block: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-inline: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-inline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-wrap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-wrap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-x: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-x: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-y: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-y: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior-block: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior-block: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior-inline: _camel_cased_attribute v. CSS.supports
@@ -2196,6 +2540,27 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior-y: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overscroll-behavior: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-bottom: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-bottom: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-end: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-end: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-start: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-start: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-left: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-left: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-right: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-right: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-top: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-top: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	page-break-after: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	page-break-after: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	page-break-before: _camel_cased_attribute v. CSS.supports
@@ -2216,9 +2581,22 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	perspective-origin-
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	perspective-origin: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	perspective-origin: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	perspective: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-content: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-content: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-items: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-items: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-self: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-self: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	pointer-events: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	pointer-events: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	position: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	quotes: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	r: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	resize: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	right: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	rotate: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	row-gap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	row-gap: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	ruby-align: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	ruby-align: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	ruby-overhang: _camel_cased_attribute v. CSS.supports
@@ -2319,19 +2697,46 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	speak-as: _camel_ca
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	speak-as: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	speak: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	src: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-color: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-opacity: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-opacity: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dasharray: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dasharray: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dashoffset: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dashoffset: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linecap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linecap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linejoin: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linejoin: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-miterlimit: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-miterlimit: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-opacity: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-opacity: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-width: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-width: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	supported-color-schemes: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	supported-color-schemes: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	syntax: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	tab-size: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	tab-size: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	table-layout: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	table-layout: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align-last: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align-last: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-anchor: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-anchor: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-combine-upright: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-combine-upright: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-color: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-line: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-line: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-skip-ink: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-skip-ink: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-skip: _camel_cased_attribute v. CSS.supports
@@ -2340,6 +2745,8 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-sty
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-style: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-thickness: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-thickness: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis-color: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis-position: _camel_cased_attribute v. CSS.supports
@@ -2348,6 +2755,10 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis-style
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis-style: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-emphasis: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-indent: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-indent: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-justify: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-justify: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-kashida-space: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-kashida-space: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-kashida: _camel_cased_attribute v. CSS.supports
@@ -2362,6 +2773,8 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-line-through-w
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-line-through-width: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-line-through: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-line-through: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-orientation: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-orientation: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-overflow: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-overflow: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-overline-color: _camel_cased_attribute v. CSS.supports
@@ -2380,6 +2793,8 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-shadow: _camel
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-shadow: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-size-adjust: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-size-adjust: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-transform: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-transform: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline-color: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline-color: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline-mode: _camel_cased_attribute v. CSS.supports
@@ -2394,6 +2809,7 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline-widt
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline-width: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-underline: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	top: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	touch-action: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	touch-action: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform-box: _camel_cased_attribute v. CSS.supports
@@ -2408,6 +2824,7 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform-origin: _
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform-origin: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform-style: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform-style: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition-delay: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition-delay: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition-duration: _camel_cased_attribute v. CSS.supports
@@ -2417,6 +2834,9 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition-property
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition-timing-function: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition-timing-function: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transition: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	translate: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	unicode-bidi: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	unicode-bidi: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	unicode-range: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	unicode-range: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	user-select: _camel_cased_attribute v. CSS.supports
@@ -2425,13 +2845,29 @@ css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	user-zoom: _camel_c
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	user-zoom: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	vector-effect: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	vector-effect: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	vertical-align: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	vertical-align: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	viewport-fit: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	viewport-fit: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	visibility: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	white-space: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	white-space: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	widows: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	width: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	will-change: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	will-change: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-break: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-break: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-spacing: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-spacing: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-wrap: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-wrap: _dashed_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	writing-mode: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	writing-mode: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	x: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	y: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	z-index: _camel_cased_attribute v. CSS.supports
+css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	z-index: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	zoom: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-L3.html	Complex conditions allowed
 css/css-conditional/js/CSS-supports-L3.html	Single-argument form allows for declarations with enclosing parentheses
@@ -2564,6 +3000,49 @@ css/css-display/focus/display-contents-focus.html	div with role button, tabindex
 css/css-display/focus/display-contents-focus.html	div with role button, tabindex=0 and display: contents is focusable
 css/css-display/focus/display-contents-focus.html	link with display: contents is focusable
 css/css-display/focus/display-contents-focus.html	span with role link, tabindex=0 and display: contents is focusable
+css/css-display/inheritance.html	Property display does not inherit
+css/css-display/inheritance.html	Property display has initial value inline
+css/css-display/parsing/display-computed.html	Property display value 'block flex'
+css/css-display/parsing/display-computed.html	Property display value 'block flow'
+css/css-display/parsing/display-computed.html	Property display value 'block flow-root'
+css/css-display/parsing/display-computed.html	Property display value 'block grid'
+css/css-display/parsing/display-computed.html	Property display value 'block table'
+css/css-display/parsing/display-computed.html	Property display value 'block'
+css/css-display/parsing/display-computed.html	Property display value 'contents'
+css/css-display/parsing/display-computed.html	Property display value 'flex block'
+css/css-display/parsing/display-computed.html	Property display value 'flex inline'
+css/css-display/parsing/display-computed.html	Property display value 'flex'
+css/css-display/parsing/display-computed.html	Property display value 'flow block'
+css/css-display/parsing/display-computed.html	Property display value 'flow inline'
+css/css-display/parsing/display-computed.html	Property display value 'flow-root block'
+css/css-display/parsing/display-computed.html	Property display value 'flow-root inline'
+css/css-display/parsing/display-computed.html	Property display value 'flow-root'
+css/css-display/parsing/display-computed.html	Property display value 'grid block'
+css/css-display/parsing/display-computed.html	Property display value 'grid inline'
+css/css-display/parsing/display-computed.html	Property display value 'grid'
+css/css-display/parsing/display-computed.html	Property display value 'inline flex'
+css/css-display/parsing/display-computed.html	Property display value 'inline flow'
+css/css-display/parsing/display-computed.html	Property display value 'inline flow-root'
+css/css-display/parsing/display-computed.html	Property display value 'inline grid'
+css/css-display/parsing/display-computed.html	Property display value 'inline table'
+css/css-display/parsing/display-computed.html	Property display value 'inline'
+css/css-display/parsing/display-computed.html	Property display value 'inline-block'
+css/css-display/parsing/display-computed.html	Property display value 'inline-flex'
+css/css-display/parsing/display-computed.html	Property display value 'inline-grid'
+css/css-display/parsing/display-computed.html	Property display value 'inline-table'
+css/css-display/parsing/display-computed.html	Property display value 'list-item'
+css/css-display/parsing/display-computed.html	Property display value 'none'
+css/css-display/parsing/display-computed.html	Property display value 'table block'
+css/css-display/parsing/display-computed.html	Property display value 'table inline'
+css/css-display/parsing/display-computed.html	Property display value 'table'
+css/css-display/parsing/display-computed.html	Property display value 'table-caption'
+css/css-display/parsing/display-computed.html	Property display value 'table-cell'
+css/css-display/parsing/display-computed.html	Property display value 'table-column'
+css/css-display/parsing/display-computed.html	Property display value 'table-column-group'
+css/css-display/parsing/display-computed.html	Property display value 'table-footer-group'
+css/css-display/parsing/display-computed.html	Property display value 'table-header-group'
+css/css-display/parsing/display-computed.html	Property display value 'table-row'
+css/css-display/parsing/display-computed.html	Property display value 'table-row-group'
 css/css-display/parsing/display-computed.html	position absolute affects computed display
 css/css-display/parsing/display-computed.html	position fixed affects computed display
 css/css-display/parsing/display-valid.html	e.style['display'] = "block ruby" should set the property value
@@ -2616,6 +3095,14 @@ css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading
 css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "0" should set the property value
 css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "123" should set the property value
 css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "calc(34.1)" should set the property value
+css/css-fonts/parsing/font-family-computed.html	Property font-family value '"21st Century", fantasy'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'Helvetica, Verdana, sans-serif'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'cursive'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'fantasy'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'monospace'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'sans-serif'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'serif'
+css/css-fonts/parsing/font-family-computed.html	Property font-family value 'serif, sans-serif, cursive, fantasy, monospace'
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "'21st Century', fantasy" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "Helvetica, Verdana, sans-serif" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "\\"Serif\\"" should set the property value
@@ -2627,6 +3114,9 @@ css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-set
 css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-settings'] = "\\"\\\\22\\\\7d\\\\2f\\\\2a\\"" should set the property value
 css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-settings'] = "\\"tnum\\", 'hist'" should set the property value
 css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-settings'] = "normal" should set the property value
+css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'auto'
+css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'none'
+css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'normal'
 css/css-fonts/parsing/font-kerning-valid.html	e.style['font-kerning'] = "auto" should set the property value
 css/css-fonts/parsing/font-kerning-valid.html	e.style['font-kerning'] = "none" should set the property value
 css/css-fonts/parsing/font-kerning-valid.html	e.style['font-kerning'] = "normal" should set the property value
@@ -2685,6 +3175,9 @@ css/css-fonts/parsing/font-size-valid.html	e.style['font-size'] = "x-small" shou
 css/css-fonts/parsing/font-size-valid.html	e.style['font-size'] = "xx-large" should set the property value
 css/css-fonts/parsing/font-size-valid.html	e.style['font-size'] = "xx-small" should set the property value
 css/css-fonts/parsing/font-size-valid.html	e.style['font-size'] = "xxx-large" should set the property value
+css/css-fonts/parsing/font-style-computed.html	Property font-style value 'italic'
+css/css-fonts/parsing/font-style-computed.html	Property font-style value 'normal'
+css/css-fonts/parsing/font-style-computed.html	Property font-style value 'oblique'
 css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "italic" should set the property value
 css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "normal" should set the property value
 css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "oblique -10deg" should set the property value
@@ -2698,6 +3191,27 @@ css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "oblique cal
 css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "oblique calc(100deg)" should set the property value
 css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "oblique calc(90deg)" should set the property value
 css/css-fonts/parsing/font-style-valid.html	e.style['font-style'] = "oblique" should set the property value
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'none'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only small-caps position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only small-caps'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'small-caps position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'small-caps'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style small-caps position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style small-caps'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight oblique-only small-caps position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight oblique-only small-caps'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight oblique-only'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight small-caps'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight style small-caps position'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight style small-caps'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight style'
+css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight'
 css/css-fonts/parsing/font-synthesis-position-valid.html	e.style['font-synthesis-position'] = "auto" should set the property value
 css/css-fonts/parsing/font-synthesis-position-valid.html	e.style['font-synthesis-position'] = "none" should set the property value
 css/css-fonts/parsing/font-synthesis-small-caps-valid.html	e.style['font-synthesis-small-caps'] = "auto" should set the property value
@@ -2837,6 +3351,20 @@ css/css-fonts/parsing/font-weight-computed.html	749 made bolder computes to 900
 css/css-fonts/parsing/font-weight-computed.html	750 made bolder computes to 900
 css/css-fonts/parsing/font-weight-computed.html	800 made bolder computes to 900
 css/css-fonts/parsing/font-weight-computed.html	900 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '1'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '100'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '1000'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '101'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '200'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '300'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '400'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '500'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '600'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '700'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '800'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '900'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value 'bold'
+css/css-fonts/parsing/font-weight-computed.html	Property font-weight value 'normal'
 css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "1" should set the property value
 css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "100" should set the property value
 css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "1000" should set the property value
@@ -2857,6 +3385,12 @@ css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "calc(0)" 
 css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "calc(100)" should set the property value
 css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "lighter" should set the property value
 css/css-fonts/parsing/font-weight-valid.html	e.style['font-weight'] = "normal" should set the property value
+css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'condensed'
+css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'expanded'
+css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'extra-expanded'
+css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'normal'
+css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'ultra-condensed'
+css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'ultra-expanded'
 css/css-fonts/parsing/font-width-valid.html	e.style['font-stretch'] = "234.5%" should set the property value
 css/css-fonts/parsing/font-width-valid.html	e.style['font-stretch'] = "calc(-100%)" should set the property value
 css/css-fonts/parsing/font-width-valid.html	e.style['font-stretch'] = "calc(0%)" should set the property value
@@ -3020,6 +3554,7 @@ css/cssom/cssstyledeclaration-mutability.html	getComputedStyle's CSSStyleDeclara
 css/cssom/cssstyledeclaration-mutationrecord-001.html	CSSStyleDeclaration.setPropertyValue queues a mutation record when serialization is changed
 css/cssom/cssstyledeclaration-mutationrecord-003.html	CSSStyleDeclaration.removeProperty doesn't queue a mutation record when not actually removed, invoked from setPropertyValue
 css/cssom/cssstyledeclaration-mutationrecord-004.html	CSSStyleDeclaration.removeProperty doesn't queue a mutation record when not actually removed
+css/cssom/cssstyledeclaration-properties.html	CSS Test: CSSStyleDeclaration properties are defined as WebIDL attributes, not using getOwnPropertyNames()
 css/cssom/cssstyledeclaration-removeProperty-all.html	CSSStyleDeclaration.removeProperty("all") 1
 css/cssom/cssstyledeclaration-setter-form-controls.html	button element
 css/cssom/cssstyledeclaration-setter-form-controls.html	button input element
@@ -3062,6 +3597,12 @@ css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no sty
 css/cssom/getComputedStyle-display-none-001.html	getComputedStyle gets invalidated in display: none subtrees due to inherited changes to an ancestor
 css/cssom/getComputedStyle-display-none-002.html	getComputedStyle gets invalidated in display: none subtrees due to rule matching changes
 css/cssom/getComputedStyle-display-none-003.html	getComputedStyle gets invalidated in display: none subtrees due to attribute mutations
+css/cssom/getComputedStyle-getter-v-properties.tentative.html	border
+css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-bottom
+css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-left
+css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-right
+css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-top
+css/cssom/getComputedStyle-getter-v-properties.tentative.html	font
 css/cssom/getComputedStyle-insets-absolute-roundtrip.html	Fixed-length left property value should roundtrip
 css/cssom/getComputedStyle-insets-absolute.html	horizontal-tb ltr inside horizontal-tb ltr - Pixels resolve as-is
 css/cssom/getComputedStyle-insets-absolute.html	horizontal-tb ltr inside horizontal-tb ltr - Pixels resolve as-is when overconstrained
@@ -65854,6 +66395,7 @@ html/canvas/element/manual/drawing-paths-to-the-canvas/canvas_complexshapes_ispo
 html/canvas/element/manual/drawing-paths-to-the-canvas/drawFocusIfNeeded_002.html	drawFocusIfNeeded does not draw a focus ring if the element is not in focus.
 html/canvas/element/manual/drawing-paths-to-the-canvas/drawFocusIfNeeded_003.html	drawFocusIfNeeded does not draw a focus ring if the element is not a descendant of the context.
 html/canvas/element/manual/fill-and-stroke-styles/2d.fillStyle.parse.current.notrendered.html	currentColor is computed from the canvas element even when element is not rendered
+html/canvas/element/manual/fill-and-stroke-styles/canvas_colorsandstyles_createlineargradient_001.htm	linear gradient from point to self draws nothing
 html/canvas/element/manual/fill-and-stroke-styles/pattern-from-canvas-cross-origin-taint.https.sub.html	Tainting check for a tainted canvas in canvas pattern
 html/canvas/element/manual/fill-and-stroke-styles/pattern-from-img-cross-origin-taint.https.sub.html	Tainting check for cross origin image in canvas pattern
 html/canvas/element/manual/image-smoothing/imagesmoothing.html	On getting imageSmoothingEnabled, the user agent must return the last value it was set to.
@@ -135091,465 +135633,3 @@ url/urlsearchparams-stringifier.any.html	Serialize 💩
 url/urlsearchparams-stringifier.any.html	URLSearchParams connected to URL
 url/urlsearchparams-stringifier.any.html	URLSearchParams must not do newline normalization
 url/urlsearchparams-stringifier.any.html	URLSearchParams.toString
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-content: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-content: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-items: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-items: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-self: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	align-self: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-clip: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-clip: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-image: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-image: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-origin: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-origin: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-position: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-repeat: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	background: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	block-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	block-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-block: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-left-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-left-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-right-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-right-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-bottom: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-collapse: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-collapse: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-end-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-end-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-start-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-end-start-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-inline: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-left: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-right: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-spacing: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-spacing: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-end-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-end-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-start-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-start-start-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-left-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-left-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-right-radius: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-right-radius: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-top: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	border: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	bottom: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-sizing: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	box-sizing: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	caption-side: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	caption-side: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	clear: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-gap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	column-gap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	content: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-increment: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-increment: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-reset: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-reset: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-set: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	counter-set: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	direction: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	display: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	empty-cells: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	empty-cells: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-opacity: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-opacity: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-rule: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill-rule: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	fill: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-basis: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-basis: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-direction: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-direction: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-flow: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-flow: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-grow: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-grow: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-shrink: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-shrink: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-wrap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex-wrap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	flex: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	float: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-family: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-family: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-kerning: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-kerning: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-stretch: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-stretch: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-synthesis: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-synthesis: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-weight: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font-weight: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	font: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	gap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-area: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-area: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-columns: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-columns: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-flow: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-flow: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-rows: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-auto-rows: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-gap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-gap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-column: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-gap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-gap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-gap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-gap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-row: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-areas: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-areas: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-columns: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-columns: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-rows: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template-rows: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid-template: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	grid: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	height: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	hyphens: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inline-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inline-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-block: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset-inline: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	inset: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-content: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-content: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-items: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-items: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-self: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	justify-self: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	left: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	letter-spacing: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	letter-spacing: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-break: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-break: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-height: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	line-height: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-position: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-position: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-type: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style-type: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	list-style: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-block: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-bottom: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-bottom: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-inline: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-left: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-left: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-right: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-right: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-top: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin-top: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	margin: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-block-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-block-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-height: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-height: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-inline-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-inline-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	max-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-block-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-block-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-height: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-height: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-inline-size: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-inline-size: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	min-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-fit: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-fit: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-position: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	object-position: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	opacity: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	order: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-wrap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-wrap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-x: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-x: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-y: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow-y: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	overflow: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-block: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-bottom: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-bottom: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-end: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-end: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-start: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline-start: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-inline: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-left: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-left: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-right: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-right: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-top: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding-top: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	padding: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-content: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-content: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-items: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-items: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-self: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	place-self: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	pointer-events: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	pointer-events: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	position: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	quotes: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	right: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	row-gap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	row-gap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-color: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-color: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-opacity: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stop-opacity: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dasharray: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dasharray: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dashoffset: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-dashoffset: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linecap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linecap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linejoin: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-linejoin: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-miterlimit: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-miterlimit: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-opacity: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-opacity: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke-width: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	stroke: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	table-layout: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	table-layout: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align-last: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align-last: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-align: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-line: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration-line: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-decoration: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-indent: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-indent: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-justify: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-justify: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-orientation: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-orientation: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-transform: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	text-transform: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	top: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	transform: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	translate: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	unicode-bidi: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	unicode-bidi: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	vertical-align: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	vertical-align: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	visibility: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	white-space: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	white-space: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	width: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-break: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-break: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-spacing: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-spacing: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-wrap: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	word-wrap: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	writing-mode: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	writing-mode: _dashed_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	z-index: _camel_cased_attribute v. CSS.supports
-css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	z-index: _dashed_attribute v. CSS.supports
-css/css-fonts/parsing/font-family-computed.html	Property font-family value '"21st Century", fantasy'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'Helvetica, Verdana, sans-serif'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'cursive'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'fantasy'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'monospace'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'sans-serif'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'serif'
-css/css-fonts/parsing/font-family-computed.html	Property font-family value 'serif, sans-serif, cursive, fantasy, monospace'
-css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'auto'
-css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'none'
-css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'normal'
-css/css-fonts/parsing/font-style-computed.html	Property font-style value 'italic'
-css/css-fonts/parsing/font-style-computed.html	Property font-style value 'normal'
-css/css-fonts/parsing/font-style-computed.html	Property font-style value 'oblique'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'none'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only small-caps position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only small-caps'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'oblique-only'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'small-caps position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'small-caps'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style small-caps position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style small-caps'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'style'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight oblique-only small-caps position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight oblique-only small-caps'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight oblique-only'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight small-caps'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight style small-caps position'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight style small-caps'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight style'
-css/css-fonts/parsing/font-synthesis-computed.html	Property font-synthesis value 'weight'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '1'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '100'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '1000'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '101'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '200'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '300'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '400'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '500'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '600'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '700'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '800'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '900'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value 'bold'
-css/css-fonts/parsing/font-weight-computed.html	Property font-weight value 'normal'
-css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'condensed'
-css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'expanded'
-css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'extra-expanded'
-css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'normal'
-css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'ultra-condensed'
-css/css-fonts/parsing/font-width-computed.html	Property font-stretch value 'ultra-expanded'
-css/cssom/cssstyledeclaration-properties.html	CSS Test: CSSStyleDeclaration properties are defined as WebIDL attributes, not using getOwnPropertyNames()
-css/cssom/getComputedStyle-getter-v-properties.tentative.html	border
-css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-bottom
-css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-left
-css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-right
-css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-top
-css/cssom/getComputedStyle-getter-v-properties.tentative.html	font
