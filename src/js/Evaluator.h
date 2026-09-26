@@ -208,6 +208,8 @@ struct Interpreter::Impl {
     // `delete` of an evaluated reference (§13.5.1.2).
     std::optional<Value> delete_reference(Reference& reference, Context const& cx);
     std::optional<Value> apply_binary(BinaryOp op, Value const& left, Value const& right);
+    // The same for two numbers, at once; nullopt for `in` and `instanceof`.
+    std::optional<Value> number_binary(BinaryOp op, double left, double right);
     static std::optional<BinaryOp> binary_for(AssignmentOp op);
 
     void copy_iteration_environment(Context& cx, std::vector<JsString*> const& names);

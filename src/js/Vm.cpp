@@ -685,7 +685,19 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
 
         // ---- operators
         case Opcode::Binary: {
-            std::optional<Value> const result = apply_binary(static_cast<BinaryOp>(ins.a), frame.peek(1), frame.peek(0));
+            auto const op = static_cast<BinaryOp>(ins.a);
+            Value const& left = frame.peek(1);
+            Value const& right = frame.peek(0);
+            // Two numbers, which most operands are: answered here without
+            // the conversions and the rooting the general path needs.
+            if (left.is_number() && right.is_number()) {
+                if (std::optional<Value> const fast = number_binary(op, left.as_number(), right.as_number())) {
+                    frame.stack.pop_back();
+                    frame.top() = *fast;
+                    break;
+                }
+            }
+            std::optional<Value> const result = apply_binary(op, left, right);
             if (!result) {
                 ok = false;
                 break;

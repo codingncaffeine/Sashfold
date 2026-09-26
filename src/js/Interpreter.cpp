@@ -1791,6 +1791,74 @@ std::optional<Value> Interpreter::Impl::delete_reference(Reference& reference, C
 
 // The operator of a binary or compound-assignment expression applied
 // to two evaluated operands (§13.6–§13.12, §13.15.3 ApplyStringOrNumericBinaryOperator).
+// Two numbers under any operator but `in` and `instanceof`: the result
+// the general path would reach after ToPrimitive and ToNumeric found
+// nothing to do, computed at once — no conversion, no rooting, no
+// allocation. The loop takes this path first; it answers nullopt for the
+// two operators that need an object.
+std::optional<Value> Interpreter::Impl::number_binary(BinaryOp op, double l, double r)
+{
+    switch (op) {
+    case BinaryOp::Add:
+        return Value::number(l + r);
+    case BinaryOp::Subtract:
+        return Value::number(l - r);
+    case BinaryOp::Multiply:
+        return Value::number(l * r);
+    case BinaryOp::Divide:
+        return Value::number(l / r);
+    case BinaryOp::Remainder:
+        return Value::number(std::fmod(l, r));
+    case BinaryOp::Exponent:
+        return Value::number(number_exponentiate(l, r));
+    case BinaryOp::LeftShift:
+    case BinaryOp::RightShift:
+    case BinaryOp::UnsignedRightShift:
+    case BinaryOp::BitwiseAnd:
+    case BinaryOp::BitwiseOr:
+    case BinaryOp::BitwiseXor: {
+        std::int32_t const lnum = Interpreter::double_to_int32(l);
+        std::uint32_t const rnum = Interpreter::double_to_uint32(r);
+        auto const lbits = static_cast<std::uint32_t>(lnum);
+        std::uint32_t const shift = rnum & 31u;
+        switch (op) {
+        case BinaryOp::LeftShift:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits << shift)));
+        case BinaryOp::RightShift:
+            return Value::number(static_cast<double>(lnum >> shift));
+        case BinaryOp::UnsignedRightShift:
+            return Value::number(static_cast<double>(lbits >> shift));
+        case BinaryOp::BitwiseAnd:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits & rnum)));
+        case BinaryOp::BitwiseOr:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits | rnum)));
+        default:
+            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits ^ rnum)));
+        }
+    }
+    // The comparisons: a NaN on either side makes every one of them false,
+    // which is what the machine's own comparisons say of it too.
+    case BinaryOp::Equal:
+    case BinaryOp::StrictEqual:
+        return Value::boolean(l == r);
+    case BinaryOp::NotEqual:
+    case BinaryOp::StrictNotEqual:
+        return Value::boolean(!(l == r));
+    case BinaryOp::Less:
+        return Value::boolean(l < r);
+    case BinaryOp::Greater:
+        return Value::boolean(l > r);
+    case BinaryOp::LessEqual:
+        return Value::boolean(l <= r);
+    case BinaryOp::GreaterEqual:
+        return Value::boolean(l >= r);
+    case BinaryOp::In:
+    case BinaryOp::Instanceof:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& left, Value const& right)
 {
     Roots const roots(self);
