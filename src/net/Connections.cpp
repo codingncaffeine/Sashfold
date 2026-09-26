@@ -151,13 +151,16 @@ void ConnectionPool::expire_sessions(std::int64_t now, std::vector<std::shared_p
     }
 }
 
-std::shared_ptr<Http2Session> ConnectionPool::find_session(std::string const& key, std::int64_t now, bool& claimed)
+std::shared_ptr<Http2Session> ConnectionPool::find_session(std::string const& key, std::int64_t now, bool& claimed,
+    std::string& failure)
 {
     claimed = false;
+    failure.clear();
     std::vector<std::shared_ptr<Http2Session>> gone;
     std::shared_ptr<Http2Session> found;
     {
         std::unique_lock<std::mutex> lock(m_mutex);
+        std::optional<std::uint64_t> failures_seen;
         while (true) {
             expire_sessions(now, gone);
             if (m_http1_only.contains(key))
@@ -168,13 +171,31 @@ std::shared_ptr<Http2Session> ConnectionPool::find_session(std::string const& ke
                 ++m_stats.reused;
                 break;
             }
-            if (!m_connecting.contains(key)) {
-                m_connecting.insert(key);
+            Connecting& connecting = m_connecting[key];
+            bool const waited_in_vain = failures_seen && connecting.failures != *failures_seen;
+            // The connection waited on could not be opened: this fetch's
+            // own would meet the same end, so it takes that one's error.
+            if (waited_in_vain && !connecting.failure.empty()) {
+                failure = connecting.failure;
+                break;
+            }
+            // Nobody opening one, or the one waited on came to nothing for
+            // another reason: this fetch opens its own, beside any other
+            // that waited with it.
+            if (connecting.claimants == 0 || waited_in_vain) {
+                ++connecting.claimants;
                 claimed = true;
                 break;
             }
+            if (!failures_seen)
+                failures_seen = connecting.failures;
+            ++connecting.waiters;
             m_settled.wait(lock);
+            --m_connecting[key].waiters;
         }
+        auto const entry = m_connecting.find(key);
+        if (entry != m_connecting.end() && entry->second.claimants == 0 && entry->second.waiters == 0)
+            m_connecting.erase(entry);
     }
     // An idle session goes now, with a GOAWAY. One the server sent away may
     // still be finishing streams for the fetches that hold it; it ends on
@@ -186,12 +207,23 @@ std::shared_ptr<Http2Session> ConnectionPool::find_session(std::string const& ke
     return found;
 }
 
-void ConnectionPool::settle(std::string const& key, std::shared_ptr<Http2Session> session)
+void ConnectionPool::settle(std::string const& key, std::shared_ptr<Http2Session> session, std::string failure)
 {
     std::shared_ptr<Http2Session> replaced;
     {
         std::lock_guard<std::mutex> const lock(m_mutex);
-        m_connecting.erase(key);
+        auto const entry = m_connecting.find(key);
+        if (entry != m_connecting.end()) {
+            Connecting& connecting = entry->second;
+            if (connecting.claimants > 0)
+                --connecting.claimants;
+            if (!session) {
+                ++connecting.failures;
+                connecting.failure = std::move(failure);
+            }
+            if (connecting.claimants == 0 && connecting.waiters == 0)
+                m_connecting.erase(entry);
+        }
         if (session) {
             ++m_stats.sessions;
             std::shared_ptr<Http2Session>& slot = m_sessions[key];

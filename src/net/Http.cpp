@@ -587,10 +587,10 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                 ConnectionPool* pool = nullptr;
                 std::string const* key = nullptr;
                 bool held = false;
-                void settle(std::shared_ptr<Http2Session> opened)
+                void settle(std::shared_ptr<Http2Session> opened, std::string why = {})
                 {
                     if (held)
-                        pool->settle(*key, std::move(opened));
+                        pool->settle(*key, std::move(opened), std::move(why));
                     held = false;
                 }
                 ~Claim() { settle(nullptr); }
@@ -598,7 +598,10 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
             if (want_h2 && options.pool) {
                 claim.pool = options.pool;
                 claim.key = &key;
-                session = options.pool->find_session(key, unix_now(), claim.held);
+                std::string waited_failure;
+                session = options.pool->find_session(key, unix_now(), claim.held, waited_failure);
+                if (!waited_failure.empty())
+                    return { std::nullopt, std::move(waited_failure) };
                 reused = session != nullptr;
             }
             std::optional<Connection> connection;
@@ -611,8 +614,10 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                 if (!connection) {
                     std::string error;
                     connection = open_connection(error, want_h2 && secure);
-                    if (!connection)
+                    if (!connection) {
+                        claim.settle(nullptr, error);
                         return { std::nullopt, std::move(error) };
+                    }
                     if (options.pool)
                         options.pool->note_opened();
                     bool const speaks_h2 = want_h2 && (!secure || connection->alpn() == "h2");
@@ -622,17 +627,20 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                             config.stream_window = options.http2_stream_window;
                         if (options.http2_connection_window != 0)
                             config.connection_window = options.http2_connection_window;
+                        if (options.http2_stall_ms > 0)
+                            config.stall_ms = options.http2_stall_ms;
                         session = Http2Session::start(std::move(*connection), config);
                         connection.reset();
-                    } else if (want_h2 && options.pool) {
-                        options.pool->note_http1_only(key);
                     }
+                    // Word of HTTP/1.1 goes to the pool before the claim is
+                    // settled, so the fetches waiting on it read that and
+                    // do not open connections asking for h2 again.
+                    if (want_h2 && options.pool && !session)
+                        options.pool->note_http1_only(key);
                     claim.settle(session);
                     if (speaks_h2 && !session) {
                         failure = "the HTTP/2 preface could not be sent to " + current.serialize_host();
                         http1_forced = true;
-                        if (options.pool)
-                            options.pool->note_http1_only(key);
                         continue;
                     }
                 }

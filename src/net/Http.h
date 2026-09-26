@@ -103,6 +103,10 @@ struct FetchOptions {
     // The receive windows a new HTTP/2 connection grants, per stream and
     // for the connection (see Http2Config); zero keeps the defaults.
     std::uint32_t http2_stream_window = 0;
+    // How long a new HTTP/2 connection lets a stream go silent when
+    // receive_timeout_ms sets no bound (see Http2Config); zero keeps the
+    // default.
+    int http2_stall_ms = 0;
     std::uint32_t http2_connection_window = 0;
 };
 

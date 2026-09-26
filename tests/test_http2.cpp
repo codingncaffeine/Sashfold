@@ -6,7 +6,10 @@
 // connection with their data interleaved, a body far past the receive
 // window, a server that allows one stream at a time, one that goes away
 // mid-flight, pings, a refused push, a header block across CONTINUATION
-// frames, and a server that answers the preface with something else. Plain
+// frames, a server that answers the preface with something else, an https
+// origin whose handshakes hang and fail (six fetches, one connection, one
+// wait), a stream the server never answers holding the only slot, and a
+// large POST to a server busy sending a large answer. Plain
 // TCP speaks HTTP/2 here by prior knowledge, since ALPN needs TLS; the one
 // check through TLS runs against node's own HTTP/2 server on loopback, with
 // a throwaway certificate from openssl, and SKIPs without them.
@@ -648,6 +651,9 @@ public:
         bool continuation = false; // response headers over three frames
         bool garbage = false; // the preface answered with an HTTP/1.1 error
         std::size_t goaway_after = 0; // on the first connection, GOAWAY once this many are open
+        std::string stalled_path; // this path is never answered
+        bool open_windows = false; // grants the client the largest windows the protocol allows
+        bool shut_windows = false; // gives every stream a send window of 0 and never opens it
     };
 
     struct Seen {
@@ -666,6 +672,7 @@ public:
         std::size_t max_open = 0;
         int refused = 0;
         std::vector<std::uint32_t> goaways_received;
+        std::vector<std::uint32_t> resets_received; // the error code of each RST_STREAM
         bool ping_acknowledged = false;
         std::vector<std::uint32_t> data_order; // the stream of each DATA frame sent
     };
@@ -703,6 +710,17 @@ public:
         return m_report;
     }
 
+    // Shuts every connection being served, which ends a send blocked on
+    // either side, and hangs up on every connection after: how a test that
+    // found a hang gets its threads back, retries and fallbacks included.
+    void sever()
+    {
+        m_severed = true;
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        for (platform::TcpSocket* socket : m_serving)
+            socket->shutdown();
+    }
+
 private:
     using Clock = std::chrono::steady_clock;
 
@@ -713,6 +731,8 @@ private:
             std::optional<platform::TcpSocket> client = m_listener.accept();
             if (m_stop || !client)
                 return;
+            if (m_severed)
+                continue;
             m_connections.emplace_back([this, socket = std::move(*client), index]() mutable { serve(socket, index); });
             ++index;
         }
@@ -736,6 +756,24 @@ private:
 
     void serve(platform::TcpSocket& socket, int index)
     {
+        struct Serving {
+            H2Server& server;
+            platform::TcpSocket* socket;
+            Serving(H2Server& the_server, platform::TcpSocket* the_socket)
+                : server(the_server)
+                , socket(the_socket)
+            {
+                std::lock_guard<std::mutex> const lock(server.m_mutex);
+                server.m_serving.push_back(socket);
+            }
+            ~Serving()
+            {
+                std::lock_guard<std::mutex> const lock(server.m_mutex);
+                std::erase(server.m_serving, socket);
+            }
+            Serving(Serving const&) = delete;
+            Serving& operator=(Serving const&) = delete;
+        } const serving(*this, &socket);
         socket.set_receive_timeout(2);
         Bytes have;
         if (!fill(socket, have, 4))
@@ -807,7 +845,13 @@ private:
         std::vector<std::pair<h2::Setting, std::uint32_t>> settings;
         if (m_options.max_concurrent != 0)
             settings.emplace_back(h2::Setting::MaxConcurrentStreams, m_options.max_concurrent);
+        if (m_options.open_windows)
+            settings.emplace_back(h2::Setting::InitialWindowSize, h2::largest_window);
+        if (m_options.shut_windows)
+            settings.emplace_back(h2::Setting::InitialWindowSize, 0u);
         h2::write_settings(out, settings);
+        if (m_options.open_windows)
+            h2::write_window_update(out, 0, h2::largest_window - h2::default_window);
         std::uint8_t const ping_data[8] = { 's', 'a', 's', 'h', 'f', 'o', 'l', 'd' };
         if (m_options.ping)
             h2::write_ping(out, ping_data, false);
@@ -888,7 +932,8 @@ private:
                     int delay = m_options.delay_ms;
                     if (!m_options.slow_path.empty() && path == m_options.slow_path)
                         delay += m_options.slow_ms;
-                    stream.ready = Clock::now() + std::chrono::milliseconds(delay);
+                    stream.ready = path == m_options.stalled_path ? Clock::time_point::max()
+                                                                  : Clock::now() + std::chrono::milliseconds(delay);
                     streams.emplace(block_stream, std::move(stream));
                     m_report.max_open = std::max(m_report.max_open, streams.size());
                     if (m_options.push && !pushed) {
@@ -927,9 +972,12 @@ private:
                     m_report.goaways_received.push_back(static_cast<std::uint32_t>(h2::parse_goaway(*frame).code));
                     break;
                 }
-                case h2::FrameType::RstStream:
+                case h2::FrameType::RstStream: {
                     streams.erase(frame->stream);
+                    std::lock_guard<std::mutex> const lock(m_mutex);
+                    m_report.resets_received.push_back(static_cast<std::uint32_t>(h2::parse_rst_stream(*frame)));
                     break;
+                }
                 case h2::FrameType::Data:
                 case h2::FrameType::Priority:
                 case h2::FrameType::PushPromise:
@@ -1020,8 +1068,10 @@ private:
     platform::TcpListener m_listener;
     Options m_options;
     std::atomic<bool> m_stop = false;
+    std::atomic<bool> m_severed = false;
     mutable std::mutex m_mutex;
     Report m_report;
+    std::vector<platform::TcpSocket*> m_serving; // under m_mutex
     std::vector<std::thread> m_connections; // touched by the accepter until it is joined
     std::thread m_accepter; // last: everything above is ready when it starts
 };
@@ -1348,6 +1398,236 @@ void test_garbage_after_preface()
     CHECK_EQ(stats.opened, 2u);
 }
 
+// Runs `work` on a thread of its own and waits for it up to `limit`; past
+// that, `unstick` is called to end it, and the thread is joined either way.
+// Whether the work ended in time.
+bool within(std::chrono::milliseconds limit, std::function<void()> const& work, std::function<void()> const& unstick)
+{
+    std::mutex mutex;
+    std::condition_variable ended;
+    bool done = false;
+    std::thread worker([&] {
+        work();
+        {
+            std::lock_guard<std::mutex> const lock(mutex);
+            done = true;
+        }
+        ended.notify_all();
+    });
+    bool in_time = false;
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        in_time = ended.wait_for(lock, limit, [&] { return done; });
+    }
+    if (!in_time)
+        unstick();
+    worker.join();
+    return in_time;
+}
+
+double ms_since(std::chrono::steady_clock::time_point start)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+
+void test_unreachable_origin()
+{
+    // An https origin that cannot be reached, slowly: each connection is
+    // taken, its ClientHello read, and then nothing for a while before the
+    // server hangs up, so every handshake fails after that long.
+    static constexpr int hang_ms = 400;
+    platform::TcpListener listener = *platform::TcpListener::listen_loopback();
+    std::uint16_t const port = listener.port();
+    std::atomic<int> accepted = 0;
+    std::atomic<bool> stop = false;
+    std::vector<std::thread> held;
+    std::thread accepter([&] {
+        while (true) {
+            std::optional<platform::TcpSocket> client = listener.accept();
+            if (stop || !client)
+                return;
+            ++accepted;
+            held.emplace_back([socket = std::move(*client)]() mutable {
+                socket.set_receive_timeout(hang_ms);
+                std::uint8_t buffer[4096];
+                static_cast<void>(socket.receive(buffer, sizeof buffer));
+                std::this_thread::sleep_for(std::chrono::milliseconds(hang_ms));
+                socket.close();
+            });
+        }
+    });
+
+    std::vector<net::Url> urls;
+    for (int i = 0; i < 6; ++i)
+        urls.push_back(*net::parse_url("https://127.0.0.1:" + std::to_string(port) + "/" + std::to_string(i)));
+    std::vector<net::FetchResult> results;
+    auto const started = std::chrono::steady_clock::now();
+    {
+        net::ConnectionPool pool;
+        net::FetchOptions options;
+        options.pool = &pool;
+        results = fetch_together(urls, options);
+    }
+    double const elapsed_ms = ms_since(started);
+    stop = true;
+    if (auto poke = platform::TcpSocket::connect("127.0.0.1", port))
+        poke->close();
+    accepter.join();
+    for (std::thread& thread : held)
+        thread.join();
+
+    // Six fetches wait on the first one's connection and fail with its
+    // error when it fails: one hang in all, where one each in turn would
+    // be six.
+    int failed_alike = 0;
+    for (net::FetchResult const& result : results) {
+        if (!result.response && !result.error.empty() && result.error == results[0].error)
+            ++failed_alike;
+    }
+    CHECK_EQ(failed_alike, 6);
+    CHECK_EQ(accepted.load(), 1);
+    CHECK(elapsed_ms >= hang_ms);
+    CHECK(elapsed_ms < 2 * hang_ms);
+    std::printf("  unreachable origin: six fetches failed in %.0f ms over %d connection(s)\n", elapsed_ms, accepted.load());
+}
+
+void test_stalled_stream()
+{
+    // One stream at a time, and a path the server never answers: the fetch
+    // behind it waits for the slot, which the stall limit frees.
+    constexpr int stall_ms = 300;
+    H2Server::Options server_options;
+    server_options.max_concurrent = 1;
+    server_options.stalled_path = "/stalled";
+    H2Server server(server_options);
+    net::FetchResult first;
+    net::FetchResult stalled;
+    net::FetchResult after;
+    double stalled_ms = 0;
+    double after_ms = 0;
+    bool in_time = false;
+    {
+        net::ConnectionPool pool;
+        net::FetchOptions options = h2_options(pool);
+        // No receive timeout, as a page load sets none.
+        options.http2_stall_ms = stall_ms;
+        first = net::fetch(server.url("/first"), options);
+        in_time = within(
+            std::chrono::seconds(10),
+            [&] {
+                auto const started = std::chrono::steady_clock::now();
+                std::thread stalling([&] {
+                    stalled = net::fetch(server.url("/stalled"), options);
+                    stalled_ms = ms_since(started);
+                });
+                // The second goes once the first holds the only stream.
+                auto const seen = [&server] {
+                    H2Server::Report const report = server.report();
+                    return std::any_of(report.requests.begin(), report.requests.end(),
+                        [](H2Server::Seen const& request) { return request.path == "/stalled"; });
+                };
+                while (!seen() && ms_since(started) < 2000)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                after = net::fetch(server.url("/after"), options);
+                after_ms = ms_since(started);
+                stalling.join();
+            },
+            [&server] { server.sever(); });
+    }
+    server.finish();
+    CHECK(first.response.has_value());
+    CHECK(in_time);
+    CHECK(!stalled.response && !stalled.error.empty());
+    CHECK(after.response && text_of(after.response->body) == "body of /after");
+    CHECK(stalled_ms >= stall_ms);
+    CHECK(stalled_ms < 2 * stall_ms);
+    CHECK(after_ms >= stall_ms);
+    CHECK(after_ms < 2 * stall_ms);
+    H2Server::Report const report = server.report();
+    CHECK_EQ(report.h2_connections, 1);
+    CHECK_EQ(report.max_open, 1u);
+    CHECK_EQ(report.refused, 0);
+    std::printf("  stalled stream: reset after %.0f ms, the one behind it done at %.0f ms\n", stalled_ms, after_ms);
+}
+
+void test_shut_send_window()
+{
+    // A server that gives every stream a send window of 0 and never opens
+    // it: a POST's body cannot go, and the stall limit ends the wait for
+    // room with a RST_STREAM instead of holding the fetch thread for as
+    // long as the connection lives.
+    constexpr int stall_ms = 300;
+    H2Server::Options server_options;
+    server_options.shut_windows = true;
+    server_options.stalled_path = "/upload";
+    H2Server server(server_options);
+    net::FetchResult first;
+    net::FetchResult posted;
+    double posted_ms = 0;
+    bool in_time = false;
+    {
+        net::ConnectionPool pool;
+        net::FetchOptions options = h2_options(pool);
+        options.http2_stall_ms = stall_ms;
+        // One first, so the server's SETTINGS are in hand before the POST.
+        first = net::fetch(server.url("/first"), options);
+        options.method = "POST";
+        options.body.assign(1000, 'p');
+        auto const started = std::chrono::steady_clock::now();
+        in_time = within(
+            std::chrono::seconds(5), [&] { posted = net::fetch(server.url("/upload"), options); },
+            [&server] { server.sever(); });
+        posted_ms = ms_since(started);
+    }
+    server.finish();
+    CHECK(first.response.has_value());
+    CHECK(in_time);
+    CHECK(!posted.response && !posted.error.empty());
+    CHECK(posted_ms >= stall_ms);
+    CHECK(posted_ms < 2 * stall_ms);
+    H2Server::Report const report = server.report();
+    CHECK_EQ(report.h2_connections, 1);
+    CHECK(std::count(report.resets_received.begin(), report.resets_received.end(),
+              static_cast<std::uint32_t>(h2::ErrorCode::Cancel))
+        == 1);
+    std::printf("  shut send window: the POST gave up after %.0f ms (%s)\n", posted_ms, posted.error.c_str());
+}
+
+void test_post_to_a_busy_server()
+{
+    // A large POST to a server that answers at once with a large body and
+    // reads nothing while it is sending: the client's writer blocks on a
+    // full socket, and its reader has to go on reading for the server's
+    // sends, and then the client's, to finish.
+    constexpr std::size_t size = 32u * 1024u * 1024u;
+    std::string const path = "/size/" + std::to_string(size);
+    H2Server::Options server_options;
+    server_options.open_windows = true;
+    H2Server server(server_options);
+    net::FetchResult result;
+    bool in_time = false;
+    double elapsed_ms = 0;
+    {
+        net::ConnectionPool pool;
+        net::FetchOptions options = h2_options(pool);
+        options.method = "POST";
+        options.body.assign(size, 'p');
+        options.http2_stream_window = h2::largest_window;
+        options.http2_connection_window = h2::largest_window;
+        auto const started = std::chrono::steady_clock::now();
+        in_time = within(
+            std::chrono::seconds(10), [&] { result = net::fetch(server.url(path), options); },
+            [&server] { server.sever(); });
+        elapsed_ms = ms_since(started);
+    }
+    server.finish();
+    CHECK(in_time);
+    CHECK(result.response && result.response->status == 200);
+    CHECK(result.response && result.response->body == body_for(path));
+    std::printf("  POST to a busy server: a 32 MB POST against a 32 MB answer in %.0f ms%s\n", elapsed_ms,
+        in_time ? "" : " (deadlocked)");
+}
+
 // ---- through TLS, against node's HTTP/2 server
 
 #ifndef _WIN32
@@ -1553,6 +1833,10 @@ int main(int argc, char** argv)
     test_goaway();
     test_ping_push_and_continuation();
     test_garbage_after_preface();
+    test_unreachable_origin();
+    test_stalled_stream();
+    test_shut_send_window();
+    test_post_to_a_busy_server();
 #ifndef _WIN32
     std::string const openssl = argc > 1 ? argv[1] : "";
     std::string const node = argc > 2 ? argv[2] : "";

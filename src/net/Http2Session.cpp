@@ -121,6 +121,8 @@ std::shared_ptr<Http2Session> Http2Session::start(Connection connection, Http2Co
         config.stream_window = Http2Config {}.stream_window;
     if (config.connection_window < h2::default_window || config.connection_window > h2::largest_window)
         config.connection_window = std::max<std::uint32_t>(h2::default_window, Http2Config {}.connection_window);
+    if (config.stall_ms <= 0)
+        config.stall_ms = Http2Config {}.stall_ms;
     std::shared_ptr<Http2Session> session(new Http2Session(std::move(connection), config));
 
     std::vector<std::uint8_t> out(h2::client_preface.begin(), h2::client_preface.end());
@@ -272,22 +274,41 @@ void Http2Session::lost(std::string const& reason)
     }
 }
 
-void Http2Session::flush_output()
+void Http2Session::take_output(std::vector<std::uint8_t>& out)
 {
-    std::lock_guard<std::mutex> const write(m_write_mutex);
-    std::vector<std::uint8_t> out;
     std::optional<std::size_t> table_size;
     {
         std::lock_guard<std::mutex> const lock(m_mutex);
-        out.swap(m_output);
+        out.insert(out.end(), m_output.begin(), m_output.end());
+        m_output.clear();
         table_size = std::exchange(m_encoder_table_size, std::nullopt);
     }
     // The peer's new table size takes effect before its acknowledgement
     // goes out, so the first block after it begins with the update.
     if (table_size)
         m_encoder.set_max_table_size(*table_size);
-    if (!out.empty() && !m_connection.send_all(out.data(), out.size()))
-        m_connection.shutdown();
+}
+
+void Http2Session::flush_output()
+{
+    // Whoever lets go of the write lock looks for queued frames after it
+    // has, so frames queued while the lock was held are never stranded:
+    // a failed try means the holder has yet to look.
+    std::unique_lock<std::mutex> write(m_write_mutex, std::try_to_lock);
+    while (write.owns_lock()) {
+        std::vector<std::uint8_t> out;
+        take_output(out);
+        if (!out.empty() && !m_connection.send_all(out.data(), out.size()))
+            m_connection.shutdown();
+        write.unlock();
+        {
+            std::lock_guard<std::mutex> const lock(m_mutex);
+            if (m_output.empty() && !m_encoder_table_size)
+                return;
+        }
+        if (!write.try_lock())
+            return;
+    }
 }
 
 void Http2Session::run()
@@ -733,8 +754,12 @@ Http2Session::Result Http2Session::exchange(Request const& request, std::size_t 
             ++m_stats.streams;
             max_frame = m_peer_max_frame;
         }
-        std::vector<std::uint8_t> const block = m_encoder.encode(fields);
+        // What the reader queued goes first: a RST_STREAM that freed the
+        // slot this stream takes must reach the peer before this stream's
+        // HEADERS, or the peer counts one stream too many.
         std::vector<std::uint8_t> out;
+        take_output(out);
+        std::vector<std::uint8_t> const block = m_encoder.encode(fields);
         h2::write_headers(out, stream->id, block, request.body.empty(), max_frame);
         sent = m_connection.send_all(out.data(), out.size());
     }
@@ -742,48 +767,72 @@ Http2Session::Result Http2Session::exchange(Request const& request, std::size_t 
     // every stream, this one included.
     if (!sent)
         m_connection.shutdown();
+    flush_output();
 
-    // The body, as the peer's windows let it go.
+    // The body, as the peer's windows let it go. A peer that keeps a window
+    // shut is held to the same allowance as a silent one: the time since
+    // the body last moved or anything last arrived for the stream.
+    auto const allowance = std::chrono::milliseconds(receive_timeout_ms > 0 ? receive_timeout_ms : m_config.stall_ms);
+    Clock::time_point moved = Clock::now();
+    bool stalled = false;
     std::size_t at = 0;
     while (sent && at < request.body.size()) {
         std::size_t chunk = 0;
         std::uint32_t id = 0;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            m_changed.wait(lock, [&] { return stream->ended || m_dead || (m_send_window > 0 && stream->send_window > 0); });
+            auto const ready = [&] { return stream->ended || m_dead || (m_send_window > 0 && stream->send_window > 0); };
+            while (!ready()) {
+                Clock::time_point const deadline = std::max(moved, stream->progress) + allowance;
+                if (Clock::now() >= deadline)
+                    break;
+                m_changed.wait_until(lock, deadline);
+            }
             if (stream->ended || m_dead)
                 break;
+            if (!ready()) {
+                reset_stream(*stream, h2::ErrorCode::Cancel, Outcome::Failed, "no room from the server to send the request body in the time allowed");
+                m_changed.notify_all();
+                stalled = true;
+                break;
+            }
             chunk = std::min<std::size_t>({ request.body.size() - at, static_cast<std::size_t>(m_send_window),
                 static_cast<std::size_t>(stream->send_window), m_peer_max_frame });
             m_send_window -= static_cast<std::int64_t>(chunk);
             stream->send_window -= static_cast<std::int64_t>(chunk);
             id = stream->id;
         }
-        std::vector<std::uint8_t> out;
-        h2::write_data(out, id, std::span<std::uint8_t const>(request.body).subspan(at, chunk), at + chunk == request.body.size());
-        std::lock_guard<std::mutex> const write(m_write_mutex);
-        if (!m_connection.send_all(out.data(), out.size())) {
+        std::vector<std::uint8_t> data;
+        h2::write_data(data, id, std::span<std::uint8_t const>(request.body).subspan(at, chunk), at + chunk == request.body.size());
+        bool wrote = false;
+        {
+            std::lock_guard<std::mutex> const write(m_write_mutex);
+            std::vector<std::uint8_t> out;
+            take_output(out);
+            out.insert(out.end(), data.begin(), data.end());
+            wrote = m_connection.send_all(out.data(), out.size());
+        }
+        flush_output();
+        if (!wrote) {
             m_connection.shutdown();
             break;
         }
         at += chunk;
+        moved = Clock::now();
     }
+    if (stalled)
+        flush_output();
 
     std::unique_lock<std::mutex> lock(m_mutex);
     // Section 8.1: a server may answer before the whole body is sent; the
     // rest is not wanted, and the stream is closed from this side too.
-    if (sent && at < request.body.size() && stream->ended && !m_dead) {
+    if (sent && !stalled && at < request.body.size() && stream->ended && !m_dead) {
         h2::write_rst_stream(m_output, stream->id, h2::ErrorCode::NoError);
         lock.unlock();
         flush_output();
         lock.lock();
     }
     while (!stream->ended) {
-        if (receive_timeout_ms <= 0) {
-            m_changed.wait(lock);
-            continue;
-        }
-        auto const allowance = std::chrono::milliseconds(receive_timeout_ms);
         m_changed.wait_until(lock, stream->progress + allowance);
         if (!stream->ended && Clock::now() >= stream->progress + allowance) {
             reset_stream(*stream, h2::ErrorCode::Cancel, Outcome::Failed, "no answer from the server in the time allowed");

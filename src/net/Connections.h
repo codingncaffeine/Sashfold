@@ -22,6 +22,11 @@
 // first connection to an origin that may speak it is being opened, other
 // fetches to that origin wait to learn what it spoke, rather than each
 // opening a connection of its own that the session would make redundant.
+// When that connection cannot be opened at all (no connect, no handshake),
+// the fetches that waited on it fail with its error at the same moment, as
+// their own connects to the same origin would have failed had each opened
+// one: an origin that cannot be reached costs every fetch to it one connect
+// timeout, not one each in turn.
 
 #include "platform/Net.h"
 #include "platform/Tls.h"
@@ -103,12 +108,19 @@ public:
     // none, and another fetch opening the first connection to the origin,
     // this waits for that one to settle and looks again. When it returns
     // nothing and sets `claimed`, the caller is the one opening a
-    // connection and must settle() it, whatever becomes of it. An origin
-    // known to speak only HTTP/1.1 returns nothing at once, unclaimed.
-    std::shared_ptr<Http2Session> find_session(std::string const& key, std::int64_t now, bool& claimed);
+    // connection and must settle() it, whatever becomes of it. When the
+    // connection waited on could not be opened, this returns nothing,
+    // unclaimed, with its error in `failure`, for the caller to fail with.
+    // One that settles with neither a session, an error nor word of
+    // HTTP/1.1 sets `claimed` for every fetch that waited on it, so they
+    // all connect at once. An origin known to speak only HTTP/1.1 returns
+    // nothing at once, unclaimed.
+    std::shared_ptr<Http2Session> find_session(std::string const& key, std::int64_t now, bool& claimed,
+        std::string& failure);
     // Ends a claim: the session the new connection became, or nothing when
-    // it did not become one (it spoke HTTP/1.1, or never connected).
-    void settle(std::string const& key, std::shared_ptr<Http2Session> session);
+    // it did not become one (it spoke HTTP/1.1, or never connected: then
+    // `failure` says why, for the fetches that waited on it).
+    void settle(std::string const& key, std::shared_ptr<Http2Session> session, std::string failure = {});
     // The origin speaks HTTP/1.1 only: its server chose it by ALPN, or its
     // HTTP/2 failed. No fetch to it waits on another's connect after this.
     void note_http1_only(std::string const& key);
@@ -177,7 +189,18 @@ private:
     std::condition_variable m_settled;
     std::vector<Idle> m_idle; // longest idle first
     std::map<std::string, std::shared_ptr<Http2Session>> m_sessions;
-    std::set<std::string> m_connecting; // origins whose first connection is being opened
+    // Origins whose first connection is being opened: how many fetches are
+    // opening one, how many wait on them, and how many of the connections
+    // settled without becoming anything (with the error of the last that
+    // could not be opened), which is how a waiter learns that the one it
+    // waited on failed. An entry goes when nobody holds it.
+    struct Connecting {
+        std::size_t claimants = 0;
+        std::size_t waiters = 0;
+        std::uint64_t failures = 0;
+        std::string failure;
+    };
+    std::map<std::string, Connecting> m_connecting;
     std::set<std::string> m_http1_only;
     Stats m_stats;
 };

@@ -15,6 +15,11 @@
 // stream has ended. The write lock is taken before the state lock, never
 // after it, and nothing blocks on the socket while holding the state lock,
 // so the reader is never kept from reading by a writer that waits on it.
+// The reader only tries the write lock: while a writer holds it (blocked,
+// perhaps, sending a large body to a peer that is itself busy sending), the
+// frames the reader owes are left queued, the holder sends them before it
+// lets go, and the reader goes on reading, so neither side's sends wait on
+// the other's.
 //
 // A request's answer comes back in the shape read_response gives an
 // HTTP/1.1 exchange, so everything above (redirects, cookies, the cache,
@@ -46,6 +51,14 @@ struct Http2Config {
     // fast link busy without a round trip for every 64 KB.
     std::uint32_t stream_window = 6u * 1024u * 1024u;
     std::uint32_t connection_window = 15u * 1024u * 1024u;
+    // How long a stream whose request set no receive timeout may go with
+    // nothing arriving for it before it is reset and fails. Unbounded, a
+    // stream the server never finishes would hold its slot under the
+    // peer's SETTINGS_MAX_CONCURRENT_STREAMS for good, and the requests
+    // queued behind it with it. Five minutes is Firefox's response timeout
+    // (network.http.response.timeout), long past any server that is only
+    // slow.
+    int stall_ms = 300000;
 };
 
 class Http2Session {
@@ -98,7 +111,9 @@ public:
     // One request on a new stream, waited for. It waits first for a stream
     // to be free under the peer's SETTINGS_MAX_CONCURRENT_STREAMS. A
     // positive `receive_timeout_ms` bounds how long the stream may go with
-    // nothing arriving for it, as the HTTP/1.1 exchange bounds each read.
+    // nothing arriving for it, as the HTTP/1.1 exchange bounds each read,
+    // and how long a request body may wait on a shut send window; without
+    // one, Http2Config::stall_ms does.
     Result exchange(Request const& request, std::size_t max_body, bool head, int receive_timeout_ms = 0);
 
     // Whether a new request may start here: the session is up and the
@@ -140,7 +155,13 @@ private:
     void reset_stream(Stream& stream, h2::ErrorCode code, Outcome outcome, std::string error);
     void finish_stream(Stream& stream);
     bool opened_by_us(std::uint32_t id) const;
+    // Sends the frames the reader queued, if the write lock is free; if it
+    // is not, its holder sends them.
     void flush_output();
+    // With the write lock held: takes the queued frames (appending them to
+    // `out`) and applies a table size the peer changed, so they reach the
+    // wire ahead of whatever the holder writes next.
+    void take_output(std::vector<std::uint8_t>& out);
     Result result_of(Stream& stream);
 
     Connection m_connection;
