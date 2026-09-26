@@ -5,9 +5,11 @@
 #include "html/TreeBuilder.h"
 #include "text/FontManager.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 using namespace sashfold;
@@ -50,10 +52,50 @@ bool close(float a, float b)
     return a > b - 0.01f && a < b + 0.01f;
 }
 
+// The prepared sheets are kept for the process, and a test runner or a
+// page with frames compiles sheets from several threads at once: more
+// distinct sheets than the cache keeps, compiled by eight threads together,
+// so the cache evicts under every thread. Every set must come out with its
+// rule; the sanitizer build sees a cache that is not held.
+void test_prepared_sheets_from_many_threads()
+{
+    constexpr int threads = 8;
+    constexpr int sheets = 100; // more than the cache keeps
+    constexpr int rounds = 20;
+    std::atomic<int> built { 0 };
+    std::atomic<int> wrong { 0 };
+    std::vector<std::thread> workers;
+    for (int t = 0; t < threads; ++t) {
+        workers.emplace_back([&, t] {
+            std::unique_ptr<dom::Document> document = html::parse_document(std::string_view("<!doctype html><p id=x>x</p>"));
+            dom::Element* const x = find_by_id(*document, "x");
+            for (int round = 0; round < rounds; ++round) {
+                for (int i = 0; i < sheets; ++i) {
+                    int const n = (i * 7 + t * 13 + round) % sheets;
+                    css::SheetSource source;
+                    source.text = "#x { margin-top: " + std::to_string(n) + "px } p { color: red }";
+                    css::StyleSet const set({ source });
+                    css::StyleMap const styles = css::resolve_styles(*document, set);
+                    auto const it = styles.find(x);
+                    if (it == styles.end() || it->second.margin_top.kind != LengthPercent::Kind::Px
+                        || !close(it->second.margin_top.value, static_cast<float>(n)))
+                        ++wrong;
+                    ++built;
+                }
+            }
+        });
+    }
+    for (std::thread& worker : workers)
+        worker.join();
+    CHECK_EQ(built.load(), threads * sheets * rounds);
+    CHECK_EQ(wrong.load(), 0);
+}
+
 } // namespace
 
 int main()
 {
+    test_prepared_sheets_from_many_threads();
     g_document = html::parse_document(std::string_view(R"(
 <!doctype html>
 <html><head><style>

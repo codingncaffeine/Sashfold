@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -120,7 +121,11 @@ public:
     // resolved against an earlier set stay valid for the layouts that
     // hold them.
     void set_page_fonts(std::vector<PageFont> const& fonts);
-    std::size_t page_font_count() const { return m_page_faces.size(); }
+    std::size_t page_font_count() const
+    {
+        std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+        return m_page_faces.size();
+    }
 
     // The first catalogued face with a glyph for the code point, loading
     // faces as needed and remembering the answer; null when none has it.
@@ -142,7 +147,11 @@ public:
     // The current page's fonts as they stand, and putting that set back: what
     // a layout of another document made meanwhile — a frame's, measured for
     // its scripts — brackets itself with.
-    std::vector<PageFace> page_faces() const { return m_page_faces; }
+    std::vector<PageFace> page_faces() const
+    {
+        std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+        return m_page_faces;
+    }
     void restore_page_faces(std::vector<PageFace> faces);
 
 private:
@@ -160,6 +169,12 @@ private:
     std::vector<Face const*> page_faces(std::string const& family_lower, int weight, int stretch, bool italic) const;
     Face const* ranged_face(Face const* face, std::vector<std::pair<char32_t, char32_t>> const& ranges);
 
+    // One manager serves every document's thread — a test runner's
+    // realms, a page and its frames — so every entry holds this lock; it is
+    // recursive because the public entries call one another. What is
+    // handed out (a stack, a face) lives as long as the manager and is
+    // not changed once made, so it is read freely afterwards.
+    mutable std::recursive_mutex m_mutex;
     bool m_system_fonts = true;
     bool m_scanned = false;
     std::vector<FaceInfo> m_catalogue;

@@ -23,6 +23,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -230,7 +231,10 @@ enum class CascadeRank : int {
 // sheets are compiled again and again — the built-in one for every page and
 // every frame's document, a page's own whenever its window crosses one of
 // their breakpoints — so what was read is kept, by the sheet's text, for
-// the sixty-four sheets used last.
+// the sixty-four sheets used last. The kept list is one for the process
+// and every document's thread reads and reorders it, so it is held under
+// a lock; what it hands out is immutable, so a prepared sheet is shared
+// freely once taken.
 struct PreparedSheet {
     std::shared_ptr<Stylesheet const> sheet; // the parser's kept parse, shared with every other reader
     std::unordered_map<QualifiedRule const*, std::optional<SelectorList>> selectors;
@@ -254,7 +258,9 @@ std::shared_ptr<PreparedSheet const> prepared_sheet(std::string_view text)
         std::shared_ptr<PreparedSheet const> sheet;
     };
     static std::vector<Kept> kept; // the most recently used first
+    static std::mutex kept_mutex;
     constexpr std::size_t most = 64;
+    std::lock_guard<std::mutex> const lock(kept_mutex);
     for (std::size_t i = 0; i < kept.size(); ++i) {
         if (kept[i].text.size() == text.size() && kept[i].text == text) {
             std::rotate(kept.begin(), kept.begin() + static_cast<std::ptrdiff_t>(i), kept.begin() + static_cast<std::ptrdiff_t>(i) + 1);

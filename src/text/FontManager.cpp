@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string_view>
 
 namespace sashfold::text {
@@ -226,6 +227,7 @@ FontManager& FontManager::instance()
 
 void FontManager::add_font_file(std::string const& path)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     // Kept in a list of its own as well as the catalogue: a face handed over
     // by name is installed as far as this manager is concerned, and answers
     // for its family whether or not the machine's own fonts are in play. The
@@ -246,6 +248,7 @@ void FontManager::add_font_file(std::string const& path)
 
 void FontManager::set_system_fonts(bool enabled)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     if (m_system_fonts == enabled)
         return;
     m_system_fonts = enabled;
@@ -266,6 +269,7 @@ void FontManager::retire_stacks()
 
 void FontManager::restore_page_faces(std::vector<PageFace> faces)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     bool same = faces.size() == m_page_faces.size();
     for (std::size_t i = 0; same && i < faces.size(); ++i) {
         same = faces[i].face == m_page_faces[i].face && faces[i].family_lower == m_page_faces[i].family_lower
@@ -296,6 +300,7 @@ std::size_t font_bytes_hashed()
 
 void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     std::vector<PageFace> faces;
     for (PageFont const& font : fonts) {
         std::string key = lowercased(font.family);
@@ -385,6 +390,7 @@ Face const* FontManager::ranged_face(Face const* face, std::vector<std::pair<cha
 
 std::vector<FaceInfo> const& FontManager::catalogue()
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     scan();
     return m_catalogue;
 }
@@ -475,6 +481,7 @@ Face const* FontManager::added_face(std::string const& family_lower, int weight,
 
 FontStack const& FontManager::resolve(FontRequest const& request)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     std::string key = request.italic ? "i" : "n";
     key += std::to_string(request.weight);
     key += 's';
@@ -552,6 +559,7 @@ FontStack const& FontManager::resolve(FontRequest const& request)
 // every symbol font on the way. Faces already loaded are free to ask.
 Face const* FontManager::fallback_for(char32_t code_point)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     if (auto const it = m_fallbacks.find(code_point); it != m_fallbacks.end())
         return it->second;
     scan();
@@ -594,6 +602,7 @@ Face const* FontManager::fallback_for(char32_t code_point)
 
 Face const* FontManager::color_face_for(char32_t code_point)
 {
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     if (auto const it = m_color_fallbacks.find(code_point); it != m_color_fallbacks.end())
         return it->second;
     scan();
