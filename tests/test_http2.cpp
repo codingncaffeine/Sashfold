@@ -653,6 +653,8 @@ public:
         std::size_t goaway_after = 0; // on the first connection, GOAWAY once this many are open
         std::string stalled_path; // this path is never answered
         std::string hangup_path; // on the first connection, this path is met by hanging up
+        std::string broken_path; // on the first connection, this path is met by a malformed frame
+        bool broken_after_headers = false; // ... sent after the response headers and a little body
         bool open_windows = false; // grants the client the largest windows the protocol allows
         bool shut_windows = false; // gives every stream a send window of 0 and never opens it
     };
@@ -923,6 +925,19 @@ private:
                     if (index == 0 && !m_options.hangup_path.empty() && path == m_options.hangup_path) {
                         socket.shutdown();
                         return;
+                    }
+                    if (index == 0 && !m_options.broken_path.empty() && path == m_options.broken_path) {
+                        if (m_options.broken_after_headers) {
+                            Bytes const head = encoder.encode(fields({ { ":status", "200" }, { "content-length", "100" } }));
+                            h2::write_headers(out, block_stream, head, false, h2::default_max_frame_size);
+                            Bytes const part = { 'p', 'a', 'r', 't' };
+                            h2::write_data(out, block_stream, part, false);
+                        }
+                        // A WINDOW_UPDATE three octets long: FRAME_SIZE_ERROR
+                        // for the whole connection.
+                        Bytes const malformed = { 0, 0, 3, static_cast<std::uint8_t>(h2::FrameType::WindowUpdate), 0, 0, 0, 0, 0, 0, 0, 1 };
+                        out.insert(out.end(), malformed.begin(), malformed.end());
+                        break;
                     }
                     if (m_options.max_concurrent != 0 && streams.size() >= m_options.max_concurrent) {
                         ++m_report.refused;
@@ -1680,6 +1695,53 @@ void test_lost_before_an_answer()
     }
 }
 
+void test_protocol_error_after_a_request()
+{
+    // A server that breaks the protocol after a request went out: HTTP/1.1
+    // is the way on, but only for a request the server cannot have acted
+    // on in a way that matters. One whose answer had begun, or one whose
+    // method is not harmless run twice, fails instead of going again.
+    struct Case {
+        char const* method;
+        bool after_headers;
+        bool answered;
+    };
+    for (Case const c : { Case { "GET", true, false }, Case { "POST", false, false }, Case { "GET", false, true } }) {
+        H2Server::Options server_options;
+        server_options.broken_path = "/broken";
+        server_options.broken_after_headers = c.after_headers;
+        H2Server server(server_options);
+        net::FetchResult result;
+        {
+            net::ConnectionPool pool;
+            net::FetchOptions options = h2_options(pool);
+            options.method = c.method;
+            if (options.method == "POST")
+                options.body.assign(100, 'p');
+            result = net::fetch(server.url("/broken"), options);
+        }
+        server.finish();
+        H2Server::Report const report = server.report();
+        CHECK_EQ(report.h2_connections, 1);
+        // The GOAWAY this side sends is not asserted: it races the shutdown
+        // behind it, and a writer still holding the socket skips it.
+        if (c.answered) {
+            CHECK(result.response && text_of(result.response->body) == "body of /broken");
+            CHECK(result.response && net::find_header(result.response->headers, "x-protocol")
+                && *net::find_header(result.response->headers, "x-protocol") == "http/1.1");
+            CHECK_EQ(report.h1_connections, 1);
+            CHECK_EQ(report.requests.size(), 2u);
+        } else {
+            CHECK(!result.response && result.error.find("FRAME_SIZE_ERROR") != std::string::npos);
+            CHECK_EQ(report.h1_connections, 0);
+            CHECK_EQ(report.requests.size(), 1u);
+        }
+        std::printf("  protocol error after a request: %s%s %s, %d HTTP/1.1 connection(s)%s%s\n", c.method,
+            c.after_headers ? " (answer begun)" : "", result.response ? "answered" : "failed", report.h1_connections,
+            result.response ? "" : ": ", result.error.c_str());
+    }
+}
+
 // ---- through TLS, against node's HTTP/2 server
 
 #ifndef _WIN32
@@ -1890,6 +1952,7 @@ int main(int argc, char** argv)
     test_shut_send_window();
     test_post_to_a_busy_server();
     test_lost_before_an_answer();
+    test_protocol_error_after_a_request();
 #ifndef _WIN32
     std::string const openssl = argc > 1 ? argv[1] : "";
     std::string const node = argc > 2 ? argv[2] : "";

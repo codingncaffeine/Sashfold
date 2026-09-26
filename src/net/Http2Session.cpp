@@ -178,8 +178,7 @@ void Http2Session::close()
             m_dead_reason = "the HTTP/2 session was closed";
             while (!m_streams.empty()) {
                 Stream& stream = *m_streams.begin()->second;
-                end_stream(stream, stream.headers_done || !stream.replayable ? Outcome::Failed : Outcome::Retry,
-                    m_dead_reason);
+                end_stream(stream, unanswered(stream, false), m_dead_reason);
             }
         }
     }
@@ -263,8 +262,27 @@ void Http2Session::connection_error(h2::ErrorCode code, std::string const& reaso
     m_dead = true;
     m_protocol_failure = true;
     m_dead_reason = "HTTP/2 " + std::string(h2::error_name(code)) + ": " + reason;
-    while (!m_streams.empty())
-        end_stream(*m_streams.begin()->second, Outcome::ProtocolFailure, m_dead_reason);
+    while (!m_streams.empty()) {
+        Stream& stream = *m_streams.begin()->second;
+        end_stream(stream, unanswered(stream, true), m_dead_reason);
+    }
+}
+
+Http2Session::Outcome Http2Session::unanswered(Stream const& stream, bool http2_broken) const
+{
+    // Part of the answer came back: the server acted on the request, and
+    // the rest of it cannot be had by asking again.
+    if (stream.headers_done)
+        return Outcome::Failed;
+    // Before the server's SETTINGS nothing it was sent was read as HTTP/2,
+    // so any request may go over HTTP/1.1.
+    if (http2_broken && !m_settings_received)
+        return Outcome::ProtocolFailure;
+    // Otherwise the server may have acted on it; only a request that does
+    // no harm run twice goes again.
+    if (!stream.replayable)
+        return Outcome::Failed;
+    return http2_broken ? Outcome::ProtocolFailure : Outcome::Retry;
 }
 
 void Http2Session::lost(std::string const& reason)
@@ -279,10 +297,7 @@ void Http2Session::lost(std::string const& reason)
     m_dead_reason = reason;
     while (!m_streams.empty()) {
         Stream& stream = *m_streams.begin()->second;
-        Outcome const outcome = m_protocol_failure       ? Outcome::ProtocolFailure
-            : stream.headers_done || !stream.replayable ? Outcome::Failed
-                                                        : Outcome::Retry;
-        end_stream(stream, outcome, reason);
+        end_stream(stream, unanswered(stream, m_protocol_failure), reason);
     }
 }
 
@@ -435,9 +450,14 @@ bool Http2Session::handle(h2::Frame const& frame)
         if (found == m_streams.end())
             return true;
         h2::ErrorCode const code = h2::parse_rst_stream(frame);
+        Stream const& reset = *found->second;
+        // REFUSED_STREAM and HTTP_1_1_REQUIRED both say the request was not
+        // acted on (Sections 8.7 and 7); any other broken-protocol code may
+        // come after it was.
         Outcome const outcome = code == h2::ErrorCode::RefusedStream ? Outcome::Retry
-            : says_http2_is_broken(code)                             ? Outcome::ProtocolFailure
-                                                                     : Outcome::Failed;
+            : code == h2::ErrorCode::Http11Required  ? (reset.headers_done ? Outcome::Failed : Outcome::ProtocolFailure)
+            : says_http2_is_broken(code)             ? unanswered(reset, true)
+                                                     : Outcome::Failed;
         end_stream(*found->second, outcome, "the server reset the HTTP/2 stream (" + std::string(h2::error_name(code)) + ")");
         return true;
     }

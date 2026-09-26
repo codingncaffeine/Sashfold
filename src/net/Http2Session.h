@@ -152,6 +152,9 @@ private:
     bool finish_header_block();
     void connection_error(h2::ErrorCode code, std::string const& reason);
     void lost(std::string const& reason);
+    // What becomes of an open stream when its connection ends under it:
+    // http2_broken says whether HTTP/1.1 is the way on from here.
+    Outcome unanswered(Stream const& stream, bool http2_broken) const;
     void end_stream(Stream& stream, Outcome outcome, std::string error);
     void reset_stream(Stream& stream, h2::ErrorCode code, Outcome outcome, std::string error);
     void finish_stream(Stream& stream);
