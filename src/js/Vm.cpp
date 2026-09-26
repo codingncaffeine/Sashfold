@@ -967,9 +967,13 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         }
 
         // ---- literals
-        case Opcode::NewArrayLiteral:
-            frame.push(Value::object(self.new_array()));
+        case Opcode::NewArrayLiteral: {
+            auto* array = static_cast<ArrayObject*>(self.new_array());
+            if (ins.a != 0)
+                array->reserve_elements(ins.a);
+            frame.push(Value::object(array));
             break;
+        }
         case Opcode::ArrayPush: {
             auto* array = static_cast<ArrayObject*>(frame.peek(1).as_object());
             array->push(frame.top());
@@ -994,9 +998,13 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 array->push(value);
             break;
         }
-        case Opcode::NewObject:
-            frame.push(Value::object(self.new_object()));
+        case Opcode::NewObject: {
+            Object* object = self.new_object();
+            if (ins.a != 0)
+                object->reserve_properties(ins.a);
+            frame.push(Value::object(object));
             break;
+        }
         case Opcode::SetPrototype: {
             Value const value = frame.pop();
             Object* object = frame.top().as_object();

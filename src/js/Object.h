@@ -180,6 +180,9 @@ public:
     // intrinsics are built and how a fresh object is filled.
     void put(PropertyKey const&, Value const&, std::uint8_t attributes = default_attributes);
     void put_accessor(PropertyKey const&, Object* getter, Object* setter, std::uint8_t attributes = Configurable);
+    // Room for the properties a maker is about to put, taken once rather
+    // than grown a property at a time.
+    void reserve_properties(std::size_t count) { m_properties.reserve(count); }
     bool remove_own(PropertyKey const&); // unconditional erase
     std::size_t own_property_count() const { return m_properties.size(); }
     // The storage in creation order, for callers that iterate everything
@@ -233,6 +236,7 @@ public:
     bool has_element(std::uint32_t) const;
     void set_element(std::uint32_t, Value const&); // grows dense storage when the index is near
     void push(Value const&);
+    void reserve_elements(std::size_t count) { m_elements.reserve(count); } // room, taken once, for a literal's elements
     std::uint32_t dense_size() const { return static_cast<std::uint32_t>(m_elements.size()); }
     std::vector<Value>& dense() { return m_elements; }
     std::vector<Value> const& dense() const { return m_elements; }

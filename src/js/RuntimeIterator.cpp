@@ -27,6 +27,7 @@ Object* Interpreter::create_iter_result(Value const& value, bool done)
     // CreateIterResultObject (§7.4.14): `value`, then `done`.
     Heap::NoCollect const guard(*m_heap);
     Object* result = new_object();
+    result->reserve_properties(2);
     result->put(PropertyKey::atom(atoms().value), value);
     result->put(PropertyKey::atom(atoms().done), Value::boolean(done));
     return result;

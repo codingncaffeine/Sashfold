@@ -1679,7 +1679,9 @@ private:
 
     void compile_array(ArrayLiteral const& literal)
     {
-        emit(Opcode::NewArrayLiteral);
+        // The count rides on the instruction so the array is made with
+        // room for its elements rather than grown one at a time.
+        emit(Opcode::NewArrayLiteral, static_cast<std::uint32_t>(literal.elements.size()));
         for (Expression const* element : literal.elements) {
             if (element == nullptr) {
                 emit(Opcode::ArrayHole);
@@ -1697,8 +1699,9 @@ private:
 
     void compile_object(ObjectLiteral const& literal)
     {
-        // PropertyDefinitionEvaluation (§13.2.5.5), in source order.
-        emit(Opcode::NewObject);
+        // PropertyDefinitionEvaluation (§13.2.5.5), in source order; the
+        // count rides on the instruction so the object is made with room.
+        emit(Opcode::NewObject, static_cast<std::uint32_t>(literal.properties.size()));
         for (PropertyDefinition const& property : literal.properties) {
             if (property.is_proto) {
                 compile_expression(property.value);
@@ -1938,7 +1941,7 @@ private:
     {
         spread = std::any_of(arguments.begin(), arguments.end(), [](Expression const* e) { return e->type == NodeType::SpreadElement; });
         if (spread) {
-            emit(Opcode::NewArrayLiteral);
+            emit(Opcode::NewArrayLiteral, static_cast<std::uint32_t>(arguments.size()));
             for (Expression const* argument : arguments) {
                 if (argument->type == NodeType::SpreadElement) {
                     compile_expression(static_cast<SpreadElement const*>(argument)->argument);

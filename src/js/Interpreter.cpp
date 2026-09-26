@@ -546,6 +546,7 @@ Object* Interpreter::Impl::make_arguments_object(ScriptFunction& function, Envir
     } else {
         object = heap().allocate<Object>(self.intrinsics().object_prototype, Object::Class::Arguments);
     }
+    object->reserve_properties(arguments.size() + 3);
     for (std::size_t i = 0; i < arguments.size(); ++i)
         object->put(PropertyKey::index(static_cast<std::uint32_t>(i)), arguments[i]);
     object->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(arguments.size())), builtin_attributes);
@@ -2903,6 +2904,7 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     auto* function = m_heap->allocate<ScriptFunction>(function_prototype, node, scope, node.is_constructable);
     function->set_realm(m_realm);
     function->set_private_environment(private_environment);
+    function->reserve_properties(3);
     function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
     function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
     // No own `caller` or `arguments`, sloppy or not: §17.1 leaves them to
@@ -2912,6 +2914,7 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     // `caller` and `arguments` reach Function.prototype's accessors.
     if (node.is_constructable) {
         Object* prototype = new_object();
+        prototype->reserve_properties(1);
         prototype->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
         function->put(PropertyKey::atom(atoms().prototype), Value::object(prototype), Writable);
     } else if (node.is_generator) {
