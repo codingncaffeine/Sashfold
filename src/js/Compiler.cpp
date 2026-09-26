@@ -21,8 +21,10 @@
 #include "js/Strings.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -386,11 +388,14 @@ private:
         pool.push_back(item);
         return static_cast<std::uint32_t>(pool.size() - 1);
     }
-    // The names and the functions are asked for by the thousand in a
-    // large body, and a pool searched from the front costs its length each
-    // time: an index beside each answers at once.
-    template<typename T>
-    static std::uint32_t pooled_indexed(std::vector<T>& pool, std::unordered_map<T, std::uint32_t>& index, T const& item)
+    // A pool is asked for by the thousand in a large body — a bundle's
+    // outermost function holds every literal of a site — and a pool
+    // searched from the front costs its length each time, the whole body
+    // the square of it: an index beside each answers at once. The constants
+    // are keyed the way the pool compares them: numbers by their bits,
+    // cells by identity.
+    template<typename T, typename Index>
+    static std::uint32_t pooled_indexed(std::vector<T>& pool, Index& index, T const& item)
     {
         auto const found = index.find(item);
         if (found != index.end())
@@ -400,16 +405,35 @@ private:
         index.emplace(item, at);
         return at;
     }
-    std::uint32_t constant(Value const& value) { return pooled(m_code->constants, value); }
+    struct ConstantHash {
+        std::size_t operator()(Value const& value) const
+        {
+            std::size_t const seed = static_cast<std::size_t>(value.type()) * 0x9E3779B97F4A7C15ull;
+            switch (value.type()) {
+            case Value::Type::Number:
+                return seed ^ std::hash<std::uint64_t> {}(std::bit_cast<std::uint64_t>(value.as_number()));
+            case Value::Type::Boolean:
+                return seed ^ (value.as_boolean() ? 1u : 0u);
+            case Value::Type::String:
+            case Value::Type::Object:
+            case Value::Type::Symbol:
+            case Value::Type::BigInt:
+                return seed ^ std::hash<void const*> {}(value.as_cell());
+            default:
+                return seed;
+            }
+        }
+    };
+    std::uint32_t constant(Value const& value) { return pooled_indexed(m_code->constants, m_constant_index, value); }
     std::uint32_t bigint(BigInteger const& value) { return pooled(m_code->bigints, value); }
     std::uint32_t name(JsString* atom) { return pooled_indexed(m_code->names, m_name_index, atom); }
     std::uint32_t name_of(std::u16string_view text) { return name(m_heap.atom(text)); }
     std::uint32_t constant_string(std::u16string_view text) { return constant(Value::string(m_heap.atom(text))); }
     std::uint32_t function(FunctionNode const* node) { return pooled_indexed(m_code->functions, m_function_index, node); }
-    std::uint32_t class_node(ClassNode const* node) { return pooled(m_code->classes, node); }
-    std::uint32_t template_index(TemplateLiteral const* node) { return pooled(m_code->templates, node); }
-    std::uint32_t regexp(RegExpLiteral const* node) { return pooled(m_code->regexps, node); }
-    std::uint32_t declarations(Declarations const* node) { return pooled(m_code->declarations, node); }
+    std::uint32_t class_node(ClassNode const* node) { return pooled_indexed(m_code->classes, m_class_index, node); }
+    std::uint32_t template_index(TemplateLiteral const* node) { return pooled_indexed(m_code->templates, m_template_index, node); }
+    std::uint32_t regexp(RegExpLiteral const* node) { return pooled_indexed(m_code->regexps, m_regexp_index, node); }
+    std::uint32_t declarations(Declarations const* node) { return pooled_indexed(m_code->declarations, m_declarations_index, node); }
     std::uint32_t node_index(Expression const* node) { return pooled_indexed(m_code->nodes, m_node_index, node); }
     std::uint32_t name_list(std::vector<JsString*> names)
     {
@@ -2312,6 +2336,11 @@ private:
     std::unordered_map<JsString*, std::uint32_t> m_name_index; // the names pool, by name
     std::unordered_map<FunctionNode const*, std::uint32_t> m_function_index; // the functions pool, by node
     std::unordered_map<Expression const*, std::uint32_t> m_node_index; // the nodes pool (a call site each), by node
+    std::unordered_map<Value, std::uint32_t, ConstantHash> m_constant_index; // the constants pool, by value
+    std::unordered_map<ClassNode const*, std::uint32_t> m_class_index;
+    std::unordered_map<TemplateLiteral const*, std::uint32_t> m_template_index;
+    std::unordered_map<RegExpLiteral const*, std::uint32_t> m_regexp_index;
+    std::unordered_map<Declarations const*, std::uint32_t> m_declarations_index;
     std::vector<Scope> m_scopes;
     std::string m_error;
     int m_depth = 0;
