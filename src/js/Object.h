@@ -612,7 +612,12 @@ public:
         bool live = false;
     };
 
-    CollectionTable() = default;
+    // The cell that holds the table, so that an entry added can be told to
+    // that cell's heap; null for a table in no cell.
+    explicit CollectionTable(Cell const* owner = nullptr)
+        : m_owner(owner)
+    {
+    }
     ~CollectionTable();
     CollectionTable(CollectionTable const&) = delete;
     CollectionTable& operator=(CollectionTable const&) = delete;
@@ -656,6 +661,7 @@ private:
     };
     void compact();
 
+    Cell const* m_owner;
     std::vector<Entry> m_entries;
     std::unordered_map<Value, std::size_t, Hash, Equal> m_index;
     std::size_t m_live = 0;
@@ -670,6 +676,7 @@ class CollectionObject : public Object {
 public:
     CollectionObject(Object* prototype, Class class_id)
         : Object(prototype, class_id)
+        , m_table(this)
     {
     }
     CollectionTable& table() { return m_table; }
@@ -876,7 +883,13 @@ public:
         m_detached = true;
     }
     // A resizable buffer's new length, within its maximum; new bytes are zero.
-    void resize(std::size_t byte_length) { m_bytes.resize(byte_length, 0); }
+    void resize(std::size_t byte_length)
+    {
+        std::size_t const before = m_bytes.capacity();
+        m_bytes.resize(byte_length, 0);
+        if (Heap* owner = heap(); owner != nullptr && m_bytes.capacity() > before)
+            owner->grew(m_bytes.capacity() - before);
+    }
 
     std::size_t size_in_bytes() const override { return sizeof(*this) + m_bytes.capacity(); }
 

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace sashfold;
 
@@ -836,10 +837,86 @@ void test_ropes()
     }
 }
 
+// The root stack: the reference root() hands out holds while a thousand
+// more are pushed past its block's edge, what it roots survives the
+// collections in between (the heap is under stress: one at every
+// allocation), a nested scope takes its own roots with it and no others,
+// and a root updated in place through the reference is what the collector
+// sees. Nested calls push and pop the context stack the same way, past its
+// block's edge and back, with every frame's context where it was.
+void test_root_stack()
+{
+    js::Interpreter& in = fresh();
+    js::Interpreter::Roots const roots(in);
+    js::Value& first = in.root(js::Value::string(in.heap().string(std::string_view("first"))));
+    std::vector<js::Value*> kept;
+    for (int i = 0; i < 1000; ++i)
+        kept.push_back(&in.root(js::Value::string(in.heap().string(std::string_view(std::to_string(i))))));
+    CHECK(first.is_string() && first.as_string()->equals(u"first"));
+    bool all_kept = true;
+    for (int i = 0; i < 1000; ++i)
+        all_kept = all_kept && kept[i]->is_string() && kept[i]->as_string()->to_utf8() == std::to_string(i);
+    CHECK(all_kept);
+    {
+        js::Interpreter::Roots const inner(in);
+        for (int i = 0; i < 300; ++i)
+            in.root(js::Value::string(in.heap().string(std::string_view("inner"))));
+    }
+    in.heap().collect();
+    CHECK(first.as_string()->equals(u"first"));
+    CHECK(kept[999]->as_string()->to_utf8() == "999");
+    first = js::Value::string(in.heap().string(std::string_view("second")));
+    in.heap().collect();
+    CHECK(first.as_string()->equals(u"second"));
+    CHECK_JS_NUMBER(in, "(function f(n) { var c = n; return n === 0 ? 0 : 1 + f(n - 1) + (c - n); })(200)", 200);
+}
+
+// What the cells grow to after they are made reaches the heap's estimate
+// as it happens: an array filled, an object given properties, a scope
+// given bindings, a rope read flat, a buffer resized, a Map given entries.
+// Measured with no collection allowed, so the estimate is the adoptions
+// plus what the cells told it, and on a heap without stress, so the loops
+// allocate nothing of their own.
+void test_growth_is_counted()
+{
+    js::Interpreter in;
+    js::Heap::NoCollect const guard(in.heap());
+    auto const delta = [&](std::string_view source) {
+        std::size_t const before = in.heap().bytes_allocated();
+        test::JsRun const run = test::run_js(in, source);
+        CHECK(run.ok);
+        return in.heap().bytes_allocated() - before;
+    };
+    std::size_t const sparse = delta("var a = new Array(65536); a.length");
+    std::size_t const filled = delta("a.fill(7); a.length");
+    CHECK(filled >= 65536 * sizeof(js::Value));
+    CHECK(sparse < 65536 * sizeof(js::Value) / 4);
+    std::size_t const pushed = delta("var p = []; for (var i = 0; i < 65536; i++) p.push(i); p.length");
+    CHECK(pushed >= 65536 * sizeof(js::Value));
+    std::size_t const properties = delta("var o = {}; for (var i = 0; i < 5000; i++) o[i] = i; o[0]");
+    CHECK(properties >= 5000 * sizeof(js::Property));
+    std::string locals = "(function () { var v0";
+    for (int i = 1; i < 100; ++i)
+        locals += ", v" + std::to_string(i);
+    locals += "; return 1; })()";
+    std::size_t const with_locals = delta(locals);
+    std::size_t const without = delta("(function () { return 1; })()");
+    CHECK(with_locals >= without + 100 * sizeof(js::Environment::Binding));
+    delta("var s = 'x'.repeat(100000); var t = s + s; t.length");
+    std::size_t const flat = delta("t.charCodeAt(0)");
+    CHECK(flat >= 200000 * 2);
+    std::size_t const resized = delta("var buf = new ArrayBuffer(16, { maxByteLength: 1048576 }); buf.resize(1048576); buf.byteLength");
+    CHECK(resized >= 1048576 - 16);
+    std::size_t const entries = delta("var m = new Map(); for (var i = 0; i < 10000; i++) m.set(i, i); m.size");
+    CHECK(entries >= 10000 * sizeof(js::CollectionTable::Entry));
+}
+
 } // namespace
 
 int main()
 {
+    test_root_stack();
+    test_growth_is_counted();
     test_arithmetic_and_coercion();
     test_comparison_and_equality();
     test_bitwise_and_shifts();

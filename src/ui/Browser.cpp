@@ -9417,7 +9417,7 @@ Browser::EngineAccount Browser::engine_account() const
     account.parse_ms = code.parse_ms;
     account.compile_ms = code.compile_ms;
     account.functions_compiled = code.functions_compiled;
-    account.gc_ms = heap.collect_ms + heap.remeasure_ms;
+    account.gc_ms = heap.collect_ms;
     account.gc_longest_ms = heap.longest_collect_ms;
     account.collections = heap.collections;
     account.live_cells = heap.live_cells;

@@ -4,9 +4,10 @@
 # tabs, and the next page in the same tab, go on as if nothing had happened.
 # Run with --js-heap-limit 40 (megabytes). The page's timer keeps an array
 # of 1,048,576 numbers a tick: 16 MB each, all in one native call — few
-# cells, few steps — which the heap sees when the callback returns. Three
-# are 48 MB, over the ceiling: the collection the fourth tick's first
-# allocation brings finds them live, and that tick ends at its next step.
+# cells, few steps — which the array tells the heap of as it grows. Three
+# are 48 MB, over the ceiling: the collection the next allocation brings
+# finds them live, and the page's scripts end at their next step — inside
+# the third tick, before it can write its title.
 resize 800 500
 open data:text/html,<title>Runaway</title><body style="margin:0">as it was<script>var kept=[];var ticks=0;setInterval(function(){kept.push(new Array(1048576).fill(7));ticks++;document.title='ticks '+ticks},10)</script>
 assert-title Runaway
@@ -15,13 +16,13 @@ assert-title ticks 1
 advance 10
 assert-title ticks 2
 advance 10
-assert-title ticks 3
+assert-title ticks 2
 advance 10
-assert-title ticks 3
+assert-title ticks 2
 assert-console out of memory: the page's scripts were stopped, its heap over 40 MB
 assert-status This page ran out of memory: its scripts were stopped
 advance 10 20
-assert-title ticks 3
+assert-title ticks 2
 assert-text as it was
 
 # Another tab has a heap of its own and runs on.
@@ -32,7 +33,7 @@ assert-title fine 3
 # The page that was stopped stays stopped...
 select-tab 0
 advance 10 5
-assert-title ticks 3
+assert-title ticks 2
 # ...and the next page in its tab starts with a heap of its own.
 open data:text/html,<title>Again</title>again<script>document.title='again '+(function(){return 1+1})()</script>
 assert-title again 2

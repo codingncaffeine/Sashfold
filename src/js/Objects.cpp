@@ -283,6 +283,8 @@ Property& Object::insert(PropertyKey const& key)
 {
     Property& property = m_properties.emplace_back();
     property.key = key;
+    if (Heap* owner = heap())
+        owner->grew(sizeof(Property));
     std::size_t const count = m_properties.size();
     if (count > index_threshold) {
         if (count == index_threshold + 1)
@@ -693,6 +695,8 @@ void ArrayObject::set_element(std::uint32_t index, Value const& value)
         if (index - size < dense_growth_limit && clear_run) {
             m_elements.resize(static_cast<std::size_t>(index) + 1, Value::empty());
             m_elements[index] = value;
+            if (Heap* owner = heap())
+                owner->grew((static_cast<std::size_t>(index) + 1 - size) * sizeof(Value));
         } else {
             insert(PropertyKey::index(index)).value = value;
         }
@@ -826,8 +830,11 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
                 clear_run = false;
         }
         if (is_dense_eligible(fresh) && near && clear_run) {
-            if (index >= size)
+            if (index >= size) {
                 m_elements.resize(static_cast<std::size_t>(index) + 1, Value::empty());
+                if (Heap* owner = heap())
+                    owner->grew((static_cast<std::size_t>(index) + 1 - size) * sizeof(Value));
+            }
             m_elements[index] = fresh.value;
         } else {
             // An ordinary index inside the dense range would be shadowed
@@ -1199,9 +1206,12 @@ Environment::Binding& Environment::declare(JsString* name, Value initial, bool m
         return *existing;
     // An index that is up to date stays so; one that is not is made again
     // by the next search.
-    if (m_index.size() == m_bindings.size() && !m_index.empty())
+    bool const indexed = m_index.size() == m_bindings.size() && !m_index.empty();
+    if (indexed)
         m_index.emplace(name, static_cast<std::uint32_t>(m_bindings.size()));
     Binding& binding = m_bindings.emplace_back();
+    if (Heap* owner = heap())
+        owner->grew(sizeof(Binding) + (indexed ? sizeof(void*) * 4 : 0));
     binding.name = name;
     binding.value = initial;
     binding.mutable_ = mutable_;

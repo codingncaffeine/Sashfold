@@ -324,11 +324,16 @@ public:
     std::size_t cell_count() const { return m_cells.size(); }
     std::size_t bytes_allocated() const { return m_bytes; }
     std::size_t collections() const { return m_account.collections; }
+    // A cell grew after it was made — an array pushed to, an object given a
+    // property, a scope a binding, a rope read flat, a buffer resized — and
+    // says so here, by the bytes its size_in_bytes() now counts more. What
+    // the estimate is between collections is the cells as adopted plus what
+    // they have told it since; a collection asks every live cell again.
+    void grew(std::size_t bytes) { m_bytes += bytes; }
 
     // What the collector has cost, for the host's account of a page: the
     // collections run, what they took all together on the steady clock and
-    // the longest of them, what the last one found live, and the times the
-    // cells were all asked their size again and what that took. Measured,
+    // the longest of them, and what the last one found live. Measured,
     // never acted on: when a collection is due stays a matter of counts.
     struct Account {
         std::size_t collections = 0;
@@ -336,8 +341,6 @@ public:
         double longest_collect_ms = 0;
         std::size_t live_cells = 0; // after the last collection
         std::size_t live_bytes = 0;
-        std::size_t remeasures = 0;
-        double remeasure_ms = 0;
     };
     Account const& account() const { return m_account; }
     // One collection as it ended, for a host that traces them: its number
@@ -384,28 +387,16 @@ public:
     void set_max_string_length(std::size_t code_units) { m_max_string_length = code_units; }
     std::size_t max_string_length() const { return m_max_string_length; }
 
-    // A cell grows after it is made — an array pushed to, an object given
-    // properties — and the running estimate knows only what it was when it
-    // was adopted. So the cells are asked again, all of them, every so many
-    // adoptions (a quarter of the cells there are, so the asking costs a
-    // few calls an allocation), and the estimate is what they say.
-    void remeasure();
-    // The same for growth that allocates nothing — numbers pushed onto one
-    // array in a loop. The interpreter calls this as it steps; the heap
-    // asks its cells again once enough steps have passed for their number.
-    // It cannot collect here (a step is no allocation: values may be held
-    // unrooted across it), so what it can say is only this: an estimate
-    // past TWICE the ceiling is no garbage a collection was about to free
-    // — collections come due at the ceiling — and the heap is over it.
-    void poll_growth(std::uint64_t steps);
-    // And for growth inside one native call — `new Array(1e6).fill(0)` on
-    // a timer: few cells, few steps, megabytes. The host says when a run of
-    // script has ended (a callback returned, a script finished), and the
-    // cells are asked again every so many of those: every one for a small
-    // heap, one in cells/4096 for a large one, so the asking stays a few
-    // thousand calls an entry whatever the heap's size. By count, never by
-    // the clock: a script harness must see the same run twice.
-    void note_entry();
+    // Growth that allocates nothing — numbers pushed onto one array in a
+    // loop — reaches the estimate through grew() but brings no collection,
+    // since none runs without an allocation (values may be held unrooted
+    // across a step). The interpreter calls this as it steps, and the host
+    // when a run of script has ended (a callback returned, a script
+    // finished), and what the heap can say is only this: an estimate past
+    // TWICE the ceiling is no garbage a collection was about to free —
+    // collections come due at the ceiling — and the heap is over it.
+    void poll_growth();
+    void note_entry() { poll_growth(); }
 
     // No collection runs while one of these is alive; nests.
     class NoCollect {
@@ -442,9 +433,6 @@ private:
     std::size_t m_max_string_length = js::max_string_length;
     std::size_t m_limit = 0; // the ceiling; 0 is none
     bool m_over_limit = false; // what was live after a collection passed it
-    std::size_t m_adopted_since_measure = 0; // cells adopted since they were all last asked their size
-    std::uint64_t m_steps_at_measure = 0; // the interpreter's step count when they were
-    std::size_t m_entries_since_measure = 0; // runs of script the host has ended since
     int m_no_collect = 0;
     bool m_stress = false;
     bool m_collecting = false;

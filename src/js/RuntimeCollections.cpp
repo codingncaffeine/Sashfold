@@ -82,6 +82,8 @@ void CollectionTable::set(Value const& key, Value const& value)
     m_index.emplace(stored, m_entries.size());
     m_entries.push_back(Entry { stored, value, true });
     ++m_live;
+    if (Heap* owner = m_owner != nullptr ? m_owner->heap() : nullptr)
+        owner->grew(sizeof(Entry) + 3 * sizeof(void*));
 }
 
 bool CollectionTable::remove(Value const& key)

@@ -67,6 +67,10 @@ void JsString::flatten() const
     m_data = std::move(whole);
     m_left = nullptr;
     m_right = nullptr;
+    // The flat copy is new memory; the halves stay what they were until
+    // nothing else keeps them.
+    if (Heap* owner = heap())
+        owner->grew(m_length * 2);
 }
 
 std::string JsString::to_utf8() const
@@ -127,7 +131,6 @@ void Heap::adopt(std::unique_ptr<Cell> cell)
     cell->m_heap = this;
     m_bytes += cell->size_in_bytes();
     m_cells.push_back(std::move(cell));
-    ++m_adopted_since_measure;
 }
 
 namespace {
@@ -176,39 +179,10 @@ std::vector<Heap::Collection::Kind> biggest_kinds(std::unordered_map<char const*
 
 }
 
-void Heap::remeasure()
-{
-    auto const started = std::chrono::steady_clock::now();
-    std::size_t bytes = 0;
-    for (auto const& cell : m_cells)
-        bytes += cell->size_in_bytes();
-    m_bytes = bytes;
-    m_adopted_since_measure = 0;
-    ++m_account.remeasures;
-    m_account.remeasure_ms += ms_since(started);
-}
-
-void Heap::poll_growth(std::uint64_t steps)
-{
-    // Every million steps for a small heap, less often for a large one: a
-    // few steps a cell, so the asking stays a fraction of the stepping.
-    std::uint64_t const due = std::max<std::uint64_t>(1u << 20, static_cast<std::uint64_t>(m_cells.size()) * 4u);
-    if (m_collecting || steps - m_steps_at_measure < due)
-        return;
-    m_steps_at_measure = steps;
-    remeasure();
-    if (m_limit != 0 && m_bytes / 2 > m_limit)
-        m_over_limit = true;
-}
-
-void Heap::note_entry()
+void Heap::poll_growth()
 {
     if (m_collecting)
         return;
-    if (++m_entries_since_measure < std::max<std::size_t>(1, m_cells.size() / 4096))
-        return;
-    m_entries_since_measure = 0;
-    remeasure();
     if (m_limit != 0 && m_bytes / 2 > m_limit)
         m_over_limit = true;
 }
@@ -217,11 +191,6 @@ void Heap::maybe_collect()
 {
     if (m_no_collect > 0 || m_collecting)
         return;
-    // The cells are asked their sizes again once a quarter as many have
-    // been adopted as there are: what they have grown to since counts
-    // toward the collection that is due.
-    if (m_adopted_since_measure >= std::max<std::size_t>(16384, m_cells.size() / 4))
-        remeasure();
     if (m_stress || m_bytes > m_threshold)
         collect();
 }
@@ -304,7 +273,6 @@ void Heap::collect()
     // every few kilobytes.
     std::size_t const floor = 8u * 1024u * 1024u;
     m_bytes = live; // every cell that stayed was just asked
-    m_adopted_since_measure = 0;
     m_threshold = std::max<std::size_t>(floor, live * 2u);
     // Under a ceiling the heap may not double past it unlooked at: the
     // next collection is due at the ceiling at the latest (and a floor's
