@@ -4063,6 +4063,30 @@ void test_custom_elements()
     CHECK_EQ(page->string("host.querySelector('my-bad').localName + ' ' + take()"), "my-bad ");
     page->eval("host.querySelector('my-bad').remove();");
     CHECK_EQ(page->string("take()"), "");
+
+    // An upgrade reports every attribute the element had, even when the
+    // first callback sets more of them: the element's attribute list grows
+    // under the upgrade, and a loop still holding the old list would read
+    // what it left behind — moved-from names, which are watched by nobody
+    // (GitHub's elements set attributes from attributeChangedCallback).
+    page->eval(R"JS(
+        host.innerHTML = '<my-grow data-first-long-name="first value that is long"'
+            + ' data-second-long-name="second value that is long" data-third-long-name="third value that is long"></my-grow>';
+        take(); // the cards that were in the host left it
+        class Grow extends HTMLElement {
+            static get observedAttributes() { return ['data-first-long-name', 'data-second-long-name', 'data-third-long-name']; }
+            attributeChangedCallback(name, was, now) {
+                log.push('attr:' + name + ':' + now);
+                if (name === 'data-first-long-name') {
+                    for (var i = 0; i < 8; i++) this.setAttribute('data-added-long-name-' + i, 'added value ' + i);
+                }
+            }
+        }
+        customElements.define('my-grow', Grow);
+    )JS");
+    CHECK_EQ(page->string("take()"), "attr:data-first-long-name:first value that is long"
+        " attr:data-second-long-name:second value that is long attr:data-third-long-name:third value that is long");
+    CHECK_EQ(page->string("'' + host.querySelector('my-grow').attributes.length"), "11");
 }
 
 // A MediaSource's sound, decoded as it plays: a real Opus stream (a second

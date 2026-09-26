@@ -343,11 +343,16 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element)
     wrapper.custom_definition = definition;
 
     // What it missed while it was an ordinary element: the attributes it
-    // watches, and the document it is already in.
+    // watches, and the document it is already in. The attributes are read
+    // out first: a callback may set one, and setting one grows the
+    // element's attribute list under a loop over it.
+    std::vector<std::pair<std::string, std::string>> watched;
     for (dom::Attr const& attribute : element.attributes()) {
         if (attribute.namespace_uri.empty())
-            fire_attribute_changed(in, wrapper, *definition, attribute.local_name, std::nullopt, attribute.value);
+            watched.emplace_back(attribute.local_name, attribute.value);
     }
+    for (auto const& [name, value] : watched)
+        fire_attribute_changed(in, wrapper, *definition, name, std::nullopt, value);
     if (element.is_connected())
         fire_connected(in, wrapper, *definition);
 }
