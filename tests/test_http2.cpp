@@ -655,6 +655,8 @@ public:
         std::string hangup_path; // on the first connection, this path is met by hanging up
         std::string broken_path; // on the first connection, this path is met by a malformed frame
         bool broken_after_headers = false; // ... sent after the response headers and a little body
+        std::string reset_path; // on the first connection, this path is met by RST_STREAM before any answer
+        h2::ErrorCode reset_code = h2::ErrorCode::ProtocolError; // ... with this code
         bool open_windows = false; // grants the client the largest windows the protocol allows
         bool shut_windows = false; // gives every stream a send window of 0 and never opens it
     };
@@ -937,6 +939,10 @@ private:
                         // for the whole connection.
                         Bytes const malformed = { 0, 0, 3, static_cast<std::uint8_t>(h2::FrameType::WindowUpdate), 0, 0, 0, 0, 0, 0, 0, 1 };
                         out.insert(out.end(), malformed.begin(), malformed.end());
+                        break;
+                    }
+                    if (index == 0 && !m_options.reset_path.empty() && path == m_options.reset_path) {
+                        h2::write_rst_stream(out, block_stream, m_options.reset_code);
                         break;
                     }
                     if (m_options.max_concurrent != 0 && streams.size() >= m_options.max_concurrent) {
@@ -1742,6 +1748,49 @@ void test_protocol_error_after_a_request()
     }
 }
 
+void test_reset_before_an_answer()
+{
+    // A stream reset with a broken-protocol code before any of its answer
+    // arrived, on a connection that goes on: the server may have acted on
+    // the request, so only a request that is harmless run twice goes again
+    // over HTTP/1.1. A POST fails where a GET is answered.
+    struct Case {
+        char const* method;
+        bool answered;
+    };
+    for (Case const c : { Case { "POST", false }, Case { "GET", true } }) {
+        H2Server::Options server_options;
+        server_options.reset_path = "/reset";
+        server_options.reset_code = h2::ErrorCode::ProtocolError;
+        H2Server server(server_options);
+        net::FetchResult result;
+        {
+            net::ConnectionPool pool;
+            net::FetchOptions options = h2_options(pool);
+            options.method = c.method;
+            if (options.method == "POST")
+                options.body.assign(100, 'p');
+            result = net::fetch(server.url("/reset"), options);
+        }
+        server.finish();
+        H2Server::Report const report = server.report();
+        CHECK_EQ(report.h2_connections, 1);
+        if (c.answered) {
+            CHECK(result.response && text_of(result.response->body) == "body of /reset");
+            CHECK(result.response && net::find_header(result.response->headers, "x-protocol")
+                && *net::find_header(result.response->headers, "x-protocol") == "http/1.1");
+            CHECK_EQ(report.h1_connections, 1);
+            CHECK_EQ(report.requests.size(), 2u);
+        } else {
+            CHECK(!result.response && result.error.find("PROTOCOL_ERROR") != std::string::npos);
+            CHECK_EQ(report.h1_connections, 0);
+            CHECK_EQ(report.requests.size(), 1u);
+        }
+        std::printf("  reset before an answer: %s %s, %d HTTP/1.1 connection(s)%s%s\n", c.method,
+            result.response ? "answered" : "failed", report.h1_connections, result.response ? "" : ": ", result.error.c_str());
+    }
+}
+
 // ---- through TLS, against node's HTTP/2 server
 
 #ifndef _WIN32
@@ -1953,6 +2002,7 @@ int main(int argc, char** argv)
     test_post_to_a_busy_server();
     test_lost_before_an_answer();
     test_protocol_error_after_a_request();
+    test_reset_before_an_answer();
 #ifndef _WIN32
     std::string const openssl = argc > 1 ? argv[1] : "";
     std::string const node = argc > 2 ? argv[2] : "";
