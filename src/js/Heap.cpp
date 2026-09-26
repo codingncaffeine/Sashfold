@@ -29,9 +29,9 @@ void Tracer::visit(Cell* cell)
     // Marking here and tracing later (from the collector's drain loop)
     // keeps the walk iterative: a scope chain a script nests ten thousand
     // deep costs worklist entries, never stack frames.
-    if (cell == nullptr || cell->marked())
+    if (cell == nullptr || cell->m_mark == m_mark)
         return;
-    cell->set_marked(true);
+    cell->m_mark = m_mark;
     m_worklist.push_back(cell);
 }
 
@@ -207,13 +207,19 @@ void Heap::collect()
     std::size_t const cells_before = m_cells.size();
     std::size_t const bytes_before = m_bytes;
 
-    for (auto const& cell : m_cells)
-        cell->set_marked(false);
+    // This collection's mark: a fresh number, so no cell need be cleared
+    // first — every cell still carries the mark of the last collection that
+    // reached it, or none, and neither is this one's.
+    if (++m_mark == Tracer::standalone_mark)
+        ++m_mark;
 
     // Roots: the atom table (atoms are permanent, so marking them is how
     // they survive rather than a special case in the sweep), the
-    // well-known symbols, every RootProvider and every Persistent.
-    Tracer tracer;
+    // well-known symbols, every RootProvider and every Persistent. The
+    // tracer's worklist is the heap's, kept between collections: grown
+    // from nothing each time it cost a dozen copies of itself.
+    Tracer tracer(m_mark);
+    tracer.m_worklist.swap(m_mark_stack);
     for (auto const& entry : m_atoms)
         tracer.visit(entry.second);
     tracer.visit(m_well_known.symbol_to_primitive);
@@ -241,6 +247,7 @@ void Heap::collect()
         tracer.m_worklist.pop_back();
         cell->trace(tracer);
     }
+    tracer.m_worklist.swap(m_mark_stack); // empty now, its room kept
 
     // A traced collection tallies what goes and what stays by kind; the
     // swept are asked their size for that alone.
@@ -250,7 +257,7 @@ void Heap::collect()
     std::size_t live = 0;
     std::erase_if(m_cells, [&](std::unique_ptr<Cell> const& owned) {
         Cell const& cell = *owned;
-        if (cell.marked()) {
+        if (cell.m_mark == m_mark) {
             std::size_t const bytes = cell.size_in_bytes();
             live += bytes;
             if (tracing) {

@@ -44,26 +44,40 @@ public:
     // required, monotonic reasonableness is.
     virtual std::size_t size_in_bytes() const { return sizeof(*this); }
 
-    bool marked() const { return m_marked; }
-    void set_marked(bool marked) { m_marked = marked; } // the collector's
     // The heap that adopted this cell; null for a cell that belongs to no
     // heap. How an exotic object reaches its realm's atoms.
     Heap* heap() const { return m_heap; }
+    bool marked() const; // reached by its heap's last collection
 
 private:
     friend class Heap;
+    friend class Tracer;
     Heap* m_heap = nullptr;
-    bool m_marked = false;
+    // The mark of the collection that last reached this cell: a number the
+    // heap advances per collection, so nothing need be cleared beforehand —
+    // a cell not reached this time simply still carries an older one.
+    std::uint32_t m_mark = 0;
 };
 
 class Tracer {
 public:
+    // A tracer of the heap's own carries that collection's mark; one made
+    // on its own (a test asking what a root reaches) marks with a number
+    // no collection ever uses.
+    explicit Tracer(std::uint32_t mark = standalone_mark)
+        : m_mark(mark)
+    {
+    }
     void visit(Cell* cell); // null is fine; marks and queues an unmarked cell
     void visit(Value const& value) { visit(value.as_cell()); }
     void visit(PropertyKey const& key) { visit(key.as_cell()); }
+    bool marked(Cell const* cell) const { return cell != nullptr && cell->m_mark == m_mark; }
+
+    static constexpr std::uint32_t standalone_mark = 1;
 
 private:
     friend class Heap;
+    std::uint32_t m_mark;
     std::vector<Cell*> m_worklist;
 };
 
@@ -324,6 +338,7 @@ public:
     std::size_t cell_count() const { return m_cells.size(); }
     std::size_t bytes_allocated() const { return m_bytes; }
     std::size_t collections() const { return m_account.collections; }
+    std::uint32_t current_mark() const { return m_mark; } // what the last collection marked the cells it reached with
     // A cell grew after it was made — an array pushed to, an object given a
     // property, a scope a binding, a rope read flat, a buffer resized — and
     // says so here, by the bytes its size_in_bytes() now counts more. What
@@ -421,6 +436,8 @@ private:
     void intern_well_known();
 
     std::vector<std::unique_ptr<Cell>> m_cells;
+    std::vector<Cell*> m_mark_stack; // the collector's worklist, its room kept between collections
+    std::uint32_t m_mark = Tracer::standalone_mark; // advanced before each collection; never the standalone mark again
     // Keys view the atom's own data; cells never move, so the views hold.
     std::unordered_map<std::u16string_view, JsString*> m_atoms;
     std::vector<RootProvider*> m_root_providers;
@@ -459,5 +476,10 @@ private:
     Heap* m_heap;
     Value m_value;
 };
+
+inline bool Cell::marked() const
+{
+    return m_heap != nullptr && m_mark == m_heap->current_mark();
+}
 
 }
