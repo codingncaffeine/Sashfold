@@ -143,6 +143,9 @@ std::optional<std::string> check_incremental(dom::Document const& document, Styl
 // what they hold, custom properties by the values an element sees.
 std::optional<std::string_view> first_style_difference(ComputedStyle const& a, ComputedStyle const& b);
 
+// Whether two sets of custom properties give an element the same values.
+bool same_custom_properties(CustomProperties const& a, CustomProperties const& b);
+
 // Matches every element against the set, cascades with the style=""
 // attributes, and computes styles (subtrees under display:none still get
 // entries).

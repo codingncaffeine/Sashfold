@@ -353,14 +353,15 @@ private:
     friend void release_range(Range&);
     friend void hold_place(IteratorPlace&);
     friend void release_place(IteratorPlace&);
+    void note_style_removal(Element const& element);
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<Range*> m_ranges;
     std::vector<IteratorPlace*> m_places;
     std::uint32_t m_base_elements = 0;
     mutable std::uint32_t m_style_clock = 1;
     std::uint32_t m_style_everything = 0;
-    mutable std::vector<StyleRemoval> m_style_removals;
-    mutable std::uint32_t m_style_removals_from = 0;
+    std::vector<StyleRemoval> m_style_removals;
+    std::uint32_t m_style_removals_from = 0;
 };
 
 // Deep-copies a subtree; the clone's nodes are owned by `document`.

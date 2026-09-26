@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -2234,6 +2235,128 @@ struct RuleSet {
                 else
                     universal.push_back(candidate);
                 note_uses(selectors[s]);
+                note_reach_of(selectors[s]);
+            }
+        }
+    }
+
+    // What a change to an element's classes, id or attributes can reach
+    // through the selectors, as the invalidation sets of other engines say
+    // it: under each feature that some selector tests on an element other
+    // than the one it styles (an ancestor, an earlier sibling), the one
+    // feature each such selector's subject cannot match without, or any
+    // element when the subject names none. Keys are ".class", "#id",
+    // "[attribute" and a bare type name, lowercased.
+    struct Reach {
+        bool any = false;
+        std::unordered_set<std::string> subjects;
+    };
+    std::unordered_map<std::string, Reach> reach;
+    // The features some selector tests on an earlier sibling: a change to
+    // one reaches the siblings after the element and everything in them.
+    std::unordered_set<std::string> reach_siblings;
+
+    // A simple selector's feature, when it tests one an element can change.
+    static std::string feature_key(SimpleSelector const& simple)
+    {
+        switch (simple.kind) {
+        case SimpleSelector::Kind::Class:
+            return "." + lowercased(simple.name);
+        case SimpleSelector::Kind::Id:
+            return "#" + lowercased(simple.name);
+        case SimpleSelector::Kind::Attribute:
+            return "[" + lowercased(simple.attribute.name);
+        case SimpleSelector::Kind::PseudoClass:
+            if (simple.pseudo == SimpleSelector::PseudoKind::AnyLink || simple.pseudo == SimpleSelector::PseudoKind::Link)
+                return "[href";
+            return {};
+        case SimpleSelector::Kind::Universal:
+        case SimpleSelector::Kind::Type:
+        case SimpleSelector::Kind::PseudoElement:
+            return {};
+        }
+        return {};
+    }
+
+    // The feature a subject compound cannot match without, the most telling
+    // first; empty when it names none, and any element may match it.
+    static std::string subject_key(CompoundSelector const& compound)
+    {
+        std::string by_class;
+        std::string by_attribute;
+        std::string by_type;
+        for (SimpleSelector const& simple : compound.simples) {
+            if (simple.kind == SimpleSelector::Kind::Id)
+                return "#" + lowercased(simple.name);
+            if (simple.kind == SimpleSelector::Kind::Class && by_class.empty())
+                by_class = "." + lowercased(simple.name);
+            else if (simple.kind == SimpleSelector::Kind::Attribute && by_attribute.empty())
+                by_attribute = "[" + lowercased(simple.attribute.name);
+            else if (simple.kind == SimpleSelector::Kind::Type && by_type.empty())
+                by_type = lowercased(simple.name);
+        }
+        if (!by_class.empty())
+            return by_class;
+        return by_attribute.empty() ? by_type : by_attribute;
+    }
+
+    void note_reach_of(ComplexSelector const& selector)
+    {
+        if (selector.compounds.empty())
+            return;
+        std::string const subject = subject_key(selector.compounds.back());
+        for (std::size_t i = 0; i + 1 < selector.compounds.size(); ++i) {
+            bool sibling = false;
+            for (std::size_t j = i; j < selector.combinators.size(); ++j)
+                sibling = sibling || selector.combinators[j] == Combinator::NextSibling
+                    || selector.combinators[j] == Combinator::SubsequentSibling;
+            note_reach(selector.compounds[i], subject, sibling);
+        }
+        note_subject_arguments(selector.compounds.back());
+    }
+
+    // A compound tested on another element than the subject: its features
+    // reach `subject`, and the siblings too when a sibling combinator lies
+    // between. An argument's subject is tested where the compound is; its
+    // other compounds anywhere, so they reach any element.
+    void note_reach(CompoundSelector const& compound, std::string const& subject, bool sibling)
+    {
+        for (SimpleSelector const& simple : compound.simples) {
+            if (std::string const key = feature_key(simple); !key.empty()) {
+                Reach& entry = reach[key];
+                if (subject.empty())
+                    entry.any = true;
+                else
+                    entry.subjects.insert(subject);
+                if (sibling)
+                    reach_siblings.insert(key);
+            }
+            if (!simple.argument)
+                continue;
+            for (ComplexSelector const& inner : simple.argument->selectors) {
+                if (inner.compounds.empty())
+                    continue;
+                note_reach(inner.compounds.back(), subject, sibling);
+                for (std::size_t i = 0; i + 1 < inner.compounds.size(); ++i)
+                    note_reach(inner.compounds[i], {}, true);
+            }
+        }
+    }
+
+    // The subject's own arguments: their subjects are the element itself,
+    // which is computed again whenever it changes; their other compounds
+    // are tested elsewhere.
+    void note_subject_arguments(CompoundSelector const& compound)
+    {
+        for (SimpleSelector const& simple : compound.simples) {
+            if (!simple.argument)
+                continue;
+            for (ComplexSelector const& inner : simple.argument->selectors) {
+                if (inner.compounds.empty())
+                    continue;
+                note_subject_arguments(inner.compounds.back());
+                for (std::size_t i = 0; i + 1 < inner.compounds.size(); ++i)
+                    note_reach(inner.compounds[i], {}, true);
             }
         }
     }
@@ -2373,6 +2496,40 @@ struct RuleSet {
             // Nested child rules wait for the nesting-aware resolver.
         }
     }
+};
+
+// Whether two computed values are the same, for a restyle deciding whether
+// to go on: shared lists by what they hold, custom properties by the object
+// (an element that declares any makes a new set each time it is computed,
+// and its children are then computed again, which is only ever more work).
+template<typename T>
+bool same_value(T const& a, T const& b)
+{
+    return a == b;
+}
+inline bool same_value(LengthPercent const& a, LengthPercent const& b)
+{
+    return a.kind == b.kind && a.value == b.value && a.percent == b.percent;
+}
+inline bool same_value(SvgPaint const& a, SvgPaint const& b)
+{
+    return a.kind == b.kind && a.color == b.color && a.reference == b.reference && a.has_fallback == b.has_fallback;
+}
+template<typename T>
+bool same_value(std::shared_ptr<T const> const& a, std::shared_ptr<T const> const& b)
+{
+    return a == b || (a && b && *a == *b);
+}
+inline bool same_value(std::shared_ptr<CustomProperties const> const& a, std::shared_ptr<CustomProperties const> const& b)
+{
+    return a == b;
+}
+
+// A list of ComputedStyle members, copied or compared together.
+template<auto... Fields>
+struct StyleFields {
+    static void copy(ComputedStyle& to, ComputedStyle const& from) { ((to.*Fields = from.*Fields), ...); }
+    static bool same(ComputedStyle const& a, ComputedStyle const& b) { return (same_value(a.*Fields, b.*Fields) && ...); }
 };
 
 // One resolution of one document against a RuleSet.
@@ -2891,64 +3048,36 @@ struct Resolver {
             hand_down_first_letters(*child);
     }
 
+    // The inherited properties, named once for the two things done with
+    // them: a child takes them from its parent, and a restyle compares an
+    // element's before and after by them to learn whether its children
+    // inherit anything new. SVG's painting properties are all inherited but
+    // the two stop ones (SVG 2 §13): a fill set on an <svg> or on an HTML box
+    // around it reaches the shapes inside, as an icon's `fill: currentcolor`
+    // does.
+    using InheritedFields = StyleFields<&ComputedStyle::color, &ComputedStyle::font_size, &ComputedStyle::font_weight,
+        &ComputedStyle::font_stretch, &ComputedStyle::font_style, &ComputedStyle::font_family, &ComputedStyle::line_height,
+        &ComputedStyle::direction, &ComputedStyle::writing_mode, &ComputedStyle::text_orientation, &ComputedStyle::text_align,
+        &ComputedStyle::text_align_last, &ComputedStyle::text_justify, &ComputedStyle::letter_spacing,
+        &ComputedStyle::word_spacing, &ComputedStyle::text_indent, &ComputedStyle::white_space, &ComputedStyle::word_break,
+        &ComputedStyle::hyphens, &ComputedStyle::hyphenate_character, &ComputedStyle::line_break,
+        &ComputedStyle::overflow_wrap, &ComputedStyle::font_kerning, &ComputedStyle::font_synthesis_weight,
+        &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
+        &ComputedStyle::font_synthesis_position, &ComputedStyle::text_transform, &ComputedStyle::list_style_type,
+        &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
+        &ComputedStyle::pointer_events, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
+        &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
+        &ComputedStyle::fill, &ComputedStyle::stroke, &ComputedStyle::fill_opacity, &ComputedStyle::stroke_opacity,
+        &ComputedStyle::stroke_width, &ComputedStyle::fill_rule, &ComputedStyle::stroke_linecap,
+        &ComputedStyle::stroke_linejoin, &ComputedStyle::stroke_miterlimit, &ComputedStyle::stroke_dasharray,
+        &ComputedStyle::stroke_dashoffset>;
+
     // Inherited properties flow in from the parent; the rest start at
     // their initial values.
     static ComputedStyle inherited_from(ComputedStyle const& parent)
     {
         ComputedStyle style;
-        style.color = parent.color;
-        style.font_size = parent.font_size;
-        style.font_weight = parent.font_weight;
-        style.font_stretch = parent.font_stretch;
-        style.font_style = parent.font_style;
-        style.font_family = parent.font_family;
-        style.line_height = parent.line_height;
-        style.direction = parent.direction;
-        style.writing_mode = parent.writing_mode;
-        style.text_orientation = parent.text_orientation;
-        style.text_align = parent.text_align;
-        style.text_align_last = parent.text_align_last;
-        style.text_justify = parent.text_justify;
-        style.letter_spacing = parent.letter_spacing;
-        style.word_spacing = parent.word_spacing;
-        style.text_indent = parent.text_indent;
-        style.white_space = parent.white_space;
-        style.word_break = parent.word_break;
-        style.hyphens = parent.hyphens;
-        style.hyphenate_character = parent.hyphenate_character;
-        style.line_break = parent.line_break;
-        style.overflow_wrap = parent.overflow_wrap;
-        style.font_kerning = parent.font_kerning;
-        style.font_synthesis_weight = parent.font_synthesis_weight;
-        style.font_synthesis_style = parent.font_synthesis_style;
-        style.font_synthesis_small_caps = parent.font_synthesis_small_caps;
-        style.font_synthesis_position = parent.font_synthesis_position;
-        style.text_transform = parent.text_transform;
-        style.list_style_type = parent.list_style_type;
-        style.list_style_position = parent.list_style_position;
-        style.quotes = parent.quotes;
-        style.custom = parent.custom;
-        style.visibility = parent.visibility;
-        style.pointer_events = parent.pointer_events;
-        style.border_collapse = parent.border_collapse;
-        style.border_spacing_horizontal = parent.border_spacing_horizontal;
-        style.border_spacing_vertical = parent.border_spacing_vertical;
-        style.caption_side = parent.caption_side;
-        style.empty_cells = parent.empty_cells;
-        // SVG's painting properties, all inherited but the two stop ones
-        // (SVG 2 §13): a fill set on an <svg> or on an HTML box around it
-        // reaches the shapes inside, as an icon's `fill: currentcolor` does.
-        style.fill = parent.fill;
-        style.stroke = parent.stroke;
-        style.fill_opacity = parent.fill_opacity;
-        style.stroke_opacity = parent.stroke_opacity;
-        style.stroke_width = parent.stroke_width;
-        style.fill_rule = parent.fill_rule;
-        style.stroke_linecap = parent.stroke_linecap;
-        style.stroke_linejoin = parent.stroke_linejoin;
-        style.stroke_miterlimit = parent.stroke_miterlimit;
-        style.stroke_dasharray = parent.stroke_dasharray;
-        style.stroke_dashoffset = parent.stroke_dashoffset;
+        InheritedFields::copy(style, parent);
         return style;
     }
 
@@ -3742,7 +3871,55 @@ struct Resolver {
     ComputedStyle compute_for(dom::Element const& element, ComputedStyle const& parent)
     {
         matching_rules(element);
-        return cascade(0, element, parent, true);
+        ComputedStyle style = cascade(0, element, parent, true);
+        style.selector_features = selector_features(element);
+        return style;
+    }
+
+    // The words of a class attribute, as the tokenizer splits them.
+    template<typename Use>
+    static void for_each_class(std::string_view value, Use const& use)
+    {
+        std::size_t start = 0;
+        while (start < value.size()) {
+            while (start < value.size() && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
+                ++start;
+            std::size_t end = start;
+            while (end < value.size() && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
+                ++end;
+            if (end > start)
+                use(value.substr(start, end - start));
+            start = end;
+        }
+    }
+
+    // The element's features the set's selectors test on other elements,
+    // as written (an attribute with its value), sorted: two lists of one
+    // element differ exactly when a change could have reached further.
+    std::shared_ptr<std::vector<std::string> const> selector_features(dom::Element const& element) const
+    {
+        if (set.reach.empty())
+            return nullptr;
+        std::vector<std::string> found;
+        for (dom::Attr const& attribute : element.attributes()) {
+            std::string const name = attribute.qualified_name();
+            std::string const lower = RuleSet::lowercased(name);
+            if (lower == "class") {
+                for_each_class(attribute.value, [&](std::string_view word) {
+                    if (set.reach.contains("." + RuleSet::lowercased(word)))
+                        found.push_back("." + std::string(word));
+                });
+            } else if (lower == "id" && set.reach.contains("#" + RuleSet::lowercased(attribute.value))) {
+                found.push_back("#" + attribute.value);
+            }
+            if (set.reach.contains("[" + lower))
+                found.push_back("[" + name + "=" + attribute.value);
+        }
+        if (found.empty())
+            return nullptr;
+        std::sort(found.begin(), found.end());
+        found.erase(std::unique(found.begin(), found.end()), found.end());
+        return std::make_shared<std::vector<std::string> const>(std::move(found));
     }
 
     // The cascade over the rules matched for one target — the element's
@@ -6696,14 +6873,64 @@ struct Updater {
     std::string_view bail;
     bool root_or_body_computed = false;
 
-    // What a parent's recomputation asks of a child: nothing; the child
-    // itself (its inherited values or what it inherits explicitly may
-    // have changed); or the child and everything in it.
+    // What is asked of an element: nothing; itself (its inherited values,
+    // what it inherits explicitly or what an ancestor's change reaches may
+    // have changed); itself as its own attributes changed, which reaches as
+    // far as the features the selectors test elsewhere say; or itself and
+    // everything in it.
     enum class Redo : std::uint8_t {
         None,
         Self,
+        Own,
         Subtree,
     };
+
+    // The reaches of the ancestors' changes still being walked under.
+    using Reaching = std::vector<RuleSet::Reach const*>;
+
+    // Whether an element is among what the reaches name.
+    static bool reached(dom::Element const& element, Reaching const& reaching)
+    {
+        if (reaching.empty())
+            return false;
+        for (RuleSet::Reach const* reach : reaching) {
+            if (reach->any)
+                return true;
+        }
+        auto const named = [&](std::string const& key) {
+            for (RuleSet::Reach const* reach : reaching) {
+                if (reach->subjects.contains(key))
+                    return true;
+            }
+            return false;
+        };
+        if (named(RuleSet::lowercased(element.local_name())))
+            return true;
+        bool found = false;
+        for (dom::Attr const& attribute : element.attributes()) {
+            std::string const lower = RuleSet::lowercased(attribute.qualified_name());
+            if (named("[" + lower))
+                return true;
+            if (lower == "id" && named("#" + RuleSet::lowercased(attribute.value)))
+                return true;
+            if (lower == "class") {
+                Resolver::for_each_class(attribute.value, [&](std::string_view word) {
+                    found = found || named("." + RuleSet::lowercased(word));
+                });
+                if (found)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // The key a written feature is filed under in the set's reaches.
+    static std::string reach_key(std::string const& feature)
+    {
+        if (feature.starts_with("["))
+            return RuleSet::lowercased(feature.substr(0, feature.find('=')));
+        return RuleSet::lowercased(feature);
+    }
 
     bool changed(std::uint32_t stamp) const { return stamp >= since; }
 
@@ -6754,7 +6981,7 @@ struct Updater {
 
     static bool inherited_differ(ComputedStyle const& before, ComputedStyle const& after)
     {
-        return first_style_difference(Resolver::inherited_from(before), Resolver::inherited_from(after)).has_value();
+        return !Resolver::InheritedFields::same(before, after);
     }
 
     void run(dom::Document const& document)
@@ -6787,7 +7014,7 @@ struct Updater {
             resolver.root_font_size = kept_style(*root).font_size;
         ComputedStyle initial;
         initial.font_size = resolver.initial_font_size;
-        update_children(document, initial, Redo::None, false);
+        update_children(document, initial, Redo::None, false, {});
         if (!bail.empty() || !root_or_body_computed)
             return;
         // The root or body computed again: both go back to what the cascade
@@ -6799,7 +7026,8 @@ struct Updater {
         settle_root_and_body(resolver.map, RootAndBody { record.root, record.body });
     }
 
-    void update_children(dom::Node const& parent, ComputedStyle const& parent_style, Redo from_parent, bool parent_recomputed)
+    void update_children(dom::Node const& parent, ComputedStyle const& parent_style, Redo from_parent, bool parent_recomputed,
+        Reaching const& reaching)
     {
         // Every child, when a child came or went or its text changed and the
         // selectors count places or look at siblings, or when a sibling's own
@@ -6826,30 +7054,44 @@ struct Updater {
             auto const& element = static_cast<dom::Element const&>(*child);
             dom::Node::StyleMarks const& marks = element.style_marks();
             auto const kept = resolver.map.find(&element);
-            bool const own = kept == resolver.map.end() || changed(marks.self) || changed(marks.subtree)
-                || forced.contains(&element) || (uses.empty && changed(marks.children));
-            Redo redo = all || after_change || own ? Redo::Subtree : Redo::None;
-            if (own && uses.sibling_combinators)
-                after_change = true;
-            if (redo == Redo::None
-                && (from_parent == Redo::Self || (parent_recomputed && kept->second.inherits_explicitly)))
+            // New, or holding text an :empty rule reads: everything in it,
+            // and the siblings after it.
+            bool const arrived = kept == resolver.map.end() || changed(marks.subtree)
+                || (uses.empty && changed(marks.children));
+            Redo redo = Redo::None;
+            if (all || after_change || arrived)
+                redo = Redo::Subtree;
+            else if (changed(marks.self) || forced.contains(&element))
+                redo = Redo::Own;
+            else if (from_parent == Redo::Self || (parent_recomputed && kept->second.inherits_explicitly)
+                || reached(element, reaching))
                 redo = Redo::Self;
+            if (arrived && uses.sibling_combinators)
+                after_change = true;
             if (redo != Redo::None) {
-                recompute(element, parent_style, redo, kept == resolver.map.end() ? nullptr : &kept_style(element));
+                bool const reaches_siblings
+                    = recompute(element, parent_style, redo, kept == resolver.map.end() ? nullptr : &kept_style(element), reaching);
+                if (reaches_siblings && uses.sibling_combinators)
+                    after_change = true;
                 continue;
             }
-            if (!changed(marks.descendants) && !changed(marks.children))
-                continue; // nothing in it changed: its styles stand as they are
+            // Nothing in it changed, and nothing above reaches into it: its
+            // styles stand as they are.
+            if (!changed(marks.descendants) && !changed(marks.children) && reaching.empty())
+                continue;
             std::vector<std::uint32_t> const offered = Resolver::identifier_hashes(element);
             for (std::uint32_t const hash : offered)
                 resolver.ancestors.push(hash);
-            update_children(element, kept_style(element), Redo::None, false);
+            update_children(element, kept_style(element), Redo::None, false, reaching);
             for (std::uint32_t const hash : offered)
                 resolver.ancestors.pop(hash);
         }
     }
 
-    void recompute(dom::Element const& element, ComputedStyle const& parent_style, Redo redo, ComputedStyle const* old)
+    // Computes an element again and walks on into it; says whether the
+    // change reaches the siblings after it.
+    bool recompute(dom::Element const& element, ComputedStyle const& parent_style, Redo redo, ComputedStyle const* old,
+        Reaching const& reaching)
     {
         bool const is_root = element.parent() && !element.parent()->is_element();
         if (is_root)
@@ -6859,7 +7101,7 @@ struct Updater {
         if (is_root) {
             if (old && old->font_size != style.font_size) {
                 bail = "the root's font size changed, which every rem length reads";
-                return;
+                return false;
             }
             resolver.root_font_size = style.font_size;
         }
@@ -6870,16 +7112,16 @@ struct Updater {
         if (!old) {
             if (numbers_itself(style)) {
                 bail = "a new element takes part in the counters";
-                return;
+                return false;
             }
         } else {
             if (!same_counter_work(*old, style)) {
                 bail = "an element's part in the counters changed";
-                return;
+                return false;
             }
             if ((old->display == Display::None) != (style.display == Display::None) && subtree_numbers_itself(element)) {
                 bail = "display: none came or went over counter work";
-                return;
+                return false;
             }
             style.list_item_value = old->list_item_value;
         }
@@ -6888,9 +7130,43 @@ struct Updater {
         if (generated && generated->after)
             generated->after->text = resolver.content_text(element, generated->after->style);
 
+        // Custom properties settled again to the same values keep the object
+        // they had, so that what inherits it sees the same one.
+        if (old && old->custom && style.custom && old->custom != style.custom
+            && same_custom_properties(*old->custom, *style.custom))
+            style.custom = old->custom;
         Redo children = redo == Redo::Subtree ? Redo::Subtree : Redo::None;
         if (children == Redo::None && (!old || inherited_differ(*old, style)))
             children = Redo::Self;
+        // An element's own change reaches, below it, the subjects of the
+        // selectors that test the features it gained or lost, and the
+        // siblings after it when one tests them on an earlier sibling. A
+        // table's cells read its cellpadding and border as hints.
+        bool reaches_siblings = false;
+        Reaching below = reaching;
+        if (redo == Redo::Own && children != Redo::Subtree) {
+            if (!old || element.is_html("table")) {
+                children = Redo::Subtree;
+                reaches_siblings = true;
+            } else {
+                static std::vector<std::string> const none;
+                std::vector<std::string> const& before = old->selector_features ? *old->selector_features : none;
+                std::vector<std::string> const& after = style.selector_features ? *style.selector_features : none;
+                std::vector<std::string> changed_features;
+                std::set_symmetric_difference(before.begin(), before.end(), after.begin(), after.end(),
+                    std::back_inserter(changed_features));
+                for (std::string const& feature : changed_features) {
+                    std::string const key = reach_key(feature);
+                    auto const found = resolver.set.reach.find(key);
+                    if (found == resolver.set.reach.end())
+                        continue;
+                    if (found->second.any)
+                        children = Redo::Subtree;
+                    below.push_back(&found->second);
+                    reaches_siblings = reaches_siblings || resolver.set.reach_siblings.contains(key);
+                }
+            }
+        }
         if (&element == record.root) {
             record.root_cascaded = style;
             root_or_body_computed = true;
@@ -6904,9 +7180,10 @@ struct Updater {
         std::vector<std::uint32_t> const offered = Resolver::identifier_hashes(element);
         for (std::uint32_t const hash : offered)
             resolver.ancestors.push(hash);
-        update_children(element, for_children, children, true);
+        update_children(element, for_children, children, true, below);
         for (std::uint32_t const hash : offered)
             resolver.ancestors.pop(hash);
+        return reaches_siblings;
     }
 };
 

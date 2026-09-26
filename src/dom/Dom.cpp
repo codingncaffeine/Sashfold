@@ -65,17 +65,22 @@ void Node::mark_style_data()
 
 std::uint32_t Document::advance_style_clock() const
 {
-    // The removals are kept for resolvers that look now and then; past this
-    // many they are let go of, and a resolver that has not looked since
-    // starts over.
+    return ++m_style_clock;
+}
+
+void Document::note_style_removal(Element const& element)
+{
+    // The removals are kept for resolvers that look now and then, and for
+    // none at all while no one looks (a page nobody draws); past this many
+    // they are let go of, and a resolver that has not looked since then
+    // computes everything.
     constexpr std::size_t kept_removals = std::size_t(1) << 18;
-    ++m_style_clock;
-    if (m_style_removals.size() > kept_removals) {
+    if (m_style_removals.size() >= kept_removals) {
         m_style_removals.clear();
         m_style_removals.shrink_to_fit();
-        m_style_removals_from = m_style_clock;
+        m_style_removals_from = m_style_clock + 1;
     }
-    return m_style_clock;
+    m_style_removals.push_back({ m_style_clock, &element });
 }
 
 void Node::insert_before(Node& child, Node* reference)
@@ -173,13 +178,12 @@ void Node::remove()
     // removal from it has styles to let go of: every element that goes is
     // written down, and the parent is marked for the siblings it leaves.
     if (is_connected()) {
-        std::uint32_t const clock = m_document->style_clock();
         std::vector<Node const*> pending { this };
         while (!pending.empty()) {
             Node const* current = pending.back();
             pending.pop_back();
             if (current->is_element())
-                m_document->m_style_removals.push_back({ clock, static_cast<Element const*>(current) });
+                m_document->note_style_removal(static_cast<Element const&>(*current));
             for (Node const* child : current->m_children)
                 pending.push_back(child);
         }

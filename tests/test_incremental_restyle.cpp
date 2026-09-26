@@ -63,6 +63,23 @@ a:hover { color: rgb(255, 0, 255) }
 li.pick { color: rgb(0, 128, 0) }
 )";
 
+// The features tested elsewhere hidden in arguments, attributes tested on
+// ancestors and siblings, counts of siblings `of S`, and the last child.
+constexpr std::string_view argument_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+:not(.on) > .leaf { color: rgb(0, 90, 0) }
+:is(.themed, #hero) .row > .tail { font-weight: bold }
+.group:where(.on) .leaf { font-size: 19px }
+[data-k="1"] ~ .row { padding-left: 5px }
+[data-k] .leaf:last-child { margin-right: 2px }
+.row:nth-child(2 of .on) { margin-top: 4px }
+.leaf:not(.row .pick) { letter-spacing: 1px }
+a:any-link .leaf { color: rgb(1, 1, 200) }
+.frame > * { border: inherit }
+li.pick { color: rgb(0, 128, 0) }
+.row:last-child .tail { padding-bottom: 3px }
+)";
+
 constexpr std::string_view extra_sheet = R"(
 .leaf { background-color: rgb(3, 3, 3) }
 .group { padding-top: 7px }
@@ -253,12 +270,12 @@ Step update_and_check(dom::Document const& document, css::StyleSet const& set, K
     return step;
 }
 
-void random_mutations()
+void random_mutations(std::string_view sheet, std::uint64_t seed)
 {
     Page page = make_page(3000);
     std::size_t const size = count_elements(*page.document);
     CHECK(size >= 3000);
-    auto set = std::make_unique<css::StyleSet>(std::vector<css::SheetSource> { { std::string(page_sheet), std::nullopt } });
+    auto set = std::make_unique<css::StyleSet>(std::vector<css::SheetSource> { { std::string(sheet), std::nullopt } });
     Kept shell;
     Kept script;
     Step first = update_and_check(*page.document, *set, shell);
@@ -266,10 +283,11 @@ void random_mutations()
     CHECK_EQ(first.outcome.computed, size);
     CHECK_EQ(first.difference.value_or(""), std::string());
 
-    Sequence random { 0x1234abcdu };
+    Sequence random { seed };
     std::size_t differences = 0;
     std::size_t computed_total = 0;
     std::size_t whole_updates = 0;
+    std::string whole_reasons;
     std::string first_difference;
     int const steps = 300;
     for (int step = 0; step < steps; ++step) {
@@ -353,12 +371,14 @@ void random_mutations()
         if (step == 150) {
             // A sheet arrives: the set is built again, and everything with it.
             set = std::make_unique<css::StyleSet>(std::vector<css::SheetSource> {
-                { std::string(page_sheet), std::nullopt }, { std::string(extra_sheet), std::nullopt } });
+                { std::string(sheet), std::nullopt }, { std::string(extra_sheet), std::nullopt } });
             sheet_step = true;
         }
         Step const result = update_and_check(*page.document, *set, shell);
         computed_total += result.outcome.computed;
         whole_updates += result.outcome.whole ? 1 : 0;
+        if (result.outcome.whole)
+            whole_reasons += std::string(whole_reasons.empty() ? "" : "; ") + std::string(result.outcome.reason);
         if (result.difference) {
             ++differences;
             if (first_difference.empty())
@@ -383,7 +403,7 @@ void random_mutations()
     CHECK_EQ(differences, std::size_t(0));
     std::size_t const final_size = count_elements(*page.document);
     std::cout << "  " << steps << " mutations over " << final_size << " elements: " << computed_total
-              << " computed in all, " << whole_updates << " whole\n";
+              << " computed in all, " << whole_updates << " whole (" << whole_reasons << ")\n";
     // Most of the changes are local: far less than a whole restyle each.
     CHECK(computed_total < static_cast<std::size_t>(steps) * final_size / 4);
 }
@@ -448,13 +468,43 @@ void bounds()
     CHECK(!unread.outcome.whole);
     CHECK_EQ(unread.outcome.computed, std::size_t(0));
     CHECK_EQ(unread.difference.value_or(""), std::string());
+    // The first holder has not seen that text change yet, and does now.
+    Step const caught_up = update_and_check(*page.document, set, kept);
+    CHECK(caught_up.outcome.computed >= 1);
+    CHECK_EQ(caught_up.difference.value_or(""), std::string());
 
-    // The root's class: the root and everything in it.
-    toggle_class(static_cast<dom::Element&>(*page.body->parent()), "wide");
+    // The root's class reaches what the selectors testing it name, and no
+    // further: `html.wide body` names the body, which changes nothing it
+    // hands down.
+    dom::Element& html = static_cast<dom::Element&>(*page.body->parent());
+    toggle_class(html, "wide");
     Step const root = update_and_check(*page.document, set, kept);
     CHECK(!root.outcome.whole);
-    CHECK_EQ(root.outcome.computed, size);
+    CHECK_EQ(root.outcome.computed, std::size_t(2));
     CHECK_EQ(root.difference.value_or(""), std::string());
+
+    // `.on .leaf` names every leaf: the root and each leaf.
+    std::size_t leaves = 0;
+    for (dom::Element const* element : page.elements) {
+        dom::Attr const* classes = element->find_attribute("class");
+        leaves += element->is_connected() && classes && (" " + classes->value + " ").find(" leaf ") != std::string::npos ? 1 : 0;
+    }
+    toggle_class(html, "on");
+    Step const named = update_and_check(*page.document, set, kept);
+    CHECK(!named.outcome.whole);
+    CHECK_EQ(named.outcome.computed, 1 + leaves);
+    CHECK_EQ(named.difference.value_or(""), std::string());
+
+    // A class the rules test on ancestors of any element at all: the root
+    // and everything in it.
+    css::StyleSet wide(std::vector<css::SheetSource> { { ".all * { color: red }", std::nullopt } });
+    Kept wide_kept;
+    update_and_check(*page.document, wide, wide_kept);
+    toggle_class(html, "all");
+    Step const everything = update_and_check(*page.document, wide, wide_kept);
+    CHECK(!everything.outcome.whole);
+    CHECK_EQ(everything.outcome.computed, size);
+    CHECK_EQ(everything.difference.value_or(""), std::string());
 
     // A new viewport is another state of the set: everything.
     set.set_viewport(640, 480);
@@ -565,6 +615,7 @@ int main()
     text::FontManager::instance().set_system_fonts(false);
     bounds();
     reaches();
-    random_mutations();
+    random_mutations(page_sheet, 0x1234abcdu);
+    random_mutations(argument_sheet, 0x9e3779b9u);
     return test::report("test_incremental_restyle");
 }

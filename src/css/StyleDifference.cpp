@@ -252,6 +252,8 @@ bool same(std::shared_ptr<T const> const& a, std::shared_ptr<T const> const& b)
 
 }
 
+bool same_custom_properties(CustomProperties const& a, CustomProperties const& b) { return same(a, b); }
+
 std::optional<std::string_view> first_style_difference(ComputedStyle const& a, ComputedStyle const& b)
 {
     std::optional<std::string_view> found;
@@ -394,6 +396,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("first_letter", a.first_letter, b.first_letter);
     field("custom", a.custom, b.custom);
     field("inherits_explicitly", a.inherits_explicitly, b.inherits_explicitly);
+    field("selector_features", a.selector_features, b.selector_features);
     field("fill", a.fill, b.fill);
     field("stroke", a.stroke, b.stroke);
     field("fill_opacity", a.fill_opacity, b.fill_opacity);

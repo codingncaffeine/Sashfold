@@ -1170,6 +1170,11 @@ struct ComputedStyle {
     // its parent than inheritance carries, so a restyle that recomputes the
     // parent recomputes it too.
     bool inherits_explicitly = false;
+    // The element's classes, id and attributes, as written, that the rules
+    // test on an element other than the one they style (an ancestor, an
+    // earlier sibling); null when it has none. A restyle compares them before
+    // and after an element's own change to learn which others it reaches.
+    std::shared_ptr<std::vector<std::string> const> selector_features;
 
     // SVG's painting properties (SVG 2 §13), all inherited but the two
     // gradient-stop ones. They apply to the shapes inside an <svg> and
