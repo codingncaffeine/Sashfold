@@ -13,6 +13,7 @@
 // heap in stress mode, where a missing root is a failure the first time.
 
 #include "js/Ast.h"
+#include "js/ChunkedStack.h"
 #include "js/Heap.h"
 #include "js/Object.h"
 #include "js/Value.h"
@@ -530,11 +531,7 @@ public:
     // Keeps `value` alive until the enclosing Roots closes. Returns a
     // reference into the root stack, stable until that scope closes, so
     // a native can update it in place.
-    Value& root(Value value)
-    {
-        m_roots.push_back(value);
-        return m_roots.back();
-    }
+    Value& root(Value value) { return m_roots.push_back(value); }
     void trace_roots(Tracer&) override;
 
     // The job queue (§9.5). Promise reactions and queueMicrotask callbacks
@@ -695,9 +692,12 @@ private:
     // Every realm made here and not let go, traced.
     std::vector<RealmRecord*> m_realms;
     Object* m_symbol_registry = nullptr;
-    // A deque, so that the reference root() hands out survives every later
-    // push: a vector would move its elements when it grows.
-    std::deque<Value> m_roots;
+    // Blocks that never move, so that the reference root() hands out
+    // survives every later push, and that stay once made: a deque gave a
+    // block back the moment a call's roots left it and asked for it again
+    // on the next call, two allocations a call for a stack that sits at a
+    // block's edge.
+    ChunkedStack<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
     // An eval Program against the program it takes its script or module
     // from: the program of the context the direct eval ran in, already

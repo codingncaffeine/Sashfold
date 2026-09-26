@@ -91,9 +91,9 @@ struct Interpreter::Impl {
     }
 
     Interpreter& self;
-    // A deque: the evaluator keeps references to running contexts while
-    // nested calls push more, and a vector would move them.
-    std::deque<Context> contexts;
+    // Blocks that never move: the evaluator keeps references to running
+    // contexts while nested calls push more, and a vector would move them.
+    ChunkedStack<Context, 64> contexts;
 
     Heap& heap() { return self.heap(); }
     WellKnownAtoms const& atoms() { return self.atoms(); }

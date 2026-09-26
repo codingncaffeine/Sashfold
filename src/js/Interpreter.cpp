@@ -190,9 +190,10 @@ bool Interpreter::Impl::step()
 {
     ++self.m_steps;
     // What the cells have grown to with nothing allocated — a loop pushing
-    // numbers onto one array — is looked at every so many steps.
+    // numbers onto one array — is held against the ceiling every so many
+    // steps.
     if ((self.m_steps & 0xFFFF) == 0)
-        self.m_heap->poll_growth(self.m_steps);
+        self.m_heap->poll_growth();
     // A heap over its ceiling: the script ends here, as a runaway one does,
     // and so does every script after it at its first step.
     if (self.m_heap->over_limit()) {
@@ -2088,12 +2089,12 @@ JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
 // ---- tracing
 void Interpreter::Impl::trace(Tracer& tracer)
 {
-    for (Context const& context : contexts) {
+    contexts.for_each([&tracer](Context const& context) {
         tracer.visit(context.lexical);
         tracer.visit(context.variable);
         tracer.visit(context.function);
         tracer.visit(context.private_environment);
-    }
+    });
     for (Frame* frame : vm_frames)
         tracer.visit(frame);
     for (Frame* frame : frame_pool)
@@ -2287,8 +2288,7 @@ Interpreter::~Interpreter()
 
 void Interpreter::trace_roots(Tracer& tracer)
 {
-    for (Value const& value : m_roots)
-        tracer.visit(value);
+    m_roots.for_each([&tracer](Value const& value) { tracer.visit(value); });
     tracer.visit(m_exception);
     tracer.visit(m_realm);
     for (RealmRecord* realm : m_realms)
