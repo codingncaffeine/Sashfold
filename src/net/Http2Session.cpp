@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <span>
+#include <string_view>
 #include <utility>
 
 namespace sashfold::net {
@@ -83,12 +84,22 @@ bool says_http2_is_broken(h2::ErrorCode code)
     return false;
 }
 
+// RFC 9110 Section 9.2.2. A connection lost after a request went out may
+// have lost it before or after the server acted on it; only these methods
+// may be sent again without knowing which.
+bool idempotent(std::string_view method)
+{
+    return method == "GET" || method == "HEAD" || method == "OPTIONS" || method == "TRACE" || method == "PUT"
+        || method == "DELETE";
+}
+
 }
 
 struct Http2Session::Stream {
     std::uint32_t id = 0;
     std::size_t max_body = 0;
     bool head = false;
+    bool replayable = false; // the method is idempotent
     bool ended = false;
     Outcome outcome = Outcome::Done;
     std::string error;
@@ -167,7 +178,8 @@ void Http2Session::close()
             m_dead_reason = "the HTTP/2 session was closed";
             while (!m_streams.empty()) {
                 Stream& stream = *m_streams.begin()->second;
-                end_stream(stream, stream.headers_done ? Outcome::Failed : Outcome::Retry, m_dead_reason);
+                end_stream(stream, stream.headers_done || !stream.replayable ? Outcome::Failed : Outcome::Retry,
+                    m_dead_reason);
             }
         }
     }
@@ -267,9 +279,9 @@ void Http2Session::lost(std::string const& reason)
     m_dead_reason = reason;
     while (!m_streams.empty()) {
         Stream& stream = *m_streams.begin()->second;
-        Outcome const outcome = m_protocol_failure ? Outcome::ProtocolFailure
-            : stream.headers_done                  ? Outcome::Failed
-                                                   : Outcome::Retry;
+        Outcome const outcome = m_protocol_failure       ? Outcome::ProtocolFailure
+            : stream.headers_done || !stream.replayable ? Outcome::Failed
+                                                        : Outcome::Retry;
         end_stream(stream, outcome, reason);
     }
 }
@@ -721,6 +733,7 @@ Http2Session::Result Http2Session::exchange(Request const& request, std::size_t 
     auto stream = std::make_shared<Stream>();
     stream->max_body = max_body;
     stream->head = head;
+    stream->replayable = idempotent(request.method);
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_changed.wait(lock, [&] { return m_dead || m_going_away || m_peer_max_streams == 0 || m_open < m_peer_max_streams; });

@@ -85,9 +85,10 @@ public:
 
     enum class Outcome {
         Done,
-        // The server never processed the request (it went away below this
-        // stream, refused it, or the connection was lost before any answer):
-        // it may go out again on another connection.
+        // The request may go out again on another connection: the server
+        // never processed it (it went away below this stream or refused
+        // it), or the connection was lost before any answer to a request
+        // whose method is idempotent, so running it twice does no harm.
         Retry,
         // The server does not speak HTTP/2 properly (no SETTINGS where its
         // preface belongs, a protocol error, HTTP_1_1_REQUIRED): the request

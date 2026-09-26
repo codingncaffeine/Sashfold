@@ -652,6 +652,7 @@ public:
         bool garbage = false; // the preface answered with an HTTP/1.1 error
         std::size_t goaway_after = 0; // on the first connection, GOAWAY once this many are open
         std::string stalled_path; // this path is never answered
+        std::string hangup_path; // on the first connection, this path is met by hanging up
         bool open_windows = false; // grants the client the largest windows the protocol allows
         bool shut_windows = false; // gives every stream a send window of 0 and never opens it
     };
@@ -919,6 +920,10 @@ private:
                     std::string const path = seen.path;
                     std::lock_guard<std::mutex> const lock(m_mutex);
                     m_report.requests.push_back(std::move(seen));
+                    if (index == 0 && !m_options.hangup_path.empty() && path == m_options.hangup_path) {
+                        socket.shutdown();
+                        return;
+                    }
                     if (m_options.max_concurrent != 0 && streams.size() >= m_options.max_concurrent) {
                         ++m_report.refused;
                         h2::write_rst_stream(out, block_stream, h2::ErrorCode::RefusedStream);
@@ -1628,6 +1633,53 @@ void test_post_to_a_busy_server()
         in_time ? "" : " (deadlocked)");
 }
 
+void test_lost_before_an_answer()
+{
+    // A connection lost after a request went out and before any answer:
+    // the server may or may not have acted on it. A GET goes again on a
+    // new connection; a POST does not, since running it twice is not
+    // harmless. Each case fetches once first, so the server's SETTINGS
+    // are in hand and the loss is not taken for a server without HTTP/2.
+    H2Server::Options server_options;
+    server_options.hangup_path = "/hangup";
+    for (std::string const method : { "GET", "POST" }) {
+        H2Server server(server_options);
+        net::FetchResult first;
+        net::FetchResult result;
+        net::ConnectionPool::Stats stats;
+        {
+            net::ConnectionPool pool;
+            net::FetchOptions options = h2_options(pool);
+            first = net::fetch(server.url("/first"), options);
+            options.method = method;
+            if (method == "POST")
+                options.body.assign(100, 'p');
+            result = net::fetch(server.url("/hangup"), options);
+            stats = pool.stats();
+        }
+        server.finish();
+        H2Server::Report const report = server.report();
+        CHECK(first.response.has_value());
+        if (method == "GET") {
+            CHECK(result.response && text_of(result.response->body) == "body of /hangup");
+            std::string const* const connection = result.response ? net::find_header(result.response->headers, "x-connection") : nullptr;
+            CHECK(connection && *connection == "1");
+            CHECK_EQ(report.h2_connections, 2);
+            CHECK_EQ(report.requests.size(), 3u);
+            CHECK_EQ(stats.retried, 1u);
+        } else {
+            CHECK(!result.response && !result.error.empty());
+            CHECK_EQ(report.h2_connections, 1);
+            CHECK_EQ(report.h1_connections, 0);
+            CHECK_EQ(report.requests.size(), 2u);
+            CHECK_EQ(stats.retried, 0u);
+        }
+        std::printf("  lost before an answer: %s %s over %d connection(s)%s%s\n", method.c_str(),
+            result.response ? "answered" : "failed", report.h2_connections, result.response ? "" : ": ",
+            result.error.c_str());
+    }
+}
+
 // ---- through TLS, against node's HTTP/2 server
 
 #ifndef _WIN32
@@ -1837,6 +1889,7 @@ int main(int argc, char** argv)
     test_stalled_stream();
     test_shut_send_window();
     test_post_to_a_busy_server();
+    test_lost_before_an_answer();
 #ifndef _WIN32
     std::string const openssl = argc > 1 ? argv[1] : "";
     std::string const node = argc > 2 ? argv[2] : "";
