@@ -377,15 +377,18 @@ int main()
         CHECK_EQ(server.asked("/late.ttf"), std::size_t { 1 });
     }
 
-    // A page that states its policy in a <meta> still has its scripts asked
-    // for ahead: the two slow ones come together rather than one after the
-    // other as the parser meets them, each fetched the once, and the one
-    // the policy forbids is never asked for at all.
+    // A page that states its policy in a <meta>, and a policy that admits a
+    // script by its nonce alone, still have their scripts asked for ahead:
+    // the two slow ones come together rather than one after the other as
+    // the parser meets them, each fetched the once, and the one the policy
+    // forbids — no nonce, and 'strict-dynamic' sets the hosts aside — is
+    // never asked for at all.
     {
         std::map<std::string, Served> scripted = site();
         scripted["/scripted"] = { "text/html",
-            "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"script-src http://127.0.0.1:*/a.js http://127.0.0.1:*/b.js\">"
-            "<title>Scripted</title><script src=/a.js></script><script src=/b.js></script><script src=/c.js></script><p>text",
+            "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'nonce-n0nce' 'strict-dynamic' http://127.0.0.1:*\">"
+            "<title>Scripted</title><script src=/a.js nonce=n0nce></script><script src=/b.js nonce=n0nce></script>"
+            "<script src=/c.js></script><p>text",
             0 };
         scripted["/a.js"] = { "text/javascript", "document.title = 'A';", 400 };
         scripted["/b.js"] = { "text/javascript", "document.title = document.title + 'B';", 400 };

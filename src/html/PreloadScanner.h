@@ -21,6 +21,7 @@ struct Preload {
     enum class Kind { Stylesheet, Script };
     Kind kind = Kind::Stylesheet;
     std::string url; // as written, to be resolved against the document's base
+    std::string nonce; // the tag's nonce attribute, for a policy that asks for one; empty for none
 };
 
 struct PreloadScan {

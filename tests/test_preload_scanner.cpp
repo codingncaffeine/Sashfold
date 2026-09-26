@@ -84,12 +84,15 @@ int main()
     {
         PreloadScan const scan = html::scan_for_preloads(R"html(<base target="_blank"><base href=" https://cdn.example/assets/ "><base href="/other/">
 <meta http-equiv="Content-Security-Policy" content="script-src 'self'">
-<link rel="stylesheet" href="site.css">)html");
+<link rel="stylesheet" href="site.css">
+<script src="app.js" nonce="r4nd0m"></script><script src="plain.js"></script>)html");
         CHECK_EQ(scan.base_href, std::string("https://cdn.example/assets/"));
         CHECK(scan.meta_policy);
         CHECK_EQ(scan.meta_policies.size(), std::size_t { 1 });
         CHECK(!scan.meta_policies.empty() && scan.meta_policies[0] == "script-src 'self'");
-        CHECK_EQ(said(scan), std::string("S:site.css"));
+        CHECK_EQ(said(scan), std::string("S:site.css J:app.js J:plain.js"));
+        CHECK(scan.resources.size() == 3 && scan.resources[1].nonce == "r4nd0m" && scan.resources[2].nonce.empty()
+            && scan.resources[0].nonce.empty());
         CHECK(!html::scan_for_preloads("<meta http-equiv=refresh content=5><meta charset=utf-8>").meta_policy);
         CHECK(html::scan_for_preloads("<meta http-equiv=refresh content=5><meta charset=utf-8>").meta_policies.empty());
     }

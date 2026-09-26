@@ -2386,14 +2386,14 @@ struct Browser::Impl {
     // its headers state while it is still on its way. The ticket, for
     // whoever wants to know when it has come; null when nothing was asked.
     std::shared_ptr<net::FetchTicket> ask_ahead(Tab& tab, net::Url const& page_url, net::Url url, net::ResourceKind kind,
-        net::ContentSecurityPolicy const* policy)
+        net::ContentSecurityPolicy const* policy, std::string_view nonce = {})
     {
         if (page_url.scheme != "http" && page_url.scheme != "https")
             return nullptr;
         if (policy) {
             if (policy->upgrade_insecure_requests())
                 url = net::upgraded_insecure(url);
-            if (!policy->empty() && !policy->allows_quietly(kind, url))
+            if (!policy->empty() && !policy->allows_quietly(kind, url, nonce))
                 return nullptr;
         }
         return loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container);
@@ -2427,7 +2427,7 @@ struct Browser::Impl {
             if (std::optional<net::Url> const url = net::parse_url(resource.url, &base)) {
                 if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, *url,
                         resource.kind == html::Preload::Kind::Script ? net::ResourceKind::Script : net::ResourceKind::Stylesheet,
-                        policy))
+                        policy, resource.nonce))
                     asked.push_back(std::move(ticket));
             }
         }

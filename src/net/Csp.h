@@ -107,10 +107,11 @@ public:
     // Whether a request for `url` would be let through as the policy stands,
     // asked ahead of time by whoever fetches a page's resources before the
     // page asks for them: nothing is reported and nothing is counted. The
-    // nonce an element may carry is not known then, and neither is who will
-    // insert it, so a policy that leans on either answers no — which only
-    // means "do not fetch it early".
-    bool allows_quietly(ResourceKind kind, Url const& url) const;
+    // element's nonce, when its tag was scanned, lets a nonce policy say
+    // yes; the element is taken to be the parser's, so 'strict-dynamic'
+    // without a matching nonce answers no — which only means "do not
+    // fetch it early".
+    bool allows_quietly(ResourceKind kind, Url const& url, std::string_view nonce = {}) const;
     // An inline script, an event handler attribute, a <style> or a style=""
     // attribute: `source` is its text, hashed against the hash sources.
     std::optional<std::string> inline_refusal(InlineKind kind, std::string_view nonce, std::string_view source);

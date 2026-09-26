@@ -676,7 +676,7 @@ std::optional<std::string> ContentSecurityPolicy::request_refusal(ResourceKind k
     return refusal;
 }
 
-bool ContentSecurityPolicy::allows_quietly(ResourceKind kind, Url const& url) const
+bool ContentSecurityPolicy::allows_quietly(ResourceKind kind, Url const& url, std::string_view nonce) const
 {
     std::string_view const effective = effective_directive_for(kind);
     if (effective.empty())
@@ -686,6 +686,16 @@ bool ContentSecurityPolicy::allows_quietly(ResourceKind kind, Url const& url) co
             continue;
         Directive const* const directive = governing(policy, effective);
         if (!directive)
+            continue;
+        // A nonce the tag carries answers for it, as it will when the
+        // parser meets the tag.
+        bool by_nonce = false;
+        if (!nonce.empty()) {
+            for (Source const& source : directive->sources)
+                if (source.kind == Source::Kind::Nonce && source.nonce == nonce)
+                    by_nonce = true;
+        }
+        if (by_nonce)
             continue;
         if (is_script_directive_name(effective) && directive->has_keyword("strict-dynamic"))
             return false;

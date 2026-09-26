@@ -198,14 +198,16 @@ PreloadScan scan_for_preloads(std::string_view html)
             if (rel && href && !trimmed(*href).empty() && !value_of("disabled")) {
                 std::string const* const media = value_of("media");
                 bool const for_print = media && equals_ci(trimmed(*media), "print");
+                std::string const* const nonce = value_of("nonce");
                 if (has_token(*rel, "stylesheet") && !has_token(*rel, "alternate") && !for_print)
-                    scan.resources.push_back({ Preload::Kind::Stylesheet, trimmed(unescaped(*href)) });
+                    scan.resources.push_back({ Preload::Kind::Stylesheet, trimmed(unescaped(*href)), nonce ? unescaped(*nonce) : std::string() });
             }
         } else if (tag == "script") {
             std::string const* const src = value_of("src");
             std::string const* const type = value_of("type");
+            std::string const* const nonce = value_of("nonce");
             if (src && !trimmed(*src).empty() && !value_of("nomodule") && runs_as_script(type ? *type : std::string_view()))
-                scan.resources.push_back({ Preload::Kind::Script, trimmed(unescaped(*src)) });
+                scan.resources.push_back({ Preload::Kind::Script, trimmed(unescaped(*src)), nonce ? unescaped(*nonce) : std::string() });
             skip_past_end_tag("script");
         } else if (tag == "style" || tag == "noscript" || tag == "template" || tag == "textarea" || tag == "title"
             || tag == "xmp" || tag == "iframe" || tag == "noembed" || tag == "noframes") {
