@@ -264,6 +264,7 @@ void ShellLoader::Census::Kind::add(Kind const& more)
     cached += more.cached;
     failed += more.failed;
     timing.add(more.timing);
+    waited_ms += more.waited_ms;
 }
 
 ShellLoader::Census::Kind& ShellLoader::Census::of(net::ResourceKind kind)
@@ -344,7 +345,13 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
         }
     }
     if (ahead) {
+        auto const waited_from = std::chrono::steady_clock::now();
         net::FetchResult result = ahead->take();
+        {
+            std::lock_guard<std::mutex> const lock(m_mutex);
+            m_census.of(kind).waited_ms
+                += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waited_from).count();
+        }
         if (result.response && guard.refusal && result.response->final_url.serialize() != url.serialize()) {
             if (std::optional<std::string> refused = guard.refusal(result.response->final_url, true))
                 return { std::nullopt, std::move(*refused) };
@@ -446,6 +453,34 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
         if (request.method != "GET" && request.method != "HEAD")
             return { std::nullopt, "a local file takes no " + request.method };
         return load_file(url);
+    }
+    // A script asked for ahead of the parse — a plain GET with the page's
+    // cookies, which is what was asked — is the answer, or is on its way
+    // and waited for; anything else is fetched here, as before.
+    if (kind == net::ResourceKind::Script && request.method == "GET" && request.headers.empty() && request.body.empty()
+        && request.credentials && request.follow_redirects) {
+        std::shared_ptr<net::FetchTicket> ahead;
+        {
+            std::lock_guard<std::mutex> const lock(m_mutex);
+            if (auto const it = m_ahead.find(ahead_key(url, kind, container)); it != m_ahead.end()) {
+                ahead = std::move(it->second.ticket);
+                m_ahead.erase(it);
+            }
+        }
+        if (ahead) {
+            auto const waited_from = std::chrono::steady_clock::now();
+            net::FetchResult result = ahead->take();
+            {
+                std::lock_guard<std::mutex> const lock(m_mutex);
+                m_census.of(kind).waited_ms
+                    += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waited_from).count();
+            }
+            if (result.response && guard.refusal && result.response->final_url.serialize() != url.serialize()) {
+                if (std::optional<std::string> refused = guard.refusal(result.response->final_url, true))
+                    return { std::nullopt, std::move(*refused) };
+            }
+            return result;
+        }
     }
     net::FetchOptions options;
     options.cookie_jar = request.credentials ? &cookies(container) : nullptr;

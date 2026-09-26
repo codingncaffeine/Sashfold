@@ -87,8 +87,11 @@ int main()
 <link rel="stylesheet" href="site.css">)html");
         CHECK_EQ(scan.base_href, std::string("https://cdn.example/assets/"));
         CHECK(scan.meta_policy);
+        CHECK_EQ(scan.meta_policies.size(), std::size_t { 1 });
+        CHECK(!scan.meta_policies.empty() && scan.meta_policies[0] == "script-src 'self'");
         CHECK_EQ(said(scan), std::string("S:site.css"));
         CHECK(!html::scan_for_preloads("<meta http-equiv=refresh content=5><meta charset=utf-8>").meta_policy);
+        CHECK(html::scan_for_preloads("<meta http-equiv=refresh content=5><meta charset=utf-8>").meta_policies.empty());
     }
     // Markup that ends in the middle of anything ends the scan, not the program.
     {

@@ -377,5 +377,34 @@ int main()
         CHECK_EQ(server.asked("/late.ttf"), std::size_t { 1 });
     }
 
+    // A page that states its policy in a <meta> still has its scripts asked
+    // for ahead: the two slow ones come together rather than one after the
+    // other as the parser meets them, each fetched the once, and the one
+    // the policy forbids is never asked for at all.
+    {
+        std::map<std::string, Served> scripted = site();
+        scripted["/scripted"] = { "text/html",
+            "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"script-src http://127.0.0.1:*/a.js http://127.0.0.1:*/b.js\">"
+            "<title>Scripted</title><script src=/a.js></script><script src=/b.js></script><script src=/c.js></script><p>text",
+            0 };
+        scripted["/a.js"] = { "text/javascript", "document.title = 'A';", 400 };
+        scripted["/b.js"] = { "text/javascript", "document.title = document.title + 'B';", 400 };
+        scripted["/c.js"] = { "text/javascript", "document.title = 'never';", 0 };
+        SiteServer server(scripted);
+        ui::ShellLoader loader;
+        ui::Browser browser(loader, ui::Theme {}, 800, 600);
+        auto const started = std::chrono::steady_clock::now();
+        browser.open(server.url("/scripted"));
+        load_fully(browser);
+        double const took = ms_since(started);
+        CHECK_EQ(browser.page_title(), std::string("AB"));
+        if (took >= 700)
+            std::cerr << "the page took " << took << " ms for two 400 ms scripts\n";
+        CHECK(took < 700); // together: one wait of 400, not two
+        CHECK_EQ(server.asked("/a.js"), std::size_t { 1 });
+        CHECK_EQ(server.asked("/b.js"), std::size_t { 1 });
+        CHECK_EQ(server.asked("/c.js"), std::size_t { 0 });
+    }
+
     return test::report("navigation");
 }

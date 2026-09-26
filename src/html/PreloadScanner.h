@@ -27,9 +27,12 @@ struct PreloadScan {
     std::vector<Preload> resources;
     // The href of the first <base> that has one: what the URLs are relative to.
     std::string base_href;
-    // The document states a Content Security Policy in a <meta>: what it
-    // names must then wait to be judged by it, where the parse meets it.
+    // The document states a Content Security Policy in a <meta>: each
+    // one's content, as written, so that what the markup names can be
+    // judged by it before the parse meets it — a page that states one is
+    // not a page that must wait at every script.
     bool meta_policy = false;
+    std::vector<std::string> meta_policies;
 };
 
 PreloadScan scan_for_preloads(std::string_view html);

@@ -187,8 +187,11 @@ PreloadScan scan_for_preloads(std::string_view html)
             if (std::string const* const href = value_of("href"); href && scan.base_href.empty())
                 scan.base_href = trimmed(unescaped(*href));
         } else if (tag == "meta") {
-            if (std::string const* const equiv = value_of("http-equiv"); equiv && equals_ci(trimmed(*equiv), "content-security-policy"))
+            if (std::string const* const equiv = value_of("http-equiv"); equiv && equals_ci(trimmed(*equiv), "content-security-policy")) {
                 scan.meta_policy = true;
+                if (std::string const* const content = value_of("content"))
+                    scan.meta_policies.push_back(unescaped(*content));
+            }
         } else if (tag == "link") {
             std::string const* const rel = value_of("rel");
             std::string const* const href = value_of("href");

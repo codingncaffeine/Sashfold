@@ -504,7 +504,8 @@ std::string census_json(ui::ShellLoader::Census const& network)
              << ", \"tls\": " << static_cast<long>(t.tls_ms + 0.5)
              << ", \"first_byte\": " << static_cast<long>(t.first_byte_ms + 0.5)
              << ", \"body\": " << static_cast<long>(t.body_ms + 0.5)
-             << ", \"total\": " << static_cast<long>(t.total_ms + 0.5) << " } }";
+             << ", \"total\": " << static_cast<long>(t.total_ms + 0.5)
+             << ", \"waited\": " << static_cast<long>(kind.waited_ms + 0.5) << " } }";
         return text.str();
     };
     std::ostringstream out;
@@ -2047,6 +2048,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         auto const turn_started = clock::now();
         ui::Profile const turn_profile = browser.profile();
         ui::Browser::EngineAccount const turn_engine = browser.engine_account();
+        double const turn_waited = loader.census().total().waited_ms;
         std::size_t turn_events = 0;
         std::size_t turn_resizes = 0;
         // A window being dragged reports dozens of sizes a second; the last
@@ -2158,7 +2160,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                     std::cerr << " (" << turn_resizes << " sizes, the last " << browser.width() << "x" << browser.height() << ")";
                 std::cerr << " " << wall_ms(events_done - turn_started).count() << " ms"
                           << (loaded ? ", a load " : ", no load ") << wall_ms(load_done - events_done).count() << " ms"
-                          << " (commit " << spent.commit_ms << " ms)"
+                          << " (commit " << spent.commit_ms << " ms, waited " << loader.census().total().waited_ms - turn_waited
+                          << " ms for what was asked ahead)"
                           << ", scripts " << wall_ms(scripts_done - load_done).count() << " ms"
                           << ", engine " << engine.engine_ms << " ms (parse " << engine.parse_ms << " ms, compile "
                           << engine.compile_ms << " ms, gc " << engine.gc_ms << " ms in " << engine.collections

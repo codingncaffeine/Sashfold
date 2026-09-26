@@ -2400,8 +2400,12 @@ struct Browser::Impl {
     }
 
     // The stylesheets and the scripts a document's markup names, asked for
-    // before it is parsed (html::scan_for_preloads). A document that states
-    // a policy in a <meta> is left alone: what it names waits for that.
+    // before it is parsed (html::scan_for_preloads). A policy the document
+    // states in a <meta> is read here as the parser will read it, over the
+    // one its headers gave, so what it forbids is never asked for and what
+    // it allows is on its way before the parser wants it: a page that
+    // states one used to be left alone, and its every script was then
+    // fetched on this thread, one after the other, as the parser met them.
     std::vector<std::shared_ptr<net::FetchTicket>> ask_ahead_for_markup(Tab& tab, net::Url const& page_url,
         std::string_view source, net::ContentSecurityPolicy const* policy)
     {
@@ -2409,8 +2413,13 @@ struct Browser::Impl {
         if (page_url.scheme != "http" && page_url.scheme != "https")
             return asked;
         html::PreloadScan const scan = html::scan_for_preloads(source);
-        if (scan.meta_policy)
-            return asked;
+        std::optional<net::ContentSecurityPolicy> with_meta;
+        if (!scan.meta_policies.empty()) {
+            with_meta.emplace(policy ? *policy : net::ContentSecurityPolicy(page_url));
+            for (std::string const& content : scan.meta_policies)
+                with_meta->add_meta(content);
+            policy = &*with_meta;
+        }
         std::optional<net::Url> const based
             = scan.base_href.empty() ? std::optional<net::Url>(page_url) : net::parse_url(scan.base_href, &page_url);
         net::Url const& base = based ? *based : page_url;

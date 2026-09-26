@@ -72,6 +72,11 @@ public:
             int cached = 0; // of them, answered by the cache with no request
             int failed = 0; // of them, without a response
             net::FetchTiming timing; // summed: the exchanges, the bytes, the milliseconds
+            // The milliseconds a load on the shell's own thread stood
+            // waiting for a fetch asked for ahead to arrive: the parser at a
+            // script whose bytes were still on their way, a sheet's likewise.
+            // The exchange's own time is in `timing`; this is the wait.
+            double waited_ms = 0;
             void add(Kind const& other);
         };
         Kind document; // navigations
