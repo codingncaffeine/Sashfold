@@ -625,8 +625,14 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     // other list declares every name uninitialised first, so that a
     // default reading a later parameter finds its dead zone, and
     // binds them in order once the arguments object exists.
+    // A simple list's names are the parameters themselves; only a list
+    // with patterns needs them gathered. The record is sized once for what
+    // this prologue declares — the parameters, the vars, the functions and
+    // the arguments object — rather than grown a binding at a time.
     std::vector<JsString*> parameter_names;
-    collect_parameter_names(node, parameter_names);
+    if (!node.has_simple_parameter_list)
+        collect_parameter_names(node, parameter_names);
+    variable->reserve(node.parameters.size() + node.declarations.vars.size() + node.declarations.functions.size() + 1);
     // Sloppy code with parameter expressions binds them in a record of
     // their own (step 20), so that a direct eval in a default declares
     // its vars in the callee's record beneath and finds the parameters
@@ -635,6 +641,7 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     Environment* parameter_env = variable;
     if (node.has_parameter_expressions && !node.is_strict) {
         parameter_env = new_environment(variable);
+        parameter_env->reserve(parameter_names.size() + 1);
         cx.lexical = parameter_env;
     }
     if (node.has_simple_parameter_list) {
@@ -655,6 +662,12 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     // parameter expressions (step 18); mapped only for a sloppy simple list.
     if (!node.is_arrow && (node.uses_arguments || node.has_direct_eval)) {
         bool shadowed = contains(parameter_names, atoms().arguments);
+        if (node.has_simple_parameter_list) {
+            for (Parameter const& parameter : node.parameters) {
+                if (parameter.name == atoms().arguments)
+                    shadowed = true;
+            }
+        }
         if (!node.has_parameter_expressions) {
             for (FunctionDeclaration const* declaration : node.declarations.functions) {
                 if (declaration->function->name == atoms().arguments)
@@ -700,8 +713,10 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     // Top-level lexicals live in their own record when there are any,
     // so a direct eval's `var` can tell them apart from the vars.
     Environment* lexical = var_env;
-    if (!node.declarations.lexicals.empty())
+    if (!node.declarations.lexicals.empty()) {
         lexical = new_environment(var_env);
+        lexical->reserve(node.declarations.lexicals.size());
+    }
     cx.lexical = lexical;
     for (FunctionDeclaration const* declaration : node.declarations.functions) {
         ScriptFunction* closure = self.new_script_function(*declaration->function, lexical, cx.private_environment);

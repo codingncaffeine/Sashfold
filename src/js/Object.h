@@ -1122,6 +1122,8 @@ public:
 
     Binding* find(JsString* name);
     Binding const* find(JsString* name) const;
+    // Room for the bindings a prologue is about to declare, taken once.
+    void reserve(std::size_t count) { m_bindings.reserve(count); }
     Binding& declare(JsString* name, Value initial = Value::undefined(), bool mutable_ = true, bool initialized = true, bool deletable = false);
     // CreateImportBinding (§9.1.1.5.5): an immutable, initialised binding
     // whose value is another module's binding, followed at every access.
