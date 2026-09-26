@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -1774,6 +1775,15 @@ bool unboxes(dom::Element const& element)
 
 } // namespace
 
+std::vector<ComponentValue> const* CustomProperties::find(std::string_view name) const
+{
+    auto const it = std::lower_bound(entries.begin(), entries.end(), name,
+        [](Entry const& entry, std::string_view key) { return std::string_view(entry->name) < key; });
+    if (it != entries.end() && (*it)->name == name)
+        return (*it)->valid ? &(*it)->value : nullptr;
+    return base ? base->find(name) : nullptr;
+}
+
 // The compiled side of a StyleSet: rules in cascade order and the index
 // over them, built once per media context.
 // --- Backgrounds ------------------------------------------------------------
@@ -3399,8 +3409,10 @@ struct Resolver {
     // or the fallback after the comma, into `out`. False when a reference
     // has neither (the declaration is then invalid at computed-value
     // time), when the nesting runs too deep, or when the result outgrows
-    // the budget — the guard against a value that doubles itself.
-    static bool substitute_vars(std::vector<ComponentValue> const& in, CustomProperties const* custom,
+    // the budget — the guard against a value that doubles itself. `lookup`
+    // answers a name with the value it stands for, or null for none.
+    template<typename Lookup>
+    static bool substitute_vars(std::span<ComponentValue const> in, Lookup const& lookup,
         std::vector<ComponentValue>& out, int depth, std::size_t& budget)
     {
         if (depth > 32)
@@ -3424,21 +3436,20 @@ struct Resolver {
                     while (i < arguments.size() && arguments[i].is_token(Token::Type::Whitespace))
                         ++i;
                     bool has_fallback = false;
-                    std::vector<ComponentValue> fallback;
+                    std::span<ComponentValue const> fallback;
                     if (i < arguments.size()) {
                         if (!arguments[i].is_token(Token::Type::Comma))
                             return false;
                         has_fallback = true;
-                        fallback.assign(arguments.begin() + static_cast<std::ptrdiff_t>(i) + 1, arguments.end());
+                        fallback = std::span<ComponentValue const>(arguments).subspan(i + 1);
                     }
-                    auto const it = custom ? custom->find(name) : CustomProperties::const_iterator {};
-                    if (custom && it != custom->end()) {
-                        if (it->second.size() > budget)
+                    if (std::vector<ComponentValue> const* found = lookup(name)) {
+                        if (found->size() > budget)
                             return false;
-                        budget -= it->second.size();
-                        out.insert(out.end(), it->second.begin(), it->second.end());
+                        budget -= found->size();
+                        out.insert(out.end(), found->begin(), found->end());
                     } else if (has_fallback) {
-                        if (!substitute_vars(fallback, custom, out, depth + 1, budget))
+                        if (!substitute_vars(fallback, lookup, out, depth + 1, budget))
                             return false;
                     } else {
                         return false;
@@ -3447,13 +3458,13 @@ struct Resolver {
                 }
                 FunctionValue copy;
                 copy.name = function.name;
-                if (!substitute_vars(function.values, custom, copy.values, depth + 1, budget))
+                if (!substitute_vars(function.values, lookup, copy.values, depth + 1, budget))
                     return false;
                 out.push_back(ComponentValue { std::move(copy) });
             } else if (value.is_block()) {
                 SimpleBlock copy;
                 copy.open = value.block().open;
-                if (!substitute_vars(value.block().values, custom, copy.values, depth + 1, budget))
+                if (!substitute_vars(value.block().values, lookup, copy.values, depth + 1, budget))
                     return false;
                 out.push_back(ComponentValue { std::move(copy) });
             } else {
@@ -3463,85 +3474,194 @@ struct Resolver {
         return true;
     }
 
-    // The custom properties an element declares, over the inherited set:
-    // each value's own var() references resolved against the others (in
-    // any order, with cycles and dead ends dropping the property, the
-    // guaranteed-invalid value), then stored substituted.
-    static std::shared_ptr<CustomProperties const> settle_custom_properties(
-        CustomProperties&& own, CustomProperties const* inherited)
+    // A custom property one element declares, as its cascade leaves it: the
+    // latest declaration of the name, its raw value trimmed, `initial` (the
+    // guaranteed-invalid value) or `inherit` and `unset`, which for a custom
+    // property both keep the inherited value.
+    struct DeclaredCustom {
+        std::string const* name = nullptr;
+        std::vector<ComponentValue> value;
+        bool valid = true;
+        bool keeps_inherited = false;
+    };
+
+    // Where `name` is in `own`, sorted by name; own.size() when it is not.
+    static std::size_t declared_index(std::vector<DeclaredCustom> const& own, std::string_view name)
     {
-        auto settled = std::make_shared<CustomProperties>();
-        if (inherited)
-            *settled = *inherited;
-        // The declared ones override; resolve them against a working map
-        // that holds the inherited values and the declared raw ones.
-        CustomProperties working = *settled;
-        for (auto const& [name, value] : own)
-            working[name] = value;
-        std::unordered_map<std::string, int> state; // 0 untouched, 1 in progress, 2 done
-        std::function<bool(std::string const&)> const resolve = [&](std::string const& name) -> bool {
-            auto const it = working.find(name);
-            if (it == working.end())
-                return false;
-            int& mark = state[name];
-            if (mark == 2)
-                return true;
-            if (mark == 1)
-                return false; // a cycle
-            mark = 1;
-            if (contains_var(it->second)) {
-                // Resolve what this value refers to first, so the working
-                // map holds substituted values when this one is built.
-                std::vector<std::string> referenced;
-                std::function<void(std::vector<ComponentValue> const&)> const collect
-                    = [&](std::vector<ComponentValue> const& values) {
-                          for (ComponentValue const& value : values) {
-                              if (value.is_function()) {
-                                  if (is_var(value)) {
-                                      for (ComponentValue const& argument : value.function().values) {
-                                          if (argument.is_token(Token::Type::Ident)
-                                              && argument.token().value.starts_with("--")) {
-                                              referenced.push_back(argument.token().value);
-                                              break;
-                                          }
-                                      }
-                                  }
-                                  collect(value.function().values);
-                              } else if (value.is_block()) {
-                                  collect(value.block().values);
-                              }
-                          }
-                      };
-                collect(it->second);
-                bool ok = true;
-                for (std::string const& other : referenced) {
-                    if (working.count(other) && !resolve(other))
-                        ok = false;
+        auto const it = std::lower_bound(own.begin(), own.end(), name,
+            [](DeclaredCustom const& declared, std::string_view key) { return std::string_view(*declared.name) < key; });
+        if (it != own.end() && *it->name == name)
+            return static_cast<std::size_t>(it - own.begin());
+        return own.size();
+    }
+
+    // The names every var() in `values` refers to, those in fallbacks too.
+    static void collect_var_names(std::span<ComponentValue const> values, std::vector<std::string_view>& names)
+    {
+        for (ComponentValue const& value : values) {
+            if (value.is_function()) {
+                if (is_var(value)) {
+                    for (ComponentValue const& argument : value.function().values) {
+                        if (argument.is_token(Token::Type::Ident) && argument.token().value.starts_with("--")) {
+                            names.push_back(argument.token().value);
+                            break;
+                        }
+                    }
                 }
-                std::vector<ComponentValue> substituted;
-                std::size_t budget = 65536;
-                if (!ok || !substitute_vars(it->second, &working, substituted, 0, budget)) {
-                    working.erase(name);
-                    state[name] = 2;
-                    return false;
-                }
-                it->second = std::move(substituted);
+                collect_var_names(value.function().values, names);
+            } else if (value.is_block()) {
+                collect_var_names(value.block().values, names);
             }
-            state[name] = 2;
-            return true;
-        };
-        std::vector<std::string> names;
-        for (auto const& [name, value] : own)
-            names.push_back(name);
-        for (std::string const& name : names)
-            (void)resolve(name);
-        for (std::string const& name : names) {
-            auto const it = working.find(name);
-            if (it != working.end())
-                (*settled)[name] = it->second;
-            else
-                settled->erase(name);
         }
+    }
+
+    // An entry a new set takes over from an older one: the same object,
+    // never a copy of its name or its tokens.
+    static CustomProperties::Entry carry(CustomProperties::Entry const& entry) { return entry; }
+
+    // The custom properties an element declares (`own`, sorted by name, one
+    // per name), over the inherited set: each declared value's var()
+    // references resolved against the element's other declared values
+    // first and the inherited set second, then stored substituted. The
+    // references form a graph (css-variables-1 §2.3): every property on a
+    // cycle holds the guaranteed-invalid value, as does one whose reference
+    // has nothing to stand for it or which outgrows the budget, and a
+    // property that refers to one of those takes its fallback. The graph is
+    // walked as Tarjan's strongly connected components, which finish in an
+    // order where everything a value refers to is settled before it is.
+    //
+    // The set it makes copies no token and no name: entries are shared
+    // objects, the base set is shared outright, and only the entries that
+    // already differed from the base in the parent are carried over, as
+    // pointers, until they grow to rival the base and are folded into a new
+    // flat one.
+    static std::shared_ptr<CustomProperties const> settle_custom_properties(
+        std::vector<DeclaredCustom>&& own, std::shared_ptr<CustomProperties const> const& inherited)
+    {
+        std::size_t const count = own.size();
+        auto const lookup = [&](std::string_view name) -> std::vector<ComponentValue> const* {
+            std::size_t const index = declared_index(own, name);
+            if (index < count)
+                return own[index].valid ? &own[index].value : nullptr;
+            return inherited ? inherited->find(name) : nullptr;
+        };
+
+        std::size_t constexpr unvisited = std::numeric_limits<std::size_t>::max();
+        std::vector<std::size_t> order(count, unvisited);
+        std::vector<std::size_t> low(count, 0);
+        std::vector<bool> on_stack(count, false);
+        std::vector<std::size_t> stack;
+        std::size_t next = 0;
+        std::function<void(std::size_t)> const visit = [&](std::size_t const v) {
+            order[v] = low[v] = next++;
+            stack.push_back(v);
+            on_stack[v] = true;
+            bool refers_to_itself = false;
+            std::vector<std::string_view> referenced;
+            if (own[v].valid && contains_var(own[v].value))
+                collect_var_names(own[v].value, referenced);
+            for (std::string_view const name : referenced) {
+                std::size_t const w = declared_index(own, name);
+                if (w == count)
+                    continue; // inherited, and so already settled
+                if (w == v)
+                    refers_to_itself = true;
+                if (order[w] == unvisited) {
+                    visit(w);
+                    low[v] = std::min(low[v], low[w]);
+                } else if (on_stack[w]) {
+                    low[v] = std::min(low[v], order[w]);
+                }
+            }
+            if (low[v] != order[v])
+                return;
+            // v is the first of a component: it and everything above it on
+            // the stack, which is a cycle unless it is v alone.
+            bool const cycle = stack.back() != v || refers_to_itself;
+            for (;;) {
+                std::size_t const w = stack.back();
+                stack.pop_back();
+                on_stack[w] = false;
+                if (cycle)
+                    own[w].valid = false;
+                if (w == v)
+                    break;
+            }
+            if (cycle || !own[v].valid || !contains_var(own[v].value))
+                return;
+            std::vector<ComponentValue> substituted;
+            std::size_t budget = 65536;
+            if (substitute_vars(own[v].value, lookup, substituted, 0, budget))
+                own[v].value = std::move(substituted);
+            else
+                own[v].valid = false;
+        };
+        for (std::size_t v = 0; v < count; ++v) {
+            if (order[v] == unvisited)
+                visit(v);
+        }
+
+        std::vector<CustomProperties::Entry> declared;
+        declared.reserve(count);
+        for (DeclaredCustom& entry : own)
+            declared.push_back(std::make_shared<CustomProperty const>(*entry.name, std::move(entry.value), entry.valid));
+
+        auto settled = std::make_shared<CustomProperties>();
+        std::shared_ptr<CustomProperties const> const base
+            = !inherited ? nullptr : inherited->base ? inherited->base : inherited;
+        if (!base) {
+            for (CustomProperties::Entry& entry : declared) {
+                if (entry->valid)
+                    settled->entries.push_back(std::move(entry));
+            }
+            return settled->entries.empty() ? nullptr : settled;
+        }
+
+        // The parent's differences from the base, the declared ones winning;
+        // an invalid entry is kept only where it hides a value of the base.
+        static std::vector<CustomProperties::Entry> const none;
+        std::vector<CustomProperties::Entry> const& carried = inherited->base ? inherited->entries : none;
+        std::vector<CustomProperties::Entry> merged;
+        merged.reserve(carried.size() + declared.size());
+        bool changed = false;
+        std::size_t i = 0;
+        for (CustomProperties::Entry& entry : declared) {
+            while (i < carried.size() && carried[i]->name < entry->name)
+                merged.push_back(carry(carried[i++]));
+            if (i < carried.size() && carried[i]->name == entry->name) {
+                ++i;
+                changed = true;
+            }
+            if (entry->valid || base->find(entry->name)) {
+                merged.push_back(std::move(entry));
+                changed = true;
+            }
+        }
+        while (i < carried.size())
+            merged.push_back(carry(carried[i++]));
+        if (!changed)
+            return inherited;
+
+        if (merged.size() <= 16 || merged.size() * 2 <= base->entries.size()) {
+            settled->base = base;
+            settled->entries = std::move(merged);
+            return settled;
+        }
+        // The differences rival the base: one flat set, the base for the
+        // element's descendants in turn.
+        std::vector<CustomProperties::Entry> const& under = base->entries;
+        settled->entries.reserve(under.size() + merged.size());
+        std::size_t j = 0;
+        for (CustomProperties::Entry& entry : merged) {
+            while (j < under.size() && under[j]->name < entry->name)
+                settled->entries.push_back(carry(under[j++]));
+            if (j < under.size() && under[j]->name == entry->name)
+                ++j;
+            if (entry->valid)
+                settled->entries.push_back(std::move(entry));
+        }
+        while (j < under.size())
+            settled->entries.push_back(carry(under[j++]));
         return settled;
     }
 
@@ -3643,44 +3763,40 @@ struct Resolver {
 
         // Custom properties first: they cascade like any property and the
         // var() references in everything else read the settled set.
-        // `initial` drops one, `inherit` and `unset` keep the inherited.
+        // `initial` is the guaranteed-invalid value, hiding the inherited
+        // one; `inherit` and `unset` keep the inherited.
         {
-            CustomProperties own;
-            std::vector<std::string> initial; // `--x: initial`: dropped from the inherited set too
-            bool declared = false;
+            std::vector<DeclaredCustom> declarations;
             for (MatchedDeclaration const& entry : matched) {
                 Declaration const& declaration = *entry.declaration;
                 if (!declaration.name.starts_with("--"))
                     continue;
-                declared = true;
-                std::string const& name = declaration.name;
-                std::erase(initial, name); // the latest declaration in cascade order wins
-                std::vector<ComponentValue> value = trimmed(declaration.value);
-                if (value.size() == 1 && value[0].is_token(Token::Type::Ident)) {
-                    std::string_view const keyword = value[0].token().value;
+                DeclaredCustom declared;
+                declared.name = &declaration.name;
+                declared.value = trimmed(declaration.value);
+                if (declared.value.size() == 1 && declared.value[0].is_token(Token::Type::Ident)) {
+                    std::string_view const keyword = declared.value[0].token().value;
                     if (ascii_ci_equals(keyword, "initial")) {
-                        own.erase(name);
-                        initial.push_back(name);
-                        continue;
-                    }
-                    if (ascii_ci_equals(keyword, "inherit") || ascii_ci_equals(keyword, "unset")) {
-                        own.erase(name);
-                        continue;
+                        declared.valid = false;
+                        declared.value.clear();
+                    } else if (ascii_ci_equals(keyword, "inherit") || ascii_ci_equals(keyword, "unset")) {
+                        declared.keeps_inherited = true;
                     }
                 }
-                own[name] = std::move(value);
+                declarations.push_back(std::move(declared));
             }
-            if (declared) {
-                std::shared_ptr<CustomProperties const> settled
-                    = settle_custom_properties(std::move(own), parent.custom.get());
-                if (!initial.empty()) {
-                    auto without = std::make_shared<CustomProperties>(*settled);
-                    for (std::string const& name : initial)
-                        without->erase(name);
-                    settled = without;
-                }
-                style.custom = settled;
+            // One per name, the latest in cascade order, sorted by name.
+            std::stable_sort(declarations.begin(), declarations.end(),
+                [](DeclaredCustom const& a, DeclaredCustom const& b) { return *a.name < *b.name; });
+            std::vector<DeclaredCustom> own;
+            for (std::size_t i = 0; i < declarations.size(); ++i) {
+                if (i + 1 < declarations.size() && *declarations[i + 1].name == *declarations[i].name)
+                    continue;
+                if (!declarations[i].keeps_inherited)
+                    own.push_back(std::move(declarations[i]));
             }
+            if (!own.empty())
+                style.custom = settle_custom_properties(std::move(own), parent.custom);
         }
         // A declaration that reads custom properties is applied through its
         // substituted copy; one whose reference has no value and no fallback
@@ -3696,7 +3812,10 @@ struct Resolver {
             copy.name = declaration.name;
             copy.important = declaration.important;
             std::size_t budget = 65536;
-            if (substitute_vars(declaration.value, style.custom.get(), copy.value, 0, budget))
+            auto const lookup = [&](std::string_view name) -> std::vector<ComponentValue> const* {
+                return style.custom ? style.custom->find(name) : nullptr;
+            };
+            if (substitute_vars(declaration.value, lookup, copy.value, 0, budget))
                 use(copy);
         };
 

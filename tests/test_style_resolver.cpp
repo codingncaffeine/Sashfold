@@ -7,6 +7,8 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 using namespace sashfold;
 using css::ComputedStyle;
@@ -876,6 +878,121 @@ int main()
         CHECK(bad.font_synthesis_weight && bad.font_synthesis_style == css::FontSynthesisStyle::Auto);
         CHECK(bad.font_synthesis_small_caps && bad.font_synthesis_position);
         CHECK(style_of("supported").color == Color::rgb(255, 0, 0));
+    }
+
+    // --- Custom properties: inheritance, the keywords, cycles, sharing ------------
+    {
+        g_document = html::parse_document(std::string_view(R"HTML(<!doctype html>
+<html id="root"><head><style>
+  :root { --a: rgb(1, 1, 1); --b: 3px; --c: rgb(2, 2, 2) }
+  #mid { --mid: rgb(4, 4, 4) }
+  #low { --low: 5px; color: var(--mid); padding-left: var(--b); background-color: var(--c) }
+  #hide-a { --a: initial }
+  #under-hide { --z: 6px; color: var(--a, rgb(16, 16, 16)) }
+  #override { --a: rgb(7, 7, 7); color: var(--a) }
+  #kw-initial { --a: initial; --uses-a: var(--a, rgb(8, 8, 8)); color: var(--uses-a) }
+  #kw-inherit { --a: rgb(9, 9, 9) }
+  #kw-inherit { --a: inherit; color: var(--a) }
+  #kw-unset { --b: 1px; --b: unset; padding-left: var(--b) }
+  #cycle { --p: var(--q); --q: var(--p); --r: var(--p, rgb(6, 6, 6)); --s: var(--s, 1px);
+           color: var(--r); background-color: var(--p, rgb(3, 3, 3)); padding-left: var(--s, 2px) }
+  #fallback { --f: var(--nope, rgb(12, 12, 12)); color: var(--f); padding-left: var(--nope, 11px) }
+  #own-wins { --reads-a: var(--a); --a: rgb(13, 13, 13); color: var(--reads-a) }
+  #sib1 { --sib: rgb(14, 14, 14); color: var(--sib) }
+  #sib2 { color: var(--sib, rgb(15, 15, 15)) }
+  #many { --m0: 0px; --m1: 1px; --m2: 2px; --m3: 3px; --m4: 4px; --m5: 5px; --m6: 6px; --m7: 7px;
+          --m8: 8px; --m9: 9px; --m10: 10px; --m11: 11px; --m12: 12px; --m13: 13px; --m14: 14px;
+          --m15: 15px; --m16: 16px; --m17: 17px; --m18: 18px; --m19: 19px }
+  #many-child { --n: var(--m19); padding-left: var(--n) }
+</style></head><body>
+  <div id="top"><div id="mid"><div id="low"><span id="leaf">x</span></div>
+    <div id="hide-a"><div id="under-hide">x</div></div></div></div>
+  <div id="override">x</div><div id="kw-initial">x</div><div id="kw-inherit">x</div><div id="kw-unset">x</div>
+  <div id="cycle">x</div><div id="fallback">x</div><div id="own-wins">x</div>
+  <div id="sib1">x</div><div id="sib2">x</div>
+  <div id="many"><div id="many-child">x</div></div>
+</body></html>)HTML"));
+        g_styles = css::resolve_styles(*g_document);
+        auto const value_of = [](std::string_view id, std::string_view name) -> std::vector<css::ComponentValue> const* {
+            ComputedStyle const& style = style_of(id);
+            return style.custom ? style.custom->find(name) : nullptr;
+        };
+
+        // Three levels, the middle declaring one: the root's values and the
+        // middle's reach the bottom, and an element that declares nothing
+        // shares its parent's whole set.
+        ComputedStyle const& root = style_of("root");
+        ComputedStyle const& top = style_of("top");
+        ComputedStyle const& low = style_of("low");
+        CHECK(value_of("root", "--a") != nullptr);
+        CHECK(value_of("mid", "--mid") != nullptr && value_of("top", "--mid") == nullptr);
+        CHECK(low.color == Color::rgb(4, 4, 4));
+        CHECK(close(low.padding_left.value, 3));
+        CHECK(low.background_color == Color::rgb(2, 2, 2));
+        CHECK(top.custom && top.custom == root.custom);
+        CHECK(style_of("leaf").custom == low.custom);
+        // The sharing itself: an inherited entry is the same object in every
+        // set that holds it, whether the element declares or not.
+        CHECK(value_of("mid", "--a") == value_of("root", "--a"));
+        CHECK(value_of("low", "--a") == value_of("root", "--a"));
+        CHECK(value_of("low", "--c") == value_of("root", "--c"));
+        CHECK(value_of("low", "--mid") == value_of("mid", "--mid"));
+        CHECK(value_of("leaf", "--low") == value_of("low", "--low"));
+        // `initial` hides the inherited value from the element's descendants
+        // too, even those that declare properties of their own.
+        CHECK(value_of("hide-a", "--a") == nullptr);
+        CHECK(value_of("under-hide", "--a") == nullptr);
+        CHECK(value_of("under-hide", "--mid") == value_of("mid", "--mid"));
+        CHECK(style_of("under-hide").color == Color::rgb(16, 16, 16));
+
+        // An element's own value overrides the inherited one for it and its
+        // descendants, and leaves the parent's alone.
+        CHECK(style_of("override").color == Color::rgb(7, 7, 7));
+        CHECK(value_of("override", "--a") != value_of("root", "--a"));
+        CHECK(value_of("override", "--b") == value_of("root", "--b"));
+
+        // `initial` is the guaranteed-invalid value even to the element's
+        // other declarations; `inherit` and `unset` keep the inherited value,
+        // the very object.
+        CHECK(value_of("kw-initial", "--a") == nullptr);
+        CHECK(style_of("kw-initial").color == Color::rgb(8, 8, 8));
+        CHECK(style_of("kw-inherit").color == Color::rgb(1, 1, 1));
+        CHECK(value_of("kw-inherit", "--a") == value_of("root", "--a"));
+        CHECK(close(style_of("kw-unset").padding_left.value, 3));
+        CHECK(value_of("kw-unset", "--b") == value_of("root", "--b"));
+
+        // A cycle, and a property that refers to itself, hold the
+        // guaranteed-invalid value; one that refers into the cycle takes its
+        // fallback.
+        ComputedStyle const& cycle = style_of("cycle");
+        CHECK(value_of("cycle", "--p") == nullptr && value_of("cycle", "--q") == nullptr);
+        CHECK(value_of("cycle", "--s") == nullptr);
+        CHECK(value_of("cycle", "--r") != nullptr);
+        CHECK(cycle.color == Color::rgb(6, 6, 6));
+        CHECK(cycle.background_color == Color::rgb(3, 3, 3));
+        CHECK(close(cycle.padding_left.value, 2));
+
+        // A fallback stands for a name that has no value, in a custom
+        // property and in any other.
+        CHECK(style_of("fallback").color == Color::rgb(12, 12, 12));
+        CHECK(close(style_of("fallback").padding_left.value, 11));
+
+        // A value that reads a name the same element overrides reads the
+        // element's own value, whatever order they were written in.
+        CHECK(style_of("own-wins").color == Color::rgb(13, 13, 13));
+
+        // Siblings do not see each other's declarations.
+        CHECK(style_of("sib1").color == Color::rgb(14, 14, 14));
+        CHECK(style_of("sib2").color == Color::rgb(15, 15, 15));
+        CHECK(value_of("sib2", "--sib") == nullptr);
+
+        // Declarations enough to rival the inherited set fold into one flat
+        // set, still of the same shared objects.
+        ComputedStyle const& many = style_of("many");
+        CHECK(many.custom && !many.custom->base);
+        CHECK(value_of("many", "--a") == value_of("root", "--a"));
+        CHECK(value_of("many-child", "--m7") == value_of("many", "--m7"));
+        CHECK(close(style_of("many-child").padding_left.value, 19));
     }
 
     return sashfold::test::report("style-resolver");

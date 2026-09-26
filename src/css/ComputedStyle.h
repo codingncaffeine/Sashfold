@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -20,9 +21,35 @@ namespace sashfold::css {
 
 struct ComponentValue;
 
-// Custom properties (--name) by name, each the component values it was
-// written as, with any var() inside them already substituted.
-using CustomProperties = std::unordered_map<std::string, std::vector<ComponentValue>>;
+// One custom property (--name) as an element settled it: the component
+// values it was written as, with any var() inside them already substituted.
+// Immutable once made, and shared by pointer between every set that holds
+// it, so a descendant inherits the object and never a copy of its tokens.
+// An entry that is not valid holds the guaranteed-invalid value: `initial`,
+// a cycle or a reference with nothing to stand for it, which hides the
+// value of the same name the element would otherwise inherit.
+struct CustomProperty {
+    std::string name;
+    std::vector<ComponentValue> value;
+    bool valid = true;
+};
+
+// The custom properties in force on an element: the entries that differ
+// from a base set, over that base, both sorted by name. The base is flat (no
+// base of its own, no invalid entries) and shared with the ancestor that
+// made it, so an element declaring a few properties under a root declaring
+// hundreds copies only the few that differ, and those as pointers.
+class CustomProperties {
+public:
+    using Entry = std::shared_ptr<CustomProperty const>;
+
+    // The value `name` stands for, or null when it has none: never set, or
+    // set to the guaranteed-invalid value.
+    std::vector<ComponentValue> const* find(std::string_view name) const;
+
+    std::shared_ptr<CustomProperties const> base;
+    std::vector<Entry> entries;
+};
 
 // How a list marker, and a counter() in the content property, writes a
 // number. The glyph kinds ignore the number; the alphabetic and additive
