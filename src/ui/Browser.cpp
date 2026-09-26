@@ -46,6 +46,7 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <set>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -539,6 +540,12 @@ struct Browser::Impl {
             std::shared_ptr<std::string const> text;
         };
         std::map<std::string, KeptSheetText> sheet_texts;
+        // The sheets and fonts that did not arrive, by kind and URL: a
+        // collection asks for every sheet of the page again, and one that
+        // failed is not asked for a second time — a browser fetches a
+        // link's sheet once, and a server that said 429 is not helped by
+        // being asked at every restyle.
+        std::set<std::string> sheet_failures;
         std::string sheet_signature; // which elements carried them, so a script change elsewhere keeps them
         std::vector<text::PageFont> fonts; // the fonts its @font-face rules brought along
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
@@ -3019,11 +3026,17 @@ struct Browser::Impl {
         net::ContentSecurityPolicy* const policy = tab.policy.get();
         auto const fetch_kind = [&](net::ResourceKind kind) {
             return [&, kind](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+                std::string const key = url.serialize();
+                std::string const failure_key = (kind == net::ResourceKind::Font ? "font " : "sheet ") + key;
+                if (tab.sheet_failures.contains(failure_key))
+                    return std::nullopt;
                 net::RequestGuard const guard = policy ? policy->guard(kind, std::string(nonce)) : net::RequestGuard {};
                 net::FetchResult result
                     = loader.load_subresource(url, page_url, referrer_for(&page_url, url), kind, guard, tab.container);
-                if (!result.response || result.response->status != 200)
+                if (!result.response || result.response->status != 200) {
+                    tab.sheet_failures.insert(failure_key);
                     return std::nullopt;
+                }
                 std::string const* header = net::find_header(result.response->headers, "content-type");
                 if (kind != net::ResourceKind::Stylesheet)
                     return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
@@ -3042,7 +3055,6 @@ struct Browser::Impl {
                 }
                 for (; i < bytes.size(); ++i)
                     hash = (hash ^ bytes[i]) * 1099511628211u;
-                std::string const key = url.serialize();
                 std::string const type = header ? *header : "";
                 auto const kept = tab.sheet_texts.find(key);
                 if (kept != tab.sheet_texts.end() && kept->second.size == bytes.size() && kept->second.hash == hash)
@@ -3266,6 +3278,7 @@ struct Browser::Impl {
         tab.frames.clear();
         tab.sheets.clear();
         tab.sheet_texts.clear();
+        tab.sheet_failures.clear();
         tab.fonts.clear();
         tab.style_set.reset();
         tab.sheet_signature.clear();

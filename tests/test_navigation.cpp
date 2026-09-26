@@ -200,6 +200,13 @@ std::map<std::string, Served> site()
                        150 } },
         { "/look.css", { "text/css", "p { color: green }", 400 } },
         { "/does.js", { "text/javascript", "document.title = 'Scripted';", 400 } },
+        // A sheet that is not there, and a script that adds a sheet later, so
+        // the page's sheets are collected a second time.
+        { "/gone", { "text/html",
+                       "<!doctype html><title>Gone</title><link rel=stylesheet href=/gone.css><script>setTimeout(function () {"
+                       " var s = document.createElement('style'); s.textContent = 'p { margin: 0 }'; document.head.appendChild(s);"
+                       " document.title = 'Restyled'; }, 0);</script><p>gone",
+                       0 } },
     };
 }
 
@@ -240,6 +247,27 @@ int main()
         CHECK_EQ(server.asked("/look.css"), std::size_t { 1 });
         CHECK_EQ(server.asked("/does.js"), std::size_t { 1 });
         CHECK(!browser.has_pending_load());
+    }
+
+    // A sheet that did not arrive is not asked for again when the page's
+    // sheets are collected a second time: a browser fetches a link's sheet
+    // once, and a server that is refusing is not helped by being asked at
+    // every restyle.
+    {
+        SiteServer server(site());
+        ui::ShellLoader loader;
+        ui::Browser browser(loader, ui::Theme {}, 800, 600);
+        browser.open(server.url("/gone"));
+        load_fully(browser);
+        CHECK_EQ(server.asked("/gone.css"), std::size_t { 1 });
+        auto const started = std::chrono::steady_clock::now();
+        while (browser.page_title() != "Restyled" && ms_since(started) < 3000) {
+            browser.run_scripts();
+            browser.tick();
+        }
+        CHECK_EQ(browser.page_title(), std::string("Restyled"));
+        CHECK_EQ(browser.page_text(), std::string("gone")); // laid out again, with the sheet the script added
+        CHECK_EQ(server.asked("/gone.css"), std::size_t { 1 });
     }
 
     // A load on its way gives way to the next one asked for: the first never

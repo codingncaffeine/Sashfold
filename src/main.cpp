@@ -50,6 +50,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <set>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -221,6 +222,10 @@ struct LoadedPage {
     // The page's Content Security Policy, from its headers and then its
     // <meta> elements; every fetch and inline block is judged by it.
     std::unique_ptr<net::ContentSecurityPolicy> policy;
+    // The sheets and fonts that did not arrive, by kind and URL: each
+    // collection of the page's sheets asks for all of them, and one that
+    // failed is not asked for again.
+    mutable std::set<std::string> sheet_failures;
 };
 
 // The page's policy from its response headers, its violations named on
@@ -316,9 +321,13 @@ css::SheetFetcher sheet_fetcher(LoadedPage const& page, int* failures = nullptr,
     net::ResourceKind kind = net::ResourceKind::Stylesheet)
 {
     return [&page, failures, kind](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+        std::string const failure_key = (kind == net::ResourceKind::Font ? "font " : "sheet ") + url.serialize();
+        if (page.sheet_failures.contains(failure_key))
+            return std::nullopt;
         net::RequestGuard const guard = page.policy ? page.policy->guard(kind, std::string(nonce)) : net::RequestGuard {};
         net::FetchResult result = page.loader->load_subresource(url, page.url, "", kind, guard);
         if (!result.response || result.response->status != 200) {
+            page.sheet_failures.insert(failure_key);
             std::cerr << (kind == net::ResourceKind::Font ? "font " : "stylesheet ") << url.serialize() << ": "
                       << describe_failure(result) << "\n";
             if (failures)
